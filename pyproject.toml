@@ -1,0 +1,53 @@
+[build-system]
+requires = ["uv_build"]
+build-backend = "uv_build"
+
+[project]
+name = "luthien-control"
+version = "0.1.0"
+description = "Redwood-style AI Control within an LLM proxy for production agentic deployments"
+readme = "README.md"
+requires-python = ">=3.13"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Jai Dhyani", email = "jai@luthienresearch.org"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "asyncpg>=0.30.0",
+    "beartype>=0.21.0",
+    "httpx>=0.28.1",
+    "litellm[proxy]>=1.75.9",
+    "prisma>=0.15.0",
+    "psycopg>=3.2.9",
+    "pydantic>=2.11.7",
+    "pyyaml>=6.0.2",
+    "redis>=6.4.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/luthien_control"]
+
+[tool.ruff]
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=6.2.1",
+    "ruff>=0.12.10",
+]

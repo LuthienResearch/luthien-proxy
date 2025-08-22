@@ -1,0 +1,111 @@
+services:
+  # PostgreSQL database for persistent state
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: luthien
+      POSTGRES_PASSWORD: luthien_dev_password
+      POSTGRES_DB: luthien_control
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luthien -d luthien_control"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for ephemeral state and caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # LiteLLM proxy with custom logger
+  litellm-proxy:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.litellm
+    environment:
+      - LITELLM_DATABASE_URL=postgresql://litellm:litellm_dev_password@db:5432/litellm_db
+      - DATABASE_URL=postgresql://litellm:litellm_dev_password@db:5432/litellm_db
+      - REDIS_URL=redis://redis:6379
+      - CONTROL_PLANE_URL=http://control-plane:8081
+      - LITELLM_MASTER_KEY=sk-luthien-dev-key
+      - LITELLM_LOG_LEVEL=DEBUG
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./config:/app/config:ro
+      - ./src:/app/src:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      control-plane:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Control plane service for policy decisions
+  control-plane:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.control-plane
+    environment:
+      - DATABASE_URL=postgresql://luthien:luthien_dev_password@db:5432/luthien_control
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=DEBUG
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Optional: Ollama for local trusted models
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  ollama_data:
+
+networks:
+  default:
+    driver: bridge

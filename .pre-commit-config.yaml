@@ -1,0 +1,26 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-toml
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.10
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: beartype-check
+        name: beartype type checking
+        entry: uv run python -c "import sys; import importlib.util; spec = importlib.util.spec_from_file_location('luthien_control', 'src/luthien_control/__init__.py'); module = importlib.util.module_from_spec(spec); sys.modules['luthien_control'] = module; spec.loader.exec_module(module)"
+        language: system
+        pass_filenames: false
+        files: \.py$

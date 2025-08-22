@@ -1,0 +1,53 @@
+# ABOUTME: Dockerfile for LiteLLM proxy with custom Luthien Control logger integration
+# ABOUTME: Sets up LiteLLM proxy server with our custom async hooks for AI control
+
+FROM python:3.13-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast Python package management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# Set working directory
+WORKDIR /app
+
+# Copy project files and source code for dependency installation
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ ./src/
+COPY config/ ./config/
+COPY prisma/ ./prisma/
+
+# Install dependencies (includes litellm)
+RUN uv sync --frozen
+
+# Create non-root user early
+RUN useradd --create-home --shell /bin/bash app && \
+    chown -R app:app /app
+
+# Switch to app user for Prisma generation to avoid permission issues
+USER app
+
+# Set Prisma cache directory to user's home
+ENV PRISMA_QUERY_ENGINE_BINARY_PATH="/home/app/.cache/prisma"
+ENV PRISMA_CLI_BINARY_TARGETS="linux-arm64-openssl-3.0.x"
+
+# Generate Prisma client for LiteLLM database functionality
+RUN uv run prisma generate
+
+# Note: Prisma migrations will be run at startup since we need the database to be ready
+
+# Add src to Python path so LiteLLM can find our modules
+ENV PYTHONPATH="/app/src:$PYTHONPATH"
+
+# Expose port
+EXPOSE 4000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:4000/health || exit 1
+
+# Start LiteLLM proxy with our custom logger
+CMD ["uv", "run", "litellm", "--config", "/app/config/litellm_config.yaml", "--port", "4000", "--host", "0.0.0.0"]
