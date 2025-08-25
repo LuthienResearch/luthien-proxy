@@ -11,3 +11,7 @@ wheels/
 
 # Secrets
 .env
+
+# Development cache files
+.dev_deps_synced
+.last_update

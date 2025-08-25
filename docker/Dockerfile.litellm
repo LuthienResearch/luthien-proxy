@@ -14,13 +14,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 # Set working directory
 WORKDIR /app
 
-# Copy project files and source code for dependency installation
-COPY pyproject.toml uv.lock README.md ./
-COPY src/ ./src/
-COPY config/ ./config/
-COPY prisma/ ./prisma/
+# Copy only dependency files first for better layer caching
+COPY pyproject.toml uv.lock ./
 
-# Install dependencies (includes litellm)
+# Install dependencies in a separate layer for caching
+RUN uv sync --frozen --no-dev
+
+# Copy prisma schema and generate client in separate layer
+COPY prisma/ ./prisma/
 RUN uv sync --frozen
 
 # Create non-root user early
@@ -37,7 +38,9 @@ ENV PRISMA_CLI_BINARY_TARGETS="linux-arm64-openssl-3.0.x"
 # Generate Prisma client for LiteLLM database functionality
 RUN uv run prisma generate
 
-# Note: Prisma migrations will be run at startup since we need the database to be ready
+# Copy source code and config in final layers (changes frequently)
+COPY --chown=app:app src/ ./src/
+COPY --chown=app:app config/ ./config/
 
 # Add src to Python path so LiteLLM can find our modules
 ENV PYTHONPATH="/app/src:$PYTHONPATH"
@@ -47,7 +50,7 @@ EXPOSE 4000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:4000/health || exit 1
+    CMD curl -f http://localhost:4000/test || exit 1
 
 # Start LiteLLM proxy with our custom logger
 CMD ["uv", "run", "litellm", "--config", "/app/config/litellm_config.yaml", "--port", "4000", "--host", "0.0.0.0"]

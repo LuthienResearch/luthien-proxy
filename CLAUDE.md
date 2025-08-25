@@ -1,18 +1,26 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
-Luthien Control implements Redwood Research-style AI Control as a production-ready LLM proxy. It provides three key safety protocols:
-- **Trusted Supervision**: Monitor/edit outputs using weaker but aligned models
-- **Untrusted Supervision**: Self-monitoring with honeypots and trusted paraphrasing
-- **Defer-to-Resample**: Resample suspicious outputs and defer to trusted models
-
-Built on LiteLLM for OpenAI-compatible proxying across 100+ providers.
+Luthien Control implements Redwood Research-style AI Control as a production-ready LLM proxy built on LiteLLM for compatible proxying across 100+ providers.
 
 ## Development Commands
 
+### Environment Setup
+```bash
+# Complete setup - validates dependencies, installs packages, starts services
+./scripts/quick_start.sh
+
+# Check service status
+docker compose ps
+
+# After code changes, restart services
+docker compose restart control-plane    # Control plane only
+docker compose restart litellm-proxy    # LiteLLM proxy only
+docker compose restart                  # All services
+```
+
+### Python Development
 ```bash
 # Install dependencies
 uv sync
@@ -32,8 +40,22 @@ uv run ruff check --fix
 
 # Run pre-commit hooks manually
 uv run pre-commit run --all-files
+```
 
-# Start services (when implemented)
+### Manual Service Control
+```bash
+# Stop all services
+docker compose down
+
+# View logs
+docker compose logs -f
+docker compose logs -f [service_name]  # specific service
+
+# Test endpoints
+curl http://localhost:${LITELLM_PORT:-4000}/test         # LiteLLM proxy health
+curl http://localhost:${CONTROL_PLANE_PORT:-8081}/health # Control plane health
+
+# Start specific services manually (requires external DB/Redis)
 uv run python -m luthien_control.proxy       # LiteLLM proxy with hooks
 uv run python -m luthien_control.control_plane  # Control plane service
 ```

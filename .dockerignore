@@ -1,0 +1,119 @@
+# ABOUTME: Docker ignore file to exclude unnecessary files from build context
+# ABOUTME: Improves build performance by reducing context size and avoiding cache invalidation
+
+# Git and version control
+.git/
+.gitignore
+.gitattributes
+
+# Development files
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+.dev_deps_synced
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Virtual environments
+.env/
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Documentation
+docs/_build/
+.readthedocs.yml
+
+# Docker
+.dockerignore
+Dockerfile*
+docker-compose*.yml
+docker-compose*.yaml
+
+# Kubernetes
+*.k8s.yml
+*.k8s.yaml
+
+# Scripts (keep only what's needed)
+scripts/
+!scripts/test_proxy.py
+
+# Node modules (if any)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis dump
+dump.rdb
+
+# Temporary directories
+tmp/
+temp/
+.tmp/
+
+# Log files
+logs/
+*.log

@@ -3,16 +3,16 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: luthien
-      POSTGRES_PASSWORD: luthien_dev_password
-      POSTGRES_DB: luthien_control
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U luthien -d luthien_control"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -21,7 +21,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -34,16 +34,16 @@ services:
       context: .
       dockerfile: docker/Dockerfile.litellm
     environment:
-      - LITELLM_DATABASE_URL=postgresql://litellm:litellm_dev_password@db:5432/litellm_db
-      - DATABASE_URL=postgresql://litellm:litellm_dev_password@db:5432/litellm_db
-      - REDIS_URL=redis://redis:6379
-      - CONTROL_PLANE_URL=http://control-plane:8081
-      - LITELLM_MASTER_KEY=sk-luthien-dev-key
-      - LITELLM_LOG_LEVEL=DEBUG
+      - LITELLM_DATABASE_URL=${LITELLM_DATABASE_URL}
+      - DATABASE_URL=${LITELLM_DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - CONTROL_PLANE_URL=${CONTROL_PLANE_URL}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - LITELLM_LOG_LEVEL=${LITELLM_LOG_LEVEL}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     ports:
-      - "4000:4000"
+      - "${LITELLM_PORT}:4000"
     volumes:
       - ./config:/app/config:ro
       - ./src:/app/src:ro
@@ -55,7 +55,7 @@ services:
       control-plane:
         condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:4000/test"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -66,13 +66,13 @@ services:
       context: .
       dockerfile: docker/Dockerfile.control-plane
     environment:
-      - DATABASE_URL=postgresql://luthien:luthien_dev_password@db:5432/luthien_control
-      - REDIS_URL=redis://redis:6379
-      - LOG_LEVEL=DEBUG
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - LOG_LEVEL=${LOG_LEVEL}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     ports:
-      - "8081:8081"
+      - "${CONTROL_PLANE_PORT}:8081"
     volumes:
       - ./src:/app/src:ro
       - ./config:/app/config:ro
@@ -87,24 +87,8 @@ services:
       timeout: 5s
       retries: 3
 
-  # Optional: Ollama for local trusted models
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0:11434
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
 volumes:
   postgres_data:
-  ollama_data:
 
 networks:
   default:

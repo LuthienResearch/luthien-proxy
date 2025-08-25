@@ -17,8 +17,9 @@ class LuthienTester:
     """Test the Luthien Control proxy setup."""
 
     def __init__(self):
-        self.proxy_url = "http://localhost:4000"
-        self.control_plane_url = "http://localhost:8081"
+        # Read URLs from environment variables, with fallback defaults
+        self.proxy_url = os.getenv("LITELLM_URL", "http://localhost:4000")
+        self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://localhost:8081")
         self.master_key = os.getenv("LITELLM_MASTER_KEY", "sk-luthien-dev-key")
 
     async def test_health_checks(self) -> bool:
@@ -27,7 +28,7 @@ class LuthienTester:
 
         services = {
             "Control Plane": f"{self.control_plane_url}/health",
-            "LiteLLM Proxy": f"{self.proxy_url}/health",
+            "LiteLLM Proxy": f"{self.proxy_url}/test",
         }
 
         all_healthy = True

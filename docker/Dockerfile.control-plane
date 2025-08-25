@@ -14,18 +14,20 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 # Set working directory
 WORKDIR /app
 
-# Copy project files and source code for dependency installation
-COPY pyproject.toml uv.lock README.md ./
-COPY src/ ./src/
-COPY config/ ./config/
+# Copy only dependency files first for better layer caching
+COPY pyproject.toml uv.lock ./
 
-# Install dependencies
+# Install dependencies in a separate layer for caching
 RUN uv sync --frozen
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app && \
     chown -R app:app /app
 USER app
+
+# Copy source code and config in final layers (changes frequently)
+COPY --chown=app:app src/ ./src/
+COPY --chown=app:app config/ ./config/
 
 # Expose port
 EXPOSE 8081
