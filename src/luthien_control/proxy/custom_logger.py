@@ -4,13 +4,11 @@
 import json
 import os
 from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
-import uuid
 
 import httpx
 from beartype import beartype
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy.proxy_server import DualCache, UserAPIKeyAuth
-from litellm.types.utils import ModelResponse, ModelResponseStream
 
 
 class LuthienControlLogger(CustomLogger):
@@ -36,59 +34,25 @@ class LuthienControlLogger(CustomLogger):
             "audio_transcription",
         ],
     ) -> Optional[Union[Dict[str, Any], str]]:
-        """
-        Pre-call hook that:
-        1. Adds episode/step IDs for correlation
-        2. Fetches policy from control plane
-        3. Optionally modifies requests (tool gating, system prompt hardening)
-        4. Can reject requests by returning a string response
-        """
+        """Thin wrapper: forward to control plane hook endpoint."""
         try:
-            # Add correlation IDs for tracking
-            episode_id = str(uuid.uuid4())
-            step_id = str(uuid.uuid4())
-
-            # Add tracking metadata to request
-            data["luthien_metadata"] = {
-                "episode_id": episode_id,
-                "step_id": step_id,
-                "user_id": user_api_key_dict.user_id if user_api_key_dict else None,
-                "call_type": call_type,
-            }
-
-            # Call control plane for pre-call evaluation
             payload = {
-                "stage": "pre",
-                "episode_id": episode_id,
-                "step_id": step_id,
+                "user_api_key_dict": _serialize_user_key(user_api_key_dict),
+                "cache": None,
+                "data": data,
                 "call_type": call_type,
-                "request": data,
-                "user_metadata": {
-                    "user_id": user_api_key_dict.user_id if user_api_key_dict else None,
-                    "team_id": getattr(user_api_key_dict, "team_id", None)
-                    if user_api_key_dict
-                    else None,
-                },
             }
-
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    f"{self.control_plane_url}/policy/evaluate", json=payload
+                r = await client.post(
+                    f"{self.control_plane_url}/hooks/pre", json=payload
                 )
-                response.raise_for_status()
-                decision = response.json()
-
-            # Handle control plane decisions
-            if decision.get("reject"):
-                # Return string to short-circuit with rejection message
-                return decision.get(
-                    "reject_message", "Request rejected by AI control policy"
-                )
-
-            if decision.get("rewrite"):
-                # Modify the request based on policy
-                data.update(decision["rewrite"])
-
+                r.raise_for_status()
+                res = r.json()
+            rt = res.get("result_type")
+            if rt == "string":
+                return res.get("string")
+            if rt == "dict":
+                return res.get("dict")
             return data
 
         except Exception as e:
@@ -101,51 +65,26 @@ class LuthienControlLogger(CustomLogger):
         self,
         data: Dict[str, Any],
         user_api_key_dict: UserAPIKeyAuth,
-        response: ModelResponse,
-    ) -> Optional[ModelResponse]:
-        """
-        Post-call hook that:
-        1. Scores response suspiciousness
-        2. Can trigger trusted editing/deferral
-        3. Can trigger resampling protocol
-        4. Logs decisions for audit
-        """
+        response: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """Thin wrapper: forward to control plane hook endpoint."""
         try:
-            # Extract metadata from request
-            metadata = data.get("luthien_metadata", {})
-
             payload = {
-                "stage": "post",
-                "episode_id": metadata.get("episode_id"),
-                "step_id": metadata.get("step_id"),
-                "call_type": metadata.get("call_type"),
-                "request": data,
+                "data": data,
+                "user_api_key_dict": _serialize_user_key(user_api_key_dict),
                 "response": response.model_dump()
                 if hasattr(response, "model_dump")
-                else dict(response),
-                "user_metadata": metadata.get("user_metadata", {}),
+                else response,
             }
-
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response_eval = await client.post(
-                    f"{self.control_plane_url}/policy/evaluate", json=payload
+                r = await client.post(
+                    f"{self.control_plane_url}/hooks/post_success", json=payload
                 )
-                response_eval.raise_for_status()
-                action = response_eval.json()
-
-            # Handle control plane actions
-            if action.get("replace_response"):
-                # Replace response with trusted edit
-                return ModelResponse(**action["replace_response"])
-
-            if action.get("trigger_resample"):
-                # Trigger resampling protocol
-                resample_response = await self._handle_resample(data, response, action)
-                if resample_response:
-                    return resample_response
-
-            # Return original response if no intervention needed
-            return response
+                r.raise_for_status()
+                res = r.json()
+            if res.get("replace"):
+                return res.get("replacement")
+            return None
 
         except Exception as e:
             print(f"Error in post-call hook: {e}")
@@ -155,49 +94,72 @@ class LuthienControlLogger(CustomLogger):
     async def async_post_call_streaming_iterator_hook(
         self,
         user_api_key_dict: UserAPIKeyAuth,
-        response: AsyncGenerator[ModelResponseStream, None],
+        response: AsyncGenerator[Any, None],
         request_data: Dict[str, Any],
-    ) -> AsyncGenerator[ModelResponseStream, None]:
-        """
-        Streaming hook that:
-        1. Buffers and periodically evaluates chunks
-        2. Can halt stream and switch to trusted model
-        3. Implements streaming cutover for safety
-        """
+    ) -> AsyncGenerator[Any, None]:
+        """Chunk-by-chunk control: consult control plane per chunk; can pass/suppress/edit or replace stream entirely."""
         try:
-            buffer = []
-            metadata = request_data.get("luthien_metadata", {})
-            chunk_count = 0
+            accumulated_text = ""
+            chunk_index = 0
 
             async for chunk in response:
-                chunk_count += 1
+                chunk_index += 1
+                # Convert chunk to a plain dict for transport
+                chunk_dict = (
+                    chunk.model_dump()
+                    if hasattr(chunk, "model_dump")
+                    else (chunk if isinstance(chunk, dict) else {"raw": str(chunk)})
+                )
+                # Extract delta text for accumulation
+                accumulated_text += _extract_chunk_text(chunk, chunk_dict)
 
-                # Extract text content from chunk
-                chunk_text = ""
-                if hasattr(chunk, "choices") and chunk.choices:
-                    delta = getattr(chunk.choices[0], "delta", None)
-                    if delta and hasattr(delta, "content") and delta.content:
-                        chunk_text = delta.content
+                payload = {
+                    "user_api_key_dict": _serialize_user_key(user_api_key_dict),
+                    "request_data": request_data,
+                    "chunk": chunk_dict,
+                    "chunk_index": chunk_index,
+                    "accumulated_text": accumulated_text,
+                }
 
-                buffer.append(chunk_text)
-
-                # Optimistically yield chunk while evaluating
-                yield chunk
-
-                # Periodic evaluation every ~50 chunks or 400 characters
-                accumulated_text = "".join(buffer)
-                if chunk_count % 50 == 0 or len(accumulated_text) > 400:
-                    should_halt = await self._evaluate_streaming_chunk(
-                        request_data, accumulated_text, chunk_text, metadata
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    r = await client.post(
+                        f"{self.control_plane_url}/hooks/stream_chunk", json=payload
                     )
+                    r.raise_for_status()
+                    decision = r.json()
 
-                    if should_halt:
-                        # Halt original stream and switch to trusted model
-                        async for trusted_chunk in self._trusted_stream_replacement(
-                            request_data, accumulated_text, metadata
-                        ):
-                            yield trusted_chunk
-                        break
+                action = decision.get("action", "pass")
+
+                if action == "pass":
+                    yield chunk
+                elif action == "suppress":
+                    continue
+                elif action == "edit":
+                    edited = decision.get("chunk")
+                    if edited is not None:
+                        yield edited
+                    else:
+                        yield chunk
+                elif action == "replace_stream":
+                    # Switch to policy-provided replacement stream
+                    async with httpx.AsyncClient(timeout=None) as client:
+                        async with client.stream(
+                            "POST",
+                            f"{self.control_plane_url}/hooks/stream_replacement",
+                            json={"request_data": request_data},
+                        ) as s:
+                            async for line in s.aiter_lines():
+                                if not line:
+                                    continue
+                                try:
+                                    chunk_data = json.loads(line)
+                                    yield chunk_data
+                                except json.JSONDecodeError:
+                                    continue
+                    break
+                else:
+                    # Unknown action; pass through
+                    yield chunk
 
         except Exception as e:
             print(f"Error in streaming hook: {e}")
@@ -205,121 +167,32 @@ class LuthienControlLogger(CustomLogger):
             async for chunk in response:
                 yield chunk
 
-    @beartype
-    async def _evaluate_streaming_chunk(
-        self,
-        request_data: Dict[str, Any],
-        accumulated_text: str,
-        latest_chunk: str,
-        metadata: Dict[str, Any],
-    ) -> bool:
-        """Evaluate if streaming should be halted based on current content."""
-        try:
-            payload = {
-                "stage": "streaming_chunk",
-                "episode_id": metadata.get("episode_id"),
-                "step_id": metadata.get("step_id"),
-                "accumulated_text": accumulated_text,
-                "latest_chunk": latest_chunk,
-                "request": request_data,
-            }
 
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.post(
-                    f"{self.control_plane_url}/policy/on_chunk", json=payload
-                )
-                response.raise_for_status()
-                decision = response.json()
+def _extract_chunk_text(chunk: Any, chunk_dict: Dict[str, Any]) -> str:
+    # Try to extract delta.content from OpenAI-style streams
+    try:
+        if hasattr(chunk, "choices") and chunk.choices:
+            delta = getattr(chunk.choices[0], "delta", None)
+            if delta and hasattr(delta, "content") and delta.content:
+                return delta.content
+        if "choices" in chunk_dict and chunk_dict["choices"]:
+            delta = chunk_dict["choices"][0].get("delta", {})
+            if isinstance(delta, dict) and "content" in delta:
+                return delta.get("content") or ""
+    except Exception:
+        pass
+    return ""
 
-            return decision.get("halt_stream", False)
 
-        except Exception as e:
-            print(f"Error evaluating streaming chunk: {e}")
-            return False
-
-    @beartype
-    async def _trusted_stream_replacement(
-        self,
-        request_data: Dict[str, Any],
-        partial_content: str,
-        metadata: Dict[str, Any],
-    ) -> AsyncGenerator[ModelResponseStream, None]:
-        """Generate trusted replacement stream when original is halted."""
-        try:
-            payload = {
-                "episode_id": metadata.get("episode_id"),
-                "step_id": metadata.get("step_id"),
-                "original_request": request_data,
-                "partial_content": partial_content,
-            }
-
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.control_plane_url}/trusted/stream_replacement",
-                    json=payload,
-                ) as response:
-                    response.raise_for_status()
-
-                    async for line in response.aiter_lines():
-                        if line.strip():
-                            try:
-                                chunk_data = json.loads(line)
-                                yield ModelResponseStream(**chunk_data)
-                            except json.JSONDecodeError:
-                                continue
-
-        except Exception as e:
-            print(f"Error generating trusted replacement stream: {e}")
-            # Yield a simple completion message on error
-            yield ModelResponseStream(
-                choices=[
-                    {
-                        "delta": {
-                            "content": "[Response modified by AI control system]"
-                        },
-                        "index": 0,
-                        "finish_reason": None,
-                    }
-                ]
-            )
-
-    @beartype
-    async def _handle_resample(
-        self,
-        request_data: Dict[str, Any],
-        original_response: ModelResponse,
-        action: Dict[str, Any],
-    ) -> Optional[ModelResponse]:
-        """Handle defer-to-resample protocol."""
-        try:
-            metadata = request_data.get("luthien_metadata", {})
-
-            payload = {
-                "episode_id": metadata.get("episode_id"),
-                "step_id": metadata.get("step_id"),
-                "original_request": request_data,
-                "original_response": original_response.model_dump()
-                if hasattr(original_response, "model_dump")
-                else dict(original_response),
-                "resample_config": action.get("resample_config", {}),
-            }
-
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self.control_plane_url}/resample", json=payload
-                )
-                response.raise_for_status()
-                result = response.json()
-
-            if result.get("replacement_response"):
-                return ModelResponse(**result["replacement_response"])
-
-            return None
-
-        except Exception as e:
-            print(f"Error handling resample: {e}")
-            return None
+def _serialize_user_key(user_key: Optional[UserAPIKeyAuth]) -> Optional[Dict[str, Any]]:
+    if not user_key:
+        return None
+    out: Dict[str, Any] = {}
+    for attr in ("user_id", "team_id", "email", "org_id"):
+        val = getattr(user_key, attr, None)
+        if val is not None:
+            out[attr] = val
+    return out
 
 
 # Global instance for LiteLLM to use

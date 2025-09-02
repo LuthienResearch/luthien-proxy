@@ -153,36 +153,83 @@ class LuthienTester:
             return False
 
     async def test_control_plane_integration(self) -> bool:
-        """Test that control plane is receiving and processing requests."""
-        print("\n🎛️  Testing control plane integration...")
+        """Test control plane hook endpoints with a no-op policy."""
+        print("\n🎛️  Testing control plane integration (hooks)...")
 
-        # Test policy evaluation endpoint directly
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                test_request = {
-                    "stage": "pre",
-                    "episode_id": "test-episode-123",
-                    "step_id": "test-step-456",
-                    "call_type": "completion",
-                    "request": {
+                # Pre hook: expect pass-through (result_type none) for NoOp
+                pre_req = {
+                    "user_api_key_dict": {"user_id": "test-user"},
+                    "cache": None,
+                    "data": {
                         "model": "gpt-4o-mini",
                         "messages": [{"role": "user", "content": "Test message"}],
                     },
-                    "user_metadata": {"user_id": "test-user"},
+                    "call_type": "completion",
                 }
-
-                response = await client.post(
-                    f"{self.control_plane_url}/policy/evaluate", json=test_request
+                pre_res = await client.post(
+                    f"{self.control_plane_url}/hooks/pre", json=pre_req
                 )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    print(f"✅ Control plane responded: {result['action']}")
-                    return True
-                else:
-                    print(f"❌ Control plane failed with status {response.status_code}")
-                    print(f"Response: {response.text}")
+                if pre_res.status_code != 200:
+                    print(
+                        f"❌ /hooks/pre status: {pre_res.status_code} body: {pre_res.text}"
+                    )
                     return False
+                pre_json = pre_res.json()
+                if pre_json.get("result_type") not in {"none", "dict", "string"}:
+                    print(f"❌ /hooks/pre unexpected result_type: {pre_json}")
+                    return False
+
+                # Post-success hook: expect no replacement for NoOp
+                post_req = {
+                    "data": pre_req["data"],
+                    "user_api_key_dict": pre_req["user_api_key_dict"],
+                    "response": {
+                        "choices": [{"message": {"role": "assistant", "content": "ok"}}]
+                    },
+                }
+                post_res = await client.post(
+                    f"{self.control_plane_url}/hooks/post_success", json=post_req
+                )
+                if post_res.status_code != 200:
+                    print(
+                        f"❌ /hooks/post_success status: {post_res.status_code} body: {post_res.text}"
+                    )
+                    return False
+                post_json = post_res.json()
+                if post_json.get("replace") not in {True, False}:
+                    print(f"❌ /hooks/post_success unexpected payload: {post_json}")
+                    return False
+
+                # Stream chunk: expect action present for NoOp (pass)
+                chunk_req = {
+                    "user_api_key_dict": pre_req["user_api_key_dict"],
+                    "request_data": pre_req["data"],
+                    "chunk": {"choices": [{"delta": {"content": "hello"}}]},
+                    "chunk_index": 1,
+                    "accumulated_text": "hello",
+                }
+                chunk_res = await client.post(
+                    f"{self.control_plane_url}/hooks/stream_chunk", json=chunk_req
+                )
+                if chunk_res.status_code != 200:
+                    print(
+                        f"❌ /hooks/stream_chunk status: {chunk_res.status_code} body: {chunk_res.text}"
+                    )
+                    return False
+                chunk_json = chunk_res.json()
+                if chunk_json.get("action") not in {
+                    "pass",
+                    "suppress",
+                    "edit",
+                    "replace_stream",
+                }:
+                    print(f"❌ /hooks/stream_chunk unexpected payload: {chunk_json}")
+                    return False
+
+                print("✅ Control plane hooks responded correctly")
+                return True
 
         except Exception as e:
             print(f"❌ Control plane test failed: {e}")

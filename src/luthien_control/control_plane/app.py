@@ -2,17 +2,18 @@
 # ABOUTME: Provides endpoints for policy evaluation, chunk monitoring, resampling, and trusted model interactions
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from beartype import beartype
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 # Import our policy and monitoring modules (will implement these)
 from luthien_control.policies.engine import PolicyEngine
-from luthien_control.monitors.trusted import TrustedMonitor
-from luthien_control.monitors.untrusted import UntrustedMonitor
+from luthien_control.policies.base import LuthienPolicy
+from luthien_control.policies.noop import NoOpPolicy
 
 
 # Pydantic models for API requests/responses
@@ -108,31 +109,25 @@ app.add_middleware(
 
 # Global instances (will be initialized on startup)
 policy_engine: Optional[PolicyEngine] = None
-trusted_monitor: Optional[TrustedMonitor] = None
-untrusted_monitor: Optional[UntrustedMonitor] = None
+active_policy: Optional[LuthienPolicy] = None
 
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
-    global policy_engine, trusted_monitor, untrusted_monitor
+    global policy_engine, active_policy
 
     try:
-        # Initialize policy engine
-        policy_engine = PolicyEngine(
-            database_url=os.getenv("DATABASE_URL"), redis_url=os.getenv("REDIS_URL")
-        )
-        await policy_engine.initialize()
+        # Initialize policy engine only if persistence is configured (optional)
+        if os.getenv("DATABASE_URL") or os.getenv("REDIS_URL"):
+            policy_engine = PolicyEngine(
+                database_url=os.getenv("DATABASE_URL"),
+                redis_url=os.getenv("REDIS_URL"),
+            )
+            await policy_engine.initialize()
 
-        # Initialize monitors
-        trusted_monitor = TrustedMonitor(
-            model_config={
-                "model": "ollama/llama3.1:8b",
-                "api_base": "http://ollama:11434",
-            }
-        )
-
-        untrusted_monitor = UntrustedMonitor()
+        # Load active policy
+        active_policy = _load_policy_from_env()
 
         print("Control plane services initialized successfully")
 
@@ -147,292 +142,149 @@ async def health_check():
     return {"status": "healthy", "service": "luthien-control-plane", "version": "0.1.0"}
 
 
-@app.post("/policy/evaluate", response_model=PolicyEvaluationResponse)
-@beartype
-async def evaluate_policy(request: PolicyEvaluationRequest) -> PolicyEvaluationResponse:
-    """
-    Main policy evaluation endpoint.
-    Called by LiteLLM hooks for pre/post call decisions.
-    """
+def _load_policy_from_env() -> LuthienPolicy:
+    """Load a policy class from LUTHIEN_POLICY env var or use NoOpPolicy."""
+    policy_path = os.getenv("LUTHIEN_POLICY")
+    if not policy_path:
+        return NoOpPolicy()
+
     try:
-        if not policy_engine:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Policy engine not initialized",
-            )
-
-        # Get policy for this request
-        policy = await policy_engine.get_policy(
-            episode_id=request.episode_id, user_metadata=request.user_metadata
-        )
-
-        if request.stage == "pre":
-            return await _handle_pre_call(request, policy)
-        elif request.stage == "post":
-            return await _handle_post_call(request, policy)
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown stage: {request.stage}",
-            )
-
+        module_path, class_name = policy_path.split(":", 1)
+        module = __import__(module_path, fromlist=[class_name])
+        cls = getattr(module, class_name)
+        if not issubclass(cls, LuthienPolicy):
+            print("LUTHIEN_POLICY does not subclass LuthienPolicy; using NoOpPolicy")
+            return NoOpPolicy()
+        return cls()
     except Exception as e:
-        print(f"Error in policy evaluation: {e}")
-        # Fail-safe: allow request to proceed
-        return PolicyEvaluationResponse(action="allow")
+        print(f"Failed to load LUTHIEN_POLICY '{policy_path}': {e}. Using NoOpPolicy.")
+        return NoOpPolicy()
 
 
-@app.post("/policy/on_chunk", response_model=ChunkEvaluationResponse)
+@app.get("/endpoints")
+async def list_endpoints():
+    return {
+        "hooks": [
+            "POST /hooks/pre",
+            "POST /hooks/post_success",
+            "POST /hooks/stream_chunk",
+            "POST /hooks/stream_replacement",
+        ],
+        "health": "GET /health",
+    }
+
+
+# ---------------- Hook-style endpoints (mirror LiteLLM) -----------------
+
+
+class PreHookRequest(BaseModel):
+    user_api_key_dict: Optional[dict] = None
+    cache: Optional[dict] = None
+    data: dict
+    call_type: Optional[str] = None
+
+
+class PreHookResponse(BaseModel):
+    # one of: none | string | dict
+    result_type: str
+    string: Optional[str] = None
+    dict: Optional[dict] = None
+
+
+@app.post("/hooks/pre", response_model=PreHookResponse)
 @beartype
-async def evaluate_chunk(request: ChunkEvaluationRequest) -> ChunkEvaluationResponse:
-    """
-    Evaluate streaming chunks for potential intervention.
-    Called periodically during streaming responses.
-    """
-    try:
-        if not policy_engine or not trusted_monitor:
-            return ChunkEvaluationResponse(halt_stream=False)
+async def hook_pre(request: PreHookRequest) -> PreHookResponse:
+    if not active_policy:
+        return PreHookResponse(result_type="none")
 
-        # Get policy for this episode
-        policy = await policy_engine.get_policy(episode_id=request.episode_id)
-
-        # Score the accumulated content with trusted model
-        suspiciousness_score = await trusted_monitor.score_text(
-            text=request.accumulated_text, context=request.request
-        )
-
-        # Check if we should halt the stream
-        halt_threshold = policy.get("streaming", {}).get("halt_threshold", 0.9)
-        should_halt = suspiciousness_score >= halt_threshold
-
-        if should_halt:
-            # Log the intervention
-            await policy_engine.log_decision(
-                episode_id=request.episode_id,
-                step_id=request.step_id,
-                decision_type="streaming_halt",
-                score=suspiciousness_score,
-                threshold=halt_threshold,
-            )
-
-        return ChunkEvaluationResponse(
-            halt_stream=should_halt,
-            switch_to_trusted=should_halt,
-            metadata={
-                "suspiciousness_score": suspiciousness_score,
-                "threshold": halt_threshold,
-            },
-        )
-
-    except Exception as e:
-        print(f"Error evaluating chunk: {e}")
-        return ChunkEvaluationResponse(halt_stream=False)
+    result = await active_policy.async_pre_call_hook(
+        request.user_api_key_dict, request.cache, request.data, request.call_type
+    )
+    if result is None:
+        return PreHookResponse(result_type="none")
+    if isinstance(result, str):
+        return PreHookResponse(result_type="string", string=result)
+    if isinstance(result, dict):
+        return PreHookResponse(result_type="dict", dict=result)
+    return PreHookResponse(result_type="none")
 
 
-@app.post("/resample", response_model=ResampleResponse)
+class PostHookRequest(BaseModel):
+    data: dict
+    user_api_key_dict: Optional[dict] = None
+    response: dict
+
+
+class PostHookResponse(BaseModel):
+    replace: bool = False
+    replacement: Optional[dict] = None
+
+
+@app.post("/hooks/post_success", response_model=PostHookResponse)
 @beartype
-async def handle_resample(request: ResampleRequest) -> ResampleResponse:
-    """
-    Handle defer-to-resample protocol.
-    Generates k alternative responses and selects the least suspicious.
-    """
-    try:
-        if not policy_engine:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Policy engine not initialized",
-            )
+async def hook_post_success(request: PostHookRequest) -> PostHookResponse:
+    if not active_policy:
+        return PostHookResponse(replace=False)
 
-        # Get policy configuration
-        policy = await policy_engine.get_policy(episode_id=request.episode_id)
-        resample_config = policy.get("resample", {})
-
-        if not resample_config.get("enabled", False):
-            return ResampleResponse()
-
-        # Generate k alternative responses
-        k = resample_config.get("k", 3)
-        alternatives = await _generate_alternatives(request.original_request, k=k)
-
-        # Score all alternatives with trusted monitor
-        scored_alternatives = []
-        for alt in alternatives:
-            score = await trusted_monitor.score_response(
-                response=alt, context=request.original_request
-            )
-            scored_alternatives.append((score, alt))
-
-        # Find minimum suspiciousness
-        min_score, best_alternative = min(scored_alternatives, key=lambda x: x[0])
-
-        # Decide whether to use alternative or trigger audit
-        audit_threshold = resample_config.get("audit_if_min_score_gt", 0.85)
-
-        if min_score >= audit_threshold:
-            # Trigger human audit
-            await policy_engine.trigger_audit(
-                episode_id=request.episode_id,
-                step_id=request.step_id,
-                reason="high_suspiciousness_after_resample",
-                score=min_score,
-            )
-            return ResampleResponse(audit_required=True)
-        else:
-            # Use the best alternative
-            return ResampleResponse(
-                replacement_response=best_alternative,
-                metadata={
-                    "original_score": scored_alternatives[0][0],  # Score of original
-                    "min_score": min_score,
-                    "alternatives_count": len(alternatives),
-                },
-            )
-
-    except Exception as e:
-        print(f"Error in resample protocol: {e}")
-        return ResampleResponse()
+    replacement = await active_policy.async_post_call_success_hook(
+        request.data, request.user_api_key_dict, request.response
+    )
+    if isinstance(replacement, dict):
+        return PostHookResponse(replace=True, replacement=replacement)
+    return PostHookResponse(replace=False)
 
 
-@app.post("/trusted/stream_replacement")
+class StreamChunkRequest(BaseModel):
+    user_api_key_dict: Optional[dict] = None
+    request_data: dict
+    chunk: dict
+    chunk_index: int
+    accumulated_text: str
+
+
+class StreamChunkResponse(BaseModel):
+    action: str  # pass | suppress | edit | replace_stream
+    chunk: Optional[dict] = None
+
+
+@app.post("/hooks/stream_chunk", response_model=StreamChunkResponse)
 @beartype
-async def stream_trusted_replacement(request: TrustedStreamRequest):
-    """
-    Generate a streaming replacement using trusted model.
-    Called when original stream is halted.
-    """
-    try:
-        if not trusted_monitor:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Trusted monitor not available",
-            )
+async def hook_stream_chunk(request: StreamChunkRequest) -> StreamChunkResponse:
+    if not active_policy:
+        return StreamChunkResponse(action="pass")
 
-        # Generate trusted response as a stream
-        async for chunk in trusted_monitor.generate_stream(
-            request=request.original_request,
-            context=f"Previous partial output: {request.partial_content}",
-        ):
-            yield chunk
-
-    except Exception as e:
-        print(f"Error generating trusted stream: {e}")
-        # Return error message as stream
-        yield {
-            "choices": [
-                {
-                    "delta": {
-                        "content": "[Error: Unable to generate trusted replacement]"
-                    },
-                    "index": 0,
-                    "finish_reason": "error",
-                }
-            ]
-        }
-
-
-# Helper functions
-@beartype
-async def _handle_pre_call(
-    request: PolicyEvaluationRequest, policy: Dict[str, Any]
-) -> PolicyEvaluationResponse:
-    """Handle pre-call policy evaluation."""
-    # For now, implement basic pass-through with metadata addition
-    # TODO: Add tool gating, prompt hardening, etc.
-
-    return PolicyEvaluationResponse(
-        action="allow",
-        metadata={
-            "policy_applied": policy.get("name", "default"),
-            "episode_id": request.episode_id,
-        },
+    decision = await active_policy.streaming_on_chunk(
+        request.user_api_key_dict,
+        request.request_data,
+        request.chunk,
+        request.chunk_index,
+        request.accumulated_text,
     )
 
+    action = decision.get("action", "pass")
+    chunk = decision.get("chunk") if action == "edit" else None
+    return StreamChunkResponse(action=action, chunk=chunk)
 
+
+class StreamReplacementRequest(BaseModel):
+    request_data: dict
+
+
+@app.post("/hooks/stream_replacement")
 @beartype
-async def _handle_post_call(
-    request: PolicyEvaluationRequest, policy: Dict[str, Any]
-) -> PolicyEvaluationResponse:
-    """Handle post-call policy evaluation."""
-    if not request.response or not trusted_monitor:
-        return PolicyEvaluationResponse(action="allow")
+async def hook_stream_replacement(request: StreamReplacementRequest):
+    if not active_policy:
 
-    # Score response with trusted monitor
-    score = await trusted_monitor.score_response(
-        response=request.response, context=request.request
-    )
+        async def empty():
+            if False:
+                yield {}
 
-    # Check if we should defer to trusted model
-    defer_threshold = policy.get("defer_threshold_T", 0.7)
+        return StreamingResponse(empty(), media_type="text/event-stream")
 
-    if score >= defer_threshold:
-        # Generate trusted replacement
-        trusted_response = await trusted_monitor.generate_response(
-            request=request.request, context="Generate a safe response for this request"
-        )
+    import json
 
-        # Log the intervention
-        await policy_engine.log_decision(
-            episode_id=request.episode_id,
-            step_id=request.step_id,
-            decision_type="trusted_replacement",
-            score=score,
-            threshold=defer_threshold,
-        )
+    async def gen():
+        async for chunk in active_policy.streaming_replacement(request.request_data):
+            yield json.dumps(chunk) + "\n"
 
-        return PolicyEvaluationResponse(
-            action="replace_response",
-            replace_response=trusted_response,
-            metadata={
-                "suspiciousness_score": score,
-                "threshold": defer_threshold,
-                "intervention": "trusted_replacement",
-            },
-        )
-
-    # Check if we should trigger resampling
-    resample_config = policy.get("resample", {})
-    if resample_config.get("enabled", False) and score >= resample_config.get(
-        "trigger_threshold", 0.6
-    ):
-        return PolicyEvaluationResponse(
-            action="trigger_resample",
-            trigger_resample=True,
-            resample_config=resample_config,
-            metadata={
-                "suspiciousness_score": score,
-                "trigger_threshold": resample_config.get("trigger_threshold", 0.6),
-            },
-        )
-
-    return PolicyEvaluationResponse(
-        action="allow",
-        metadata={"suspiciousness_score": score, "threshold": defer_threshold},
-    )
-
-
-@beartype
-async def _generate_alternatives(
-    original_request: Dict[str, Any], k: int = 3
-) -> List[Dict[str, Any]]:
-    """Generate k alternative responses for resampling."""
-    # This is a stub - in practice, would call the same model k times
-    # with slight variations (temperature, top_p, etc.)
-
-    alternatives = []
-    for i in range(k):
-        # For now, return mock alternatives
-        # TODO: Implement actual LLM calls with variation
-        alternatives.append(
-            {
-                "choices": [
-                    {
-                        "message": {
-                            "role": "assistant",
-                            "content": f"[Alternative response {i + 1} - not yet implemented]",
-                        }
-                    }
-                ]
-            }
-        )
-
-    return alternatives
+    return StreamingResponse(gen(), media_type="text/event-stream")
