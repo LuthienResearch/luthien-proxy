@@ -20,7 +20,7 @@ class LuthienCallback(CustomLogger):
             "CONTROL_PLANE_URL", "http://control-plane:8081"
         )
         self.timeout = 10.0
-        verbose_logger.debug(
+        verbose_logger.info(
             f"LUTHIEN LuthienCallback initialized with control plane URL: {self.control_plane_url}"
         )
 

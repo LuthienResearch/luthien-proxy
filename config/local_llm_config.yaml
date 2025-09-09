@@ -1,0 +1,22 @@
+# LiteLLM configuration for the local scoring model (OpenAI-compatible)
+
+model_list:
+  - model_name: gemma-scorer
+    litellm_params:
+      # Use Ollama provider through LiteLLM
+      model: ollama/gemma2:2b
+      api_base: http://localhost:11434
+      temperature: 0.0
+      max_tokens: 256
+
+litellm_settings:
+  callbacks: []
+  json_logs: false
+  log_raw_request_response: false
+  master_key: ${LITELLM_MASTER_KEY}
+
+general_settings:
+  health_check: true
+  request_timeout: 120
+
+environment: production

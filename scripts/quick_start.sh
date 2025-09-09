@@ -91,7 +91,23 @@ while ! docker compose exec -T redis redis-cli ping > /dev/null 2>&1; do
 done
 echo "✅ Redis is ready"
 
-# Start application services
+# Start single-container local-llm (Ollama + LiteLLM)
+echo "🧰 Starting local-llm (Ollama + OpenAI-compatible gateway)..."
+docker compose up -d local-llm
+
+echo "⏳ Waiting for local-llm to be ready..."
+timeout=120
+while ! curl -sf "http://localhost:${LOCAL_LLM_PORT:-4010}/test" > /dev/null 2>&1; do
+    sleep 2
+    timeout=$((timeout - 2))
+    if [ $timeout -le 0 ]; then
+        echo "❌ local-llm failed to start within expected time"
+        exit 1
+    fi
+done
+echo "✅ local-llm is ready"
+
+# Start application services depending on DB/Redis and local LLM
 echo "🎛️ Starting control plane..."
 docker compose up -d control-plane
 
@@ -105,7 +121,7 @@ sleep 5
 # Check service health
 services_healthy=true
 
-for service in control-plane litellm-proxy; do
+for service in control-plane litellm-proxy local-llm; do
     if ! docker compose ps "$service" | grep -q "Up"; then
         echo "⚠️ $service is not running properly"
         services_healthy=false
@@ -121,6 +137,8 @@ if [ "$services_healthy" = true ]; then
     echo "   • Control Plane:  http://localhost:${CONTROL_PLANE_PORT:-8081}"
     echo "   • PostgreSQL:     localhost:${POSTGRES_PORT:-5432}"
     echo "   • Redis:          localhost:${REDIS_PORT:-6379}"
+    echo "   • local-llm:      http://localhost:${LOCAL_LLM_PORT:-4010} (OpenAI-compatible)"
+    echo "   • Ollama API:     http://localhost:11434 (inside local-llm)"
     echo ""
     echo "📊 To view logs:"
     echo "   docker compose logs -f"

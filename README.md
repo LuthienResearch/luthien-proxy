@@ -103,6 +103,35 @@ Key files:
 - Run the smoke test: `uv run python scripts/test_proxy.py`.
 - Tail control-plane logs to see policy actions.
 
+## Troubleshooting
+
+- Codex/IDE sends a JWT instead of your LiteLLM key
+  - Symptom: LiteLLM logs an error like: `user_api_key_auth(): LiteLLM Virtual Key expected... Received=eyJhbGciOi... expected to start with 'sk-'` and the received token decodes as a JWT tied to your OpenAI account (iss: https://auth.openai.com).
+  - Cause: Your client (IDE/extension/OpenAI app/CLI) is using an OpenAI account session token instead of an API key. When you point that client at LiteLLM (`OPENAI_BASE_URL`), it still sends the session JWT.
+  - Fix:
+    - Configure the client to use “API Key” auth (not “Account login/Session”).
+    - Set base URL to `http://localhost:4000/v1` (some clients require the `/v1` suffix).
+    - Use a LiteLLM key as the API key:
+      - Master key: the value of `LITELLM_MASTER_KEY` (e.g., `sk-luthien-dev-key`).
+      - Or generate a per‑user virtual key and use that in the IDE:
+        ```bash
+        export LITELLM_URL=http://localhost:4000
+        export LITELLM_MASTER_KEY=sk-luthien-dev-key   # or your real value
+        curl -s -X POST "$LITELLM_URL/key/generate" \
+          -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{"key_alias":"codex-local","max_budget":100,"metadata":{"source":"codex"}}'
+        # Response contains a `key` like `vk-...`; use that in your client.
+        ```
+    - If the client keeps sending a JWT, disable any “Use OpenAI account/app session” setting and sign out of OpenAI in that tool. As a last resort, remove cached OpenAI tokens (e.g., `openai logout`, clear `~/.config/openai/*`, or sign out of the OpenAI Desktop/VS Code extension), then explicitly paste the LiteLLM key.
+  - Sanity check your setup with curl:
+    ```bash
+    curl -s http://localhost:4000/v1/models \
+      -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+    ```
+    You should get a 200 and a model list.
+
+
 ## License
 
 Apache License 2.0

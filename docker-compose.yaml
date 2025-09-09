@@ -88,8 +88,28 @@ services:
       timeout: 5s
       retries: 3
 
+  # Single-container local LLM gateway (Ollama + LiteLLM)
+  local-llm:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.local-llm
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - MODEL_NAME=${LOCAL_LLM_MODEL_NAME:-gemma2:2b}
+    volumes:
+      - local_llm_models:/root/.ollama
+    ports:
+      - "4010:4000"   # OpenAI-compatible API
+      - "11434:11434" # Ollama API (optional external access)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
+  local_llm_models:
 
 networks:
   default:

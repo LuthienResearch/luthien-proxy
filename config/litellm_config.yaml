@@ -64,8 +64,7 @@ model_list:
 # LiteLLM proxy settings
 litellm_settings:
   # Enable our custom logger
-  # callbacks: ["litellm_callback.luthien_callback"]
-  callbacks: []
+  callbacks: ["litellm_callback.luthien_callback"]
 
   # Model parameter handling
   drop_params: true  # Drop unsupported params to improve compatibility with gpt-5/o3/Responses API

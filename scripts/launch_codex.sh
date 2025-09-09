@@ -15,12 +15,19 @@ else
   exit 1
 fi
 
+LITELLM_PORT=${LITELLM_PORT:-4000}
+
+
 set -euo pipefail
 
-CMD=${1:-codex}
 shift || true
 
-export OPENAI_API_URL=localhost:4000
-export OPENAI_API_KEY=$LITELLM_MASTER_KEY
+env|grep OPENAI
 
-exec "$CMD" "$@"
+codex \
+  -c model_providers.litellm.name=litellm \
+  -c model_providers.litellm.base_url=${LITELLM_BASE_URL:-http://localhost:${LITELLM_PORT}} \
+  -c model_providers.litellm.env_key=LITELLM_MASTER_KEY \
+  -c model_providers.litellm.wire_api=chat \
+  -c model_provider=litellm \
+  -c model="gpt-5"

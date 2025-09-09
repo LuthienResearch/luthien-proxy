@@ -3,6 +3,7 @@
 
 import os
 import uvicorn
+from luthien_control.utils.logging_config import configure_logging
 
 
 def main():
@@ -11,6 +12,9 @@ def main():
     host = os.getenv("CONTROL_PLANE_HOST", "0.0.0.0")
     port = int(os.getenv("CONTROL_PLANE_PORT", "8081"))
     log_level = os.getenv("LOG_LEVEL", "info").lower()
+
+    # Ensure Python logging goes to stdout at desired level
+    configure_logging(log_level)
 
     print(f"Starting Luthien Control Plane on {host}:{port}")
     print(f"Database URL: {os.getenv('DATABASE_URL', 'Not configured')}")
