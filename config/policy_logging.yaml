@@ -1,0 +1,15 @@
+# Policy-specific configuration for LoggingPolicy
+
+# Keys to redact anywhere in the logged request/response
+redact_keys:
+  - api_key
+  - Authorization
+  - authorization
+  - auth
+  - password
+  - bearer_token
+
+# Streaming logging behavior
+stream:
+  # Log every Nth streaming chunk to avoid DB spam
+  log_every_n: 10

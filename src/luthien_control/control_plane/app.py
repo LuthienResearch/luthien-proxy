@@ -2,18 +2,22 @@
 # ABOUTME: Provides endpoints for policy evaluation, chunk monitoring, resampling, and trusted model interactions
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
+from datetime import datetime
 
-from beartype import beartype
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+import asyncpg
+import json
 
 # Import our policy and monitoring modules (will implement these)
 from luthien_control.policies.engine import PolicyEngine
 from luthien_control.policies.base import LuthienPolicy
 from luthien_control.policies.noop import NoOpPolicy
+from luthien_control.control_plane.ui import router as ui_router
+import yaml
 
 
 # Pydantic models for API requests/responses
@@ -107,6 +111,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static assets (JS/CSS) for debug and logs views
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Include UI routes (templates)
+app.include_router(ui_router)
+
 # Global instances (will be initialized on startup)
 policy_engine: Optional[PolicyEngine] = None
 active_policy: Optional[LuthienPolicy] = None
@@ -126,8 +137,8 @@ async def startup_event():
             )
             await policy_engine.initialize()
 
-        # Load active policy
-        active_policy = _load_policy_from_env()
+        # Load active policy via config file (LUTHIEN_POLICY_CONFIG)
+        active_policy = _load_policy_from_config()
 
         print("Control plane services initialized successfully")
 
@@ -142,22 +153,54 @@ async def health_check():
     return {"status": "healthy", "service": "luthien-control-plane", "version": "0.1.0"}
 
 
-def _load_policy_from_env() -> LuthienPolicy:
-    """Load a policy class from LUTHIEN_POLICY env var or use NoOpPolicy."""
-    policy_path = os.getenv("LUTHIEN_POLICY")
-    if not policy_path:
-        return NoOpPolicy()
+def _load_policy_from_config() -> LuthienPolicy:
+    """Load policy from YAML config specified by LUTHIEN_POLICY_CONFIG.
+
+    Expected YAML structure:
+      policy: "module.path:ClassName"  # required
+      policy_config: "/app/config/policy_logging.yaml"  # optional; forwarded as LUTHIEN_POLICY_OPTIONS
+
+    Falls back to /app/config/policy_default.yaml if env var is not set.
+    If anything fails, returns NoOpPolicy.
+    """
+    config_path = os.getenv("LUTHIEN_POLICY_CONFIG", "/app/config/policy_default.yaml")
+    policy_ref = None
+    policy_config_path = None
 
     try:
-        module_path, class_name = policy_path.split(":", 1)
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                cfg = yaml.safe_load(f) or {}
+                policy_ref = cfg.get("policy")
+                policy_config_path = cfg.get("policy_config")
+        else:
+            print(f"Policy config not found at {config_path}; using NoOpPolicy")
+    except Exception as e:
+        print(f"Failed to read policy config {config_path}: {e}")
+
+    if not policy_ref:
+        print("No policy specified in config; using NoOpPolicy")
+        return NoOpPolicy()
+
+    # If a nested policy config path is provided, forward it via env so
+    # policies can pick it up (e.g., LoggingPolicy reads LUTHIEN_POLICY_CONFIG)
+    if policy_config_path:
+        # Forward as policy-specific options
+        os.environ["LUTHIEN_POLICY_OPTIONS"] = policy_config_path
+
+    try:
+        module_path, class_name = policy_ref.split(":", 1)
         module = __import__(module_path, fromlist=[class_name])
         cls = getattr(module, class_name)
         if not issubclass(cls, LuthienPolicy):
-            print("LUTHIEN_POLICY does not subclass LuthienPolicy; using NoOpPolicy")
+            print(
+                f"Configured policy {class_name} does not subclass LuthienPolicy; using NoOpPolicy"
+            )
             return NoOpPolicy()
+        print(f"Loaded policy from config: {class_name} ({module_path})")
         return cls()
     except Exception as e:
-        print(f"Failed to load LUTHIEN_POLICY '{policy_path}': {e}. Using NoOpPolicy.")
+        print(f"Failed to load policy '{policy_ref}': {e}. Using NoOpPolicy.")
         return NoOpPolicy()
 
 
@@ -174,117 +217,251 @@ async def list_endpoints():
     }
 
 
-# ---------------- Hook-style endpoints (mirror LiteLLM) -----------------
+# ---------------- Removed hook-style endpoints (not used) -----------------
 
 
-class PreHookRequest(BaseModel):
-    user_api_key_dict: Optional[dict] = None
-    cache: Optional[dict] = None
-    data: dict
-    call_type: Optional[str] = None
+# ---------------- Logging UI endpoints -----------------
 
 
-class PreHookResponse(BaseModel):
-    # one of: none | string | dict
-    result_type: str
-    string: Optional[str] = None
-    dict: Optional[dict] = None
+class LogEntry(BaseModel):
+    """Formatted log entry for UI display."""
+
+    id: str
+    episode_id: Optional[str]
+    step_id: Optional[str]
+    call_type: Optional[str]
+    stage: str
+    request_summary: str
+    response_summary: Optional[str]
+    policy_action: Optional[str]
+    created_at: datetime
 
 
-@app.post("/hooks/pre", response_model=PreHookResponse)
-@beartype
-async def hook_pre(request: PreHookRequest) -> PreHookResponse:
-    if not active_policy:
-        return PreHookResponse(result_type="none")
-
-    result = await active_policy.async_pre_call_hook(
-        request.user_api_key_dict, request.cache, request.data, request.call_type
-    )
-    if result is None:
-        return PreHookResponse(result_type="none")
-    if isinstance(result, str):
-        return PreHookResponse(result_type="string", string=result)
-    if isinstance(result, dict):
-        return PreHookResponse(result_type="dict", dict=result)
-    return PreHookResponse(result_type="none")
-
-
-class PostHookRequest(BaseModel):
-    data: dict
-    user_api_key_dict: Optional[dict] = None
-    response: dict
-
-
-class PostHookResponse(BaseModel):
-    replace: bool = False
-    replacement: Optional[dict] = None
-
-
-@app.post("/hooks/post_success", response_model=PostHookResponse)
-@beartype
-async def hook_post_success(request: PostHookRequest) -> PostHookResponse:
-    if not active_policy:
-        return PostHookResponse(replace=False)
-
-    replacement = await active_policy.async_post_call_success_hook(
-        request.data, request.user_api_key_dict, request.response
-    )
-    if isinstance(replacement, dict):
-        return PostHookResponse(replace=True, replacement=replacement)
-    return PostHookResponse(replace=False)
-
-
-class StreamChunkRequest(BaseModel):
-    user_api_key_dict: Optional[dict] = None
-    request_data: dict
-    chunk: dict
-    chunk_index: int
-    accumulated_text: str
-
-
-class StreamChunkResponse(BaseModel):
-    action: str  # pass | suppress | edit | replace_stream
-    chunk: Optional[dict] = None
-
-
-@app.post("/hooks/stream_chunk", response_model=StreamChunkResponse)
-@beartype
-async def hook_stream_chunk(request: StreamChunkRequest) -> StreamChunkResponse:
-    if not active_policy:
-        return StreamChunkResponse(action="pass")
-
-    decision = await active_policy.streaming_on_chunk(
-        request.user_api_key_dict,
-        request.request_data,
-        request.chunk,
-        request.chunk_index,
-        request.accumulated_text,
+@app.get("/api/logs", response_model=List[LogEntry])
+async def get_logs(limit: int = Query(default=50, le=500)):
+    """Fetch recent request logs from the database."""
+    db_url = os.getenv(
+        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
     )
 
-    action = decision.get("action", "pass")
-    chunk = decision.get("chunk") if action == "edit" else None
-    return StreamChunkResponse(action=action, chunk=chunk)
+    logs = []
+    try:
+        conn = await asyncpg.connect(db_url)
+        try:
+            rows = await conn.fetch(
+                """
+                SELECT id, episode_id, step_id, call_type, stage,
+                       request, response, policy_action, created_at
+                FROM request_logs
+                ORDER BY created_at DESC
+                LIMIT $1
+                """,
+                limit,
+            )
+
+            for row in rows:
+                # Extract key info from request JSON
+                request_data = json.loads(row["request"]) if row["request"] else {}
+                messages = request_data.get("messages", [])
+                request_summary = "No messages"
+                if messages:
+                    last_message = (
+                        messages[-1] if isinstance(messages, list) else messages
+                    )
+                    if isinstance(last_message, dict):
+                        content = last_message.get("content", "")
+                        request_summary = (
+                            content[:100] + "..." if len(content) > 100 else content
+                        )
+
+                # Extract key info from response JSON
+                response_summary = None
+                if row["response"]:
+                    response_data = json.loads(row["response"])
+                    if "choices" in response_data:
+                        choices = response_data["choices"]
+                        if choices and len(choices) > 0:
+                            content = choices[0].get("message", {}).get("content", "")
+                            response_summary = (
+                                content[:100] + "..." if len(content) > 100 else content
+                            )
+                    elif "accumulated_length" in response_data:
+                        response_summary = f"Streaming chunk (accumulated: {response_data['accumulated_length']} chars)"
+
+                logs.append(
+                    LogEntry(
+                        id=str(row["id"]),
+                        episode_id=str(row["episode_id"])
+                        if row["episode_id"]
+                        else None,
+                        step_id=str(row["step_id"]) if row["step_id"] else None,
+                        call_type=row["call_type"],
+                        stage=row["stage"],
+                        request_summary=request_summary,
+                        response_summary=response_summary,
+                        policy_action=row["policy_action"],
+                        created_at=row["created_at"],
+                    )
+                )
+        finally:
+            await conn.close()
+    except Exception as e:
+        print(f"Error fetching logs: {e}")
+
+    return logs
 
 
-class StreamReplacementRequest(BaseModel):
-    request_data: dict
+# ---------------- Debug logs API and UI -----------------
 
 
-@app.post("/hooks/stream_replacement")
-@beartype
-async def hook_stream_replacement(request: StreamReplacementRequest):
-    if not active_policy:
+class DebugEntry(BaseModel):
+    id: str
+    time_created: datetime
+    debug_type_identifier: str
+    jsonblob: Dict[str, Any]
 
-        async def empty():
-            if False:
-                yield {}
 
-        return StreamingResponse(empty(), media_type="text/event-stream")
+@app.get("/api/debug/{debug_type}", response_model=List[DebugEntry])
+async def get_debug_entries(debug_type: str, limit: int = Query(default=50, le=500)):
+    db_url = os.getenv(
+        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
+    )
+    entries: List[DebugEntry] = []
+    try:
+        conn = await asyncpg.connect(db_url)
+        try:
+            rows = await conn.fetch(
+                """
+                SELECT id, time_created, debug_type_identifier, jsonblob
+                FROM debug_logs
+                WHERE debug_type_identifier = $1
+                ORDER BY time_created DESC
+                LIMIT $2
+                """,
+                debug_type,
+                limit,
+            )
+            for row in rows:
+                jb = row["jsonblob"]
+                if isinstance(jb, str):
+                    try:
+                        jb = json.loads(jb)
+                    except Exception:
+                        jb = {"raw": jb}
+                entries.append(
+                    DebugEntry(
+                        id=str(row["id"]),
+                        time_created=row["time_created"],
+                        debug_type_identifier=row["debug_type_identifier"],
+                        jsonblob=jb,
+                    )
+                )
+        finally:
+            await conn.close()
+    except Exception as e:
+        print(f"Error fetching debug logs: {e}")
+    return entries
 
-    import json
 
-    async def gen():
-        async for chunk in active_policy.streaming_replacement(request.request_data):
-            yield json.dumps(chunk) + "\n"
+# --------- Dedicated debug browser with type selection + pagination ---------
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+
+class DebugTypeInfo(BaseModel):
+    debug_type_identifier: str
+    count: int
+    latest: datetime
+
+
+@app.get("/api/debug/types", response_model=List[DebugTypeInfo])
+async def get_debug_types():
+    db_url = os.getenv(
+        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
+    )
+    types: List[DebugTypeInfo] = []
+    try:
+        conn = await asyncpg.connect(db_url)
+        try:
+            rows = await conn.fetch(
+                """
+                SELECT debug_type_identifier, COUNT(*) as count, MAX(time_created) as latest
+                FROM debug_logs
+                GROUP BY debug_type_identifier
+                ORDER BY latest DESC
+                """
+            )
+            for row in rows:
+                types.append(
+                    DebugTypeInfo(
+                        debug_type_identifier=row["debug_type_identifier"],
+                        count=int(row["count"]),
+                        latest=row["latest"],
+                    )
+                )
+        finally:
+            await conn.close()
+    except Exception as e:
+        print(f"Error fetching debug types: {e}")
+    return types
+
+
+class DebugPage(BaseModel):
+    items: List[DebugEntry]
+    page: int
+    page_size: int
+    total: int
+
+
+@app.get("/api/debug/{debug_type}/page", response_model=DebugPage)
+async def get_debug_page(
+    debug_type: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+):
+    db_url = os.getenv(
+        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
+    )
+    items: List[DebugEntry] = []
+    total = 0
+    try:
+        conn = await asyncpg.connect(db_url)
+        try:
+            total_row = await conn.fetchrow(
+                """
+                SELECT COUNT(*) as cnt FROM debug_logs WHERE debug_type_identifier = $1
+                """,
+                debug_type,
+            )
+            total = int(total_row["cnt"]) if total_row else 0
+            offset = (page - 1) * page_size
+            rows = await conn.fetch(
+                """
+                SELECT id, time_created, debug_type_identifier, jsonblob
+                FROM debug_logs
+                WHERE debug_type_identifier = $1
+                ORDER BY time_created DESC
+                LIMIT $2 OFFSET $3
+                """,
+                debug_type,
+                page_size,
+                offset,
+            )
+            for row in rows:
+                jb = row["jsonblob"]
+                if isinstance(jb, str):
+                    try:
+                        jb = json.loads(jb)
+                    except Exception:
+                        jb = {"raw": jb}
+                items.append(
+                    DebugEntry(
+                        id=str(row["id"]),
+                        time_created=row["time_created"],
+                        debug_type_identifier=row["debug_type_identifier"],
+                        jsonblob=jb,
+                    )
+                )
+        finally:
+            await conn.close()
+    except Exception as e:
+        print(f"Error fetching debug page: {e}")
+    return DebugPage(items=items, page=page, page_size=page_size, total=total)

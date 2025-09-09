@@ -15,7 +15,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 WORKDIR /app
 
 # Copy only dependency files first for better layer caching
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
+# Need to copy source for building the package
+COPY src/ ./src/
 
 # Install dependencies in a separate layer for caching
 RUN uv sync --frozen --no-dev
@@ -38,8 +40,7 @@ ENV PRISMA_CLI_BINARY_TARGETS="linux-arm64-openssl-3.0.x"
 # Generate Prisma client for LiteLLM database functionality
 RUN uv run prisma generate
 
-# Copy source code and config in final layers (changes frequently)
-COPY --chown=app:app src/ ./src/
+# Copy config in final layer (changes frequently)
 COPY --chown=app:app config/ ./config/
 
 # Add src to Python path so LiteLLM can find our modules
@@ -52,5 +53,5 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:4000/test || exit 1
 
-# Start LiteLLM proxy with our custom logger
-CMD ["uv", "run", "litellm", "--config", "/app/config/litellm_config.yaml", "--port", "4000", "--host", "0.0.0.0"]
+# Start LiteLLM proxy with our custom logger via our startup script
+CMD ["uv", "run", "python", "-m", "luthien_control.proxy"]

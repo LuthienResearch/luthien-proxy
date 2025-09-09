@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# ABOUTME: Launch Claude Code using local LiteLLM proxy
+# ABOUTME: Routes requests through Luthien Control for monitoring
+
+# Find and source .env file (check current dir and parent dirs)
+current_dir="$PWD"
+while [ "$current_dir" != "/" ]; do
+    if [ -f "$current_dir/.env" ]; then
+        echo "Sourcing .env from: $current_dir"
+        source "$current_dir/.env"
+        break
+    fi
+    current_dir=$(dirname "$current_dir")
+done
+
+# Check required environment variables
+export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-http://localhost:4000}"
+
+if [ -z "$LITELLM_MASTER_KEY" ]; then
+    echo "Error: LITELLM_MASTER_KEY is not defined"
+    exit 1
+fi
+
+# Set ANTHROPIC_AUTH_TOKEN to LITELLM_MASTER_KEY for this context
+export ANTHROPIC_AUTH_TOKEN="$LITELLM_MASTER_KEY"
+
+# unset ANTHROPIC_API_KEY if set
+unset ANTHROPIC_API_KEY
+
+# Use CLAUDE_MODEL if defined, otherwise default to claude-opus-4-1
+MODEL="${CLAUDE_MODEL:-claude-opus-4-1}"
+
+# Launch claude with the specified model
+claude --model "$MODEL" "$@"

@@ -35,35 +35,36 @@ model_list:
       model: anthropic/claude-3-5-sonnet-20241022
       api_key: os.environ/ANTHROPIC_API_KEY
       max_tokens: 4096
-      temperature: 0.7
 
   - model_name: claude-3-5-haiku
     litellm_params:
       model: anthropic/claude-3-5-haiku-20241022
       api_key: os.environ/ANTHROPIC_API_KEY
       max_tokens: 4096
-      temperature: 0.7
 
   - model_name: claude-sonnet-4
     litellm_params:
       model: anthropic/claude-sonnet-4-20250514
       api_key: os.environ/ANTHROPIC_API_KEY
       max_tokens: 4096
-      temperature: 0.7
 
   - model_name: claude-opus-4-1
     litellm_params:
       model: anthropic/claude-opus-4-1-20250805
       api_key: os.environ/ANTHROPIC_API_KEY
       max_tokens: 4096
-      temperature: 0.7
+
+  - model_name: claude-3-5-haiku-20241022
+    litellm_params:
+      model: anthropic/claude-3-5-haiku-20241022
+      api_key: os.environ/ANTHROPIC_API_KEY
+      max_tokens: 4096
 
 
 # LiteLLM proxy settings
 litellm_settings:
   # Enable our custom logger
-  # Note: callbacks are configured programmatically in __main__.py to avoid import path issues
-  # callbacks: ["luthien_control.proxy.custom_logger.luthien_logger"]
+  callbacks: ["litellm_callback.luthien_callback"]
 
   # Model parameter handling
   drop_params: true  # Drop unsupported params for models like gpt-5 and o3
@@ -102,6 +103,10 @@ general_settings:
 
   # Rate limiting (if needed)
   max_requests_per_minute: 100
+
+  # aggressive logging
+  store_model_in_db: true
+  store_prompts_in_spend_logs: true
 
 # Environment-specific overrides
 environment: development

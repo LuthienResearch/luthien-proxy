@@ -26,20 +26,8 @@ def main():
         print(f"⚠️  Prisma migration failed: {e.stderr.decode()}")
         print("📝 Continuing anyway - tables may already exist")
 
-    # Import our custom logger
-    from luthien_control.proxy.custom_logger import luthien_logger
-
     # Set up environment variables for LiteLLM
     config_path = os.getenv("LITELLM_CONFIG_PATH", "/app/config/litellm_config.yaml")
-
-    # Import LiteLLM after setting up the path
-    import litellm
-
-    # Configure LiteLLM with our custom logger
-    litellm.callbacks = [luthien_logger]
-
-    print(f"✅ Configured LiteLLM with Luthien Control logger: {luthien_logger}")
-    print(f"✅ Callbacks configured: {litellm.callbacks}")
 
     # Set environment variables for LiteLLM proxy
     os.environ.setdefault("LITELLM_CONFIG_PATH", config_path)
@@ -59,26 +47,28 @@ def main():
 
     # Initialize and start the proxy
     try:
-        # Start the proxy server
-        from litellm.proxy.proxy_server import startup_event
-        import uvicorn
+        # Start LiteLLM proxy using subprocess to run the CLI
+        cmd = [
+            "uv",
+            "run",
+            "litellm",
+            "--config",
+            config_path,
+            "--port",
+            os.getenv("LITELLM_PORT", "4000"),
+            "--host",
+            os.getenv("LITELLM_HOST", "0.0.0.0"),
+            "--detailed_debug",
+        ]
 
-        # Run startup event to initialize proxy
-        import asyncio
-
-        asyncio.create_task(startup_event())
-
-        # Start the server
-        uvicorn.run(
-            "litellm.proxy.proxy_server:app",
-            host=os.getenv("LITELLM_HOST", "0.0.0.0"),
-            port=int(os.getenv("LITELLM_PORT", "4000")),
-            reload=False,  # Disable reload in container
-            log_level=os.getenv("LITELLM_LOG_LEVEL", "info").lower(),
-        )
+        print(f"Starting LiteLLM with command: {' '.join(cmd)}")
+        subprocess.run(cmd, check=True)
 
     except KeyboardInterrupt:
         print("\nShutting down LiteLLM proxy...")
+    except subprocess.CalledProcessError as e:
+        print(f"Error starting LiteLLM proxy: {e}")
+        sys.exit(1)
     except Exception as e:
         print(f"Error starting LiteLLM proxy: {e}")
         sys.exit(1)

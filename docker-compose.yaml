@@ -71,6 +71,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LUTHIEN_POLICY_CONFIG=${LUTHIEN_POLICY_CONFIG}
     ports:
       - "${CONTROL_PLANE_PORT}:8081"
     volumes:

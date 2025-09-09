@@ -1,0 +1,18 @@
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+h1 { color: #333; margin-bottom: 20px; }
+.controls { margin-bottom: 20px; display: flex; gap: 10px; align-items: center; }
+button { background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+button:hover { background: #0056b3; }
+table { width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+th { background: #f8f9fa; padding: 12px; text-align: left; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6; }
+td { padding: 12px; border-bottom: 1px solid #dee2e6; }
+tr:last-child td { border-bottom: none; }
+.stage { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+.stage-pre { background: #e3f2fd; color: #1976d2; }
+.stage-post { background: #e8f5e9; color: #388e3c; }
+.stage-streaming_chunk { background: #fff3e0; color: #f57c00; }
+.truncate { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loading { text-align: center; padding: 40px; color: #666; }
+.error { background: #f8d7da; color: #721c24; padding: 12px; border-radius: 4px; margin-bottom: 20px; }
+.auto-refresh { display: flex; align-items: center; gap: 5px; }
+.auto-refresh input { margin: 0; }
