@@ -18,12 +18,12 @@ from luthien_control.policies.base import LuthienPolicy
 class LoggingPolicy(LuthienPolicy):
     """Policy that logs all requests and responses to the database."""
 
-    def __init__(self):
+    def __init__(self, options: Optional[Dict[str, Any]] = None):
         self.db_url = os.getenv(
             "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
         )
         self.pool = None
-        self.config = self._load_config()
+        self.config = self._load_config(options)
 
     async def _ensure_pool(self):
         """Create connection pool if it doesn't exist."""
@@ -198,11 +198,16 @@ class LoggingPolicy(LuthienPolicy):
         return
 
     # ---------------- Internal helpers ----------------
-    def _load_config(self) -> Dict[str, Any]:
-        """Load policy config from YAML file.
+    def _load_config(
+        self, inline_options: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Load policy options.
 
-        Env var `LUTHIEN_POLICY_CONFIG` may point to a file. Defaults to
-        `/app/config/policy_logging.yaml` if present. Returns defaults otherwise.
+        Priority:
+        1) Options passed into constructor (from consolidated luthien_config.yaml)
+        2) Env var `LUTHIEN_POLICY_OPTIONS_JSON` (JSON string)
+        3) Env var `LUTHIEN_POLICY_OPTIONS` (path to YAML file; legacy)
+        4) Built-in defaults
         """
         defaults: Dict[str, Any] = {
             "redact_keys": [
@@ -215,15 +220,38 @@ class LoggingPolicy(LuthienPolicy):
             ],
             "stream": {"log_every_n": 10},
         }
-        # Policy-specific options file path (forwarded by control plane)
-        path = os.getenv("LUTHIEN_POLICY_OPTIONS", "/app/config/policy_logging.yaml")
+        # 1) Inline
+        if inline_options is not None:
+            try:
+                merged = defaults.copy()
+                for k, v in (inline_options or {}).items():
+                    merged[k] = v
+                return merged
+            except Exception:
+                pass
+        # 2) JSON env
+        json_env = os.getenv("LUTHIEN_POLICY_OPTIONS_JSON")
+        if json_env:
+            try:
+                loaded = json.loads(json_env)
+                merged = defaults.copy()
+                for k, v in (loaded or {}).items():
+                    merged[k] = v
+                return merged
+            except Exception as e:
+                print(
+                    f"LoggingPolicy: failed to parse LUTHIEN_POLICY_OPTIONS_JSON: {e}"
+                )
+        # 3) Legacy YAML path env
+        path = os.getenv("LUTHIEN_POLICY_OPTIONS")
         try:
             if path and os.path.exists(path):
                 with open(path, "r") as f:
                     loaded = yaml.safe_load(f) or {}
-                    # Shallow merge
+                    merged = defaults.copy()
                     for k, v in loaded.items():
-                        defaults[k] = v
+                        merged[k] = v
+                    return merged
         except Exception as e:
             print(f"LoggingPolicy: failed to load config from {path}: {e}")
         return defaults

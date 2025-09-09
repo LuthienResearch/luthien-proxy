@@ -58,8 +58,16 @@ def main():
             os.getenv("LITELLM_PORT", "4000"),
             "--host",
             os.getenv("LITELLM_HOST", "0.0.0.0"),
-            "--detailed_debug",
         ]
+
+        # Make detailed debug opt-in to reduce log noise by default
+        detailed = os.getenv("LITELLM_DETAILED_DEBUG", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        if detailed:
+            cmd.append("--detailed_debug")
 
         print(f"Starting LiteLLM with command: {' '.join(cmd)}")
         subprocess.run(cmd, check=True)

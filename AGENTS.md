@@ -12,7 +12,7 @@
   - `proxy/`: LiteLLM proxy integration and custom logger
   - `policies/`: policy interfaces and defaults (`noop.py`)
   - `monitors/`: trusted/untrusted monitors
-- `config/`: `litellm_config.yaml`, `policy_*.yaml`
+- `config/`: `litellm_config.yaml`, `luthien_config.yaml`
 - `scripts/`: developer helpers (`quick_start.sh`, `test_proxy.py`)
 - `docker/` + `docker-compose.yaml`: local stack (db, redis, control-plane, proxy)
 - `migrations/`, `prisma/`: database setup
@@ -48,6 +48,6 @@
 
 ## Security & Configuration Tips
 - Copy `.env.example` to `.env`; never commit secrets.
-- Key env vars: `DATABASE_URL`, `REDIS_URL`, `CONTROL_PLANE_URL`, `LITELLM_*`, `LUTHIEN_POLICY`.
-- Update `config/litellm_config.yaml` and policy YAMLs rather than hardcoding.
+- Key env vars: `DATABASE_URL`, `REDIS_URL`, `CONTROL_PLANE_URL`, `LITELLM_*`, `LUTHIEN_POLICY_CONFIG`.
+- Update `config/litellm_config.yaml` and `config/luthien_config.yaml` rather than hardcoding.
 - Validate setup with `uv run python scripts/test_proxy.py` and `docker compose logs -f`.

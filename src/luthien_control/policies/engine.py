@@ -9,7 +9,6 @@ from typing import Any, Dict, Optional
 import asyncpg
 from beartype import beartype
 import redis.asyncio as redis
-import yaml
 
 
 class PolicyEngine:
@@ -44,15 +43,12 @@ class PolicyEngine:
 
     @beartype
     def _load_default_policy(self) -> Dict[str, Any]:
-        """Load default policy configuration."""
-        try:
-            config_path = "/app/config/policy_default.yaml"
-            if os.path.exists(config_path):
-                with open(config_path, "r") as f:
-                    return yaml.safe_load(f)
-        except Exception as e:
-            print(f"Could not load default policy: {e}")
+        """Return built-in default engine policy.
 
+        Consolidation removed external policy_default.yaml; stick to a sane
+        built-in default for engine behavior, and allow future override via
+        dedicated keys in luthien_config.yaml if needed.
+        """
         # Fallback default policy
         return {
             "name": "default",

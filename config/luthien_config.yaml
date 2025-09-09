@@ -1,0 +1,20 @@
+# Luthien consolidated configuration
+
+# Active policy (module.path:ClassName)
+policy: "luthien_control.policies.logging:LoggingPolicy"
+
+# Policy-specific options (inlined; replaces separate policy_* files)
+policy_options:
+  # Keys to redact anywhere in the logged request/response
+  redact_keys:
+    - api_key
+    - Authorization
+    - authorization
+    - auth
+    - password
+    - bearer_token
+
+  # Streaming logging behavior
+  stream:
+    # Log every Nth streaming chunk to avoid DB spam
+    log_every_n: 10

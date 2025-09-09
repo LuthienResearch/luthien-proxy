@@ -156,23 +156,23 @@ async def health_check():
 def _load_policy_from_config() -> LuthienPolicy:
     """Load policy from YAML config specified by LUTHIEN_POLICY_CONFIG.
 
-    Expected YAML structure:
-      policy: "module.path:ClassName"  # required
-      policy_config: "/app/config/policy_logging.yaml"  # optional; forwarded as LUTHIEN_POLICY_OPTIONS
+    Expected YAML structure (consolidated):
+      policy: "module.path:ClassName"            # required
+      policy_options: { ... }                     # optional, inline
 
-    Falls back to /app/config/policy_default.yaml if env var is not set.
+    Falls back to /app/config/luthien_config.yaml if env var is not set.
     If anything fails, returns NoOpPolicy.
     """
-    config_path = os.getenv("LUTHIEN_POLICY_CONFIG", "/app/config/policy_default.yaml")
-    policy_ref = None
-    policy_config_path = None
+    config_path = os.getenv("LUTHIEN_POLICY_CONFIG", "/app/config/luthien_config.yaml")
+    policy_ref: Optional[str] = None
+    policy_options: Optional[Dict[str, Any]] = None
 
     try:
         if os.path.exists(config_path):
             with open(config_path, "r") as f:
                 cfg = yaml.safe_load(f) or {}
                 policy_ref = cfg.get("policy")
-                policy_config_path = cfg.get("policy_config")
+                policy_options = cfg.get("policy_options") or None
         else:
             print(f"Policy config not found at {config_path}; using NoOpPolicy")
     except Exception as e:
@@ -181,12 +181,6 @@ def _load_policy_from_config() -> LuthienPolicy:
     if not policy_ref:
         print("No policy specified in config; using NoOpPolicy")
         return NoOpPolicy()
-
-    # If a nested policy config path is provided, forward it via env so
-    # policies can pick it up (e.g., LoggingPolicy reads LUTHIEN_POLICY_CONFIG)
-    if policy_config_path:
-        # Forward as policy-specific options
-        os.environ["LUTHIEN_POLICY_OPTIONS"] = policy_config_path
 
     try:
         module_path, class_name = policy_ref.split(":", 1)
@@ -198,6 +192,18 @@ def _load_policy_from_config() -> LuthienPolicy:
             )
             return NoOpPolicy()
         print(f"Loaded policy from config: {class_name} ({module_path})")
+        # Prefer passing inline policy_options if the class accepts it; otherwise fallback
+        try:
+            if policy_options is not None:
+                return cls(options=policy_options)
+        except TypeError:
+            pass
+        # Back-compat for policies expecting env-provided options
+        if policy_options is not None:
+            try:
+                os.environ["LUTHIEN_POLICY_OPTIONS_JSON"] = json.dumps(policy_options)
+            except Exception:
+                pass
         return cls()
     except Exception as e:
         print(f"Failed to load policy '{policy_ref}': {e}. Using NoOpPolicy.")

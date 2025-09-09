@@ -1,9 +1,0 @@
-# Control Plane active policy configuration
-
-# Which policy to load (module.path:ClassName)
-policy: "luthien_control.policies.logging:LoggingPolicy"
-
-# Optional path to a policy-specific YAML config. This will be forwarded to
-# the policy via the LUTHIEN_POLICY_CONFIG environment variable so the policy
-# can pick up its own options.
-policy_config: "/app/config/policy_logging.yaml"
