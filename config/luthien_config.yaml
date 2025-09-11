@@ -1,29 +1,9 @@
 # Luthien consolidated configuration
 
 # Active policy (module.path:ClassName)
-policy: "luthien_control.policies.gemma_suspiciousness:GemmaSuspiciousnessPolicy"
+policy: "luthien_control.policies.logging:LoggingPolicy"
 
 # Policy-specific options
 policy_options:
-  threshold: 0.75
-  replacement_message: "Response withheld due to safety policy."
-  include_reason_in_replacement: false
-
-  # Use OpenAI-compatible scorer behind a local LiteLLM service
-  backend: "openai"
-  openai:
-    base_url: "http://local-llm:4000"
-    model: "gemma-scorer"
-    api_key: "sk-noauth"
-    timeout: 10.0
-
-  # If you prefer calling Ollama directly, switch backend to "ollama_generate"
-  # and adjust the settings below.
-  ollama:
-    base_url: "http://local-llm:11434"
-    model: "gemma2:2b"
-    timeout: 10.0
-
-  streaming:
-    min_chars_before_check: 200
-    check_every_n_chunks: 20
+  stream:
+    log_every_n: 1

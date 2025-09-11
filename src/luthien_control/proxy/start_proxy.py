@@ -8,19 +8,22 @@ import sys
 def setup_environment():
     """Set up the environment for LiteLLM with our custom logger."""
 
-    # Ensure our src directory is in Python path
-    if "/app/src" not in sys.path:
-        sys.path.insert(0, "/app/src")
+    # Ensure our src + config directories are in Python path
+    for p in ("/app/src", "/app/config"):
+        if p not in sys.path:
+            sys.path.insert(0, p)
 
-    # Import and configure our custom logger
-    from luthien_control.proxy.custom_logger import luthien_logger
+    # Ensure LiteLLM proxy reads our YAML config
+    # LiteLLM's embedded proxy_server loads CONFIG_FILE_PATH (or WORKER_CONFIG),
+    # not LITELLM_CONFIG_PATH. Set it explicitly before importing the app.
+    config_path = os.getenv("LITELLM_CONFIG_PATH", "/app/config/litellm_config.yaml")
+    os.environ.setdefault("CONFIG_FILE_PATH", config_path)
 
     # Import LiteLLM and configure it
     import litellm
     from litellm.proxy.proxy_server import app
 
-    # Set the callback directly on the litellm module
-    litellm.callbacks = [luthien_logger]
+    # Do not set callbacks programmatically; rely on YAML single-hook config
 
     print("🎯 Luthien Control Logger configured successfully")
     print(f"📋 Active callbacks: {[cb.__class__.__name__ for cb in litellm.callbacks]}")

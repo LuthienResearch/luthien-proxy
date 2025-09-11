@@ -464,6 +464,18 @@ wheels = [
 ]
 
 [[package]]
+name = "fastuuid"
+version = "0.12.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/17/13146a1e916bd2971d0a58db5e0a4ad23efdd49f78f33ac871c161f8007b/fastuuid-0.12.0.tar.gz", hash = "sha256:d0bd4e5b35aad2826403f4411937c89e7c88857b1513fe10f696544c03e9bd8e", size = 19180 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/e8/d2bb4f19e5ee15f6f8e3192a54a897678314151aa17d0fb766d2c2cbc03d/fastuuid-0.12.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:7fe2407316a04ee8f06d3dbc7eae396d0a86591d92bafe2ca32fce23b1145786", size = 247512 },
+    { url = "https://files.pythonhosted.org/packages/bc/53/25e811d92fd60f5c65e098c3b68bd8f1a35e4abb6b77a153025115b680de/fastuuid-0.12.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b9b31dd488d0778c36f8279b306dc92a42f16904cba54acca71e107d65b60b0c", size = 258257 },
+    { url = "https://files.pythonhosted.org/packages/10/23/73618e7793ea0b619caae2accd9e93e60da38dd78dd425002d319152ef2f/fastuuid-0.12.0-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:b19361ee649365eefc717ec08005972d3d1eb9ee39908022d98e3bfa9da59e37", size = 278559 },
+    { url = "https://files.pythonhosted.org/packages/e4/41/6317ecfc4757d5f2a604e5d3993f353ba7aee85fa75ad8b86fce6fc2fa40/fastuuid-0.12.0-cp313-cp313-win_amd64.whl", hash = "sha256:8fc66b11423e6f3e1937385f655bedd67aebe56a3dcec0cb835351cfe7d358c9", size = 157276 },
+]
+
+[[package]]
 name = "filelock"
 version = "3.19.1"
 source = { registry = "https://pypi.org/simple" }
@@ -750,11 +762,12 @@ wheels = [
 
 [[package]]
 name = "litellm"
-version = "1.75.9"
+version = "1.77.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
     { name = "click" },
+    { name = "fastuuid" },
     { name = "httpx" },
     { name = "importlib-metadata" },
     { name = "jinja2" },
@@ -765,9 +778,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "tokenizers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d2/d8/08615bc4811d9a6df2b46f8efa7a0d6f7f8e1ca268a4c794540d9987a035/litellm-1.75.9.tar.gz", hash = "sha256:d8baf4b9988df599b55cb675808bbe22cedee2f099ba883684fe3f23af8d13a9", size = 10142656 }
+sdist = { url = "https://files.pythonhosted.org/packages/4e/25/72a400aa06e8cb3f18a6dd15ac634caa6f6fb2acf3c03dd208c41495fd79/litellm-1.77.0.tar.gz", hash = "sha256:7025a99c88e54209a64c05824ec1fab968343be1ed4be3573afacc92160d561c", size = 10211874 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/b2/f21db9636d9fcd67b2c557c58aafb8a6e9b53864f7a40d645e09c2e3ab98/litellm-1.75.9-py3-none-any.whl", hash = "sha256:a72c3e05bcb0e50ac1804f0df09d0d7bf5cb41e84351e1609a960033b0ef01c1", size = 8920144 },
+    { url = "https://files.pythonhosted.org/packages/46/fa/f4f9cd0d04ef9d80dfb5c171ed80e40edc7bca331bca82c6eb31d88193e4/litellm-1.77.0-py3-none-any.whl", hash = "sha256:40c3ad4b4ef8eab109e04e71b62b9eab659d7af763d9e62d1a3a770ca25468ac", size = 9003845 },
 ]
 
 [package.optional-dependencies]
@@ -805,9 +818,9 @@ sdist = { url = "https://files.pythonhosted.org/packages/7c/54/b0e311bfe39ec8210
 
 [[package]]
 name = "litellm-proxy-extras"
-version = "0.2.17"
+version = "0.2.18"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/69/49/fb73d71b7cbe981ca6ca07ebcb3bfa714c6a20d1bea327546a2f4a5a8865/litellm_proxy_extras-0.2.17.tar.gz", hash = "sha256:96428ba537d440a40a7db85e615284a4fd89bada24a7fc8737ef0189932cb1ed", size = 15227 }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/97/103969becae757aaf8cbbefb838dfc7dd17846ee15f1b59ef91f6e292573/litellm_proxy_extras-0.2.18.tar.gz", hash = "sha256:e5ded69834bb76a405ab201aa3b3983f2c1a0cc80362e2889bc0add509137e55", size = 15291 }
 
 [[package]]
 name = "luthien-control"
@@ -839,7 +852,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "beartype", specifier = ">=0.21.0" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "litellm", extras = ["proxy"], specifier = ">=1.75.9" },
+    { name = "litellm", extras = ["proxy"], specifier = ">=1.77.0" },
     { name = "prisma", specifier = ">=0.15.0" },
     { name = "psycopg", specifier = ">=3.2.9" },
     { name = "pydantic", specifier = ">=2.11.7" },

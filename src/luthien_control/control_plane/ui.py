@@ -27,3 +27,8 @@ async def debug_ui(request: Request, debug_type: str):
 @router.get("/logs", response_class=HTMLResponse)
 async def logs_ui(request: Request):
     return templates.TemplateResponse("logs.html", {"request": request})
+
+
+@router.get("/hooks/trace", response_class=HTMLResponse)
+async def hooks_trace_ui(request: Request):
+    return templates.TemplateResponse("hooks_trace.html", {"request": request})

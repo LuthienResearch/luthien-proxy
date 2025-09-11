@@ -5,12 +5,13 @@ import os
 from typing import Any, Dict, Optional, List
 from datetime import datetime
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import asyncpg
 import json
+from collections import deque
 
 # Import our policy and monitoring modules (will implement these)
 from luthien_control.policies.engine import PolicyEngine
@@ -121,6 +122,35 @@ app.include_router(ui_router)
 # Global instances (will be initialized on startup)
 policy_engine: Optional[PolicyEngine] = None
 active_policy: Optional[LuthienPolicy] = None
+_hook_counters: Dict[str, int] = {
+    "hook_pre": 0,
+    "hook_post_success": 0,
+    "hook_stream_chunk": 0,
+}
+_hook_logs: deque = deque(maxlen=500)
+
+
+async def _insert_debug(debug_type: str, payload: Dict[str, Any]) -> None:
+    """Insert a debug log row into the database (best-effort)."""
+    db_url = os.getenv(
+        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
+    )
+    try:
+        conn = await asyncpg.connect(db_url)
+        try:
+            await conn.execute(
+                """
+                INSERT INTO debug_logs (debug_type_identifier, jsonblob)
+                VALUES ($1, $2)
+                """,
+                debug_type,
+                json.dumps(payload),
+            )
+        finally:
+            await conn.close()
+    except Exception as e:
+        # Log error to stdout; do not raise to avoid breaking hooks
+        print(f"Error inserting debug log: {e}")
 
 
 @app.on_event("startup")
@@ -223,7 +253,149 @@ async def list_endpoints():
     }
 
 
-# ---------------- Removed hook-style endpoints (not used) -----------------
+# ---------------- Hook-style endpoints (LiteLLM callback integration) -----------------
+
+
+@app.post("/hooks/pre")
+async def hook_pre(payload: Dict[str, Any]):
+    """Pre-call hook. Mirrors LiteLLM CustomLogger pre hook semantics.
+
+    Expects payload with keys similar to:
+      - user_api_key_dict: Optional[dict]
+      - cache: Optional[dict]
+      - data: dict (the OpenAI-style request)
+      - call_type: Optional[str]
+
+    Returns one of:
+      - {result_type: "none"} (no change)
+      - {result_type: "string", result: str} (short-circuit with string)
+      - {result_type: "dict", result: dict} (rewrite request)
+    """
+    global active_policy
+
+    user_api_key_dict = payload.get("user_api_key_dict")
+    cache = payload.get("cache")
+    data = payload.get("data") or {}
+    call_type = payload.get("call_type")
+
+    if active_policy is None:
+        active_policy = NoOpPolicy()
+
+    try:
+        result = await active_policy.async_pre_call_hook(
+            user_api_key_dict=user_api_key_dict,
+            cache=cache,
+            data=data,
+            call_type=call_type,
+        )
+        _hook_counters["hook_pre"] = _hook_counters.get("hook_pre", 0) + 1
+        # Log for verification
+        dbg = {
+            "hook": "pre",
+            "call_type": call_type,
+            "result_kind": ("none" if result is None else type(result).__name__),
+        }
+        cid = payload.get("correlation_id")
+        if cid:
+            dbg["correlation_id"] = cid
+        await _insert_debug("hook_pre", dbg)
+        if result is None:
+            return {"result_type": "none"}
+        if isinstance(result, str):
+            return {"result_type": "string", "result": result}
+        if isinstance(result, dict):
+            return {"result_type": "dict", "result": result}
+        # Fallback: serialize unknown types
+        return {"result_type": "string", "result": str(result)}
+    except Exception as e:
+        return {"result_type": "string", "result": f"pre hook error: {e}"}
+
+
+@app.post("/hooks/post_success")
+async def hook_post_success(payload: Dict[str, Any]):
+    """Post-success hook. Can request response replacement.
+
+    Expects payload with keys:
+      - data: dict (original request)
+      - user_api_key_dict: Optional[dict]
+      - response: dict (original response)
+
+    Returns:
+      - {replace: false} to keep original
+      - {replace: true, replacement: dict} to replace
+    """
+    global active_policy
+    if active_policy is None:
+        active_policy = NoOpPolicy()
+
+    data = payload.get("data") or {}
+    user_api_key_dict = payload.get("user_api_key_dict")
+    response = payload.get("response") or {}
+
+    try:
+        replacement = await active_policy.async_post_call_success_hook(
+            data=data, user_api_key_dict=user_api_key_dict, response=response
+        )
+        _hook_counters["hook_post_success"] = (
+            _hook_counters.get("hook_post_success", 0) + 1
+        )
+        dbg = {"hook": "post_success", "replaced": replacement is not None}
+        cid = payload.get("correlation_id")
+        if cid:
+            dbg["correlation_id"] = cid
+        await _insert_debug("hook_post_success", dbg)
+        if replacement is None:
+            return {"replace": False}
+        return {"replace": True, "replacement": replacement}
+    except Exception as e:
+        return {"replace": True, "replacement": {"error": str(e)}}
+
+
+@app.post("/hooks/stream_chunk")
+async def hook_stream_chunk(payload: Dict[str, Any]):
+    """Per-chunk streaming hook.
+
+    Expects payload with keys:
+      - user_api_key_dict: Optional[dict]
+      - request_data: dict (original request)
+      - chunk: dict (OpenAI-style delta chunk)
+      - chunk_index: int
+      - accumulated_text: str
+
+    Returns a dict including at minimum:
+      - action: 'pass' | 'suppress' | 'edit' | 'replace_stream'
+      - chunk: dict (required when action == 'edit')
+    """
+    global active_policy
+    if active_policy is None:
+        active_policy = NoOpPolicy()
+
+    try:
+        result = await active_policy.streaming_on_chunk(
+            user_api_key_dict=payload.get("user_api_key_dict"),
+            request_data=payload.get("request_data") or {},
+            chunk=payload.get("chunk") or {},
+            chunk_index=int(payload.get("chunk_index") or 0),
+            accumulated_text=str(payload.get("accumulated_text") or ""),
+        )
+        _hook_counters["hook_stream_chunk"] = (
+            _hook_counters.get("hook_stream_chunk", 0) + 1
+        )
+        dbg = {
+            "hook": "stream_chunk",
+            "action": (result.get("action") if isinstance(result, dict) else None),
+        }
+        cid = payload.get("correlation_id")
+        if cid:
+            dbg["correlation_id"] = cid
+        await _insert_debug("hook_stream_chunk", dbg)
+        # Basic shape validation
+        action = result.get("action") if isinstance(result, dict) else None
+        if action not in {"pass", "suppress", "edit", "replace_stream"}:
+            return {"action": "pass"}
+        return result
+    except Exception as e:
+        return {"action": "pass", "error": str(e)}
 
 
 # ---------------- Logging UI endpoints -----------------
@@ -471,3 +643,449 @@ async def get_debug_page(
     except Exception as e:
         print(f"Error fetching debug page: {e}")
     return DebugPage(items=items, page=page, page_size=page_size, total=total)
+
+
+class DebugLogIn(BaseModel):
+    debug_type: str
+    payload: Dict[str, Any]
+
+
+@app.post("/api/debug/log")
+async def post_debug_log(entry: DebugLogIn):
+    await _insert_debug(entry.debug_type, entry.payload)
+    return {"ok": True}
+
+
+class HookLogIn(BaseModel):
+    hook: str
+    when: str
+    kwargs: Dict[str, Any] | None = None
+    response_obj: Dict[str, Any] | str | None = None
+    t0: float | None = None
+    t1: float | None = None
+
+
+@app.post("/api/hooks/log")
+async def post_hook_log(entry: HookLogIn):
+    item = entry.model_dump()
+    _hook_logs.append(item)
+    return {"ok": True, "count": len(_hook_logs)}
+
+
+@app.get("/api/hooks/logs")
+async def get_hook_logs(limit: int = Query(default=50, ge=1, le=500)):
+    items = list(_hook_logs)[-limit:]
+    return items
+
+
+@app.delete("/api/hooks/logs")
+async def clear_hook_logs():
+    _hook_logs.clear()
+    return {"ok": True, "count": 0}
+
+
+class HookIngest(BaseModel):
+    hook: str
+    when: str
+    t0: float | None = None
+    t1: float | None = None
+    kwargs: Dict[str, Any] | None = None
+    response_obj: Dict[str, Any] | str | None = None
+    correlation_id: Optional[str] = None
+
+
+@app.post("/hooks/ingest")
+async def ingest_generic_hook(entry: HookIngest):
+    """Generic ingestion for any LiteLLM logger hook.
+
+    - Stores in-memory log
+    - Inserts into debug_logs with debug_type 'litellm_hook'
+    - Updates counters heuristically
+    """
+    item = entry.model_dump()
+    _hook_logs.append(item)
+
+    # Insert into DB debug logs (best-effort)
+    try:
+        await _insert_debug("litellm_hook", item)
+    except Exception:
+        pass
+
+    name = (entry.hook or "").lower()
+    # Heuristic mapping to our three counters
+    try:
+        if any(
+            k in name for k in ["pre_call_hook", "log_pre_api_call", "async_log_pre_"]
+        ):
+            _hook_counters["hook_pre"] = _hook_counters.get("hook_pre", 0) + 1
+        if any(
+            k in name
+            for k in [
+                "post_call_success_hook",
+                "log_post_api_call",
+                "log_success_event",
+                "async_log_success_event",
+            ]
+        ):
+            _hook_counters["hook_post_success"] = (
+                _hook_counters.get("hook_post_success", 0) + 1
+            )
+        if any(
+            k in name
+            for k in [
+                "stream_event",
+                "streaming_iterator_hook",
+                "post_call_streaming_hook",
+            ]
+        ):
+            _hook_counters["hook_stream_chunk"] = (
+                _hook_counters.get("hook_stream_chunk", 0) + 1
+            )
+    except Exception:
+        pass
+
+    return {"ok": True}
+
+
+@app.post("/hooks/{hook_name}")
+async def hook_generic(hook_name: str, payload: Dict[str, Any]):
+    """Generic hook endpoint for any CustomLogger hook.
+
+    - Records in-memory log with name + payload
+    - Inserts into debug_logs as debug_type=f"hook:{hook_name}"
+    - Updates counters based on hook name
+    - Returns a simple ack
+    """
+    try:
+        record = {
+            "hook": hook_name,
+            "payload": payload,
+        }
+        cid = payload.get("correlation_id")
+        if cid:
+            record["correlation_id"] = cid
+        _hook_logs.append(record)
+        # Insert into DB
+        await _insert_debug(f"hook:{hook_name}", record)
+        name = hook_name.lower()
+        # Counter heuristics
+        if any(
+            k in name
+            for k in [
+                "pre_call_hook",
+                "pre_api_call",
+                "pre_routing",
+                "pre_call_deployment",
+            ]
+        ):
+            _hook_counters["hook_pre"] = _hook_counters.get("hook_pre", 0) + 1
+        if any(
+            k in name
+            for k in [
+                "post_call_success_hook",
+                "post_api_call",
+                "success_event",
+                "logging_hook",
+                "post_call_success_deployment_hook",
+            ]
+        ):
+            _hook_counters["hook_post_success"] = (
+                _hook_counters.get("hook_post_success", 0) + 1
+            )
+        if any(
+            k in name
+            for k in [
+                "stream_event",
+                "post_call_streaming",
+                "streaming_iterator_hook",
+                "output_params_streaming",
+            ]
+        ):
+            _hook_counters["hook_stream_chunk"] = (
+                _hook_counters.get("hook_stream_chunk", 0) + 1
+            )
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"hook_generic_error: {e}")
+
+
+# ---------------- Hook testing orchestrator -----------------
+
+
+class HookTestRequest(BaseModel):
+    model: Optional[str] = None
+    prompt: str = "Say TEST_OK"
+    stream: bool = False
+    temperature: float = 0.7
+    max_tokens: int = 50
+    correlation_id: Optional[str] = None
+
+
+class HookTestResult(BaseModel):
+    ok: bool
+    counters: Dict[str, int]
+    response_preview: Optional[str] = None
+    error: Optional[str] = None
+
+
+@app.post("/tests/run", response_model=HookTestResult)
+async def run_hook_test(req: HookTestRequest):
+    """Execute a simple request via the proxy and report which hooks fired.
+
+    Uses LITELLM_URL (default http://litellm-proxy:4000) and LITELLM_MASTER_KEY
+    for authorization. Resets in-memory hook counters before issuing the test request.
+    """
+    # Reset counters
+    for k in list(_hook_counters.keys()):
+        _hook_counters[k] = 0
+    _hook_logs.clear()
+
+    proxy_url = os.getenv("LITELLM_URL", "http://litellm-proxy:4000")
+    master_key = os.getenv("LITELLM_MASTER_KEY", "sk-luthien-dev-key")
+    model = req.model or os.getenv("TEST_MODEL", "gpt-4o")
+
+    headers = {
+        "Authorization": f"Bearer {master_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": req.prompt}],
+        "temperature": req.temperature,
+        "max_tokens": req.max_tokens,
+    }
+    # add correlation id into litellm_metadata and a system tag for debug
+    import uuid as _uuid
+
+    cid = req.correlation_id or str(_uuid.uuid4())
+    payload["litellm_metadata"] = {"correlation_id": cid}
+    payload["messages"].insert(
+        0, {"role": "system", "content": f"CORRELATION_ID={cid}"}
+    )
+    try:
+        import httpx
+
+        if req.stream:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{proxy_url}/chat/completions",
+                    headers=headers,
+                    json={**payload, "stream": True},
+                ) as resp:
+                    if resp.status_code != 200:
+                        text = await resp.aread()
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"proxy_stream_error: {resp.status_code}: {text.decode(errors='ignore')}",
+                        )
+                    parts: list[str] = []
+                    async for line in resp.aiter_lines():
+                        if line.startswith("data: "):
+                            data = line[6:].strip()
+                            if data == "[DONE]":
+                                break
+                            try:
+                                obj = json.loads(data)
+                                delta = (
+                                    obj.get("choices", [{}])[0]
+                                    .get("delta", {})
+                                    .get("content")
+                                )
+                                if delta:
+                                    parts.append(delta)
+                            except Exception:
+                                pass
+                    preview = "".join(parts)[:200] if parts else None
+                    return HookTestResult(
+                        ok=True,
+                        counters=dict(_hook_counters),
+                        response_preview=preview,
+                        error=None,
+                    )
+        else:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{proxy_url}/chat/completions", headers=headers, json=payload
+                )
+                if resp.status_code != 200:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"proxy_error: {resp.status_code}: {resp.text}",
+                    )
+                data = resp.json()
+                preview = data.get("choices", [{}])[0].get("message", {}).get("content")
+                if isinstance(preview, str):
+                    preview = preview[:200]
+                return HookTestResult(
+                    ok=True,
+                    counters=dict(_hook_counters),
+                    response_preview=preview,
+                    error=None,
+                )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"cp_test_error: {e}")
+
+
+@app.get("/api/hooks/counters")
+async def get_hook_counters():
+    """In-memory counters for verifying that hooks are being invoked."""
+    return dict(_hook_counters)
+
+
+class TraceEntry(BaseModel):
+    source: str  # 'debug_logs' or 'request_logs'
+    time: datetime
+    post_time_ns: Optional[int] = None
+    hook: Optional[str] = None
+    stage: Optional[str] = None
+    payload: Dict[str, Any]
+
+
+class TraceResponse(BaseModel):
+    correlation_id: str
+    entries: List[TraceEntry]
+
+
+@app.get("/api/hooks/trace", response_model=TraceResponse)
+async def trace_by_correlation_id(cid: str = Query(..., min_length=4)):
+    """Return ordered hook + request_log entries associated with a correlation_id."""
+    db_url = os.getenv(
+        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
+    )
+    entries: List[TraceEntry] = []
+    try:
+        conn = await asyncpg.connect(db_url)
+        try:
+            # Fetch hook entries from debug_logs
+            rows = await conn.fetch(
+                """
+                SELECT time_created, debug_type_identifier, jsonblob
+                FROM debug_logs
+                WHERE jsonblob->>'correlation_id' = $1
+                ORDER BY time_created ASC
+                """,
+                cid,
+            )
+            for r in rows:
+                jb = r["jsonblob"]
+                if isinstance(jb, str):
+                    try:
+                        jb = json.loads(jb)
+                    except Exception:
+                        jb = {"raw": jb}
+                # Prefer high-resolution time from payload if present
+                post_ns = None
+                try:
+                    if isinstance(jb, dict):
+                        pl = jb.get("payload")
+                        if isinstance(pl, dict):
+                            ns = pl.get("post_time_ns")
+                            if isinstance(ns, int):
+                                post_ns = ns
+                            elif isinstance(ns, float):
+                                post_ns = int(ns)
+                except Exception:
+                    post_ns = None
+                entries.append(
+                    TraceEntry(
+                        source="debug_logs",
+                        time=r["time_created"],
+                        post_time_ns=post_ns,
+                        hook=(jb.get("hook") if isinstance(jb, dict) else None),
+                        payload=jb,
+                    )
+                )
+
+            # Fetch request_logs where request contains correlation id
+            rows2 = await conn.fetch(
+                """
+                SELECT created_at, stage, request, response
+                FROM request_logs
+                WHERE (request::jsonb -> 'litellm_metadata' ->> 'correlation_id') = $1
+                   OR (response::jsonb -> 'litellm_metadata' ->> 'correlation_id') = $1
+                ORDER BY created_at ASC
+                """,
+                cid,
+            )
+            for r in rows2:
+                req = r["request"]
+                resp = r["response"]
+                try:
+                    reqj = json.loads(req) if isinstance(req, str) else (req or {})
+                except Exception:
+                    reqj = {"raw_request": req}
+                try:
+                    respj = json.loads(resp) if isinstance(resp, str) else (resp or {})
+                except Exception:
+                    respj = {"raw_response": resp}
+                entries.append(
+                    TraceEntry(
+                        source="request_logs",
+                        time=r["created_at"],
+                        post_time_ns=None,
+                        stage=r["stage"],
+                        payload={"request": reqj, "response": respj},
+                    )
+                )
+        finally:
+            await conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"trace_error: {e}")
+
+    # Sort by high-resolution time when available, else fallback to DB time
+    def sort_key(e: TraceEntry) -> int:
+        if e.post_time_ns is not None:
+            return e.post_time_ns
+        try:
+            # Convert datetime to ns epoch
+            return int(e.time.timestamp() * 1_000_000_000)
+        except Exception:
+            return 0
+
+    entries.sort(key=sort_key)
+    return TraceResponse(correlation_id=cid, entries=entries)
+
+
+class CorrelationInfo(BaseModel):
+    correlation_id: str
+    count: int
+    latest: datetime
+
+
+@app.get("/api/hooks/recent_cids", response_model=List[CorrelationInfo])
+async def recent_correlation_ids(limit: int = Query(default=50, ge=1, le=500)):
+    db_url = os.getenv(
+        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
+    )
+    out: List[CorrelationInfo] = []
+    try:
+        conn = await asyncpg.connect(db_url)
+        try:
+            rows = await conn.fetch(
+                """
+                SELECT jsonblob->>'correlation_id' as cid,
+                       COUNT(*) as cnt,
+                       MAX(time_created) as latest
+                FROM debug_logs
+                WHERE jsonblob->>'correlation_id' IS NOT NULL
+                GROUP BY cid
+                ORDER BY latest DESC
+                LIMIT $1
+                """,
+                limit,
+            )
+            for r in rows:
+                cid = r["cid"]
+                if not cid:
+                    continue
+                out.append(
+                    CorrelationInfo(
+                        correlation_id=cid, count=int(r["cnt"]), latest=r["latest"]
+                    )
+                )
+        finally:
+            await conn.close()
+    except Exception as e:
+        print(f"Error fetching recent correlation ids: {e}")
+    return out

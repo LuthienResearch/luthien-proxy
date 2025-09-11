@@ -3,12 +3,19 @@
 
 """
 Minimal LiteLLM callback that forwards all calls to the control plane.
-This is what LiteLLM loads directly from the config file.
+This module is loaded by LiteLLM via the `callbacks` entry in
+`config/litellm_config.yaml`.
+
+Implements a thin bridge:
+- pre: POST /hooks/pre (sync)
+- post-success: POST /hooks/post_success (async)
+- stream-chunk: POST /hooks/stream_chunk (async)
 """
 
 import os
 from litellm.integrations.custom_logger import CustomLogger
 from litellm._logging import verbose_logger
+import httpx
 
 
 class LuthienCallback(CustomLogger):
@@ -24,36 +31,506 @@ class LuthienCallback(CustomLogger):
             f"LUTHIEN LuthienCallback initialized with control plane URL: {self.control_plane_url}"
         )
 
+    # ------------- internal helpers -------------
+    def _post_hook(
+        self,
+        hook: str,
+        when: str,
+        kwargs,
+        response_obj,
+        start_time=None,
+        end_time=None,
+        correlation_id: str | None = None,
+    ):
+        try:
+            import time as _time
+
+            cid = correlation_id or self._extract_correlation_id(kwargs)
+            with httpx.Client(timeout=self.timeout) as client:
+                client.post(
+                    f"{self.control_plane_url}/hooks/{hook}",
+                    json={
+                        "when": when,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "post_time_ns": _time.time_ns(),
+                        "kwargs": self._json_safe(kwargs or {}),
+                        "response_obj": self._json_safe(
+                            self._serialize_response(response_obj)
+                        ),
+                        "correlation_id": cid,
+                    },
+                )
+        except Exception as e:
+            verbose_logger.debug(f"LUTHIEN hook post error ({hook}): {e}")
+
+    async def _apost_hook(
+        self,
+        hook: str,
+        when: str,
+        kwargs,
+        response_obj,
+        start_time=None,
+        end_time=None,
+        correlation_id: str | None = None,
+    ):
+        try:
+            import time as _time
+
+            cid = correlation_id or self._extract_correlation_id(kwargs)
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                await client.post(
+                    f"{self.control_plane_url}/hooks/{hook}",
+                    json={
+                        "when": when,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "post_time_ns": _time.time_ns(),
+                        "kwargs": self._json_safe(kwargs or {}),
+                        "response_obj": self._json_safe(
+                            self._serialize_response(response_obj)
+                        ),
+                        "correlation_id": cid,
+                    },
+                )
+        except Exception as e:
+            verbose_logger.debug(f"LUTHIEN hook post error ({hook}): {e}")
+
     def log_pre_api_call(self, model, messages, kwargs):
+        """Synchronous pre-call hook: forward to control plane.
+
+        We don't attempt to rewrite the outgoing request here (LiteLLM's
+        logger API is primarily observational), but we do invoke the
+        control plane for visibility and future decisioning.
+        """
+        try:
+            payload = {
+                "user_api_key_dict": self._serialize_dict(
+                    kwargs.get("user_api_key_dict")
+                ),
+                "cache": self._json_safe(kwargs.get("cache")),
+                "data": self._json_safe(
+                    {
+                        **({} if kwargs is None else dict(kwargs)),
+                        "model": model,
+                        "messages": messages,
+                    }
+                ),
+                "call_type": kwargs.get("call_type"),
+            }
+            cid = self._extract_correlation_id(payload.get("data", {}))
+            if cid:
+                payload["correlation_id"] = cid
+            url = f"{self.control_plane_url}/hooks/pre"
+            with httpx.Client(timeout=self.timeout) as client:
+                res = client.post(url, json=payload)
+                verbose_logger.debug(
+                    f"LUTHIEN hook_pre status={res.status_code} body={res.text[:200]}"
+                )
+            # generic hook endpoint (pass correlation id explicitly for reliable trace)
+            self._post_hook("log_pre_api_call", "pre", kwargs, None, correlation_id=cid)
+        except Exception as e:
+            verbose_logger.debug(f"LUTHIEN hook_pre error: {e}")
         return super().log_pre_api_call(model, messages, kwargs)
 
     def log_post_api_call(self, kwargs, response_obj, start_time, end_time):
+        # generic hook endpoint
+        self._post_hook(
+            "log_post_api_call", "post", kwargs, response_obj, start_time, end_time
+        )
         return super().log_post_api_call(kwargs, response_obj, start_time, end_time)
 
     def log_success_event(self, kwargs, response_obj, start_time, end_time):
-        """Synchronous version - just verbose_logger.debug for debugging."""
-        verbose_logger.debug("LUTHIEN SYNC SUCCESS EVENT CALLED")
+        self._post_hook(
+            "log_success_event", "success", kwargs, response_obj, start_time, end_time
+        )
 
     def log_failure_event(self, kwargs, response_obj, start_time, end_time):
+        self._post_hook(
+            "log_failure_event", "failure", kwargs, response_obj, start_time, end_time
+        )
         return super().log_failure_event(kwargs, response_obj, start_time, end_time)
 
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
-        """No-op: /hooks endpoints removed; avoid posting to control plane.
+        """Forward post-success to control plane for possible replacement/logging."""
+        await self._apost_hook(
+            "async_log_success_event",
+            "success",
+            kwargs,
+            response_obj,
+            start_time,
+            end_time,
+        )
+        try:
+            payload = {
+                "data": self._json_safe(kwargs or {}),
+                "user_api_key_dict": self._serialize_dict(
+                    kwargs.get("user_api_key_dict")
+                    if isinstance(kwargs, dict)
+                    else None
+                ),
+                "response": self._json_safe(self._serialize_response(response_obj)),
+            }
+            cid = self._extract_correlation_id(kwargs or {})
+            if cid:
+                payload["correlation_id"] = cid
+            url = f"{self.control_plane_url}/hooks/post_success"
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                res = await client.post(url, json=payload)
+                verbose_logger.debug(
+                    f"LUTHIEN hook_post_success status={res.status_code} body={res.text[:200]}"
+                )
+        except Exception as e:
+            verbose_logger.debug(f"LUTHIEN hook_post_success error: {e}")
 
-        If needed, future instrumentation can write directly to a new
-        ingestion endpoint or another sink.
+    async def async_post_call_success_hook(self, data, user_api_key_dict, response):
+        """Proxy-only success hook: forward to control plane.
+
+        Many proxy code paths call this instead of async_log_success_event.
         """
-        verbose_logger.debug("LUTHIEN ASYNC SUCCESS EVENT - no-op (hooks disabled)")
+        try:
+            payload = {
+                "data": self._json_safe(data or {}),
+                "user_api_key_dict": self._serialize_dict(user_api_key_dict),
+                "response": self._json_safe(self._serialize_response(response)),
+            }
+            url = f"{self.control_plane_url}/hooks/post_success"
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                res = await client.post(url, json=payload)
+                verbose_logger.debug(
+                    f"LUTHIEN post_success(proxy) status={res.status_code} body={res.text[:200]}"
+                )
+        except Exception as e:
+            verbose_logger.debug(f"LUTHIEN post_success(proxy) error: {e}")
+        return None
 
     async def async_log_stream_event(self, kwargs, response_obj, start_time, end_time):
-        """Called during streaming - can modify or log stream chunks."""
-        # For MVP, just pass through
-        pass
+        """Called during streaming; forward per-chunk to control plane."""
+        await self._apost_hook(
+            "async_log_stream_event",
+            "stream",
+            kwargs,
+            response_obj,
+            start_time,
+            end_time,
+        )
+        try:
+            chunk = self._serialize_response(response_obj)
+            payload = {
+                "user_api_key_dict": self._serialize_dict(
+                    kwargs.get("user_api_key_dict")
+                    if isinstance(kwargs, dict)
+                    else None
+                ),
+                "request_data": self._json_safe(kwargs or {}),
+                "chunk": self._json_safe(chunk or {}),
+                "chunk_index": int((kwargs or {}).get("chunk_index", 0)),
+                "accumulated_text": str((kwargs or {}).get("accumulated_text", "")),
+            }
+            cid = self._extract_correlation_id(payload.get("request_data", {}))
+            if cid:
+                payload["correlation_id"] = cid
+            url = f"{self.control_plane_url}/hooks/stream_chunk"
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                res = await client.post(url, json=payload)
+                verbose_logger.debug(
+                    f"LUTHIEN hook_stream_chunk status={res.status_code} body={res.text[:200]}"
+                )
+        except Exception as e:
+            verbose_logger.debug(f"LUTHIEN hook_stream_chunk error: {e}")
+
+    # Some LiteLLM versions call this name instead
+    async def async_on_stream_event(self, kwargs, response_obj, start_time, end_time):
+        await self.async_log_stream_event(kwargs, response_obj, start_time, end_time)
+
+    def log_stream_event(self, kwargs, response_obj, start_time, end_time):
+        """Sync variant for streaming chunks (some LiteLLM paths call this)."""
+        self._post_hook(
+            "log_stream_event", "stream", kwargs, response_obj, start_time, end_time
+        )
+        try:
+            chunk = self._serialize_response(response_obj)
+            payload = {
+                "user_api_key_dict": self._serialize_dict(
+                    kwargs.get("user_api_key_dict")
+                    if isinstance(kwargs, dict)
+                    else None
+                ),
+                "request_data": self._json_safe(kwargs or {}),
+                "chunk": self._json_safe(chunk or {}),
+                "chunk_index": int((kwargs or {}).get("chunk_index", 0)),
+                "accumulated_text": str((kwargs or {}).get("accumulated_text", "")),
+            }
+            url = f"{self.control_plane_url}/hooks/stream_chunk"
+            with httpx.Client(timeout=self.timeout) as client:
+                res = client.post(url, json=payload)
+                verbose_logger.debug(
+                    f"LUTHIEN hook_stream_chunk(sync) status={res.status_code} body={res.text[:200]}"
+                )
+        except Exception as e:
+            verbose_logger.debug(f"LUTHIEN hook_stream_chunk(sync) error: {e}")
+
+    async def async_post_call_streaming_iterator_hook(
+        self, user_api_key_dict, response, request_data: dict
+    ):
+        """Wrap the streaming iterator to forward each chunk to control plane.
+
+        This is the most reliable streaming hook path in LiteLLM proxy.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                idx = 0
+                async for item in response:
+                    idx += 1
+                    try:
+                        payload = {
+                            "user_api_key_dict": self._serialize_dict(
+                                user_api_key_dict
+                            ),
+                            "request_data": self._json_safe(request_data or {}),
+                            "chunk": self._json_safe(
+                                self._serialize_response(item) or {}
+                            ),
+                            "chunk_index": idx,
+                            "accumulated_text": "",  # not tracked here; proxy can compute if needed
+                        }
+                        await client.post(
+                            f"{self.control_plane_url}/hooks/stream_chunk", json=payload
+                        )
+                    except Exception as ie:
+                        verbose_logger.debug(
+                            f"LUTHIEN iterator stream_chunk error: {ie}"
+                        )
+                    # generic ingest per chunk
+                    # attach correlation id from request_data
+                    await self._apost_hook(
+                        "async_post_call_streaming_iterator_hook",
+                        "stream",
+                        {
+                            "user_api_key_dict": self._serialize_dict(
+                                user_api_key_dict
+                            ),
+                            "request_data": request_data,
+                        },
+                        item,
+                    )
+                    yield item
+        except Exception as e:
+            verbose_logger.debug(
+                f"LUTHIEN async_post_call_streaming_iterator_hook error: {e}"
+            )
+            # If wrapping fails, yield from original response to avoid breaking stream
+            async for item in response:
+                yield item
+
+    async def async_log_pre_api_call(self, model, messages, kwargs):
+        cid = self._extract_correlation_id({"messages": messages}, kwargs)
+        await self._apost_hook(
+            "async_log_pre_api_call", "pre", kwargs, None, correlation_id=cid
+        )
+        return None
 
     async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
-        """Called on API failure."""
-        verbose_logger.debug(f"LUTHIEN FAILURE EVENT - Error: {response_obj}")
-        pass
+        await self._apost_hook(
+            "async_log_failure_event",
+            "failure",
+            kwargs,
+            response_obj,
+            start_time,
+            end_time,
+        )
+        return None
+
+    # ---------- Additional hooks for exhaustive tracing ----------
+
+    async def async_post_call_failure_hook(
+        self, request_data, original_exception, user_api_key_dict, traceback_str=None
+    ):
+        await self._apost_hook(
+            "async_post_call_failure_hook",
+            "failure",
+            {
+                "request_data": self._json_safe(request_data),
+                "user_api_key_dict": self._serialize_dict(user_api_key_dict),
+                "traceback": traceback_str,
+            },
+            str(original_exception),
+        )
+        return None
+
+    async def async_post_call_streaming_hook(self, user_api_key_dict, response: str):
+        await self._apost_hook(
+            "async_post_call_streaming_hook",
+            "stream",
+            {"user_api_key_dict": self._serialize_dict(user_api_key_dict)},
+            response,
+        )
+        return None
+
+    async def async_pre_routing_hook(
+        self,
+        model: str,
+        request_kwargs: dict,
+        messages=None,
+        input=None,
+        specific_deployment: bool = False,
+    ):
+        await self._apost_hook(
+            "async_pre_routing_hook",
+            "pre",
+            {
+                "model": model,
+                "request_kwargs": self._json_safe(request_kwargs),
+                "messages": self._json_safe(messages),
+                "input": self._json_safe(input),
+                "specific_deployment": specific_deployment,
+            },
+            None,
+        )
+        return None
+
+    async def async_pre_call_deployment_hook(self, kwargs: dict, call_type):
+        await self._apost_hook(
+            "async_pre_call_deployment_hook",
+            "pre",
+            {"kwargs": self._json_safe(kwargs), "call_type": call_type},
+            None,
+        )
+        return None
+
+    async def async_post_call_success_deployment_hook(
+        self, request_data: dict, response, call_type
+    ):
+        await self._apost_hook(
+            "async_post_call_success_deployment_hook",
+            "post",
+            {"request_data": self._json_safe(request_data), "call_type": call_type},
+            response,
+        )
+        return None
+
+    async def async_logging_hook(self, kwargs: dict, result, call_type: str):
+        await self._apost_hook(
+            "async_logging_hook",
+            "post",
+            {"kwargs": self._json_safe(kwargs), "call_type": call_type},
+            result,
+        )
+        return kwargs, result
+
+    def logging_hook(self, kwargs: dict, result, call_type: str):
+        self._post_hook(
+            "logging_hook",
+            "post",
+            {"kwargs": self._json_safe(kwargs), "call_type": call_type},
+            result,
+        )
+        return kwargs, result
+
+    async def async_moderation_hook(
+        self, data: dict, user_api_key_dict, call_type: str
+    ):
+        await self._apost_hook(
+            "async_moderation_hook",
+            "pre",
+            {
+                "data": self._json_safe(data),
+                "call_type": call_type,
+                "user_api_key_dict": self._serialize_dict(user_api_key_dict),
+            },
+            None,
+        )
+        return None
+
+    def log_event(self, *args, **kwargs):
+        self._post_hook(
+            "log_event",
+            "post",
+            {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
+            None,
+        )
+
+    async def async_log_event(self, *args, **kwargs):
+        await self._apost_hook(
+            "async_log_event",
+            "post",
+            {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
+            None,
+        )
+
+    def log_input_event(self, *args, **kwargs):
+        self._post_hook(
+            "log_input_event",
+            "pre",
+            {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
+            None,
+        )
+
+    async def async_log_input_event(self, *args, **kwargs):
+        await self._apost_hook(
+            "async_log_input_event",
+            "pre",
+            {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
+            None,
+        )
+
+    def log_model_group_rate_limit_error(
+        self, exception: Exception, original_model_group: str | None, kwargs: dict
+    ):
+        self._post_hook(
+            "log_model_group_rate_limit_error",
+            "failure",
+            {
+                "original_model_group": original_model_group,
+                "kwargs": self._json_safe(kwargs),
+            },
+            str(exception),
+        )
+
+    async def log_success_fallback_event(
+        self, original_model_group: str, kwargs: dict, original_exception: Exception
+    ):
+        await self._apost_hook(
+            "log_success_fallback_event",
+            "post",
+            {
+                "original_model_group": original_model_group,
+                "kwargs": self._json_safe(kwargs),
+            },
+            str(original_exception),
+        )
+
+    async def log_failure_fallback_event(
+        self, original_model_group: str, kwargs: dict, original_exception: Exception
+    ):
+        await self._apost_hook(
+            "log_failure_fallback_event",
+            "failure",
+            {
+                "original_model_group": original_model_group,
+                "kwargs": self._json_safe(kwargs),
+            },
+            str(original_exception),
+        )
+
+    def translate_completion_input_params(self, kwargs) -> None:
+        self._post_hook(
+            "translate_completion_input_params",
+            "pre",
+            {"kwargs": self._json_safe(kwargs)},
+            None,
+        )
+        return None
+
+    def translate_completion_output_params(self, response) -> None:
+        self._post_hook("translate_completion_output_params", "post", {}, response)
+        return None
+
+    def translate_completion_output_params_streaming(self, completion_stream) -> None:
+        self._post_hook(
+            "translate_completion_output_params_streaming", "stream", {}, None
+        )
+        return None
 
     def _serialize_dict(self, obj):
         """Safely serialize objects to dict."""
@@ -106,6 +583,99 @@ class LuthienCallback(CustomLogger):
             return repr(obj)
         except Exception:
             return "<unserializable>"
+
+    def _extract_correlation_id(self, *objs):
+        """Try to extract a correlation_id from typical LiteLLM kwargs structures.
+
+        Falls back to a deep recursive search if not found in targeted paths,
+        and scans message content for a 'CORRELATION_ID=' tag.
+        """
+        targeted_paths = (
+            ("litellm_metadata", "correlation_id"),
+            ("metadata", "correlation_id"),
+            ("request_data", "litellm_metadata", "correlation_id"),
+            ("request", "litellm_metadata", "correlation_id"),
+            ("proxy_server_request", "body", "litellm_metadata", "correlation_id"),
+            ("kwargs", "litellm_metadata", "correlation_id"),
+        )
+
+        def deep_find(o):
+            # direct
+            if isinstance(o, dict):
+                v = o.get("correlation_id")
+                if isinstance(v, str) and v:
+                    return v
+                lm = o.get("litellm_metadata")
+                if isinstance(lm, dict):
+                    v = lm.get("correlation_id")
+                    if isinstance(v, str) and v:
+                        return v
+                # recurse
+                for vv in o.values():
+                    res = deep_find(vv)
+                    if res:
+                        return res
+            elif isinstance(o, (list, tuple)):
+                for it in o:
+                    res = deep_find(it)
+                    if res:
+                        return res
+            elif isinstance(o, str) and "CORRELATION_ID=" in o:
+                idx = o.find("CORRELATION_ID=")
+                if idx != -1:
+                    val = o[idx + len("CORRELATION_ID=") :].strip().split()[0]
+                    if val:
+                        return val
+            return None
+
+        for obj in objs:
+            if not isinstance(obj, dict):
+                continue
+            # exact paths
+            for path in targeted_paths:
+                cur = obj
+                ok = True
+                for p in path:
+                    if isinstance(cur, dict) and p in cur:
+                        cur = cur[p]
+                    else:
+                        ok = False
+                        break
+                if ok and isinstance(cur, str) and cur:
+                    return cur
+            # messages scan
+            msgs = obj.get("messages") if isinstance(obj, dict) else None
+            if isinstance(msgs, list):
+                for m in msgs:
+                    if isinstance(m, dict):
+                        c = m.get("content")
+                        if isinstance(c, str) and "CORRELATION_ID=" in c:
+                            idx = c.find("CORRELATION_ID=")
+                            if idx != -1:
+                                val = (
+                                    c[idx + len("CORRELATION_ID=") :].strip().split()[0]
+                                )
+                                if val:
+                                    return val
+                        if isinstance(c, list):
+                            for part in c:
+                                if isinstance(part, dict):
+                                    t = part.get("text") or part.get("content")
+                                    if isinstance(t, str) and "CORRELATION_ID=" in t:
+                                        idx = t.find("CORRELATION_ID=")
+                                        if idx != -1:
+                                            val = (
+                                                t[idx + len("CORRELATION_ID=") :]
+                                                .strip()
+                                                .split()[0]
+                                            )
+                                            if val:
+                                                return val
+            # deep search anywhere
+            res = deep_find(obj)
+            if res:
+                return res
+        return None
 
 
 # Create the singleton instance that LiteLLM will use

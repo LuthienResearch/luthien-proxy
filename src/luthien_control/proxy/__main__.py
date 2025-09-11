@@ -26,11 +26,24 @@ def main():
         print(f"⚠️  Prisma migration failed: {e.stderr.decode()}")
         print("📝 Continuing anyway - tables may already exist")
 
+    # Ensure Python can import callback module from config/
+    try:
+        existing_pp = os.environ.get("PYTHONPATH", "")
+        extra_paths = ["/app/src", "/app/config"]
+        new_pp = ":".join([p for p in extra_paths if p])
+        if existing_pp:
+            new_pp = f"{new_pp}:{existing_pp}"
+        os.environ["PYTHONPATH"] = new_pp
+    except Exception:
+        pass
+
     # Set up environment variables for LiteLLM
     config_path = os.getenv("LITELLM_CONFIG_PATH", "/app/config/litellm_config.yaml")
 
     # Set environment variables for LiteLLM proxy
     os.environ.setdefault("LITELLM_CONFIG_PATH", config_path)
+    # IMPORTANT: the embedded proxy_server loads CONFIG_FILE_PATH, not LITELLM_CONFIG_PATH
+    os.environ.setdefault("CONFIG_FILE_PATH", config_path)
     os.environ.setdefault("LITELLM_PORT", "4000")
     os.environ.setdefault("LITELLM_HOST", "0.0.0.0")
 
@@ -45,9 +58,10 @@ def main():
         f"Control plane URL: {os.getenv('CONTROL_PLANE_URL', 'http://localhost:8081')}"
     )
 
-    # Initialize and start the proxy
+    # Start LiteLLM via CLI with a single config path
     try:
-        # Start LiteLLM proxy using subprocess to run the CLI
+        import subprocess
+
         cmd = [
             "uv",
             "run",
@@ -60,7 +74,6 @@ def main():
             os.getenv("LITELLM_HOST", "0.0.0.0"),
         ]
 
-        # Make detailed debug opt-in to reduce log noise by default
         detailed = os.getenv("LITELLM_DETAILED_DEBUG", "false").lower() in {
             "1",
             "true",
@@ -71,7 +84,6 @@ def main():
 
         print(f"Starting LiteLLM with command: {' '.join(cmd)}")
         subprocess.run(cmd, check=True)
-
     except KeyboardInterrupt:
         print("\nShutting down LiteLLM proxy...")
     except subprocess.CalledProcessError as e:

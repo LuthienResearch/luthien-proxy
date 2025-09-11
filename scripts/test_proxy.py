@@ -56,8 +56,9 @@ class LuthienTester:
             "Content-Type": "application/json",
         }
 
+        test_model = os.getenv("TEST_MODEL", "gpt-5")
         request_data = {
-            "model": "gpt-4o-mini",  # Use a model from our config
+            "model": test_model,  # Use a model from env/config
             "messages": [
                 {
                     "role": "user",
@@ -99,8 +100,9 @@ class LuthienTester:
             "Content-Type": "application/json",
         }
 
+        test_model = os.getenv("TEST_MODEL", "gpt-5")
         request_data = {
-            "model": "gpt-4o-mini",
+            "model": test_model,
             "messages": [
                 {"role": "user", "content": "Count from 1 to 5, one number per line."}
             ],
@@ -159,11 +161,12 @@ class LuthienTester:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 # Pre hook: expect pass-through (result_type none) for NoOp
+                test_model = os.getenv("TEST_MODEL", "gpt-5")
                 pre_req = {
                     "user_api_key_dict": {"user_id": "test-user"},
                     "cache": None,
                     "data": {
-                        "model": "gpt-4o-mini",
+                        "model": test_model,
                         "messages": [{"role": "user", "content": "Test message"}],
                     },
                     "call_type": "completion",
@@ -245,8 +248,9 @@ class LuthienTester:
         }
 
         # Test with content that might trigger monitoring
+        test_model = os.getenv("TEST_MODEL", "gpt-5")
         request_data = {
-            "model": "gpt-4o-mini",
+            "model": test_model,
             "messages": [
                 {
                     "role": "user",
