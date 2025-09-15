@@ -506,95 +506,7 @@ async def hook_stream_chunk(payload: Dict[str, Any]):
         return {"action": "pass", "error": str(e)}
 
 
-# ---------------- Logging UI endpoints -----------------
-
-
-class LogEntry(BaseModel):
-    """Formatted log entry for UI display."""
-
-    id: str
-    episode_id: Optional[str]
-    step_id: Optional[str]
-    call_type: Optional[str]
-    stage: str
-    request_summary: str
-    response_summary: Optional[str]
-    policy_action: Optional[str]
-    created_at: datetime
-
-
-@app.get("/api/logs", response_model=List[LogEntry])
-async def get_logs(limit: int = Query(default=50, le=500)):
-    """Fetch recent request logs from the database."""
-    db_url = os.getenv(
-        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
-    )
-
-    logs = []
-    try:
-        conn = await asyncpg.connect(db_url)
-        try:
-            rows = await conn.fetch(
-                """
-                SELECT id, episode_id, step_id, call_type, stage,
-                       request, response, policy_action, created_at
-                FROM request_logs
-                ORDER BY created_at DESC
-                LIMIT $1
-                """,
-                limit,
-            )
-
-            for row in rows:
-                # Extract key info from request JSON
-                request_data = json.loads(row["request"]) if row["request"] else {}
-                messages = request_data.get("messages", [])
-                request_summary = "No messages"
-                if messages:
-                    last_message = (
-                        messages[-1] if isinstance(messages, list) else messages
-                    )
-                    if isinstance(last_message, dict):
-                        content = last_message.get("content", "")
-                        request_summary = (
-                            content[:100] + "..." if len(content) > 100 else content
-                        )
-
-                # Extract key info from response JSON
-                response_summary = None
-                if row["response"]:
-                    response_data = json.loads(row["response"])
-                    if "choices" in response_data:
-                        choices = response_data["choices"]
-                        if choices and len(choices) > 0:
-                            content = choices[0].get("message", {}).get("content", "")
-                            response_summary = (
-                                content[:100] + "..." if len(content) > 100 else content
-                            )
-                    elif "accumulated_length" in response_data:
-                        response_summary = f"Streaming chunk (accumulated: {response_data['accumulated_length']} chars)"
-
-                logs.append(
-                    LogEntry(
-                        id=str(row["id"]),
-                        episode_id=str(row["episode_id"])
-                        if row["episode_id"]
-                        else None,
-                        step_id=str(row["step_id"]) if row["step_id"] else None,
-                        call_type=row["call_type"],
-                        stage=row["stage"],
-                        request_summary=request_summary,
-                        response_summary=response_summary,
-                        policy_action=row["policy_action"],
-                        created_at=row["created_at"],
-                    )
-                )
-        finally:
-            await conn.close()
-    except Exception as e:
-        print(f"Error fetching logs: {e}")
-
-    return logs
+# ---------------- Debug logs API and UI -----------------
 
 
 # ---------------- Debug logs API and UI -----------------
@@ -811,7 +723,6 @@ class HookIngest(BaseModel):
     t1: float | None = None
     kwargs: Dict[str, Any] | None = None
     response_obj: Dict[str, Any] | str | None = None
-    correlation_id: Optional[str] = None
 
 
 @app.post("/hooks/ingest")
@@ -1050,11 +961,10 @@ async def get_hook_counters():
 
 
 class TraceEntry(BaseModel):
-    source: str  # 'debug_logs' or 'request_logs'
     time: datetime
     post_time_ns: Optional[int] = None
     hook: Optional[str] = None
-    stage: Optional[str] = None
+    debug_type: Optional[str] = None
     payload: Dict[str, Any]
 
 
@@ -1109,10 +1019,10 @@ async def trace_by_call_id(call_id: str = Query(..., min_length=4)):
                     post_ns = None
                 entries.append(
                     TraceEntry(
-                        source="debug_logs",
                         time=r["time_created"],
                         post_time_ns=post_ns,
                         hook=(jb.get("hook") if isinstance(jb, dict) else None),
+                        debug_type=r["debug_type_identifier"],
                         payload=jb,
                     )
                 )

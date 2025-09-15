@@ -1,7 +1,8 @@
 # Luthien consolidated configuration
 
 # Active policy (module.path:ClassName)
-policy: "luthien_control.policies.logging:LoggingPolicy"
+# policy: "luthien_control.policies.logging:LoggingPolicy"
+policy: "luthien_control.policies.noop:NoOpPolicy"
 
 # Policy-specific options
 policy_options:

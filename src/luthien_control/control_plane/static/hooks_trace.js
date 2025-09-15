@@ -67,9 +67,23 @@ function renderTimeline(data) {
     const ms = nsVal / 1e6;
     const when = Number.isFinite(ms) ? new Date(ms).toLocaleString() : '';
     const deltaStr = (deltaNs !== undefined) ? formatDeltaNs(deltaNs) : 'n/a';
+    const parts = [];
+    // prefer payload.when if present (pre/post/stream)
+    const payloadWhen = entry && entry.payload && entry.payload.when;
+    if (payloadWhen) parts.push(String(payloadWhen));
+    parts.push(`Δt=${deltaStr}`);
+    if (when) parts.push(when);
+    // Label: prefer debug_type-derived name for clarity (e.g., hook:log_pre_api_call, hook_pre)
+    let label = 'event';
+    if (entry && entry.debug_type) {
+      if (entry.debug_type.startsWith('hook:')) label = entry.debug_type.slice(5);
+      else label = entry.debug_type;
+    } else if (entry && entry.hook) {
+      label = entry.hook;
+    }
     head.append(
-      el('span', {class:'pill'}, entry.hook || entry.stage || 'event'),
-      el('span', {class:'src'}, `${entry.source} • Δt=${deltaStr} • ${when}`),
+      el('span', {class:'pill'}, label),
+      el('span', {class:'src'}, parts.join(' • ')),
     );
     const details = el('details');
     const summary = el('summary', {text: 'Details'});

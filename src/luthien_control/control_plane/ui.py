@@ -24,9 +24,7 @@ async def debug_ui(request: Request, debug_type: str):
     )
 
 
-@router.get("/logs", response_class=HTMLResponse)
-async def logs_ui(request: Request):
-    return templates.TemplateResponse("logs.html", {"request": request})
+# Removed request_logs UI
 
 
 @router.get("/hooks/trace", response_class=HTMLResponse)

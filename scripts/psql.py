@@ -142,16 +142,12 @@ def main() -> int:
                 "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name;",
             ),
             (
-                "request_logs cols",
-                "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='request_logs' ORDER BY ordinal_position;",
-            ),
-            (
                 "debug_logs cols",
                 "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='debug_logs' ORDER BY ordinal_position;",
             ),
             (
                 "row counts",
-                "SELECT 'request_logs' as table, COUNT(*) FROM request_logs UNION ALL SELECT 'debug_logs', COUNT(*) FROM debug_logs;",
+                "SELECT 'debug_logs' as table, COUNT(*) FROM debug_logs;",
             ),
         ]
         for title, sql in queries:

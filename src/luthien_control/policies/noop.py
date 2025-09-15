@@ -7,10 +7,10 @@ setting the LUTHIEN_POLICY env var to "module.path:ClassName".
 
 from typing import Any, AsyncGenerator, Dict, Optional
 
-from .base import LuthienPolicy
+from litellm.integrations.custom_logger import CustomLogger
 
 
-class NoOpPolicy(LuthienPolicy):
+class NoOpPolicy(CustomLogger):
     async def async_pre_call_hook(
         self,
         user_api_key_dict: Optional[Dict[str, Any]],

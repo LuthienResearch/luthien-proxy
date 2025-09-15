@@ -90,6 +90,8 @@ class LuthienCallback(CustomLogger):
         except Exception as e:
             verbose_logger.debug(f"LUTHIEN hook post error ({hook}): {e}")
 
+    # --------------------- Hooks ----------------------
+
     def log_pre_api_call(self, model, messages, kwargs):
         """Synchronous pre-call hook: forward to control plane.
 
@@ -223,10 +225,6 @@ class LuthienCallback(CustomLogger):
                 )
         except Exception as e:
             verbose_logger.debug(f"LUTHIEN hook_stream_chunk error: {e}")
-
-    # Some LiteLLM versions call this name instead
-    async def async_on_stream_event(self, kwargs, response_obj, start_time, end_time):
-        await self.async_log_stream_event(kwargs, response_obj, start_time, end_time)
 
     def log_stream_event(self, kwargs, response_obj, start_time, end_time):
         """Sync variant for streaming chunks (some LiteLLM paths call this)."""
