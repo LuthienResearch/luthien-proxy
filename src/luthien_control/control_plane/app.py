@@ -368,30 +368,6 @@ async def hook_pre(payload: Dict[str, Any]):
             call_type=call_type,
         )
         _hook_counters["hook_pre"] = _hook_counters.get("hook_pre", 0) + 1
-        # Log for verification
-        dbg = {
-            "hook": "pre",
-            "call_type": call_type,
-            "result_kind": ("none" if result is None else type(result).__name__),
-        }
-        # add litellm_call_id if present in data
-        try:
-            call_id = None
-            # request may carry it on different keys depending on version
-            for p in (
-                ["data", "litellm_call_id"],
-                ["data", "litellm_params", "litellm_call_id"],
-                ["data", "metadata", "hidden_params", "litellm_call_id"],
-            ):
-                v = _get_in(payload, p)
-                if isinstance(v, str) and v:
-                    call_id = v
-                    break
-            if call_id:
-                dbg["litellm_call_id"] = call_id
-        except Exception:
-            pass
-        await _insert_debug("hook_pre", dbg)
         if result is None:
             return {"result_type": "none"}
         if isinstance(result, str):
@@ -432,23 +408,6 @@ async def hook_post_success(payload: Dict[str, Any]):
         _hook_counters["hook_post_success"] = (
             _hook_counters.get("hook_post_success", 0) + 1
         )
-        dbg = {"hook": "post_success", "replaced": replacement is not None}
-        try:
-            call_id = None
-            for p in (
-                ["data", "litellm_call_id"],
-                ["data", "litellm_params", "litellm_call_id"],
-                ["data", "metadata", "hidden_params", "litellm_call_id"],
-            ):
-                v = _get_in(payload, p)
-                if isinstance(v, str) and v:
-                    call_id = v
-                    break
-            if call_id:
-                dbg["litellm_call_id"] = call_id
-        except Exception:
-            pass
-        await _insert_debug("hook_post_success", dbg)
         if replacement is None:
             return {"replace": False}
         return {"replace": True, "replacement": replacement}
@@ -486,17 +445,7 @@ async def hook_stream_chunk(payload: Dict[str, Any]):
         _hook_counters["hook_stream_chunk"] = (
             _hook_counters.get("hook_stream_chunk", 0) + 1
         )
-        dbg = {
-            "hook": "stream_chunk",
-            "action": (result.get("action") if isinstance(result, dict) else None),
-        }
-        try:
-            call_id = _get_in(payload, ["request_data", "litellm_call_id"])
-            if isinstance(call_id, str) and call_id:
-                dbg["litellm_call_id"] = call_id
-        except Exception:
-            pass
-        await _insert_debug("hook_stream_chunk", dbg)
+        # no debug_logs write here; rely on generic hook ingest per chunk
         # Basic shape validation
         action = result.get("action") if isinstance(result, dict) else None
         if action not in {"pass", "suppress", "edit", "replace_stream"}:
@@ -736,9 +685,9 @@ async def ingest_generic_hook(entry: HookIngest):
     item = entry.model_dump()
     _hook_logs.append(item)
 
-    # Insert into DB debug logs (best-effort)
+    # Insert into DB debug logs (best-effort) using a consistent hook:* type
     try:
-        await _insert_debug("litellm_hook", item)
+        await _insert_debug(f"hook:{entry.hook}", item)
     except Exception:
         pass
 

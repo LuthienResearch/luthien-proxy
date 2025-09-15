@@ -73,13 +73,9 @@ function renderTimeline(data) {
     if (payloadWhen) parts.push(String(payloadWhen));
     parts.push(`Δt=${deltaStr}`);
     if (when) parts.push(when);
-    // Label: prefer debug_type-derived name for clarity (e.g., hook:log_pre_api_call, hook_pre)
-    let label = 'event';
+    let label = '(missing debug_type)';
     if (entry && entry.debug_type) {
-      if (entry.debug_type.startsWith('hook:')) label = entry.debug_type.slice(5);
-      else label = entry.debug_type;
-    } else if (entry && entry.hook) {
-      label = entry.hook;
+      label = entry.debug_type.startsWith('hook:') ? entry.debug_type.slice(5) : entry.debug_type;
     }
     head.append(
       el('span', {class:'pill'}, label),
