@@ -32,10 +32,10 @@
   <body>
     <div class="container">
       <div class="panel">
-        <h2>Recent Correlation IDs</h2>
+        <h2>Recent Call IDs</h2>
         <div class="content">
           <div class="controls" style="margin-bottom:10px;">
-            <input id="cid-input" placeholder="Paste correlation_id and Load" />
+            <input id="cid-input" placeholder="Paste litellm_call_id and Load" />
             <button id="cid-load">Load</button>
           </div>
           <div class="cid-list" id="cid-list">Loading…</div>
@@ -45,7 +45,7 @@
         <h2>Trace</h2>
         <div class="content">
           <div class="controls">
-            <input id="active-cid" placeholder="correlation_id" readonly />
+            <input id="active-cid" placeholder="litellm_call_id" readonly />
             <button id="refresh">Refresh</button>
           </div>
           <div id="timeline" class="timeline"></div>

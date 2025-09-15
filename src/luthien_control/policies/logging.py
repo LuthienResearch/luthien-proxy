@@ -107,9 +107,12 @@ class LoggingPolicy(LuthienPolicy):
                 "pre", data, policy_action="allow", call_type=call_type
             )
             # Also record raw kwargs in debug logs for investigation
-            await self._debug_log(
-                "kwargs_pre", {"call_type": call_type, "kwargs": data}
-            )
+            # attach litellm_call_id if present on common paths
+            call_id = self._extract_call_id_from_kwargs(data)
+            dbg = {"call_type": call_type, "kwargs": data}
+            if call_id:
+                dbg["litellm_call_id"] = call_id
+            await self._debug_log("kwargs_pre", dbg)
         except Exception as e:
             print(f"Error logging pre-call request: {e}")
 
@@ -133,14 +136,15 @@ class LoggingPolicy(LuthienPolicy):
                 call_type=data.get("call_type"),
             )
             # Also record kwargs + response in debug logs
-            await self._debug_log(
-                "kwargs_post",
-                {
-                    "call_type": data.get("call_type"),
-                    "kwargs": data,
-                    "response": response,
-                },
-            )
+            call_id = self._extract_call_id_from_kwargs(data)
+            dbg = {
+                "call_type": data.get("call_type"),
+                "kwargs": data,
+                "response": response,
+            }
+            if call_id:
+                dbg["litellm_call_id"] = call_id
+            await self._debug_log("kwargs_post", dbg)
         except Exception as e:
             print(f"Error logging post-call response: {e}")
 
@@ -173,16 +177,17 @@ class LoggingPolicy(LuthienPolicy):
                     policy_metadata={"chunk_index": chunk_index},
                     call_type=request_data.get("call_type"),
                 )
-                await self._debug_log(
-                    "stream_chunk",
-                    {
-                        "call_type": request_data.get("call_type"),
-                        "kwargs": request_data,
-                        "chunk_index": chunk_index,
-                        "accumulated_length": len(accumulated_text),
-                        "chunk": chunk,
-                    },
-                )
+                call_id = self._extract_call_id_from_kwargs(request_data)
+                dbg = {
+                    "call_type": request_data.get("call_type"),
+                    "kwargs": request_data,
+                    "chunk_index": chunk_index,
+                    "accumulated_length": len(accumulated_text),
+                    "chunk": chunk,
+                }
+                if call_id:
+                    dbg["litellm_call_id"] = call_id
+                await self._debug_log("stream_chunk", dbg)
             except Exception as e:
                 print(f"Error logging streaming chunk: {e}")
 
@@ -198,6 +203,27 @@ class LoggingPolicy(LuthienPolicy):
         return
 
     # ---------------- Internal helpers ----------------
+    def _extract_call_id_from_kwargs(self, data: Dict[str, Any]) -> Optional[str]:
+        try:
+            for p in (
+                ["litellm_call_id"],
+                ["litellm_params", "litellm_call_id"],
+                ["litellm_metadata", "litellm_call_id"],
+                ["litellm_metadata", "hidden_params", "litellm_call_id"],
+            ):
+                v = data
+                ok = True
+                for k in p:
+                    if not isinstance(v, dict):
+                        ok = False
+                        break
+                    v = v.get(k)
+                if ok and isinstance(v, str) and v:
+                    return v
+        except Exception:
+            return None
+        return None
+
     def _load_config(
         self, inline_options: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:

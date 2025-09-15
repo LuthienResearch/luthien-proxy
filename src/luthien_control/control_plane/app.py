@@ -130,6 +130,85 @@ _hook_counters: Dict[str, int] = {
 _hook_logs: deque = deque(maxlen=500)
 
 
+def _get_in(d: Dict[str, Any], path: list[str]) -> Optional[Any]:
+    cur: Any = d
+    try:
+        for k in path:
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(k)
+        return cur
+    except Exception:
+        return None
+
+
+def _extract_call_id_for_hook(hook: str, payload: Dict[str, Any]) -> Optional[str]:
+    """Deterministic extraction of litellm_call_id per hook based on observed paths.
+
+    Uses the path statistics provided to prioritize minimal, stable paths.
+    """
+    name = (hook or "").lower()
+    paths: list[list[str]] = []
+    # Generic fallbacks used by several hooks
+    common_kwarg_paths = [
+        ["kwargs", "litellm_call_id"],
+        ["kwargs", "litellm_params", "litellm_call_id"],
+        ["kwargs", "litellm_params", "metadata", "hidden_params", "litellm_call_id"],
+    ]
+    if name in {"async_logging_hook", "logging_hook"}:
+        paths = [
+            ["kwargs", "kwargs", "litellm_call_id"],
+            ["kwargs", "kwargs", "litellm_params", "litellm_call_id"],
+            [
+                "kwargs",
+                "kwargs",
+                "litellm_params",
+                "metadata",
+                "hidden_params",
+                "litellm_call_id",
+            ],
+        ]
+    elif name in {
+        "log_pre_api_call",
+        "log_post_api_call",
+        "async_log_success_event",
+        "log_success_event",
+    }:
+        paths = common_kwarg_paths
+    elif name in {
+        "async_post_call_success_hook",
+        "async_pre_call_hook",
+        "async_moderation_hook",
+    }:
+        paths = [
+            ["kwargs", "data", "litellm_call_id"],
+            ["kwargs", "data", "metadata", "hidden_params", "litellm_call_id"],
+        ]
+    elif name in {"async_pre_call_deployment_hook"}:
+        paths = [["kwargs", "kwargs", "litellm_call_id"]]
+    elif name in {
+        "async_post_call_success_deployment_hook",
+        "async_post_call_streaming_iterator_hook",
+    }:
+        paths = [["kwargs", "request_data", "litellm_call_id"]]
+    elif name in {"kwargs_pre", "kwargs_post"}:
+        paths = common_kwarg_paths + [
+            ["kwargs", "metadata", "hidden_params", "litellm_call_id"]
+        ]
+    else:
+        # Try generic common paths as a last resort
+        paths = common_kwarg_paths + [
+            ["kwargs", "kwargs", "litellm_call_id"],
+            ["kwargs", "request_data", "litellm_call_id"],
+        ]
+
+    for p in paths:
+        v = _get_in(payload, p)
+        if isinstance(v, str) and v:
+            return v
+    return None
+
+
 async def _insert_debug(debug_type: str, payload: Dict[str, Any]) -> None:
     """Insert a debug log row into the database (best-effort)."""
     db_url = os.getenv(
@@ -295,9 +374,23 @@ async def hook_pre(payload: Dict[str, Any]):
             "call_type": call_type,
             "result_kind": ("none" if result is None else type(result).__name__),
         }
-        cid = payload.get("correlation_id")
-        if cid:
-            dbg["correlation_id"] = cid
+        # add litellm_call_id if present in data
+        try:
+            call_id = None
+            # request may carry it on different keys depending on version
+            for p in (
+                ["data", "litellm_call_id"],
+                ["data", "litellm_params", "litellm_call_id"],
+                ["data", "metadata", "hidden_params", "litellm_call_id"],
+            ):
+                v = _get_in(payload, p)
+                if isinstance(v, str) and v:
+                    call_id = v
+                    break
+            if call_id:
+                dbg["litellm_call_id"] = call_id
+        except Exception:
+            pass
         await _insert_debug("hook_pre", dbg)
         if result is None:
             return {"result_type": "none"}
@@ -340,9 +433,21 @@ async def hook_post_success(payload: Dict[str, Any]):
             _hook_counters.get("hook_post_success", 0) + 1
         )
         dbg = {"hook": "post_success", "replaced": replacement is not None}
-        cid = payload.get("correlation_id")
-        if cid:
-            dbg["correlation_id"] = cid
+        try:
+            call_id = None
+            for p in (
+                ["data", "litellm_call_id"],
+                ["data", "litellm_params", "litellm_call_id"],
+                ["data", "metadata", "hidden_params", "litellm_call_id"],
+            ):
+                v = _get_in(payload, p)
+                if isinstance(v, str) and v:
+                    call_id = v
+                    break
+            if call_id:
+                dbg["litellm_call_id"] = call_id
+        except Exception:
+            pass
         await _insert_debug("hook_post_success", dbg)
         if replacement is None:
             return {"replace": False}
@@ -385,9 +490,12 @@ async def hook_stream_chunk(payload: Dict[str, Any]):
             "hook": "stream_chunk",
             "action": (result.get("action") if isinstance(result, dict) else None),
         }
-        cid = payload.get("correlation_id")
-        if cid:
-            dbg["correlation_id"] = cid
+        try:
+            call_id = _get_in(payload, ["request_data", "litellm_call_id"])
+            if isinstance(call_id, str) and call_id:
+                dbg["litellm_call_id"] = call_id
+        except Exception:
+            pass
         await _insert_debug("hook_stream_chunk", dbg)
         # Basic shape validation
         action = result.get("action") if isinstance(result, dict) else None
@@ -668,6 +776,18 @@ class HookLogIn(BaseModel):
 @app.post("/api/hooks/log")
 async def post_hook_log(entry: HookLogIn):
     item = entry.model_dump()
+    # enrich with call_id for easier tracing (best-effort)
+    try:
+        call_id = (
+            _get_in(item, ["kwargs", "request_data", "litellm_call_id"])
+            or _get_in(item, ["kwargs", "kwargs", "litellm_call_id"])
+            or _get_in(item, ["kwargs", "litellm_call_id"])
+            or None
+        )
+        if isinstance(call_id, str) and call_id:
+            item.setdefault("litellm_call_id", call_id)
+    except Exception:
+        pass
     _hook_logs.append(item)
     return {"ok": True, "count": len(_hook_logs)}
 
@@ -761,9 +881,13 @@ async def hook_generic(hook_name: str, payload: Dict[str, Any]):
             "hook": hook_name,
             "payload": payload,
         }
-        cid = payload.get("correlation_id")
-        if cid:
-            record["correlation_id"] = cid
+        # extract litellm_call_id deterministically from payload
+        try:
+            call_id = _extract_call_id_for_hook(hook_name, payload)
+            if isinstance(call_id, str) and call_id:
+                record["litellm_call_id"] = call_id
+        except Exception:
+            pass
         _hook_logs.append(record)
         # Insert into DB
         await _insert_debug(f"hook:{hook_name}", record)
@@ -818,7 +942,6 @@ class HookTestRequest(BaseModel):
     stream: bool = False
     temperature: float = 0.7
     max_tokens: int = 50
-    correlation_id: Optional[str] = None
 
 
 class HookTestResult(BaseModel):
@@ -854,14 +977,7 @@ async def run_hook_test(req: HookTestRequest):
         "temperature": req.temperature,
         "max_tokens": req.max_tokens,
     }
-    # add correlation id into litellm_metadata and a system tag for debug
-    import uuid as _uuid
-
-    cid = req.correlation_id or str(_uuid.uuid4())
-    payload["litellm_metadata"] = {"correlation_id": cid}
-    payload["messages"].insert(
-        0, {"role": "system", "content": f"CORRELATION_ID={cid}"}
-    )
+    # no correlation; rely on litellm_call_id emitted by proxy
     try:
         import httpx
 
@@ -943,13 +1059,17 @@ class TraceEntry(BaseModel):
 
 
 class TraceResponse(BaseModel):
-    correlation_id: str
+    call_id: str
     entries: List[TraceEntry]
 
 
-@app.get("/api/hooks/trace", response_model=TraceResponse)
-async def trace_by_correlation_id(cid: str = Query(..., min_length=4)):
-    """Return ordered hook + request_log entries associated with a correlation_id."""
+@app.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
+async def trace_by_call_id(call_id: str = Query(..., min_length=4)):
+    """Return ordered hook entries from debug_logs for a litellm_call_id.
+
+    This endpoint intentionally excludes request_logs to keep the UI focused on
+    debugging hook invocations without mixing in policy persistence.
+    """
     db_url = os.getenv(
         "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
     )
@@ -957,15 +1077,15 @@ async def trace_by_correlation_id(cid: str = Query(..., min_length=4)):
     try:
         conn = await asyncpg.connect(db_url)
         try:
-            # Fetch hook entries from debug_logs
+            # Fetch hook entries from debug_logs only
             rows = await conn.fetch(
                 """
                 SELECT time_created, debug_type_identifier, jsonblob
                 FROM debug_logs
-                WHERE jsonblob->>'correlation_id' = $1
+                WHERE jsonblob->>'litellm_call_id' = $1
                 ORDER BY time_created ASC
                 """,
-                cid,
+                call_id,
             )
             for r in rows:
                 jb = r["jsonblob"]
@@ -996,38 +1116,6 @@ async def trace_by_correlation_id(cid: str = Query(..., min_length=4)):
                         payload=jb,
                     )
                 )
-
-            # Fetch request_logs where request contains correlation id
-            rows2 = await conn.fetch(
-                """
-                SELECT created_at, stage, request, response
-                FROM request_logs
-                WHERE (request::jsonb -> 'litellm_metadata' ->> 'correlation_id') = $1
-                   OR (response::jsonb -> 'litellm_metadata' ->> 'correlation_id') = $1
-                ORDER BY created_at ASC
-                """,
-                cid,
-            )
-            for r in rows2:
-                req = r["request"]
-                resp = r["response"]
-                try:
-                    reqj = json.loads(req) if isinstance(req, str) else (req or {})
-                except Exception:
-                    reqj = {"raw_request": req}
-                try:
-                    respj = json.loads(resp) if isinstance(resp, str) else (resp or {})
-                except Exception:
-                    respj = {"raw_response": resp}
-                entries.append(
-                    TraceEntry(
-                        source="request_logs",
-                        time=r["created_at"],
-                        post_time_ns=None,
-                        stage=r["stage"],
-                        payload={"request": reqj, "response": respj},
-                    )
-                )
         finally:
             await conn.close()
     except Exception as e:
@@ -1044,31 +1132,31 @@ async def trace_by_correlation_id(cid: str = Query(..., min_length=4)):
             return 0
 
     entries.sort(key=sort_key)
-    return TraceResponse(correlation_id=cid, entries=entries)
+    return TraceResponse(call_id=call_id, entries=entries)
 
 
-class CorrelationInfo(BaseModel):
-    correlation_id: str
+class CallIdInfo(BaseModel):
+    call_id: str
     count: int
     latest: datetime
 
 
-@app.get("/api/hooks/recent_cids", response_model=List[CorrelationInfo])
-async def recent_correlation_ids(limit: int = Query(default=50, ge=1, le=500)):
+@app.get("/api/hooks/recent_call_ids", response_model=List[CallIdInfo])
+async def recent_call_ids(limit: int = Query(default=50, ge=1, le=500)):
     db_url = os.getenv(
         "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
     )
-    out: List[CorrelationInfo] = []
+    out: List[CallIdInfo] = []
     try:
         conn = await asyncpg.connect(db_url)
         try:
             rows = await conn.fetch(
                 """
-                SELECT jsonblob->>'correlation_id' as cid,
+                SELECT jsonblob->>'litellm_call_id' as cid,
                        COUNT(*) as cnt,
                        MAX(time_created) as latest
                 FROM debug_logs
-                WHERE jsonblob->>'correlation_id' IS NOT NULL
+                WHERE jsonblob->>'litellm_call_id' IS NOT NULL
                 GROUP BY cid
                 ORDER BY latest DESC
                 LIMIT $1
@@ -1080,12 +1168,10 @@ async def recent_correlation_ids(limit: int = Query(default=50, ge=1, le=500)):
                 if not cid:
                     continue
                 out.append(
-                    CorrelationInfo(
-                        correlation_id=cid, count=int(r["cnt"]), latest=r["latest"]
-                    )
+                    CallIdInfo(call_id=cid, count=int(r["cnt"]), latest=r["latest"])
                 )
         finally:
             await conn.close()
     except Exception as e:
-        print(f"Error fetching recent correlation ids: {e}")
+        print(f"Error fetching recent call ids: {e}")
     return out

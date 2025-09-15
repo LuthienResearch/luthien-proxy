@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Drive a request with a unique correlation id and fetch all associated hook logs.
+Drive a request and fetch associated hook logs by litellm_call_id.
 
 Usage:
   TEST_MODEL=gpt-4o uv run python scripts/trace_by_id.py
@@ -10,7 +10,6 @@ Usage:
 import asyncio
 import json
 import os
-import uuid
 
 import httpx
 
@@ -20,16 +19,14 @@ TEST_MODEL = os.getenv("TEST_MODEL", "gpt-4o")
 
 
 async def main() -> int:
-    cid = str(uuid.uuid4())
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Sync
         r = await client.post(
             f"{CONTROL_URL}/tests/run",
             json={
                 "model": TEST_MODEL,
-                "prompt": f"Hello world ({cid})",
+                "prompt": "Hello world",
                 "stream": False,
-                "correlation_id": cid,
             },
         )
         r.raise_for_status()
@@ -40,16 +37,27 @@ async def main() -> int:
             f"{CONTROL_URL}/tests/run",
             json={
                 "model": TEST_MODEL,
-                "prompt": f"Stream please ({cid})",
+                "prompt": "Stream please",
                 "stream": True,
-                "correlation_id": cid,
             },
         )
         r2.raise_for_status()
         print("STREAM counters:", r2.json().get("counters"))
 
-        # Fetch trace
-        t = await client.get(f"{CONTROL_URL}/api/hooks/trace", params={"cid": cid})
+        # Fetch most recent call_id and trace it
+        ids = await client.get(
+            f"{CONTROL_URL}/api/hooks/recent_call_ids", params={"limit": 1}
+        )
+        ids.raise_for_status()
+        items = ids.json()
+        if not items:
+            print("No recent call_ids found.")
+            return 0
+        call_id = items[0].get("call_id")
+        print("Using call_id:", call_id)
+        t = await client.get(
+            f"{CONTROL_URL}/api/hooks/trace_by_call_id", params={"call_id": call_id}
+        )
         t.raise_for_status()
         data = t.json()
         print("\nTRACE entries:")

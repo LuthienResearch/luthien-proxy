@@ -40,12 +40,10 @@ class LuthienCallback(CustomLogger):
         response_obj,
         start_time=None,
         end_time=None,
-        correlation_id: str | None = None,
     ):
         try:
             import time as _time
 
-            cid = correlation_id or self._extract_correlation_id(kwargs)
             with httpx.Client(timeout=self.timeout) as client:
                 client.post(
                     f"{self.control_plane_url}/hooks/{hook}",
@@ -58,7 +56,6 @@ class LuthienCallback(CustomLogger):
                         "response_obj": self._json_safe(
                             self._serialize_response(response_obj)
                         ),
-                        "correlation_id": cid,
                     },
                 )
         except Exception as e:
@@ -72,12 +69,10 @@ class LuthienCallback(CustomLogger):
         response_obj,
         start_time=None,
         end_time=None,
-        correlation_id: str | None = None,
     ):
         try:
             import time as _time
 
-            cid = correlation_id or self._extract_correlation_id(kwargs)
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 await client.post(
                     f"{self.control_plane_url}/hooks/{hook}",
@@ -90,7 +85,6 @@ class LuthienCallback(CustomLogger):
                         "response_obj": self._json_safe(
                             self._serialize_response(response_obj)
                         ),
-                        "correlation_id": cid,
                     },
                 )
         except Exception as e:
@@ -118,17 +112,14 @@ class LuthienCallback(CustomLogger):
                 ),
                 "call_type": kwargs.get("call_type"),
             }
-            cid = self._extract_correlation_id(payload.get("data", {}))
-            if cid:
-                payload["correlation_id"] = cid
             url = f"{self.control_plane_url}/hooks/pre"
             with httpx.Client(timeout=self.timeout) as client:
                 res = client.post(url, json=payload)
                 verbose_logger.debug(
                     f"LUTHIEN hook_pre status={res.status_code} body={res.text[:200]}"
                 )
-            # generic hook endpoint (pass correlation id explicitly for reliable trace)
-            self._post_hook("log_pre_api_call", "pre", kwargs, None, correlation_id=cid)
+            # generic hook endpoint
+            self._post_hook("log_pre_api_call", "pre", kwargs, None)
         except Exception as e:
             verbose_logger.debug(f"LUTHIEN hook_pre error: {e}")
         return super().log_pre_api_call(model, messages, kwargs)
@@ -171,9 +162,6 @@ class LuthienCallback(CustomLogger):
                 ),
                 "response": self._json_safe(self._serialize_response(response_obj)),
             }
-            cid = self._extract_correlation_id(kwargs or {})
-            if cid:
-                payload["correlation_id"] = cid
             url = f"{self.control_plane_url}/hooks/post_success"
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 res = await client.post(url, json=payload)
@@ -227,9 +215,6 @@ class LuthienCallback(CustomLogger):
                 "chunk_index": int((kwargs or {}).get("chunk_index", 0)),
                 "accumulated_text": str((kwargs or {}).get("accumulated_text", "")),
             }
-            cid = self._extract_correlation_id(payload.get("request_data", {}))
-            if cid:
-                payload["correlation_id"] = cid
             url = f"{self.control_plane_url}/hooks/stream_chunk"
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 res = await client.post(url, json=payload)
@@ -302,7 +287,6 @@ class LuthienCallback(CustomLogger):
                             f"LUTHIEN iterator stream_chunk error: {ie}"
                         )
                     # generic ingest per chunk
-                    # attach correlation id from request_data
                     await self._apost_hook(
                         "async_post_call_streaming_iterator_hook",
                         "stream",
@@ -324,10 +308,7 @@ class LuthienCallback(CustomLogger):
                 yield item
 
     async def async_log_pre_api_call(self, model, messages, kwargs):
-        cid = self._extract_correlation_id({"messages": messages}, kwargs)
-        await self._apost_hook(
-            "async_log_pre_api_call", "pre", kwargs, None, correlation_id=cid
-        )
+        await self._apost_hook("async_log_pre_api_call", "pre", kwargs, None)
         return None
 
     async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
@@ -584,98 +565,7 @@ class LuthienCallback(CustomLogger):
         except Exception:
             return "<unserializable>"
 
-    def _extract_correlation_id(self, *objs):
-        """Try to extract a correlation_id from typical LiteLLM kwargs structures.
-
-        Falls back to a deep recursive search if not found in targeted paths,
-        and scans message content for a 'CORRELATION_ID=' tag.
-        """
-        targeted_paths = (
-            ("litellm_metadata", "correlation_id"),
-            ("metadata", "correlation_id"),
-            ("request_data", "litellm_metadata", "correlation_id"),
-            ("request", "litellm_metadata", "correlation_id"),
-            ("proxy_server_request", "body", "litellm_metadata", "correlation_id"),
-            ("kwargs", "litellm_metadata", "correlation_id"),
-        )
-
-        def deep_find(o):
-            # direct
-            if isinstance(o, dict):
-                v = o.get("correlation_id")
-                if isinstance(v, str) and v:
-                    return v
-                lm = o.get("litellm_metadata")
-                if isinstance(lm, dict):
-                    v = lm.get("correlation_id")
-                    if isinstance(v, str) and v:
-                        return v
-                # recurse
-                for vv in o.values():
-                    res = deep_find(vv)
-                    if res:
-                        return res
-            elif isinstance(o, (list, tuple)):
-                for it in o:
-                    res = deep_find(it)
-                    if res:
-                        return res
-            elif isinstance(o, str) and "CORRELATION_ID=" in o:
-                idx = o.find("CORRELATION_ID=")
-                if idx != -1:
-                    val = o[idx + len("CORRELATION_ID=") :].strip().split()[0]
-                    if val:
-                        return val
-            return None
-
-        for obj in objs:
-            if not isinstance(obj, dict):
-                continue
-            # exact paths
-            for path in targeted_paths:
-                cur = obj
-                ok = True
-                for p in path:
-                    if isinstance(cur, dict) and p in cur:
-                        cur = cur[p]
-                    else:
-                        ok = False
-                        break
-                if ok and isinstance(cur, str) and cur:
-                    return cur
-            # messages scan
-            msgs = obj.get("messages") if isinstance(obj, dict) else None
-            if isinstance(msgs, list):
-                for m in msgs:
-                    if isinstance(m, dict):
-                        c = m.get("content")
-                        if isinstance(c, str) and "CORRELATION_ID=" in c:
-                            idx = c.find("CORRELATION_ID=")
-                            if idx != -1:
-                                val = (
-                                    c[idx + len("CORRELATION_ID=") :].strip().split()[0]
-                                )
-                                if val:
-                                    return val
-                        if isinstance(c, list):
-                            for part in c:
-                                if isinstance(part, dict):
-                                    t = part.get("text") or part.get("content")
-                                    if isinstance(t, str) and "CORRELATION_ID=" in t:
-                                        idx = t.find("CORRELATION_ID=")
-                                        if idx != -1:
-                                            val = (
-                                                t[idx + len("CORRELATION_ID=") :]
-                                                .strip()
-                                                .split()[0]
-                                            )
-                                            if val:
-                                                return val
-            # deep search anywhere
-            res = deep_find(obj)
-            if res:
-                return res
-        return None
+    # (No correlation_id logic; control-plane extracts litellm_call_id.)
 
 
 # Create the singleton instance that LiteLLM will use
