@@ -57,7 +57,7 @@ We keep the policy surface identical to LiteLLM's hook API and make the proxy ho
   - `/hooks/pre` mirrors `async_pre_call_hook(...)`
   - `/hooks/post_success` mirrors `async_post_call_success_hook(...)`
   - Streaming is chunk-by-chunk:
-    - `/hooks/stream_chunk` is called for every chunk and can pass/suppress/edit or cut over to replacement
+    - Streaming chunks are forwarded via generic hook(s) (e.g., `async_post_call_streaming_iterator_hook`); the control plane records deltas and assembles partial responses in Redis
     - `/hooks/stream_replacement` provides the replacement stream when requested
 
 Key files:

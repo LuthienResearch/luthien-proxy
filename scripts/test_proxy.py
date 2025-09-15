@@ -205,31 +205,7 @@ class LuthienTester:
                     print(f"❌ /hooks/post_success unexpected payload: {post_json}")
                     return False
 
-                # Stream chunk: expect action present for NoOp (pass)
-                chunk_req = {
-                    "user_api_key_dict": pre_req["user_api_key_dict"],
-                    "request_data": pre_req["data"],
-                    "chunk": {"choices": [{"delta": {"content": "hello"}}]},
-                    "chunk_index": 1,
-                    "accumulated_text": "hello",
-                }
-                chunk_res = await client.post(
-                    f"{self.control_plane_url}/hooks/stream_chunk", json=chunk_req
-                )
-                if chunk_res.status_code != 200:
-                    print(
-                        f"❌ /hooks/stream_chunk status: {chunk_res.status_code} body: {chunk_res.text}"
-                    )
-                    return False
-                chunk_json = chunk_res.json()
-                if chunk_json.get("action") not in {
-                    "pass",
-                    "suppress",
-                    "edit",
-                    "replace_stream",
-                }:
-                    print(f"❌ /hooks/stream_chunk unexpected payload: {chunk_json}")
-                    return False
+                # Streaming hooks now flow via generic endpoints; no direct stream_chunk call
 
                 print("✅ Control plane hooks responded correctly")
                 return True

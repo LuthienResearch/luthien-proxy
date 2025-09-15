@@ -19,6 +19,12 @@ from luthien_control.policies.base import LuthienPolicy
 from luthien_control.policies.noop import NoOpPolicy
 from luthien_control.control_plane.ui import router as ui_router
 import yaml
+from luthien_control.control_plane.stream_context import StreamContextStore
+from luthien_control.control_plane.utils.hooks import (
+    extract_call_id_for_hook,
+    extract_call_id_from_request_data,
+)
+from luthien_control.control_plane.utils.streaming import extract_delta_text
 
 
 # Pydantic models for API requests/responses
@@ -122,6 +128,7 @@ app.include_router(ui_router)
 # Global instances (will be initialized on startup)
 policy_engine: Optional[PolicyEngine] = None
 active_policy: Optional[LuthienPolicy] = None
+stream_store: Optional[StreamContextStore] = None
 _hook_counters: Dict[str, int] = {
     "hook_pre": 0,
     "hook_post_success": 0,
@@ -131,6 +138,7 @@ _hook_logs: deque = deque(maxlen=500)
 
 
 def _get_in(d: Dict[str, Any], path: list[str]) -> Optional[Any]:
+    # Kept for backward-compat; new code uses utils.hooks._get_in indirectly
     cur: Any = d
     try:
         for k in path:
@@ -142,71 +150,11 @@ def _get_in(d: Dict[str, Any], path: list[str]) -> Optional[Any]:
         return None
 
 
-def _extract_call_id_for_hook(hook: str, payload: Dict[str, Any]) -> Optional[str]:
-    """Deterministic extraction of litellm_call_id per hook based on observed paths.
+def _extract_call_id_from_stream_payload(payload: Dict[str, Any]) -> Optional[str]:
+    return extract_call_id_from_request_data(payload.get("request_data") or {})
 
-    Uses the path statistics provided to prioritize minimal, stable paths.
-    """
-    name = (hook or "").lower()
-    paths: list[list[str]] = []
-    # Generic fallbacks used by several hooks
-    common_kwarg_paths = [
-        ["kwargs", "litellm_call_id"],
-        ["kwargs", "litellm_params", "litellm_call_id"],
-        ["kwargs", "litellm_params", "metadata", "hidden_params", "litellm_call_id"],
-    ]
-    if name in {"async_logging_hook", "logging_hook"}:
-        paths = [
-            ["kwargs", "kwargs", "litellm_call_id"],
-            ["kwargs", "kwargs", "litellm_params", "litellm_call_id"],
-            [
-                "kwargs",
-                "kwargs",
-                "litellm_params",
-                "metadata",
-                "hidden_params",
-                "litellm_call_id",
-            ],
-        ]
-    elif name in {
-        "log_pre_api_call",
-        "log_post_api_call",
-        "async_log_success_event",
-        "log_success_event",
-    }:
-        paths = common_kwarg_paths
-    elif name in {
-        "async_post_call_success_hook",
-        "async_pre_call_hook",
-        "async_moderation_hook",
-    }:
-        paths = [
-            ["kwargs", "data", "litellm_call_id"],
-            ["kwargs", "data", "metadata", "hidden_params", "litellm_call_id"],
-        ]
-    elif name in {"async_pre_call_deployment_hook"}:
-        paths = [["kwargs", "kwargs", "litellm_call_id"]]
-    elif name in {
-        "async_post_call_success_deployment_hook",
-        "async_post_call_streaming_iterator_hook",
-    }:
-        paths = [["kwargs", "request_data", "litellm_call_id"]]
-    elif name in {"kwargs_pre", "kwargs_post"}:
-        paths = common_kwarg_paths + [
-            ["kwargs", "metadata", "hidden_params", "litellm_call_id"]
-        ]
-    else:
-        # Try generic common paths as a last resort
-        paths = common_kwarg_paths + [
-            ["kwargs", "kwargs", "litellm_call_id"],
-            ["kwargs", "request_data", "litellm_call_id"],
-        ]
 
-    for p in paths:
-        v = _get_in(payload, p)
-        if isinstance(v, str) and v:
-            return v
-    return None
+# No explicit clear-on-finish; rely on TTL for simplicity.
 
 
 async def _insert_debug(debug_type: str, payload: Dict[str, Any]) -> None:
@@ -235,7 +183,7 @@ async def _insert_debug(debug_type: str, payload: Dict[str, Any]) -> None:
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
-    global policy_engine, active_policy
+    global policy_engine, active_policy, stream_store
 
     try:
         # Initialize policy engine only if persistence is configured (optional)
@@ -248,6 +196,16 @@ async def startup_event():
 
         # Load active policy via config file (LUTHIEN_POLICY_CONFIG)
         active_policy = _load_policy_from_config()
+
+        # Initialize stream context store (Redis required; fail fast otherwise)
+        if not policy_engine or not policy_engine.redis_client:
+            raise RuntimeError(
+                "Redis is required for streaming context; set REDIS_URL and ensure connectivity"
+            )
+        stream_store = StreamContextStore(
+            redis_client=policy_engine.redis_client,
+            ttl_seconds=int(os.getenv("STREAM_CONTEXT_TTL", "3600")),
+        )
 
         print("Control plane services initialized successfully")
 
@@ -325,7 +283,7 @@ async def list_endpoints():
         "hooks": [
             "POST /hooks/pre",
             "POST /hooks/post_success",
-            "POST /hooks/stream_chunk",
+            "POST /hooks/{hook_name}",
             "POST /hooks/stream_replacement",
         ],
         "health": "GET /health",
@@ -333,51 +291,6 @@ async def list_endpoints():
 
 
 # ---------------- Hook-style endpoints (LiteLLM callback integration) -----------------
-
-
-@app.post("/hooks/pre")
-async def hook_pre(payload: Dict[str, Any]):
-    """Pre-call hook. Mirrors LiteLLM CustomLogger pre hook semantics.
-
-    Expects payload with keys similar to:
-      - user_api_key_dict: Optional[dict]
-      - cache: Optional[dict]
-      - data: dict (the OpenAI-style request)
-      - call_type: Optional[str]
-
-    Returns one of:
-      - {result_type: "none"} (no change)
-      - {result_type: "string", result: str} (short-circuit with string)
-      - {result_type: "dict", result: dict} (rewrite request)
-    """
-    global active_policy
-
-    user_api_key_dict = payload.get("user_api_key_dict")
-    cache = payload.get("cache")
-    data = payload.get("data") or {}
-    call_type = payload.get("call_type")
-
-    if active_policy is None:
-        active_policy = NoOpPolicy()
-
-    try:
-        result = await active_policy.async_pre_call_hook(
-            user_api_key_dict=user_api_key_dict,
-            cache=cache,
-            data=data,
-            call_type=call_type,
-        )
-        _hook_counters["hook_pre"] = _hook_counters.get("hook_pre", 0) + 1
-        if result is None:
-            return {"result_type": "none"}
-        if isinstance(result, str):
-            return {"result_type": "string", "result": result}
-        if isinstance(result, dict):
-            return {"result_type": "dict", "result": result}
-        # Fallback: serialize unknown types
-        return {"result_type": "string", "result": str(result)}
-    except Exception as e:
-        return {"result_type": "string", "result": f"pre hook error: {e}"}
 
 
 @app.post("/hooks/post_success")
@@ -415,44 +328,7 @@ async def hook_post_success(payload: Dict[str, Any]):
         return {"replace": True, "replacement": {"error": str(e)}}
 
 
-@app.post("/hooks/stream_chunk")
-async def hook_stream_chunk(payload: Dict[str, Any]):
-    """Per-chunk streaming hook.
-
-    Expects payload with keys:
-      - user_api_key_dict: Optional[dict]
-      - request_data: dict (original request)
-      - chunk: dict (OpenAI-style delta chunk)
-      - chunk_index: int
-      - accumulated_text: str
-
-    Returns a dict including at minimum:
-      - action: 'pass' | 'suppress' | 'edit' | 'replace_stream'
-      - chunk: dict (required when action == 'edit')
-    """
-    global active_policy
-    if active_policy is None:
-        active_policy = NoOpPolicy()
-
-    try:
-        result = await active_policy.streaming_on_chunk(
-            user_api_key_dict=payload.get("user_api_key_dict"),
-            request_data=payload.get("request_data") or {},
-            chunk=payload.get("chunk") or {},
-            chunk_index=int(payload.get("chunk_index") or 0),
-            accumulated_text=str(payload.get("accumulated_text") or ""),
-        )
-        _hook_counters["hook_stream_chunk"] = (
-            _hook_counters.get("hook_stream_chunk", 0) + 1
-        )
-        # no debug_logs write here; rely on generic hook ingest per chunk
-        # Basic shape validation
-        action = result.get("action") if isinstance(result, dict) else None
-        if action not in {"pass", "suppress", "edit", "replace_stream"}:
-            return {"action": "pass"}
-        return result
-    except Exception as e:
-        return {"action": "pass", "error": str(e)}
+# Removed /hooks/stream_chunk. Streaming chunks are ingested via generic hooks.
 
 
 # ---------------- Debug logs API and UI -----------------
@@ -627,11 +503,8 @@ async def post_debug_log(entry: DebugLogIn):
 
 class HookLogIn(BaseModel):
     hook: str
-    when: str
     kwargs: Dict[str, Any] | None = None
     response_obj: Dict[str, Any] | str | None = None
-    t0: float | None = None
-    t1: float | None = None
 
 
 @app.post("/api/hooks/log")
@@ -667,9 +540,6 @@ async def clear_hook_logs():
 
 class HookIngest(BaseModel):
     hook: str
-    when: str
-    t0: float | None = None
-    t1: float | None = None
     kwargs: Dict[str, Any] | None = None
     response_obj: Dict[str, Any] | str | None = None
 
@@ -743,7 +613,7 @@ async def hook_generic(hook_name: str, payload: Dict[str, Any]):
         }
         # extract litellm_call_id deterministically from payload
         try:
-            call_id = _extract_call_id_for_hook(hook_name, payload)
+            call_id = extract_call_id_for_hook(hook_name, payload)
             if isinstance(call_id, str) and call_id:
                 record["litellm_call_id"] = call_id
         except Exception:
@@ -788,6 +658,30 @@ async def hook_generic(hook_name: str, payload: Dict[str, Any]):
             _hook_counters["hook_stream_chunk"] = (
                 _hook_counters.get("hook_stream_chunk", 0) + 1
             )
+        # Streaming context ingest for iterator/stream events
+        if any(
+            k in name
+            for k in [
+                "streaming_iterator_hook",
+                "stream_event",
+                "post_call_streaming_hook",
+            ]
+        ):
+            try:
+                if not stream_store:
+                    raise RuntimeError("stream_store not initialized")
+                call_id = extract_call_id_for_hook(hook_name, payload)
+                # response_obj carries the raw chunk
+                chunk_obj = payload.get("response_obj")
+                if isinstance(chunk_obj, str):
+                    # best-effort: ignore non-dict
+                    chunk_obj = None
+                if isinstance(chunk_obj, dict):
+                    delta = extract_delta_text(chunk_obj)
+                    if delta:
+                        await stream_store.append_delta(call_id, delta)
+            except Exception as ie:
+                print(f"stream_context_ingest_error: {ie}")
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"hook_generic_error: {e}")

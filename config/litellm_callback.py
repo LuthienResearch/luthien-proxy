@@ -9,11 +9,12 @@ This module is loaded by LiteLLM via the `callbacks` entry in
 Implements a thin bridge:
 - pre: POST /hooks/pre (sync)
 - post-success: POST /hooks/post_success (async)
-- stream-chunk: POST /hooks/stream_chunk (async)
+- streaming: generic `/hooks/{hook_name}` forwarding for iterator/log hooks
 """
 
 import os
 from litellm.integrations.custom_logger import CustomLogger
+from litellm.proxy._types import UserAPIKeyAuth
 from litellm._logging import verbose_logger
 import httpx
 
@@ -35,11 +36,8 @@ class LuthienCallback(CustomLogger):
     def _post_hook(
         self,
         hook: str,
-        when: str,
         kwargs,
         response_obj,
-        start_time=None,
-        end_time=None,
     ):
         try:
             import time as _time
@@ -48,9 +46,6 @@ class LuthienCallback(CustomLogger):
                 client.post(
                     f"{self.control_plane_url}/hooks/{hook}",
                     json={
-                        "when": when,
-                        "start_time": start_time,
-                        "end_time": end_time,
                         "post_time_ns": _time.time_ns(),
                         "kwargs": self._json_safe(kwargs or {}),
                         "response_obj": self._json_safe(
@@ -64,11 +59,8 @@ class LuthienCallback(CustomLogger):
     async def _apost_hook(
         self,
         hook: str,
-        when: str,
         kwargs,
         response_obj,
-        start_time=None,
-        end_time=None,
     ):
         try:
             import time as _time
@@ -77,9 +69,6 @@ class LuthienCallback(CustomLogger):
                 await client.post(
                     f"{self.control_plane_url}/hooks/{hook}",
                     json={
-                        "when": when,
-                        "start_time": start_time,
-                        "end_time": end_time,
                         "post_time_ns": _time.time_ns(),
                         "kwargs": self._json_safe(kwargs or {}),
                         "response_obj": self._json_safe(
@@ -121,39 +110,26 @@ class LuthienCallback(CustomLogger):
                     f"LUTHIEN hook_pre status={res.status_code} body={res.text[:200]}"
                 )
             # generic hook endpoint
-            self._post_hook("log_pre_api_call", "pre", kwargs, None)
+            self._post_hook("log_pre_api_call", kwargs, None)
         except Exception as e:
             verbose_logger.debug(f"LUTHIEN hook_pre error: {e}")
         return super().log_pre_api_call(model, messages, kwargs)
 
     def log_post_api_call(self, kwargs, response_obj, start_time, end_time):
         # generic hook endpoint
-        self._post_hook(
-            "log_post_api_call", "post", kwargs, response_obj, start_time, end_time
-        )
+        self._post_hook("log_post_api_call", kwargs, response_obj)
         return super().log_post_api_call(kwargs, response_obj, start_time, end_time)
 
     def log_success_event(self, kwargs, response_obj, start_time, end_time):
-        self._post_hook(
-            "log_success_event", "success", kwargs, response_obj, start_time, end_time
-        )
+        self._post_hook("log_success_event", kwargs, response_obj)
 
     def log_failure_event(self, kwargs, response_obj, start_time, end_time):
-        self._post_hook(
-            "log_failure_event", "failure", kwargs, response_obj, start_time, end_time
-        )
+        self._post_hook("log_failure_event", kwargs, response_obj)
         return super().log_failure_event(kwargs, response_obj, start_time, end_time)
 
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
         """Forward post-success to control plane for possible replacement/logging."""
-        await self._apost_hook(
-            "async_log_success_event",
-            "success",
-            kwargs,
-            response_obj,
-            start_time,
-            end_time,
-        )
+        await self._apost_hook("async_log_success_event", kwargs, response_obj)
         try:
             payload = {
                 "data": self._json_safe(kwargs or {}),
@@ -196,107 +172,29 @@ class LuthienCallback(CustomLogger):
 
     async def async_log_stream_event(self, kwargs, response_obj, start_time, end_time):
         """Called during streaming; forward per-chunk to control plane."""
-        await self._apost_hook(
-            "async_log_stream_event",
-            "stream",
-            kwargs,
-            response_obj,
-            start_time,
-            end_time,
-        )
-        try:
-            chunk = self._serialize_response(response_obj)
-            payload = {
-                "user_api_key_dict": self._serialize_dict(
-                    kwargs.get("user_api_key_dict")
-                    if isinstance(kwargs, dict)
-                    else None
-                ),
-                "request_data": self._json_safe(kwargs or {}),
-                "chunk": self._json_safe(chunk or {}),
-                "chunk_index": int((kwargs or {}).get("chunk_index", 0)),
-                "accumulated_text": str((kwargs or {}).get("accumulated_text", "")),
-            }
-            url = f"{self.control_plane_url}/hooks/stream_chunk"
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                res = await client.post(url, json=payload)
-                verbose_logger.debug(
-                    f"LUTHIEN hook_stream_chunk status={res.status_code} body={res.text[:200]}"
-                )
-        except Exception as e:
-            verbose_logger.debug(f"LUTHIEN hook_stream_chunk error: {e}")
+        await self._apost_hook("async_log_stream_event", kwargs, response_obj)
+        return None
 
     def log_stream_event(self, kwargs, response_obj, start_time, end_time):
         """Sync variant for streaming chunks (some LiteLLM paths call this)."""
-        self._post_hook(
-            "log_stream_event", "stream", kwargs, response_obj, start_time, end_time
-        )
-        try:
-            chunk = self._serialize_response(response_obj)
-            payload = {
-                "user_api_key_dict": self._serialize_dict(
-                    kwargs.get("user_api_key_dict")
-                    if isinstance(kwargs, dict)
-                    else None
-                ),
-                "request_data": self._json_safe(kwargs or {}),
-                "chunk": self._json_safe(chunk or {}),
-                "chunk_index": int((kwargs or {}).get("chunk_index", 0)),
-                "accumulated_text": str((kwargs or {}).get("accumulated_text", "")),
-            }
-            url = f"{self.control_plane_url}/hooks/stream_chunk"
-            with httpx.Client(timeout=self.timeout) as client:
-                res = client.post(url, json=payload)
-                verbose_logger.debug(
-                    f"LUTHIEN hook_stream_chunk(sync) status={res.status_code} body={res.text[:200]}"
-                )
-        except Exception as e:
-            verbose_logger.debug(f"LUTHIEN hook_stream_chunk(sync) error: {e}")
+        self._post_hook("log_stream_event", kwargs, response_obj)
+        return None
 
     async def async_post_call_streaming_iterator_hook(
         self, user_api_key_dict, response, request_data: dict
     ):
-        """Wrap the streaming iterator to forward each chunk to control plane.
-
-        This is the most reliable streaming hook path in LiteLLM proxy.
-        """
+        """Wrap the streaming iterator to forward each chunk to control plane."""
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                idx = 0
-                async for item in response:
-                    idx += 1
-                    try:
-                        payload = {
-                            "user_api_key_dict": self._serialize_dict(
-                                user_api_key_dict
-                            ),
-                            "request_data": self._json_safe(request_data or {}),
-                            "chunk": self._json_safe(
-                                self._serialize_response(item) or {}
-                            ),
-                            "chunk_index": idx,
-                            "accumulated_text": "",  # not tracked here; proxy can compute if needed
-                        }
-                        await client.post(
-                            f"{self.control_plane_url}/hooks/stream_chunk", json=payload
-                        )
-                    except Exception as ie:
-                        verbose_logger.debug(
-                            f"LUTHIEN iterator stream_chunk error: {ie}"
-                        )
-                    # generic ingest per chunk
-                    await self._apost_hook(
-                        "async_post_call_streaming_iterator_hook",
-                        "stream",
-                        {
-                            "user_api_key_dict": self._serialize_dict(
-                                user_api_key_dict
-                            ),
-                            "request_data": request_data,
-                        },
-                        item,
-                    )
-                    yield item
+            async for item in response:
+                await self._apost_hook(
+                    "async_post_call_streaming_iterator_hook",
+                    {
+                        "user_api_key_dict": self._serialize_dict(user_api_key_dict),
+                        "request_data": request_data,
+                    },
+                    item,
+                )
+                yield item
         except Exception as e:
             verbose_logger.debug(
                 f"LUTHIEN async_post_call_streaming_iterator_hook error: {e}"
@@ -304,19 +202,18 @@ class LuthienCallback(CustomLogger):
             # If wrapping fails, yield from original response to avoid breaking stream
             async for item in response:
                 yield item
+        finally:
+            return
 
     async def async_log_pre_api_call(self, model, messages, kwargs):
-        await self._apost_hook("async_log_pre_api_call", "pre", kwargs, None)
+        await self._apost_hook("async_log_pre_api_call", kwargs, None)
         return None
 
     async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
         await self._apost_hook(
             "async_log_failure_event",
-            "failure",
             kwargs,
             response_obj,
-            start_time,
-            end_time,
         )
         return None
 
@@ -327,7 +224,6 @@ class LuthienCallback(CustomLogger):
     ):
         await self._apost_hook(
             "async_post_call_failure_hook",
-            "failure",
             {
                 "request_data": self._json_safe(request_data),
                 "user_api_key_dict": self._serialize_dict(user_api_key_dict),
@@ -340,7 +236,6 @@ class LuthienCallback(CustomLogger):
     async def async_post_call_streaming_hook(self, user_api_key_dict, response: str):
         await self._apost_hook(
             "async_post_call_streaming_hook",
-            "stream",
             {"user_api_key_dict": self._serialize_dict(user_api_key_dict)},
             response,
         )
@@ -356,7 +251,6 @@ class LuthienCallback(CustomLogger):
     ):
         await self._apost_hook(
             "async_pre_routing_hook",
-            "pre",
             {
                 "model": model,
                 "request_kwargs": self._json_safe(request_kwargs),
@@ -368,11 +262,26 @@ class LuthienCallback(CustomLogger):
         )
         return None
 
-    async def async_pre_call_deployment_hook(self, kwargs: dict, call_type):
+    async def async_pre_call_deployment_hook(self, kwargs: dict, call_type: str):
+        """
+        Use this instead of 'async_pre_call_hook' when you need to modify the request AFTER a deployment is selected, but BEFORE the request is sent.
+        """
         await self._apost_hook(
             "async_pre_call_deployment_hook",
-            "pre",
             {"kwargs": self._json_safe(kwargs), "call_type": call_type},
+            None,
+        )
+        return None
+
+    async def async_pre_call_hook(
+        self,
+        user_api_key_dict: UserAPIKeyAuth,
+        data: dict,
+        call_type: str,
+    ):
+        await self._apost_hook(
+            "async_pre_call_hook",
+            {"data": self._json_safe(data), "call_type": call_type},
             None,
         )
         return None
@@ -382,7 +291,6 @@ class LuthienCallback(CustomLogger):
     ):
         await self._apost_hook(
             "async_post_call_success_deployment_hook",
-            "post",
             {"request_data": self._json_safe(request_data), "call_type": call_type},
             response,
         )
@@ -391,7 +299,6 @@ class LuthienCallback(CustomLogger):
     async def async_logging_hook(self, kwargs: dict, result, call_type: str):
         await self._apost_hook(
             "async_logging_hook",
-            "post",
             {"kwargs": self._json_safe(kwargs), "call_type": call_type},
             result,
         )
@@ -400,7 +307,6 @@ class LuthienCallback(CustomLogger):
     def logging_hook(self, kwargs: dict, result, call_type: str):
         self._post_hook(
             "logging_hook",
-            "post",
             {"kwargs": self._json_safe(kwargs), "call_type": call_type},
             result,
         )
@@ -411,7 +317,6 @@ class LuthienCallback(CustomLogger):
     ):
         await self._apost_hook(
             "async_moderation_hook",
-            "pre",
             {
                 "data": self._json_safe(data),
                 "call_type": call_type,
@@ -424,7 +329,6 @@ class LuthienCallback(CustomLogger):
     def log_event(self, *args, **kwargs):
         self._post_hook(
             "log_event",
-            "post",
             {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
             None,
         )
@@ -432,7 +336,6 @@ class LuthienCallback(CustomLogger):
     async def async_log_event(self, *args, **kwargs):
         await self._apost_hook(
             "async_log_event",
-            "post",
             {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
             None,
         )
@@ -440,7 +343,6 @@ class LuthienCallback(CustomLogger):
     def log_input_event(self, *args, **kwargs):
         self._post_hook(
             "log_input_event",
-            "pre",
             {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
             None,
         )
@@ -448,7 +350,6 @@ class LuthienCallback(CustomLogger):
     async def async_log_input_event(self, *args, **kwargs):
         await self._apost_hook(
             "async_log_input_event",
-            "pre",
             {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
             None,
         )
@@ -458,7 +359,6 @@ class LuthienCallback(CustomLogger):
     ):
         self._post_hook(
             "log_model_group_rate_limit_error",
-            "failure",
             {
                 "original_model_group": original_model_group,
                 "kwargs": self._json_safe(kwargs),
@@ -471,7 +371,6 @@ class LuthienCallback(CustomLogger):
     ):
         await self._apost_hook(
             "log_success_fallback_event",
-            "post",
             {
                 "original_model_group": original_model_group,
                 "kwargs": self._json_safe(kwargs),
@@ -484,7 +383,6 @@ class LuthienCallback(CustomLogger):
     ):
         await self._apost_hook(
             "log_failure_fallback_event",
-            "failure",
             {
                 "original_model_group": original_model_group,
                 "kwargs": self._json_safe(kwargs),
@@ -495,20 +393,17 @@ class LuthienCallback(CustomLogger):
     def translate_completion_input_params(self, kwargs) -> None:
         self._post_hook(
             "translate_completion_input_params",
-            "pre",
             {"kwargs": self._json_safe(kwargs)},
             None,
         )
         return None
 
     def translate_completion_output_params(self, response) -> None:
-        self._post_hook("translate_completion_output_params", "post", {}, response)
+        self._post_hook("translate_completion_output_params", {}, response)
         return None
 
     def translate_completion_output_params_streaming(self, completion_stream) -> None:
-        self._post_hook(
-            "translate_completion_output_params_streaming", "stream", {}, None
-        )
+        self._post_hook("translate_completion_output_params_streaming", {}, None)
         return None
 
     def _serialize_dict(self, obj):
@@ -562,8 +457,6 @@ class LuthienCallback(CustomLogger):
             return repr(obj)
         except Exception:
             return "<unserializable>"
-
-    # (No correlation_id logic; control-plane extracts litellm_call_id.)
 
 
 # Create the singleton instance that LiteLLM will use
