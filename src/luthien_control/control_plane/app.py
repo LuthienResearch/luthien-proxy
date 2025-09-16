@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 import asyncpg
 import json
 from collections import deque
@@ -23,84 +23,8 @@ import yaml
 from luthien_control.control_plane.stream_context import StreamContextStore
 from luthien_control.control_plane.utils.hooks import (
     extract_call_id_for_hook,
-    extract_call_id_from_request_data,
 )
 from luthien_control.control_plane.utils.streaming import extract_delta_text
-
-
-# Pydantic models for API requests/responses
-class PolicyEvaluationRequest(BaseModel):
-    """Request for policy evaluation at different stages."""
-
-    stage: str = Field(..., description="Stage: pre, post, or streaming_chunk")
-    episode_id: Optional[str] = None
-    step_id: Optional[str] = None
-    call_type: Optional[str] = None
-    request: Dict[str, Any] = Field(..., description="Original LLM request")
-    response: Optional[Dict[str, Any]] = None
-    user_metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
-class PolicyEvaluationResponse(BaseModel):
-    """Response from policy evaluation."""
-
-    action: str = Field(
-        ..., description="Action to take: allow, reject, rewrite, replace_response"
-    )
-    reject: bool = Field(default=False)
-    reject_message: Optional[str] = None
-    rewrite: Optional[Dict[str, Any]] = None
-    replace_response: Optional[Dict[str, Any]] = None
-    trigger_resample: bool = Field(default=False)
-    resample_config: Optional[Dict[str, Any]] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
-class ChunkEvaluationRequest(BaseModel):
-    """Request for evaluating streaming chunks."""
-
-    episode_id: Optional[str] = None
-    step_id: Optional[str] = None
-    accumulated_text: str = Field(..., description="Text accumulated so far")
-    latest_chunk: str = Field(..., description="Most recent chunk")
-    request: Dict[str, Any] = Field(..., description="Original request context")
-
-
-class ChunkEvaluationResponse(BaseModel):
-    """Response for chunk evaluation."""
-
-    halt_stream: bool = Field(default=False, description="Whether to halt the stream")
-    switch_to_trusted: bool = Field(
-        default=False, description="Switch to trusted model"
-    )
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
-class ResampleRequest(BaseModel):
-    """Request for defer-to-resample protocol."""
-
-    episode_id: str
-    step_id: str
-    original_request: Dict[str, Any]
-    original_response: Dict[str, Any]
-    resample_config: Dict[str, Any] = Field(default_factory=dict)
-
-
-class ResampleResponse(BaseModel):
-    """Response from resampling protocol."""
-
-    replacement_response: Optional[Dict[str, Any]] = None
-    audit_required: bool = Field(default=False)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
-class TrustedStreamRequest(BaseModel):
-    """Request for trusted stream replacement."""
-
-    episode_id: str
-    step_id: str
-    original_request: Dict[str, Any]
-    partial_content: str
 
 
 # FastAPI app setup
@@ -136,26 +60,6 @@ _hook_counters: Dict[str, int] = {
     "hook_stream_chunk": 0,
 }
 _hook_logs: deque = deque(maxlen=500)
-
-
-def _get_in(d: Dict[str, Any], path: list[str]) -> Optional[Any]:
-    # Kept for backward-compat; new code uses utils.hooks._get_in indirectly
-    cur: Any = d
-    try:
-        for k in path:
-            if not isinstance(cur, dict):
-                return None
-            cur = cur.get(k)
-        return cur
-    except Exception:
-        return None
-
-
-def _extract_call_id_from_stream_payload(payload: Dict[str, Any]) -> Optional[str]:
-    return extract_call_id_from_request_data(payload.get("request_data") or {})
-
-
-# No explicit clear-on-finish; rely on TTL for simplicity.
 
 
 async def _insert_debug(debug_type: str, payload: Dict[str, Any]) -> None:
