@@ -627,11 +627,8 @@ async def run_hook_test(req: HookTestRequest):
         "max_tokens": req.max_tokens,
     }
     try:
-        print("FAILTEST 1")
-
         if req.stream:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                print("FAILTEST 2")
                 async with client.stream(
                     "POST",
                     f"{proxy_url}/chat/completions",
@@ -645,7 +642,6 @@ async def run_hook_test(req: HookTestRequest):
                             detail=f"proxy_stream_error: {resp.status_code}: {text.decode(errors='ignore')}",
                         )
                     parts: list[str] = []
-                    print("FAILTEST 3")
                     async for line in resp.aiter_lines():
                         if line.startswith("data: "):
                             data = line[6:].strip()
@@ -670,23 +666,19 @@ async def run_hook_test(req: HookTestRequest):
                         error=None,
                     )
         else:
-            print("FAILTEST 4")
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(
                     f"{proxy_url}/chat/completions", headers=headers, json=payload
                 )
-                print("FAILTEST 4.5")
                 if resp.status_code != 200:
                     raise HTTPException(
                         status_code=502,
                         detail=f"proxy_error: {resp.status_code}: {resp.text}",
                     )
-                print("FAILTEST 5")
                 data = resp.json()
                 preview = data.get("choices", [{}])[0].get("message", {}).get("content")
                 if isinstance(preview, str):
                     preview = preview[:200]
-                print("FAILTEST 6")
                 return HookTestResult(
                     ok=True,
                     counters=dict(_hook_counters),
