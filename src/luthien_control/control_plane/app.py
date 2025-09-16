@@ -1,5 +1,5 @@
 # ABOUTME: FastAPI application for the Luthien Control plane service that orchestrates AI control policies
-# ABOUTME: Provides endpoints for policy evaluation, chunk monitoring, resampling, and trusted model interactions
+# ABOUTME: Provides endpoints for litellm hooks, as well as luthien-specific utilities and UI
 
 import os
 from typing import Any, Dict, Optional, List
