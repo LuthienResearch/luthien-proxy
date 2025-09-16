@@ -3,7 +3,7 @@
 ## Purpose & Scope
 - Core goal: implement AI Control for LLMs on top of the LiteLLM proxy.
 - Pattern: Redwood-style control with a centralized control plane making policy decisions; the proxy stays thin.
-- Mechanism: a LiteLLM custom logger forwards hook calls to the control plane (`/hooks/pre`, `/hooks/post_success`, generic `/hooks/{hook_name}` for streaming and logs, `/hooks/stream_replacement`). Streaming chunks are forwarded via the iterator/log hooks, and the control plane assembles partials.
+- Mechanism: a LiteLLM custom logger forwards hook calls to the control plane (`/hooks/<hook_name>`), which returns (potentially modified) data, allowing for live modification, rerouting, blocking, etc.
 - Configure models in `config/litellm_config.yaml`; select a policy via `LUTHIEN_POLICY` (e.g., `export LUTHIEN_POLICY=luthien_control.policies.noop:NoOpPolicy`).
 
 ## Project Structure & Module Organization

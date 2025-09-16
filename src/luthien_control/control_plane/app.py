@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 import asyncpg
 import json
 from collections import deque
+import httpx
 
 # Import our policy and monitoring modules (will implement these)
 from luthien_control.policies.engine import PolicyEngine
@@ -281,57 +282,10 @@ def _load_policy_from_config() -> LuthienPolicy:
 async def list_endpoints():
     return {
         "hooks": [
-            "POST /hooks/pre",
-            "POST /hooks/post_success",
             "POST /hooks/{hook_name}",
-            "POST /hooks/stream_replacement",
         ],
         "health": "GET /health",
     }
-
-
-# ---------------- Hook-style endpoints (LiteLLM callback integration) -----------------
-
-
-@app.post("/hooks/post_success")
-async def hook_post_success(payload: Dict[str, Any]):
-    """Post-success hook. Can request response replacement.
-
-    Expects payload with keys:
-      - data: dict (original request)
-      - user_api_key_dict: Optional[dict]
-      - response: dict (original response)
-
-    Returns:
-      - {replace: false} to keep original
-      - {replace: true, replacement: dict} to replace
-    """
-    global active_policy
-    if active_policy is None:
-        active_policy = NoOpPolicy()
-
-    data = payload.get("data") or {}
-    user_api_key_dict = payload.get("user_api_key_dict")
-    response = payload.get("response") or {}
-
-    try:
-        replacement = await active_policy.async_post_call_success_hook(
-            data=data, user_api_key_dict=user_api_key_dict, response=response
-        )
-        _hook_counters["hook_post_success"] = (
-            _hook_counters.get("hook_post_success", 0) + 1
-        )
-        if replacement is None:
-            return {"replace": False}
-        return {"replace": True, "replacement": replacement}
-    except Exception as e:
-        return {"replace": True, "replacement": {"error": str(e)}}
-
-
-# Removed /hooks/stream_chunk. Streaming chunks are ingested via generic hooks.
-
-
-# ---------------- Debug logs API and UI -----------------
 
 
 # ---------------- Debug logs API and UI -----------------
@@ -538,65 +492,6 @@ async def clear_hook_logs():
     return {"ok": True, "count": 0}
 
 
-class HookIngest(BaseModel):
-    hook: str
-    kwargs: Dict[str, Any] | None = None
-    response_obj: Dict[str, Any] | str | None = None
-
-
-@app.post("/hooks/ingest")
-async def ingest_generic_hook(entry: HookIngest):
-    """Generic ingestion for any LiteLLM logger hook.
-
-    - Stores in-memory log
-    - Inserts into debug_logs with debug_type 'litellm_hook'
-    - Updates counters heuristically
-    """
-    item = entry.model_dump()
-    _hook_logs.append(item)
-
-    # Insert into DB debug logs (best-effort) using a consistent hook:* type
-    try:
-        await _insert_debug(f"hook:{entry.hook}", item)
-    except Exception:
-        pass
-
-    name = (entry.hook or "").lower()
-    # Heuristic mapping to our three counters
-    try:
-        if any(
-            k in name for k in ["pre_call_hook", "log_pre_api_call", "async_log_pre_"]
-        ):
-            _hook_counters["hook_pre"] = _hook_counters.get("hook_pre", 0) + 1
-        if any(
-            k in name
-            for k in [
-                "post_call_success_hook",
-                "log_post_api_call",
-                "log_success_event",
-                "async_log_success_event",
-            ]
-        ):
-            _hook_counters["hook_post_success"] = (
-                _hook_counters.get("hook_post_success", 0) + 1
-            )
-        if any(
-            k in name
-            for k in [
-                "stream_event",
-                "streaming_iterator_hook",
-                "post_call_streaming_hook",
-            ]
-        ):
-            _hook_counters["hook_stream_chunk"] = (
-                _hook_counters.get("hook_stream_chunk", 0) + 1
-            )
-    except Exception:
-        pass
-
-    return {"ok": True}
-
-
 @app.post("/hooks/{hook_name}")
 async def hook_generic(hook_name: str, payload: Dict[str, Any]):
     """Generic hook endpoint for any CustomLogger hook.
@@ -731,12 +626,12 @@ async def run_hook_test(req: HookTestRequest):
         "temperature": req.temperature,
         "max_tokens": req.max_tokens,
     }
-    # no correlation; rely on litellm_call_id emitted by proxy
     try:
-        import httpx
+        print("FAILTEST 1")
 
         if req.stream:
             async with httpx.AsyncClient(timeout=30.0) as client:
+                print("FAILTEST 2")
                 async with client.stream(
                     "POST",
                     f"{proxy_url}/chat/completions",
@@ -750,6 +645,7 @@ async def run_hook_test(req: HookTestRequest):
                             detail=f"proxy_stream_error: {resp.status_code}: {text.decode(errors='ignore')}",
                         )
                     parts: list[str] = []
+                    print("FAILTEST 3")
                     async for line in resp.aiter_lines():
                         if line.startswith("data: "):
                             data = line[6:].strip()
@@ -774,19 +670,23 @@ async def run_hook_test(req: HookTestRequest):
                         error=None,
                     )
         else:
+            print("FAILTEST 4")
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(
                     f"{proxy_url}/chat/completions", headers=headers, json=payload
                 )
+                print("FAILTEST 4.5")
                 if resp.status_code != 200:
                     raise HTTPException(
                         status_code=502,
                         detail=f"proxy_error: {resp.status_code}: {resp.text}",
                     )
+                print("FAILTEST 5")
                 data = resp.json()
                 preview = data.get("choices", [{}])[0].get("message", {}).get("content")
                 if isinstance(preview, str):
                     preview = preview[:200]
+                print("FAILTEST 6")
                 return HookTestResult(
                     ok=True,
                     counters=dict(_hook_counters),

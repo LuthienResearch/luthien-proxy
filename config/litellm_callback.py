@@ -13,6 +13,8 @@ Implements a thin bridge:
 """
 
 import os
+from typing import Optional, Union
+from litellm.caching.caching import DualCache
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm._logging import verbose_logger
@@ -81,103 +83,56 @@ class LuthienCallback(CustomLogger):
 
     # --------------------- Hooks ----------------------
 
-    def log_pre_api_call(self, model, messages, kwargs):
-        """Synchronous pre-call hook: forward to control plane.
+    async def async_pre_call_hook(
+        self,
+        user_api_key_dict: UserAPIKeyAuth,
+        cache: DualCache,
+        data: dict,
+        call_type: str,
+    ) -> Optional[Union[Exception, str, dict]]:
+        await self._apost_hook(
+            "async_pre_call_hook",
+            {"data": self._json_safe(data), "call_type": call_type},
+            None,
+        )
+        pass
 
-        We don't attempt to rewrite the outgoing request here (LiteLLM's
-        logger API is primarily observational), but we do invoke the
-        control plane for visibility and future decisioning.
-        """
-        try:
-            payload = {
-                "user_api_key_dict": self._serialize_dict(
-                    kwargs.get("user_api_key_dict")
-                ),
-                "cache": self._json_safe(kwargs.get("cache")),
-                "data": self._json_safe(
-                    {
-                        **({} if kwargs is None else dict(kwargs)),
-                        "model": model,
-                        "messages": messages,
-                    }
-                ),
-                "call_type": kwargs.get("call_type"),
-            }
-            url = f"{self.control_plane_url}/hooks/pre"
-            with httpx.Client(timeout=self.timeout) as client:
-                res = client.post(url, json=payload)
-                verbose_logger.debug(
-                    f"LUTHIEN hook_pre status={res.status_code} body={res.text[:200]}"
-                )
-            # generic hook endpoint
-            self._post_hook("log_pre_api_call", kwargs, None)
-        except Exception as e:
-            verbose_logger.debug(f"LUTHIEN hook_pre error: {e}")
-        return super().log_pre_api_call(model, messages, kwargs)
-
-    def log_post_api_call(self, kwargs, response_obj, start_time, end_time):
-        # generic hook endpoint
-        self._post_hook("log_post_api_call", kwargs, response_obj)
-        return super().log_post_api_call(kwargs, response_obj, start_time, end_time)
-
-    def log_success_event(self, kwargs, response_obj, start_time, end_time):
-        self._post_hook("log_success_event", kwargs, response_obj)
-
-    def log_failure_event(self, kwargs, response_obj, start_time, end_time):
-        self._post_hook("log_failure_event", kwargs, response_obj)
-        return super().log_failure_event(kwargs, response_obj, start_time, end_time)
-
-    async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
-        """Forward post-success to control plane for possible replacement/logging."""
-        await self._apost_hook("async_log_success_event", kwargs, response_obj)
-        try:
-            payload = {
-                "data": self._json_safe(kwargs or {}),
-                "user_api_key_dict": self._serialize_dict(
-                    kwargs.get("user_api_key_dict")
-                    if isinstance(kwargs, dict)
-                    else None
-                ),
-                "response": self._json_safe(self._serialize_response(response_obj)),
-            }
-            url = f"{self.control_plane_url}/hooks/post_success"
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                res = await client.post(url, json=payload)
-                verbose_logger.debug(
-                    f"LUTHIEN hook_post_success status={res.status_code} body={res.text[:200]}"
-                )
-        except Exception as e:
-            verbose_logger.debug(f"LUTHIEN hook_post_success error: {e}")
+    async def async_post_call_failure_hook(
+        self, request_data, original_exception, user_api_key_dict, traceback_str=None
+    ):
+        await self._apost_hook(
+            "async_post_call_failure_hook",
+            {
+                "request_data": self._json_safe(request_data),
+                "user_api_key_dict": self._serialize_dict(user_api_key_dict),
+                "traceback": traceback_str,
+            },
+            str(original_exception),
+        )
+        return None
 
     async def async_post_call_success_hook(self, data, user_api_key_dict, response):
         """Proxy-only success hook: forward to control plane.
 
         Many proxy code paths call this instead of async_log_success_event.
         """
-        try:
-            payload = {
+        await self._apost_hook(
+            "async_post_call_success_hook",
+            {
                 "data": self._json_safe(data or {}),
                 "user_api_key_dict": self._serialize_dict(user_api_key_dict),
                 "response": self._json_safe(self._serialize_response(response)),
-            }
-            url = f"{self.control_plane_url}/hooks/post_success"
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                res = await client.post(url, json=payload)
-                verbose_logger.debug(
-                    f"LUTHIEN post_success(proxy) status={res.status_code} body={res.text[:200]}"
-                )
-        except Exception as e:
-            verbose_logger.debug(f"LUTHIEN post_success(proxy) error: {e}")
+            },
+            None,
+        )
         return None
 
-    async def async_log_stream_event(self, kwargs, response_obj, start_time, end_time):
-        """Called during streaming; forward per-chunk to control plane."""
-        await self._apost_hook("async_log_stream_event", kwargs, response_obj)
-        return None
-
-    def log_stream_event(self, kwargs, response_obj, start_time, end_time):
-        """Sync variant for streaming chunks (some LiteLLM paths call this)."""
-        self._post_hook("log_stream_event", kwargs, response_obj)
+    async def async_post_call_streaming_hook(self, user_api_key_dict, response: str):
+        await self._apost_hook(
+            "async_post_call_streaming_hook",
+            {"user_api_key_dict": self._serialize_dict(user_api_key_dict)},
+            response,
+        )
         return None
 
     async def async_post_call_streaming_iterator_hook(
@@ -205,58 +160,15 @@ class LuthienCallback(CustomLogger):
         finally:
             return
 
-    async def async_log_pre_api_call(self, model, messages, kwargs):
-        await self._apost_hook("async_log_pre_api_call", kwargs, None)
-        return None
-
-    async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
-        await self._apost_hook(
-            "async_log_failure_event",
-            kwargs,
-            response_obj,
-        )
-        return None
-
-    # ---------- Additional hooks for exhaustive tracing ----------
-
-    async def async_post_call_failure_hook(
-        self, request_data, original_exception, user_api_key_dict, traceback_str=None
+    async def async_moderation_hook(
+        self, data: dict, user_api_key_dict, call_type: str
     ):
         await self._apost_hook(
-            "async_post_call_failure_hook",
+            "async_moderation_hook",
             {
-                "request_data": self._json_safe(request_data),
+                "data": self._json_safe(data),
+                "call_type": call_type,
                 "user_api_key_dict": self._serialize_dict(user_api_key_dict),
-                "traceback": traceback_str,
-            },
-            str(original_exception),
-        )
-        return None
-
-    async def async_post_call_streaming_hook(self, user_api_key_dict, response: str):
-        await self._apost_hook(
-            "async_post_call_streaming_hook",
-            {"user_api_key_dict": self._serialize_dict(user_api_key_dict)},
-            response,
-        )
-        return None
-
-    async def async_pre_routing_hook(
-        self,
-        model: str,
-        request_kwargs: dict,
-        messages=None,
-        input=None,
-        specific_deployment: bool = False,
-    ):
-        await self._apost_hook(
-            "async_pre_routing_hook",
-            {
-                "model": model,
-                "request_kwargs": self._json_safe(request_kwargs),
-                "messages": self._json_safe(messages),
-                "input": self._json_safe(input),
-                "specific_deployment": specific_deployment,
             },
             None,
         )
@@ -273,19 +185,6 @@ class LuthienCallback(CustomLogger):
         )
         return None
 
-    async def async_pre_call_hook(
-        self,
-        user_api_key_dict: UserAPIKeyAuth,
-        data: dict,
-        call_type: str,
-    ):
-        await self._apost_hook(
-            "async_pre_call_hook",
-            {"data": self._json_safe(data), "call_type": call_type},
-            None,
-        )
-        return None
-
     async def async_post_call_success_deployment_hook(
         self, request_data: dict, response, call_type
     ):
@@ -294,116 +193,6 @@ class LuthienCallback(CustomLogger):
             {"request_data": self._json_safe(request_data), "call_type": call_type},
             response,
         )
-        return None
-
-    async def async_logging_hook(self, kwargs: dict, result, call_type: str):
-        await self._apost_hook(
-            "async_logging_hook",
-            {"kwargs": self._json_safe(kwargs), "call_type": call_type},
-            result,
-        )
-        return kwargs, result
-
-    def logging_hook(self, kwargs: dict, result, call_type: str):
-        self._post_hook(
-            "logging_hook",
-            {"kwargs": self._json_safe(kwargs), "call_type": call_type},
-            result,
-        )
-        return kwargs, result
-
-    async def async_moderation_hook(
-        self, data: dict, user_api_key_dict, call_type: str
-    ):
-        await self._apost_hook(
-            "async_moderation_hook",
-            {
-                "data": self._json_safe(data),
-                "call_type": call_type,
-                "user_api_key_dict": self._serialize_dict(user_api_key_dict),
-            },
-            None,
-        )
-        return None
-
-    def log_event(self, *args, **kwargs):
-        self._post_hook(
-            "log_event",
-            {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
-            None,
-        )
-
-    async def async_log_event(self, *args, **kwargs):
-        await self._apost_hook(
-            "async_log_event",
-            {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
-            None,
-        )
-
-    def log_input_event(self, *args, **kwargs):
-        self._post_hook(
-            "log_input_event",
-            {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
-            None,
-        )
-
-    async def async_log_input_event(self, *args, **kwargs):
-        await self._apost_hook(
-            "async_log_input_event",
-            {"args": self._json_safe(args), "kwargs": self._json_safe(kwargs)},
-            None,
-        )
-
-    def log_model_group_rate_limit_error(
-        self, exception: Exception, original_model_group: str | None, kwargs: dict
-    ):
-        self._post_hook(
-            "log_model_group_rate_limit_error",
-            {
-                "original_model_group": original_model_group,
-                "kwargs": self._json_safe(kwargs),
-            },
-            str(exception),
-        )
-
-    async def log_success_fallback_event(
-        self, original_model_group: str, kwargs: dict, original_exception: Exception
-    ):
-        await self._apost_hook(
-            "log_success_fallback_event",
-            {
-                "original_model_group": original_model_group,
-                "kwargs": self._json_safe(kwargs),
-            },
-            str(original_exception),
-        )
-
-    async def log_failure_fallback_event(
-        self, original_model_group: str, kwargs: dict, original_exception: Exception
-    ):
-        await self._apost_hook(
-            "log_failure_fallback_event",
-            {
-                "original_model_group": original_model_group,
-                "kwargs": self._json_safe(kwargs),
-            },
-            str(original_exception),
-        )
-
-    def translate_completion_input_params(self, kwargs) -> None:
-        self._post_hook(
-            "translate_completion_input_params",
-            {"kwargs": self._json_safe(kwargs)},
-            None,
-        )
-        return None
-
-    def translate_completion_output_params(self, response) -> None:
-        self._post_hook("translate_completion_output_params", {}, response)
-        return None
-
-    def translate_completion_output_params_streaming(self, completion_stream) -> None:
-        self._post_hook("translate_completion_output_params_streaming", {}, None)
         return None
 
     def _serialize_dict(self, obj):
