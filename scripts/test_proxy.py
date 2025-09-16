@@ -22,6 +22,20 @@ class LuthienTester:
         self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://localhost:8081")
         self.master_key = os.getenv("LITELLM_MASTER_KEY", "sk-luthien-dev-key")
 
+    async def _get_counters(self, client: httpx.AsyncClient) -> dict:
+        """Fetch in-memory hook counters from the control plane.
+
+        We intentionally use the lightweight counters endpoint to keep this
+        script simple and avoid DB dependencies.
+        """
+        try:
+            res = await client.get(f"{self.control_plane_url}/api/hooks/counters")
+            res.raise_for_status()
+            data = res.json()
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
     async def test_health_checks(self) -> bool:
         """Test that all services are responding to health checks."""
         print("🏥 Testing service health checks...")
@@ -155,112 +169,106 @@ class LuthienTester:
             return False
 
     async def test_control_plane_integration(self) -> bool:
-        """Test control plane hook endpoints with a no-op policy."""
-        print("\n🎛️  Testing control plane integration (hooks)...")
+        """Validate hook counters increase when calling the LiteLLM proxy.
 
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # Pre hook: expect pass-through (result_type none) for NoOp
-                test_model = os.getenv("TEST_MODEL", "gpt-5")
-                pre_req = {
-                    "user_api_key_dict": {"user_id": "test-user"},
-                    "cache": None,
-                    "data": {
-                        "model": test_model,
-                        "messages": [{"role": "user", "content": "Test message"}],
-                    },
-                    "call_type": "completion",
-                }
-                pre_res = await client.post(
-                    f"{self.control_plane_url}/hooks/pre", json=pre_req
-                )
-                if pre_res.status_code != 200:
-                    print(
-                        f"❌ /hooks/pre status: {pre_res.status_code} body: {pre_res.text}"
-                    )
-                    return False
-                pre_json = pre_res.json()
-                if pre_json.get("result_type") not in {"none", "dict", "string"}:
-                    print(f"❌ /hooks/pre unexpected result_type: {pre_json}")
-                    return False
-
-                # Post-success hook: expect no replacement for NoOp
-                post_req = {
-                    "data": pre_req["data"],
-                    "user_api_key_dict": pre_req["user_api_key_dict"],
-                    "response": {
-                        "choices": [{"message": {"role": "assistant", "content": "ok"}}]
-                    },
-                }
-                post_res = await client.post(
-                    f"{self.control_plane_url}/hooks/post_success", json=post_req
-                )
-                if post_res.status_code != 200:
-                    print(
-                        f"❌ /hooks/post_success status: {post_res.status_code} body: {post_res.text}"
-                    )
-                    return False
-                post_json = post_res.json()
-                if post_json.get("replace") not in {True, False}:
-                    print(f"❌ /hooks/post_success unexpected payload: {post_json}")
-                    return False
-
-                # Streaming hooks now flow via generic endpoints; no direct stream_chunk call
-
-                print("✅ Control plane hooks responded correctly")
-                return True
-
-        except Exception as e:
-            print(f"❌ Control plane test failed: {e}")
-            return False
-
-    async def test_suspicious_content(self) -> bool:
-        """Test how the system handles potentially suspicious content."""
-        print("\n🚨 Testing suspicious content handling...")
+        We test both non-streaming and streaming flows by:
+        - capturing counters before
+        - making a call to `proxy_url/chat/completions`
+        - asserting deltas in the relevant counters
+        """
+        print(
+            "\n🎛️  Testing control plane integration (counter deltas via proxy calls)..."
+        )
 
         headers = {
             "Authorization": f"Bearer {self.master_key}",
             "Content-Type": "application/json",
         }
-
-        # Test with content that might trigger monitoring
-        test_model = os.getenv("TEST_MODEL", "gpt-5")
-        request_data = {
-            "model": test_model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "Please write a simple Python script that prints 'Hello World'",
-                }
-            ],
-            "max_tokens": 200,
-            "temperature": 0.7,
-        }
+        model = os.getenv("TEST_MODEL", "gpt-5")
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
+                # 1) Non-streaming call → expect pre + success
+                before_sync = await self._get_counters(client)
+                sync_payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": "Say SYNC_OK"}],
+                }
+                sync_resp = await client.post(
                     f"{self.proxy_url}/chat/completions",
                     headers=headers,
-                    json=request_data,
+                    json=sync_payload,
                 )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    content = result["choices"][0]["message"]["content"]
-                    print("✅ Suspicious content test completed")
-                    print(f"Response preview: {content[:100]}...")
-
-                    # Check if any interventions occurred (would need to check logs or control plane)
-                    return True
-                else:
+                if sync_resp.status_code != 200:
                     print(
-                        f"❌ Suspicious content test failed with status {response.status_code}"
+                        f"❌ Proxy sync failed: {sync_resp.status_code} {sync_resp.text}"
+                    )
+                    return False
+                after_sync = await self._get_counters(client)
+                pre_delta = after_sync.get("async_pre_call_hook", 0) - before_sync.get(
+                    "async_pre_call_hook", 0
+                )
+                success_delta = after_sync.get(
+                    "async_post_call_success_hook", 0
+                ) - before_sync.get("async_post_call_success_hook", 0)
+                if pre_delta < 1 or success_delta < 1:
+                    print(
+                        f"❌ Expected pre/success to increment ≥1; pre+{pre_delta}, success+{success_delta}"
                     )
                     return False
 
+                # 2) Streaming call → expect iterator events (and pre)
+                before_stream = await self._get_counters(client)
+                stream_payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "user", "content": "List five kinds of fruit."}
+                    ],
+                    "stream": True,
+                }
+
+                try:
+                    async with client.stream(
+                        "POST",
+                        f"{self.proxy_url}/chat/completions",
+                        headers=headers,
+                        json=stream_payload,
+                    ) as response:
+                        if response.status_code != 200:
+                            print(
+                                f"❌ Proxy stream failed: {response.status_code} {await response.aread()}"
+                            )
+                            return False
+                        # Consume stream fully
+                        async for line in response.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            data = line[6:].strip()
+                            if data == "[DONE]":
+                                break
+                            try:
+                                _ = json.loads(data)
+                            except Exception:
+                                pass
+                except Exception as e:
+                    print(f"❌ Stream exception: {e}")
+                    return False
+
+                after_stream = await self._get_counters(client)
+                iter_delta = after_stream.get(
+                    "async_post_call_streaming_iterator_hook", 0
+                ) - before_stream.get("async_post_call_streaming_iterator_hook", 0)
+                if iter_delta < 1:
+                    print(
+                        f"❌ Expected streaming iterator to increment ≥1; iterator+{iter_delta}"
+                    )
+                    return False
+
+                print("✅ Hook counters increased as expected (pre, success, iterator)")
+                return True
+
         except Exception as e:
-            print(f"❌ Suspicious content test failed: {e}")
+            print(f"❌ Control plane test failed: {e}")
             return False
 
     async def run_all_tests(self) -> bool:
@@ -272,7 +280,6 @@ class LuthienTester:
             ("Simple Completion", self.test_simple_completion),
             ("Streaming Completion", self.test_streaming_completion),
             ("Control Plane Integration", self.test_control_plane_integration),
-            ("Suspicious Content Handling", self.test_suspicious_content),
         ]
 
         results = []

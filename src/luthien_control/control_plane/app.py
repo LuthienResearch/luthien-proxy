@@ -1,9 +1,13 @@
 # ABOUTME: FastAPI application for the Luthien Control plane service that orchestrates AI control policies
 # ABOUTME: Provides endpoints for litellm hooks, as well as luthien-specific utilities and UI
 
+from collections import Counter
+import asyncio
 import os
 from typing import Any, Dict, Optional, List
 from datetime import datetime
+import logging
+import sys
 
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +16,6 @@ from pydantic import BaseModel
 import asyncpg
 import json
 from collections import deque
-import httpx
 
 # Import our policy and monitoring modules (will implement these)
 from luthien_control.policies.engine import PolicyEngine
@@ -24,7 +27,6 @@ from luthien_control.control_plane.stream_context import StreamContextStore
 from luthien_control.control_plane.utils.hooks import (
     extract_call_id_for_hook,
 )
-from luthien_control.control_plane.utils.streaming import extract_delta_text
 
 
 # FastAPI app setup
@@ -33,6 +35,13 @@ app = FastAPI(
     description="AI Control policy orchestration service",
     version="0.1.0",
 )
+
+# Simple stdout logger for hook payload visibility in Docker logs
+_logger = logging.getLogger("luthien.control_plane.hooks")
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+_logger.addHandler(handler)
+_logger.setLevel(logging.INFO)
 
 # Add CORS middleware for development
 app.add_middleware(
@@ -54,11 +63,7 @@ app.include_router(ui_router)
 policy_engine: Optional[PolicyEngine] = None
 active_policy: Optional[LuthienPolicy] = None
 stream_store: Optional[StreamContextStore] = None
-_hook_counters: Dict[str, int] = {
-    "hook_pre": 0,
-    "hook_post_success": 0,
-    "hook_stream_chunk": 0,
-}
+_hook_counters = Counter()
 _hook_logs: deque = deque(maxlen=500)
 
 
@@ -348,6 +353,12 @@ async def get_debug_page(
     return DebugPage(items=items, page=page, page_size=page_size, total=total)
 
 
+@app.get("/api/hooks/counters")
+async def get_hook_counters():
+    """Expose in-memory hook counters for sanity/testing scripts."""
+    return dict(_hook_counters)
+
+
 @app.post("/hooks/{hook_name}")
 async def hook_generic(hook_name: str, payload: Dict[str, Any]):
     """Generic hook endpoint for any CustomLogger hook.
@@ -362,6 +373,10 @@ async def hook_generic(hook_name: str, payload: Dict[str, Any]):
             "hook": hook_name,
             "payload": payload,
         }
+        # Log payloads so they're visible in docker logs
+        _logger.info(
+            "hook=%s payload=%s", hook_name, json.dumps(payload, ensure_ascii=False)
+        )
         # extract litellm_call_id deterministically from payload
         try:
             call_id = extract_call_id_for_hook(hook_name, payload)
@@ -370,179 +385,24 @@ async def hook_generic(hook_name: str, payload: Dict[str, Any]):
         except Exception:
             pass
         _hook_logs.append(record)
-        # Insert into DB
-        await _insert_debug(f"hook:{hook_name}", record)
+        # Insert into DB without blocking the response path
+        # Best-effort debug logging; failures are handled inside _insert_debug
+        asyncio.create_task(_insert_debug(f"hook:{hook_name}", record))
         name = hook_name.lower()
         # Counter heuristics
-        if any(
-            k in name
-            for k in [
-                "pre_call_hook",
-                "pre_api_call",
-                "pre_routing",
-                "pre_call_deployment",
-            ]
-        ):
-            _hook_counters["hook_pre"] = _hook_counters.get("hook_pre", 0) + 1
-        if any(
-            k in name
-            for k in [
-                "post_call_success_hook",
-                "post_api_call",
-                "success_event",
-                "logging_hook",
-                "post_call_success_deployment_hook",
-            ]
-        ):
-            _hook_counters["hook_post_success"] = (
-                _hook_counters.get("hook_post_success", 0) + 1
-            )
-        if any(
-            k in name
-            for k in [
-                "stream_event",
-                "post_call_streaming",
-                "streaming_iterator_hook",
-                "output_params_streaming",
-            ]
-        ):
-            _hook_counters["hook_stream_chunk"] = (
-                _hook_counters.get("hook_stream_chunk", 0) + 1
-            )
-        # Streaming context ingest for iterator/stream events
-        if any(
-            k in name
-            for k in [
-                "streaming_iterator_hook",
-                "stream_event",
-                "post_call_streaming_hook",
-            ]
-        ):
-            try:
-                if not stream_store:
-                    raise RuntimeError("stream_store not initialized")
-                call_id = extract_call_id_for_hook(hook_name, payload)
-                # response_obj carries the raw chunk
-                chunk_obj = payload.get("response_obj")
-                if isinstance(chunk_obj, str):
-                    # best-effort: ignore non-dict
-                    chunk_obj = None
-                if isinstance(chunk_obj, dict):
-                    delta = extract_delta_text(chunk_obj)
-                    if delta:
-                        await stream_store.append_delta(call_id, delta)
-            except Exception as ie:
-                print(f"stream_context_ingest_error: {ie}")
-        return {"ok": True}
+        _hook_counters[name] += 1
+        # now we call the appropriate function on the currently loaded policy
+        fn = getattr(active_policy, name, None)
+        payload.pop("post_time_ns", None)  # remove this internal field if present
+        if fn and callable(fn):
+            return await fn(**payload)
+        return payload
     except Exception as e:
+        _logger.error(f"hook_generic_error: {e}")
         raise HTTPException(status_code=500, detail=f"hook_generic_error: {e}")
 
 
 # ---------------- Hook testing orchestrator -----------------
-
-
-class HookTestRequest(BaseModel):
-    model: Optional[str] = None
-    prompt: str = "Say TEST_OK"
-    stream: bool = False
-    temperature: float = 0.7
-    max_tokens: int = 50
-
-
-class HookTestResult(BaseModel):
-    ok: bool
-    counters: Dict[str, int]
-    response_preview: Optional[str] = None
-    error: Optional[str] = None
-
-
-@app.post("/tests/run", response_model=HookTestResult)
-async def run_hook_test(req: HookTestRequest):
-    """Execute a simple request via the proxy and report which hooks fired.
-
-    Uses LITELLM_URL (default http://litellm-proxy:4000) and LITELLM_MASTER_KEY
-    for authorization. Resets in-memory hook counters before issuing the test request.
-    """
-    # Reset counters
-    for k in list(_hook_counters.keys()):
-        _hook_counters[k] = 0
-    _hook_logs.clear()
-
-    proxy_url = os.getenv("LITELLM_URL", "http://litellm-proxy:4000")
-    master_key = os.getenv("LITELLM_MASTER_KEY", "sk-luthien-dev-key")
-    model = req.model or os.getenv("TEST_MODEL", "gpt-4o")
-
-    headers = {
-        "Authorization": f"Bearer {master_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": req.prompt}],
-        "temperature": req.temperature,
-        "max_tokens": req.max_tokens,
-    }
-    try:
-        if req.stream:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                async with client.stream(
-                    "POST",
-                    f"{proxy_url}/chat/completions",
-                    headers=headers,
-                    json={**payload, "stream": True},
-                ) as resp:
-                    if resp.status_code != 200:
-                        text = await resp.aread()
-                        raise HTTPException(
-                            status_code=502,
-                            detail=f"proxy_stream_error: {resp.status_code}: {text.decode(errors='ignore')}",
-                        )
-                    parts: list[str] = []
-                    async for line in resp.aiter_lines():
-                        if line.startswith("data: "):
-                            data = line[6:].strip()
-                            if data == "[DONE]":
-                                break
-                            try:
-                                obj = json.loads(data)
-                                delta = (
-                                    obj.get("choices", [{}])[0]
-                                    .get("delta", {})
-                                    .get("content")
-                                )
-                                if delta:
-                                    parts.append(delta)
-                            except Exception:
-                                pass
-                    preview = "".join(parts)[:200] if parts else None
-                    return HookTestResult(
-                        ok=True,
-                        counters=dict(_hook_counters),
-                        response_preview=preview,
-                        error=None,
-                    )
-        else:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{proxy_url}/chat/completions", headers=headers, json=payload
-                )
-                if resp.status_code != 200:
-                    raise HTTPException(
-                        status_code=502,
-                        detail=f"proxy_error: {resp.status_code}: {resp.text}",
-                    )
-                data = resp.json()
-                preview = data.get("choices", [{}])[0].get("message", {}).get("content")
-                if isinstance(preview, str):
-                    preview = preview[:200]
-                return HookTestResult(
-                    ok=True,
-                    counters=dict(_hook_counters),
-                    response_preview=preview,
-                    error=None,
-                )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"cp_test_error: {e}")
 
 
 class TraceEntry(BaseModel):

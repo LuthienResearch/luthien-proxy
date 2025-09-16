@@ -17,6 +17,12 @@ def extract_call_id_for_hook(hook: str, payload: dict[str, Any]) -> Optional[str
 
     Keep this in one place to avoid drift across endpoints.
     """
+    if hook == "async_pre_call_deployment_hook":
+        return _get_in(payload, ["kwargs", "litellm_call_id"])
+    elif hook == "async_pre_call_hook":
+        return _get_in(payload, ["data", "litellm_call_id"])
+    elif hook == "async_post_call_streaming_iterator_hook":
+        return _get_in(payload, ["request_data", "litellm_call_id"])
     name = (hook or "").lower()
     paths: list[list[str]] = []
     # Generic fallbacks used by several hooks
