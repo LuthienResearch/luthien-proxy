@@ -444,54 +444,6 @@ async def get_debug_page(
     return DebugPage(items=items, page=page, page_size=page_size, total=total)
 
 
-class DebugLogIn(BaseModel):
-    debug_type: str
-    payload: Dict[str, Any]
-
-
-@app.post("/api/debug/log")
-async def post_debug_log(entry: DebugLogIn):
-    await _insert_debug(entry.debug_type, entry.payload)
-    return {"ok": True}
-
-
-class HookLogIn(BaseModel):
-    hook: str
-    kwargs: Dict[str, Any] | None = None
-    response_obj: Dict[str, Any] | str | None = None
-
-
-@app.post("/api/hooks/log")
-async def post_hook_log(entry: HookLogIn):
-    item = entry.model_dump()
-    # enrich with call_id for easier tracing (best-effort)
-    try:
-        call_id = (
-            _get_in(item, ["kwargs", "request_data", "litellm_call_id"])
-            or _get_in(item, ["kwargs", "kwargs", "litellm_call_id"])
-            or _get_in(item, ["kwargs", "litellm_call_id"])
-            or None
-        )
-        if isinstance(call_id, str) and call_id:
-            item.setdefault("litellm_call_id", call_id)
-    except Exception:
-        pass
-    _hook_logs.append(item)
-    return {"ok": True, "count": len(_hook_logs)}
-
-
-@app.get("/api/hooks/logs")
-async def get_hook_logs(limit: int = Query(default=50, ge=1, le=500)):
-    items = list(_hook_logs)[-limit:]
-    return items
-
-
-@app.delete("/api/hooks/logs")
-async def clear_hook_logs():
-    _hook_logs.clear()
-    return {"ok": True, "count": 0}
-
-
 @app.post("/hooks/{hook_name}")
 async def hook_generic(hook_name: str, payload: Dict[str, Any]):
     """Generic hook endpoint for any CustomLogger hook.
@@ -687,12 +639,6 @@ async def run_hook_test(req: HookTestRequest):
                 )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"cp_test_error: {e}")
-
-
-@app.get("/api/hooks/counters")
-async def get_hook_counters():
-    """In-memory counters for verifying that hooks are being invoked."""
-    return dict(_hook_counters)
 
 
 class TraceEntry(BaseModel):
