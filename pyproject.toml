@@ -38,10 +38,30 @@ packages = ["src/luthien_control"]
 target-version = "py313"
 src = ["src", "tests"]
 
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+per-file-ignores = { "migrations/**" = ["ALL"], "scripts/**" = ["D"] }
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 docstring-code-format = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest.ini_options]
+addopts = "-q -ra --cov=src/luthien_control --cov-report=term-missing"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+include = ["src"]
+reportMissingTypeStubs = "none"
+useLibraryCodeForTypes = true
 
 [dependency-groups]
 dev = [
@@ -50,4 +70,5 @@ dev = [
     "pytest-asyncio>=1.1.0",
     "pytest-cov>=6.2.1",
     "ruff>=0.12.10",
+    "pyright>=1.1.386",
 ]

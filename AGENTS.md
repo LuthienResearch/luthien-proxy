@@ -24,21 +24,30 @@
 - Start full stack: `./scripts/quick_start.sh`
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
 - Lint/format: `uv run ruff check --fix` and `uv run ruff format`
+- Type check: `uv run pyright`
 - Run control plane locally: `uv run python -m luthien_control.control_plane`
 - Run proxy locally: `uv run python -m luthien_control.proxy`
 - Docker iterate: `docker compose restart control-plane` or `litellm-proxy`
 
 ## Coding Style & Naming Conventions
-- Python 3.13; use type hints and `beartype` where applicable.
+- Python 3.13; annotate public APIs and important internals. Pyright is the single static checker.
 - Formatting via Ruff: double quotes, spaces for indent (see `pyproject.toml`).
 - Names: modules `snake_case`, classes `PascalCase`, functions/vars `snake_case`.
 - Keep policies small and testable; avoid side effects in hooks.
+- Docstrings: Google style for public modules/classes/functions; focus on WHY and non-trivial behavior.
+- Runtime type checking (`beartype`) is optional and only for critical boundaries during dev/tests.
 
 ## Testing Guidelines
 - Framework: `pytest` (+ `pytest-asyncio` for async paths).
 - Location: under `tests/`; name files `test_*.py` and mirror package paths.
 - Prefer fast unit tests for policies; add integration tests against `/hooks/*` and `/health`.
 - Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.
+
+## Tooling & Config
+- Consolidate config in `pyproject.toml`:
+  - Ruff lint/format, Pytest options, Pyright settings.
+- Avoid extra config files unless needed; if Pyright cannot read `pyproject.toml` in your environment, fall back to a single `pyrightconfig.json`.
+- A staged maintainability plan lives in `dev/maintainability_plan.md`.
 
 ## Commit & Pull Request Guidelines
 - Current history is informal; prefer Conventional Commits going forward.

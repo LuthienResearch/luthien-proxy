@@ -36,6 +36,9 @@ uv run pytest
 # Format and lint
 uv run ruff format
 uv run ruff check --fix
+
+# Type check
+uv run pyright
 ```
 
 ## Configuration
@@ -52,6 +55,14 @@ Copy `.env.example` to `.env` and add your API keys.
       stream:
         log_every_n: 1
     ```
+
+## Dev Tooling
+
+- Lint/format: `uv run ruff check` and `uv run ruff format`. Core rules enabled (E/F/I); docstring rules (Google) are introduced gradually.
+- Type checking: `uv run pyright` (configured in `[tool.pyright]` within `pyproject.toml`).
+- Tests: `uv run pytest -q` with coverage for `src/luthien_control/**` configured in `[tool.pytest.ini_options]`.
+- Config consolidation: Ruff, Pytest, and Pyright live in `pyproject.toml` to avoid extra files.
+- Plan: see `dev/maintainability_plan.md` for the staged rollout (typing, docs, tests, complexity).
 
 ## Architecture
 
