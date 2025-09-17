@@ -21,7 +21,6 @@ class AllCapsPolicy(LuthienPolicy):
         response: Any,
         request_data: dict,
     ) -> Optional[Dict[str, Any]]:
-        # Create a shallow copy and uppercase assistant message content
         try:
             response = dict(response)
             for c in response.get("choices", []):

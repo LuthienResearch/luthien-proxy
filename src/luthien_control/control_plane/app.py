@@ -374,7 +374,7 @@ async def hook_generic(hook_name: str, payload: Dict[str, Any]):
             "payload": payload,
         }
         # Log payloads so they're visible in docker logs
-        _logger.info(
+        _logger.debug(
             "hook=%s payload=%s", hook_name, json.dumps(payload, ensure_ascii=False)
         )
         # extract litellm_call_id deterministically from payload

@@ -48,7 +48,7 @@ class LuthienCallback(CustomLogger):
                 )
             return luthien_response.json()
         except Exception as e:
-            verbose_logger.debug(f"LUTHIEN hook post error ({hook}): {e}")
+            verbose_logger.error(f"LUTHIEN hook post error ({hook}): {e}")
 
     async def _apost_hook(
         self,
@@ -63,7 +63,7 @@ class LuthienCallback(CustomLogger):
                     json=self._json_safe(payload),
                 )
         except Exception as e:
-            verbose_logger.debug(f"LUTHIEN hook post error ({hook}): {e}")
+            verbose_logger.error(f"LUTHIEN hook post error ({hook}): {e}")
             raise e
 
     # --------------------- Hooks ----------------------
@@ -160,7 +160,7 @@ class LuthienCallback(CustomLogger):
                 },
             )
         except Exception as e:
-            verbose_logger.debug(f"LUTHIEN async_on_stream_event forward error: {e}")
+            verbose_logger.error(f"LUTHIEN async_on_stream_event forward error: {e}")
             return None
 
     def _serialize_dict(self, obj):
