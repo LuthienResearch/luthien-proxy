@@ -1,10 +1,9 @@
-# ABOUTME: Policy engine for managing AI control policies, configurations, and decision logging
-# ABOUTME: Handles policy loading, episode tracking, and audit triggers for the control plane
+"""Engine for policy defaults, audit logging, and episode state (Redis/DB)."""
 
 import json
 import os
 import time
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import asyncpg
 import redis.asyncio as redis
@@ -12,9 +11,15 @@ from beartype import beartype
 
 
 class PolicyEngine:
-    """Manages AI control policies and tracks episode state."""
+    """Policy engine coordinating persistence and audit for control decisions.
+
+    Why: Centralize policy-related persistence and episode state so the
+    FastAPI layer stays thin. This class is intentionally small and explicit
+    to keep mental overhead low.
+    """
 
     def __init__(self, database_url: Optional[str] = None, redis_url: Optional[str] = None):
+        """Initialize with connection URLs; values may be provided via env."""
         self.database_url = database_url or os.getenv("DATABASE_URL")
         self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
         self.db_pool: Optional[asyncpg.Pool] = None
@@ -23,13 +28,19 @@ class PolicyEngine:
 
     @beartype
     async def initialize(self) -> None:
-        """Initialize database and Redis connections."""
+        """Initialize database and Redis connections.
+
+        Best-effort: if connections fail, the engine remains usable in an
+        in-memory mode (no persistence). Callers should not rely on side
+        effects beyond printing a warning.
+        """
         try:
             if self.database_url:
                 self.db_pool = await asyncpg.create_pool(self.database_url, min_size=2, max_size=10)
                 print("Connected to PostgreSQL")
 
             self.redis_client = redis.from_url(self.redis_url)
+            assert self.redis_client is not None
             await self.redis_client.ping()
             print("Connected to Redis")
 
@@ -39,11 +50,11 @@ class PolicyEngine:
 
     @beartype
     def _load_default_policy(self) -> dict[str, Any]:
-        """Return built-in default engine policy.
+        """Return the built-in default engine policy.
 
-        Consolidation removed external policy_default.yaml; stick to a sane
-        built-in default for engine behavior, and allow future override via
-        dedicated keys in luthien_config.yaml if needed.
+        Motivation: Avoid external policy files for engine defaults. Policy
+        selection still happens via the app-level YAML; this default is only
+        for engine internals (streaming thresholds, audit toggles, etc.).
         """
         # Fallback default policy
         return {
@@ -69,7 +80,11 @@ class PolicyEngine:
         episode_id: Optional[str] = None,
         user_metadata: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        """Get policy configuration for an episode."""
+        """Return policy configuration for an episode.
+
+        Currently returns the built-in defaults. In the future, this may look
+        up team/user specific configuration.
+        """
         # For now, return default policy
         # TODO: Implement per-user/per-team policy selection
         return self.default_policy.copy()
@@ -84,7 +99,11 @@ class PolicyEngine:
         threshold: float,
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
-        """Log a control decision for audit purposes."""
+        """Log a control decision for audit purposes.
+
+        Persists to PostgreSQL when configured and mirrors a JSON record in
+        Redis for quick inspection.
+        """
         try:
             decision_data = {
                 "episode_id": episode_id,
@@ -137,7 +156,11 @@ class PolicyEngine:
         score: Optional[float] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
-        """Trigger human audit for high-risk decisions."""
+        """Trigger human audit for high-risk decisions.
+
+        Queues a request in Redis and, if available, writes an audit row in
+        PostgreSQL. Alerting hooks can subscribe to the Redis queue.
+        """
         try:
             audit_data = {
                 "episode_id": episode_id,
@@ -167,8 +190,8 @@ class PolicyEngine:
                     )
 
             if self.redis_client:
-                # Add to audit queue
-                await self.redis_client.lpush("audit_queue", json.dumps(audit_data))
+                # Add to audit queue (typing: cast to avoid stub issues)
+                await cast(Any, self.redis_client).lpush("audit_queue", json.dumps(audit_data))
 
             print(f"Triggered audit: {reason} (episode: {episode_id})")
 
@@ -179,7 +202,10 @@ class PolicyEngine:
 
     @beartype
     async def get_episode_state(self, episode_id: str) -> dict[str, Any]:
-        """Get current state for an episode."""
+        """Return current state for an episode from Redis.
+
+        Initializes a new state on first access with a 24h TTL.
+        """
         if not self.redis_client:
             return {}
 
@@ -213,7 +239,11 @@ class PolicyEngine:
 
     @beartype
     async def update_episode_state(self, episode_id: str, updates: dict[str, Any]) -> None:
-        """Update episode state."""
+        """Update and persist episode state in Redis with TTL.
+
+        This merges keys shallowly; callers should provide complete values for
+        nested structures.
+        """
         if not self.redis_client:
             return
 

@@ -1,5 +1,4 @@
-"""
-Abstract base for Luthien Control Policies.
+"""Abstract base for Luthien Control Policies.
 
 Policies mirror LiteLLM's CustomLogger hook signatures to keep mental models
 simple. The Control Plane endpoints invoke these methods and return JSON

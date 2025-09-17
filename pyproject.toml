@@ -40,9 +40,9 @@ src = ["src", "tests"]
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "D"]
 ignore = []
-per-file-ignores = { "migrations/**" = ["ALL"], "scripts/**" = ["D"] }
+per-file-ignores = { "migrations/**" = ["ALL"], "scripts/**" = ["D"], "tests/**" = ["D"] }
 
 [tool.ruff.format]
 quote-style = "double"
@@ -68,6 +68,9 @@ typeCheckingMode = "basic"
 include = ["src"]
 reportMissingTypeStubs = "none"
 useLibraryCodeForTypes = true
+venvPath = "."
+venv = ".venv"
+reportMissingImports = "warning"
 
 [dependency-groups]
 dev = [
@@ -77,4 +80,5 @@ dev = [
     "pytest-cov>=6.2.1",
     "ruff>=0.12.10",
     "pyright>=1.1.386",
+    "radon>=6.0.1",
 ]

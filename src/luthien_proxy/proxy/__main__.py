@@ -1,5 +1,4 @@
-# ABOUTME: Main entry point for the LiteLLM proxy server with Luthien Control integration
-# ABOUTME: Configures and starts LiteLLM proxy with our custom logger for AI control hooks
+"""CLI entry to start the LiteLLM proxy with Luthien Control."""
 
 import os
 import sys
@@ -13,7 +12,6 @@ sys.path.insert(0, str(project_root / "src"))
 
 def main() -> None:
     """Start LiteLLM proxy server with Luthien Control integration."""
-
     # Run Prisma migrations first
     print("🔧 Running Prisma migrations...")
     import subprocess

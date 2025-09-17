@@ -1,5 +1,7 @@
-# ABOUTME: Main entry point for the Luthien Control plane service
-# ABOUTME: Starts the FastAPI server with uvicorn for AI control policy orchestration
+"""CLI entry point for the Luthien Control Plane (FastAPI).
+
+Starts the ASGI app with Uvicorn and basic logging configured.
+"""
 
 import os
 
@@ -10,7 +12,6 @@ from luthien_proxy.utils.logging_config import configure_logging
 
 def main():
     """Start the control plane service."""
-
     host = os.getenv("CONTROL_PLANE_HOST", "0.0.0.0")
     port = int(os.getenv("CONTROL_PLANE_PORT", "8081"))
     log_level = os.getenv("LOG_LEVEL", "info").lower()

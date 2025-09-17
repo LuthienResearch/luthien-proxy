@@ -12,7 +12,7 @@ A minimal, staged plan to improve types, docs, tests, and complexity while keepi
 ## Order of Work
 
 1. [x] Phase 0 — Tooling + Scaffold
-2. [ ] Phase 1 — Typing Baseline (Pyright basic)
+2. [x] Phase 1 — Typing Baseline (Pyright basic)
 3. [ ] Phase 2 — Docstrings (Google) + lint
 4. [ ] Phase 3 — Tests + Coverage Gate
 5. [ ] Phase 4 — Complexity + Tightening
@@ -58,8 +58,9 @@ A minimal, staged plan to improve types, docs, tests, and complexity while keepi
 - [x] `proxy/start_proxy.py` — add return types
 - [x] `policies/all_caps.py` — typed request_data, kwargs return types
 - [x] `policies/noop.py` — signatures confirmed; types in place
-- [x] `control_plane/app.py` — added return types for public endpoints/helpers
-- [x] `control_plane/utils/hooks.py` — already annotated
+- [x] `control_plane/app.py` — return types for public endpoints/helpers; lifespan docstring
+- [x] `control_plane/utils/hooks.py` — annotated and documented extractors
+- [x] `policies/engine.py` — converted to PEP 585 types; added focused docstrings
 
 ### Notes & Findings
 - Unnecessary complexity avoided: kept signatures simple; used `Any` where external types are dynamic (LiteLLM payloads, FastAPI app object).
@@ -75,7 +76,7 @@ A minimal, staged plan to improve types, docs, tests, and complexity while keepi
 
 - Scope: public modules/classes/functions; non-trivial internals. Skip trivial privates.
 - Content: one-line summary; Args/Returns/Raises; capture "WHY" where helpful.
-- Lint: enable Ruff `D` rules; start non-gating, then gate after cleanup.
+- Lint: run Ruff `D` rules non‑gating for now (see `scripts/dev_checks.sh`); enable gating once noise is reduced.
 
 ## Phase 3 — Tests + Coverage Gate
 
@@ -90,6 +91,7 @@ A minimal, staged plan to improve types, docs, tests, and complexity while keepi
 - Added offline unit tests: `test_health.py`, `test_stream_context.py`, `test_policy_loading.py`.
 - Sandbox prevented running UV locally here; expected to pass in dev environment.
  - Pytest configured to show deprecation/resource warnings by default via `filterwarnings`.
+ - New helper script `scripts/dev_checks.sh` runs: Ruff (format/lint), Ruff `D` (non‑gating), Pyright, tests, and Radon complexity.
 
 ## Phase 4 — Complexity + Tightening
 
@@ -125,3 +127,4 @@ A minimal, staged plan to improve types, docs, tests, and complexity while keepi
 - 2025-09-17: Phase 0 completed. Added Ruff/Pyright/Pytest config to `pyproject.toml`; created minimal offline tests; fixed Ruff config (`fix` key removed from lint section). Began Phase 1 by annotating proxy entrypoints and sample policy.
 - 2025-09-17: Removed `policies/gemma_suspiciousness.py` (stale/unsalvageable after recent changes). Local LLM artifacts kept for future policies; not used currently.
 - 2025-09-17: Increased Ruff `line-length` to 120 in `pyproject.toml` to reduce noise from long docstrings/URLs and keep code readable without excessive wrapping. Keep `E501` enabled; rely on the new limit and `ruff format` for shaping.
+- 2025-09-17: Phase 1 completed. Switched PEP 484 `Dict/List` to builtin generics, added docstrings to `policies/engine.py`, and created `scripts/dev_checks.sh` including non‑gating Ruff `D` and Radon reports.

@@ -1,5 +1,8 @@
-# ABOUTME: Startup script for LiteLLM proxy with proper Luthien Control integration
-# ABOUTME: Handles Python path setup and callback registration before starting LiteLLM
+"""Start the LiteLLM proxy with Luthien Control integration.
+
+Prepares PYTHONPATH, ensures the YAML config is visible to the embedded
+proxy_server, and launches Uvicorn for the app.
+"""
 
 import os
 import sys
@@ -8,7 +11,6 @@ from typing import Any
 
 def setup_environment() -> Any:
     """Set up the environment for LiteLLM with our custom logger."""
-
     # Ensure our src + config directories are in Python path
     for p in ("/app/src", "/app/config"):
         if p not in sys.path:
@@ -34,7 +36,6 @@ def setup_environment() -> Any:
 
 def main() -> None:
     """Start the LiteLLM proxy with Luthien Control integration."""
-
     print("🚀 Starting LiteLLM proxy with Luthien Control...")
 
     # Set up configuration

@@ -1,5 +1,9 @@
-# ABOUTME: FastAPI application for the Luthien Control plane service that orchestrates AI control policies
-# ABOUTME: Provides endpoints for litellm hooks, as well as luthien-specific utilities and UI
+"""FastAPI app for the Luthien Control Plane.
+
+Provides endpoints that receive LiteLLM hook events, lightweight debug UIs,
+and small helper APIs. Policy decisions and persistence stay outside this
+module to keep the web layer thin.
+"""
 
 import asyncio
 import json
@@ -9,7 +13,7 @@ import sys
 from collections import Counter, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, Awaitable, Callable, Optional, cast
 
 import asyncpg
 import yaml
@@ -33,7 +37,7 @@ from luthien_proxy.policies.noop import NoOpPolicy
 # FastAPI app setup
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize services on startup using FastAPI lifespan (replaces deprecated on_event)
+    """Initialize and wire core services during app startup."""
     global policy_engine, active_policy, stream_store
     try:
         if os.getenv("DATABASE_URL") or os.getenv("REDIS_URL"):
@@ -121,7 +125,7 @@ async def _insert_debug(debug_type: str, payload: dict[str, Any]) -> None:
 
 @app.get("/health")
 async def health_check() -> dict[str, Any]:
-    """Health check endpoint."""
+    """Return a simple health payload without touching external services."""
     return {"status": "healthy", "service": "luthien-control-plane", "version": "0.1.0"}
 
 
@@ -165,7 +169,7 @@ def _load_policy_from_config() -> LuthienPolicy:
         # Prefer passing inline policy_options if the class accepts it; otherwise fallback
         try:
             if policy_options is not None:
-                return cls(options=policy_options)
+                return cast(Any, cls)(options=policy_options)
         except TypeError:
             pass
         # Back-compat for policies expecting env-provided options
@@ -182,6 +186,7 @@ def _load_policy_from_config() -> LuthienPolicy:
 
 @app.get("/endpoints")
 async def list_endpoints() -> dict[str, Any]:
+    """List notable HTTP endpoints for quick discoverability."""
     return {
         "hooks": [
             "POST /hooks/{hook_name}",
@@ -194,6 +199,8 @@ async def list_endpoints() -> dict[str, Any]:
 
 
 class DebugEntry(BaseModel):
+    """Row from debug_logs representing a single debug record."""
+
     id: str
     time_created: datetime
     debug_type_identifier: str
@@ -202,8 +209,9 @@ class DebugEntry(BaseModel):
 
 @app.get("/api/debug/{debug_type}", response_model=list[DebugEntry])
 async def get_debug_entries(debug_type: str, limit: int = Query(default=50, le=500)) -> list[DebugEntry]:
+    """Return latest debug entries for a given type (paged by limit)."""
     db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
-    entries: List[DebugEntry] = []
+    entries: list[DebugEntry] = []
     try:
         conn = await asyncpg.connect(db_url)
         try:
@@ -244,6 +252,8 @@ async def get_debug_entries(debug_type: str, limit: int = Query(default=50, le=5
 
 
 class DebugTypeInfo(BaseModel):
+    """Aggregated counts and latest timestamp per debug type."""
+
     debug_type_identifier: str
     count: int
     latest: datetime
@@ -251,8 +261,9 @@ class DebugTypeInfo(BaseModel):
 
 @app.get("/api/debug/types", response_model=list[DebugTypeInfo])
 async def get_debug_types() -> list[DebugTypeInfo]:
+    """Return summary of available debug types with counts."""
     db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
-    types: List[DebugTypeInfo] = []
+    types: list[DebugTypeInfo] = []
     try:
         conn = await asyncpg.connect(db_url)
         try:
@@ -280,6 +291,8 @@ async def get_debug_types() -> list[DebugTypeInfo]:
 
 
 class DebugPage(BaseModel):
+    """A simple paginated list of debug entries."""
+
     items: list[DebugEntry]
     page: int
     page_size: int
@@ -292,8 +305,9 @@ async def get_debug_page(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
 ) -> DebugPage:
+    """Return a paginated slice of debug entries for a type."""
     db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
-    items: List[DebugEntry] = []
+    items: list[DebugEntry] = []
     total = 0
     try:
         conn = await asyncpg.connect(db_url)
@@ -377,10 +391,13 @@ async def hook_generic(hook_name: str, payload: dict[str, Any]) -> Any:
         # Counter heuristics
         _hook_counters[name] += 1
         # now we call the appropriate function on the currently loaded policy
-        fn = getattr(active_policy, name, None)
+        handler = cast(
+            Optional[Callable[..., Awaitable[Any]]],
+            getattr(active_policy, name, None) if active_policy else None,
+        )
         payload.pop("post_time_ns", None)  # remove this internal field if present
-        if fn and callable(fn):
-            return await fn(**payload)
+        if handler:
+            return await handler(**payload)
         return payload
     except Exception as e:
         _logger.error(f"hook_generic_error: {e}")
@@ -391,6 +408,8 @@ async def hook_generic(hook_name: str, payload: dict[str, Any]) -> Any:
 
 
 class TraceEntry(BaseModel):
+    """A single hook event for a call ID, optionally with nanosecond time."""
+
     time: datetime
     post_time_ns: Optional[int] = None
     hook: Optional[str] = None
@@ -399,6 +418,8 @@ class TraceEntry(BaseModel):
 
 
 class TraceResponse(BaseModel):
+    """Ordered list of hook entries belonging to a call ID."""
+
     call_id: str
     entries: list[TraceEntry]
 
@@ -474,6 +495,8 @@ async def trace_by_call_id(call_id: str = Query(..., min_length=4)) -> TraceResp
 
 
 class CallIdInfo(BaseModel):
+    """Summary row for a recent litellm_call_id with counts and latest time."""
+
     call_id: str
     count: int
     latest: datetime
@@ -481,6 +504,7 @@ class CallIdInfo(BaseModel):
 
 @app.get("/api/hooks/recent_call_ids", response_model=list[CallIdInfo])
 async def recent_call_ids(limit: int = Query(default=50, ge=1, le=500)) -> list[CallIdInfo]:
+    """Return recent call IDs observed in debug logs with usage counts."""
     db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     out: list[CallIdInfo] = []
     try:

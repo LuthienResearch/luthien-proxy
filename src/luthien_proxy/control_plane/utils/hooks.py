@@ -1,3 +1,5 @@
+"""Helpers to extract a stable litellm_call_id from varied hook payloads."""
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -16,6 +18,7 @@ def extract_call_id_for_hook(hook: str, payload: dict[str, Any]) -> Optional[str
     """Deterministic extraction of litellm_call_id per hook.
 
     Keep this in one place to avoid drift across endpoints.
+    TODO: there's a lot of unused cruft here, clean up later
     """
     if hook == "async_pre_call_deployment_hook":
         return _get_in(payload, ["kwargs", "litellm_call_id"])
@@ -80,22 +83,6 @@ def extract_call_id_for_hook(hook: str, payload: dict[str, Any]) -> Optional[str
 
     for p in paths:
         v = _get_in(payload, p)
-        if isinstance(v, str) and v:
-            return v
-    return None
-
-
-def extract_call_id_from_request_data(
-    request_data: dict[str, Any] | None,
-) -> Optional[str]:
-    rd = request_data or {}
-    for path in (
-        ["litellm_call_id"],
-        ["metadata", "hidden_params", "litellm_call_id"],
-        ["kwargs", "litellm_call_id"],
-        ["kwargs", "litellm_params", "litellm_call_id"],
-    ):
-        v = _get_in(rd, path)
         if isinstance(v, str) and v:
             return v
     return None

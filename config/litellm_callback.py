@@ -1,8 +1,8 @@
 # ABOUTME: Minimal callback skeleton that LiteLLM can load directly
 # ABOUTME: Acts as a thin proxy forwarding all calls to the control plane
 
-"""
-Minimal LiteLLM callback that forwards all calls to the control plane.
+"""Minimal LiteLLM callback that forwards all calls to the control plane.
+
 This module is loaded by LiteLLM via the `callbacks` entry in
 `config/litellm_config.yaml`.
 
@@ -24,6 +24,7 @@ class LuthienCallback(CustomLogger):
     """Thin callback that forwards everything to the control plane."""
 
     def __init__(self):
+        """Initialize callback with control-plane endpoint and defaults."""
         super().__init__()
         self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
@@ -35,6 +36,7 @@ class LuthienCallback(CustomLogger):
         hook: str,
         payload: dict,
     ) -> Any:
+        """Send a synchronous hook payload to the control plane and return JSON."""
         try:
             payload["post_time_ns"] = _time.time_ns()
             with httpx.Client(timeout=self.timeout) as client:
@@ -51,6 +53,7 @@ class LuthienCallback(CustomLogger):
         hook: str,
         payload: dict,
     ) -> Any:
+        """Send an async hook payload to the control plane (fire-and-forget)."""
         try:
             payload["post_time_ns"] = _time.time_ns()
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -65,12 +68,14 @@ class LuthienCallback(CustomLogger):
     # --------------------- Hooks ----------------------
 
     async def async_pre_call_hook(self, **kwargs) -> Optional[Union[Exception, str, dict]]:
+        """Forward pre-call data; may return a string/Exception to short-circuit."""
         await self._apost_hook(
             "async_pre_call_hook",
             self._json_safe(kwargs),
         )
 
     async def async_post_call_failure_hook(self, **kwargs):
+        """Notify control plane of a failed call."""
         await self._apost_hook(
             "async_post_call_failure_hook",
             self._json_safe(kwargs),
@@ -85,6 +90,7 @@ class LuthienCallback(CustomLogger):
         )
 
     async def async_moderation_hook(self, **kwargs):
+        """Forward moderation evaluations to the control plane."""
         await self._apost_hook(
             "async_moderation_hook",
             self._json_safe(kwargs),
@@ -92,6 +98,7 @@ class LuthienCallback(CustomLogger):
         return None
 
     async def async_post_call_streaming_hook(self, **kwargs):
+        """Forward aggregate streaming info post-call."""
         await self._apost_hook(
             "async_post_call_streaming_hook",
             self._json_safe(kwargs),
@@ -124,6 +131,7 @@ class LuthienCallback(CustomLogger):
 
     # Fallback for LiteLLM versions that emit async_on_stream_event instead of iterator hook
     async def async_on_stream_event(self, kwargs, response_obj, start_time, end_time) -> None:
+        """Compatibility wrapper for LiteLLM variants emitting per-chunk events."""
         try:
             request_data = None
             user_api_key_dict = None

@@ -1,5 +1,4 @@
-"""
-Toy ALL-CAPS policy for testing request/response modification.
+"""Toy ALL-CAPS policy for testing request/response modification.
 
 Behavior:
 - Pre hook: pass-through
@@ -15,12 +14,15 @@ from .base import LuthienPolicy
 
 
 class AllCapsPolicy(LuthienPolicy):
+    """Demonstration policy that uppercases content in responses."""
+
     async def async_post_call_streaming_iterator_hook(
         self,
         user_api_key_dict: Optional[dict[str, Any]],
         response: Any,
         request_data: dict[str, Any],
     ) -> Optional[dict[str, Any]]:
+        """Uppercase streaming delta content per chunk when possible."""
         try:
             response = dict(response)
             for c in response.get("choices", []):
@@ -31,6 +33,7 @@ class AllCapsPolicy(LuthienPolicy):
             return response
 
     async def async_post_call_success_hook(self, **kwargs: Any) -> dict[str, Any]:
+        """Uppercase content in a non-streaming final response."""
         try:
             response = dict(kwargs.get("response_obj", {}))
             for c in response.get("choices", []):

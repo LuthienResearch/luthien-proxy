@@ -1,3 +1,8 @@
+"""Small helper to configure logging for containers.
+
+Forces StreamHandler to stdout and respects LOG_LEVEL.
+"""
+
 from __future__ import annotations
 
 import logging
