@@ -5,7 +5,7 @@ import os
 
 import uvicorn
 
-from luthien_control.utils.logging_config import configure_logging
+from luthien_proxy.utils.logging_config import configure_logging
 
 
 def main():
@@ -23,7 +23,7 @@ def main():
     print(f"Redis URL: {os.getenv('REDIS_URL', 'Not configured')}")
 
     uvicorn.run(
-        "luthien_control.control_plane.app:app",
+        "luthien_proxy.control_plane.app:app",
         host=host,
         port=port,
         reload=False,  # Disable reload in container

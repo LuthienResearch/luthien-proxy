@@ -1,6 +1,6 @@
 import pytest
 
-from luthien_control.control_plane.app import health_check
+from luthien_proxy.control_plane.app import health_check
 
 
 @pytest.mark.asyncio

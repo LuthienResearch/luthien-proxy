@@ -1,9 +1,9 @@
 # Luthien consolidated configuration
 
 # Active policy (module.path:ClassName)
-# policy: "luthien_control.policies.logging:LoggingPolicy"
-# policy: "luthien_control.policies.noop:NoOpPolicy"
-policy: "luthien_control.policies.all_caps:AllCapsPolicy"
+# policy: "luthien_proxy.policies.logging:LoggingPolicy"
+# policy: "luthien_proxy.policies.noop:NoOpPolicy"
+policy: "luthien_proxy.policies.all_caps:AllCapsPolicy"
 
 # Policy-specific options
 policy_options:

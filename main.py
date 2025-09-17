@@ -1,5 +1,5 @@
 def main():
-    print("Hello from luthien-control!")
+    print("Hello from luthien-proxy!")
 
 
 if __name__ == "__main__":

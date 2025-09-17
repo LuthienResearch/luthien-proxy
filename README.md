@@ -49,7 +49,7 @@ Copy `.env.example` to `.env` and add your API keys.
   - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
   - Minimal YAML:
     ```yaml
-    policy: "luthien_control.policies.noop:NoOpPolicy"
+    policy: "luthien_proxy.policies.noop:NoOpPolicy"
     # optional
     policy_options:
       stream:
@@ -60,7 +60,7 @@ Copy `.env.example` to `.env` and add your API keys.
 
 - Lint/format: `uv run ruff check` and `uv run ruff format`. Core rules enabled (E/F/I); docstring rules (Google) are introduced gradually.
 - Type checking: `uv run pyright` (configured in `[tool.pyright]` within `pyproject.toml`).
-- Tests: `uv run pytest -q` with coverage for `src/luthien_control/**` configured in `[tool.pytest.ini_options]`.
+- Tests: `uv run pytest -q` with coverage for `src/luthien_proxy/**` configured in `[tool.pytest.ini_options]`.
 - Config consolidation: Ruff, Pytest, and Pyright live in `pyproject.toml` to avoid extra files.
 - Plan: see `dev/maintainability_plan.md` for the staged rollout (typing, docs, tests, complexity).
 
@@ -90,11 +90,11 @@ We keep the policy surface aligned with LiteLLM's hook API, while keeping the pr
 
 Key files:
 - `config/litellm_callback.py`: minimal LiteLLM callback that forwards hook payloads to the control plane.
-- `src/luthien_control/control_plane/app.py`: FastAPI app with generic hook ingestion, tests, and debug/trace endpoints.
-- `src/luthien_control/control_plane/stream_context.py`: Redis-backed StreamContextStore for per-call streaming context.
-- `src/luthien_control/policies/base.py`: abstract policy class including streaming helpers.
-- `src/luthien_control/policies/noop.py`: default no-op policy.
-- `src/luthien_control/policies/all_caps.py`: simple example policy.
+- `src/luthien_proxy/control_plane/app.py`: FastAPI app with generic hook ingestion, tests, and debug/trace endpoints.
+- `src/luthien_proxy/control_plane/stream_context.py`: Redis-backed StreamContextStore for per-call streaming context.
+- `src/luthien_proxy/policies/base.py`: abstract policy class including streaming helpers.
+- `src/luthien_proxy/policies/noop.py`: default no-op policy.
+- `src/luthien_proxy/policies/all_caps.py`: simple example policy.
 
 Note: Local LLM service files (e.g., Dockerfile.local-llm and local_llm_config.yaml) are present for future policies but are not used by current example policies.
 

@@ -17,16 +17,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from luthien_control.control_plane.stream_context import StreamContextStore
-from luthien_control.control_plane.ui import router as ui_router
-from luthien_control.control_plane.utils.hooks import (
+from luthien_proxy.control_plane.stream_context import StreamContextStore
+from luthien_proxy.control_plane.ui import router as ui_router
+from luthien_proxy.control_plane.utils.hooks import (
     extract_call_id_for_hook,
 )
-from luthien_control.policies.base import LuthienPolicy
+from luthien_proxy.policies.base import LuthienPolicy
 
 # Import our policy and monitoring modules (will implement these)
-from luthien_control.policies.engine import PolicyEngine
-from luthien_control.policies.noop import NoOpPolicy
+from luthien_proxy.policies.engine import PolicyEngine
+from luthien_proxy.policies.noop import NoOpPolicy
 
 # FastAPI app setup
 app = FastAPI(

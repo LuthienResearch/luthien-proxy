@@ -1,9 +1,9 @@
 # ABOUTME: Policy engine for managing AI control policies, configurations, and decision logging
 # ABOUTME: Handles policy loading, episode tracking, and audit triggers for the control plane
 
-import asyncio
 import json
 import os
+import time
 from typing import Any, Dict, Optional
 
 import asyncpg
@@ -93,7 +93,8 @@ class PolicyEngine:
                 "score": score,
                 "threshold": threshold,
                 "metadata": metadata or {},
-                "timestamp": asyncio.get_event_loop().time(),
+                # Wall-clock timestamp for external logs; DB uses NOW().
+                "timestamp": time.time(),
             }
 
             if self.db_pool:
@@ -145,7 +146,8 @@ class PolicyEngine:
                 "score": score,
                 "metadata": metadata or {},
                 "status": "pending",
-                "created_at": asyncio.get_event_loop().time(),
+                # Keep human-readable epoch for Redis record.
+                "created_at": time.time(),
             }
 
             if self.db_pool:
@@ -191,7 +193,7 @@ class PolicyEngine:
                 # Initialize new episode
                 initial_state = {
                     "episode_id": episode_id,
-                    "created_at": asyncio.get_event_loop().time(),
+                    "created_at": time.time(),
                     "step_count": 0,
                     "interventions": 0,
                     "audit_budget_used": 0,

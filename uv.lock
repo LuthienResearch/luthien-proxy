@@ -823,7 +823,7 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5b/97/103969becae757aaf8cbbefb838dfc7dd17846ee15f1b59ef91f6e292573/litellm_proxy_extras-0.2.18.tar.gz", hash = "sha256:e5ded69834bb76a405ab201aa3b3983f2c1a0cc80362e2889bc0add509137e55", size = 15291 }
 
 [[package]]
-name = "luthien-control"
+name = "luthien-proxy"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

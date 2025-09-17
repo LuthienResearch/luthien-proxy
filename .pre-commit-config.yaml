@@ -20,7 +20,7 @@ repos:
     hooks:
       - id: beartype-check
         name: beartype type checking
-        entry: uv run python -c "import sys; import importlib.util; spec = importlib.util.spec_from_file_location('luthien_control', 'src/luthien_control/__init__.py'); module = importlib.util.module_from_spec(spec); sys.modules['luthien_control'] = module; spec.loader.exec_module(module)"
+        entry: uv run python -c "import sys; import importlib.util; spec = importlib.util.spec_from_file_location('luthien_proxy', 'src/luthien_proxy/__init__.py'); module = importlib.util.module_from_spec(spec); sys.modules['luthien_proxy'] = module; spec.loader.exec_module(module)"
         language: system
         pass_filenames: false
         files: \.py$

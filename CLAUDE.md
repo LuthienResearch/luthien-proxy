@@ -1,103 +1,74 @@
-# CLAUDE.md
+# Repository Guidelines
 
-## Project Overview
+## Purpose & Scope
+- Core goal: implement AI Control for LLMs on top of the LiteLLM proxy.
+- Pattern: Redwood-style control with a centralized control plane making policy decisions; the proxy stays thin.
+- Configure models in `config/litellm_config.yaml`.
+- Select a policy via `LUTHIEN_POLICY_CONFIG` that points to a YAML file (defaults to `config/luthien_config.yaml`).
+  - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
 
-Luthien Control: Redwood Research-style AI Control as a production LLM proxy built on LiteLLM.
+## Project Structure & Module Organization
+- `src/luthien_proxy/`: core package
+  - `control_plane/`: FastAPI app and `__main__` launcher
+  - `proxy/`: LiteLLM proxy integration and custom logger
+  - `policies/`: policy interfaces and defaults (`noop.py`)
+  - `control_plane/templates` + `static`: debug and trace UIs
+- `config/`: `litellm_config.yaml`, `luthien_config.yaml`
+- `scripts/`: developer helpers (`quick_start.sh`, `test_proxy.py`)
+- `docker/` + `docker-compose.yaml`: local stack (db, redis, control-plane, proxy)
+- `migrations/`, `prisma/`: database setup
+- `tests/`: put unit/integration tests here
 
-## Core Principles
- - KISS. You keep it simple.
- - Fail fast. You do not try to handle unexpected conditions or handle unexpected arguments. Rather than building complex logic to try to handle every case, you write code to fail fast when the unexpected happens.
- - YAGNI. You do not build more than what you need. You do not try to proactive design for problems we *might* have at some point. You solve the problem we have *right now*.
+## Build, Test, and Development Commands
+- Install dev deps: `uv sync --dev`
+- Start full stack: `./scripts/quick_start.sh`
+- Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
+- Lint/format: `uv run ruff check --fix` and `uv run ruff format`
+- Type check: `uv run pyright`
+- Run control plane locally: `uv run python -m luthien_proxy.control_plane`
+- Run proxy locally: `uv run python -m luthien_proxy.proxy`
+- Docker iterate: `docker compose restart control-plane` or `litellm-proxy`
 
- You are an engineer who writes code for **human brains, not machines**. You favor code that is simple to undertand and maintain. Remember at all times that the code you will be processed by human brain. The brain has a very limited capacity. People can only hold ~4 chunks in their working memory at once. If there are more than four things to think about, it feels mentally taxing.
+## Coding Style & Naming Conventions
+- Python 3.13; annotate public APIs and important internals. Pyright is the single static checker.
+- Formatting via Ruff: double quotes, spaces for indent (see `pyproject.toml`).
+- Names: modules `snake_case`, classes `PascalCase`, functions/vars `snake_case`.
+- Keep policies small and testable; avoid side effects in hooks.
+- Docstrings: Google style for public modules/classes/functions; focus on WHY and non-trivial behavior.
+- Runtime type checking (`beartype`) is optional and only for critical boundaries during dev/tests.
 
-Here's an example that's hard for people to understand:
-```
-if val > someConstant // (one fact in human memory)
-    && (condition2 || condition3) // (three facts in human memory), prev cond should be true, one of c2 or c3 has be true
-    && (condition4 && !condition5) { // (human memory overload), we are messed up by this point
-    ...
-}
-```
+## Testing Guidelines
+- Framework: `pytest` (+ `pytest-asyncio` for async paths).
+- Location: under `tests/`; name files `test_*.py` and mirror package paths.
+- Prefer fast unit tests for policies; add integration tests against `/hooks/*` and `/health`.
+- Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.
 
-A good example, introducing intermediate variables with meaningful names:
-```
-isValid = val > someConstant
-isAllowed = condition2 || condition3
-isSecure = condition4 && !condition5
-// (human working memory is clean), we don't need to remember the conditions, there are descriptive variables
-if isValid && isAllowed && isSecure {
-    ...
-}
-```
+## Tooling & Config
+- Consolidate config in `pyproject.toml`:
+  - Ruff lint/format, Pytest options, Pyright settings.
+- Avoid extra config files unless needed; if Pyright cannot read `pyproject.toml` in your environment, fall back to a single `pyrightconfig.json`.
+- A staged maintainability plan lives in `dev/maintainability_plan.md`.
 
-- No useless "WHAT" comments, don't write a comment if it duplicates the code. Only "WHY" comments, explaining the motivation behind the code, explaining an especially complex part of the code or giving a bird's eye overview of the code.
-- Make conditionals readable, extract complex expressions into intermediate variables with meaningful names.
-- Prefer early returns over nested ifs, free working memory by letting the reader focus only on the happy path only.
-- Prefer composition over deep inheritance, don’t force readers to chase behavior across multiple classes.
-- Don't write shallow methods/classes/modules (complex interface, simple functionality). An example of shallow class: `MetricsProviderFactoryFactory`. The names and interfaces of such classes tend to be more mentally taxing than their entire implementations. Having too many shallow modules can make it difficult to understand the project. Not only do we have to keep in mind each module responsibilities, but also all their interactions.
-- Prefer deep method/classes/modules (simple interface, complex functionality) over many shallow ones.
-- Don’t overuse language featuress, stick to the minimal subset. Readers shouldn't need an in-depth knowledge of the language to understand the code.
-- Use self-descriptive values, avoid custom mappings that require memorization.
-- Don’t abuse DRY, a little duplication is better than unnecessary dependencies.
-- Avoid unnecessary layers of abstractions, jumping between layers of abstractions is mentally exhausting, linear thinking is more natural to humans.
-- NEVER write comments about code changes ("added feature X", "replaced A with B", "moved from otherplace.py to here"). Comments are for understanding how and why the code works the way it is right now, not for annotating diffs.
+## Commit & Pull Request Guidelines
+- Current history is informal; prefer Conventional Commits going forward.
+  - Example: `feat(proxy): add stream replacement hook`.
+- Commits: small, focused, with rationale in the body when needed.
+- PRs: include description, linked issues, screenshots/log snippets, and local test results.
+- CI gate: ensure `pre-commit run -a`, `ruff`, and tests pass.
 
-## Essential Commands
+## Security & Configuration Tips
+- Copy `.env.example` to `.env`; never commit secrets.
+- Key env vars: `DATABASE_URL`, `REDIS_URL`, `CONTROL_PLANE_URL`, `LITELLM_*`, `LUTHIEN_POLICY_CONFIG`.
+- Update `config/litellm_config.yaml` and `config/luthien_config.yaml` rather than hardcoding.
+- Validate setup with `uv run python scripts/test_proxy.py` and `docker compose logs -f`.
 
-```bash
-# Setup & start
-./scripts/quick_start.sh
-
-# After code changes
-docker compose restart control-plane    # or litellm-proxy
-
-# Run tests & lint
-uv run pytest
-uv run ruff format
-uv run ruff check --fix
-
-# Debug
-docker compose logs -f [service_name]
-```
-
-## Architecture
-
-1. **LiteLLM Proxy** (`src/luthien_control/proxy/`): CustomLogger with async hooks
-   - Pre-call: Modify requests, add episode IDs
-   - Post-call: Score responses, trigger control protocols
-   - Streaming: Monitor/modify chunks in real-time
-
-2. **Control Plane** (`src/luthien_control/control_plane/`): FastAPI orchestration
-   - `/policy/evaluate`: Main decision endpoint
-   - `/resample`: K-resample protocol
-   - Manages budgets and audit allocation
-
-3. **Monitors** (`src/luthien_control/monitors/`):
-   - Trusted: Local model scoring
-   - Untrusted: Main model with honeypots
-   - Paraphraser: Prevent collusion
-
-4. **Policies** (`src/luthien_control/policies/`): YAML/JSON configuration
-
-5. **Data**: PostgreSQL (persistent) + Redis (ephemeral)
-
-## Code Standards
-
-- Use beartype for type checking
-- Async-first for all proxy operations
-- Fail-safe: Fall back to trusted-only on honeypot failures
-- Correlate via LiteLLM's `call_id`
-
-## Testing
-
-Run full test suite before commits:
-```bash
-uv run pytest
-uv run pre-commit run --all-files
-```
-
-## References
-
-- Implementation phases: `plan.md`
-- Note: Use "docker compose" not "docker-compose"
+## Policy Selection
+- Policies are loaded from the YAML file pointed to by `LUTHIEN_POLICY_CONFIG` (default `config/luthien_config.yaml`).
+- Minimal YAML:
+  ```yaml
+  policy: "luthien_proxy.policies.noop:NoOpPolicy"
+  # optional
+  policy_options:
+    stream:
+      log_every_n: 1
+  ```

@@ -54,4 +54,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:4000/test || exit 1
 
 # Start LiteLLM proxy with our custom logger via our startup script
-CMD ["uv", "run", "python", "-m", "luthien_control.proxy"]
+CMD ["uv", "run", "python", "-m", "luthien_proxy.proxy"]

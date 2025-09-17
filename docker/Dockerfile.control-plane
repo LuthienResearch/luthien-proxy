@@ -38,4 +38,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8081/health || exit 1
 
 # Start the control plane service
-CMD ["uv", "run", "python", "-m", "luthien_control.control_plane"]
+CMD ["uv", "run", "python", "-m", "luthien_proxy.control_plane"]

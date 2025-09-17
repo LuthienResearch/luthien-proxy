@@ -30,7 +30,7 @@ A minimal, staged plan to improve types, docs, tests, and complexity while keepi
 - Consolidate config in `pyproject.toml`:
   - `[tool.ruff.lint]`: `select = ["E","F","I"]`, later add `"D","C90"`.
   - `[tool.ruff.lint.pydocstyle]`: `convention = "google"` (enable in Phase 2).
-  - `[tool.pytest.ini_options]`: `addopts = "-q -ra --cov=src/luthien_control --cov-report=term-missing"`, `testpaths = ["tests"]`, `asyncio_mode = "auto"`.
+  - `[tool.pytest.ini_options]`: `addopts = "-q -ra --cov=src/luthien_proxy --cov-report=term-missing"`, `testpaths = ["tests"]`, `asyncio_mode = "auto"`.
   - `[tool.pyright]`: `pythonVersion = "3.13"`, `typeCheckingMode = "basic"`, `include = ["src"]`, `reportMissingTypeStubs = "none"`, `useLibraryCodeForTypes = true`.
   - Per-file ignores: exclude `migrations/**` from lint; relax docstrings under `scripts/**`.
 - Minimal tests to enable fast iteration:
@@ -83,12 +83,13 @@ A minimal, staged plan to improve types, docs, tests, and complexity while keepi
   - Policies: behavior on simple payloads.
   - Hook utils: pure helpers in `control_plane/utils`.
   - Stream context: already covered by fake Redis.
-- Coverage gate in CI: `--cov-fail-under=65` for `src/luthien_control/**`.
+- Coverage gate in CI: `--cov-fail-under=65` for `src/luthien_proxy/**`.
 - Gradually raise toward ~80% as suites mature.
 
 ### Current Status
 - Added offline unit tests: `test_health.py`, `test_stream_context.py`, `test_policy_loading.py`.
 - Sandbox prevented running UV locally here; expected to pass in dev environment.
+ - Pytest configured to show deprecation/resource warnings by default via `filterwarnings`.
 
 ## Phase 4 — Complexity + Tightening
 
@@ -103,7 +104,7 @@ A minimal, staged plan to improve types, docs, tests, and complexity while keepi
 
 - CI green with Pyright (basic), Ruff (E/F/I), and tests running offline.
 - Public surfaces documented; Ruff `D` passes once gated.
-- Coverage ≥ 65% on `src/luthien_control/**`, trending upward.
+- Coverage ≥ 65% on `src/luthien_proxy/**`, trending upward.
 - No functions exceed the C901 threshold, or a clear refactor path exists.
 
 ## Risks & Mitigations

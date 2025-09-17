@@ -2,7 +2,7 @@ from typing import Dict
 
 import pytest
 
-from luthien_control.control_plane.stream_context import StreamContextStore
+from luthien_proxy.control_plane.stream_context import StreamContextStore
 
 
 class FakeAsyncRedis:

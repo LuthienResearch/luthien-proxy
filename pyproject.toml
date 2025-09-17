@@ -3,7 +3,7 @@ requires = ["uv_build"]
 build-backend = "uv_build"
 
 [project]
-name = "luthien-control"
+name = "luthien-proxy"
 version = "0.1.0"
 description = "Redwood-style AI Control within an LLM proxy for production agentic deployments"
 readme = "README.md"
@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/luthien_control"]
+packages = ["src/luthien_proxy"]
 
 [tool.ruff]
 target-version = "py313"
@@ -53,9 +53,14 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra --cov=src/luthien_control --cov-report=term-missing"
+addopts = "-q -ra --cov=src/luthien_proxy --cov-report=term-missing"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "default::DeprecationWarning",
+    "default::PendingDeprecationWarning",
+    "default::ResourceWarning",
+]
 
 [tool.pyright]
 pythonVersion = "3.13"

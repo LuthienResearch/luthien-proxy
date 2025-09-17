@@ -8,7 +8,7 @@
   - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
 
 ## Project Structure & Module Organization
-- `src/luthien_control/`: core package
+- `src/luthien_proxy/`: core package
   - `control_plane/`: FastAPI app and `__main__` launcher
   - `proxy/`: LiteLLM proxy integration and custom logger
   - `policies/`: policy interfaces and defaults (`noop.py`)
@@ -25,8 +25,8 @@
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
 - Lint/format: `uv run ruff check --fix` and `uv run ruff format`
 - Type check: `uv run pyright`
-- Run control plane locally: `uv run python -m luthien_control.control_plane`
-- Run proxy locally: `uv run python -m luthien_control.proxy`
+- Run control plane locally: `uv run python -m luthien_proxy.control_plane`
+- Run proxy locally: `uv run python -m luthien_proxy.proxy`
 - Docker iterate: `docker compose restart control-plane` or `litellm-proxy`
 
 ## Coding Style & Naming Conventions
@@ -66,7 +66,7 @@
 - Policies are loaded from the YAML file pointed to by `LUTHIEN_POLICY_CONFIG` (default `config/luthien_config.yaml`).
 - Minimal YAML:
   ```yaml
-  policy: "luthien_control.policies.noop:NoOpPolicy"
+  policy: "luthien_proxy.policies.noop:NoOpPolicy"
   # optional
   policy_options:
     stream:
