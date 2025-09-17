@@ -14,7 +14,6 @@ import os
 
 import httpx
 
-
 CONTROL_URL = os.getenv("CONTROL_PLANE_URL", "http://localhost:8081")
 TEST_MODEL = os.getenv("TEST_MODEL", "gpt-4o")
 
@@ -37,9 +36,7 @@ async def fetch_hook_logs(limit: int = 50) -> None:
                 found = True
                 break
         if not found:
-            raise RuntimeError(
-                "No litellm_hook entries in DB. Hook ingestion to DB failed."
-            )
+            raise RuntimeError("No litellm_hook entries in DB. Hook ingestion to DB failed.")
         page = await client.get(
             f"{CONTROL_URL}/api/debug/litellm_hook/page",
             params={"page": 1, "page_size": limit},

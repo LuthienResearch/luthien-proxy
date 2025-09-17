@@ -23,9 +23,7 @@ def test_load_policy_from_valid_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert isinstance(policy, NoOpPolicy)
 
 
-def test_load_policy_falls_back_on_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_load_policy_falls_back_on_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     yaml_path = write_tmp_yaml(
         tmp_path,
         'policy: "does.not.exist:Missing"\n',

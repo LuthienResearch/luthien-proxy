@@ -7,16 +7,14 @@ import os
 from typing import Any, Dict, Optional
 
 import asyncpg
-from beartype import beartype
 import redis.asyncio as redis
+from beartype import beartype
 
 
 class PolicyEngine:
     """Manages AI control policies and tracks episode state."""
 
-    def __init__(
-        self, database_url: Optional[str] = None, redis_url: Optional[str] = None
-    ):
+    def __init__(self, database_url: Optional[str] = None, redis_url: Optional[str] = None):
         self.database_url = database_url or os.getenv("DATABASE_URL")
         self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
         self.db_pool: Optional[asyncpg.Pool] = None
@@ -28,9 +26,7 @@ class PolicyEngine:
         """Initialize database and Redis connections."""
         try:
             if self.database_url:
-                self.db_pool = await asyncpg.create_pool(
-                    self.database_url, min_size=2, max_size=10
-                )
+                self.db_pool = await asyncpg.create_pool(self.database_url, min_size=2, max_size=10)
                 print("Connected to PostgreSQL")
 
             self.redis_client = redis.from_url(self.redis_url)
@@ -126,9 +122,7 @@ class PolicyEngine:
                     json.dumps(decision_data),
                 )
 
-            print(
-                f"Logged decision: {decision_type} (score: {score:.3f}, threshold: {threshold:.3f})"
-            )
+            print(f"Logged decision: {decision_type} (score: {score:.3f}, threshold: {threshold:.3f})")
 
         except Exception as e:
             print(f"Error logging decision: {e}")
@@ -216,9 +210,7 @@ class PolicyEngine:
             return {}
 
     @beartype
-    async def update_episode_state(
-        self, episode_id: str, updates: Dict[str, Any]
-    ) -> None:
+    async def update_episode_state(self, episode_id: str, updates: Dict[str, Any]) -> None:
         """Update episode state."""
         if not self.redis_client:
             return

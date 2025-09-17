@@ -14,10 +14,9 @@ Outputs a timeline of hook invocations and includes the full request/response st
 import asyncio
 import json
 import os
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 import httpx
-
 
 PROXY_URL = os.getenv("LITELLM_URL", "http://localhost:4000")
 CONTROL_URL = os.getenv("CONTROL_PLANE_URL", "http://localhost:8081")
@@ -66,9 +65,7 @@ async def run_sync_trace(client: httpx.AsyncClient) -> None:
         "model": TEST_MODEL,
         "messages": [{"role": "user", "content": "Trace hooks (sync): say SYNC"}],
     }
-    r = await client.post(
-        f"{PROXY_URL}/chat/completions", headers=headers, json=payload
-    )
+    r = await client.post(f"{PROXY_URL}/chat/completions", headers=headers, json=payload)
     print(f"Proxy status: {r.status_code}")
     logs = await fetch_logs(client)
     for e in logs:
@@ -87,9 +84,7 @@ async def run_stream_trace(client: httpx.AsyncClient) -> None:
         "messages": [{"role": "user", "content": "Trace hooks (stream): count 1..3"}],
         "stream": True,
     }
-    async with client.stream(
-        "POST", f"{PROXY_URL}/chat/completions", headers=headers, json=payload
-    ) as resp:
+    async with client.stream("POST", f"{PROXY_URL}/chat/completions", headers=headers, json=payload) as resp:
         print(f"Proxy status: {resp.status_code}")
         async for line in resp.aiter_lines():
             if line.startswith("data: "):

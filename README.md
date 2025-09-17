@@ -95,7 +95,8 @@ Key files:
 - `src/luthien_control/policies/base.py`: abstract policy class including streaming helpers.
 - `src/luthien_control/policies/noop.py`: default no-op policy.
 - `src/luthien_control/policies/all_caps.py`: simple example policy.
-- `src/luthien_control/policies/gemma_suspiciousness.py`: example scoring policy.
+
+Note: Local LLM service files (e.g., Dockerfile.local-llm and local_llm_config.yaml) are present for future policies but are not used by current example policies.
 
 Notes:
 - Redis is required for streaming context; control-plane startup fails fast if `REDIS_URL` is not set/available.

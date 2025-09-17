@@ -11,6 +11,4 @@ if str(SRC_DIR) not in sys.path:
 
 def pytest_sessionstart(session):
     # Avoid accidental reliance on production defaults during unit tests.
-    os.environ.setdefault(
-        "LUTHIEN_POLICY_CONFIG", str(REPO_ROOT / "config" / "luthien_config.yaml")
-    )
+    os.environ.setdefault("LUTHIEN_POLICY_CONFIG", str(REPO_ROOT / "config" / "luthien_config.yaml"))

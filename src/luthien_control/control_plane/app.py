@@ -1,33 +1,32 @@
 # ABOUTME: FastAPI application for the Luthien Control plane service that orchestrates AI control policies
 # ABOUTME: Provides endpoints for litellm hooks, as well as luthien-specific utilities and UI
 
-from collections import Counter
 import asyncio
-import os
-from typing import Any, Dict, Optional, List
-from datetime import datetime
+import json
 import logging
+import os
 import sys
+from collections import Counter, deque
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Query, HTTPException
+import asyncpg
+import yaml
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import asyncpg
-import json
-from collections import deque
 
-# Import our policy and monitoring modules (will implement these)
-from luthien_control.policies.engine import PolicyEngine
-from luthien_control.policies.base import LuthienPolicy
-from luthien_control.policies.noop import NoOpPolicy
-from luthien_control.control_plane.ui import router as ui_router
-import yaml
 from luthien_control.control_plane.stream_context import StreamContextStore
+from luthien_control.control_plane.ui import router as ui_router
 from luthien_control.control_plane.utils.hooks import (
     extract_call_id_for_hook,
 )
+from luthien_control.policies.base import LuthienPolicy
 
+# Import our policy and monitoring modules (will implement these)
+from luthien_control.policies.engine import PolicyEngine
+from luthien_control.policies.noop import NoOpPolicy
 
 # FastAPI app setup
 app = FastAPI(
@@ -69,9 +68,7 @@ _hook_logs: deque = deque(maxlen=500)
 
 async def _insert_debug(debug_type: str, payload: Dict[str, Any]) -> None:
     """Insert a debug log row into the database (best-effort)."""
-    db_url = os.getenv(
-        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
-    )
+    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     try:
         conn = await asyncpg.connect(db_url)
         try:
@@ -91,7 +88,7 @@ async def _insert_debug(debug_type: str, payload: Dict[str, Any]) -> None:
 
 
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     """Initialize services on startup."""
     global policy_engine, active_policy, stream_store
 
@@ -109,9 +106,7 @@ async def startup_event():
 
         # Initialize stream context store (Redis required; fail fast otherwise)
         if not policy_engine or not policy_engine.redis_client:
-            raise RuntimeError(
-                "Redis is required for streaming context; set REDIS_URL and ensure connectivity"
-            )
+            raise RuntimeError("Redis is required for streaming context; set REDIS_URL and ensure connectivity")
         stream_store = StreamContextStore(
             redis_client=policy_engine.redis_client,
             ttl_seconds=int(os.getenv("STREAM_CONTEXT_TTL", "3600")),
@@ -125,7 +120,7 @@ async def startup_event():
 
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> Dict[str, Any]:
     """Health check endpoint."""
     return {"status": "healthy", "service": "luthien-control-plane", "version": "0.1.0"}
 
@@ -164,9 +159,7 @@ def _load_policy_from_config() -> LuthienPolicy:
         module = __import__(module_path, fromlist=[class_name])
         cls = getattr(module, class_name)
         if not issubclass(cls, LuthienPolicy):
-            print(
-                f"Configured policy {class_name} does not subclass LuthienPolicy; using NoOpPolicy"
-            )
+            print(f"Configured policy {class_name} does not subclass LuthienPolicy; using NoOpPolicy")
             return NoOpPolicy()
         print(f"Loaded policy from config: {class_name} ({module_path})")
         # Prefer passing inline policy_options if the class accepts it; otherwise fallback
@@ -188,7 +181,7 @@ def _load_policy_from_config() -> LuthienPolicy:
 
 
 @app.get("/endpoints")
-async def list_endpoints():
+async def list_endpoints() -> Dict[str, Any]:
     return {
         "hooks": [
             "POST /hooks/{hook_name}",
@@ -208,10 +201,8 @@ class DebugEntry(BaseModel):
 
 
 @app.get("/api/debug/{debug_type}", response_model=List[DebugEntry])
-async def get_debug_entries(debug_type: str, limit: int = Query(default=50, le=500)):
-    db_url = os.getenv(
-        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
-    )
+async def get_debug_entries(debug_type: str, limit: int = Query(default=50, le=500)) -> List[DebugEntry]:
+    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     entries: List[DebugEntry] = []
     try:
         conn = await asyncpg.connect(db_url)
@@ -259,10 +250,8 @@ class DebugTypeInfo(BaseModel):
 
 
 @app.get("/api/debug/types", response_model=List[DebugTypeInfo])
-async def get_debug_types():
-    db_url = os.getenv(
-        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
-    )
+async def get_debug_types() -> List[DebugTypeInfo]:
+    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     types: List[DebugTypeInfo] = []
     try:
         conn = await asyncpg.connect(db_url)
@@ -302,10 +291,8 @@ async def get_debug_page(
     debug_type: str,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
-):
-    db_url = os.getenv(
-        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
-    )
+) -> DebugPage:
+    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     items: List[DebugEntry] = []
     total = 0
     try:
@@ -354,13 +341,13 @@ async def get_debug_page(
 
 
 @app.get("/api/hooks/counters")
-async def get_hook_counters():
+async def get_hook_counters() -> Dict[str, int]:
     """Expose in-memory hook counters for sanity/testing scripts."""
     return dict(_hook_counters)
 
 
 @app.post("/hooks/{hook_name}")
-async def hook_generic(hook_name: str, payload: Dict[str, Any]):
+async def hook_generic(hook_name: str, payload: Dict[str, Any]) -> Any:
     """Generic hook endpoint for any CustomLogger hook.
 
     - Records in-memory log with name + payload
@@ -374,9 +361,7 @@ async def hook_generic(hook_name: str, payload: Dict[str, Any]):
             "payload": payload,
         }
         # Log payloads so they're visible in docker logs
-        _logger.debug(
-            "hook=%s payload=%s", hook_name, json.dumps(payload, ensure_ascii=False)
-        )
+        _logger.debug("hook=%s payload=%s", hook_name, json.dumps(payload, ensure_ascii=False))
         # extract litellm_call_id deterministically from payload
         try:
             call_id = extract_call_id_for_hook(hook_name, payload)
@@ -419,15 +404,13 @@ class TraceResponse(BaseModel):
 
 
 @app.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
-async def trace_by_call_id(call_id: str = Query(..., min_length=4)):
+async def trace_by_call_id(call_id: str = Query(..., min_length=4)) -> TraceResponse:
     """Return ordered hook entries from debug_logs for a litellm_call_id.
 
     This endpoint intentionally excludes request_logs to keep the UI focused on
     debugging hook invocations without mixing in policy persistence.
     """
-    db_url = os.getenv(
-        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
-    )
+    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     entries: List[TraceEntry] = []
     try:
         conn = await asyncpg.connect(db_url)
@@ -497,10 +480,8 @@ class CallIdInfo(BaseModel):
 
 
 @app.get("/api/hooks/recent_call_ids", response_model=List[CallIdInfo])
-async def recent_call_ids(limit: int = Query(default=50, ge=1, le=500)):
-    db_url = os.getenv(
-        "DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien"
-    )
+async def recent_call_ids(limit: int = Query(default=50, ge=1, le=500)) -> List[CallIdInfo]:
+    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     out: List[CallIdInfo] = []
     try:
         conn = await asyncpg.connect(db_url)
@@ -522,9 +503,7 @@ async def recent_call_ids(limit: int = Query(default=50, ge=1, le=500)):
                 cid = r["cid"]
                 if not cid:
                     continue
-                out.append(
-                    CallIdInfo(call_id=cid, count=int(r["cnt"]), latest=r["latest"])
-                )
+                out.append(CallIdInfo(call_id=cid, count=int(r["cnt"]), latest=r["latest"]))
         finally:
             await conn.close()
     except Exception as e:

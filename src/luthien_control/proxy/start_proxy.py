@@ -3,9 +3,10 @@
 
 import os
 import sys
+from typing import Any
 
 
-def setup_environment():
+def setup_environment() -> Any:
     """Set up the environment for LiteLLM with our custom logger."""
 
     # Ensure our src + config directories are in Python path
@@ -31,7 +32,7 @@ def setup_environment():
     return app
 
 
-def main():
+def main() -> None:
     """Start the LiteLLM proxy with Luthien Control integration."""
 
     print("🚀 Starting LiteLLM proxy with Luthien Control...")
@@ -43,9 +44,7 @@ def main():
 
     print(f"📂 Config: {config_path}")
     print(f"🌐 Host: {host}:{port}")
-    print(
-        f"🎛️  Control Plane: {os.getenv('CONTROL_PLANE_URL', 'http://control-plane:8081')}"
-    )
+    print(f"🎛️  Control Plane: {os.getenv('CONTROL_PLANE_URL', 'http://control-plane:8081')}")
 
     # Set up environment and get the app
     app = setup_environment()

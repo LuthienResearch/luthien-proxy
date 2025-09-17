@@ -118,11 +118,7 @@ def main() -> int:
     env = parse_env_file(".env")
     url = (
         args.url
-        or (
-            env.get("DATABASE_URL")
-            if args.db == "luthien"
-            else env.get("LITELLM_DATABASE_URL")
-        )
+        or (env.get("DATABASE_URL") if args.db == "luthien" else env.get("LITELLM_DATABASE_URL"))
         or os.environ.get("DATABASE_URL")
     )
     if not url:
@@ -143,7 +139,11 @@ def main() -> int:
             ),
             (
                 "debug_logs cols",
-                "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='debug_logs' ORDER BY ordinal_position;",
+                (
+                    "SELECT column_name, data_type "
+                    "FROM information_schema.columns "
+                    "WHERE table_name='debug_logs' ORDER BY ordinal_position;"
+                ),
             ),
             (
                 "row counts",

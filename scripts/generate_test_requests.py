@@ -48,11 +48,7 @@ async def send_request(
         except Exception:
             print(f"status={r.status_code} body={r.text[:200]}")
             return
-        content = (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "<no content>")
-        )
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "<no content>")
         print(f"status={r.status_code} content={content[:120].replace('\n', ' ')}")
 
 
@@ -62,9 +58,7 @@ async def main():
     parser.add_argument("--model", type=str, default=os.getenv("TEST_MODEL", "gpt-4o"))
     parser.add_argument("--system", type=str, default="You are a helpful assistant.")
     parser.add_argument("--user", type=str, default="Say a fun fact about space.")
-    parser.add_argument(
-        "--stream", action="store_true", help="Request streaming response"
-    )
+    parser.add_argument("--stream", action="store_true", help="Request streaming response")
     args = parser.parse_args()
 
     proxy_url = os.getenv("LITELLM_URL", "http://localhost:4000")
@@ -74,9 +68,7 @@ async def main():
         auth_key = os.getenv("LITELLM_MASTER_KEY")
         for i in range(args.n):
             print(f"→ Request {i + 1}/{args.n}")
-            await send_request(
-                client, url, args.model, args.system, args.user, args.stream, auth_key
-            )
+            await send_request(client, url, args.model, args.system, args.user, args.stream, auth_key)
 
 
 if __name__ == "__main__":

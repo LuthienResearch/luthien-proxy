@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -19,9 +19,7 @@ async def debug_browser(request: Request):
 
 @router.get("/debug/{debug_type}", response_class=HTMLResponse)
 async def debug_ui(request: Request, debug_type: str):
-    return templates.TemplateResponse(
-        "debug_single.html", {"request": request, "debug_type": debug_type}
-    )
+    return templates.TemplateResponse("debug_single.html", {"request": request, "debug_type": debug_type})
 
 
 # Removed request_logs UI

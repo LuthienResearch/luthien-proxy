@@ -4,13 +4,14 @@
 import os
 import sys
 from pathlib import Path
+from typing import List
 
 # Add the src directory to Python path for imports
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 
-def main():
+def main() -> None:
     """Start LiteLLM proxy server with Luthien Control integration."""
 
     # Run Prisma migrations first
@@ -18,9 +19,7 @@ def main():
     import subprocess
 
     try:
-        subprocess.run(
-            ["uv", "run", "prisma", "db", "push"], check=True, capture_output=True
-        )
+        subprocess.run(["uv", "run", "prisma", "db", "push"], check=True, capture_output=True)
         print("✅ Prisma migrations completed")
     except subprocess.CalledProcessError as e:
         print(f"⚠️  Prisma migration failed: {e.stderr.decode()}")
@@ -54,15 +53,13 @@ def main():
 
     print("Starting LiteLLM proxy with Luthien Control integration...")
     print(f"Config path: {config_path}")
-    print(
-        f"Control plane URL: {os.getenv('CONTROL_PLANE_URL', 'http://localhost:8081')}"
-    )
+    print(f"Control plane URL: {os.getenv('CONTROL_PLANE_URL', 'http://localhost:8081')}")
 
     # Start LiteLLM via CLI with a single config path
     try:
         import subprocess
 
-        cmd = [
+        cmd: List[str] = [
             "uv",
             "run",
             "litellm",

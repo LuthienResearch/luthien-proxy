@@ -20,7 +20,6 @@ from typing import Dict
 
 import httpx
 
-
 PROXY_URL = os.getenv("LITELLM_URL", "http://localhost:4000")
 CONTROL_URL = os.getenv("CONTROL_PLANE_URL", "http://localhost:8081")
 MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "sk-luthien-dev-key")
@@ -47,9 +46,7 @@ async def run_sync_test(client: httpx.AsyncClient) -> bool:
         "stream": False,
     }
     before = await get_counters(client)
-    resp = await client.post(
-        f"{PROXY_URL}/chat/completions", headers=headers, json=payload
-    )
+    resp = await client.post(f"{PROXY_URL}/chat/completions", headers=headers, json=payload)
     if resp.status_code != 200:
         print(f"❌ Sync request failed: {resp.status_code} {resp.text}")
         return False
@@ -85,9 +82,7 @@ async def run_stream_test(client: httpx.AsyncClient) -> bool:
             timeout=30.0,
         ) as response:
             if response.status_code != 200:
-                print(
-                    f"❌ Stream request failed: {response.status_code} {await response.aread()}"
-                )
+                print(f"❌ Stream request failed: {response.status_code} {await response.aread()}")
                 return False
             async for line in response.aiter_lines():
                 if not line.startswith("data: "):
@@ -108,9 +103,7 @@ async def run_stream_test(client: httpx.AsyncClient) -> bool:
     pre_delta = after.get("hook_pre", 0) - before.get("hook_pre", 0)
     post_delta = after.get("hook_post_success", 0) - before.get("hook_post_success", 0)
     chunk_delta = after.get("hook_stream_chunk", 0) - before.get("hook_stream_chunk", 0)
-    print(
-        f"STREAM counters delta: pre={pre_delta}, post_success={post_delta}, stream_chunk={chunk_delta}"
-    )
+    print(f"STREAM counters delta: pre={pre_delta}, post_success={post_delta}, stream_chunk={chunk_delta}")
 
     ok = pre_delta >= 1 and post_delta >= 1
     if chunk_delta == 0:
@@ -118,9 +111,7 @@ async def run_stream_test(client: httpx.AsyncClient) -> bool:
     if ok:
         print("✅ Stream sanity passed")
     else:
-        print(
-            "❌ Expected pre/post_success to increment by at least 1 in streaming path"
-        )
+        print("❌ Expected pre/post_success to increment by at least 1 in streaming path")
     return ok
 
 
@@ -144,17 +135,12 @@ async def main() -> int:
             json={"model": TEST_MODEL, "prompt": "Say SYNC_OK", "stream": False},
         )
         if cp_sync.status_code != 200:
-            print(
-                f"❌ Control-plane sync test failed: {cp_sync.status_code} {cp_sync.text}"
-            )
+            print(f"❌ Control-plane sync test failed: {cp_sync.status_code} {cp_sync.text}")
             return 1
         counters = cp_sync.json().get("counters", {})
         print(f"Counters: {counters}")
         # Fail fast: require pre>=1 and post_success>=1
-        sync_ok = (
-            counters.get("hook_pre", 0) >= 1
-            and counters.get("hook_post_success", 0) >= 1
-        )
+        sync_ok = counters.get("hook_pre", 0) >= 1 and counters.get("hook_post_success", 0) >= 1
         if not sync_ok:
             print("❌ Expected hook_post_success to increment for sync request")
             return 2
@@ -169,9 +155,7 @@ async def main() -> int:
             },
         )
         if cp_stream.status_code != 200:
-            print(
-                f"❌ Control-plane stream test failed: {cp_stream.status_code} {cp_stream.text}"
-            )
+            print(f"❌ Control-plane stream test failed: {cp_stream.status_code} {cp_stream.text}")
             return 1
         counters = cp_stream.json().get("counters", {})
         print(f"Counters: {counters}")
@@ -182,9 +166,7 @@ async def main() -> int:
             and counters.get("hook_post_success", 0) >= 1
         )
         if not stream_ok:
-            print(
-                "❌ Expected stream_chunk and post_success to increment for stream request"
-            )
+            print("❌ Expected stream_chunk and post_success to increment for stream request")
             return 2
 
         print("\n📊 Summary:")

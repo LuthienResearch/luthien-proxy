@@ -19,7 +19,7 @@ class AllCapsPolicy(LuthienPolicy):
         self,
         user_api_key_dict: Optional[Dict[str, Any]],
         response: Any,
-        request_data: dict,
+        request_data: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         try:
             response = dict(response)
@@ -30,7 +30,7 @@ class AllCapsPolicy(LuthienPolicy):
             # On any failure, keep original
             return response
 
-    async def async_post_call_success_hook(self, **kwargs):
+    async def async_post_call_success_hook(self, **kwargs: Any) -> Dict[str, Any]:
         try:
             response = dict(kwargs.get("response_obj", {}))
             for c in response.get("choices", []):

@@ -13,7 +13,6 @@ import os
 
 import httpx
 
-
 CONTROL_URL = os.getenv("CONTROL_PLANE_URL", "http://localhost:8081")
 TEST_MODEL = os.getenv("TEST_MODEL", "gpt-4o")
 
@@ -45,9 +44,7 @@ async def main() -> int:
         print("STREAM counters:", r2.json().get("counters"))
 
         # Fetch most recent call_id and trace it
-        ids = await client.get(
-            f"{CONTROL_URL}/api/hooks/recent_call_ids", params={"limit": 1}
-        )
+        ids = await client.get(f"{CONTROL_URL}/api/hooks/recent_call_ids", params={"limit": 1})
         ids.raise_for_status()
         items = ids.json()
         if not items:
@@ -55,9 +52,7 @@ async def main() -> int:
             return 0
         call_id = items[0].get("call_id")
         print("Using call_id:", call_id)
-        t = await client.get(
-            f"{CONTROL_URL}/api/hooks/trace_by_call_id", params={"call_id": call_id}
-        )
+        t = await client.get(f"{CONTROL_URL}/api/hooks/trace_by_call_id", params={"call_id": call_id})
         t.raise_for_status()
         data = t.json()
         print("\nTRACE entries:")

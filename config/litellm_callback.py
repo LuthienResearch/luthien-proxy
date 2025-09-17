@@ -14,10 +14,10 @@ Implements a thin bridge:
 import os
 import time as _time
 from typing import Any, AsyncGenerator, Optional, Union
-from litellm.integrations.custom_logger import CustomLogger
-from litellm._logging import verbose_logger
 
 import httpx
+from litellm._logging import verbose_logger
+from litellm.integrations.custom_logger import CustomLogger
 
 
 class LuthienCallback(CustomLogger):
@@ -25,13 +25,9 @@ class LuthienCallback(CustomLogger):
 
     def __init__(self):
         super().__init__()
-        self.control_plane_url = os.getenv(
-            "CONTROL_PLANE_URL", "http://control-plane:8081"
-        )
+        self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
-        verbose_logger.info(
-            f"LUTHIEN LuthienCallback initialized with control plane URL: {self.control_plane_url}"
-        )
+        verbose_logger.info(f"LUTHIEN LuthienCallback initialized with control plane URL: {self.control_plane_url}")
 
     # ------------- internal helpers -------------
     def _post_hook(
@@ -68,9 +64,7 @@ class LuthienCallback(CustomLogger):
 
     # --------------------- Hooks ----------------------
 
-    async def async_pre_call_hook(
-        self, **kwargs
-    ) -> Optional[Union[Exception, str, dict]]:
+    async def async_pre_call_hook(self, **kwargs) -> Optional[Union[Exception, str, dict]]:
         await self._apost_hook(
             "async_pre_call_hook",
             self._json_safe(kwargs),
@@ -121,9 +115,7 @@ class LuthienCallback(CustomLogger):
                 # Default: pass original item
                 yield item
         except Exception as e:
-            verbose_logger.error(
-                f"LUTHIEN async_post_call_streaming_iterator_hook error: {e}"
-            )
+            verbose_logger.error(f"LUTHIEN async_post_call_streaming_iterator_hook error: {e}")
             # If wrapping fails, yield from original response to avoid breaking stream
             async for item in response:
                 yield item
@@ -131,19 +123,13 @@ class LuthienCallback(CustomLogger):
             return
 
     # Fallback for LiteLLM versions that emit async_on_stream_event instead of iterator hook
-    async def async_on_stream_event(
-        self, kwargs, response_obj, start_time, end_time
-    ) -> None:
+    async def async_on_stream_event(self, kwargs, response_obj, start_time, end_time) -> None:
         try:
             request_data = None
             user_api_key_dict = None
             try:
                 if isinstance(kwargs, dict):
-                    request_data = (
-                        kwargs.get("request_data")
-                        or kwargs.get("data")
-                        or kwargs.get("kwargs")
-                    )
+                    request_data = kwargs.get("request_data") or kwargs.get("data") or kwargs.get("kwargs")
                     user_api_key_dict = kwargs.get("user_api_key_dict")
             except Exception:
                 request_data = None
@@ -154,9 +140,7 @@ class LuthienCallback(CustomLogger):
                 {
                     "user_api_key_dict": self._json_safe(user_api_key_dict),
                     "response": self._serialize_response(response_obj),
-                    "request_data": self._json_safe(request_data)
-                    if request_data
-                    else {},
+                    "request_data": self._json_safe(request_data) if request_data else {},
                 },
             )
         except Exception as e:

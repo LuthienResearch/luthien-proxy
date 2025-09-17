@@ -117,9 +117,7 @@ class LuthienTester:
         test_model = os.getenv("TEST_MODEL", "gpt-5")
         request_data = {
             "model": test_model,
-            "messages": [
-                {"role": "user", "content": "Count from 1 to 5, one number per line."}
-            ],
+            "messages": [{"role": "user", "content": "Count from 1 to 5, one number per line."}],
             "max_tokens": 50,
             "temperature": 0.7,
             "stream": True,
@@ -176,9 +174,7 @@ class LuthienTester:
         - making a call to `proxy_url/chat/completions`
         - asserting deltas in the relevant counters
         """
-        print(
-            "\n🎛️  Testing control plane integration (counter deltas via proxy calls)..."
-        )
+        print("\n🎛️  Testing control plane integration (counter deltas via proxy calls)...")
 
         headers = {
             "Authorization": f"Bearer {self.master_key}",
@@ -200,30 +196,22 @@ class LuthienTester:
                     json=sync_payload,
                 )
                 if sync_resp.status_code != 200:
-                    print(
-                        f"❌ Proxy sync failed: {sync_resp.status_code} {sync_resp.text}"
-                    )
+                    print(f"❌ Proxy sync failed: {sync_resp.status_code} {sync_resp.text}")
                     return False
                 after_sync = await self._get_counters(client)
-                pre_delta = after_sync.get("async_pre_call_hook", 0) - before_sync.get(
-                    "async_pre_call_hook", 0
-                )
-                success_delta = after_sync.get(
+                pre_delta = after_sync.get("async_pre_call_hook", 0) - before_sync.get("async_pre_call_hook", 0)
+                success_delta = after_sync.get("async_post_call_success_hook", 0) - before_sync.get(
                     "async_post_call_success_hook", 0
-                ) - before_sync.get("async_post_call_success_hook", 0)
+                )
                 if pre_delta < 1 or success_delta < 1:
-                    print(
-                        f"❌ Expected pre/success to increment ≥1; pre+{pre_delta}, success+{success_delta}"
-                    )
+                    print(f"❌ Expected pre/success to increment ≥1; pre+{pre_delta}, success+{success_delta}")
                     return False
 
                 # 2) Streaming call → expect iterator events (and pre)
                 before_stream = await self._get_counters(client)
                 stream_payload = {
                     "model": model,
-                    "messages": [
-                        {"role": "user", "content": "List five kinds of fruit."}
-                    ],
+                    "messages": [{"role": "user", "content": "List five kinds of fruit."}],
                     "stream": True,
                 }
 
@@ -235,9 +223,7 @@ class LuthienTester:
                         json=stream_payload,
                     ) as response:
                         if response.status_code != 200:
-                            print(
-                                f"❌ Proxy stream failed: {response.status_code} {await response.aread()}"
-                            )
+                            print(f"❌ Proxy stream failed: {response.status_code} {await response.aread()}")
                             return False
                         # Consume stream fully
                         async for line in response.aiter_lines():
@@ -255,13 +241,11 @@ class LuthienTester:
                     return False
 
                 after_stream = await self._get_counters(client)
-                iter_delta = after_stream.get(
+                iter_delta = after_stream.get("async_post_call_streaming_iterator_hook", 0) - before_stream.get(
                     "async_post_call_streaming_iterator_hook", 0
-                ) - before_stream.get("async_post_call_streaming_iterator_hook", 0)
+                )
                 if iter_delta < 1:
-                    print(
-                        f"❌ Expected streaming iterator to increment ≥1; iterator+{iter_delta}"
-                    )
+                    print(f"❌ Expected streaming iterator to increment ≥1; iterator+{iter_delta}")
                     return False
 
                 print("✅ Hook counters increased as expected (pre, success, iterator)")

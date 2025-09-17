@@ -4,16 +4,14 @@ import os
 from typing import Any
 
 import httpx
-from litellm.integrations.custom_logger import CustomLogger
 from litellm._logging import verbose_logger
+from litellm.integrations.custom_logger import CustomLogger
 
 
 class DebugCallback(CustomLogger):
     def __init__(self):
         super().__init__()
-        self.control_plane_url = os.getenv(
-            "CONTROL_PLANE_URL", "http://control-plane:8081"
-        )
+        self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
 
     def _safe(self, obj: Any) -> Any:
@@ -77,9 +75,7 @@ class DebugCallback(CustomLogger):
         }
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                await client.post(
-                    f"{self.control_plane_url}/api/hooks/log", json=payload
-                )
+                await client.post(f"{self.control_plane_url}/api/hooks/log", json=payload)
         except Exception as e:
             verbose_logger.debug(f"DEBUG-CB apost error: {e}")
 
@@ -155,9 +151,7 @@ class DebugCallback(CustomLogger):
         )
         return None
 
-    async def async_post_call_streaming_iterator_hook(
-        self, user_api_key_dict, response, request_data: dict
-    ):
+    async def async_post_call_streaming_iterator_hook(self, user_api_key_dict, response, request_data: dict):
         async for item in response:
             await self._apost(
                 "async_post_call_streaming_iterator_hook",

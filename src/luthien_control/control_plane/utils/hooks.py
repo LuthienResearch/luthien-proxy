@@ -70,9 +70,7 @@ def extract_call_id_for_hook(hook: str, payload: dict[str, Any]) -> Optional[str
     }:
         paths = [["kwargs", "request_data", "litellm_call_id"]]
     elif name in {"kwargs_pre", "kwargs_post"}:
-        paths = common_kwarg_paths + [
-            ["kwargs", "metadata", "hidden_params", "litellm_call_id"]
-        ]
+        paths = common_kwarg_paths + [["kwargs", "metadata", "hidden_params", "litellm_call_id"]]
     else:
         # Try generic common paths as a last resort
         paths = common_kwarg_paths + [
