@@ -19,7 +19,7 @@ You now have:
 
 ## Prerequisites
 
-- Docker Desktop (or Docker Engine + Compose)
+- Docker
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/)
 
@@ -42,12 +42,36 @@ uv run ruff check --fix
 
 Copy `.env.example` to `.env` and add your API keys.
 
+- Policies: the control-plane loads the active policy from the YAML file specified by `LUTHIEN_POLICY_CONFIG` (defaults to `config/luthien_config.yaml`).
+  - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
+  - Minimal YAML:
+    ```yaml
+    policy: "luthien_control.policies.noop:NoOpPolicy"
+    # optional
+    policy_options:
+      stream:
+        log_every_n: 1
+    ```
+
 ## Architecture
 
 - **LiteLLM Proxy**: OpenAI-compatible gateway with custom hooks
 - **Control Plane**: Policy orchestration and decision logic
-- **Monitors**: Trusted and untrusted model supervision
 - **Policy Engine**: Configuration and threshold management
+- **Debug UI**: `/debug` for recent debug types, `/hooks/trace` for call traces
+
+## Endpoints
+
+- Control Plane (http://localhost:8081):
+  - `GET /health` — basic health check
+  - `GET /debug` — debug browser
+  - `GET /debug/{debug_type}` — view entries for a type
+  - `GET /hooks/trace` — UI to trace a call by `call_id`
+  - `GET /api/debug/types` — list debug types with counts
+  - `GET /api/debug/{debug_type}` — recent entries (default limit 50)
+  - `GET /api/debug/{debug_type}/page?page=1&page_size=20` — paginated
+  - `GET /api/hooks/recent_call_ids` — recent call IDs
+  - `GET /api/hooks/trace_by_call_id?call_id=...` — ordered hook trace
 
 ## Control Policies
 
@@ -58,7 +82,9 @@ Key files:
 - `src/luthien_control/control_plane/app.py`: FastAPI app with generic hook ingestion, tests, and debug/trace endpoints.
 - `src/luthien_control/control_plane/stream_context.py`: Redis-backed StreamContextStore for per-call streaming context.
 - `src/luthien_control/policies/base.py`: abstract policy class including streaming helpers.
-- `src/luthien_control/policies/noop.py`: default no-op policy implementation.
+- `src/luthien_control/policies/noop.py`: default no-op policy.
+- `src/luthien_control/policies/all_caps.py`: simple example policy.
+- `src/luthien_control/policies/gemma_suspiciousness.py`: example scoring policy.
 
 Notes:
 - Redis is required for streaming context; control-plane startup fails fast if `REDIS_URL` is not set/available.

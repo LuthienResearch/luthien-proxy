@@ -3,14 +3,16 @@
 ## Purpose & Scope
 - Core goal: implement AI Control for LLMs on top of the LiteLLM proxy.
 - Pattern: Redwood-style control with a centralized control plane making policy decisions; the proxy stays thin.
-- Configure models in `config/litellm_config.yaml`; select a policy via `LUTHIEN_POLICY` (e.g., `export LUTHIEN_POLICY=luthien_control.policies.noop:NoOpPolicy`).
+- Configure models in `config/litellm_config.yaml`.
+- Select a policy via `LUTHIEN_POLICY_CONFIG` that points to a YAML file (defaults to `config/luthien_config.yaml`).
+  - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
 
 ## Project Structure & Module Organization
 - `src/luthien_control/`: core package
   - `control_plane/`: FastAPI app and `__main__` launcher
   - `proxy/`: LiteLLM proxy integration and custom logger
   - `policies/`: policy interfaces and defaults (`noop.py`)
-  - `monitors/`: trusted/untrusted monitors
+  - `control_plane/templates` + `static`: debug and trace UIs
 - `config/`: `litellm_config.yaml`, `luthien_config.yaml`
 - `scripts/`: developer helpers (`quick_start.sh`, `test_proxy.py`)
 - `docker/` + `docker-compose.yaml`: local stack (db, redis, control-plane, proxy)
@@ -50,3 +52,14 @@
 - Key env vars: `DATABASE_URL`, `REDIS_URL`, `CONTROL_PLANE_URL`, `LITELLM_*`, `LUTHIEN_POLICY_CONFIG`.
 - Update `config/litellm_config.yaml` and `config/luthien_config.yaml` rather than hardcoding.
 - Validate setup with `uv run python scripts/test_proxy.py` and `docker compose logs -f`.
+
+## Policy Selection
+- Policies are loaded from the YAML file pointed to by `LUTHIEN_POLICY_CONFIG` (default `config/luthien_config.yaml`).
+- Minimal YAML:
+  ```yaml
+  policy: "luthien_control.policies.noop:NoOpPolicy"
+  # optional
+  policy_options:
+    stream:
+      log_every_n: 1
+  ```
