@@ -7,8 +7,9 @@ import logging
 import os
 import sys
 from collections import Counter, deque
+from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 import asyncpg
 import yaml
@@ -28,11 +29,40 @@ from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.policies.engine import PolicyEngine
 from luthien_proxy.policies.noop import NoOpPolicy
 
+
 # FastAPI app setup
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize services on startup using FastAPI lifespan (replaces deprecated on_event)
+    global policy_engine, active_policy, stream_store
+    try:
+        if os.getenv("DATABASE_URL") or os.getenv("REDIS_URL"):
+            policy_engine = PolicyEngine(
+                database_url=os.getenv("DATABASE_URL"),
+                redis_url=os.getenv("REDIS_URL"),
+            )
+            await policy_engine.initialize()
+
+        active_policy = _load_policy_from_config()
+
+        if not policy_engine or not policy_engine.redis_client:
+            raise RuntimeError("Redis is required for streaming context; set REDIS_URL and ensure connectivity")
+        stream_store = StreamContextStore(
+            redis_client=policy_engine.redis_client,
+            ttl_seconds=int(os.getenv("STREAM_CONTEXT_TTL", "3600")),
+        )
+        print("Control plane services initialized successfully")
+        yield
+    except Exception as e:
+        print(f"Error initializing control plane: {e}")
+        raise
+
+
 app = FastAPI(
     title="Luthien Control Plane",
     description="AI Control policy orchestration service",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Simple stdout logger for hook payload visibility in Docker logs
@@ -66,7 +96,7 @@ _hook_counters = Counter()
 _hook_logs: deque = deque(maxlen=500)
 
 
-async def _insert_debug(debug_type: str, payload: Dict[str, Any]) -> None:
+async def _insert_debug(debug_type: str, payload: dict[str, Any]) -> None:
     """Insert a debug log row into the database (best-effort)."""
     db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     try:
@@ -86,41 +116,11 @@ async def _insert_debug(debug_type: str, payload: Dict[str, Any]) -> None:
         # Log error to stdout; do not raise to avoid breaking hooks
         print(f"Error inserting debug log: {e}")
 
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Initialize services on startup."""
-    global policy_engine, active_policy, stream_store
-
-    try:
-        # Initialize policy engine only if persistence is configured (optional)
-        if os.getenv("DATABASE_URL") or os.getenv("REDIS_URL"):
-            policy_engine = PolicyEngine(
-                database_url=os.getenv("DATABASE_URL"),
-                redis_url=os.getenv("REDIS_URL"),
-            )
-            await policy_engine.initialize()
-
-        # Load active policy via config file (LUTHIEN_POLICY_CONFIG)
-        active_policy = _load_policy_from_config()
-
-        # Initialize stream context store (Redis required; fail fast otherwise)
-        if not policy_engine or not policy_engine.redis_client:
-            raise RuntimeError("Redis is required for streaming context; set REDIS_URL and ensure connectivity")
-        stream_store = StreamContextStore(
-            redis_client=policy_engine.redis_client,
-            ttl_seconds=int(os.getenv("STREAM_CONTEXT_TTL", "3600")),
-        )
-
-        print("Control plane services initialized successfully")
-
-    except Exception as e:
-        print(f"Error initializing control plane: {e}")
-        raise
+    # startup handled by lifespan above
 
 
 @app.get("/health")
-async def health_check() -> Dict[str, Any]:
+async def health_check() -> dict[str, Any]:
     """Health check endpoint."""
     return {"status": "healthy", "service": "luthien-control-plane", "version": "0.1.0"}
 
@@ -137,7 +137,7 @@ def _load_policy_from_config() -> LuthienPolicy:
     """
     config_path = os.getenv("LUTHIEN_POLICY_CONFIG", "/app/config/luthien_config.yaml")
     policy_ref: Optional[str] = None
-    policy_options: Optional[Dict[str, Any]] = None
+    policy_options: Optional[dict[str, Any]] = None
 
     try:
         if os.path.exists(config_path):
@@ -181,7 +181,7 @@ def _load_policy_from_config() -> LuthienPolicy:
 
 
 @app.get("/endpoints")
-async def list_endpoints() -> Dict[str, Any]:
+async def list_endpoints() -> dict[str, Any]:
     return {
         "hooks": [
             "POST /hooks/{hook_name}",
@@ -197,11 +197,11 @@ class DebugEntry(BaseModel):
     id: str
     time_created: datetime
     debug_type_identifier: str
-    jsonblob: Dict[str, Any]
+    jsonblob: dict[str, Any]
 
 
-@app.get("/api/debug/{debug_type}", response_model=List[DebugEntry])
-async def get_debug_entries(debug_type: str, limit: int = Query(default=50, le=500)) -> List[DebugEntry]:
+@app.get("/api/debug/{debug_type}", response_model=list[DebugEntry])
+async def get_debug_entries(debug_type: str, limit: int = Query(default=50, le=500)) -> list[DebugEntry]:
     db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     entries: List[DebugEntry] = []
     try:
@@ -249,8 +249,8 @@ class DebugTypeInfo(BaseModel):
     latest: datetime
 
 
-@app.get("/api/debug/types", response_model=List[DebugTypeInfo])
-async def get_debug_types() -> List[DebugTypeInfo]:
+@app.get("/api/debug/types", response_model=list[DebugTypeInfo])
+async def get_debug_types() -> list[DebugTypeInfo]:
     db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     types: List[DebugTypeInfo] = []
     try:
@@ -280,7 +280,7 @@ async def get_debug_types() -> List[DebugTypeInfo]:
 
 
 class DebugPage(BaseModel):
-    items: List[DebugEntry]
+    items: list[DebugEntry]
     page: int
     page_size: int
     total: int
@@ -341,13 +341,13 @@ async def get_debug_page(
 
 
 @app.get("/api/hooks/counters")
-async def get_hook_counters() -> Dict[str, int]:
+async def get_hook_counters() -> dict[str, int]:
     """Expose in-memory hook counters for sanity/testing scripts."""
     return dict(_hook_counters)
 
 
 @app.post("/hooks/{hook_name}")
-async def hook_generic(hook_name: str, payload: Dict[str, Any]) -> Any:
+async def hook_generic(hook_name: str, payload: dict[str, Any]) -> Any:
     """Generic hook endpoint for any CustomLogger hook.
 
     - Records in-memory log with name + payload
@@ -395,12 +395,12 @@ class TraceEntry(BaseModel):
     post_time_ns: Optional[int] = None
     hook: Optional[str] = None
     debug_type: Optional[str] = None
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
 
 
 class TraceResponse(BaseModel):
     call_id: str
-    entries: List[TraceEntry]
+    entries: list[TraceEntry]
 
 
 @app.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
@@ -411,7 +411,7 @@ async def trace_by_call_id(call_id: str = Query(..., min_length=4)) -> TraceResp
     debugging hook invocations without mixing in policy persistence.
     """
     db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
-    entries: List[TraceEntry] = []
+    entries: list[TraceEntry] = []
     try:
         conn = await asyncpg.connect(db_url)
         try:
@@ -479,10 +479,10 @@ class CallIdInfo(BaseModel):
     latest: datetime
 
 
-@app.get("/api/hooks/recent_call_ids", response_model=List[CallIdInfo])
-async def recent_call_ids(limit: int = Query(default=50, ge=1, le=500)) -> List[CallIdInfo]:
+@app.get("/api/hooks/recent_call_ids", response_model=list[CallIdInfo])
+async def recent_call_ids(limit: int = Query(default=50, ge=1, le=500)) -> list[CallIdInfo]:
     db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
-    out: List[CallIdInfo] = []
+    out: list[CallIdInfo] = []
     try:
         conn = await asyncpg.connect(db_url)
         try:

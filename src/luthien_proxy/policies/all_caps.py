@@ -9,7 +9,7 @@ Behavior:
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from .base import LuthienPolicy
 
@@ -17,10 +17,10 @@ from .base import LuthienPolicy
 class AllCapsPolicy(LuthienPolicy):
     async def async_post_call_streaming_iterator_hook(
         self,
-        user_api_key_dict: Optional[Dict[str, Any]],
+        user_api_key_dict: Optional[dict[str, Any]],
         response: Any,
-        request_data: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
+        request_data: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
         try:
             response = dict(response)
             for c in response.get("choices", []):
@@ -30,7 +30,7 @@ class AllCapsPolicy(LuthienPolicy):
             # On any failure, keep original
             return response
 
-    async def async_post_call_success_hook(self, **kwargs: Any) -> Dict[str, Any]:
+    async def async_post_call_success_hook(self, **kwargs: Any) -> dict[str, Any]:
         try:
             response = dict(kwargs.get("response_obj", {}))
             for c in response.get("choices", []):

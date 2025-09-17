@@ -4,7 +4,7 @@
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import asyncpg
 import redis.asyncio as redis
@@ -38,7 +38,7 @@ class PolicyEngine:
             # Continue without persistence for now
 
     @beartype
-    def _load_default_policy(self) -> Dict[str, Any]:
+    def _load_default_policy(self) -> dict[str, Any]:
         """Return built-in default engine policy.
 
         Consolidation removed external policy_default.yaml; stick to a sane
@@ -67,8 +67,8 @@ class PolicyEngine:
     async def get_policy(
         self,
         episode_id: Optional[str] = None,
-        user_metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        user_metadata: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         """Get policy configuration for an episode."""
         # For now, return default policy
         # TODO: Implement per-user/per-team policy selection
@@ -82,7 +82,7 @@ class PolicyEngine:
         decision_type: str,
         score: float,
         threshold: float,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Log a control decision for audit purposes."""
         try:
@@ -135,7 +135,7 @@ class PolicyEngine:
         step_id: str,
         reason: str,
         score: Optional[float] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Trigger human audit for high-risk decisions."""
         try:
@@ -178,7 +178,7 @@ class PolicyEngine:
             print(f"Error triggering audit: {e}")
 
     @beartype
-    async def get_episode_state(self, episode_id: str) -> Dict[str, Any]:
+    async def get_episode_state(self, episode_id: str) -> dict[str, Any]:
         """Get current state for an episode."""
         if not self.redis_client:
             return {}
@@ -212,7 +212,7 @@ class PolicyEngine:
             return {}
 
     @beartype
-    async def update_episode_state(self, episode_id: str, updates: Dict[str, Any]) -> None:
+    async def update_episode_state(self, episode_id: str, updates: dict[str, Any]) -> None:
         """Update episode state."""
         if not self.redis_client:
             return
