@@ -29,3 +29,13 @@ class AllCapsPolicy(LuthienPolicy):
         except Exception:
             # On any failure, keep original
             return response
+
+    async def async_post_call_success_hook(self, **kwargs):
+        try:
+            response = dict(kwargs.get("response_obj", {}))
+            for c in response.get("choices", []):
+                c["delta"]["content"] = c["delta"]["content"].upper()
+            return response
+        except Exception:
+            # On any failure, keep original
+            return kwargs.get("response_obj", {})
