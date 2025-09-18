@@ -6,6 +6,7 @@ module to keep the web layer thin.
 """
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -17,7 +18,7 @@ from typing import Any, Awaitable, Callable, Optional, cast
 
 import asyncpg
 import yaml
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -98,12 +99,35 @@ active_policy: Optional[LuthienPolicy] = None
 stream_store: Optional[StreamContextStore] = None
 _hook_counters = Counter()
 
+# Type alias for injectable async DB connector
+ConnectFn = Callable[[str], Awaitable[Any]]
+
+
+def _db_url() -> str:
+    return os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
+
+
+def _default_db_connector() -> ConnectFn:
+    return asyncpg.connect
+
+
+async def _open_connection(connect: ConnectFn) -> Any:
+    return await connect(_db_url())
+
+
+async def _close_connection(conn: Any) -> None:
+    close = getattr(conn, "close", None)
+    if not callable(close):
+        return
+    result = close()
+    if inspect.isawaitable(result):
+        await result
+
 
 async def _insert_debug(debug_type: str, payload: dict[str, Any]) -> None:
     """Insert a debug log row into the database (best-effort)."""
-    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     try:
-        conn = await asyncpg.connect(db_url)
+        conn = await asyncpg.connect(_db_url())
         try:
             await conn.execute(
                 """
@@ -211,12 +235,15 @@ class DebugEntry(BaseModel):
 
 
 @app.get("/api/debug/{debug_type}", response_model=list[DebugEntry])
-async def get_debug_entries(debug_type: str, limit: int = Query(default=50, le=500)) -> list[DebugEntry]:
+async def get_debug_entries(
+    debug_type: str,
+    limit: int = Query(default=50, le=500),
+    connect: ConnectFn = Depends(_default_db_connector),
+) -> list[DebugEntry]:
     """Return latest debug entries for a given type (paged by limit)."""
-    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     entries: list[DebugEntry] = []
     try:
-        conn = await asyncpg.connect(db_url)
+        conn = await _open_connection(connect)
         try:
             rows = await conn.fetch(
                 """
@@ -245,7 +272,7 @@ async def get_debug_entries(debug_type: str, limit: int = Query(default=50, le=5
                     )
                 )
         finally:
-            await conn.close()
+            await _close_connection(conn)
     except Exception as e:
         print(f"Error fetching debug logs: {e}")
     return entries
@@ -263,12 +290,13 @@ class DebugTypeInfo(BaseModel):
 
 
 @app.get("/api/debug/types", response_model=list[DebugTypeInfo])
-async def get_debug_types() -> list[DebugTypeInfo]:
+async def get_debug_types(
+    connect: ConnectFn = Depends(_default_db_connector),
+) -> list[DebugTypeInfo]:
     """Return summary of available debug types with counts."""
-    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     types: list[DebugTypeInfo] = []
     try:
-        conn = await asyncpg.connect(db_url)
+        conn = await _open_connection(connect)
         try:
             rows = await conn.fetch(
                 """
@@ -287,7 +315,7 @@ async def get_debug_types() -> list[DebugTypeInfo]:
                     )
                 )
         finally:
-            await conn.close()
+            await _close_connection(conn)
     except Exception as e:
         print(f"Error fetching debug types: {e}")
     return types
@@ -307,13 +335,13 @@ async def get_debug_page(
     debug_type: str,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
+    connect: ConnectFn = Depends(_default_db_connector),
 ) -> DebugPage:
     """Return a paginated slice of debug entries for a type."""
-    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     items: list[DebugEntry] = []
     total = 0
     try:
-        conn = await asyncpg.connect(db_url)
+        conn = await _open_connection(connect)
         try:
             total_row = await conn.fetchrow(
                 """
@@ -351,7 +379,7 @@ async def get_debug_page(
                     )
                 )
         finally:
-            await conn.close()
+            await _close_connection(conn)
     except Exception as e:
         print(f"Error fetching debug page: {e}")
     return DebugPage(items=items, page=page, page_size=page_size, total=total)
@@ -456,16 +484,18 @@ def _extract_post_ns(jb: dict[str, Any]) -> Optional[int]:
 
 
 @app.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
-async def trace_by_call_id(call_id: str = Query(..., min_length=4)) -> TraceResponse:
+async def trace_by_call_id(
+    call_id: str = Query(..., min_length=4),
+    connect: ConnectFn = Depends(_default_db_connector),
+) -> TraceResponse:
     """Return ordered hook entries from debug_logs for a litellm_call_id.
 
     This endpoint intentionally excludes request_logs to keep the UI focused on
     debugging hook invocations without mixing in policy persistence.
     """
-    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     entries: list[TraceEntry] = []
     try:
-        conn = await asyncpg.connect(db_url)
+        conn = await _open_connection(connect)
         try:
             rows = await conn.fetch(
                 """
@@ -488,7 +518,7 @@ async def trace_by_call_id(call_id: str = Query(..., min_length=4)) -> TraceResp
                     )
                 )
         finally:
-            await conn.close()
+            await _close_connection(conn)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"trace_error: {e}")
 
@@ -508,12 +538,14 @@ class CallIdInfo(BaseModel):
 
 
 @app.get("/api/hooks/recent_call_ids", response_model=list[CallIdInfo])
-async def recent_call_ids(limit: int = Query(default=50, ge=1, le=500)) -> list[CallIdInfo]:
+async def recent_call_ids(
+    limit: int = Query(default=50, ge=1, le=500),
+    connect: ConnectFn = Depends(_default_db_connector),
+) -> list[CallIdInfo]:
     """Return recent call IDs observed in debug logs with usage counts."""
-    db_url = os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
     out: list[CallIdInfo] = []
     try:
-        conn = await asyncpg.connect(db_url)
+        conn = await _open_connection(connect)
         try:
             rows = await conn.fetch(
                 """
@@ -534,7 +566,7 @@ async def recent_call_ids(limit: int = Query(default=50, ge=1, le=500)) -> list[
                     continue
                 out.append(CallIdInfo(call_id=cid, count=int(r["cnt"]), latest=r["latest"]))
         finally:
-            await conn.close()
+            await _close_connection(conn)
     except Exception as e:
         print(f"Error fetching recent call ids: {e}")
     return out
