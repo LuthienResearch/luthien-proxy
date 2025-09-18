@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "== Ruff format (check) =="
-uv run ruff format --check || true
+echo "== Ruff format (apply) =="
+uv run ruff format
 
-echo "== Ruff lint (E/F/I gating) =="
+echo "== Ruff lint (autofix) =="
+uv run ruff check --fix
+
+echo "== Ruff lint (E/F/I/D gating) =="
 uv run ruff check
 
 echo "== Ruff docstrings (report-only) =="

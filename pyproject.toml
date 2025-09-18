@@ -42,6 +42,7 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "I", "D"]
 ignore = []
+extend-ignore = ["E501"]
 per-file-ignores = { "migrations/**" = ["ALL"], "scripts/**" = ["D"], "tests/**" = ["D"] }
 
 [tool.ruff.format]
@@ -53,7 +54,7 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra --cov=src/luthien_proxy --cov-report=term-missing"
+addopts = "-q -ra --cov=src/luthien_proxy --cov-report=term-missing --cov-fail-under=65"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [

@@ -130,58 +130,62 @@ async def health_check() -> dict[str, Any]:
 
 
 def _load_policy_from_config() -> LuthienPolicy:
-    """Load policy from YAML config specified by LUTHIEN_POLICY_CONFIG.
+    """Load the active policy from YAML config or return `NoOpPolicy`.
 
-    Expected YAML structure (consolidated):
-      policy: "module.path:ClassName"            # required
-      policy_options: { ... }                     # optional, inline
-
-    Falls back to /app/config/luthien_config.yaml if env var is not set.
-    If anything fails, returns NoOpPolicy.
+    Why: Keep this thin and predictable. Break work into three simple pieces:
+    read config → import class → instantiate with optional options.
     """
     config_path = os.getenv("LUTHIEN_POLICY_CONFIG", "/app/config/luthien_config.yaml")
-    policy_ref: Optional[str] = None
-    policy_options: Optional[dict[str, Any]] = None
 
-    try:
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
+    def _read(path: str) -> tuple[Optional[str], Optional[dict[str, Any]]]:
+        if not os.path.exists(path):
+            print(f"Policy config not found at {path}; using NoOpPolicy")
+            return None, None
+        try:
+            with open(path, "r") as f:
                 cfg = yaml.safe_load(f) or {}
-                policy_ref = cfg.get("policy")
-                policy_options = cfg.get("policy_options") or None
-        else:
-            print(f"Policy config not found at {config_path}; using NoOpPolicy")
-    except Exception as e:
-        print(f"Failed to read policy config {config_path}: {e}")
+            return cfg.get("policy"), (cfg.get("policy_options") or None)
+        except Exception as e:
+            print(f"Failed to read policy config {path}: {e}")
+            return None, None
 
+    def _import(ref: str):
+        try:
+            module_path, class_name = ref.split(":", 1)
+            module = __import__(module_path, fromlist=[class_name])
+            cls = getattr(module, class_name)
+            return cls, module_path, class_name
+        except Exception as e:
+            print(f"Failed to import policy '{ref}': {e}")
+            return None, None, None
+
+    def _instantiate(cls, options: Optional[dict[str, Any]]) -> LuthienPolicy:
+        # Prefer explicit options via constructor if supported
+        if options is not None:
+            try:
+                return cast(Any, cls)(options=options)
+            except TypeError:
+                # Back-compat: some policies read options from env
+                try:
+                    os.environ["LUTHIEN_POLICY_OPTIONS_JSON"] = json.dumps(options)
+                except Exception:
+                    pass
+        return cls()
+
+    policy_ref, policy_options = _read(config_path)
     if not policy_ref:
         print("No policy specified in config; using NoOpPolicy")
         return NoOpPolicy()
 
-    try:
-        module_path, class_name = policy_ref.split(":", 1)
-        module = __import__(module_path, fromlist=[class_name])
-        cls = getattr(module, class_name)
-        if not issubclass(cls, LuthienPolicy):
-            print(f"Configured policy {class_name} does not subclass LuthienPolicy; using NoOpPolicy")
-            return NoOpPolicy()
-        print(f"Loaded policy from config: {class_name} ({module_path})")
-        # Prefer passing inline policy_options if the class accepts it; otherwise fallback
-        try:
-            if policy_options is not None:
-                return cast(Any, cls)(options=policy_options)
-        except TypeError:
-            pass
-        # Back-compat for policies expecting env-provided options
-        if policy_options is not None:
-            try:
-                os.environ["LUTHIEN_POLICY_OPTIONS_JSON"] = json.dumps(policy_options)
-            except Exception:
-                pass
-        return cls()
-    except Exception as e:
-        print(f"Failed to load policy '{policy_ref}': {e}. Using NoOpPolicy.")
+    cls, module_path, class_name = _import(policy_ref)
+    if not cls or not module_path or not class_name:
         return NoOpPolicy()
+    if not issubclass(cls, LuthienPolicy):
+        print(f"Configured policy {class_name} does not subclass LuthienPolicy; using NoOpPolicy")
+        return NoOpPolicy()
+
+    print(f"Loaded policy from config: {class_name} ({module_path})")
+    return _instantiate(cls, policy_options)
 
 
 @app.get("/endpoints")
@@ -424,6 +428,35 @@ class TraceResponse(BaseModel):
     entries: list[TraceEntry]
 
 
+def _parse_jsonblob(raw: Any) -> dict[str, Any]:
+    """Return a dict for a row's jsonblob without raising.
+
+    Why: DB rows may store JSON as `text`. Keep parsing logic isolated and
+    predictable.
+    """
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {"raw": raw}
+        except Exception:
+            return {"raw": raw}
+    return {"raw": raw}
+
+
+def _extract_post_ns(jb: dict[str, Any]) -> Optional[int]:
+    payload = jb.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    ns = payload.get("post_time_ns")
+    if isinstance(ns, int):
+        return ns
+    if isinstance(ns, float):
+        return int(ns)
+    return None
+
+
 @app.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
 async def trace_by_call_id(call_id: str = Query(..., min_length=4)) -> TraceResponse:
     """Return ordered hook entries from debug_logs for a litellm_call_id.
@@ -436,7 +469,6 @@ async def trace_by_call_id(call_id: str = Query(..., min_length=4)) -> TraceResp
     try:
         conn = await asyncpg.connect(db_url)
         try:
-            # Fetch hook entries from debug_logs only
             rows = await conn.fetch(
                 """
                 SELECT time_created, debug_type_identifier, jsonblob
@@ -447,30 +479,12 @@ async def trace_by_call_id(call_id: str = Query(..., min_length=4)) -> TraceResp
                 call_id,
             )
             for r in rows:
-                jb = r["jsonblob"]
-                if isinstance(jb, str):
-                    try:
-                        jb = json.loads(jb)
-                    except Exception:
-                        jb = {"raw": jb}
-                # Prefer high-resolution time from payload if present
-                post_ns = None
-                try:
-                    if isinstance(jb, dict):
-                        pl = jb.get("payload")
-                        if isinstance(pl, dict):
-                            ns = pl.get("post_time_ns")
-                            if isinstance(ns, int):
-                                post_ns = ns
-                            elif isinstance(ns, float):
-                                post_ns = int(ns)
-                except Exception:
-                    post_ns = None
+                jb = _parse_jsonblob(r["jsonblob"])
                 entries.append(
                     TraceEntry(
                         time=r["time_created"],
-                        post_time_ns=post_ns,
-                        hook=(jb.get("hook") if isinstance(jb, dict) else None),
+                        post_time_ns=_extract_post_ns(jb),
+                        hook=jb.get("hook"),
                         debug_type=r["debug_type_identifier"],
                         payload=jb,
                     )
@@ -480,17 +494,10 @@ async def trace_by_call_id(call_id: str = Query(..., min_length=4)) -> TraceResp
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"trace_error: {e}")
 
-    # Sort by high-resolution time when available, else fallback to DB time
-    def sort_key(e: TraceEntry) -> int:
-        if e.post_time_ns is not None:
-            return e.post_time_ns
-        try:
-            # Convert datetime to ns epoch
-            return int(e.time.timestamp() * 1_000_000_000)
-        except Exception:
-            return 0
-
-    entries.sort(key=sort_key)
+    # Prefer high-resolution time; fallback to DB time converted to ns
+    entries.sort(
+        key=lambda e: (e.post_time_ns if e.post_time_ns is not None else int(e.time.timestamp() * 1_000_000_000))
+    )
     return TraceResponse(call_id=call_id, entries=entries)
 
 

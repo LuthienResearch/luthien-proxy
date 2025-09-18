@@ -58,7 +58,11 @@ Copy `.env.example` to `.env` and add your API keys.
 
 ## Dev Tooling
 
-- Lint/format: `uv run ruff check` and `uv run ruff format`. Core rules enabled (E/F/I); docstring rules (Google) are introduced gradually.
+- Lint/format: `uv run ruff check` and `uv run ruff format`. Core rules enabled (E/F/I/D). Line length is 120; long-line lint (E501) is ignored to avoid churn after formatting.
+
+Editor setup (VS Code)
+- Install the Ruff extension.
+- In this repo, VS Code uses Ruff for both formatting and import organization via `.vscode/settings.json`.
 - Type checking: `uv run pyright` (configured in `[tool.pyright]` within `pyproject.toml`).
 - Tests: `uv run pytest -q` with coverage for `src/luthien_proxy/**` configured in `[tool.pytest.ini_options]`.
 - Config consolidation: Ruff, Pytest, and Pyright live in `pyproject.toml` to avoid extra files.

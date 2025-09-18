@@ -148,7 +148,7 @@ class LuthienCallback(CustomLogger):
                 {
                     "user_api_key_dict": self._json_safe(user_api_key_dict),
                     "response": self._serialize_response(response_obj),
-                    "request_data": self._json_safe(request_data) if request_data else {},
+                    "request_data": (self._json_safe(request_data) if request_data else {}),
                 },
             )
         except Exception as e:
