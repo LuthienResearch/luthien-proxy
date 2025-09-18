@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import sys
-from collections import Counter, deque
+from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Optional, cast
@@ -97,7 +97,6 @@ policy_engine: Optional[PolicyEngine] = None
 active_policy: Optional[LuthienPolicy] = None
 stream_store: Optional[StreamContextStore] = None
 _hook_counters = Counter()
-_hook_logs: deque = deque(maxlen=500)
 
 
 async def _insert_debug(debug_type: str, payload: dict[str, Any]) -> None:
@@ -387,7 +386,6 @@ async def hook_generic(hook_name: str, payload: dict[str, Any]) -> Any:
                 record["litellm_call_id"] = call_id
         except Exception:
             pass
-        _hook_logs.append(record)
         # Insert into DB without blocking the response path
         # Best-effort debug logging; failures are handled inside _insert_debug
         asyncio.create_task(_insert_debug(f"hook:{hook_name}", record))
