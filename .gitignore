@@ -16,3 +16,4 @@ wheels/
 # Development cache files
 .dev_deps_synced
 .last_update
+scratch/
