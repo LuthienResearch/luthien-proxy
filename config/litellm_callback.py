@@ -31,23 +31,6 @@ class LuthienCallback(CustomLogger):
         verbose_logger.info(f"LUTHIEN LuthienCallback initialized with control plane URL: {self.control_plane_url}")
 
     # ------------- internal helpers -------------
-    def _post_hook(
-        self,
-        hook: str,
-        payload: dict,
-    ) -> Any:
-        """Send a synchronous hook payload to the control plane and return JSON."""
-        try:
-            payload["post_time_ns"] = _time.time_ns()
-            with httpx.Client(timeout=self.timeout) as client:
-                luthien_response: httpx.Response = client.post(
-                    f"{self.control_plane_url}/hooks/{hook}",
-                    json=self._json_safe(payload),
-                )
-            return luthien_response.json()
-        except Exception as e:
-            verbose_logger.error(f"LUTHIEN hook post error ({hook}): {e}")
-
     async def _apost_hook(
         self,
         hook: str,
