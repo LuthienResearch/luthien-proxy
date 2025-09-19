@@ -11,7 +11,6 @@ def test_apply_env_sets_defaults_and_db_url():
     env: dict[str, str] = {"LITELLM_DATABASE_URL": "postgres://example"}
     proxy_main._apply_env("/cfg.yaml", env=env)
     assert env["LITELLM_CONFIG_PATH"] == "/cfg.yaml"
-    assert env["CONFIG_FILE_PATH"] == "/cfg.yaml"
     assert env["LITELLM_PORT"] == "4000"
     assert env["DATABASE_URL"] == "postgres://example"
 
@@ -55,15 +54,13 @@ def test_start_proxy_main_runs_with_injected_dependencies():
     litellm = types.SimpleNamespace(callbacks=[])
     fake_app = object()
 
-    def fake_importer():
-        return litellm, fake_app
-
     runner_calls: dict[str, object] = {}
 
     def fake_runner(app, host, port, log_level, reload=False):  # noqa: ARG001
         runner_calls.update({"app": app, "host": host, "port": port, "log_level": log_level})
 
-    start_proxy.main(importer=fake_importer, runner=fake_runner, env=env)
+    runtime = start_proxy.runtime_for_tests(env=env, uvicorn_runner=fake_runner, litellm=litellm, app=fake_app)
+    start_proxy.main(runtime)
     assert runner_calls["app"] is fake_app
     assert runner_calls["host"] == "127.0.0.1"
     assert runner_calls["port"] == 4010

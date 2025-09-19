@@ -49,8 +49,6 @@ def _bool_env(name: str, default: str = "false", env: EnvMap | None = None) -> b
 def _apply_env(config_path: str, env: EnvMap | None = None) -> None:
     env_map = env if env is not None else os.environ
     env_map.setdefault("LITELLM_CONFIG_PATH", config_path)
-    # Embedded proxy_server reads CONFIG_FILE_PATH
-    env_map.setdefault("CONFIG_FILE_PATH", config_path)
     env_map.setdefault("LITELLM_PORT", "4000")
     env_map.setdefault("LITELLM_HOST", "0.0.0.0")
     db_url = env_map.get("LITELLM_DATABASE_URL") or env_map.get("DATABASE_URL")

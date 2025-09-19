@@ -5,59 +5,51 @@ proxy_server, and launches Uvicorn for the app.
 """
 
 import os
-import sys
-from typing import Any, Callable, MutableMapping, Tuple
+from dataclasses import dataclass
+from types import ModuleType
+from typing import Callable, MutableMapping, Optional
+
+from starlette.types import ASGIApp
 
 EnvMap = MutableMapping[str, str]
-Importer = Callable[[], Tuple[Any, Any]]
 
 
-def _import_litellm() -> Tuple[Any, Any]:
+@dataclass
+class ProxyRuntime:
+    """Runtime configuration for the LiteLLM proxy server (to support dependency injection)."""
+
+    env: EnvMap
+    uvicorn_runner: Callable[..., object]
+    litellm: Optional[ModuleType] = None
+    app: Optional[ASGIApp] = None
+
+
+def _get_real_runtime() -> ProxyRuntime:
     import litellm
+    import uvicorn
     from litellm.proxy.proxy_server import app
 
-    return litellm, app
+    return ProxyRuntime(env=os.environ, uvicorn_runner=uvicorn.run, litellm=litellm, app=app)
 
 
-def setup_environment(
-    importer: Importer | None = None,
-    env: EnvMap | None = None,
-) -> Any:
-    """Set up the environment for LiteLLM with our custom logger."""
-    # Ensure our src + config directories are in Python path
-    for p in ("/app/src", "/app/config"):
-        if p not in sys.path:
-            sys.path.insert(0, p)
-
-    env_map = env if env is not None else os.environ
-
-    # Ensure LiteLLM proxy reads our YAML config
-    # LiteLLM's embedded proxy_server loads CONFIG_FILE_PATH (or WORKER_CONFIG),
-    # not LITELLM_CONFIG_PATH. Set it explicitly before importing the app.
-    config_path = env_map.get("LITELLM_CONFIG_PATH", "/app/config/litellm_config.yaml")
-    env_map.setdefault("CONFIG_FILE_PATH", config_path)
-
-    importer = importer or _import_litellm
-    litellm, app = importer()
-
-    # Do not set callbacks programmatically; rely on YAML single-hook config
-
-    print("🎯 Luthien Control Logger configured successfully")
-    print(f"📋 Active callbacks: {[cb.__class__.__name__ for cb in litellm.callbacks]}")
-
-    return app
-
-
-def main(
+def runtime_for_tests(
     *,
-    importer: Importer | None = None,
-    runner: Callable[..., Any] | None = None,
-    env: EnvMap | None = None,
-) -> None:
+    env: EnvMap,
+    uvicorn_runner: Callable[..., object],
+    litellm: ModuleType,
+    app: ASGIApp,
+) -> ProxyRuntime:
+    """Helper for tests to build a deterministic runtime."""
+    return ProxyRuntime(env=env, uvicorn_runner=uvicorn_runner, litellm=litellm, app=app)
+
+
+def main(runtime: ProxyRuntime | None = None) -> None:
     """Start the LiteLLM proxy with Luthien Control integration."""
     print("🚀 Starting LiteLLM proxy with Luthien Control...")
 
-    env_map = env if env is not None else os.environ
+    if runtime is None:
+        runtime = _get_real_runtime()
+    env_map = runtime.env
 
     # Set up configuration
     config_path = env_map.get("LITELLM_CONFIG_PATH", "/app/config/litellm_config.yaml")
@@ -68,18 +60,9 @@ def main(
     print(f"🌐 Host: {host}:{port}")
     print(f"🎛️  Control Plane: {env_map.get('CONTROL_PLANE_URL', 'http://control-plane:8081')}")
 
-    # Set up environment and get the app
-    app = setup_environment(importer=importer, env=env_map)
-
     # Start the server using uvicorn
-    uvicorn_runner = runner
-    if uvicorn_runner is None:
-        import uvicorn
-
-        uvicorn_runner = uvicorn.run
-
-    uvicorn_runner(
-        app,
+    runtime.uvicorn_runner(
+        runtime.app,
         host=host,
         port=port,
         log_level=env_map.get("LITELLM_LOG_LEVEL", "info").lower(),
