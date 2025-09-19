@@ -6,6 +6,7 @@ module to keep the web layer thin.
 """
 
 import asyncio
+import importlib
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ import sys
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional, cast
 
 import yaml
@@ -35,29 +37,29 @@ from luthien_proxy.utils import db
 # FastAPI app setup
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize and wire core services during app startup."""
+    """Initialize core services or fail fast so startup is obvious."""
     global policy_engine, active_policy, stream_store
+
+    database_url = os.getenv("DATABASE_URL")
+    redis_url = os.getenv("REDIS_URL")
+    stream_ttl = int(os.getenv("STREAM_CONTEXT_TTL", "3600"))
+
+    if not redis_url:
+        raise RuntimeError("REDIS_URL must be set for streaming context support")
+
+    policy_engine = PolicyEngine(database_url=database_url, redis_url=redis_url)
+    await policy_engine.initialize()
+    if not policy_engine.redis_client:
+        raise RuntimeError(f"Failed to connect to Redis at {redis_url}")
+
+    active_policy = _load_policy_from_config()
+    stream_store = StreamContextStore(redis_client=policy_engine.redis_client, ttl_seconds=stream_ttl)
+
+    print("Control plane services initialized successfully")
     try:
-        if os.getenv("DATABASE_URL") or os.getenv("REDIS_URL"):
-            policy_engine = PolicyEngine(
-                database_url=os.getenv("DATABASE_URL"),
-                redis_url=os.getenv("REDIS_URL"),
-            )
-            await policy_engine.initialize()
-
-        active_policy = _load_policy_from_config()
-
-        if not policy_engine or not policy_engine.redis_client:
-            raise RuntimeError("Redis is required for streaming context; set REDIS_URL and ensure connectivity")
-        stream_store = StreamContextStore(
-            redis_client=policy_engine.redis_client,
-            ttl_seconds=int(os.getenv("STREAM_CONTEXT_TTL", "3600")),
-        )
-        print("Control plane services initialized successfully")
         yield
-    except Exception as e:
-        print(f"Error initializing control plane: {e}")
-        raise
+    finally:
+        pass
 
 
 app = FastAPI(
@@ -69,9 +71,10 @@ app = FastAPI(
 
 # Simple stdout logger for hook payload visibility in Docker logs
 _logger = logging.getLogger("luthien.control_plane.hooks")
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-_logger.addHandler(handler)
+if not _logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    _logger.addHandler(handler)
 _logger.setLevel(logging.INFO)
 
 # Add CORS middleware for development
@@ -84,8 +87,8 @@ app.add_middleware(
 )
 
 # Mount static assets (JS/CSS) for debug and logs views
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+STATIC_DIR = Path(__file__).with_name("static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Include UI routes (templates)
 app.include_router(ui_router)
@@ -96,11 +99,8 @@ active_policy: Optional[LuthienPolicy] = None
 stream_store: Optional[StreamContextStore] = None
 _hook_counters = Counter()
 
-DebugLogWriter = Callable[[str, dict[str, Any], Optional[db.ConnectFn]], Awaitable[None]]
-debug_log_writer: DebugLogWriter
 
-
-async def _insert_debug(
+async def debug_log_writer(
     debug_type: str,
     payload: dict[str, Any],
     connect: db.ConnectFn | None = None,
@@ -126,9 +126,6 @@ async def _insert_debug(
     # startup handled by lifespan above
 
 
-debug_log_writer = _insert_debug
-
-
 @app.get("/health")
 async def health_check() -> dict[str, Any]:
     """Return a simple health payload without touching external services."""
@@ -136,62 +133,45 @@ async def health_check() -> dict[str, Any]:
 
 
 def _load_policy_from_config(config_path: Optional[str] = None) -> LuthienPolicy:
-    """Load the active policy from YAML config or return `NoOpPolicy`.
+    """Load the configured policy or fall back to `NoOpPolicy`."""
+    path = config_path or os.getenv("LUTHIEN_POLICY_CONFIG")
+    if path is None:
+        logging.warning("LUTHIEN_POLICY_CONFIG not set; using NoOpPolicy")
+        return NoOpPolicy()
+    try:
+        with open(path, "r") as handle:
+            cfg = yaml.safe_load(handle) or {}
+    except FileNotFoundError:
+        logging.warning(f"Policy config not found at {path}; using NoOpPolicy")
+        return NoOpPolicy()
 
-    Why: Keep this thin and predictable. Break work into three simple pieces:
-    read config → import class → instantiate with optional options.
-    """
-    resolved_path = config_path or os.getenv("LUTHIEN_POLICY_CONFIG", "/app/config/luthien_config.yaml")
-
-    def _read(path: str) -> tuple[Optional[str], Optional[dict[str, Any]]]:
-        if not os.path.exists(path):
-            print(f"Policy config not found at {path}; using NoOpPolicy")
-            return None, None
-        try:
-            with open(path, "r") as f:
-                cfg = yaml.safe_load(f) or {}
-            return cfg.get("policy"), (cfg.get("policy_options") or None)
-        except Exception as e:
-            print(f"Failed to read policy config {path}: {e}")
-            return None, None
-
-    def _import(ref: str):
-        try:
-            module_path, class_name = ref.split(":", 1)
-            module = __import__(module_path, fromlist=[class_name])
-            cls = getattr(module, class_name)
-            return cls, module_path, class_name
-        except Exception as e:
-            print(f"Failed to import policy '{ref}': {e}")
-            return None, None, None
-
-    def _instantiate(cls, options: Optional[dict[str, Any]]) -> LuthienPolicy:
-        # Prefer explicit options via constructor if supported
-        if options is not None:
-            try:
-                return cast(Any, cls)(options=options)
-            except TypeError:
-                # Back-compat: some policies read options from env
-                try:
-                    os.environ["LUTHIEN_POLICY_OPTIONS_JSON"] = json.dumps(options)
-                except Exception:
-                    pass
-        return cls()
-
-    policy_ref, policy_options = _read(resolved_path)
+    policy_ref = cfg.get("policy")
     if not policy_ref:
-        print("No policy specified in config; using NoOpPolicy")
+        logging.warning("No policy specified in config; using NoOpPolicy")
         return NoOpPolicy()
 
-    cls, module_path, class_name = _import(policy_ref)
-    if not cls or not module_path or not class_name:
-        return NoOpPolicy()
-    if not issubclass(cls, LuthienPolicy):
-        print(f"Configured policy {class_name} does not subclass LuthienPolicy; using NoOpPolicy")
+    module_path, _, class_name = policy_ref.partition(":")
+    if not module_path or not class_name:
+        logging.warning(f"Invalid policy reference '{policy_ref}'; using NoOpPolicy")
         return NoOpPolicy()
 
-    print(f"Loaded policy from config: {class_name} ({module_path})")
-    return _instantiate(cls, policy_options)
+    try:
+        module = importlib.import_module(module_path)
+        policy_cls = getattr(module, class_name)
+    except Exception as exc:
+        logging.warning(f"Failed to import policy '{policy_ref}': {exc}; using NoOpPolicy")
+        return NoOpPolicy()
+
+    if not issubclass(policy_cls, LuthienPolicy):
+        logging.warning(f"Configured policy {class_name} does not subclass LuthienPolicy; using NoOpPolicy")
+        return NoOpPolicy()
+
+    logging.info(f"Loaded policy from config: {class_name} ({module_path})")
+
+    options = cfg.get("policy_options")
+    if options is not None:
+        return policy_cls(options=options)
+    return policy_cls()
 
 
 @app.get("/endpoints")

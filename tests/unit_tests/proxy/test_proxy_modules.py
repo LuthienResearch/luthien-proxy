@@ -7,21 +7,32 @@ from luthien_proxy.proxy import start_proxy
 from luthien_proxy.proxy.debug_callback import DebugCallback
 
 
-def test_apply_env_sets_defaults_and_db_url():
-    env: dict[str, str] = {"LITELLM_DATABASE_URL": "postgres://example"}
-    proxy_main._apply_env("/cfg.yaml", env=env)
-    assert env["LITELLM_CONFIG_PATH"] == "/cfg.yaml"
-    assert env["LITELLM_PORT"] == "4000"
-    assert env["DATABASE_URL"] == "postgres://example"
+def test_config_path_requires_env_variable():
+    with pytest.raises(RuntimeError):
+        proxy_main._config_path({})
 
 
-def test_build_litellm_cmd_respects_env():
+def test_config_path_returns_value_when_present():
+    env: dict[str, str] = {"LITELLM_CONFIG_PATH": "/cfg.yaml"}
+    assert proxy_main._config_path(env) == "/cfg.yaml"
+
+
+def test_sync_database_url_prefers_litellm_variable():
+    env: dict[str, str] = {
+        "DATABASE_URL": "postgres://default",
+        "LITELLM_DATABASE_URL": "postgres://override",
+    }
+    proxy_main._sync_database_url(env)
+    assert env["DATABASE_URL"] == "postgres://override"
+
+
+def test_litellm_command_respects_env():
     env = {
         "LITELLM_PORT": "4010",
         "LITELLM_HOST": "127.0.0.1",
         "LITELLM_DETAILED_DEBUG": "true",
     }
-    cmd = proxy_main._build_litellm_cmd("/cfg.yaml", env=env)
+    cmd = proxy_main._litellm_command("/cfg.yaml", env=env)
     assert cmd[:5] == ["uv", "run", "litellm", "--config", "/cfg.yaml"]
     assert "4010" in cmd and "127.0.0.1" in cmd
     assert "--detailed_debug" in cmd
