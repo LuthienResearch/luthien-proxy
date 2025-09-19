@@ -96,6 +96,9 @@ active_policy: Optional[LuthienPolicy] = None
 stream_store: Optional[StreamContextStore] = None
 _hook_counters = Counter()
 
+DebugLogWriter = Callable[[str, dict[str, Any], Optional[db.ConnectFn]], Awaitable[None]]
+debug_log_writer: DebugLogWriter
+
 
 async def _insert_debug(
     debug_type: str,
@@ -123,19 +126,22 @@ async def _insert_debug(
     # startup handled by lifespan above
 
 
+debug_log_writer = _insert_debug
+
+
 @app.get("/health")
 async def health_check() -> dict[str, Any]:
     """Return a simple health payload without touching external services."""
     return {"status": "healthy", "service": "luthien-control-plane", "version": "0.1.0"}
 
 
-def _load_policy_from_config() -> LuthienPolicy:
+def _load_policy_from_config(config_path: Optional[str] = None) -> LuthienPolicy:
     """Load the active policy from YAML config or return `NoOpPolicy`.
 
     Why: Keep this thin and predictable. Break work into three simple pieces:
     read config → import class → instantiate with optional options.
     """
-    config_path = os.getenv("LUTHIEN_POLICY_CONFIG", "/app/config/luthien_config.yaml")
+    resolved_path = config_path or os.getenv("LUTHIEN_POLICY_CONFIG", "/app/config/luthien_config.yaml")
 
     def _read(path: str) -> tuple[Optional[str], Optional[dict[str, Any]]]:
         if not os.path.exists(path):
@@ -172,7 +178,7 @@ def _load_policy_from_config() -> LuthienPolicy:
                     pass
         return cls()
 
-    policy_ref, policy_options = _read(config_path)
+    policy_ref, policy_options = _read(resolved_path)
     if not policy_ref:
         print("No policy specified in config; using NoOpPolicy")
         return NoOpPolicy()
@@ -392,8 +398,8 @@ async def hook_generic(hook_name: str, payload: dict[str, Any]) -> Any:
         except Exception:
             pass
         # Insert into DB without blocking the response path
-        # Best-effort debug logging; failures are handled inside _insert_debug
-        asyncio.create_task(_insert_debug(f"hook:{hook_name}", record))
+        # Best-effort debug logging; failures are handled inside debug_log_writer
+        asyncio.create_task(debug_log_writer(f"hook:{hook_name}", record))
         name = hook_name.lower()
         # Counter heuristics
         _hook_counters[name] += 1

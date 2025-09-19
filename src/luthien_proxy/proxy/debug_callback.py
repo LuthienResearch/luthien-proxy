@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from litellm._logging import verbose_logger
@@ -13,11 +13,17 @@ from litellm.integrations.custom_logger import CustomLogger
 class DebugCallback(CustomLogger):
     """LiteLLM CustomLogger that mirrors events to the control plane."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        client_factory: Callable[..., httpx.Client] | None = None,
+        async_client_factory: Callable[..., httpx.AsyncClient] | None = None,
+    ):
         """Initialize callback with control-plane URL and defaults."""
         super().__init__()
         self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
+        self._client_factory = client_factory or httpx.Client
+        self._async_client_factory = async_client_factory or httpx.AsyncClient
 
     def _safe(self, obj: Any) -> Any:
         """Recursively convert objects into JSON-serializable structures."""
@@ -65,7 +71,7 @@ class DebugCallback(CustomLogger):
             "response_obj": self._safe(self._serialize_response(response_obj)),
         }
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with self._client_factory(timeout=self.timeout) as client:
                 client.post(f"{self.control_plane_url}/api/hooks/log", json=payload)
         except Exception as e:
             verbose_logger.debug(f"DEBUG-CB post error: {e}")
@@ -83,7 +89,7 @@ class DebugCallback(CustomLogger):
             "response_obj": self._safe(self._serialize_response(response_obj)),
         }
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._async_client_factory(timeout=self.timeout) as client:
                 await client.post(f"{self.control_plane_url}/api/hooks/log", json=payload)
         except Exception as e:
             verbose_logger.debug(f"DEBUG-CB apost error: {e}")

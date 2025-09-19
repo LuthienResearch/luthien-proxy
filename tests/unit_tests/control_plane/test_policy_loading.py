@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pytest
-
 from luthien_proxy.control_plane.app import _load_policy_from_config
 from luthien_proxy.policies.noop import NoOpPolicy
 
@@ -12,23 +10,19 @@ def write_tmp_yaml(tmp_path: Path, content: str) -> Path:
     return path
 
 
-def test_load_policy_from_valid_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_load_policy_from_valid_yaml(tmp_path: Path):
     yaml_path = write_tmp_yaml(
         tmp_path,
         'policy: "luthien_proxy.policies.noop:NoOpPolicy"\n',
     )
-    monkeypatch.setenv("LUTHIEN_POLICY_CONFIG", str(yaml_path))
-
-    policy = _load_policy_from_config()
+    policy = _load_policy_from_config(config_path=str(yaml_path))
     assert isinstance(policy, NoOpPolicy)
 
 
-def test_load_policy_falls_back_on_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_load_policy_falls_back_on_error(tmp_path: Path):
     yaml_path = write_tmp_yaml(
         tmp_path,
         'policy: "does.not.exist:Missing"\n',
     )
-    monkeypatch.setenv("LUTHIEN_POLICY_CONFIG", str(yaml_path))
-
-    policy = _load_policy_from_config()
+    policy = _load_policy_from_config(config_path=str(yaml_path))
     assert isinstance(policy, NoOpPolicy)

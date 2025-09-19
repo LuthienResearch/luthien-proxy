@@ -1,0 +1,143 @@
+import types
+
+import pytest
+
+from luthien_proxy.proxy import __main__ as proxy_main
+from luthien_proxy.proxy import start_proxy
+from luthien_proxy.proxy.debug_callback import DebugCallback
+
+
+def test_apply_env_sets_defaults_and_db_url():
+    env: dict[str, str] = {"LITELLM_DATABASE_URL": "postgres://example"}
+    proxy_main._apply_env("/cfg.yaml", env=env)
+    assert env["LITELLM_CONFIG_PATH"] == "/cfg.yaml"
+    assert env["CONFIG_FILE_PATH"] == "/cfg.yaml"
+    assert env["LITELLM_PORT"] == "4000"
+    assert env["DATABASE_URL"] == "postgres://example"
+
+
+def test_build_litellm_cmd_respects_env():
+    env = {
+        "LITELLM_PORT": "4010",
+        "LITELLM_HOST": "127.0.0.1",
+        "LITELLM_DETAILED_DEBUG": "true",
+    }
+    cmd = proxy_main._build_litellm_cmd("/cfg.yaml", env=env)
+    assert cmd[:5] == ["uv", "run", "litellm", "--config", "/cfg.yaml"]
+    assert "4010" in cmd and "127.0.0.1" in cmd
+    assert "--detailed_debug" in cmd
+
+
+def test_proxy_main_uses_injected_runners():
+    env = {
+        "LITELLM_CONFIG_PATH": "/tmp/config.yaml",
+        "LITELLM_HOST": "127.0.0.1",
+        "LITELLM_PORT": "4010",
+    }
+    calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+
+    def fake_runner(cmd, **kwargs):
+        calls.append((tuple(cmd), kwargs))
+        return types.SimpleNamespace(returncode=0)
+
+    proxy_main.main(prisma_runner=fake_runner, command_runner=fake_runner, env=env)
+    assert calls[0][0][:4] == ("uv", "run", "prisma", "db")
+    assert calls[1][0][0:3] == ("uv", "run", "litellm")
+
+
+def test_start_proxy_main_runs_with_injected_dependencies():
+    env = {
+        "LITELLM_CONFIG_PATH": "/tmp/config.yaml",
+        "LITELLM_HOST": "127.0.0.1",
+        "LITELLM_PORT": "4010",
+        "LITELLM_LOG_LEVEL": "DEBUG",
+    }
+    litellm = types.SimpleNamespace(callbacks=[])
+    fake_app = object()
+
+    def fake_importer():
+        return litellm, fake_app
+
+    runner_calls: dict[str, object] = {}
+
+    def fake_runner(app, host, port, log_level, reload=False):  # noqa: ARG001
+        runner_calls.update({"app": app, "host": host, "port": port, "log_level": log_level})
+
+    start_proxy.main(importer=fake_importer, runner=fake_runner, env=env)
+    assert runner_calls["app"] is fake_app
+    assert runner_calls["host"] == "127.0.0.1"
+    assert runner_calls["port"] == 4010
+    assert runner_calls["log_level"] == "debug"
+
+
+class _SyncClient:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.posts: list[tuple[str, dict[str, object]]] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):  # noqa: ANN001
+        return False
+
+    def post(self, url, json):  # noqa: A002
+        self.posts.append((url, json))
+
+
+class _AsyncClient:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.posts: list[tuple[str, dict[str, object]]] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
+        return False
+
+    async def post(self, url, json):  # noqa: A002
+        self.posts.append((url, json))
+
+
+class _SyncFactory:
+    def __init__(self):
+        self.instances: list[_SyncClient] = []
+
+    def __call__(self, **kwargs):  # noqa: ANN001
+        client = _SyncClient(**kwargs)
+        self.instances.append(client)
+        return client
+
+
+class _AsyncFactory:
+    def __init__(self):
+        self.instances: list[_AsyncClient] = []
+
+    def __call__(self, **kwargs):  # noqa: ANN001
+        client = _AsyncClient(**kwargs)
+        self.instances.append(client)
+        return client
+
+
+@pytest.mark.asyncio
+async def test_debug_callback_uses_injected_clients():
+    sync_factory = _SyncFactory()
+    async_factory = _AsyncFactory()
+    cb = DebugCallback(client_factory=sync_factory, async_client_factory=async_factory)
+
+    cb.log_pre_api_call(None, None, {"k": 1})
+    await cb.async_log_pre_api_call(None, None, {"k": 1})
+    await cb.async_on_stream_event({}, {"a": 1}, 0, 0)
+    await cb.async_post_call_success_hook({"d": {}}, None, {"choices": []})
+
+    async def agen():
+        yield {"choices": []}
+
+    out = []
+    async for item in cb.async_post_call_streaming_iterator_hook(None, agen(), {}):
+        out.append(item)
+
+    assert out == [{"choices": []}]
+    assert sync_factory.instances and any(client.posts for client in sync_factory.instances)
+    assert async_factory.instances and any(client.posts for client in async_factory.instances)
