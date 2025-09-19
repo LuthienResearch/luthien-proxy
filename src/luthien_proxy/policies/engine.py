@@ -5,9 +5,10 @@ import os
 import time
 from typing import Any, Optional, cast
 
-import asyncpg
 import redis.asyncio as redis
 from beartype import beartype
+
+from luthien_proxy.utils import db
 
 
 class PolicyEngine:
@@ -18,13 +19,19 @@ class PolicyEngine:
     to keep mental overhead low.
     """
 
-    def __init__(self, database_url: Optional[str] = None, redis_url: Optional[str] = None):
+    def __init__(
+        self,
+        database_url: Optional[str] = None,
+        redis_url: Optional[str] = None,
+        pool_factory: db.PoolFactory | None = None,
+    ):
         """Initialize with connection URLs; values may be provided via env."""
         self.database_url = database_url or os.getenv("DATABASE_URL")
         self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
-        self.db_pool: Optional[asyncpg.Pool] = None
+        self.db_pool: Optional[Any] = None
         self.redis_client: Optional[redis.Redis] = None
         self.default_policy = self._load_default_policy()
+        self._pool_factory = pool_factory
 
     @beartype
     async def initialize(self) -> None:
@@ -33,10 +40,17 @@ class PolicyEngine:
         Best-effort: if connections fail, the engine remains usable in an
         in-memory mode (no persistence). Callers should not rely on side
         effects beyond printing a warning.
+        # TODO: remove dumbass 'best effort' behavior' and fail hard if DB/Redis are
+        # not available.
         """
         try:
             if self.database_url:
-                self.db_pool = await asyncpg.create_pool(self.database_url, min_size=2, max_size=10)
+                self.db_pool = await db.create_pool(
+                    factory=self._pool_factory,
+                    url=self.database_url,
+                    min_size=2,
+                    max_size=10,
+                )
                 print("Connected to PostgreSQL")
 
             self.redis_client = redis.from_url(self.redis_url)

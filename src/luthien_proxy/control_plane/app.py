@@ -6,7 +6,6 @@ module to keep the web layer thin.
 """
 
 import asyncio
-import inspect
 import json
 import logging
 import os
@@ -16,7 +15,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Optional, cast
 
-import asyncpg
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,14 +23,13 @@ from pydantic import BaseModel
 
 from luthien_proxy.control_plane.stream_context import StreamContextStore
 from luthien_proxy.control_plane.ui import router as ui_router
-from luthien_proxy.control_plane.utils.hooks import (
-    extract_call_id_for_hook,
-)
+from luthien_proxy.control_plane.utils.hooks import extract_call_id_for_hook
 from luthien_proxy.policies.base import LuthienPolicy
 
 # Import our policy and monitoring modules (will implement these)
 from luthien_proxy.policies.engine import PolicyEngine
 from luthien_proxy.policies.noop import NoOpPolicy
+from luthien_proxy.utils import db
 
 
 # FastAPI app setup
@@ -99,35 +96,15 @@ active_policy: Optional[LuthienPolicy] = None
 stream_store: Optional[StreamContextStore] = None
 _hook_counters = Counter()
 
-# Type alias for injectable async DB connector
-ConnectFn = Callable[[str], Awaitable[Any]]
 
-
-def _db_url() -> str:
-    return os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
-
-
-def _default_db_connector() -> ConnectFn:
-    return asyncpg.connect
-
-
-async def _open_connection(connect: ConnectFn) -> Any:
-    return await connect(_db_url())
-
-
-async def _close_connection(conn: Any) -> None:
-    close = getattr(conn, "close", None)
-    if not callable(close):
-        return
-    result = close()
-    if inspect.isawaitable(result):
-        await result
-
-
-async def _insert_debug(debug_type: str, payload: dict[str, Any]) -> None:
+async def _insert_debug(
+    debug_type: str,
+    payload: dict[str, Any],
+    connect: db.ConnectFn | None = None,
+) -> None:
     """Insert a debug log row into the database (best-effort)."""
     try:
-        conn = await asyncpg.connect(_db_url())
+        conn = await db.open_connection(connect)
         try:
             await conn.execute(
                 """
@@ -138,7 +115,7 @@ async def _insert_debug(debug_type: str, payload: dict[str, Any]) -> None:
                 json.dumps(payload),
             )
         finally:
-            await conn.close()
+            await db.close_connection(conn)
     except Exception as e:
         # Log error to stdout; do not raise to avoid breaking hooks
         print(f"Error inserting debug log: {e}")
@@ -238,12 +215,12 @@ class DebugEntry(BaseModel):
 async def get_debug_entries(
     debug_type: str,
     limit: int = Query(default=50, le=500),
-    connect: ConnectFn = Depends(_default_db_connector),
+    connect: db.ConnectFn = Depends(db.get_connector),
 ) -> list[DebugEntry]:
     """Return latest debug entries for a given type (paged by limit)."""
     entries: list[DebugEntry] = []
     try:
-        conn = await _open_connection(connect)
+        conn = await db.open_connection(connect)
         try:
             rows = await conn.fetch(
                 """
@@ -272,7 +249,7 @@ async def get_debug_entries(
                     )
                 )
         finally:
-            await _close_connection(conn)
+            await db.close_connection(conn)
     except Exception as e:
         print(f"Error fetching debug logs: {e}")
     return entries
@@ -291,12 +268,12 @@ class DebugTypeInfo(BaseModel):
 
 @app.get("/api/debug/types", response_model=list[DebugTypeInfo])
 async def get_debug_types(
-    connect: ConnectFn = Depends(_default_db_connector),
+    connect: db.ConnectFn = Depends(db.get_connector),
 ) -> list[DebugTypeInfo]:
     """Return summary of available debug types with counts."""
     types: list[DebugTypeInfo] = []
     try:
-        conn = await _open_connection(connect)
+        conn = await db.open_connection(connect)
         try:
             rows = await conn.fetch(
                 """
@@ -315,7 +292,7 @@ async def get_debug_types(
                     )
                 )
         finally:
-            await _close_connection(conn)
+            await db.close_connection(conn)
     except Exception as e:
         print(f"Error fetching debug types: {e}")
     return types
@@ -335,13 +312,13 @@ async def get_debug_page(
     debug_type: str,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
-    connect: ConnectFn = Depends(_default_db_connector),
+    connect: db.ConnectFn = Depends(db.get_connector),
 ) -> DebugPage:
     """Return a paginated slice of debug entries for a type."""
     items: list[DebugEntry] = []
     total = 0
     try:
-        conn = await _open_connection(connect)
+        conn = await db.open_connection(connect)
         try:
             total_row = await conn.fetchrow(
                 """
@@ -379,7 +356,7 @@ async def get_debug_page(
                     )
                 )
         finally:
-            await _close_connection(conn)
+            await db.close_connection(conn)
     except Exception as e:
         print(f"Error fetching debug page: {e}")
     return DebugPage(items=items, page=page, page_size=page_size, total=total)
@@ -486,7 +463,7 @@ def _extract_post_ns(jb: dict[str, Any]) -> Optional[int]:
 @app.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
 async def trace_by_call_id(
     call_id: str = Query(..., min_length=4),
-    connect: ConnectFn = Depends(_default_db_connector),
+    connect: db.ConnectFn = Depends(db.get_connector),
 ) -> TraceResponse:
     """Return ordered hook entries from debug_logs for a litellm_call_id.
 
@@ -495,7 +472,7 @@ async def trace_by_call_id(
     """
     entries: list[TraceEntry] = []
     try:
-        conn = await _open_connection(connect)
+        conn = await db.open_connection(connect)
         try:
             rows = await conn.fetch(
                 """
@@ -518,7 +495,7 @@ async def trace_by_call_id(
                     )
                 )
         finally:
-            await _close_connection(conn)
+            await db.close_connection(conn)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"trace_error: {e}")
 
@@ -540,12 +517,12 @@ class CallIdInfo(BaseModel):
 @app.get("/api/hooks/recent_call_ids", response_model=list[CallIdInfo])
 async def recent_call_ids(
     limit: int = Query(default=50, ge=1, le=500),
-    connect: ConnectFn = Depends(_default_db_connector),
+    connect: db.ConnectFn = Depends(db.get_connector),
 ) -> list[CallIdInfo]:
     """Return recent call IDs observed in debug logs with usage counts."""
     out: list[CallIdInfo] = []
     try:
-        conn = await _open_connection(connect)
+        conn = await db.open_connection(connect)
         try:
             rows = await conn.fetch(
                 """
@@ -566,7 +543,7 @@ async def recent_call_ids(
                     continue
                 out.append(CallIdInfo(call_id=cid, count=int(r["cnt"]), latest=r["latest"]))
         finally:
-            await _close_connection(conn)
+            await db.close_connection(conn)
     except Exception as e:
         print(f"Error fetching recent call ids: {e}")
     return out
