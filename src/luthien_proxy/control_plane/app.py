@@ -96,7 +96,7 @@ def get_project_config(request: Request) -> ProjectConfig:
     """Return the ProjectConfig stored on app.state."""
     try:
         config = request.app.state.project_config
-    except AttributeError as exc:  # pragma: no cover - defensive for misconfigured app
+    except AttributeError as exc:
         raise RuntimeError("ProjectConfig is not configured for this app instance") from exc
     if config is None:
         raise RuntimeError("ProjectConfig is not configured for this app instance")
@@ -107,7 +107,7 @@ def get_active_policy(request: Request) -> LuthienPolicy:
     """Return the active policy from app.state."""
     try:
         policy = request.app.state.active_policy
-    except AttributeError as exc:  # pragma: no cover - defensive for misconfigured app
+    except AttributeError as exc:
         raise RuntimeError("Active policy not loaded for this app instance") from exc
     if policy is None:
         raise RuntimeError("Active policy not loaded for this app instance")
@@ -118,7 +118,7 @@ def get_hook_counter_state(request: Request) -> Counter[str]:
     """Return the in-memory hook counters for this app."""
     try:
         counters = request.app.state.hook_counters
-    except AttributeError as exc:  # pragma: no cover - defensive for misconfigured app
+    except AttributeError as exc:
         raise RuntimeError("Hook counters not initialized") from exc
     if counters is None:
         raise RuntimeError("Hook counters not initialized")
@@ -129,7 +129,7 @@ def get_debug_log_writer(request: Request) -> DebugLogWriter:
     """Return the async debug log writer stored on app.state."""
     try:
         writer = request.app.state.debug_log_writer
-    except AttributeError as exc:  # pragma: no cover - defensive for misconfigured app
+    except AttributeError as exc:
         raise RuntimeError("Debug log writer not configured") from exc
     if writer is None:
         raise RuntimeError("Debug log writer not configured")
@@ -140,7 +140,7 @@ def get_database_pool(request: Request) -> Optional[db.DatabasePool]:
     """Return the configured database pool, if any."""
     try:
         pool = request.app.state.database_pool
-    except AttributeError as exc:  # pragma: no cover - defensive for misconfigured app
+    except AttributeError as exc:
         raise RuntimeError("Database pool state missing on app") from exc
     return cast(Optional[db.DatabasePool], pool)
 
@@ -149,7 +149,7 @@ def get_redis_client(request: Request) -> redis_client.RedisClient:
     """Return the cached redis client from app.state."""
     try:
         client = request.app.state.redis_client
-    except AttributeError as exc:  # pragma: no cover - defensive for misconfigured app
+    except AttributeError as exc:
         raise RuntimeError("Redis client not configured") from exc
     if client is None:
         raise RuntimeError("Redis client not configured")
@@ -542,6 +542,7 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
         control_cfg = config.control_plane_config
         database_pool: Optional[db.DatabasePool] = None
         redis_instance: Optional[redis_client.RedisClient] = None
+        redis_manager = redis_client.RedisClientManager()
 
         try:
             if control_cfg.database_url is not None:
@@ -550,7 +551,8 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             app.state.database_pool = database_pool
             app.state.debug_log_writer = partial(_insert_debug, database_pool)
 
-            redis_instance = await redis_client.get_client(control_cfg.redis_url)
+            redis_instance = await redis_manager.get_client(control_cfg.redis_url)
+            app.state.redis_manager = redis_manager
             app.state.redis_client = redis_instance
 
             policy = _load_policy_from_config(config, control_cfg.policy_config_path)
@@ -571,9 +573,10 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             app.state.debug_log_writer = None
             app.state.database_pool = None
             app.state.redis_client = None
+            app.state.redis_manager = None
             if database_pool is not None:
                 await database_pool.close()
-            await redis_client.close_client(control_cfg.redis_url)
+            await redis_manager.close_all()
 
     app = FastAPI(
         title="Luthien Control Plane",

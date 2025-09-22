@@ -1,61 +1,71 @@
-"""Shared Redis client management with simple caching."""
+"""Redis client manager that caches per-URL clients."""
 
 from __future__ import annotations
 
 import asyncio
 import inspect
+from typing import Callable
 
 import redis.asyncio as redis  # type: ignore
 
 RedisClient = redis.Redis
-
-_client_cache: dict[str, RedisClient] = {}
-_cache_lock = asyncio.Lock()
+RedisFactory = Callable[[str], RedisClient]
 
 
-async def get_client(redis_url: str) -> RedisClient:
-    """Return a cached Redis client for the given URL, creating it on first use."""
-    if not redis_url:
-        raise RuntimeError("Redis URL must be provided")
+class RedisClientManager:
+    """Manage cached Redis clients with simple lifecycle helpers."""
 
-    client = _client_cache.get(redis_url)
-    if client is not None:
-        return client
+    def __init__(self, factory: RedisFactory | None = None) -> None:
+        """Create a manager that uses redis.from_url unless a factory is provided."""
+        if factory is None:
+            factory = redis.from_url
+        self._factory: RedisFactory = factory
+        self._cache: dict[str, RedisClient] = {}
+        self._lock = asyncio.Lock()
 
-    async with _cache_lock:
-        client = _client_cache.get(redis_url)
-        if client is not None:
+    async def get_client(self, redis_url: str) -> RedisClient:
+        """Return a cached client for the URL, creating it on first use."""
+        if not redis_url:
+            raise RuntimeError("Redis URL must be provided")
+
+        cached = self._cache.get(redis_url)
+        if cached is not None:
+            return cached
+
+        async with self._lock:
+            cached = self._cache.get(redis_url)
+            if cached is not None:
+                return cached
+
+            client = self._factory(redis_url)
+            if client is None:  # pragma: no cover - factory should fail loudly
+                raise RuntimeError("Failed to create Redis client")
+
+            await client.ping()
+            self._cache[redis_url] = client
             return client
 
-        created = redis.from_url(redis_url)
-
-        await created.ping()
-        _client_cache[redis_url] = created
-        return created
-
-
-async def close_client(redis_url: str) -> None:
-    """Close and evict the cached client for the given URL."""
-    client = _client_cache.pop(redis_url, None)
-    if client is None:
-        return
-    close = getattr(client, "close", None)
-    if callable(close):
+    async def close_client(self, redis_url: str) -> None:
+        """Close and evict the cached client for the given URL."""
+        client = self._cache.pop(redis_url, None)
+        if client is None:
+            return
+        close = getattr(client, "close", None)
+        if not callable(close):
+            return
         maybe_awaitable = close()
         if inspect.isawaitable(maybe_awaitable):
             await maybe_awaitable
 
+    async def close_all(self) -> None:
+        """Close and clear all cached clients."""
+        urls = list(self._cache.keys())
+        for url in urls:
+            await self.close_client(url)
 
-async def close_all() -> None:
-    """Close and remove all cached redis clients (primarily for tests)."""
-    urls = list(_client_cache.keys())
-    for url in urls:
-        await close_client(url)
-
-
-def _reset_cache() -> None:
-    """Reset the internal cache without closing clients (tests inject fakes)."""
-    _client_cache.clear()
+    def clear_without_closing(self) -> None:
+        """Clear the cache without touching live clients (tests set their own fakes)."""
+        self._cache.clear()
 
 
-__all__ = ["get_client", "close_client", "close_all", "RedisClient"]
+__all__ = ["RedisClient", "RedisClientManager"]
