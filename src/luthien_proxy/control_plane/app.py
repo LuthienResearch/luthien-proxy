@@ -11,7 +11,6 @@ import asyncio
 import json
 import logging
 import os
-import sys
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -38,11 +37,7 @@ DebugLogWriter = Callable[[str, dict[str, Any], Optional[db.ConnectFn]], Corouti
 router = APIRouter()
 
 
-_logger = logging.getLogger("luthien.control_plane.hooks")
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-_logger.addHandler(handler)
-_logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -154,7 +149,7 @@ async def _insert_debug(
         finally:
             await db.close_connection(conn)
     except Exception as exc:  # pragma: no cover - avoid masking hook flow
-        print(f"Error inserting debug log: {exc}")
+        logger.error("Error inserting debug log: %s", exc)
 
 
 @router.get("/health")
@@ -217,7 +212,7 @@ async def get_debug_entries(
         finally:
             await db.close_connection(conn)
     except Exception as exc:
-        print(f"Error fetching debug logs: {exc}")
+        logger.error("Error fetching debug logs: %s", exc)
     return entries
 
 
@@ -252,7 +247,7 @@ async def get_debug_types(
         finally:
             await db.close_connection(conn)
     except Exception as exc:
-        print(f"Error fetching debug types: {exc}")
+        logger.error("Error fetching debug types: %s", exc)
     return types
 
 
@@ -310,7 +305,7 @@ async def get_debug_page(
         finally:
             await db.close_connection(conn)
     except Exception as exc:
-        print(f"Error fetching debug page: {exc}")
+        logger.error("Error fetching debug page: %s", exc)
     return DebugPage(items=items, page=page, page_size=page_size, total=total)
 
 
@@ -336,7 +331,7 @@ async def hook_generic(
             "hook": hook_name,
             "payload": payload,
         }
-        _logger.debug("hook=%s payload=%s", hook_name, json.dumps(payload, ensure_ascii=False))
+        logger.debug("hook=%s payload=%s", hook_name, json.dumps(payload, ensure_ascii=False))
         try:
             call_id = extract_call_id_for_hook(hook_name, payload)
             if isinstance(call_id, str) and call_id:
@@ -355,7 +350,7 @@ async def hook_generic(
             return await handler(**payload)
         return payload
     except Exception as exc:
-        _logger.error(f"hook_generic_error: {exc}")
+        logger.error("hook_generic_error: %s", exc)
         raise HTTPException(status_code=500, detail=f"hook_generic_error: {exc}")
 
 
@@ -462,7 +457,7 @@ async def recent_call_ids(
         finally:
             await db.close_connection(conn)
     except Exception as exc:
-        print(f"Error fetching recent call ids: {exc}")
+        logger.error("Error fetching recent call ids: %s", exc)
     return out
 
 
@@ -477,14 +472,14 @@ def _load_policy_from_config(
 
     def _read(path: str) -> tuple[Optional[str], Optional[dict[str, Any]]]:
         if not os.path.exists(path):
-            print(f"Policy config not found at {path}; using NoOpPolicy")
+            logger.warning("Policy config not found at %s; using NoOpPolicy", path)
             return None, None
         try:
             with open(path, "r", encoding="utf-8") as file:
                 cfg = yaml.safe_load(file) or {}
             return cfg.get("policy"), (cfg.get("policy_options") or None)
         except Exception as exc:
-            print(f"Failed to read policy config {path}: {exc}")
+            logger.error("Failed to read policy config %s: %s", path, exc)
             return None, None
 
     def _import(ref: str):
@@ -494,7 +489,7 @@ def _load_policy_from_config(
             cls = getattr(module, class_name)
             return cls, module_path, class_name
         except Exception as exc:
-            print(f"Failed to import policy '{ref}': {exc}")
+            logger.error("Failed to import policy '%s': %s", ref, exc)
             return None, None, None
 
     def _instantiate(cls, options: Optional[dict[str, Any]]) -> LuthienPolicy:
@@ -507,17 +502,20 @@ def _load_policy_from_config(
 
     policy_ref, policy_options = _read(resolved_path)
     if not policy_ref:
-        print("No policy specified in config; using NoOpPolicy")
+        logger.info("No policy specified in config; using NoOpPolicy")
         return NoOpPolicy()
 
     cls, module_path, class_name = _import(policy_ref)
     if not cls or not module_path or not class_name:
         return NoOpPolicy()
     if not issubclass(cls, LuthienPolicy):
-        print(f"Configured policy {class_name} does not subclass LuthienPolicy; using NoOpPolicy")
+        logger.warning(
+            "Configured policy %s does not subclass LuthienPolicy; using NoOpPolicy",
+            class_name,
+        )
         return NoOpPolicy()
 
-    print(f"Loaded policy from config: {class_name} ({module_path})")
+    logger.info("Loaded policy from config: %s (%s)", class_name, module_path)
     return _instantiate(cls, policy_options)
 
 
@@ -552,7 +550,7 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
         app.state.active_policy = policy
         app.state.stream_store = stream_store
 
-        print("Control plane services initialized successfully")
+        logger.info("Control plane services initialized successfully")
         try:
             yield
         finally:

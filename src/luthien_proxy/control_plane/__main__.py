@@ -1,10 +1,14 @@
 """CLI entry point for the Luthien Control Plane (FastAPI)."""
 
+import logging
+
 import uvicorn
 
 from luthien_proxy.control_plane.app import create_control_plane_app
 from luthien_proxy.utils.logging_config import configure_logging
 from luthien_proxy.utils.project_config import ProjectConfig
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -15,10 +19,11 @@ def main() -> None:
 
     configure_logging(control.log_level)
 
-    print(f"Starting Luthien Control Plane on {control.host}:{control.port}")
     db_url = control.database_url or "Not configured"
-    print(f"Database URL: {db_url}")
-    print(f"Redis URL: {control.redis_url}")
+
+    logger.info("Starting control plane on %s:%s", control.host, control.port)
+    logger.info("Database URL: %s", db_url)
+    logger.info("Redis URL: %s", control.redis_url)
 
     uvicorn.run(
         app,

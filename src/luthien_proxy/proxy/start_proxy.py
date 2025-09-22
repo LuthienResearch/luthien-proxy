@@ -1,12 +1,16 @@
 """Start the LiteLLM proxy with Luthien Control integration."""
 
+import logging
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Callable, Optional
 
 from starlette.types import ASGIApp
 
+from luthien_proxy.utils.logging_config import configure_logging
 from luthien_proxy.utils.project_config import ProjectConfig, ProxyConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -41,16 +45,17 @@ def runtime_for_tests(
 
 def main(runtime: ProxyRuntime | None = None) -> None:
     """Start the LiteLLM proxy with Luthien Control integration."""
-    print("🚀 Starting LiteLLM proxy with Luthien Control...")
-
     if runtime is None:
         runtime = _get_real_runtime()
 
     proxy_settings: ProxyConfig = runtime.config.proxy_config
 
-    print(f"📂 Config: {proxy_settings.config_path}")
-    print(f"🌐 Host: {proxy_settings.host}:{proxy_settings.port}")
-    print(f"🎛️  Control Plane: {proxy_settings.control_plane_url}")
+    configure_logging(proxy_settings.log_level)
+
+    logger.info("Starting LiteLLM proxy with Luthien Control...")
+    logger.info("Config: %s", proxy_settings.config_path)
+    logger.info("Host: %s:%s", proxy_settings.host, proxy_settings.port)
+    logger.info("Control Plane: %s", proxy_settings.control_plane_url)
 
     # Start the server using uvicorn
     runtime.uvicorn_runner(
