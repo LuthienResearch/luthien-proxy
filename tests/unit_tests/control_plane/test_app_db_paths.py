@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -33,13 +33,13 @@ async def test_get_debug_entries_parses_blob():
     rows = [
         {
             "id": 1,
-            "time_created": datetime.utcnow(),
+            "time_created": datetime.now(tz=timezone.utc),
             "debug_type_identifier": "t1",
             "jsonblob": {"a": 1},
         },
         {
             "id": 2,
-            "time_created": datetime.utcnow(),
+            "time_created": datetime.now(tz=timezone.utc),
             "debug_type_identifier": "t1",
             "jsonblob": json.dumps({"b": 2}),
         },
@@ -58,8 +58,16 @@ async def test_get_debug_entries_parses_blob():
 @pytest.mark.asyncio
 async def test_get_debug_types():
     rows = [
-        {"debug_type_identifier": "t1", "count": 3, "latest": datetime.utcnow()},
-        {"debug_type_identifier": "t2", "count": 1, "latest": datetime.utcnow()},
+        {
+            "debug_type_identifier": "t1",
+            "count": 3,
+            "latest": datetime.now(tz=timezone.utc),
+        },
+        {
+            "debug_type_identifier": "t2",
+            "count": 1,
+            "latest": datetime.now(tz=timezone.utc),
+        },
     ]
     conn = FakeConn(rows=rows)
 
@@ -77,7 +85,7 @@ async def test_get_debug_page():
     rows = [
         {
             "id": 1,
-            "time_created": datetime.utcnow(),
+            "time_created": datetime.now(tz=timezone.utc),
             "debug_type_identifier": "t1",
             "jsonblob": {"a": 1},
         },
@@ -122,8 +130,8 @@ async def test_trace_by_call_id_sorts_by_ns():
 @pytest.mark.asyncio
 async def test_recent_call_ids():
     rows = [
-        {"cid": "A", "cnt": 2, "latest": datetime.utcnow()},
-        {"cid": "B", "cnt": 1, "latest": datetime.utcnow()},
+        {"cid": "A", "cnt": 2, "latest": datetime.now(tz=timezone.utc)},
+        {"cid": "B", "cnt": 1, "latest": datetime.now(tz=timezone.utc)},
     ]
     conn = FakeConn(rows=rows)
 
