@@ -17,6 +17,7 @@ from datetime import datetime
 from functools import partial
 from typing import Any, Awaitable, Callable, Coroutine, Optional, cast
 
+import redis.asyncio as redis
 import yaml
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +28,6 @@ from luthien_proxy.control_plane.stream_context import StreamContextStore
 from luthien_proxy.control_plane.ui import router as ui_router
 from luthien_proxy.control_plane.utils.hooks import extract_call_id_for_hook
 from luthien_proxy.policies.base import LuthienPolicy
-from luthien_proxy.policies.engine import PolicyEngine
 from luthien_proxy.policies.noop import NoOpPolicy
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
@@ -123,6 +123,19 @@ def get_debug_log_writer(request: Request) -> DebugLogWriter:
     if writer is None:
         raise RuntimeError("Debug log writer not configured")
     return cast(DebugLogWriter, writer)
+
+
+async def build_redis_client(redis_url: str) -> redis.Redis:
+    """Return a redis client after verifying connectivity."""
+    if not redis_url:
+        raise RuntimeError("Redis URL must be configured for the control plane")
+
+    client = redis.from_url(redis_url)
+    if client is None:
+        raise RuntimeError("Failed to create Redis client")
+
+    await client.ping()
+    return client
 
 
 async def _insert_debug(
@@ -530,23 +543,14 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
         app.state.debug_log_writer = partial(_insert_debug, config)
 
         control_cfg = config.control_plane_config
-        engine = PolicyEngine(
-            database_url=config.database_url or "",
-            redis_url=control_cfg.redis_url,
-        )
-        await engine.initialize()
-
+        redis_client = await build_redis_client(control_cfg.redis_url)
         policy = _load_policy_from_config(config, control_cfg.policy_config_path)
 
-        if not engine.redis_client:
-            raise RuntimeError("Redis client unavailable; ensure REDIS_URL is correct")
-
         stream_store = StreamContextStore(
-            redis_client=engine.redis_client,
+            redis_client=redis_client,
             ttl_seconds=control_cfg.stream_context_ttl,
         )
 
-        app.state.policy_engine = engine
         app.state.active_policy = policy
         app.state.stream_store = stream_store
 
@@ -554,7 +558,6 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
         try:
             yield
         finally:
-            app.state.policy_engine = None
             app.state.active_policy = None
             app.state.stream_store = None
 
