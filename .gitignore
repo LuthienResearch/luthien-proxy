@@ -17,3 +17,4 @@ wheels/
 .dev_deps_synced
 .last_update
 scratch/
+_scratch/
