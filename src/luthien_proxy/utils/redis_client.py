@@ -28,8 +28,6 @@ async def get_client(redis_url: str) -> RedisClient:
             return client
 
         created = redis.from_url(redis_url)
-        if created is None:
-            raise RuntimeError("Failed to create Redis client")
 
         await created.ping()
         _client_cache[redis_url] = created
