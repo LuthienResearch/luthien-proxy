@@ -23,7 +23,7 @@ from luthien_proxy.control_plane.ui import router as ui_router
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ProjectConfig
 
-from .debug_logging import insert_debug
+from .debug_records import record_debug_event
 from .debug_routes import (
     DebugEntry,
     DebugPage,
@@ -94,11 +94,10 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
         redis_manager = redis_client.RedisClientManager()
 
         try:
-            if control_cfg.database_url is not None:
-                database_pool = db.DatabasePool(control_cfg.database_url)
-                await database_pool.get_pool()
+            database_pool = db.DatabasePool(control_cfg.database_url)
+            await database_pool.get_pool()
             app.state.database_pool = database_pool
-            app.state.debug_log_writer = partial(insert_debug, database_pool)
+            app.state.debug_log_writer = partial(record_debug_event, database_pool)
 
             redis_instance = await redis_manager.get_client(control_cfg.redis_url)
             app.state.redis_manager = redis_manager

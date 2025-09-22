@@ -83,7 +83,7 @@ class ControlPlaneConfig:
     redis_url: str
     stream_context_ttl: int
     policy_config_path: str
-    database_url: Optional[str]
+    database_url: str
 
 
 class ProjectConfig:
@@ -96,9 +96,12 @@ class ProjectConfig:
         self._env_map = env_map
 
     @cached_property
-    def database_url(self) -> Optional[str]:
+    def database_url(self) -> str:
         """Database connection URL, if any."""
-        return get_config_value(self._env_map, DATABASE_URL)
+        db_url: Optional[str] = get_config_value(self._env_map, DATABASE_URL)
+        if db_url is None:
+            raise RuntimeError(f"{DATABASE_URL.env_var} must be set to run the control plane")
+        return db_url
 
     @cached_property
     def redis_url(self) -> Optional[str]:

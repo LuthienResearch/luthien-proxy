@@ -19,7 +19,7 @@ def main() -> None:
 
     configure_logging(control.log_level)
 
-    db_url = control.database_url or "Not configured"
+    db_url = control.database_url
 
     logger.info("Starting control plane on %s:%s", control.host, control.port)
     logger.info("Database URL: %s", db_url)

@@ -1,24 +1,22 @@
-"""Utility helpers for persisting debug log records."""
+"""Helpers for recording debug events in the database."""
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from luthien_proxy.utils import db
 
 logger = logging.getLogger(__name__)
 
 
-async def insert_debug(
-    pool: Optional[db.DatabasePool],
+async def record_debug_event(
+    pool: db.DatabasePool,
     debug_type: str,
     payload: dict[str, Any],
 ) -> None:
-    """Insert a debug log row into the database (best-effort)."""
-    if pool is None:
-        return
+    """Persist a debug entry for later inspection (best-effort)."""
     try:
         async with pool.connection() as conn:
             await conn.execute(
@@ -33,4 +31,4 @@ async def insert_debug(
         logger.error("Error inserting debug log: %s", exc)
 
 
-__all__ = ["insert_debug"]
+__all__ = ["record_debug_event"]

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from luthien_proxy.control_plane.debug_logging import insert_debug
+from luthien_proxy.control_plane.debug_records import record_debug_event
 
 
 class _FakeConn:
@@ -31,12 +31,12 @@ class _FakePool:
 
 
 @pytest.mark.asyncio
-async def test_insert_debug_writes_payload():
+async def test_record_debug_event_writes_payload():
     conn = _FakeConn()
     pool = _FakePool(conn)
     payload = {"foo": "bar"}
 
-    await insert_debug(pool, "hook:test", payload)
+    await record_debug_event(pool, "hook:test", payload)
 
     assert conn.calls
     _, debug_type, payload_json = conn.calls[0]
@@ -45,6 +45,6 @@ async def test_insert_debug_writes_payload():
 
 
 @pytest.mark.asyncio
-async def test_insert_debug_skips_when_pool_missing():
+async def test_record_debug_event_skips_when_pool_missing():
     # Should not raise when database pool is not configured
-    await insert_debug(None, "hook:test", {"foo": "bar"})
+    await record_debug_event(None, "hook:test", {"foo": "bar"})
