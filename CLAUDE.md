@@ -8,23 +8,18 @@
 - Select a policy via `LUTHIEN_POLICY_CONFIG` that points to a YAML file (defaults to `config/luthien_config.yaml`).
   - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
 
-## Development Strategy
+## Development Workflow
 
-- At any given time, we have one OBJECTIVE, listed in `dev/OBJECTIVE.md`. Keep it to a single sentence that captures the concrete user-facing change we are pursuing right now.
-- Opening a new objective:
-  - Create a feature branch named e.g., `policy-engine-cleanup` (do NOT use a prefix-forward-slash, e.g. `objectives/policy-engine-cleanup`)
-  - Update `dev/OBJECTIVE.md` with the new objective and acceptance check.
-  - Open a draft PR targeting `main` to give reviewers visibility.
-- While delivering an objective:
-  - Work only happens on that feature branch; stack commits as needed.
-  - Add any running design thoughts to `dev/NOTES.md` while work is in flight.
-  - Capture out-of-scope discoveries in `dev/TODO.md` so the objective stays tight.
-  - Prefer using automated tooling to manage formatting when possible (`scripts/format_all.sh`)
-- Closing an objective:
-  - Ensure `./scripts/dev_checks.sh` passes (ruff format/check, pytest, pyright) before marking the PR ready for review.
-  - Update `CHANGELOG.md` with a bullet that links back to the objective ID or branch handle.
-  - Clear `dev/NOTES.md` and reset `dev/OBJECTIVE.md` so the next objective starts fresh.
-  - Mark the PR ready.
+1. You will be given an OBJECTIVE to complete (e.g. 'implement this feature', 'fix this bug', 'build this UX', 'refactor this module')
+2. You will make sure that you're on the most recent commit on `main`
+3. You will create a new feature branch for the OBJECTIVE. This should look like `short-objective-description`, not `OBJECTIVE/short-desc`.
+4. Update `dev/OBJECTIVE.md` with a short statement of the current OBJECTIVE (this should be the only content in the file)
+5. Commit the changes, push to origin, and open a draft PR (to `main`)
+6. Implement the OBJECTIVE. Track design thoughts in `dev/NOTES.md`. Add any items that should be done but are out of scope for the current OBJECTIVE to `dev/TODO.md` (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
+7. Regularly format + test (`scripts/dev_checks.sh), commit, and push to origin (on the feature branch).
+8. When the OBJECTIVE is complete, update `CHANGELOG.md`
+9. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
+10. Mark the PR as ready.
 
 ### Objective Workflow
 
@@ -33,10 +28,10 @@
    ```bash
    git checkout main
    git pull
-   git checkout -b objective/<short-handle>
+   git checkout -b <short-handle>
    ```
 
-   - If the branch already exists, run `git checkout objective/<short-handle>` instead of creating it.
+   - If the branch already exists, run `git checkout <short-handle>` instead of creating it.
    - Update `dev/OBJECTIVE.md`, then:
 
      ```bash
@@ -58,12 +53,15 @@
    ```bash
    ./scripts/dev_checks.sh
    git status
-   gh pr ready
    ```
 
    - Update `CHANGELOG.md` with a bullet referencing the objective handle.
-   - Clear `dev/NOTES.md` and reset `dev/OBJECTIVE.md`.
-   - Confirm the PR summary lists local test results.
+   - Clear `dev/NOTES.md` and `dev/OBJECTIVE.md`.
+
+   ```bash
+   git commit -A "<objective> is ready"
+   gh pr ready
+   ```
 
 ## Project Structure & Module Organization
 
@@ -89,11 +87,8 @@
 - Install dev deps: `uv sync --dev`
 - Start full stack: `./scripts/quick_start.sh`
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
-<<<<<<< HEAD
 - Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
-=======
 - Lint/format: `uv run ruff format` then `uv run ruff check --fix`; `./scripts/dev_checks.sh` wraps both plus pytest and pyright.
->>>>>>> c92a492 (more doc tweaks)
 - Type check: `uv run pyright`
 - Run control plane locally: `uv run python -m luthien_proxy.control_plane`
 - Run proxy locally: `uv run python -m luthien_proxy.proxy`
