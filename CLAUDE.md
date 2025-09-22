@@ -12,13 +12,14 @@
 
 - At any given time, we have one OBJECTIVE, listed in `dev/OBJECTIVE.md`. Keep it to a single sentence that captures the concrete user-facing change we are pursuing right now.
 - Opening a new objective:
-  - Create a feature branch named `objective/<short-handle>` (e.g., `objective/policy-engine-cleanup`).
+  - Create a feature branch named e.g., `policy-engine-cleanup` (do NOT use a prefix-forward-slash, e.g. `objectives/policy-engine-cleanup`)
   - Update `dev/OBJECTIVE.md` with the new objective and acceptance check.
   - Open a draft PR targeting `main` to give reviewers visibility.
 - While delivering an objective:
   - Work only happens on that feature branch; stack commits as needed.
   - Add any running design thoughts to `dev/NOTES.md` while work is in flight.
   - Capture out-of-scope discoveries in `dev/TODO.md` so the objective stays tight.
+  - Prefer using automated tooling to manage formatting when possible (`scripts/format_all.sh`)
 - Closing an objective:
   - Ensure `./scripts/dev_checks.sh` passes (ruff format/check, pytest, pyright) before marking the PR ready for review.
   - Update `CHANGELOG.md` with a bullet that links back to the objective ID or branch handle.
@@ -49,7 +50,7 @@
 - Install dev deps: `uv sync --dev`
 - Start full stack: `./scripts/quick_start.sh`
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
-- Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff.
+- Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
 - Type check: `uv run pyright`
 - Run control plane locally: `uv run python -m luthien_proxy.control_plane`
 - Run proxy locally: `uv run python -m luthien_proxy.proxy`

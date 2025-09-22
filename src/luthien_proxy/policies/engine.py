@@ -1,6 +1,7 @@
 """Engine for policy defaults, audit logging, and episode state (Redis/DB)."""
 
 import json
+import logging
 import time
 from typing import Any, Optional, cast
 
@@ -8,6 +9,8 @@ import redis.asyncio as redis
 from beartype import beartype
 
 from luthien_proxy.utils import db
+
+logger = logging.getLogger(__name__)
 
 
 # TODO: consolidate db interactions with a persistant session/client
@@ -52,15 +55,15 @@ class PolicyEngine:
                     min_size=2,
                     max_size=10,
                 )
-                print("Connected to PostgreSQL")
+                logger.info("Connected to PostgreSQL")
 
             self.redis_client = redis.from_url(self.redis_url)
             assert self.redis_client is not None
             await self.redis_client.ping()
-            print("Connected to Redis")
+            logger.info("Connected to Redis")
 
         except Exception as e:
-            print(f"Warning: Could not initialize policy engine connections: {e}")
+            logger.warning("Could not initialize policy engine connections: %s", e)
             # Continue without persistence for now
 
     @beartype
@@ -155,10 +158,15 @@ class PolicyEngine:
                     json.dumps(decision_data),
                 )
 
-            print(f"Logged decision: {decision_type} (score: {score:.3f}, threshold: {threshold:.3f})")
+            logger.info(
+                "Logged decision: %s (score: %.3f, threshold: %.3f)",
+                decision_type,
+                score,
+                threshold,
+            )
 
         except Exception as e:
-            print(f"Error logging decision: {e}")
+            logger.error("Error logging decision: %s", e)
 
     @beartype
     async def trigger_audit(
@@ -206,10 +214,10 @@ class PolicyEngine:
                 # Add to audit queue (typing: cast to avoid stub issues)
                 await cast(Any, self.redis_client).lpush("audit_queue", json.dumps(audit_data))
 
-            print(f"Triggered audit: {reason} (episode: {episode_id})")
+            logger.info("Triggered audit: %s (episode: %s)", reason, episode_id)
 
         except Exception as e:
-            print(f"Error triggering audit: {e}")
+            logger.error("Error triggering audit: %s", e)
 
     @beartype
     async def get_episode_state(self, episode_id: str) -> dict[str, Any]:
@@ -245,7 +253,7 @@ class PolicyEngine:
                 return initial_state
 
         except Exception as e:
-            print(f"Error getting episode state: {e}")
+            logger.error("Error getting episode state: %s", e)
             return {}
 
     @beartype
@@ -270,4 +278,4 @@ class PolicyEngine:
             )
 
         except Exception as e:
-            print(f"Error updating episode state: {e}")
+            logger.error("Error updating episode state: %s", e)
