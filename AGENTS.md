@@ -8,8 +8,31 @@
 - Select a policy via `LUTHIEN_POLICY_CONFIG` that points to a YAML file (defaults to `config/luthien_config.yaml`).
   - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
 
+## Development Strategy
+
+- At any given time, we have one OBJECTIVE, listed in `dev/OBJECTIVE.md`. Keep it to a single sentence that captures the concrete user-facing change we are pursuing right now.
+- Opening a new objective:
+  - Create a feature branch named `objective/<short-handle>` (e.g., `objective/policy-engine-cleanup`).
+  - Update `dev/OBJECTIVE.md` with the new objective, owner, start date, and acceptance check.
+  - Open a draft PR targeting `main` to give reviewers visibility.
+- While delivering an objective:
+  - Work only happens on that feature branch; stack commits as needed.
+  - Add any running design thoughts to `dev/NOTES.md` while work is in flight.
+  - Capture out-of-scope discoveries in `dev/TODO.md` so the objective stays tight.
+- Closing an objective:
+  - Ensure `./scripts/dev_checks.sh` passes (ruff format/check, pytest, pyright) before marking the PR ready for review.
+  - Update `CHANGELOG.md` with a bullet that links back to the objective ID or branch handle.
+  - Clear `dev/NOTES.md` and reset `dev/OBJECTIVE.md` so the next objective starts fresh.
+  - Mark the PR ready.
+
 ## Project Structure & Module Organization
 
+- `dev/`: Tracking current development information
+  - `TODO.md`: TODO list. Add to this when we notice changes we should make that are out-of-scope for the current PR.
+  - `OBJECTIVE.md`: Succinct statement of the active objective with owner, start date, and acceptance check.
+  - `NOTES.md`: Scratchpad for implementation details while the current objective is in progress.
+  - `*plan.md`: Medium- and long-term development plans may be recorded here.
+- `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
 - `src/luthien_proxy/`: core package
   - `control_plane/`: FastAPI app and `__main__` launcher
   - `proxy/`: LiteLLM proxy integration and custom logger
