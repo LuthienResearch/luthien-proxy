@@ -36,38 +36,24 @@ from .debug_routes import (
     router as debug_router,
 )
 from .dependencies import (
-    DebugLogWriter as _DebugLogWriter,
-)
-from .dependencies import (
-    get_database_pool as _get_database_pool,
-)
-from .dependencies import (
-    get_project_config as _get_project_config,
-)
-from .dependencies import (
-    get_redis_client as _get_redis_client,
+    DebugLogWriter,
+    get_database_pool,
+    get_project_config,
+    get_redis_client,
 )
 from .hooks_routes import (
     CallIdInfo,
     TraceEntry,
     TraceResponse,
+    get_hook_counters,
     hook_generic,
     recent_call_ids,
     trace_by_call_id,
 )
 from .hooks_routes import (
-    get_hook_counters as _get_hook_counters,
-)
-from .hooks_routes import (
     router as hooks_router,
 )
-from .policy_loader import _load_policy_from_config
-
-DebugLogWriter = _DebugLogWriter
-get_project_config = _get_project_config
-get_database_pool = _get_database_pool
-get_redis_client = _get_redis_client
-get_hook_counters = _get_hook_counters
+from .policy_loader import load_policy_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +104,7 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             app.state.redis_manager = redis_manager
             app.state.redis_client = redis_instance
 
-            policy = _load_policy_from_config(config, control_cfg.policy_config_path)
+            policy = load_policy_from_config(config, control_cfg.policy_config_path)
 
             stream_store = StreamContextStore(
                 redis_client=redis_instance,
@@ -180,7 +166,7 @@ __all__ = [
     "get_debug_types",
     "get_debug_page",
     "hook_generic",
-    "_load_policy_from_config",
+    "load_policy_from_config",
     "DebugEntry",
     "DebugTypeInfo",
     "DebugPage",

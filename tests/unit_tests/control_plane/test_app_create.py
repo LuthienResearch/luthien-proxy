@@ -71,7 +71,7 @@ async def test_create_control_plane_app_initializes_state(monkeypatch):
     monkeypatch.setattr(app_mod.redis_client, "RedisClientManager", _DummyRedisManager)
 
     policy_instance = object()
-    monkeypatch.setattr(app_mod, "_load_policy_from_config", lambda *args, **kwargs: policy_instance)
+    monkeypatch.setattr(app_mod, "load_policy_from_config", lambda *args, **kwargs: policy_instance)
 
     env = {
         "LITELLM_CONFIG_PATH": "config.yaml",

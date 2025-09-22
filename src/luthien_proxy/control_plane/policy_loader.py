@@ -15,7 +15,7 @@ from luthien_proxy.utils.project_config import ProjectConfig
 logger = logging.getLogger(__name__)
 
 
-def _load_policy_from_config(
+def load_policy_from_config(
     config: ProjectConfig,
     config_path: Optional[str] = None,
 ) -> LuthienPolicy:
@@ -73,4 +73,4 @@ def _load_policy_from_config(
     return _instantiate(cls, policy_options)
 
 
-__all__ = ["_load_policy_from_config"]
+__all__ = ["load_policy_from_config"]
