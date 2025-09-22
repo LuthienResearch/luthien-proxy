@@ -1,0 +1,30 @@
+name: Dev Checks
+
+on:
+  push:
+    branches:
+      - main
+      - objective/**
+  pull_request:
+
+jobs:
+  dev-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v2
+        with:
+          python-version: "3.13"
+
+      - name: Sync project dependencies
+        run: uv sync --all-groups --locked
+
+      - name: Run formatting, lint, and tests
+        run: ./scripts/dev_checks.sh
+
+      - name: Ensure working tree is clean
+        run: git diff --exit-code
