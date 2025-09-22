@@ -1,9 +1,11 @@
-"""Minimal helpers for database connectors and connections."""
+"""Helpers for database connectors, connections, and shared pools."""
 
 from __future__ import annotations
 
+import asyncio
 import inspect
-from typing import Any, Awaitable, Callable
+from contextlib import asynccontextmanager
+from typing import Any, AsyncContextManager, AsyncIterator, Awaitable, Callable, cast
 
 import asyncpg
 
@@ -49,3 +51,73 @@ async def create_pool(
         raise RuntimeError("Database URL must be provided")
     pool_factory = factory or get_pool_factory()
     return await pool_factory(url, **kwargs)
+
+
+class DatabasePool:
+    """Lazily instantiate and share a single asyncpg pool per database URL."""
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        factory: PoolFactory | None = None,
+        **pool_kwargs: Any,
+    ) -> None:
+        """Initialize the database connection pool."""
+        if not url:
+            raise RuntimeError("Database URL must be provided")
+        self._url = url
+        self._factory = factory or get_pool_factory()
+        self._pool_kwargs = pool_kwargs
+        self._pool: Any | None = None
+        self._lock = asyncio.Lock()
+
+    @property
+    def url(self) -> str:
+        """Return the configured database URL."""
+        return self._url
+
+    async def get_pool(self) -> Any:
+        """Return the cached connection pool, creating it on demand."""
+        if self._pool is not None:
+            return self._pool
+        async with self._lock:
+            if self._pool is None:
+                self._pool = await self._factory(self._url, **self._pool_kwargs)
+        return self._pool
+
+    @asynccontextmanager
+    async def connection(self) -> AsyncIterator[Any]:
+        """Yield a connection from the shared pool."""
+        pool = await self.get_pool()
+        acquire = getattr(pool, "acquire", None)
+        if not callable(acquire):
+            raise RuntimeError("Pool object does not support acquire()")
+        manager = cast(AsyncContextManager[Any], acquire())
+        async with manager as conn:
+            yield conn
+
+    async def close(self) -> None:
+        """Close the underlying pool and reset internal state."""
+        pool = self._pool
+        self._pool = None
+        if pool is None:
+            return
+        close = getattr(pool, "close", None)
+        if not callable(close):
+            return
+        result = close()
+        if inspect.isawaitable(result):
+            await result
+
+
+__all__ = [
+    "ConnectFn",
+    "PoolFactory",
+    "get_connector",
+    "get_pool_factory",
+    "open_connection",
+    "close_connection",
+    "create_pool",
+    "DatabasePool",
+]
