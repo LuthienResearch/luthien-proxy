@@ -2,7 +2,10 @@
 
 ## DEVELOPMENT | TBA
 
-- New CHANGELOG entries go here
+- development framework
+- litellm integration
+- in-depth hook logging
+- request/response inspection UX
 
 ## 0.0.0 | 2025-11-22
 

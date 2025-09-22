@@ -5,4 +5,3 @@
 - [ ] Re-evaluate `PolicyEngine`; either overhaul it or remove it
 - [ ] Replace print statements with structured logging
 - [ ] Break up `app.py` into smaller focused modules
-- [ ] Document branch/log strategy in `AGENTS.md` and `CLAUDE.md`
