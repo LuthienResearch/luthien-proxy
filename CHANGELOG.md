@@ -7,6 +7,8 @@
 - in-depth hook logging
 - request/response inspection UX
 - shared redis/db client provisioning and pooling
+- refactored app.py into smaller, more focused modules
+- unit test coverage >80%
 
 ## 0.0.0 | 2025-11-22
 
