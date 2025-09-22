@@ -17,13 +17,13 @@ router = APIRouter()
 @router.get("/debug", response_class=HTMLResponse)
 async def debug_browser(request: Request):
     """Render the debug browser page listing debug types."""
-    return templates.TemplateResponse("debug_browser.html", {"request": request})
+    return templates.TemplateResponse(request, "debug_browser.html")
 
 
 @router.get("/debug/{debug_type}", response_class=HTMLResponse)
 async def debug_ui(request: Request, debug_type: str):
     """Render the single-type debug page for the given type."""
-    return templates.TemplateResponse("debug_single.html", {"request": request, "debug_type": debug_type})
+    return templates.TemplateResponse(request, "debug_single.html", {"debug_type": debug_type})
 
 
 # Removed request_logs UI
@@ -32,4 +32,4 @@ async def debug_ui(request: Request, debug_type: str):
 @router.get("/hooks/trace", response_class=HTMLResponse)
 async def hooks_trace_ui(request: Request):
     """Render the hooks trace UI for a given call ID."""
-    return templates.TemplateResponse("hooks_trace.html", {"request": request})
+    return templates.TemplateResponse(request, "hooks_trace.html")
