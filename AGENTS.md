@@ -13,7 +13,7 @@
 - At any given time, we have one OBJECTIVE, listed in `dev/OBJECTIVE.md`. Keep it to a single sentence that captures the concrete user-facing change we are pursuing right now.
 - Opening a new objective:
   - Create a feature branch named `objective/<short-handle>` (e.g., `objective/policy-engine-cleanup`).
-  - Update `dev/OBJECTIVE.md` with the new objective, owner, start date, and acceptance check.
+  - Update `dev/OBJECTIVE.md` with the new objective and acceptance check.
   - Open a draft PR targeting `main` to give reviewers visibility.
 - While delivering an objective:
   - Work only happens on that feature branch; stack commits as needed.
@@ -29,7 +29,7 @@
 
 - `dev/`: Tracking current development information
   - `TODO.md`: TODO list. Add to this when we notice changes we should make that are out-of-scope for the current PR.
-  - `OBJECTIVE.md`: Succinct statement of the active objective with owner, start date, and acceptance check.
+  - `OBJECTIVE.md`: Succinct statement of the active objective with acceptance check.
   - `NOTES.md`: Scratchpad for implementation details while the current objective is in progress.
   - `*plan.md`: Medium- and long-term development plans may be recorded here.
 - `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
