@@ -14,8 +14,7 @@ import os
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime
-from functools import partial
-from typing import Any, Awaitable, Callable, Coroutine, Optional, cast
+from typing import Any, Awaitable, Callable, Optional, cast
 
 import yaml
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
@@ -31,7 +30,6 @@ from luthien_proxy.policies.noop import NoOpPolicy
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ProjectConfig
 
-DebugLogWriter = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
 router = APIRouter()
 
@@ -125,15 +123,6 @@ def get_hook_counter_state(request: Request) -> Counter[str]:
     return cast(Counter[str], counters)
 
 
-def get_debug_log_writer(request: Request) -> DebugLogWriter:
-    """Return the async debug log writer stored on app.state."""
-    try:
-        writer = request.app.state.debug_log_writer
-    except AttributeError as exc:
-        raise RuntimeError("Debug log writer not configured") from exc
-    if writer is None:
-        raise RuntimeError("Debug log writer not configured")
-    return cast(DebugLogWriter, writer)
 
 
 def get_database_pool(request: Request) -> Optional[db.DatabasePool]:
@@ -156,7 +145,7 @@ def get_redis_client(request: Request) -> redis_client.RedisClient:
     return cast(redis_client.RedisClient, client)
 
 
-async def _insert_debug(
+async def _insert_debug_to_db(
     pool: Optional[db.DatabasePool],
     debug_type: str,
     payload: dict[str, Any],
@@ -338,7 +327,7 @@ async def get_hook_counters(
 async def hook_generic(
     hook_name: str,
     payload: dict[str, Any],
-    debug_writer: DebugLogWriter = Depends(get_debug_log_writer),
+    request: Request,
     policy: LuthienPolicy = Depends(get_active_policy),
     counters: Counter[str] = Depends(get_hook_counter_state),
 ) -> Any:
@@ -355,7 +344,15 @@ async def hook_generic(
                 record["litellm_call_id"] = call_id
         except Exception:
             pass
-        asyncio.create_task(debug_writer(f"hook:{hook_name}", record))
+
+        # Log to database if pool is available
+        pool = get_database_pool(request)
+        if pool is not None:
+            asyncio.create_task(_insert_debug_to_db(pool, f"hook:{hook_name}", record))
+        else:
+            # Fallback to standard logging
+            logger.info("Debug log: type=%s, data=%s", f"hook:{hook_name}", json.dumps(record))
+
         name = hook_name.lower()
         counters[name] += 1
         handler = cast(
@@ -549,7 +546,6 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
                 database_pool = db.DatabasePool(control_cfg.database_url)
                 await database_pool.get_pool()
             app.state.database_pool = database_pool
-            app.state.debug_log_writer = partial(_insert_debug, database_pool)
 
             redis_instance = await redis_manager.get_client(control_cfg.redis_url)
             app.state.redis_manager = redis_manager
@@ -570,7 +566,6 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
         finally:
             app.state.active_policy = None
             app.state.stream_store = None
-            app.state.debug_log_writer = None
             app.state.database_pool = None
             app.state.redis_client = None
             app.state.redis_manager = None
