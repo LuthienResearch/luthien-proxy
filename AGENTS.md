@@ -12,7 +12,7 @@
 
 - At any given time, we have one OBJECTIVE, listed in `dev/OBJECTIVE.md`. Keep it to a single sentence that captures the concrete user-facing change we are pursuing right now.
 - Opening a new objective:
-  - Create a feature branch named `objective/<short-handle>` (e.g., `objective/policy-engine-cleanup`).
+  - Create a feature branch named e.g., `policy-engine-cleanup` (do NOT use a prefix-forward-slash, e.g. `objectives/policy-engine-cleanup`)
   - Update `dev/OBJECTIVE.md` with the new objective and acceptance check.
   - Open a draft PR targeting `main` to give reviewers visibility.
 - While delivering an objective:
