@@ -36,10 +36,16 @@ from .debug_routes import (
     router as debug_router,
 )
 from .dependencies import (
-    DebugLogWriter,
-    get_database_pool,
-    get_project_config,
-    get_redis_client,
+    DebugLogWriter as DebugLogWriter,
+)
+from .dependencies import (
+    get_database_pool as get_database_pool,
+)
+from .dependencies import (
+    get_project_config as get_project_config,
+)
+from .dependencies import (
+    get_redis_client as get_redis_client,
 )
 from .hooks_routes import (
     CallIdInfo,
