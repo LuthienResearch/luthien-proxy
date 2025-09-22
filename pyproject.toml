@@ -29,6 +29,7 @@ dependencies = [
     "pydantic>=2.11.7",
     "pyyaml>=6.0.2",
     "redis>=6.4.0",
+    "vulture>=2.14",
 ]
 
 [tool.hatch.build.targets.wheel]

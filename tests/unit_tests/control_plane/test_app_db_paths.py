@@ -1,4 +1,5 @@
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import pytest
@@ -27,6 +28,17 @@ class FakeConn:
         return None
 
 
+class FakePool:
+    def __init__(self, conn: FakeConn) -> None:
+        self._conn = conn
+        self.calls = 0
+
+    @asynccontextmanager
+    async def connection(self):
+        self.calls += 1
+        yield self._conn
+
+
 @pytest.mark.asyncio
 async def test_get_debug_entries_parses_blob():
     # One row with dict jsonblob, one with string jsonblob
@@ -46,12 +58,10 @@ async def test_get_debug_entries_parses_blob():
     ]
     conn = FakeConn(rows=rows)
 
-    async def fake_connect(_):
-        return conn
-
     config = ProjectConfig(env_map={"DATABASE_URL": "postgres://example"})
+    pool = FakePool(conn)
 
-    out = await app_mod.get_debug_entries("t1", connect=fake_connect, config=config)
+    out = await app_mod.get_debug_entries("t1", pool=pool, config=config)
     assert len(out) == 2 and out[0].jsonblob.get("a") == 1 and out[1].jsonblob.get("b") == 2
 
 
@@ -71,12 +81,10 @@ async def test_get_debug_types():
     ]
     conn = FakeConn(rows=rows)
 
-    async def fake_connect(_):
-        return conn
-
     config = ProjectConfig(env_map={"DATABASE_URL": "postgres://example"})
+    pool = FakePool(conn)
 
-    out = await app_mod.get_debug_types(connect=fake_connect, config=config)
+    out = await app_mod.get_debug_types(pool=pool, config=config)
     assert [r.debug_type_identifier for r in out] == ["t1", "t2"]
 
 
@@ -92,12 +100,10 @@ async def test_get_debug_page():
     ]
     conn = FakeConn(rows=rows, row={"cnt": 10})
 
-    async def fake_connect(_):
-        return conn
-
     config = ProjectConfig(env_map={"DATABASE_URL": "postgres://example"})
+    pool = FakePool(conn)
 
-    out = await app_mod.get_debug_page("t1", page=2, page_size=1, connect=fake_connect, config=config)
+    out = await app_mod.get_debug_page("t1", page=2, page_size=1, pool=pool, config=config)
     assert out.total == 10 and len(out.items) == 1 and out.page == 2
 
 
@@ -118,12 +124,10 @@ async def test_trace_by_call_id_sorts_by_ns():
     ]
     conn = FakeConn(rows=rows)
 
-    async def fake_connect(_):
-        return conn
-
     config = ProjectConfig(env_map={"DATABASE_URL": "postgres://example"})
+    pool = FakePool(conn)
 
-    out = await app_mod.trace_by_call_id(call_id, connect=fake_connect, config=config)
+    out = await app_mod.trace_by_call_id(call_id, pool=pool, config=config)
     assert [e.hook for e in out.entries] == ["y", "x"]
 
 
@@ -135,10 +139,8 @@ async def test_recent_call_ids():
     ]
     conn = FakeConn(rows=rows)
 
-    async def fake_connect(_):
-        return conn
-
     config = ProjectConfig(env_map={"DATABASE_URL": "postgres://example"})
+    pool = FakePool(conn)
 
-    out = await app_mod.recent_call_ids(limit=2, connect=fake_connect, config=config)
+    out = await app_mod.recent_call_ids(limit=2, pool=pool, config=config)
     assert [r.call_id for r in out] == ["A", "B"]

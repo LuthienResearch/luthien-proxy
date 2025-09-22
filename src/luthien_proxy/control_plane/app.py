@@ -17,7 +17,6 @@ from datetime import datetime
 from functools import partial
 from typing import Any, Awaitable, Callable, Coroutine, Optional, cast
 
-import redis.asyncio as redis
 import yaml
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,10 +28,10 @@ from luthien_proxy.control_plane.ui import router as ui_router
 from luthien_proxy.control_plane.utils.hooks import extract_call_id_for_hook
 from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.policies.noop import NoOpPolicy
-from luthien_proxy.utils import db
+from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ProjectConfig
 
-DebugLogWriter = Callable[[str, dict[str, Any], Optional[db.ConnectFn]], Coroutine[Any, Any, None]]
+DebugLogWriter = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
 router = APIRouter()
 
@@ -95,7 +94,10 @@ class CallIdInfo(BaseModel):
 
 def get_project_config(request: Request) -> ProjectConfig:
     """Return the ProjectConfig stored on app.state."""
-    config = getattr(request.app.state, "project_config", None)
+    try:
+        config = request.app.state.project_config
+    except AttributeError as exc:
+        raise RuntimeError("ProjectConfig is not configured for this app instance") from exc
     if config is None:
         raise RuntimeError("ProjectConfig is not configured for this app instance")
     return cast(ProjectConfig, config)
@@ -103,7 +105,10 @@ def get_project_config(request: Request) -> ProjectConfig:
 
 def get_active_policy(request: Request) -> LuthienPolicy:
     """Return the active policy from app.state."""
-    policy = getattr(request.app.state, "active_policy", None)
+    try:
+        policy = request.app.state.active_policy
+    except AttributeError as exc:
+        raise RuntimeError("Active policy not loaded for this app instance") from exc
     if policy is None:
         raise RuntimeError("Active policy not loaded for this app instance")
     return cast(LuthienPolicy, policy)
@@ -111,7 +116,10 @@ def get_active_policy(request: Request) -> LuthienPolicy:
 
 def get_hook_counter_state(request: Request) -> Counter[str]:
     """Return the in-memory hook counters for this app."""
-    counters = getattr(request.app.state, "hook_counters", None)
+    try:
+        counters = request.app.state.hook_counters
+    except AttributeError as exc:
+        raise RuntimeError("Hook counters not initialized") from exc
     if counters is None:
         raise RuntimeError("Hook counters not initialized")
     return cast(Counter[str], counters)
@@ -119,38 +127,45 @@ def get_hook_counter_state(request: Request) -> Counter[str]:
 
 def get_debug_log_writer(request: Request) -> DebugLogWriter:
     """Return the async debug log writer stored on app.state."""
-    writer = getattr(request.app.state, "debug_log_writer", None)
+    try:
+        writer = request.app.state.debug_log_writer
+    except AttributeError as exc:
+        raise RuntimeError("Debug log writer not configured") from exc
     if writer is None:
         raise RuntimeError("Debug log writer not configured")
     return cast(DebugLogWriter, writer)
 
 
-async def build_redis_client(redis_url: str) -> redis.Redis:
-    """Return a redis client after verifying connectivity."""
-    if not redis_url:
-        raise RuntimeError("Redis URL must be configured for the control plane")
+def get_database_pool(request: Request) -> Optional[db.DatabasePool]:
+    """Return the configured database pool, if any."""
+    try:
+        pool = request.app.state.database_pool
+    except AttributeError as exc:
+        raise RuntimeError("Database pool state missing on app") from exc
+    return cast(Optional[db.DatabasePool], pool)
 
-    client = redis.from_url(redis_url)
+
+def get_redis_client(request: Request) -> redis_client.RedisClient:
+    """Return the cached redis client from app.state."""
+    try:
+        client = request.app.state.redis_client
+    except AttributeError as exc:
+        raise RuntimeError("Redis client not configured") from exc
     if client is None:
-        raise RuntimeError("Failed to create Redis client")
-
-    await client.ping()
-    return client
+        raise RuntimeError("Redis client not configured")
+    return cast(redis_client.RedisClient, client)
 
 
 async def _insert_debug(
-    config: ProjectConfig,
+    pool: Optional[db.DatabasePool],
     debug_type: str,
     payload: dict[str, Any],
-    connect: db.ConnectFn | None = None,
 ) -> None:
     """Insert a debug log row into the database (best-effort)."""
-    database_url = config.database_url
-    if database_url is None:
+    if pool is None:
         return
     try:
-        conn = await db.open_connection(connect, url=database_url)
-        try:
+        async with pool.connection() as conn:
             await conn.execute(
                 """
                 INSERT INTO debug_logs (debug_type_identifier, jsonblob)
@@ -159,8 +174,6 @@ async def _insert_debug(
                 debug_type,
                 json.dumps(payload),
             )
-        finally:
-            await db.close_connection(conn)
     except Exception as exc:  # pragma: no cover - avoid masking hook flow
         logger.error("Error inserting debug log: %s", exc)
 
@@ -186,16 +199,15 @@ async def list_endpoints() -> dict[str, Any]:
 async def get_debug_entries(
     debug_type: str,
     limit: int = Query(default=50, le=500),
-    connect: db.ConnectFn = Depends(db.get_connector),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> list[DebugEntry]:
     """Return latest debug entries for a given type (paged by limit)."""
     entries: list[DebugEntry] = []
-    if config.database_url is None:
+    if config.database_url is None or pool is None:
         return entries
     try:
-        conn = await db.open_connection(connect, url=config.database_url)
-        try:
+        async with pool.connection() as conn:
             rows = await conn.fetch(
                 """
                 SELECT id, time_created, debug_type_identifier, jsonblob
@@ -222,8 +234,6 @@ async def get_debug_entries(
                         jsonblob=jb,
                     )
                 )
-        finally:
-            await db.close_connection(conn)
     except Exception as exc:
         logger.error("Error fetching debug logs: %s", exc)
     return entries
@@ -231,16 +241,15 @@ async def get_debug_entries(
 
 @router.get("/api/debug/types", response_model=list[DebugTypeInfo])
 async def get_debug_types(
-    connect: db.ConnectFn = Depends(db.get_connector),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> list[DebugTypeInfo]:
     """Return summary of available debug types with counts."""
     types: list[DebugTypeInfo] = []
-    if config.database_url is None:
+    if config.database_url is None or pool is None:
         return types
     try:
-        conn = await db.open_connection(connect, url=config.database_url)
-        try:
+        async with pool.connection() as conn:
             rows = await conn.fetch(
                 """
                 SELECT debug_type_identifier, COUNT(*) as count, MAX(time_created) as latest
@@ -257,8 +266,6 @@ async def get_debug_types(
                         latest=row["latest"],
                     )
                 )
-        finally:
-            await db.close_connection(conn)
     except Exception as exc:
         logger.error("Error fetching debug types: %s", exc)
     return types
@@ -269,17 +276,16 @@ async def get_debug_page(
     debug_type: str,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
-    connect: db.ConnectFn = Depends(db.get_connector),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> DebugPage:
     """Return a paginated slice of debug entries for a type."""
     items: list[DebugEntry] = []
     total = 0
-    if config.database_url is None:
+    if config.database_url is None or pool is None:
         return DebugPage(items=items, page=page, page_size=page_size, total=total)
     try:
-        conn = await db.open_connection(connect, url=config.database_url)
-        try:
+        async with pool.connection() as conn:
             total_row = await conn.fetchrow(
                 """
                 SELECT COUNT(*) as cnt FROM debug_logs WHERE debug_type_identifier = $1
@@ -315,8 +321,6 @@ async def get_debug_page(
                         jsonblob=jb,
                     )
                 )
-        finally:
-            await db.close_connection(conn)
     except Exception as exc:
         logger.error("Error fetching debug page: %s", exc)
     return DebugPage(items=items, page=page, page_size=page_size, total=total)
@@ -351,7 +355,7 @@ async def hook_generic(
                 record["litellm_call_id"] = call_id
         except Exception:
             pass
-        asyncio.create_task(debug_writer(f"hook:{hook_name}", record, None))
+        asyncio.create_task(debug_writer(f"hook:{hook_name}", record))
         name = hook_name.lower()
         counters[name] += 1
         handler = cast(
@@ -395,16 +399,15 @@ def _extract_post_ns(jb: dict[str, Any]) -> Optional[int]:
 @router.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
 async def trace_by_call_id(
     call_id: str = Query(..., min_length=4),
-    connect: db.ConnectFn = Depends(db.get_connector),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> TraceResponse:
     """Return ordered hook entries from debug_logs for a litellm_call_id."""
     entries: list[TraceEntry] = []
-    if config.database_url is None:
+    if config.database_url is None or pool is None:
         raise HTTPException(status_code=500, detail="DATABASE_URL is required for trace lookups")
     try:
-        conn = await db.open_connection(connect, url=config.database_url)
-        try:
+        async with pool.connection() as conn:
             rows = await conn.fetch(
                 """
                 SELECT time_created, debug_type_identifier, jsonblob
@@ -425,8 +428,6 @@ async def trace_by_call_id(
                         payload=jb,
                     )
                 )
-        finally:
-            await db.close_connection(conn)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"trace_error: {exc}")
 
@@ -439,16 +440,15 @@ async def trace_by_call_id(
 @router.get("/api/hooks/recent_call_ids", response_model=list[CallIdInfo])
 async def recent_call_ids(
     limit: int = Query(default=50, ge=1, le=500),
-    connect: db.ConnectFn = Depends(db.get_connector),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> list[CallIdInfo]:
     """Return recent call IDs observed in debug logs with usage counts."""
     out: list[CallIdInfo] = []
-    if config.database_url is None:
+    if config.database_url is None or pool is None:
         return out
     try:
-        conn = await db.open_connection(connect, url=config.database_url)
-        try:
+        async with pool.connection() as conn:
             rows = await conn.fetch(
                 """
                 SELECT jsonblob->>'litellm_call_id' as cid,
@@ -467,8 +467,6 @@ async def recent_call_ids(
                 if not cid:
                     continue
                 out.append(CallIdInfo(call_id=cid, count=int(row["cnt"]), latest=row["latest"]))
-        finally:
-            await db.close_connection(conn)
     except Exception as exc:
         logger.error("Error fetching recent call ids: %s", exc)
     return out
@@ -540,26 +538,45 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
     async def lifespan(app: FastAPI):
         app.state.project_config = config
         app.state.hook_counters = hook_counters
-        app.state.debug_log_writer = partial(_insert_debug, config)
 
         control_cfg = config.control_plane_config
-        redis_client = await build_redis_client(control_cfg.redis_url)
-        policy = _load_policy_from_config(config, control_cfg.policy_config_path)
+        database_pool: Optional[db.DatabasePool] = None
+        redis_instance: Optional[redis_client.RedisClient] = None
+        redis_manager = redis_client.RedisClientManager()
 
-        stream_store = StreamContextStore(
-            redis_client=redis_client,
-            ttl_seconds=control_cfg.stream_context_ttl,
-        )
-
-        app.state.active_policy = policy
-        app.state.stream_store = stream_store
-
-        logger.info("Control plane services initialized successfully")
         try:
+            if control_cfg.database_url is not None:
+                database_pool = db.DatabasePool(control_cfg.database_url)
+                await database_pool.get_pool()
+            app.state.database_pool = database_pool
+            app.state.debug_log_writer = partial(_insert_debug, database_pool)
+
+            redis_instance = await redis_manager.get_client(control_cfg.redis_url)
+            app.state.redis_manager = redis_manager
+            app.state.redis_client = redis_instance
+
+            policy = _load_policy_from_config(config, control_cfg.policy_config_path)
+
+            stream_store = StreamContextStore(
+                redis_client=redis_instance,
+                ttl_seconds=control_cfg.stream_context_ttl,
+            )
+
+            app.state.active_policy = policy
+            app.state.stream_store = stream_store
+
+            logger.info("Control plane services initialized successfully")
             yield
         finally:
             app.state.active_policy = None
             app.state.stream_store = None
+            app.state.debug_log_writer = None
+            app.state.database_pool = None
+            app.state.redis_client = None
+            app.state.redis_manager = None
+            if database_pool is not None:
+                await database_pool.close()
+            await redis_manager.close_all()
 
     app = FastAPI(
         title="Luthien Control Plane",
@@ -588,6 +605,8 @@ __all__ = [
     "create_control_plane_app",
     "get_project_config",
     "get_hook_counters",
+    "get_database_pool",
+    "get_redis_client",
     "list_endpoints",
     "health_check",
     "trace_by_call_id",
