@@ -5,12 +5,19 @@ from __future__ import annotations
 import asyncio
 import inspect
 from contextlib import asynccontextmanager
-from typing import Any, AsyncContextManager, AsyncIterator, Awaitable, Callable, cast
+from typing import Any, AsyncContextManager, AsyncIterator, Awaitable, Callable, Protocol
 
 import asyncpg
 
+
+class PoolProtocol(Protocol):
+    def acquire(self) -> AsyncContextManager[Any]: ...
+
+    async def close(self) -> Any: ...
+
+
 ConnectFn = Callable[[str], Awaitable[Any]]
-PoolFactory = Callable[..., Awaitable[Any]]
+PoolFactory = Callable[..., Awaitable[PoolProtocol]]
 
 
 def get_connector() -> ConnectFn:
@@ -69,7 +76,7 @@ class DatabasePool:
         self._url = url
         self._factory = factory or get_pool_factory()
         self._pool_kwargs = pool_kwargs
-        self._pool: Any | None = None
+        self._pool: PoolProtocol | None = None
         self._lock = asyncio.Lock()
 
     @property
@@ -77,7 +84,7 @@ class DatabasePool:
         """Return the configured database URL."""
         return self._url
 
-    async def get_pool(self) -> Any:
+    async def get_pool(self) -> PoolProtocol:
         """Return the cached connection pool, creating it on demand."""
         if self._pool is not None:
             return self._pool
@@ -90,11 +97,7 @@ class DatabasePool:
     async def connection(self) -> AsyncIterator[Any]:
         """Yield a connection from the shared pool."""
         pool = await self.get_pool()
-        acquire = getattr(pool, "acquire", None)
-        if not callable(acquire):
-            raise RuntimeError("Pool object does not support acquire()")
-        manager = cast(AsyncContextManager[Any], acquire())
-        async with manager as conn:
+        async with pool.acquire() as conn:
             yield conn
 
     async def close(self) -> None:
@@ -103,12 +106,7 @@ class DatabasePool:
         self._pool = None
         if pool is None:
             return
-        close = getattr(pool, "close", None)
-        if not callable(close):
-            return
-        result = close()
-        if inspect.isawaitable(result):
-            await result
+        await pool.close()
 
 
 __all__ = [
