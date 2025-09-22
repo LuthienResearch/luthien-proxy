@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import os
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import httpx
 from litellm._logging import verbose_logger
 from litellm.integrations.custom_logger import CustomLogger
+
+from luthien_proxy.utils.project_config import ProjectConfig
 
 
 class DebugCallback(CustomLogger):
@@ -15,12 +16,14 @@ class DebugCallback(CustomLogger):
 
     def __init__(
         self,
+        config: Optional[ProjectConfig] = None,
         client_factory: Callable[..., httpx.Client] | None = None,
         async_client_factory: Callable[..., httpx.AsyncClient] | None = None,
     ):
         """Initialize callback with control-plane URL and defaults."""
         super().__init__()
-        self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
+        project_config = config or ProjectConfig()
+        self.control_plane_url = project_config.control_plane_url
         self.timeout = 10.0
         self._client_factory = client_factory or httpx.Client
         self._async_client_factory = async_client_factory or httpx.AsyncClient

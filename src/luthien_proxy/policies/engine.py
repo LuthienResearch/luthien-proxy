@@ -1,7 +1,6 @@
 """Engine for policy defaults, audit logging, and episode state (Redis/DB)."""
 
 import json
-import os
 import time
 from typing import Any, Optional, cast
 
@@ -11,6 +10,8 @@ from beartype import beartype
 from luthien_proxy.utils import db
 
 
+# TODO: consolidate db interactions with a persistant session/client
+# TODO: why is PolicyEngine providing  db conns as a public method?
 class PolicyEngine:
     """Policy engine coordinating persistence and audit for control decisions.
 
@@ -21,13 +22,13 @@ class PolicyEngine:
 
     def __init__(
         self,
-        database_url: Optional[str] = None,
-        redis_url: Optional[str] = None,
+        database_url: str,
+        redis_url: str,
         pool_factory: db.PoolFactory | None = None,
     ):
-        """Initialize with connection URLs; values may be provided via env."""
-        self.database_url = database_url or os.getenv("DATABASE_URL")
-        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
+        """Initialize with explicit connection URLs."""
+        self.database_url = database_url
+        self.redis_url = redis_url
         self.db_pool: Optional[Any] = None
         self.redis_client: Optional[redis.Redis] = None
         self.default_policy = self._load_default_policy()
@@ -99,8 +100,6 @@ class PolicyEngine:
         Currently returns the built-in defaults. In the future, this may look
         up team/user specific configuration.
         """
-        # For now, return default policy
-        # TODO: Implement per-user/per-team policy selection
         return self.default_policy.copy()
 
     @beartype
@@ -208,8 +207,6 @@ class PolicyEngine:
                 await cast(Any, self.redis_client).lpush("audit_queue", json.dumps(audit_data))
 
             print(f"Triggered audit: {reason} (episode: {episode_id})")
-
-            # TODO: Send alerts via Slack/email/PagerDuty
 
         except Exception as e:
             print(f"Error triggering audit: {e}")

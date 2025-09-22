@@ -6,7 +6,6 @@ Forces StreamHandler to stdout and respects LOG_LEVEL.
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from typing import Optional
 
@@ -18,7 +17,7 @@ def configure_logging(level: Optional[str] = None) -> None:
     - Forces a StreamHandler(sys.stdout) with a concise format.
     - Uses force=True to override any prior basicConfig.
     """
-    lvl_str = (level or os.getenv("LOG_LEVEL", "INFO")).upper()
+    lvl_str = (level or "INFO").upper()
     lvl = getattr(logging, lvl_str, logging.INFO)
     logging.basicConfig(
         level=lvl,

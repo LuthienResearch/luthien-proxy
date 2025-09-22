@@ -5,7 +5,7 @@ from luthien_proxy.policies.engine import PolicyEngine
 
 @pytest.mark.asyncio
 async def test_engine_minimal_paths():
-    eng = PolicyEngine()
+    eng = PolicyEngine(database_url=None, redis_url="redis://localhost:6379/0")
     # Default policy is available and copy-able
     pol = await eng.get_policy()
     assert isinstance(pol, dict) and pol.get("name") == "default"

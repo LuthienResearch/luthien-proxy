@@ -5,63 +5,57 @@ import pytest
 from luthien_proxy.proxy import __main__ as proxy_main
 from luthien_proxy.proxy import start_proxy
 from luthien_proxy.proxy.debug_callback import DebugCallback
+from luthien_proxy.utils.project_config import ProjectConfig
 
 
-def test_config_path_requires_env_variable():
+def test_main_requires_config_path():
+    config = ProjectConfig(env_map={})
     with pytest.raises(RuntimeError):
-        proxy_main._config_path({})
-
-
-def test_config_path_returns_value_when_present():
-    env: dict[str, str] = {"LITELLM_CONFIG_PATH": "/cfg.yaml"}
-    assert proxy_main._config_path(env) == "/cfg.yaml"
-
-
-def test_sync_database_url_prefers_litellm_variable():
-    env: dict[str, str] = {
-        "DATABASE_URL": "postgres://default",
-        "LITELLM_DATABASE_URL": "postgres://override",
-    }
-    proxy_main._sync_database_url(env)
-    assert env["DATABASE_URL"] == "postgres://override"
+        proxy_main.main(config=config)
 
 
 def test_litellm_command_respects_env():
-    env = {
-        "LITELLM_PORT": "4010",
-        "LITELLM_HOST": "127.0.0.1",
-        "LITELLM_DETAILED_DEBUG": "true",
-    }
-    cmd = proxy_main._litellm_command("/cfg.yaml", env=env)
+    cmd = proxy_main._litellm_command(
+        config_path="/cfg.yaml",
+        host="127.0.0.1",
+        port="4010",
+        detailed_debug=True,
+    )
     assert cmd[:5] == ["uv", "run", "litellm", "--config", "/cfg.yaml"]
     assert "4010" in cmd and "127.0.0.1" in cmd
     assert "--detailed_debug" in cmd
 
 
 def test_proxy_main_uses_injected_runners():
-    env = {
-        "LITELLM_CONFIG_PATH": "/tmp/config.yaml",
-        "LITELLM_HOST": "127.0.0.1",
-        "LITELLM_PORT": "4010",
-    }
+    config = ProjectConfig(
+        env_map={
+            "LITELLM_CONFIG_PATH": "/tmp/config.yaml",
+            "LITELLM_HOST": "127.0.0.1",
+            "LITELLM_PORT": "4010",
+            "LITELLM_DETAILED_DEBUG": "false",
+        }
+    )
     calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
 
     def fake_runner(cmd, **kwargs):
         calls.append((tuple(cmd), kwargs))
         return types.SimpleNamespace(returncode=0)
 
-    proxy_main.main(prisma_runner=fake_runner, command_runner=fake_runner, env=env)
+    proxy_main.main(prisma_runner=fake_runner, command_runner=fake_runner, config=config)
     assert calls[0][0][:4] == ("uv", "run", "prisma", "db")
     assert calls[1][0][0:3] == ("uv", "run", "litellm")
 
 
 def test_start_proxy_main_runs_with_injected_dependencies():
-    env = {
-        "LITELLM_CONFIG_PATH": "/tmp/config.yaml",
-        "LITELLM_HOST": "127.0.0.1",
-        "LITELLM_PORT": "4010",
-        "LITELLM_LOG_LEVEL": "DEBUG",
-    }
+    config = ProjectConfig(
+        env_map={
+            "LITELLM_CONFIG_PATH": "/tmp/config.yaml",
+            "LITELLM_HOST": "127.0.0.1",
+            "LITELLM_PORT": "4010",
+            "LITELLM_LOG_LEVEL": "DEBUG",
+            "CONTROL_PLANE_URL": "http://localhost:8081",
+        }
+    )
     litellm = types.SimpleNamespace(callbacks=[])
     fake_app = object()
 
@@ -70,7 +64,12 @@ def test_start_proxy_main_runs_with_injected_dependencies():
     def fake_runner(app, host, port, log_level, reload=False):  # noqa: ARG001
         runner_calls.update({"app": app, "host": host, "port": port, "log_level": log_level})
 
-    runtime = start_proxy.runtime_for_tests(env=env, uvicorn_runner=fake_runner, litellm=litellm, app=fake_app)
+    runtime = start_proxy.runtime_for_tests(
+        config=config,
+        uvicorn_runner=fake_runner,
+        litellm=litellm,
+        app=fake_app,
+    )
     start_proxy.main(runtime)
     assert runner_calls["app"] is fake_app
     assert runner_calls["host"] == "127.0.0.1"
@@ -132,7 +131,14 @@ class _AsyncFactory:
 async def test_debug_callback_uses_injected_clients():
     sync_factory = _SyncFactory()
     async_factory = _AsyncFactory()
-    cb = DebugCallback(client_factory=sync_factory, async_client_factory=async_factory)
+    config = ProjectConfig(
+        env_map={
+            "LITELLM_CONFIG_PATH": "/tmp/config.yaml",
+            "REDIS_URL": "redis://localhost:6379/0",
+            "LUTHIEN_POLICY_CONFIG": "/tmp/policy.yaml",
+        }
+    )
+    cb = DebugCallback(config=config, client_factory=sync_factory, async_client_factory=async_factory)
 
     cb.log_pre_api_call(None, None, {"k": 1})
     await cb.async_log_pre_api_call(None, None, {"k": 1})

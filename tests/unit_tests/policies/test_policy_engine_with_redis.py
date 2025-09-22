@@ -27,7 +27,7 @@ class FakeAsyncRedis:
 
 @pytest.mark.asyncio
 async def test_engine_redis_state_and_logging():
-    eng = PolicyEngine()
+    eng = PolicyEngine(database_url=None, redis_url="redis://localhost:6379/0")
     fake = FakeAsyncRedis()
     eng.redis_client = fake  # inject
 

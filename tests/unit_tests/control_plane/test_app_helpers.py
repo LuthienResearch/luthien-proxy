@@ -1,3 +1,5 @@
+from collections import Counter
+
 import pytest
 
 from luthien_proxy.control_plane.app import get_hook_counters, list_endpoints
@@ -11,5 +13,5 @@ async def test_list_endpoints_shape():
 
 @pytest.mark.asyncio
 async def test_get_hook_counters_is_dict():
-    data = await get_hook_counters()
+    data = await get_hook_counters(counters=Counter({"a": 1}))
     assert isinstance(data, dict)

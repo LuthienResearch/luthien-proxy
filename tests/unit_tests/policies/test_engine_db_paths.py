@@ -28,7 +28,7 @@ class FakePool:
 
 @pytest.mark.asyncio
 async def test_engine_writes_to_db_pool():
-    eng = PolicyEngine()
+    eng = PolicyEngine(database_url=None, redis_url="redis://localhost:6379/0")
     pool = FakePool()
     eng.db_pool = pool
     eng.redis_client = None

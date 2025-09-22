@@ -3,18 +3,12 @@
 from __future__ import annotations
 
 import inspect
-import os
 from typing import Any, Awaitable, Callable
 
 import asyncpg
 
 ConnectFn = Callable[[str], Awaitable[Any]]
 PoolFactory = Callable[..., Awaitable[Any]]
-
-
-def database_url() -> str:
-    """Return the DATABASE_URL or a local default."""
-    return os.getenv("DATABASE_URL", "postgresql://luthien:luthien@postgres:5432/luthien")
 
 
 def get_connector() -> ConnectFn:
@@ -29,8 +23,10 @@ def get_pool_factory() -> PoolFactory:
 
 async def open_connection(connect: ConnectFn | None = None, url: str | None = None) -> Any:
     """Open a database connection using the provided connector."""
+    if url is None:
+        raise RuntimeError("Database URL must be provided")
     connector = connect or get_connector()
-    return await connector(url or database_url())
+    return await connector(url)
 
 
 async def close_connection(conn: Any) -> None:
@@ -49,5 +45,7 @@ async def create_pool(
     **kwargs: Any,
 ) -> Any:
     """Create a connection pool using the provided factory."""
+    if url is None:
+        raise RuntimeError("Database URL must be provided")
     pool_factory = factory or get_pool_factory()
-    return await pool_factory(url or database_url(), **kwargs)
+    return await pool_factory(url, **kwargs)
