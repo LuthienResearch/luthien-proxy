@@ -38,8 +38,6 @@ class RedisClientManager:
                 return cached
 
             client = self._factory(redis_url)
-            if client is None:  # pragma: no cover - factory should fail loudly
-                raise RuntimeError("Failed to create Redis client")
 
             await client.ping()
             self._cache[redis_url] = client
