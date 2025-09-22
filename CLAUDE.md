@@ -59,7 +59,7 @@
    - Clear `dev/NOTES.md` and `dev/OBJECTIVE.md`.
 
    ```bash
-   git commit -A "<objective> is ready"
+   git commit -a -m "<objective> is ready"
    gh pr ready
    ```
 
