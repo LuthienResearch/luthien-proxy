@@ -7,5 +7,4 @@ policy: "luthien_proxy.policies.all_caps:AllCapsPolicy"
 
 # Policy-specific options
 policy_options:
-  stream:
-    log_every_n: 1
+  policy_specific_arg: 'someval'

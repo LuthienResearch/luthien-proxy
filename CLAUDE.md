@@ -26,6 +26,45 @@
   - Clear `dev/NOTES.md` and reset `dev/OBJECTIVE.md` so the next objective starts fresh.
   - Mark the PR ready.
 
+### Objective Workflow
+
+1. **Start a new objective**
+
+   ```bash
+   git checkout main
+   git pull
+   git checkout -b objective/<short-handle>
+   ```
+
+   - If the branch already exists, run `git checkout objective/<short-handle>` instead of creating it.
+   - Update `dev/OBJECTIVE.md`, then:
+
+     ```bash
+     git add dev/OBJECTIVE.md
+     git commit -m "chore: set objective to <short description>"
+     git push -u origin objective/<short-handle>
+     gh pr create --draft --fill --title "<Objective Title>"
+     ```
+
+2. **Build momentum during development**
+
+   - Format everything with `./scripts/format_all.sh`.
+   - Full lint + tests + type check: `./scripts/dev_checks.sh`.
+   - Quick unit pass: `uv run pytest tests/unit_tests`.
+   - Commit in small chunks with clear messages.
+
+3. **Wrap up the objective**
+
+   ```bash
+   ./scripts/dev_checks.sh
+   git status
+   gh pr ready
+   ```
+
+   - Update `CHANGELOG.md` with a bullet referencing the objective handle.
+   - Clear `dev/NOTES.md` and reset `dev/OBJECTIVE.md`.
+   - Confirm the PR summary lists local test results.
+
 ## Project Structure & Module Organization
 
 - `dev/`: Tracking current development information
@@ -50,45 +89,36 @@
 - Install dev deps: `uv sync --dev`
 - Start full stack: `./scripts/quick_start.sh`
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
+<<<<<<< HEAD
 - Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
+=======
+- Lint/format: `uv run ruff format` then `uv run ruff check --fix`; `./scripts/dev_checks.sh` wraps both plus pytest and pyright.
+>>>>>>> c92a492 (more doc tweaks)
 - Type check: `uv run pyright`
 - Run control plane locally: `uv run python -m luthien_proxy.control_plane`
 - Run proxy locally: `uv run python -m luthien_proxy.proxy`
 - Docker iterate: `docker compose restart control-plane` or `litellm-proxy`
 
+
 ## Coding Style & Naming Conventions
 
 - Python 3.13; annotate public APIs and important internals. Pyright is the single static checker.
 - Formatting via Ruff: double quotes, spaces for indent (see `pyproject.toml`).
-- Names: modules `snake_case`, classes `PascalCase`, functions/vars `snake_case`.
-- Keep policies small and testable; avoid side effects in hooks.
+- Naming: modules `snake_case`, classes `PascalCase`, functions and vars `snake_case`.
 - Docstrings: Google style for public modules/classes/functions; focus on WHY and non-trivial behavior.
-- Runtime type checking (`beartype`) is optional and only for critical boundaries during dev/tests.
+- Optional runtime type checking (`beartype`) for critical sections
 
 ## Testing Guidelines
 
-- Framework: `pytest` (+ `pytest-asyncio` for async paths).
-- Location: under `tests/`; name files `test_*.py` and mirror package paths.
+- Framework: `pytest`
+- Location: under `tests/unit_tests/`, `tests/integration_tests/`, `tests/e2e_tests/`
+- Name files `test_*.py` and mirror package paths within the test-type directory.
 - Prefer fast unit tests for policies; add integration tests against `/hooks/*` and `/health`.
 - Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.
 
-## Tooling & Config
+## Security & Configuration
 
-- Consolidate config in `pyproject.toml`:
-  - Ruff lint/format, Pytest options, Pyright settings.
-- Avoid extra config files unless needed; if Pyright cannot read `pyproject.toml` in your environment, fall back to a single `pyrightconfig.json`.
-- A staged maintainability plan lives in `dev/maintainability_plan.md`.
-
-## Commit & Pull Request Guidelines
-
-- Current history is informal; prefer Conventional Commits going forward.
-  - Example: `feat(proxy): add stream replacement hook`.
-- Commits: small, focused, with rationale in the body when needed.
-- PRs: include description, linked issues, screenshots/log snippets, and local test results.
-- CI gate: ensure `pre-commit run -a`, `ruff`, and tests pass.
-
-## Security & Configuration Tips
-
+- Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
 - Copy `.env.example` to `.env`; never commit secrets.
 - Key env vars: `DATABASE_URL`, `REDIS_URL`, `CONTROL_PLANE_URL`, `LITELLM_*`, `LUTHIEN_POLICY_CONFIG`.
 - Update `config/litellm_config.yaml` and `config/luthien_config.yaml` rather than hardcoding.
@@ -103,6 +133,5 @@
   policy: "luthien_proxy.policies.noop:NoOpPolicy"
   # optional
   policy_options:
-    stream:
-      log_every_n: 1
+    policy_specific_arg: 'someval'
   ```

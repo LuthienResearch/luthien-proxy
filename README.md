@@ -52,8 +52,7 @@ Copy `.env.example` to `.env` and add your API keys.
     policy: "luthien_proxy.policies.noop:NoOpPolicy"
     # optional
     policy_options:
-      stream:
-        log_every_n: 1
+      policy_specific_arg: 'someval'
     ```
 
 ## Dev Tooling
