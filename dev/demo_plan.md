@@ -9,9 +9,13 @@
 
 ## Phase 2 – Harmful Baseline
 
-- Seed a demo database with verifiable rows and an integrity check script.
-- Build the dummy backend 'llm provider' that can issue deterministic responses so we can issue our harmful commands deterministically
-- Select a framework (e.g. claude code) that will serve as the client-side application that will execute the 'bad' call
+- ✅ Seed a demo SQLite database with verifiable rows and an integrity check script.
+  - `dev/demo_assets/demo_db.py` seeds the `accounts`/`orders` tables and stores a dataset hash plus version metadata.
+  - `uv run python dev/demo_assets/demo_db.py check` confirms row counts and hashes before we run the harmful baseline.
+- ✅ Build the dummy backend "LLM provider" that issues deterministic harmful SQL responses so we can repeat the drop scenario.
+  - `dev/demo_assets/dummy_llm_provider.py` exposes `/v1/chat/completions` (OpenAI compatible) and always returns the destructive `DROP TABLE orders;` payload with narration for the demo.
+- ✅ Select a framework that will execute the bad call.
+  - We'll drive the baseline from **Claude Code** so the walkthrough mirrors the agent workflows we want to protect; it's already part of our tooling and makes screen capture easy.
 
 ## Phase 3 – Protection Policy
 
