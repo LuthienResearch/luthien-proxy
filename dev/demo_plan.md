@@ -9,9 +9,10 @@
 
 ## Phase 2 – Harmful Baseline
 
-- Seed a demo database with verifiable rows and an integrity check script.
-- Build the dummy backend 'llm provider' that can issue deterministic responses so we can issue our harmful commands deterministically
-- Select a framework (e.g. claude code) that will serve as the client-side application that will execute the 'bad' call
+- [x] Seeded a demo SQLite database with deterministic rows. Run `uv run python scripts/demo_seed_db.py` to create `dev/demo_baseline.sqlite` and print integrity metadata. The schema covers customers, orders, and inventory so we can verify impact after a DROP TABLE event.
+- [x] Added an integrity check helper at `scripts/demo_check_integrity.py`; it recomputes table checksums for quick pre/post comparisons during the baseline recording.
+- [x] Built a deterministic FastAPI dummy provider in `luthien_proxy.demo`. Launch it with `uv run python -m luthien_proxy.demo` to return canned harmful SQL completions.
+- [x] Locked the client to the existing `scripts/claude-code` launcher so the harmful completion flows through the same CLI we will showcase in the demo.
 
 ## Phase 3 – Protection Policy
 
