@@ -38,7 +38,7 @@ A minimal, staged plan to improve types, docs, tests, and complexity while keepi
 - Minimal tests to enable fast iteration:
   - `tests/test_health.py`: call `health_check()` directly (no ASGI startup).
   - `tests/test_stream_context.py`: fake async Redis for `StreamContextStore`.
-  - `tests/test_policy_loading.py`: temp YAML → `_load_policy_from_config()`.
+  - `tests/test_policy_loading.py`: temp YAML → `load_policy_from_config()`.
 - Dev checks & CI
   - Use `scripts/dev_checks.sh` (applies formatting and autofix before gating):
     - `uv run ruff format`
@@ -137,7 +137,7 @@ A minimal, staged plan to improve types, docs, tests, and complexity while keepi
 - 2025-09-17: Phase 2 completed (baseline). Added concise module/class/function docstrings across `src/**`; fixed D202/D205/D212 issues; excluded `tests/**` from `D` rules.
 - 2025-09-17: Removed top‑level `main.py` (unused); reduces surface and avoids stray docstring/lint noise.
  - 2025-09-18: Consolidated on Ruff as sole formatter/linter; removed Black from dev deps. Ignored E501; line length set to 120. Added `.vscode/settings.json` to use Ruff for format/imports on save. Updated `scripts/dev_checks.sh` to apply formatting and autofix.
- - 2025-09-18: Refactored complexity hot spots: `extract_call_id_for_hook` (A), `_load_policy_from_config` (B), `trace_by_call_id` (A). Radon average now A (2.78). Remaining C: `proxy/__main__.py: main (C12)`; notable Bs: `debug_callback._safe (B9)`, `utils/streaming.extract_delta_text (B9)`, `app.hook_generic (B7)`.
+- 2025-09-18: Refactored complexity hot spots: `extract_call_id_for_hook` (A), `load_policy_from_config` (B), `trace_by_call_id` (A). Radon average now A (2.78). Remaining C: `proxy/__main__.py: main (C12)`; notable Bs: `debug_callback._safe (B9)`, `utils/streaming.extract_delta_text (B9)`, `app.hook_generic (B7)`.
 
 ## Complexity Snapshot (2025-09-18)
 
