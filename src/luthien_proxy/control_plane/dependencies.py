@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Callable, Coroutine, Optional, cast
+from typing import Any, Callable, Coroutine, Optional, Protocol, cast
 
 from fastapi import Request
 
@@ -14,71 +14,93 @@ from luthien_proxy.utils.project_config import ProjectConfig
 DebugLogWriter = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
 
+class AppState(Protocol):
+    """Describe the FastAPI app.state we expect to work with."""
+
+    project_config: ProjectConfig | None
+    active_policy: LuthienPolicy | None
+    hook_counters: Counter[str] | None
+    debug_log_writer: DebugLogWriter | None
+    database_pool: db.DatabasePool | None
+    redis_client: redis_client.RedisClient | None
+
+
+def _require_app_state(request: Request) -> AppState:
+    return cast(AppState, request.app.state)
+
+
 def get_project_config(request: Request) -> ProjectConfig:
     """Return the ProjectConfig stored on app.state."""
+    state = _require_app_state(request)
     try:
-        config = request.app.state.project_config
+        config = state.project_config
     except AttributeError as exc:
         raise RuntimeError("ProjectConfig is not configured for this app instance") from exc
     if config is None:
         raise RuntimeError("ProjectConfig is not configured for this app instance")
-    return cast(ProjectConfig, config)
+    return config
 
 
 def get_active_policy(request: Request) -> LuthienPolicy:
     """Return the active policy from app.state."""
+    state = _require_app_state(request)
     try:
-        policy = request.app.state.active_policy
+        policy = state.active_policy
     except AttributeError as exc:
         raise RuntimeError("Active policy not loaded for this app instance") from exc
     if policy is None:
         raise RuntimeError("Active policy not loaded for this app instance")
-    return cast(LuthienPolicy, policy)
+    return policy
 
 
 def get_hook_counter_state(request: Request) -> Counter[str]:
     """Return the in-memory hook counters for this app."""
+    state = _require_app_state(request)
     try:
-        counters = request.app.state.hook_counters
+        counters = state.hook_counters
     except AttributeError as exc:
         raise RuntimeError("Hook counters not initialized") from exc
     if counters is None:
         raise RuntimeError("Hook counters not initialized")
-    return cast(Counter[str], counters)
+    return counters
 
 
 def get_debug_log_writer(request: Request) -> DebugLogWriter:
     """Return the async debug log writer stored on app.state."""
+    state = _require_app_state(request)
     try:
-        writer = request.app.state.debug_log_writer
+        writer = state.debug_log_writer
     except AttributeError as exc:
         raise RuntimeError("Debug log writer not configured") from exc
     if writer is None:
         raise RuntimeError("Debug log writer not configured")
-    return cast(DebugLogWriter, writer)
+    return writer
 
 
 def get_database_pool(request: Request) -> Optional[db.DatabasePool]:
     """Return the configured database pool, if any."""
+    state = _require_app_state(request)
     try:
-        pool = request.app.state.database_pool
+        pool = state.database_pool
     except AttributeError as exc:
         raise RuntimeError("Database pool state missing on app") from exc
-    return cast(Optional[db.DatabasePool], pool)
+    return pool
 
 
 def get_redis_client(request: Request) -> redis_client.RedisClient:
     """Return the cached redis client from app.state."""
+    state = _require_app_state(request)
     try:
-        client = request.app.state.redis_client
+        client = state.redis_client
     except AttributeError as exc:
         raise RuntimeError("Redis client not configured") from exc
     if client is None:
         raise RuntimeError("Redis client not configured")
-    return cast(redis_client.RedisClient, client)
+    return client
 
 
 __all__ = [
+    "AppState",
     "DebugLogWriter",
     "get_project_config",
     "get_active_policy",
