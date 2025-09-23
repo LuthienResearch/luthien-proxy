@@ -93,8 +93,11 @@ We keep the policy surface aligned with LiteLLM's hook API, while keeping the pr
 
 Key files:
 - `config/litellm_callback.py`: minimal LiteLLM callback that forwards hook payloads to the control plane.
-- `src/luthien_proxy/control_plane/app.py`: FastAPI app with generic hook ingestion, tests, and debug/trace endpoints.
-- `src/luthien_proxy/control_plane/stream_context.py`: Redis-backed StreamContextStore for per-call streaming context.
+- `src/luthien_proxy/control_plane/app.py`: FastAPI application factory that wires shared state, middleware, and routers.
+- `src/luthien_proxy/control_plane/dependencies.py`: FastAPI dependency helpers for pulling config, policies, and clients off `app.state`.
+- `src/luthien_proxy/control_plane/hooks_routes.py`: LiteLLM hook ingestion endpoints plus tracing utilities.
+- `src/luthien_proxy/control_plane/debug_routes.py`: Debug log query APIs backed by the database.
+- `src/luthien_proxy/control_plane/stream_context.py`: Redis-backed `StreamContextStore` for per-call streaming context.
 - `src/luthien_proxy/policies/base.py`: abstract policy class including streaming helpers.
 - `src/luthien_proxy/policies/noop.py`: default no-op policy.
 - `src/luthien_proxy/policies/all_caps.py`: simple example policy.

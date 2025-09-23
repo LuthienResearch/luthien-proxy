@@ -72,7 +72,7 @@
   - `*plan.md`: Medium- and long-term development plans may be recorded here.
 - `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
 - `src/luthien_proxy/`: core package
-  - `control_plane/`: FastAPI app and `__main__` launcher
+  - `control_plane/`: FastAPI app factory plus routers (`app.py`, `dependencies.py`, `hooks_routes.py`, `debug_routes.py`) and the `__main__` launcher
   - `proxy/`: LiteLLM proxy integration and custom logger
   - `policies/`: policy interfaces and defaults (`noop.py`)
   - `control_plane/templates` + `static`: debug and trace UIs
