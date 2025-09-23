@@ -11,7 +11,7 @@
 
 - [x] Seeded a demo SQLite database with deterministic rows. Run `uv run python scripts/demo_seed_db.py` to create `dev/demo_baseline.sqlite` and print integrity metadata. The schema covers customers, orders, and inventory so we can verify impact after a DROP TABLE event.
 - [x] Added an integrity check helper at `scripts/demo_check_integrity.py`; it recomputes table checksums for quick pre/post comparisons during the baseline recording.
-- [x] Built a deterministic FastAPI dummy provider in `luthien_proxy.demo`. Launch it with `uv run python -m luthien_proxy.demo` to return canned harmful SQL completions.
+- [x] Built a deterministic FastAPI dummy provider in `scripts/demo_lib`. Launch it with `uv run python scripts/run_dummy_provider.py` to return canned harmful SQL completions.
 - [x] Locked the client to the existing `scripts/claude-code` launcher so the harmful completion flows through the same CLI we will showcase in the demo.
 
 ## Phase 3 – Protection Policy

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from luthien_proxy.demo.sqlite_demo import seed_demo_database, verify_demo_database
+from demo_lib import seed_demo_database, verify_demo_database
 
 
 def main() -> None:

@@ -1,16 +1,14 @@
-"""CLI entrypoint for the dummy LLM provider."""
+"""Launch the deterministic dummy provider used for demo traffic."""
 
 from __future__ import annotations
 
 import argparse
 
 import uvicorn
-
-from .dummy_provider import DeterministicLLMProvider, create_dummy_provider_app
+from demo_lib import DeterministicLLMProvider, create_dummy_provider_app
 
 
 def main() -> None:
-    """Launch the dummy provider with uvicorn."""
     parser = argparse.ArgumentParser(description="Run the deterministic demo provider")
     parser.add_argument(
         "--host",
