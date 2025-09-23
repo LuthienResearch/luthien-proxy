@@ -8,6 +8,7 @@ Usage:
     uv run python dev/demo_assets/demo_db.py seed --force
     uv run python dev/demo_assets/demo_db.py check
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,17 +49,32 @@ EXPECTED_DATA_HASH = hash_rows((*ACCOUNTS, *ORDERS))
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
+    """Return a SQLite connection with foreign key enforcement enabled.
+
+    Args:
+        db_path: Location of the database file to open.
+
+    Returns:
+        sqlite3.Connection: Connection ready for read-write operations.
+    """
     connection = sqlite3.connect(db_path)
     connection.execute("PRAGMA foreign_keys = ON;")
     return connection
 
 
 def seed_database(db_path: Path, force: bool) -> None:
+    """Create the demo database with deterministic seed data.
+
+    Args:
+        db_path: Destination path for the SQLite database.
+        force: Whether to overwrite an existing database file.
+
+    Raises:
+        SystemExit: If the database exists and `force` is False.
+    """
     if db_path.exists():
         if not force:
-            raise SystemExit(
-                f"Database {db_path} already exists. Pass --force to overwrite."
-            )
+            raise SystemExit(f"Database {db_path} already exists. Pass --force to overwrite.")
         db_path.unlink()
 
     with connect(db_path) as connection:
@@ -113,26 +129,26 @@ def seed_database(db_path: Path, force: bool) -> None:
 
 
 def verify_database(db_path: Path) -> None:
+    """Confirm that the demo database content matches the seeded baseline.
+
+    Args:
+        db_path: Location of the SQLite database to validate.
+
+    Raises:
+        SystemExit: If the database is missing or data integrity checks fail.
+    """
     if not db_path.exists():
         raise SystemExit(f"Database {db_path} is missing. Run the seed command first.")
 
     with connect(db_path) as connection:
         cursor = connection.cursor()
-        account_rows = cursor.execute(
-            "SELECT id, name, balance_cents FROM accounts ORDER BY id"
-        ).fetchall()
-        order_rows = cursor.execute(
-            "SELECT id, account_id, description, quantity FROM orders ORDER BY id"
-        ).fetchall()
-        metadata = dict(
-            cursor.execute("SELECT key, value FROM metadata").fetchall()
-        )
+        account_rows = cursor.execute("SELECT id, name, balance_cents FROM accounts ORDER BY id").fetchall()
+        order_rows = cursor.execute("SELECT id, account_id, description, quantity FROM orders ORDER BY id").fetchall()
+        metadata = dict(cursor.execute("SELECT key, value FROM metadata").fetchall())
 
     reported_version = metadata.get("dataset_version")
     if reported_version != DATASET_VERSION:
-        raise SystemExit(
-            f"Dataset version mismatch: expected {DATASET_VERSION}, found {reported_version}."
-        )
+        raise SystemExit(f"Dataset version mismatch: expected {DATASET_VERSION}, found {reported_version}.")
 
     if len(account_rows) != EXPECTED_ACCOUNT_COUNT or len(order_rows) != EXPECTED_ORDER_COUNT:
         raise SystemExit(
@@ -144,16 +160,17 @@ def verify_database(db_path: Path) -> None:
     observed_hash = hash_rows((*account_rows, *order_rows))
     expected_hash = metadata.get("expected_hash")
     if expected_hash != EXPECTED_DATA_HASH or observed_hash != EXPECTED_DATA_HASH:
-        raise SystemExit(
-            "Data integrity failure: expected hash does not match seed baseline."
-        )
+        raise SystemExit("Data integrity failure: expected hash does not match seed baseline.")
 
-    print(
-        "Database integrity verified. Row counts and content match the seeded baseline."
-    )
+    print("Database integrity verified. Row counts and content match the seeded baseline.")
 
 
 def parse_args() -> argparse.Namespace:
+    """Build and parse CLI arguments for the demo database utilities.
+
+    Returns:
+        argparse.Namespace: Parsed command-line options.
+    """
     parser = argparse.ArgumentParser(description="Demo database utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -182,6 +199,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Dispatch the CLI command for seeding or verifying the demo database."""
     args = parse_args()
 
     if args.command == "seed":
