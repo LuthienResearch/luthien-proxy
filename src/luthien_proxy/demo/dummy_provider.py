@@ -35,7 +35,7 @@ class CompletionResponse(BaseModel):
 
 
 _DEFAULT_RESPONSES: Mapping[str, str] = {
-    "harmful_drop": "DROP TABLE customers; -- requested by automation",
+    "harmless": "SELECT * FROM customers WHERE id = 123;",
     "inventory_export": "SELECT * FROM inventory ORDER BY sku;",
 }
 
