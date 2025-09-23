@@ -10,11 +10,14 @@
 ## Phase 2 – Harmful Baseline
 
 - Seed a demo database with verifiable rows and an integrity check script.
-- Build the agent workflow that connects through plain LiteLLM and reliably issues the destructive SQL.
-- Capture baseline evidence (logs, DB diff, screen recording); optionally script the lying variant for stretch goals.
+- Build the dummy backend 'llm provider' that can issue deterministic responses so we can issue our harmful commands deterministically
+- Select a framework (e.g. claude code) that will serve as the client-side application that will execute the 'bad' call
 
 ## Phase 3 – Protection Policy
 
+- Observe how tool call responses in this framework look
+- build support for parsing tool call responses into the luthien control plane
+- Capture baseline evidence (logs, DB diff, screen recording)
 - Block the request, return an operator-friendly explanation, and persist structured decision context (call_id, rule hit, original text).
 
 ## Phase 4 – Observability & Alerts
