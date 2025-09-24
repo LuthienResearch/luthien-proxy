@@ -47,17 +47,11 @@ function renderTimeline(data) {
     const ns = toNs(e);
     if (!Number.isNaN(ns) && ns < minNs) minNs = ns;
   }
-  // helper: format delta ns as seconds with spaced 3-digit groups after decimal
+  // helper: format delta ns as seconds with millisecond precision
   const formatDeltaNs = (ns) => {
     if (!Number.isFinite(ns)) return 'n/a';
-    const totalNs = Math.max(0, Math.floor(ns));
-    const secInt = Math.floor(totalNs / 1e9);
-    const fracNs = totalNs - secInt * 1e9; // 0..999,999,999
-    // pad to 9 digits
-    const fracStr = String(fracNs).padStart(9, '0');
-    // group into 3s with spaces
-    const grouped = fracStr.replace(/(\d{3})(?=\d)/g, '$1 ').trim();
-    return `${secInt}.${grouped} s`;
+    const seconds = Math.max(0, ns) / 1e9;
+    return `${seconds.toFixed(3)} s`;
   };
 
   for (const entry of data.entries) {
