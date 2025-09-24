@@ -16,7 +16,8 @@ import time as _time
 from typing import Any, AsyncGenerator, Optional, Union
 
 import httpx
-from litellm._logging import verbose_logger
+import pydantic
+from litellm._logging import verbose_proxy_logger
 from litellm.integrations.custom_logger import CustomLogger
 
 
@@ -28,7 +29,7 @@ class LuthienCallback(CustomLogger):
         super().__init__()
         self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
-        verbose_logger.info(f"LUTHIEN LuthienCallback initialized with control plane URL: {self.control_plane_url}")
+        verbose_proxy_logger.info(f"LuthienCallback initialized with control plane URL: {self.control_plane_url}")
 
     # ------------- internal helpers -------------
     async def _apost_hook(
@@ -45,7 +46,7 @@ class LuthienCallback(CustomLogger):
                     json=self._json_safe(payload),
                 )
         except Exception as e:
-            verbose_logger.error(f"LUTHIEN hook post error ({hook}): {e}")
+            verbose_proxy_logger.error(f"hook post error ({hook}): {e}")
             raise e
 
     # --------------------- Hooks ----------------------
@@ -88,24 +89,57 @@ class LuthienCallback(CustomLogger):
         )
         return None
 
+    @staticmethod
+    def _update_cumulative_choices(
+        cumulative_choices: list[list[dict]], cumulative_tokens: list[list[str]], new_tokens: list[str], response: dict
+    ) -> None:
+        """Update cumulative choices and tokens from a new response chunk."""
+        if "choices" in response and isinstance(response["choices"], list):
+            choices = response["choices"]
+            for choice in choices:
+                if "index" not in choice:
+                    raise ValueError(f"_update_cumulative_choices: choice missing index! {choice}")
+                index: int = choice["index"]
+                # Ensure lists are long enough
+                while len(cumulative_tokens) <= index:
+                    cumulative_tokens.append([])
+                while len(cumulative_choices) <= index:
+                    cumulative_choices.append([])
+                while len(new_tokens) <= index:
+                    new_tokens.append("")
+                cumulative_choices[index].append(choice)
+                cumulative_tokens[index].append(choice.get("delta", {}).get("content", ""))
+                new_tokens[index] = cumulative_tokens[index][-1]  # last token for this choice
+        return
+
     async def async_post_call_streaming_iterator_hook(
         self, user_api_key_dict, response, request_data: dict
     ) -> AsyncGenerator[Any, None]:
         """Wrap the streaming iterator to allow per-chunk edits or suppression."""
         try:
+            cumulative_choices: list[list[dict]] = []
+            cumulative_tokens: list[list[str]] = []
+            new_tokens: list[str] = []
             async for item in response:
+                serialized_chunk = self._serialize_response(item)
+                LuthienCallback._update_cumulative_choices(
+                    cumulative_choices, cumulative_tokens, new_tokens, serialized_chunk
+                )
                 await self._apost_hook(
                     "async_post_call_streaming_iterator_hook",
                     {
-                        "user_api_key_dict": self._json_safe(user_api_key_dict),
-                        "response": self._serialize_response(item),
+                        "cumulative_tokens": cumulative_tokens,
+                        "new_tokens": new_tokens,
+                        "response": serialized_chunk,
                         "request_data": self._json_safe(request_data),
+                        "cumulative_choices": cumulative_choices,
+                        "user_api_key_dict": self._json_safe(user_api_key_dict),
                     },
                 )
                 # Default: pass original item
                 yield item
         except Exception as e:
-            verbose_logger.error(f"LUTHIEN async_post_call_streaming_iterator_hook error: {e}")
+            verbose_proxy_logger.error(f"async_post_call_streaming_iterator_hook error: {e}")
             # If wrapping fails, yield from original response to avoid breaking stream
             async for item in response:
                 yield item
@@ -135,7 +169,7 @@ class LuthienCallback(CustomLogger):
                 },
             )
         except Exception as e:
-            verbose_logger.error(f"LUTHIEN async_on_stream_event forward error: {e}")
+            verbose_proxy_logger.error(f"async_on_stream_event forward error: {e}")
             return None
 
     def _serialize_dict(self, obj):
@@ -155,12 +189,17 @@ class LuthienCallback(CustomLogger):
     def _serialize_response(self, response):
         """Safely serialize response objects."""
         if response is None:
-            return None
+            raise ValueError("response is None")
         if isinstance(response, dict):
-            return response
-        if hasattr(response, "model_dump"):
-            return response.model_dump()
-        return str(response)
+            serialized = dict(response)
+            serialized["_source_type_"] = "dict"
+            return serialized
+        elif isinstance(response, pydantic.BaseModel):
+            response_dict = response.model_dump()
+            response_dict["_source_type_"] = "pydantic"
+            return response_dict
+        else:
+            raise ValueError("response is not a dict or pydantic model!")
 
     def _json_safe(self, obj):
         """Recursively convert objects into JSON-serializable structures.
