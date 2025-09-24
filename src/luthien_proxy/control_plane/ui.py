@@ -33,3 +33,9 @@ async def debug_ui(request: Request, debug_type: str):
 async def hooks_trace_ui(request: Request):
     """Render the hooks trace UI for a given call ID."""
     return templates.TemplateResponse(request, "hooks_trace.html")
+
+
+@router.get("/hooks/conversation", response_class=HTMLResponse)
+async def hooks_conversation_ui(request: Request):
+    """Render the live conversation impact view."""
+    return templates.TemplateResponse(request, "conversation_view.html")
