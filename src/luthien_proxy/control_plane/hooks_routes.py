@@ -129,7 +129,12 @@ async def hook_generic(
                 record["litellm_call_id"] = call_id
         except Exception:
             pass
-        stored_record = {"hook": hook_name, "payload": stored_payload}
+
+        stored_record: dict[str, Any] = {"hook": hook_name, "payload": stored_payload}
+        trace_id = _extract_trace_id(payload)
+        if trace_id:
+            record["litellm_trace_id"] = trace_id
+            stored_record["litellm_trace_id"] = trace_id
         if "litellm_call_id" in record:
             stored_record["litellm_call_id"] = record["litellm_call_id"]
         asyncio.create_task(debug_writer(f"hook:{hook_name}", stored_record))
@@ -306,6 +311,22 @@ def _extract_stream_chunk(payload: Any) -> Any:
         if key in payload_dict:
             return payload_dict.get(key)
     return payload_dict
+
+
+def _extract_trace_id(payload: Any) -> Optional[str]:
+    if not isinstance(payload, dict):
+        return None
+    request_data = payload.get("request_data")
+    if isinstance(request_data, dict):
+        trace_id = request_data.get("litellm_trace_id")
+        if isinstance(trace_id, str) and trace_id:
+            return trace_id
+    data = payload.get("data")
+    if isinstance(data, dict):
+        trace_id = data.get("litellm_trace_id")
+        if isinstance(trace_id, str) and trace_id:
+            return trace_id
+    return None
 
 
 def _unwrap_response(payload: Any) -> Any:
