@@ -208,6 +208,24 @@ function handleEvent(evt) {
       break;
     }
     case 'stream': {
+      const ts = evt.ts || Date.now() / 1000;
+      const replace = Boolean(evt.replace);
+      if (replace) {
+        const last = state.assistant.chunks[state.assistant.chunks.length - 1];
+        if (!last) break;
+        const previousFinal = last.final_delta || '';
+        if (previousFinal) {
+          state.assistant.final = state.assistant.final.slice(0, -previousFinal.length);
+        }
+        const newFinal = evt.final_delta || previousFinal;
+        state.assistant.final += newFinal;
+        last.final_delta = newFinal;
+        last.timestamp = ts;
+        state.assistant.completed = false;
+        renderConversation();
+        break;
+      }
+
       const originalDelta = evt.original_delta || '';
       const finalDelta = evt.final_delta || originalDelta;
       state.assistant.original += originalDelta;
@@ -216,7 +234,7 @@ function handleEvent(evt) {
         original_delta: originalDelta,
         final_delta: finalDelta,
         choice_index: evt.choice_index || 0,
-        timestamp: evt.ts || Date.now() / 1000,
+        timestamp: ts,
       });
       state.assistant.completed = false;
       renderConversation();

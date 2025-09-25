@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import time
 from collections import Counter
+from copy import deepcopy
 from datetime import datetime
 from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional, cast
 
@@ -115,6 +117,7 @@ async def hook_generic(
     """Generic hook endpoint for any CustomLogger hook."""
     try:
         record_payload = _json_safe(payload)
+        stored_payload = deepcopy(record_payload)
         record = {
             "hook": hook_name,
             "payload": record_payload,
@@ -126,24 +129,28 @@ async def hook_generic(
                 record["litellm_call_id"] = call_id
         except Exception:
             pass
-        asyncio.create_task(debug_writer(f"hook:{hook_name}", record))
+        stored_record = {"hook": hook_name, "payload": stored_payload}
+        if "litellm_call_id" in record:
+            stored_record["litellm_call_id"] = record["litellm_call_id"]
+        asyncio.create_task(debug_writer(f"hook:{hook_name}", stored_record))
         name = hook_name.lower()
         counters[name] += 1
         handler = cast(
             Optional[Callable[..., Awaitable[Any]]],
             getattr(policy, name, None),
         )
-        payload.pop("post_time_ns", None)
 
         handler_result = None
         if handler:
-            handler_result = await handler(**payload)
+            parameter_names = inspect.signature(handler).parameters.keys()
+            filtered_payload = {k: v for k, v in payload.items() if k in parameter_names}
+            handler_result = await handler(**filtered_payload)
         final_result = handler_result if handler_result is not None else payload
 
         result_record = {
             "hook": hook_name,
             "litellm_call_id": record.get("litellm_call_id"),
-            "original": record_payload,
+            "original": stored_payload,
             "result": _json_safe(final_result),
         }
         asyncio.create_task(debug_writer(f"hook_result:{hook_name}", result_record))
@@ -152,7 +159,7 @@ async def hook_generic(
         if isinstance(call_id, str) and call_id:
             event = _build_conversation_event(
                 hook_name,
-                record_payload,
+                stored_payload,
                 result_record["result"],
                 timestamp=time.time(),
             )
@@ -311,17 +318,17 @@ def _unwrap_response(payload: Any) -> Any:
     return payload_dict
 
 
-def _extract_stream_deltas(original: Any, result: Any | None) -> tuple[int, str, str]:
+def _extract_stream_deltas(original: Any, result: Any | None) -> Optional[tuple[int, str, str]]:
     original_chunk = _extract_stream_chunk(original)
     final_chunk = _extract_stream_chunk(result) if result is not None else None
     source_for_index = original_chunk if original_chunk is not None else final_chunk
     if source_for_index is None:
-        raise ValueError("stream chunk missing response payload")
+        return None
     choice_index = _extract_choice_index(source_for_index)
     original_delta = _delta_from_chunk(original_chunk)
     final_delta = _delta_from_chunk(final_chunk) or original_delta
     if not original_delta and not final_delta:
-        raise ValueError("stream chunk delta empty")
+        return None
     return choice_index, original_delta, final_delta
 
 
@@ -392,7 +399,22 @@ def _build_conversation_state(call_id: str, entries: Iterable[TraceEntry]) -> Co
             continue
 
         if hook == "async_post_call_streaming_iterator_hook":
-            choice_index, original_delta, final_delta = _extract_stream_deltas(original, result)
+            chunk_info = _extract_stream_deltas(original, result)
+            if chunk_info is None:
+                continue
+            choice_index, original_delta, final_delta = chunk_info
+            is_policy_result = (entry.debug_type or "").startswith("hook_result:")
+            if is_policy_result and state.response.chunks:
+                current_chunk = state.response.chunks[-1]
+                previous_final = current_chunk.final_delta or ""
+                if previous_final:
+                    state.response.final_text = state.response.final_text[: -len(previous_final)]
+                state.response.final_text += final_delta
+                current_chunk.final_delta = final_delta
+                current_chunk.choice_index = choice_index
+                current_chunk.timestamp = entry.time
+                continue
+
             chunk = ConversationChunk(
                 sequence=len(state.response.chunks),
                 choice_index=choice_index,
@@ -469,12 +491,16 @@ def _build_conversation_event(
         return {"type": "request", "messages": items, "ts": timestamp}
 
     if hook == "async_post_call_streaming_iterator_hook":
-        choice_index, original_delta, final_delta = _extract_stream_deltas(original, result)
+        chunk_info = _extract_stream_deltas(original, result)
+        if chunk_info is None:
+            return None
+        choice_index, original_delta, final_delta = chunk_info
         return {
             "type": "stream",
             "choice_index": choice_index,
             "original_delta": original_delta,
             "final_delta": final_delta,
+            "replace": result is not None,
             "ts": timestamp,
         }
 

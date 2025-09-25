@@ -17,8 +17,9 @@ from typing import Any, AsyncGenerator, Optional, Union
 
 import httpx
 import pydantic
-from litellm._logging import verbose_proxy_logger
+from litellm._logging import verbose_logger
 from litellm.integrations.custom_logger import CustomLogger
+from litellm.types.utils import ModelResponseStream
 
 
 class LuthienCallback(CustomLogger):
@@ -29,7 +30,7 @@ class LuthienCallback(CustomLogger):
         super().__init__()
         self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
-        verbose_proxy_logger.info(f"LuthienCallback initialized with control plane URL: {self.control_plane_url}")
+        verbose_logger.info(f"LuthienCallback initialized with control plane URL: {self.control_plane_url}")
 
     # ------------- internal helpers -------------
     async def _apost_hook(
@@ -41,13 +42,21 @@ class LuthienCallback(CustomLogger):
         try:
             payload["post_time_ns"] = _time.time_ns()
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                await client.post(
+                response = await client.post(
                     f"{self.control_plane_url}/hooks/{hook}",
                     json=self._json_safe(payload),
                 )
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "")
+                if "application/json" in content_type.lower() and response.content:
+                    try:
+                        return response.json()
+                    except ValueError:
+                        return None
+                return None
         except Exception as e:
-            verbose_proxy_logger.error(f"hook post error ({hook}): {e}")
-            raise e
+            verbose_logger.error(f"hook post error ({hook}): {e}")
+            return None
 
     # --------------------- Hooks ----------------------
 
@@ -68,10 +77,11 @@ class LuthienCallback(CustomLogger):
 
     async def async_post_call_success_hook(self, **kwargs):
         """Allow control plane to replace final response for non-streaming calls."""
-        await self._apost_hook(
+        result = await self._apost_hook(
             "async_post_call_success_hook",
             self._json_safe(kwargs),
         )
+        return result
 
     async def async_moderation_hook(self, **kwargs):
         """Forward moderation evaluations to the control plane."""
@@ -125,7 +135,7 @@ class LuthienCallback(CustomLogger):
                 LuthienCallback._update_cumulative_choices(
                     cumulative_choices, cumulative_tokens, new_tokens, serialized_chunk
                 )
-                await self._apost_hook(
+                policy_result = await self._apost_hook(
                     "async_post_call_streaming_iterator_hook",
                     {
                         "cumulative_tokens": cumulative_tokens,
@@ -136,10 +146,9 @@ class LuthienCallback(CustomLogger):
                         "user_api_key_dict": self._json_safe(user_api_key_dict),
                     },
                 )
-                # Default: pass original item
-                yield item
+                yield self._normalize_stream_chunk(item, policy_result)
         except Exception as e:
-            verbose_proxy_logger.error(f"async_post_call_streaming_iterator_hook error: {e}")
+            verbose_logger.error(f"async_post_call_streaming_iterator_hook error: {e}")
             # If wrapping fails, yield from original response to avoid breaking stream
             async for item in response:
                 yield item
@@ -169,7 +178,7 @@ class LuthienCallback(CustomLogger):
                 },
             )
         except Exception as e:
-            verbose_proxy_logger.error(f"async_on_stream_event forward error: {e}")
+            verbose_logger.error(f"async_on_stream_event forward error: {e}")
             return None
 
     def _serialize_dict(self, obj):
@@ -200,6 +209,19 @@ class LuthienCallback(CustomLogger):
             return response_dict
         else:
             raise ValueError("response is not a dict or pydantic model!")
+
+    def _normalize_stream_chunk(self, original: Any, edited: Any | None) -> ModelResponseStream:
+        if edited is None:
+            if isinstance(original, ModelResponseStream):
+                return original
+            raise TypeError(f"expected ModelResponseStream, got {type(original).__name__}")
+        if isinstance(edited, ModelResponseStream):
+            return edited
+        if isinstance(edited, dict):
+            payload = dict(edited)
+            payload.pop("_source_type_", None)
+            return ModelResponseStream.model_validate(payload)
+        raise TypeError(f"unexpected policy stream result type: {type(edited).__name__}")
 
     def _json_safe(self, obj):
         """Recursively convert objects into JSON-serializable structures.
