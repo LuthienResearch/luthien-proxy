@@ -9,8 +9,8 @@ import logging
 import time
 from collections import Counter
 from copy import deepcopy
-from datetime import datetime
-from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional, cast
+from datetime import datetime, timezone
+from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Literal, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -71,40 +71,37 @@ class TraceInfo(BaseModel):
     latest: datetime
 
 
-class ConversationMessage(BaseModel):
-    """Single request-side message with original and final forms."""
-
-    role: str
-    original: str
-    final: str
-
-
-class ConversationChunk(BaseModel):
-    """Streaming delta comparing original and final tokens."""
-
-    sequence: int
-    choice_index: int
-    original_delta: str
-    final_delta: str
-    timestamp: datetime
-
-
-class ConversationResponse(BaseModel):
-    """Aggregated assistant response including per-chunk comparisons."""
-
-    original_text: str = ""
-    final_text: str = ""
-    chunks: list[ConversationChunk] = Field(default_factory=list)
-    completed: bool = False
-
-
-class ConversationState(BaseModel):
-    """Conversation snapshot reconstructed from debug hooks."""
+class ConversationEvent(BaseModel):
+    """Normalized conversation event derived from debug hooks."""
 
     call_id: str
-    messages: list[ConversationMessage] = Field(default_factory=list)
-    response: ConversationResponse = Field(default_factory=ConversationResponse)
+    trace_id: Optional[str] = None
+    event_type: Literal[
+        "request_started",
+        "original_chunk",
+        "final_chunk",
+        "request_completed",
+    ]
+    sequence: int
+    timestamp: datetime
+    hook: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConversationSnapshot(BaseModel):
+    """Snapshot of a single call with its normalized events."""
+
+    call_id: str
+    trace_id: Optional[str] = None
+    events: list[ConversationEvent] = Field(default_factory=list)
+
+
+class TraceConversationSnapshot(BaseModel):
+    """Snapshot of a trace spanning one or more calls."""
+
+    trace_id: str
     call_ids: list[str] = Field(default_factory=list)
+    events: list[ConversationEvent] = Field(default_factory=list)
 
 
 @router.get("/api/hooks/counters")
@@ -157,16 +154,25 @@ async def hook_generic(
 
         handler_result = None
         if handler:
-            parameter_names = inspect.signature(handler).parameters.keys()
-            filtered_payload = {k: v for k, v in payload.items() if k in parameter_names}
+            policy_payload = _strip_post_time_ns(payload)
+            signature = inspect.signature(handler)
+            parameters = signature.parameters
+            accepts_var_kw = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values())
+            if accepts_var_kw:
+                filtered_payload = policy_payload
+            else:
+                parameter_names = {name for name in parameters.keys() if name != "self"}
+                filtered_payload = {k: v for k, v in policy_payload.items() if k in parameter_names}
             handler_result = await handler(**filtered_payload)
         final_result = handler_result if handler_result is not None else payload
+
+        sanitized_result = _json_safe(final_result)
 
         result_record = {
             "hook": hook_name,
             "litellm_call_id": record.get("litellm_call_id"),
             "original": stored_payload,
-            "result": _json_safe(final_result),
+            "result": sanitized_result,
         }
         if trace_id:
             result_record["litellm_trace_id"] = trace_id
@@ -174,21 +180,21 @@ async def hook_generic(
 
         call_id = result_record.get("litellm_call_id")
         if isinstance(call_id, str) and call_id:
-            event = _build_conversation_event(
-                hook_name,
-                stored_payload,
-                result_record["result"],
-                timestamp=time.time(),
+            timestamp_dt = datetime.now(timezone.utc)
+            events = _build_conversation_events(
+                hook=hook_name,
+                call_id=call_id,
+                trace_id=trace_id,
+                original=stored_payload,
+                result=result_record["result"],
+                timestamp_ns_fallback=time.time_ns(),
+                timestamp=timestamp_dt,
             )
-            if event is not None:
-                event["call_id"] = call_id
-                if trace_id:
-                    event["trace_id"] = trace_id
-                asyncio.create_task(_publish_conversation_event(redis_conn, call_id, event))
-                if trace_id:
-                    asyncio.create_task(_publish_trace_conversation_event(redis_conn, trace_id, event.copy()))
+            for event in events:
+                asyncio.create_task(_publish_conversation_event(redis_conn, event))
+                asyncio.create_task(_publish_trace_conversation_event(redis_conn, event))
 
-        return final_result
+        return _strip_post_time_ns(final_result)
     except Exception as exc:
         logger.error("hook_generic_error: %s", exc)
         raise HTTPException(status_code=500, detail=f"hook_generic_error: {exc}")
@@ -360,20 +366,6 @@ def _unwrap_response(payload: Any) -> Any:
     return payload_dict
 
 
-def _extract_stream_deltas(original: Any, result: Any | None) -> Optional[tuple[int, str, str]]:
-    original_chunk = _extract_stream_chunk(original)
-    final_chunk = _extract_stream_chunk(result) if result is not None else None
-    source_for_index = original_chunk if original_chunk is not None else final_chunk
-    if source_for_index is None:
-        return None
-    choice_index = _extract_choice_index(source_for_index)
-    original_delta = _delta_from_chunk(original_chunk)
-    final_delta = _delta_from_chunk(final_chunk) or original_delta
-    if not original_delta and not final_delta:
-        return None
-    return choice_index, original_delta, final_delta
-
-
 def _extract_response_text(response: Any) -> str:
     if response is None:
         return ""
@@ -398,190 +390,258 @@ def _extract_response_text(response: Any) -> str:
     raise ValueError("Unrecognized response payload structure")
 
 
-def _split_hook_payload(entry: TraceEntry) -> tuple[str, Any | None, Any | None]:
-    payload = _require_dict(entry.payload, "trace entry payload")
-    hook = _require_str(payload.get("hook"), "trace entry hook")
-    if (entry.debug_type or "").startswith("hook_result:"):
-        return hook, payload.get("original"), payload.get("result")
-    return hook, payload.get("payload"), None
+def _format_messages(messages: Iterable[tuple[str, str]]) -> list[dict[str, str]]:
+    formatted: list[dict[str, str]] = []
+    for role, content in messages:
+        formatted.append({"role": role, "content": content})
+    return formatted
 
 
-def _build_conversation_state(call_id: str, entries: Iterable[TraceEntry]) -> ConversationState:
-    state = ConversationState(call_id=call_id)
-    for entry in entries:
-        hook, original, result = _split_hook_payload(entry)
-
-        if hook == "async_pre_call_hook":
-            original_payload = _require_dict(original, "pre-call original payload")
-            result_payload = (
-                _require_dict(result, "pre-call result payload") if result is not None else original_payload
-            )
-            originals = _messages_from_payload(original_payload)
-            finals = _messages_from_payload(result_payload)
-            max_len = max(len(originals), len(finals))
-            messages: list[ConversationMessage] = []
-            for idx in range(max_len):
-                role = "unknown"
-                original_text = ""
-                final_text = ""
-                if idx < len(originals):
-                    role, original_text = originals[idx]
-                if idx < len(finals):
-                    final_role, final_text = finals[idx]
-                    if final_role:
-                        role = final_role
-                messages.append(
-                    ConversationMessage(
-                        role=role,
-                        original=original_text,
-                        final=final_text or original_text,
-                    )
-                )
-            state.messages = messages
-            continue
-
-        if hook == "async_post_call_streaming_iterator_hook":
-            chunk_info = _extract_stream_deltas(original, result)
-            if chunk_info is None:
-                continue
-            choice_index, original_delta, final_delta = chunk_info
-            is_policy_result = (entry.debug_type or "").startswith("hook_result:")
-            if is_policy_result and state.response.chunks:
-                current_chunk = state.response.chunks[-1]
-                previous_final = current_chunk.final_delta or ""
-                if previous_final:
-                    state.response.final_text = state.response.final_text[: -len(previous_final)]
-                state.response.final_text += final_delta
-                current_chunk.final_delta = final_delta
-                current_chunk.choice_index = choice_index
-                current_chunk.timestamp = entry.time
-                continue
-
-            chunk = ConversationChunk(
-                sequence=len(state.response.chunks),
-                choice_index=choice_index,
-                original_delta=original_delta,
-                final_delta=final_delta,
-                timestamp=entry.time,
-            )
-            state.response.chunks.append(chunk)
-            state.response.original_text += original_delta
-            state.response.final_text += final_delta
-            continue
-
-        if hook == "async_post_call_success_hook":
-            original_text = _extract_response_text(_unwrap_response(original))
-            final_text = _extract_response_text(_unwrap_response(result)) if result is not None else ""
-            if original_text:
-                state.response.original_text = original_text
-            if final_text:
-                state.response.final_text = final_text
-            if not state.response.final_text:
-                state.response.final_text = state.response.original_text
-            state.response.completed = True
-            continue
-
-        if hook == "async_post_call_streaming_hook":
-            text = (
-                _extract_response_text(_unwrap_response(result))
-                if result is not None
-                else _extract_response_text(_unwrap_response(original))
-            )
-            if text:
-                state.response.final_text = text
-                if not state.response.original_text:
-                    state.response.original_text = text
-            state.response.completed = True
-            continue
-
-    if not state.response.final_text:
-        state.response.final_text = state.response.original_text
-    return state
+def _extract_post_time_ns_from_any(value: Any) -> Optional[int]:
+    if isinstance(value, dict):
+        candidate = value.get("post_time_ns")
+        if isinstance(candidate, (int, float)):
+            return int(candidate)
+        for key in ("payload", "data", "request_data", "response", "response_obj", "raw_response", "chunk"):
+            if key in value:
+                nested = _extract_post_time_ns_from_any(value.get(key))
+                if nested is not None:
+                    return nested
+        for nested_value in value.values():
+            if isinstance(nested_value, (dict, list)):
+                nested = _extract_post_time_ns_from_any(nested_value)
+                if nested is not None:
+                    return nested
+    elif isinstance(value, list):
+        for item in value:
+            nested = _extract_post_time_ns_from_any(item)
+            if nested is not None:
+                return nested
+    return None
 
 
-def _build_conversation_event(
+def _derive_sequence_ns(fallback_ns: int, *candidates: Any) -> int:
+    for candidate in candidates:
+        ns = _extract_post_time_ns_from_any(candidate)
+        if ns is not None:
+            return ns
+    return fallback_ns
+
+
+def _strip_post_time_ns(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _strip_post_time_ns(inner) for key, inner in value.items() if key != "post_time_ns"}
+    if isinstance(value, list):
+        return [_strip_post_time_ns(item) for item in value]
+    return value
+
+
+def _build_conversation_events(
+    *,
     hook: str,
+    call_id: Optional[str],
+    trace_id: Optional[str],
     original: Any,
     result: Any,
-    *,
-    timestamp: float,
-) -> Optional[dict[str, Any]]:
+    timestamp_ns_fallback: int,
+    timestamp: datetime,
+) -> list[ConversationEvent]:
+    if not isinstance(call_id, str) or not call_id:
+        return []
+
+    effective_trace_id = trace_id
+    if effective_trace_id is None and isinstance(original, dict):
+        effective_trace_id = _extract_trace_id(original)
+    if effective_trace_id is None and isinstance(result, dict):
+        effective_trace_id = _extract_trace_id(result)
+
+    sequence_ns = _derive_sequence_ns(timestamp_ns_fallback, original, result)
+    events: list[ConversationEvent] = []
+
     if hook == "async_pre_call_hook":
         original_payload = _require_dict(original, "pre-call original payload")
         result_payload = _require_dict(result, "pre-call result payload") if result is not None else original_payload
         originals = _messages_from_payload(original_payload)
         finals = _messages_from_payload(result_payload)
-        items = []
-        max_len = max(len(originals), len(finals))
-        for idx in range(max_len):
-            role = "unknown"
-            original_text = ""
-            final_text = ""
-            if idx < len(originals):
-                role, original_text = originals[idx]
-            if idx < len(finals):
-                candidate_role, final_text = finals[idx]
-                if candidate_role:
-                    role = candidate_role
-            items.append(
-                {
-                    "role": role,
-                    "original": original_text,
-                    "final": final_text or original_text,
-                }
+        events.append(
+            ConversationEvent(
+                call_id=call_id,
+                trace_id=effective_trace_id,
+                event_type="request_started",
+                sequence=sequence_ns,
+                timestamp=timestamp,
+                hook=hook,
+                payload={
+                    "original_messages": _format_messages(originals),
+                    "final_messages": _format_messages(finals),
+                    "raw_original": original_payload,
+                    "raw_result": result_payload,
+                },
             )
-        return {"type": "request", "messages": items, "ts": timestamp}
+        )
+        return events
 
     if hook == "async_post_call_streaming_iterator_hook":
-        chunk_info = _extract_stream_deltas(original, result)
-        if chunk_info is None:
-            return None
-        choice_index, original_delta, final_delta = chunk_info
-        return {
-            "type": "stream",
-            "choice_index": choice_index,
-            "original_delta": original_delta,
-            "final_delta": final_delta,
-            "replace": result is not None,
-            "ts": timestamp,
-        }
+        original_chunk = _extract_stream_chunk(original)
+        final_chunk = _extract_stream_chunk(result)
+        source_for_index = final_chunk if final_chunk is not None else original_chunk
+        if source_for_index is None:
+            return events
+        try:
+            choice_index = _extract_choice_index(source_for_index)
+        except ValueError:
+            choice_index = 0
+
+        if original_chunk is not None:
+            original_delta = _delta_from_chunk(original_chunk)
+            events.append(
+                ConversationEvent(
+                    call_id=call_id,
+                    trace_id=effective_trace_id,
+                    event_type="original_chunk",
+                    sequence=sequence_ns,
+                    timestamp=timestamp,
+                    hook=hook,
+                    payload={
+                        "delta": original_delta,
+                        "choice_index": choice_index,
+                        "raw_chunk": original_chunk,
+                        "raw_payload": original,
+                    },
+                )
+            )
+
+        if final_chunk is not None:
+            final_delta = _delta_from_chunk(final_chunk)
+            events.append(
+                ConversationEvent(
+                    call_id=call_id,
+                    trace_id=effective_trace_id,
+                    event_type="final_chunk",
+                    sequence=sequence_ns + 1,
+                    timestamp=timestamp,
+                    hook=hook,
+                    payload={
+                        "delta": final_delta,
+                        "choice_index": choice_index,
+                        "raw_chunk": final_chunk,
+                        "raw_payload": result,
+                    },
+                )
+            )
+        return events
 
     if hook == "async_post_call_success_hook":
-        original_resp = _unwrap_response(original)
-        final_resp = _unwrap_response(result) if result is not None else None
-        return {
-            "type": "final",
-            "original_text": _extract_response_text(original_resp),
-            "final_text": _extract_response_text(final_resp) if final_resp is not None else "",
-            "ts": timestamp,
-        }
+        try:
+            original_response = _unwrap_response(original)
+        except Exception:
+            original_response = original
+        try:
+            final_response = _unwrap_response(result) if result is not None else None
+        except Exception:
+            final_response = result
 
-    return None
+        try:
+            original_text = _extract_response_text(original_response)
+        except Exception:
+            original_text = ""
+        try:
+            final_text = _extract_response_text(final_response) if final_response is not None else ""
+        except Exception:
+            final_text = ""
+        payload = {
+            "status": "success",
+            "original_response": original_text,
+            "final_response": final_text or original_text,
+            "raw_original": original_response,
+            "raw_result": final_response,
+        }
+        events.append(
+            ConversationEvent(
+                call_id=call_id,
+                trace_id=effective_trace_id,
+                event_type="request_completed",
+                sequence=sequence_ns,
+                timestamp=timestamp,
+                hook=hook,
+                payload=payload,
+            )
+        )
+        return events
+
+    if hook == "async_post_call_streaming_hook":
+        summary_payload = result if result is not None else original
+        summary_response = _unwrap_response(summary_payload)
+        final_text = ""
+        try:
+            final_text = _extract_response_text(summary_response)
+        except Exception:
+            final_text = ""
+        events.append(
+            ConversationEvent(
+                call_id=call_id,
+                trace_id=effective_trace_id,
+                event_type="request_completed",
+                sequence=sequence_ns,
+                timestamp=timestamp,
+                hook=hook,
+                payload={
+                    "status": "stream_summary",
+                    "final_response": final_text,
+                    "raw_original": original,
+                    "raw_result": result,
+                },
+            )
+        )
+        return events
+
+    if hook == "async_post_call_failure_hook":
+        events.append(
+            ConversationEvent(
+                call_id=call_id,
+                trace_id=effective_trace_id,
+                event_type="request_completed",
+                sequence=sequence_ns,
+                timestamp=timestamp,
+                hook=hook,
+                payload={
+                    "status": "failure",
+                    "raw_original": original,
+                    "raw_result": result,
+                },
+            )
+        )
+        return events
+
+    return events
 
 
 async def _publish_conversation_event(
     redis: redis_client.RedisClient,
-    call_id: str,
-    event: dict[str, Any],
+    event: ConversationEvent,
 ) -> None:
+    if not event.call_id:
+        return
     try:
-        payload = json.dumps(event, ensure_ascii=False)
+        payload = json.dumps(event.model_dump(mode="json"), ensure_ascii=False)
     except Exception as exc:  # pragma: no cover - defensive serialization
         logger.error("Failed to serialize conversation event: %s", exc)
         return
     try:
-        await redis.publish(_conversation_channel(call_id), payload)
+        await redis.publish(_conversation_channel(event.call_id), payload)
     except Exception as exc:  # pragma: no cover - redis failures shouldn't break hooks
         logger.error("Failed to publish conversation event: %s", exc)
 
 
 async def _publish_trace_conversation_event(
     redis: redis_client.RedisClient,
-    trace_id: str,
-    event: dict[str, Any],
+    event: ConversationEvent,
 ) -> None:
+    trace_id = event.trace_id
+    if not trace_id:
+        return
     try:
-        payload = json.dumps(event, ensure_ascii=False)
+        payload = json.dumps(event.model_dump(mode="json"), ensure_ascii=False)
     except Exception as exc:  # pragma: no cover - defensive serialization
         logger.error("Failed to serialize trace conversation event: %s", exc)
         return
@@ -743,6 +803,40 @@ async def _fetch_trace_entries_by_trace(
     return entries
 
 
+def _events_from_trace_entry(entry: TraceEntry) -> list[ConversationEvent]:
+    debug_type = entry.debug_type or ""
+    if not debug_type.startswith("hook_result:"):
+        return []
+
+    hook = debug_type.split(":", 1)[1]
+    payload = _require_dict(entry.payload, "trace entry payload")
+    original = payload.get("original")
+    result = payload.get("result")
+    call_id = payload.get("litellm_call_id")
+    trace_id = payload.get("litellm_trace_id")
+    timestamp_ns = entry.post_time_ns if entry.post_time_ns is not None else int(entry.time.timestamp() * 1_000_000_000)
+    timestamp = entry.time
+
+    effective_result = result if result is not None else original
+    return _build_conversation_events(
+        hook=hook,
+        call_id=call_id,
+        trace_id=trace_id,
+        original=original,
+        result=effective_result,
+        timestamp_ns_fallback=timestamp_ns,
+        timestamp=timestamp,
+    )
+
+
+def _events_from_trace_entries(entries: Iterable[TraceEntry]) -> list[ConversationEvent]:
+    collected: list[ConversationEvent] = []
+    for entry in entries:
+        collected.extend(_events_from_trace_entry(entry))
+    collected.sort(key=lambda evt: (evt.sequence, evt.timestamp, evt.event_type))
+    return collected
+
+
 @router.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
 async def trace_by_call_id(
     call_id: str = Query(..., min_length=4),
@@ -841,17 +935,17 @@ async def recent_traces(
     return out
 
 
-@router.get("/api/hooks/conversation", response_model=ConversationState)
+@router.get("/api/hooks/conversation", response_model=ConversationSnapshot)
 async def conversation_snapshot(
     call_id: str = Query(..., min_length=4),
     pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
-) -> ConversationState:
-    """Return request/response comparison for a call ID."""
+) -> ConversationSnapshot:
+    """Return normalized conversation events for a call ID."""
     entries = await _fetch_trace_entries(call_id, pool, config)
-    state = _build_conversation_state(call_id, entries)
-    state.call_ids = [call_id]
-    return state
+    events = _events_from_trace_entries(entries)
+    trace_id = next((evt.trace_id for evt in events if evt.trace_id), None)
+    return ConversationSnapshot(call_id=call_id, trace_id=trace_id, events=events)
 
 
 @router.get("/api/hooks/conversation/stream")
@@ -864,23 +958,17 @@ async def conversation_stream(
     return StreamingResponse(stream, media_type="text/event-stream")
 
 
-@router.get("/api/hooks/conversation/by_trace", response_model=ConversationState)
+@router.get("/api/hooks/conversation/by_trace", response_model=TraceConversationSnapshot)
 async def conversation_snapshot_by_trace(
     trace_id: str = Query(..., min_length=4),
     pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
-) -> ConversationState:
-    """Return conversation snapshot for a litellm_trace_id."""
+) -> TraceConversationSnapshot:
+    """Return normalized conversation events grouped by trace id."""
     entries = await _fetch_trace_entries_by_trace(trace_id, pool, config)
-    state = _build_conversation_state(trace_id, entries)
-    call_ids: set[str] = set()
-    for entry in entries:
-        payload = entry.payload
-        call_id = payload.get("litellm_call_id")
-        if isinstance(call_id, str) and call_id:
-            call_ids.add(call_id)
-    state.call_ids = sorted(call_ids)
-    return state
+    events = _events_from_trace_entries(entries)
+    call_ids = sorted({evt.call_id for evt in events if evt.call_id})
+    return TraceConversationSnapshot(trace_id=trace_id, call_ids=call_ids, events=events)
 
 
 @router.get("/api/hooks/conversation/stream_by_trace")
@@ -900,10 +988,9 @@ __all__ = [
     "TraceResponse",
     "CallIdInfo",
     "TraceInfo",
-    "ConversationMessage",
-    "ConversationChunk",
-    "ConversationResponse",
-    "ConversationState",
+    "ConversationEvent",
+    "ConversationSnapshot",
+    "TraceConversationSnapshot",
     "hook_generic",
     "trace_by_call_id",
     "recent_call_ids",

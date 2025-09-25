@@ -149,6 +149,63 @@ body {
   padding-right: 4px;
 }
 
+.call {
+  background: #ffffff;
+  border: 1px solid #dfe3eb;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.call-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.call-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.call-meta {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.call-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.call-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #4b5563;
+}
+
+.call-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .message {
   background: #f6f7fb;
   border: 1px solid #dfe3eb;
@@ -215,11 +272,44 @@ body {
   color: #374151;
 }
 
+.badge.status-success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge.status-failure {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.badge.status-streaming {
+  background: #e0e7ff;
+  color: #312e81;
+}
+
+.badge.status-pending {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.badge.status-summary {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
 .empty-state {
   text-align: center;
   color: #6b7280;
   font-size: 13px;
   padding: 40px 0;
+}
+
+.empty-state.inline {
+  padding: 12px;
+  border: 1px dashed #d5dbe3;
+  border-radius: 8px;
+  background: #f9fafb;
+  font-size: 12px;
 }
 
 @media (max-width: 980px) {

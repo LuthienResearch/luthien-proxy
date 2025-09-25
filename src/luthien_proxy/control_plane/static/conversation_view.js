@@ -5,6 +5,10 @@ function el(tag, attrs = {}, ...children) {
       node.className = value;
     } else if (key === 'text') {
       node.textContent = value;
+    } else if (key === 'dataset' && value && typeof value === 'object') {
+      for (const [dataKey, dataValue] of Object.entries(value)) {
+        node.dataset[dataKey] = dataValue;
+      }
     } else {
       node.setAttribute(key, value);
     }
@@ -27,13 +31,8 @@ async function fetchJSON(url) {
 
 const state = {
   callId: null,
-  messages: [],
-  assistant: {
-    original: '',
-    final: '',
-    chunks: [],
-    completed: false,
-  },
+  traceId: null,
+  call: null,
 };
 
 let eventSource = null;
@@ -70,7 +69,7 @@ function openStream(callId) {
     if (!event.data) return;
     try {
       const payload = JSON.parse(event.data);
-      handleEvent(payload);
+      consumeEvent(payload);
       setStatus('Live', true);
     } catch (err) {
       console.error('SSE parse error', err);
@@ -83,32 +82,144 @@ function openStream(callId) {
   };
 }
 
-function renderConversation() {
-  const container = document.getElementById('chat');
-  if (!container) return;
-  container.textContent = '';
+function parseTimestamp(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
-  const hasAssistant = Boolean(
-    state.assistant.original ||
-      state.assistant.final ||
-      (Array.isArray(state.assistant.chunks) && state.assistant.chunks.length)
-  );
+function createCallState(callId) {
+  return {
+    callId,
+    request: {
+      original: [],
+      final: [],
+    },
+    originalText: '',
+    finalText: '',
+    originalChunks: [],
+    finalChunks: [],
+    status: 'pending',
+    completed: false,
+    startedAt: null,
+    finishedAt: null,
+    firstSequence: null,
+    lastSequence: null,
+    events: [],
+    eventKeys: new Set(),
+  };
+}
 
-  if (!state.messages.length && !hasAssistant) {
-    container.appendChild(el('div', { class: 'empty-state', text: 'Select a call to view the conversation trace.' }));
-    return;
+function normalizeMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages.map((msg) => ({
+    role: typeof msg?.role === 'string' ? msg.role : 'unknown',
+    content: typeof msg?.content === 'string' ? msg.content : '',
+  }));
+}
+
+function cloneMessages(messages) {
+  return messages.map((msg) => ({ ...msg }));
+}
+
+function compareEvents(a, b) {
+  const seqA = typeof a.sequence === 'number' ? a.sequence : Number.POSITIVE_INFINITY;
+  const seqB = typeof b.sequence === 'number' ? b.sequence : Number.POSITIVE_INFINITY;
+  if (seqA !== seqB) return seqA - seqB;
+  const tsA = parseTimestamp(a.timestamp)?.getTime() ?? Number.POSITIVE_INFINITY;
+  const tsB = parseTimestamp(b.timestamp)?.getTime() ?? Number.POSITIVE_INFINITY;
+  if (tsA !== tsB) return tsA - tsB;
+  return (a.event_type || '').localeCompare(b.event_type || '');
+}
+
+function resetCallDerived(call) {
+  call.request.original = [];
+  call.request.final = [];
+  call.originalText = '';
+  call.finalText = '';
+  call.originalChunks = [];
+  call.finalChunks = [];
+  call.status = 'pending';
+  call.completed = false;
+  call.startedAt = null;
+  call.finishedAt = null;
+  call.firstSequence = null;
+  call.lastSequence = null;
+}
+
+function applyEventToCall(call, evt) {
+  const sequence = typeof evt.sequence === 'number' ? evt.sequence : null;
+  if (sequence !== null) {
+    if (call.firstSequence == null || sequence < call.firstSequence) {
+      call.firstSequence = sequence;
+    }
+    if (call.lastSequence == null || sequence > call.lastSequence) {
+      call.lastSequence = sequence;
+    }
   }
 
-  for (const message of state.messages) {
-    container.appendChild(renderMessage(message));
-  }
+  const timestamp = parseTimestamp(evt.timestamp);
+  const payload = evt.payload || {};
 
-  if (hasAssistant) {
-    container.appendChild(renderAssistantMessage());
+  switch (evt.event_type) {
+    case 'request_started':
+      handleRequestStarted(call, payload, timestamp);
+      break;
+    case 'original_chunk':
+      handleOriginalChunk(call, payload);
+      break;
+    case 'final_chunk':
+      handleFinalChunk(call, payload);
+      break;
+    case 'request_completed':
+      handleRequestCompleted(call, payload, timestamp);
+      break;
+    default:
+      break;
   }
 }
 
-function renderMessage(message) {
+function rebuildCallFromEvents(call) {
+  resetCallDerived(call);
+  const orderedEvents = [...call.events].sort(compareEvents);
+  for (const evt of orderedEvents) {
+    applyEventToCall(call, evt);
+  }
+  if (!call.finalText) {
+    call.finalText = call.originalText;
+  }
+}
+
+function buildMessagePairs(call) {
+  const originals = call.request.original;
+  const finals = call.request.final.length ? call.request.final : call.request.original;
+  const maxLen = Math.max(originals.length, finals.length);
+  const pairs = [];
+  for (let idx = 0; idx < maxLen; idx += 1) {
+    const original = originals[idx] || null;
+    const finalMsg = finals[idx] || null;
+    const role = finalMsg?.role || original?.role || 'unknown';
+    const originalText = original?.content || '';
+    const finalText = finalMsg?.content || originalText;
+    pairs.push({ role, original: originalText, final: finalText });
+  }
+  return pairs;
+}
+
+function assistantStatusText(call) {
+  if (call.completed) {
+    if (call.status === 'failure') return 'Response failed';
+    if (call.status === 'stream_summary') return 'Stream summary received';
+    return 'Response complete';
+  }
+  const chunkCount = call.finalChunks.length || call.originalChunks.length;
+  if (chunkCount) {
+    return `Streaming… ${chunkCount} chunk${chunkCount === 1 ? '' : 's'}`;
+  }
+  return 'Waiting for response';
+}
+
+function renderMessagePair(message) {
   const wrapper = el('div', { class: 'message role-' + (message.role || 'unknown') });
   const meta = el('div', { class: 'meta' });
   meta.appendChild(el('span', { class: 'badge', text: message.role || 'unknown' }));
@@ -119,8 +230,7 @@ function renderMessage(message) {
   const original = el('div', { class: 'version original' });
   original.textContent = message.original || '';
   const modified = (message.final || '') !== (message.original || '');
-  const finalClass = 'version final' + (modified ? ' modified' : '');
-  const finalNode = el('div', { class: finalClass });
+  const finalNode = el('div', { class: 'version final' + (modified ? ' modified' : '') });
   finalNode.textContent = message.final || message.original || '';
   versions.appendChild(original);
   versions.appendChild(finalNode);
@@ -128,134 +238,155 @@ function renderMessage(message) {
   return wrapper;
 }
 
-function renderAssistantMessage() {
+function renderAssistantBlock(call) {
   const wrapper = el('div', { class: 'message assistant' });
   const meta = el('div', { class: 'meta' });
   meta.appendChild(el('span', { class: 'badge', text: 'assistant' }));
-  const chunkCount = Array.isArray(state.assistant.chunks) ? state.assistant.chunks.length : 0;
-  const statusText = state.assistant.completed
-    ? `Response complete${chunkCount ? ` • ${chunkCount} chunks` : ''}`
-    : chunkCount
-      ? `Streaming… ${chunkCount} chunk${chunkCount === 1 ? '' : 's'}`
-      : 'Waiting for response';
-  meta.appendChild(el('span', { text: statusText }));
+  meta.appendChild(el('span', { text: assistantStatusText(call) }));
   wrapper.appendChild(meta);
 
   const versions = el('div', { class: 'versions' });
   const original = el('div', { class: 'version original' });
-  original.textContent = state.assistant.original || '';
-  const modified = (state.assistant.final || '') !== (state.assistant.original || '');
-  const finalClass = 'version final' + (modified ? ' modified' : '');
-  const finalNode = el('div', { class: finalClass });
-  finalNode.textContent = state.assistant.final || state.assistant.original || '';
+  original.textContent = call.originalText || '';
+  const modified = (call.finalText || '') !== (call.originalText || '');
+  const finalNode = el('div', { class: 'version final' + (modified ? ' modified' : '') });
+  finalNode.textContent = call.finalText || call.originalText || '';
   versions.appendChild(original);
   versions.appendChild(finalNode);
   wrapper.appendChild(versions);
 
-  if (!state.assistant.completed) {
+  if (!call.completed) {
     wrapper.appendChild(el('div', { class: 'stream-status', text: 'Live updates in progress…' }));
+  } else if (call.status === 'failure') {
+    wrapper.appendChild(el('div', { class: 'stream-status', text: 'Policy marked this call as failed.' }));
   }
-
   return wrapper;
 }
 
-function applySnapshot(snapshot) {
-  state.messages = Array.isArray(snapshot.messages) ? snapshot.messages.map((msg) => ({
-    role: msg.role || 'unknown',
-    original: msg.original || '',
-    final: msg.final || msg.original || '',
-  })) : [];
+function renderConversation() {
+  const container = document.getElementById('chat');
+  if (!container) return;
+  container.textContent = '';
 
-  const response = snapshot.response || {};
-  const chunks = Array.isArray(response.chunks) ? response.chunks : [];
-  state.assistant = {
-    original: response.original_text || '',
-    final: response.final_text || response.original_text || '',
-    chunks: chunks.map((chunk) => ({
-      original_delta: chunk.original_delta || '',
-      final_delta: chunk.final_delta || chunk.original_delta || '',
-      choice_index: chunk.choice_index || 0,
-      timestamp: chunk.timestamp || null,
-    })),
-    completed: Boolean(response.completed),
-  };
-
-  if (!state.assistant.original && state.assistant.chunks.length) {
-    state.assistant.original = state.assistant.chunks.map((c) => c.original_delta).join('');
-  }
-  if (!state.assistant.final) {
-    if (state.assistant.chunks.length) {
-      state.assistant.final = state.assistant.chunks.map((c) => c.final_delta).join('') || state.assistant.original;
-    } else {
-      state.assistant.final = state.assistant.original;
-    }
+  const call = state.call;
+  if (!call) {
+    container.appendChild(el('div', { class: 'empty-state', text: 'Select a call to view the conversation trace.' }));
+    return;
   }
 
-  renderConversation();
+  const pairs = buildMessagePairs(call);
+  if (!pairs.length && !call.originalText && !call.finalText) {
+    container.appendChild(el('div', { class: 'empty-state', text: 'No conversation data captured for this call yet.' }));
+    return;
+  }
+
+  for (const pair of pairs) {
+    container.appendChild(renderMessagePair(pair));
+  }
+
+  if (call.originalText || call.finalText || call.originalChunks.length || call.finalChunks.length || call.completed) {
+    container.appendChild(renderAssistantBlock(call));
+  }
 }
 
-function handleEvent(evt) {
-  if (!evt || (evt.call_id && evt.call_id !== state.callId)) return;
-  switch (evt.type) {
-    case 'request': {
-      if (!Array.isArray(evt.messages)) return;
-      state.messages = evt.messages.map((msg) => ({
-        role: msg.role || 'unknown',
-        original: msg.original || '',
-        final: msg.final || msg.original || '',
-      }));
-      renderConversation();
-      break;
-    }
-    case 'stream': {
-      const ts = evt.ts || Date.now() / 1000;
-      const replace = Boolean(evt.replace);
-      if (replace) {
-        const last = state.assistant.chunks[state.assistant.chunks.length - 1];
-        if (!last) break;
-        const previousFinal = last.final_delta || '';
-        if (previousFinal) {
-          state.assistant.final = state.assistant.final.slice(0, -previousFinal.length);
-        }
-        const newFinal = evt.final_delta || previousFinal;
-        state.assistant.final += newFinal;
-        last.final_delta = newFinal;
-        last.timestamp = ts;
-        state.assistant.completed = false;
-        renderConversation();
-        break;
-      }
+function handleRequestStarted(call, payload, timestamp) {
+  const originalMessages = normalizeMessages(payload?.original_messages);
+  const finalsRaw = normalizeMessages(payload?.final_messages);
+  const finals = finalsRaw.length ? finalsRaw : cloneMessages(originalMessages);
+  call.request.original = cloneMessages(originalMessages);
+  call.request.final = cloneMessages(finals);
+  call.originalText = '';
+  call.finalText = '';
+  call.originalChunks = [];
+  call.finalChunks = [];
+  call.completed = false;
+  call.status = 'pending';
+  call.startedAt = timestamp || call.startedAt;
+  call.finishedAt = null;
+}
 
-      const originalDelta = evt.original_delta || '';
-      const finalDelta = evt.final_delta || originalDelta;
-      state.assistant.original += originalDelta;
-      state.assistant.final += finalDelta;
-      state.assistant.chunks.push({
-        original_delta: originalDelta,
-        final_delta: finalDelta,
-        choice_index: evt.choice_index || 0,
-        timestamp: ts,
-      });
-      state.assistant.completed = false;
-      renderConversation();
-      break;
-    }
-    case 'final': {
-      if (typeof evt.original_text === 'string' && evt.original_text) {
-        state.assistant.original = evt.original_text;
-      }
-      if (typeof evt.final_text === 'string' && evt.final_text) {
-        state.assistant.final = evt.final_text;
-      } else if (!state.assistant.final) {
-        state.assistant.final = state.assistant.original;
-      }
-      state.assistant.completed = true;
-      renderConversation();
-      break;
-    }
-    default:
-      break;
+function handleOriginalChunk(call, payload) {
+  const delta = typeof payload?.delta === 'string' ? payload.delta : '';
+  call.originalText += delta;
+  call.originalChunks.push({ delta });
+  if (!call.completed) {
+    call.status = 'streaming';
   }
+}
+
+function handleFinalChunk(call, payload) {
+  const delta = typeof payload?.delta === 'string' ? payload.delta : '';
+  call.finalText += delta;
+  call.finalChunks.push({ delta });
+  if (!call.completed) {
+    call.status = 'streaming';
+  }
+}
+
+function handleRequestCompleted(call, payload, timestamp) {
+  const status = typeof payload?.status === 'string' ? payload.status : 'success';
+  call.status = status;
+  call.completed = true;
+  call.finishedAt = timestamp || call.finishedAt;
+
+  const originalResponse = typeof payload?.original_response === 'string' ? payload.original_response : '';
+  const finalResponse = typeof payload?.final_response === 'string' ? payload.final_response : '';
+
+  if (originalResponse) {
+    call.originalText = originalResponse;
+  } else if (!call.originalText && call.originalChunks.length) {
+    call.originalText = call.originalChunks.map((chunk) => chunk.delta || '').join('');
+  }
+
+  if (finalResponse) {
+    call.finalText = finalResponse;
+  } else if (!call.finalText && call.finalChunks.length) {
+    call.finalText = call.finalChunks.map((chunk) => chunk.delta || '').join('');
+  }
+
+  if (!call.finalText) {
+    call.finalText = call.originalText;
+  }
+}
+
+function consumeEvent(evt, options = {}) {
+  if (!evt) return;
+  if (state.callId && evt.call_id && evt.call_id !== state.callId) return;
+  const callId = evt.call_id || state.callId;
+  if (!callId) return;
+  if (!state.call) {
+    state.call = createCallState(callId);
+  }
+  state.call.callId = callId;
+  if (evt.trace_id && !state.traceId) {
+    state.traceId = evt.trace_id;
+  }
+  const eventKey = `${evt.event_type || 'unknown'}::${evt.sequence ?? 'none'}::${evt.timestamp ?? 'no-ts'}`;
+  if (state.call.eventKeys.has(eventKey)) {
+    if (!options.skipRender) {
+      renderConversation();
+    }
+    return;
+  }
+  state.call.eventKeys.add(eventKey);
+  state.call.events.push(evt);
+  rebuildCallFromEvents(state.call);
+
+  if (!options.skipRender) {
+    renderConversation();
+  }
+}
+
+function applySnapshot(snapshot) {
+  state.callId = snapshot?.call_id || state.callId;
+  state.traceId = snapshot?.trace_id || state.traceId;
+  state.call = createCallState(state.callId);
+  if (Array.isArray(snapshot?.events)) {
+    for (const event of snapshot.events) {
+      consumeEvent(event, { skipRender: true });
+    }
+  }
+  renderConversation();
 }
 
 async function loadConversation(callId) {
@@ -264,6 +395,7 @@ async function loadConversation(callId) {
   const active = document.getElementById('active-cid');
   if (active) active.value = callId;
   setStatus('Loading…');
+  closeStream();
   try {
     const snapshot = await fetchJSON(`/api/hooks/conversation?call_id=${encodeURIComponent(callId)}`);
     applySnapshot(snapshot);
@@ -294,7 +426,7 @@ async function loadRecentCallIds() {
       if (item.latest) {
         metaParts.push(new Date(item.latest).toLocaleString());
       }
-      metaParts.push(`${item.count} events`);
+      metaParts.push(`${item.count} event${item.count === 1 ? '' : 's'}`);
       inner.appendChild(el('div', { class: 'meta', text: metaParts.join(' • ') }));
       const btn = el('button', { class: 'secondary', text: 'View' });
       btn.addEventListener('click', (e) => {
@@ -308,7 +440,7 @@ async function loadRecentCallIds() {
     }
   } catch (err) {
     console.error('Failed to load call IDs', err);
-    list.textContent = 'Failed to load recent IDs';
+    list.textContent = 'Failed to load recent call IDs';
   }
 }
 
