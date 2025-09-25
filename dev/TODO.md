@@ -3,10 +3,12 @@
 ## High Priority
 
 - [ ] Demo: DB drop
+- [ ] Implement conversation trace/event streaming refactor (see dev/conversation_trace_plan.md)
 
 ## Medium Priority
 
 - [ ] 99% unit test coverage
+- [ ] Why does the control plane docker container take ~5 seconds to restart?
 
 ## Low Priority
 
