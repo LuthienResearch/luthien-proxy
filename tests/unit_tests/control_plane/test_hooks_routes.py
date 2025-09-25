@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from luthien_proxy.control_plane.hooks_routes import (
     CallIdInfo,
+    ConversationMessageDiff,
     ConversationSnapshot,
     TraceConversationSnapshot,
     TraceResponse,
@@ -274,6 +275,15 @@ async def test_conversation_snapshot_builds_events(project_config: ProjectConfig
     assert snapshot.events[1].payload["delta"] == "Hi"
     assert snapshot.events[2].payload["delta"] == "Hello!"
     assert snapshot.events[-1].payload["final_response"] == "Hello friend!"
+    assert len(snapshot.calls) == 1
+    call_snapshot = snapshot.calls[0]
+    assert call_snapshot.call_id == "call-1"
+    assert call_snapshot.final_response == "Hello friend!"
+    assert call_snapshot.original_response == "Hi"
+    assert call_snapshot.chunk_count == 1
+    assert call_snapshot.new_messages == [
+        ConversationMessageDiff(role="user", original="Hello", final="Hello sanitized")
+    ]
 
 
 @pytest.mark.asyncio
@@ -329,8 +339,9 @@ async def test_conversation_snapshot_by_trace_collects_calls(project_config: Pro
     assert snapshot.trace_id == "trace-1"
     assert snapshot.call_ids == ["call-1", "call-2"]
     assert len(snapshot.events) == 2
-    responses = {event.call_id: event.payload["final_response"] for event in snapshot.events}
-    assert responses == {"call-1": "Hello", "call-2": "Howdy partner"}
+    assert [call.call_id for call in snapshot.calls] == ["call-1", "call-2"]
+    response_map = {call.call_id: call.final_response for call in snapshot.calls}
+    assert response_map == {"call-1": "Hello", "call-2": "Howdy partner"}
 
 
 @pytest.mark.asyncio

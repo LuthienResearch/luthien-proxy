@@ -88,12 +88,35 @@ class ConversationEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class ConversationMessageDiff(BaseModel):
+    """Difference for a single request message between original and final forms."""
+
+    role: str
+    original: str
+    final: str
+
+
+class ConversationCallSnapshot(BaseModel):
+    """Canonical view of a single request/response within a trace."""
+
+    call_id: str
+    trace_id: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    status: Literal["pending", "success", "stream_summary", "failure", "streaming"] = "pending"
+    new_messages: list[ConversationMessageDiff] = Field(default_factory=list)
+    original_response: str = ""
+    final_response: str = ""
+    chunk_count: int = 0
+
+
 class ConversationSnapshot(BaseModel):
     """Snapshot of a single call with its normalized events."""
 
     call_id: str
     trace_id: Optional[str] = None
     events: list[ConversationEvent] = Field(default_factory=list)
+    calls: list["ConversationCallSnapshot"] = Field(default_factory=list)
 
 
 class TraceConversationSnapshot(BaseModel):
@@ -102,6 +125,7 @@ class TraceConversationSnapshot(BaseModel):
     trace_id: str
     call_ids: list[str] = Field(default_factory=list)
     events: list[ConversationEvent] = Field(default_factory=list)
+    calls: list["ConversationCallSnapshot"] = Field(default_factory=list)
 
 
 @router.get("/api/hooks/counters")
@@ -434,6 +458,25 @@ def _strip_post_time_ns(value: Any) -> Any:
     if isinstance(value, list):
         return [_strip_post_time_ns(item) for item in value]
     return value
+
+
+def _message_equals(a: Optional[dict[str, Any]], b: Optional[dict[str, Any]]) -> bool:
+    if a is None or b is None:
+        return False
+    return (a.get("role") or "").strip().lower() == (b.get("role") or "").strip().lower() and (
+        a.get("content") or ""
+    ) == (b.get("content") or "")
+
+
+def _clone_messages(messages: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+    cloned: list[dict[str, str]] = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = str(msg.get("role") or "unknown")
+        content = str(msg.get("content") or "")
+        cloned.append({"role": role, "content": content})
+    return cloned
 
 
 def _build_conversation_events(
@@ -837,6 +880,130 @@ def _events_from_trace_entries(entries: Iterable[TraceEntry]) -> list[Conversati
     return collected
 
 
+def _build_call_snapshots(events: Iterable[ConversationEvent]) -> list[ConversationCallSnapshot]:
+    ordered_events = sorted(
+        events,
+        key=lambda evt: (evt.sequence, evt.timestamp, evt.event_type),
+    )
+    events_by_call: dict[str, list[ConversationEvent]] = {}
+    call_order: list[str] = []
+    for event in ordered_events:
+        bucket = events_by_call.setdefault(event.call_id, [])
+        if not bucket:
+            call_order.append(event.call_id)
+        bucket.append(event)
+
+    snapshots: list[ConversationCallSnapshot] = []
+    conversation_context: list[dict[str, str]] = []
+
+    for call_id in call_order:
+        call_events = events_by_call[call_id]
+        trace_id = next((evt.trace_id for evt in call_events if evt.trace_id), None)
+        request_original: list[dict[str, str]] = []
+        request_final: list[dict[str, str]] = []
+        original_response_parts: list[str] = []
+        final_response_parts: list[str] = []
+        chunk_count = 0
+        started_at: Optional[datetime] = None
+        completed_at: Optional[datetime] = None
+        status: str = "pending"
+
+        for event in call_events:
+            if started_at is None or event.timestamp < started_at:
+                started_at = event.timestamp
+
+            if event.event_type == "request_started":
+                payload = event.payload
+                original_messages = payload.get("original_messages") or []
+                final_messages = payload.get("final_messages") or []
+                request_original = _clone_messages(original_messages)
+                request_final = (
+                    _clone_messages(final_messages) if final_messages else _clone_messages(original_messages)
+                )
+
+            elif event.event_type == "original_chunk":
+                delta = str(event.payload.get("delta") or "")
+                if delta:
+                    original_response_parts.append(delta)
+
+            elif event.event_type == "final_chunk":
+                delta = str(event.payload.get("delta") or "")
+                if delta:
+                    final_response_parts.append(delta)
+                    chunk_count += 1
+
+            elif event.event_type == "request_completed":
+                payload = event.payload
+                status = str(payload.get("status") or "success") or "success"
+                original_text = str(payload.get("original_response") or "")
+                final_text = str(payload.get("final_response") or "")
+                if original_text:
+                    original_response_parts = [original_text]
+                if final_text:
+                    final_response_parts = [final_text]
+                completed_at = event.timestamp
+
+        original_response = "".join(original_response_parts)
+        final_response = "".join(final_response_parts) or original_response
+
+        if status == "pending":
+            if completed_at is not None:
+                status = "success"
+            elif chunk_count > 0:
+                status = "streaming"
+
+        baseline = conversation_context
+        effective_final_messages = request_final or request_original
+        max_len = max(len(request_original), len(effective_final_messages), len(baseline))
+        message_diffs: list[ConversationMessageDiff] = []
+        for idx in range(max_len):
+            original_msg = request_original[idx] if idx < len(request_original) else None
+            final_msg = effective_final_messages[idx] if idx < len(effective_final_messages) else None
+            baseline_msg = baseline[idx] if idx < len(baseline) else None
+
+            role = (final_msg or original_msg or baseline_msg or {"role": "unknown"}).get("role", "unknown")
+            original_text = original_msg["content"] if original_msg else ""
+            final_text = final_msg["content"] if final_msg else original_text
+
+            if baseline_msg and final_msg and _message_equals(final_msg, baseline_msg):
+                if original_msg is None or _message_equals(original_msg, baseline_msg):
+                    continue
+
+            if not original_text and not final_text:
+                continue
+
+            message_diffs.append(
+                ConversationMessageDiff(
+                    role=role,
+                    original=original_text,
+                    final=final_text,
+                )
+            )
+
+        snapshots.append(
+            ConversationCallSnapshot(
+                call_id=call_id,
+                trace_id=trace_id,
+                started_at=started_at,
+                completed_at=completed_at,
+                status=status if status in {"success", "stream_summary", "failure", "streaming"} else "pending",
+                new_messages=message_diffs,
+                original_response=original_response,
+                final_response=final_response,
+                chunk_count=chunk_count,
+            )
+        )
+
+        next_context = _clone_messages(effective_final_messages)
+        if final_response:
+            next_context.append({"role": "assistant", "content": final_response})
+        elif original_response:
+            next_context.append({"role": "assistant", "content": original_response})
+        conversation_context = next_context
+
+    return snapshots
+
+
 @router.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
 async def trace_by_call_id(
     call_id: str = Query(..., min_length=4),
@@ -945,7 +1112,8 @@ async def conversation_snapshot(
     entries = await _fetch_trace_entries(call_id, pool, config)
     events = _events_from_trace_entries(entries)
     trace_id = next((evt.trace_id for evt in events if evt.trace_id), None)
-    return ConversationSnapshot(call_id=call_id, trace_id=trace_id, events=events)
+    calls = _build_call_snapshots(events)
+    return ConversationSnapshot(call_id=call_id, trace_id=trace_id, events=events, calls=calls)
 
 
 @router.get("/api/hooks/conversation/stream")
@@ -968,7 +1136,8 @@ async def conversation_snapshot_by_trace(
     entries = await _fetch_trace_entries_by_trace(trace_id, pool, config)
     events = _events_from_trace_entries(entries)
     call_ids = sorted({evt.call_id for evt in events if evt.call_id})
-    return TraceConversationSnapshot(trace_id=trace_id, call_ids=call_ids, events=events)
+    calls = _build_call_snapshots(events)
+    return TraceConversationSnapshot(trace_id=trace_id, call_ids=call_ids, events=events, calls=calls)
 
 
 @router.get("/api/hooks/conversation/stream_by_trace")
@@ -988,7 +1157,9 @@ __all__ = [
     "TraceResponse",
     "CallIdInfo",
     "TraceInfo",
+    "ConversationMessageDiff",
     "ConversationEvent",
+    "ConversationCallSnapshot",
     "ConversationSnapshot",
     "TraceConversationSnapshot",
     "hook_generic",

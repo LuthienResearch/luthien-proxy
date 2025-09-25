@@ -31,12 +31,11 @@ async function fetchJSON(url) {
 
 const state = {
   traceId: null,
-  calls: new Map(),
-  callOrder: [],
+  calls: [],
+  eventSource: null,
+  reconnectTimer: null,
+  pendingRefresh: null,
 };
-
-let eventSource = null;
-let reconnectTimer = null;
 
 function setStatus(text, live = false) {
   const statusEl = document.getElementById('status');
@@ -50,263 +49,134 @@ function setStatus(text, live = false) {
 }
 
 function closeStream() {
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
   }
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
   }
+}
+
+function scheduleRefresh() {
+  if (!state.traceId) return;
+  if (state.pendingRefresh) return;
+  state.pendingRefresh = setTimeout(async () => {
+    state.pendingRefresh = null;
+    try {
+      await hydrateTrace(state.traceId, { preserveStatus: true });
+    } catch (err) {
+      console.error('Failed to refresh trace snapshot', err);
+    }
+  }, 200);
 }
 
 function openStream(traceId) {
   closeStream();
   if (!traceId) return;
   setStatus('Listening…', true);
-  eventSource = new EventSource(`/api/hooks/conversation/stream_by_trace?trace_id=${encodeURIComponent(traceId)}`);
-  eventSource.onmessage = (event) => {
+  const url = `/api/hooks/conversation/stream_by_trace?trace_id=${encodeURIComponent(traceId)}`;
+  state.eventSource = new EventSource(url);
+  state.eventSource.onmessage = (event) => {
     if (!event.data) return;
-    try {
-      const payload = JSON.parse(event.data);
-      consumeEvent(payload);
-      setStatus('Live', true);
-    } catch (err) {
-      console.error('SSE parse error', err);
-    }
+    setStatus('Live', true);
+    scheduleRefresh();
   };
-  eventSource.onerror = () => {
+  state.eventSource.onerror = () => {
     setStatus('Connection lost, retrying…');
     closeStream();
-    reconnectTimer = setTimeout(() => openStream(traceId), 2000);
+    state.reconnectTimer = setTimeout(() => openStream(traceId), 2000);
   };
-}
-
-function parseTimestamp(value) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function createCallState(callId) {
-  return {
-    callId,
-    request: {
-      original: [],
-      final: [],
-    },
-    originalText: '',
-    finalText: '',
-    originalChunks: [],
-    finalChunks: [],
-    status: 'pending',
-    completed: false,
-    startedAt: null,
-    finishedAt: null,
-    firstSequence: null,
-    lastSequence: null,
-    events: [],
-    eventKeys: new Set(),
-  };
-}
-
-function ensureCall(callId) {
-  if (!callId) return null;
-  let call = state.calls.get(callId);
-  if (!call) {
-    call = createCallState(callId);
-    state.calls.set(callId, call);
-    if (!state.callOrder.includes(callId)) {
-      state.callOrder.push(callId);
-    }
-  } else if (!state.callOrder.includes(callId)) {
-    state.callOrder.push(callId);
-  }
-  return call;
-}
-
-function normalizeMessages(messages) {
-  if (!Array.isArray(messages)) return [];
-  return messages.map((msg) => ({
-    role: typeof msg?.role === 'string' ? msg.role : 'unknown',
-    content: typeof msg?.content === 'string' ? msg.content : '',
-  }));
-}
-
-function cloneMessages(messages) {
-  return messages.map((msg) => ({ ...msg }));
-}
-
-function compareEvents(a, b) {
-  const seqA = typeof a.sequence === 'number' ? a.sequence : Number.POSITIVE_INFINITY;
-  const seqB = typeof b.sequence === 'number' ? b.sequence : Number.POSITIVE_INFINITY;
-  if (seqA !== seqB) return seqA - seqB;
-  const tsA = parseTimestamp(a.timestamp)?.getTime() ?? Number.POSITIVE_INFINITY;
-  const tsB = parseTimestamp(b.timestamp)?.getTime() ?? Number.POSITIVE_INFINITY;
-  if (tsA !== tsB) return tsA - tsB;
-  return (a.event_type || '').localeCompare(b.event_type || '');
-}
-
-function resetCallDerived(call) {
-  call.request.original = [];
-  call.request.final = [];
-  call.originalText = '';
-  call.finalText = '';
-  call.originalChunks = [];
-  call.finalChunks = [];
-  call.status = 'pending';
-  call.completed = false;
-  call.startedAt = null;
-  call.finishedAt = null;
-  call.firstSequence = null;
-  call.lastSequence = null;
-}
-
-function applyEventToCall(call, evt) {
-  const sequence = typeof evt.sequence === 'number' ? evt.sequence : null;
-  if (sequence !== null) {
-    if (call.firstSequence == null || sequence < call.firstSequence) {
-      call.firstSequence = sequence;
-    }
-    if (call.lastSequence == null || sequence > call.lastSequence) {
-      call.lastSequence = sequence;
-    }
-  }
-
-  const timestamp = parseTimestamp(evt.timestamp);
-  const payload = evt.payload || {};
-
-  switch (evt.event_type) {
-    case 'request_started':
-      handleRequestStarted(call, payload, timestamp);
-      break;
-    case 'original_chunk':
-      handleOriginalChunk(call, payload, timestamp);
-      break;
-    case 'final_chunk':
-      handleFinalChunk(call, payload, timestamp);
-      break;
-    case 'request_completed':
-      handleRequestCompleted(call, payload, timestamp);
-      break;
-    default:
-      break;
-  }
-}
-
-function rebuildCallFromEvents(call) {
-  resetCallDerived(call);
-  const orderedEvents = [...call.events].sort(compareEvents);
-  for (const event of orderedEvents) {
-    applyEventToCall(call, event);
-  }
-  if (!call.finalText) {
-    call.finalText = call.originalText;
-  }
-}
-
-function buildMessagePairs(call, contextMessages) {
-  const originals = call.request.original;
-  const finals = call.request.final.length ? call.request.final : call.request.original;
-  const baseline = contextMessages || [];
-  const maxLen = Math.max(originals.length, finals.length, baseline.length);
-  const pairs = [];
-
-  for (let idx = 0; idx < maxLen; idx += 1) {
-    const original = originals[idx] || null;
-    const finalMsg = finals[idx] || null;
-    const contextMsg = baseline[idx] || null;
-    const role = finalMsg?.role || original?.role || contextMsg?.role || 'unknown';
-    const originalText = original?.content || '';
-    const finalText = finalMsg?.content || originalText;
-    const contextText = contextMsg?.content ?? null;
-
-    const unchangedFromContext =
-      contextMsg !== null && originalText === contextText && finalText === contextText;
-    if (unchangedFromContext) {
-      continue;
-    }
-
-    pairs.push({ role, original: originalText, final: finalText });
-  }
-
-  return pairs;
-}
-
-function assistantStatusText(call) {
-  if (call.completed) {
-    if (call.status === 'failure') return 'Response failed';
-    if (call.status === 'stream_summary') return 'Stream summary received';
-    return 'Response complete';
-  }
-  const chunkCount = call.finalChunks.length || call.originalChunks.length;
-  if (chunkCount) {
-    return `Streaming… ${chunkCount} chunk${chunkCount === 1 ? '' : 's'}`;
-  }
-  return 'Waiting for response';
 }
 
 function statusBadge(call) {
-  if (call.status === 'failure') return { key: 'failure', label: 'Failed' };
-  if (call.status === 'stream_summary') return { key: 'summary', label: 'Summary' };
-  if (call.completed) return { key: 'success', label: 'Completed' };
-  if (call.status === 'streaming') return { key: 'streaming', label: 'Streaming' };
-  return { key: 'pending', label: 'Pending' };
+  switch (call.status) {
+    case 'success':
+    case 'stream_summary':
+      return { key: 'success', label: 'Completed' };
+    case 'failure':
+      return { key: 'failure', label: 'Failed' };
+    case 'streaming':
+      return { key: 'streaming', label: 'Streaming' };
+    default:
+      return { key: 'pending', label: 'Pending' };
+  }
 }
 
-function renderMessagePair(message) {
-  const wrapper = el('div', { class: 'message role-' + (message.role || 'unknown') });
+function formatDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleString();
+}
+
+function renderMessageDiff(diff) {
+  const wrapper = el('div', { class: 'message role-' + (diff.role || 'unknown') });
   const meta = el('div', { class: 'meta' });
-  meta.appendChild(el('span', { class: 'badge', text: message.role || 'unknown' }));
+  meta.appendChild(el('span', { class: 'badge', text: diff.role || 'unknown' }));
   meta.appendChild(el('span', { text: 'Original vs Final' }));
   wrapper.appendChild(meta);
 
   const versions = el('div', { class: 'versions' });
   const original = el('div', { class: 'version original' });
-  original.textContent = message.original || '';
-  const modified = (message.final || '') !== (message.original || '');
+  original.textContent = diff.original || '';
+  const modified = (diff.final || '') !== (diff.original || '');
   const finalNode = el('div', { class: 'version final' + (modified ? ' modified' : '') });
-  finalNode.textContent = message.final || message.original || '';
+  finalNode.textContent = diff.final || diff.original || '';
   versions.appendChild(original);
   versions.appendChild(finalNode);
   wrapper.appendChild(versions);
   return wrapper;
 }
 
-function renderAssistantBlock(call) {
+function renderResponse(call) {
   const wrapper = el('div', { class: 'message assistant' });
   const meta = el('div', { class: 'meta' });
   meta.appendChild(el('span', { class: 'badge', text: 'assistant' }));
-  meta.appendChild(el('span', { text: assistantStatusText(call) }));
+  let statusText = 'Waiting for response';
+  if (call.status === 'failure') {
+    statusText = 'Response failed';
+  } else if (call.status === 'streaming') {
+    const chunkCount = call.chunk_count || 0;
+    statusText = chunkCount ? `Streaming… ${chunkCount} chunk${chunkCount === 1 ? '' : 's'}` : 'Streaming…';
+  } else if (call.status === 'stream_summary') {
+    statusText = 'Stream summary received';
+  } else if (call.final_response || call.original_response) {
+    statusText = 'Response complete';
+  }
+  meta.appendChild(el('span', { text: statusText }));
   wrapper.appendChild(meta);
 
   const versions = el('div', { class: 'versions' });
   const original = el('div', { class: 'version original' });
-  original.textContent = call.originalText || '';
-  const modified = (call.finalText || '') !== (call.originalText || '');
+  original.textContent = call.original_response || '';
+  const modified = (call.final_response || '') !== (call.original_response || '');
   const finalNode = el('div', { class: 'version final' + (modified ? ' modified' : '') });
-  finalNode.textContent = call.finalText || call.originalText || '';
+  finalNode.textContent = call.final_response || call.original_response || '';
   versions.appendChild(original);
   versions.appendChild(finalNode);
   wrapper.appendChild(versions);
 
-  if (!call.completed) {
+  if (call.status === 'streaming') {
     wrapper.appendChild(el('div', { class: 'stream-status', text: 'Live updates in progress…' }));
   } else if (call.status === 'failure') {
     wrapper.appendChild(el('div', { class: 'stream-status', text: 'Policy marked this call as failed.' }));
   }
+
   return wrapper;
 }
 
-function renderCall(call, messagePairs) {
+function renderCall(call) {
   const wrapper = el('div', { class: 'call' });
   const header = el('div', { class: 'call-header' });
-  header.appendChild(el('div', { class: 'call-title', text: call.callId }));
+  header.appendChild(el('div', { class: 'call-title', text: call.call_id }));
   const badge = statusBadge(call);
   header.appendChild(el('span', { class: `badge status-${badge.key}`, text: badge.label }));
   const metaBits = [];
-  if (call.startedAt) metaBits.push(`Started ${call.startedAt.toLocaleString()}`);
-  if (call.completed && call.finishedAt) metaBits.push(`Finished ${call.finishedAt.toLocaleString()}`);
+  const started = formatDate(call.started_at);
+  if (started) metaBits.push(`Started ${started}`);
+  const finished = formatDate(call.completed_at);
+  if (finished) metaBits.push(`Finished ${finished}`);
   if (metaBits.length) {
     header.appendChild(el('div', { class: 'call-meta', text: metaBits.join(' • ') }));
   }
@@ -317,11 +187,11 @@ function renderCall(call, messagePairs) {
   const requestSection = el('div', { class: 'call-section' });
   requestSection.appendChild(el('div', { class: 'section-title', text: 'Request Messages' }));
   const messagesContainer = el('div', { class: 'call-messages' });
-  if (!messagePairs.length) {
-    messagesContainer.appendChild(el('div', { class: 'empty-state inline', text: 'No request messages captured.' }));
+  if (!call.new_messages || call.new_messages.length === 0) {
+    messagesContainer.appendChild(el('div', { class: 'empty-state inline', text: 'No new messages in this turn.' }));
   } else {
-    for (const pair of messagePairs) {
-      messagesContainer.appendChild(renderMessagePair(pair));
+    for (const diff of call.new_messages) {
+      messagesContainer.appendChild(renderMessageDiff(diff));
     }
   }
   requestSection.appendChild(messagesContainer);
@@ -329,7 +199,7 @@ function renderCall(call, messagePairs) {
 
   const responseSection = el('div', { class: 'call-section' });
   responseSection.appendChild(el('div', { class: 'section-title', text: 'Assistant Output' }));
-  responseSection.appendChild(renderAssistantBlock(call));
+  responseSection.appendChild(renderResponse(call));
   body.appendChild(responseSection);
 
   wrapper.appendChild(body);
@@ -341,135 +211,30 @@ function renderConversation() {
   if (!container) return;
   container.textContent = '';
 
-  const calls = state.callOrder
-    .map((callId) => state.calls.get(callId))
-    .filter((call) => Boolean(call));
-  if (!calls.length) {
+  if (!state.calls.length) {
     container.appendChild(el('div', { class: 'empty-state', text: 'Select a trace to view the conversation history.' }));
     return;
   }
 
-  const runningContext = [];
-  calls.sort((a, b) => {
-    const seqA = a.firstSequence ?? Number.MAX_SAFE_INTEGER;
-    const seqB = b.firstSequence ?? Number.MAX_SAFE_INTEGER;
-    if (seqA !== seqB) return seqA - seqB;
-    const timeA = a.startedAt ? a.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
-    const timeB = b.startedAt ? b.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
-    return timeA - timeB;
-  });
-
-  for (const call of calls) {
-    const messagePairs = buildMessagePairs(call, runningContext);
-    container.appendChild(renderCall(call, messagePairs));
-
-    const updatedContext = cloneMessages(call.request.final);
-    if (call.finalText) {
-      updatedContext.push({ role: 'assistant', content: call.finalText });
-    }
-    runningContext.length = 0;
-    for (const msg of updatedContext) {
-      runningContext.push({ ...msg });
-    }
+  for (const call of state.calls) {
+    container.appendChild(renderCall(call));
   }
 }
 
-function handleRequestStarted(call, payload, timestamp) {
-  const originalMessages = normalizeMessages(payload?.original_messages);
-  const finalMessagesRaw = normalizeMessages(payload?.final_messages);
-  const finalMessages = finalMessagesRaw.length
-    ? finalMessagesRaw
-    : cloneMessages(originalMessages);
-  call.request.original = cloneMessages(originalMessages);
-  call.request.final = cloneMessages(finalMessages);
-  call.originalText = '';
-  call.finalText = '';
-  call.originalChunks = [];
-  call.finalChunks = [];
-  call.completed = false;
-  call.status = 'pending';
-  call.startedAt = timestamp || call.startedAt;
-  call.finishedAt = null;
-}
-
-function handleOriginalChunk(call, payload, timestamp) {
-  const delta = typeof payload?.delta === 'string' ? payload.delta : '';
-  call.originalText += delta;
-  call.originalChunks.push({ delta, timestamp });
-  if (!call.completed) {
-    call.status = 'streaming';
+async function hydrateTrace(traceId, options = {}) {
+  if (!traceId) return;
+  if (!options.preserveStatus) {
+    setStatus('Loading…');
   }
-}
-
-function handleFinalChunk(call, payload, timestamp) {
-  const delta = typeof payload?.delta === 'string' ? payload.delta : '';
-  call.finalText += delta;
-  call.finalChunks.push({ delta, timestamp });
-  if (!call.completed) {
-    call.status = 'streaming';
-  }
-}
-
-function handleRequestCompleted(call, payload, timestamp) {
-  const status = typeof payload?.status === 'string' ? payload.status : 'success';
-  call.status = status;
-  call.completed = true;
-  call.finishedAt = timestamp || call.finishedAt;
-
-  const originalResponse = typeof payload?.original_response === 'string' ? payload.original_response : '';
-  const finalResponse = typeof payload?.final_response === 'string' ? payload.final_response : '';
-
-  if (originalResponse) {
-    call.originalText = originalResponse;
-  } else if (!call.originalText && call.originalChunks.length) {
-    call.originalText = call.originalChunks.map((chunk) => chunk.delta || '').join('');
-  }
-
-  if (finalResponse) {
-    call.finalText = finalResponse;
-  } else if (!call.finalText && call.finalChunks.length) {
-    call.finalText = call.finalChunks.map((chunk) => chunk.delta || '').join('');
-  }
-
-  if (!call.finalText) {
-    call.finalText = call.originalText;
-  }
-}
-
-function consumeEvent(evt, options = {}) {
-  if (!evt) return;
-  if (state.traceId && evt.trace_id && evt.trace_id !== state.traceId) return;
-  const callId = evt.call_id;
-  if (!callId) return;
-  const call = ensureCall(callId);
-  if (!call) return;
-
-  const eventKey = `${evt.event_type || 'unknown'}::${evt.sequence ?? 'none'}::${evt.timestamp ?? 'no-ts'}`;
-  if (call.eventKeys.has(eventKey)) {
-    if (!options.skipRender) {
-      renderConversation();
-    }
-    return;
-  }
-  call.eventKeys.add(eventKey);
-  call.events.push(evt);
-  rebuildCallFromEvents(call);
-
-  if (!options.skipRender) {
+  try {
+    const snapshot = await fetchJSON(`/api/hooks/conversation/by_trace?trace_id=${encodeURIComponent(traceId)}`);
+    state.calls = Array.isArray(snapshot.calls) ? snapshot.calls : [];
     renderConversation();
+    setStatus('Live', true);
+  } catch (err) {
+    console.error('Failed to load conversation', err);
+    setStatus('Failed to load');
   }
-}
-
-function applySnapshot(snapshot) {
-  state.traceId = snapshot?.trace_id || state.traceId;
-  state.calls = new Map();
-  state.callOrder = [];
-  if (Array.isArray(snapshot?.events)) {
-    for (const event of snapshot.events) {
-      consumeEvent(event, { skipRender: true });
-    }
-  }
-  renderConversation();
 }
 
 async function loadConversation(traceId) {
@@ -477,17 +242,9 @@ async function loadConversation(traceId) {
   state.traceId = traceId;
   const active = document.getElementById('active-trace');
   if (active) active.value = traceId;
-  setStatus('Loading…');
   closeStream();
-  try {
-    const snapshot = await fetchJSON(`/api/hooks/conversation/by_trace?trace_id=${encodeURIComponent(traceId)}`);
-    applySnapshot(snapshot);
-    setStatus('Live', true);
-    openStream(traceId);
-  } catch (err) {
-    console.error('Failed to load conversation', err);
-    setStatus('Failed to load');
-  }
+  await hydrateTrace(traceId);
+  openStream(traceId);
 }
 
 async function loadRecentTraces() {
@@ -554,7 +311,7 @@ function init() {
   const refreshConvBtn = document.getElementById('refresh-conv');
   if (refreshConvBtn) {
     refreshConvBtn.addEventListener('click', () => {
-      if (state.traceId) loadConversation(state.traceId);
+      if (state.traceId) hydrateTrace(state.traceId, { preserveStatus: true });
     });
   }
 

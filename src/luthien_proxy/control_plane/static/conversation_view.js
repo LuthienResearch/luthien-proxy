@@ -33,10 +33,10 @@ const state = {
   callId: null,
   traceId: null,
   call: null,
+  eventSource: null,
+  reconnectTimer: null,
+  pendingRefresh: null,
 };
-
-let eventSource = null;
-let reconnectTimer = null;
 
 function setStatus(text, live = false) {
   const statusEl = document.getElementById('status');
@@ -50,216 +50,118 @@ function setStatus(text, live = false) {
 }
 
 function closeStream() {
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
   }
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
   }
+}
+
+function scheduleRefresh() {
+  if (!state.callId) return;
+  if (state.pendingRefresh) return;
+  state.pendingRefresh = setTimeout(async () => {
+    state.pendingRefresh = null;
+    try {
+      await hydrateCall(state.callId, { preserveStatus: true });
+    } catch (err) {
+      console.error('Failed to refresh call snapshot', err);
+    }
+  }, 200);
 }
 
 function openStream(callId) {
   closeStream();
   if (!callId) return;
   setStatus('Listening…', true);
-  eventSource = new EventSource(`/api/hooks/conversation/stream?call_id=${encodeURIComponent(callId)}`);
-  eventSource.onmessage = (event) => {
-    if (!event.data) return;
-    try {
-      const payload = JSON.parse(event.data);
-      consumeEvent(payload);
-      setStatus('Live', true);
-    } catch (err) {
-      console.error('SSE parse error', err);
-    }
+  state.eventSource = new EventSource(`/api/hooks/conversation/stream?call_id=${encodeURIComponent(callId)}`);
+  state.eventSource.onmessage = () => {
+    setStatus('Live', true);
+    scheduleRefresh();
   };
-  eventSource.onerror = () => {
+  state.eventSource.onerror = () => {
     setStatus('Connection lost, retrying…');
     closeStream();
-    reconnectTimer = setTimeout(() => openStream(callId), 2000);
+    state.reconnectTimer = setTimeout(() => openStream(callId), 2000);
   };
 }
 
-function parseTimestamp(value) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function createCallState(callId) {
-  return {
-    callId,
-    request: {
-      original: [],
-      final: [],
-    },
-    originalText: '',
-    finalText: '',
-    originalChunks: [],
-    finalChunks: [],
-    status: 'pending',
-    completed: false,
-    startedAt: null,
-    finishedAt: null,
-    firstSequence: null,
-    lastSequence: null,
-    events: [],
-    eventKeys: new Set(),
-  };
-}
-
-function normalizeMessages(messages) {
-  if (!Array.isArray(messages)) return [];
-  return messages.map((msg) => ({
-    role: typeof msg?.role === 'string' ? msg.role : 'unknown',
-    content: typeof msg?.content === 'string' ? msg.content : '',
-  }));
-}
-
-function cloneMessages(messages) {
-  return messages.map((msg) => ({ ...msg }));
-}
-
-function compareEvents(a, b) {
-  const seqA = typeof a.sequence === 'number' ? a.sequence : Number.POSITIVE_INFINITY;
-  const seqB = typeof b.sequence === 'number' ? b.sequence : Number.POSITIVE_INFINITY;
-  if (seqA !== seqB) return seqA - seqB;
-  const tsA = parseTimestamp(a.timestamp)?.getTime() ?? Number.POSITIVE_INFINITY;
-  const tsB = parseTimestamp(b.timestamp)?.getTime() ?? Number.POSITIVE_INFINITY;
-  if (tsA !== tsB) return tsA - tsB;
-  return (a.event_type || '').localeCompare(b.event_type || '');
-}
-
-function resetCallDerived(call) {
-  call.request.original = [];
-  call.request.final = [];
-  call.originalText = '';
-  call.finalText = '';
-  call.originalChunks = [];
-  call.finalChunks = [];
-  call.status = 'pending';
-  call.completed = false;
-  call.startedAt = null;
-  call.finishedAt = null;
-  call.firstSequence = null;
-  call.lastSequence = null;
-}
-
-function applyEventToCall(call, evt) {
-  const sequence = typeof evt.sequence === 'number' ? evt.sequence : null;
-  if (sequence !== null) {
-    if (call.firstSequence == null || sequence < call.firstSequence) {
-      call.firstSequence = sequence;
-    }
-    if (call.lastSequence == null || sequence > call.lastSequence) {
-      call.lastSequence = sequence;
-    }
-  }
-
-  const timestamp = parseTimestamp(evt.timestamp);
-  const payload = evt.payload || {};
-
-  switch (evt.event_type) {
-    case 'request_started':
-      handleRequestStarted(call, payload, timestamp);
-      break;
-    case 'original_chunk':
-      handleOriginalChunk(call, payload);
-      break;
-    case 'final_chunk':
-      handleFinalChunk(call, payload);
-      break;
-    case 'request_completed':
-      handleRequestCompleted(call, payload, timestamp);
-      break;
+function statusBadge(call) {
+  switch (call.status) {
+    case 'success':
+    case 'stream_summary':
+      return { key: 'success', label: 'Completed' };
+    case 'failure':
+      return { key: 'failure', label: 'Failed' };
+    case 'streaming':
+      return { key: 'streaming', label: 'Streaming' };
     default:
-      break;
+      return { key: 'pending', label: 'Pending' };
   }
 }
 
-function rebuildCallFromEvents(call) {
-  resetCallDerived(call);
-  const orderedEvents = [...call.events].sort(compareEvents);
-  for (const evt of orderedEvents) {
-    applyEventToCall(call, evt);
-  }
-  if (!call.finalText) {
-    call.finalText = call.originalText;
-  }
+function formatDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleString();
 }
 
-function buildMessagePairs(call) {
-  const originals = call.request.original;
-  const finals = call.request.final.length ? call.request.final : call.request.original;
-  const maxLen = Math.max(originals.length, finals.length);
-  const pairs = [];
-  for (let idx = 0; idx < maxLen; idx += 1) {
-    const original = originals[idx] || null;
-    const finalMsg = finals[idx] || null;
-    const role = finalMsg?.role || original?.role || 'unknown';
-    const originalText = original?.content || '';
-    const finalText = finalMsg?.content || originalText;
-    pairs.push({ role, original: originalText, final: finalText });
-  }
-  return pairs;
-}
-
-function assistantStatusText(call) {
-  if (call.completed) {
-    if (call.status === 'failure') return 'Response failed';
-    if (call.status === 'stream_summary') return 'Stream summary received';
-    return 'Response complete';
-  }
-  const chunkCount = call.finalChunks.length || call.originalChunks.length;
-  if (chunkCount) {
-    return `Streaming… ${chunkCount} chunk${chunkCount === 1 ? '' : 's'}`;
-  }
-  return 'Waiting for response';
-}
-
-function renderMessagePair(message) {
-  const wrapper = el('div', { class: 'message role-' + (message.role || 'unknown') });
+function renderMessageDiff(diff) {
+  const wrapper = el('div', { class: 'message role-' + (diff.role || 'unknown') });
   const meta = el('div', { class: 'meta' });
-  meta.appendChild(el('span', { class: 'badge', text: message.role || 'unknown' }));
+  meta.appendChild(el('span', { class: 'badge', text: diff.role || 'unknown' }));
   meta.appendChild(el('span', { text: 'Original vs Final' }));
   wrapper.appendChild(meta);
 
   const versions = el('div', { class: 'versions' });
   const original = el('div', { class: 'version original' });
-  original.textContent = message.original || '';
-  const modified = (message.final || '') !== (message.original || '');
+  original.textContent = diff.original || '';
+  const modified = (diff.final || '') !== (diff.original || '');
   const finalNode = el('div', { class: 'version final' + (modified ? ' modified' : '') });
-  finalNode.textContent = message.final || message.original || '';
+  finalNode.textContent = diff.final || diff.original || '';
   versions.appendChild(original);
   versions.appendChild(finalNode);
   wrapper.appendChild(versions);
   return wrapper;
 }
 
-function renderAssistantBlock(call) {
+function renderResponse(call) {
   const wrapper = el('div', { class: 'message assistant' });
   const meta = el('div', { class: 'meta' });
   meta.appendChild(el('span', { class: 'badge', text: 'assistant' }));
-  meta.appendChild(el('span', { text: assistantStatusText(call) }));
+  let statusText = 'Waiting for response';
+  if (call.status === 'failure') {
+    statusText = 'Response failed';
+  } else if (call.status === 'streaming') {
+    const chunkCount = call.chunk_count || 0;
+    statusText = chunkCount ? `Streaming… ${chunkCount} chunk${chunkCount === 1 ? '' : 's'}` : 'Streaming…';
+  } else if (call.status === 'stream_summary') {
+    statusText = 'Stream summary received';
+  } else if (call.final_response || call.original_response) {
+    statusText = 'Response complete';
+  }
+  meta.appendChild(el('span', { text: statusText }));
   wrapper.appendChild(meta);
 
   const versions = el('div', { class: 'versions' });
   const original = el('div', { class: 'version original' });
-  original.textContent = call.originalText || '';
-  const modified = (call.finalText || '') !== (call.originalText || '');
+  original.textContent = call.original_response || '';
+  const modified = (call.final_response || '') !== (call.original_response || '');
   const finalNode = el('div', { class: 'version final' + (modified ? ' modified' : '') });
-  finalNode.textContent = call.finalText || call.originalText || '';
+  finalNode.textContent = call.final_response || call.original_response || '';
   versions.appendChild(original);
   versions.appendChild(finalNode);
   wrapper.appendChild(versions);
 
-  if (!call.completed) {
+  if (call.status === 'streaming') {
     wrapper.appendChild(el('div', { class: 'stream-status', text: 'Live updates in progress…' }));
   } else if (call.status === 'failure') {
     wrapper.appendChild(el('div', { class: 'stream-status', text: 'Policy marked this call as failed.' }));
   }
+
   return wrapper;
 }
 
@@ -268,125 +170,65 @@ function renderConversation() {
   if (!container) return;
   container.textContent = '';
 
-  const call = state.call;
-  if (!call) {
+  if (!state.call) {
     container.appendChild(el('div', { class: 'empty-state', text: 'Select a call to view the conversation trace.' }));
     return;
   }
 
-  const pairs = buildMessagePairs(call);
-  if (!pairs.length && !call.originalText && !call.finalText) {
-    container.appendChild(el('div', { class: 'empty-state', text: 'No conversation data captured for this call yet.' }));
-    return;
+  const call = state.call;
+  const wrapper = el('div', { class: 'call' });
+  const header = el('div', { class: 'call-header' });
+  header.appendChild(el('div', { class: 'call-title', text: call.call_id }));
+  const badge = statusBadge(call);
+  header.appendChild(el('span', { class: `badge status-${badge.key}`, text: badge.label }));
+  const metaBits = [];
+  const started = formatDate(call.started_at);
+  if (started) metaBits.push(`Started ${started}`);
+  const finished = formatDate(call.completed_at);
+  if (finished) metaBits.push(`Finished ${finished}`);
+  if (metaBits.length) {
+    header.appendChild(el('div', { class: 'call-meta', text: metaBits.join(' • ') }));
   }
+  wrapper.appendChild(header);
 
-  for (const pair of pairs) {
-    container.appendChild(renderMessagePair(pair));
+  const body = el('div', { class: 'call-body' });
+  const requestSection = el('div', { class: 'call-section' });
+  requestSection.appendChild(el('div', { class: 'section-title', text: 'Request Messages' }));
+  const messagesContainer = el('div', { class: 'call-messages' });
+  if (!call.new_messages || call.new_messages.length === 0) {
+    messagesContainer.appendChild(el('div', { class: 'empty-state inline', text: 'No new messages in this turn.' }));
+  } else {
+    for (const diff of call.new_messages) {
+      messagesContainer.appendChild(renderMessageDiff(diff));
+    }
   }
+  requestSection.appendChild(messagesContainer);
+  body.appendChild(requestSection);
 
-  if (call.originalText || call.finalText || call.originalChunks.length || call.finalChunks.length || call.completed) {
-    container.appendChild(renderAssistantBlock(call));
-  }
+  const responseSection = el('div', { class: 'call-section' });
+  responseSection.appendChild(el('div', { class: 'section-title', text: 'Assistant Output' }));
+  responseSection.appendChild(renderResponse(call));
+  body.appendChild(responseSection);
+
+  wrapper.appendChild(body);
+  container.appendChild(wrapper);
 }
 
-function handleRequestStarted(call, payload, timestamp) {
-  const originalMessages = normalizeMessages(payload?.original_messages);
-  const finalsRaw = normalizeMessages(payload?.final_messages);
-  const finals = finalsRaw.length ? finalsRaw : cloneMessages(originalMessages);
-  call.request.original = cloneMessages(originalMessages);
-  call.request.final = cloneMessages(finals);
-  call.originalText = '';
-  call.finalText = '';
-  call.originalChunks = [];
-  call.finalChunks = [];
-  call.completed = false;
-  call.status = 'pending';
-  call.startedAt = timestamp || call.startedAt;
-  call.finishedAt = null;
-}
-
-function handleOriginalChunk(call, payload) {
-  const delta = typeof payload?.delta === 'string' ? payload.delta : '';
-  call.originalText += delta;
-  call.originalChunks.push({ delta });
-  if (!call.completed) {
-    call.status = 'streaming';
-  }
-}
-
-function handleFinalChunk(call, payload) {
-  const delta = typeof payload?.delta === 'string' ? payload.delta : '';
-  call.finalText += delta;
-  call.finalChunks.push({ delta });
-  if (!call.completed) {
-    call.status = 'streaming';
-  }
-}
-
-function handleRequestCompleted(call, payload, timestamp) {
-  const status = typeof payload?.status === 'string' ? payload.status : 'success';
-  call.status = status;
-  call.completed = true;
-  call.finishedAt = timestamp || call.finishedAt;
-
-  const originalResponse = typeof payload?.original_response === 'string' ? payload.original_response : '';
-  const finalResponse = typeof payload?.final_response === 'string' ? payload.final_response : '';
-
-  if (originalResponse) {
-    call.originalText = originalResponse;
-  } else if (!call.originalText && call.originalChunks.length) {
-    call.originalText = call.originalChunks.map((chunk) => chunk.delta || '').join('');
-  }
-
-  if (finalResponse) {
-    call.finalText = finalResponse;
-  } else if (!call.finalText && call.finalChunks.length) {
-    call.finalText = call.finalChunks.map((chunk) => chunk.delta || '').join('');
-  }
-
-  if (!call.finalText) {
-    call.finalText = call.originalText;
-  }
-}
-
-function consumeEvent(evt, options = {}) {
-  if (!evt) return;
-  if (state.callId && evt.call_id && evt.call_id !== state.callId) return;
-  const callId = evt.call_id || state.callId;
+async function hydrateCall(callId, options = {}) {
   if (!callId) return;
-  if (!state.call) {
-    state.call = createCallState(callId);
+  if (!options.preserveStatus) {
+    setStatus('Loading…');
   }
-  state.call.callId = callId;
-  if (evt.trace_id && !state.traceId) {
-    state.traceId = evt.trace_id;
-  }
-  const eventKey = `${evt.event_type || 'unknown'}::${evt.sequence ?? 'none'}::${evt.timestamp ?? 'no-ts'}`;
-  if (state.call.eventKeys.has(eventKey)) {
-    if (!options.skipRender) {
-      renderConversation();
-    }
-    return;
-  }
-  state.call.eventKeys.add(eventKey);
-  state.call.events.push(evt);
-  rebuildCallFromEvents(state.call);
-
-  if (!options.skipRender) {
+  try {
+    const snapshot = await fetchJSON(`/api/hooks/conversation?call_id=${encodeURIComponent(callId)}`);
+    state.traceId = snapshot.trace_id || state.traceId;
+    state.call = Array.isArray(snapshot.calls) && snapshot.calls.length ? snapshot.calls[0] : null;
     renderConversation();
+    setStatus('Live', true);
+  } catch (err) {
+    console.error('Failed to load conversation', err);
+    setStatus('Failed to load');
   }
-}
-
-function applySnapshot(snapshot) {
-  state.callId = snapshot?.call_id || state.callId;
-  state.traceId = snapshot?.trace_id || state.traceId;
-  state.call = createCallState(state.callId);
-  if (Array.isArray(snapshot?.events)) {
-    for (const event of snapshot.events) {
-      consumeEvent(event, { skipRender: true });
-    }
-  }
-  renderConversation();
 }
 
 async function loadConversation(callId) {
@@ -394,17 +236,9 @@ async function loadConversation(callId) {
   state.callId = callId;
   const active = document.getElementById('active-cid');
   if (active) active.value = callId;
-  setStatus('Loading…');
   closeStream();
-  try {
-    const snapshot = await fetchJSON(`/api/hooks/conversation?call_id=${encodeURIComponent(callId)}`);
-    applySnapshot(snapshot);
-    setStatus('Live', true);
-    openStream(callId);
-  } catch (err) {
-    console.error('Failed to load conversation', err);
-    setStatus('Failed to load');
-  }
+  await hydrateCall(callId);
+  openStream(callId);
 }
 
 async function loadRecentCallIds() {
@@ -470,7 +304,7 @@ function init() {
   const refreshConvBtn = document.getElementById('refresh-conv');
   if (refreshConvBtn) {
     refreshConvBtn.addEventListener('click', () => {
-      if (state.callId) loadConversation(state.callId);
+      if (state.callId) hydrateCall(state.callId, { preserveStatus: true });
     });
   }
 
