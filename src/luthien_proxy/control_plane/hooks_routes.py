@@ -62,6 +62,15 @@ class CallIdInfo(BaseModel):
     latest: datetime
 
 
+class TraceInfo(BaseModel):
+    """Summary row for a litellm_trace_id with aggregates."""
+
+    trace_id: str
+    call_count: int
+    event_count: int
+    latest: datetime
+
+
 class ConversationMessage(BaseModel):
     """Single request-side message with original and final forms."""
 
@@ -95,6 +104,7 @@ class ConversationState(BaseModel):
     call_id: str
     messages: list[ConversationMessage] = Field(default_factory=list)
     response: ConversationResponse = Field(default_factory=ConversationResponse)
+    call_ids: list[str] = Field(default_factory=list)
 
 
 @router.get("/api/hooks/counters")
@@ -158,6 +168,8 @@ async def hook_generic(
             "original": stored_payload,
             "result": _json_safe(final_result),
         }
+        if trace_id:
+            result_record["litellm_trace_id"] = trace_id
         asyncio.create_task(debug_writer(f"hook_result:{hook_name}", result_record))
 
         call_id = result_record.get("litellm_call_id")
@@ -170,7 +182,11 @@ async def hook_generic(
             )
             if event is not None:
                 event["call_id"] = call_id
+                if trace_id:
+                    event["trace_id"] = trace_id
                 asyncio.create_task(_publish_conversation_event(redis_conn, call_id, event))
+                if trace_id:
+                    asyncio.create_task(_publish_trace_conversation_event(redis_conn, trace_id, event.copy()))
 
         return final_result
     except Exception as exc:
@@ -204,10 +220,15 @@ def _extract_post_ns(jb: dict[str, Any]) -> Optional[int]:
 
 
 _CONVERSATION_CHANNEL_PREFIX = "luthien:conversation:"
+_CONVERSATION_TRACE_CHANNEL_PREFIX = "luthien:conversation-trace:"
 
 
 def _conversation_channel(call_id: str) -> str:
     return f"{_CONVERSATION_CHANNEL_PREFIX}{call_id}"
+
+
+def _conversation_trace_channel(trace_id: str) -> str:
+    return f"{_CONVERSATION_TRACE_CHANNEL_PREFIX}{trace_id}"
 
 
 def _require_dict(value: Any, context: str) -> dict[str, Any]:
@@ -554,11 +575,59 @@ async def _publish_conversation_event(
         logger.error("Failed to publish conversation event: %s", exc)
 
 
+async def _publish_trace_conversation_event(
+    redis: redis_client.RedisClient,
+    trace_id: str,
+    event: dict[str, Any],
+) -> None:
+    try:
+        payload = json.dumps(event, ensure_ascii=False)
+    except Exception as exc:  # pragma: no cover - defensive serialization
+        logger.error("Failed to serialize trace conversation event: %s", exc)
+        return
+    try:
+        await redis.publish(_conversation_trace_channel(trace_id), payload)
+    except Exception as exc:  # pragma: no cover - redis failures shouldn't break hooks
+        logger.error("Failed to publish trace conversation event: %s", exc)
+
+
 async def _conversation_sse_stream(
     redis: redis_client.RedisClient,
     call_id: str,
 ) -> AsyncGenerator[str, None]:
     channel = _conversation_channel(call_id)
+    pubsub = redis.pubsub()
+    await pubsub.subscribe(channel)
+    heartbeat_interval = 15.0
+    last_heartbeat = time.time()
+    try:
+        while True:
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            now = time.time()
+            if message is None:
+                if now - last_heartbeat >= heartbeat_interval:
+                    last_heartbeat = now
+                    yield ": ping\n\n"
+                continue
+            data = message.get("data")
+            if isinstance(data, bytes):
+                text = data.decode("utf-8", errors="ignore")
+            else:
+                text = str(data)
+            last_heartbeat = now
+            yield f"data: {text}\n\n"
+    finally:
+        try:
+            await pubsub.unsubscribe(channel)
+        finally:
+            await pubsub.close()
+
+
+async def _conversation_sse_stream_by_trace(
+    redis: redis_client.RedisClient,
+    trace_id: str,
+) -> AsyncGenerator[str, None]:
+    channel = _conversation_trace_channel(trace_id)
     pubsub = redis.pubsub()
     await pubsub.subscribe(channel)
     heartbeat_interval = 15.0
@@ -628,6 +697,52 @@ async def _fetch_trace_entries(
     return entries
 
 
+async def _fetch_trace_entries_by_trace(
+    trace_id: str,
+    pool: Optional[db.DatabasePool],
+    config: ProjectConfig,
+) -> list[TraceEntry]:
+    if config.database_url is None or pool is None:
+        raise HTTPException(status_code=500, detail="DATABASE_URL is required for trace lookups")
+
+    entries: list[TraceEntry] = []
+    try:
+        async with pool.connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT time_created, debug_type_identifier, jsonblob
+                FROM debug_logs
+                WHERE COALESCE(
+                    jsonblob->>'litellm_trace_id',
+                    jsonblob->'payload'->'request_data'->>'litellm_trace_id',
+                    jsonblob->'payload'->'data'->>'litellm_trace_id'
+                ) = $1
+                ORDER BY time_created ASC
+                """,
+                trace_id,
+            )
+            for row in rows:
+                jb = _parse_jsonblob(row["jsonblob"])
+                entries.append(
+                    TraceEntry(
+                        time=row["time_created"],
+                        post_time_ns=_extract_post_ns(jb),
+                        hook=jb.get("hook"),
+                        debug_type=row["debug_type_identifier"],
+                        payload=jb,
+                    )
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"trace_error: {exc}")
+
+    entries.sort(
+        key=lambda e: (e.post_time_ns if e.post_time_ns is not None else int(e.time.timestamp() * 1_000_000_000))
+    )
+    return entries
+
+
 @router.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
 async def trace_by_call_id(
     call_id: str = Query(..., min_length=4),
@@ -674,6 +789,58 @@ async def recent_call_ids(
     return out
 
 
+@router.get("/api/hooks/recent_traces", response_model=list[TraceInfo])
+async def recent_traces(
+    limit: int = Query(default=50, ge=1, le=500),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
+    config: ProjectConfig = Depends(get_project_config),
+) -> list[TraceInfo]:
+    """Return recent trace ids with call/event counts."""
+    out: list[TraceInfo] = []
+    if config.database_url is None or pool is None:
+        return out
+    try:
+        async with pool.connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT trace_id,
+                       COUNT(*) AS event_count,
+                       COUNT(DISTINCT call_id) AS call_count,
+                       MAX(time_created) AS latest
+                FROM (
+                    SELECT COALESCE(
+                               jsonblob->>'litellm_trace_id',
+                               jsonblob->'payload'->'request_data'->>'litellm_trace_id',
+                               jsonblob->'payload'->'data'->>'litellm_trace_id'
+                           ) AS trace_id,
+                           jsonblob->>'litellm_call_id' AS call_id,
+                           time_created
+                    FROM debug_logs
+                ) AS traces
+                WHERE trace_id IS NOT NULL
+                GROUP BY trace_id
+                ORDER BY latest DESC
+                LIMIT $1
+                """,
+                limit,
+            )
+            for row in rows:
+                trace_id = row["trace_id"]
+                if not trace_id:
+                    continue
+                out.append(
+                    TraceInfo(
+                        trace_id=trace_id,
+                        call_count=int(row["call_count"]),
+                        event_count=int(row["event_count"]),
+                        latest=row["latest"],
+                    )
+                )
+    except Exception as exc:
+        logger.error("Error fetching recent traces: %s", exc)
+    return out
+
+
 @router.get("/api/hooks/conversation", response_model=ConversationState)
 async def conversation_snapshot(
     call_id: str = Query(..., min_length=4),
@@ -682,7 +849,9 @@ async def conversation_snapshot(
 ) -> ConversationState:
     """Return request/response comparison for a call ID."""
     entries = await _fetch_trace_entries(call_id, pool, config)
-    return _build_conversation_state(call_id, entries)
+    state = _build_conversation_state(call_id, entries)
+    state.call_ids = [call_id]
+    return state
 
 
 @router.get("/api/hooks/conversation/stream")
@@ -695,12 +864,42 @@ async def conversation_stream(
     return StreamingResponse(stream, media_type="text/event-stream")
 
 
+@router.get("/api/hooks/conversation/by_trace", response_model=ConversationState)
+async def conversation_snapshot_by_trace(
+    trace_id: str = Query(..., min_length=4),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
+    config: ProjectConfig = Depends(get_project_config),
+) -> ConversationState:
+    """Return conversation snapshot for a litellm_trace_id."""
+    entries = await _fetch_trace_entries_by_trace(trace_id, pool, config)
+    state = _build_conversation_state(trace_id, entries)
+    call_ids: set[str] = set()
+    for entry in entries:
+        payload = entry.payload
+        call_id = payload.get("litellm_call_id")
+        if isinstance(call_id, str) and call_id:
+            call_ids.add(call_id)
+    state.call_ids = sorted(call_ids)
+    return state
+
+
+@router.get("/api/hooks/conversation/stream_by_trace")
+async def conversation_stream_by_trace(
+    trace_id: str = Query(..., min_length=4),
+    redis_conn: redis_client.RedisClient = Depends(get_redis_client),
+) -> StreamingResponse:
+    """Stream live conversation deltas for a trace id via SSE."""
+    stream = _conversation_sse_stream_by_trace(redis_conn, trace_id)
+    return StreamingResponse(stream, media_type="text/event-stream")
+
+
 __all__ = [
     "router",
     "get_hook_counters",
     "TraceEntry",
     "TraceResponse",
     "CallIdInfo",
+    "TraceInfo",
     "ConversationMessage",
     "ConversationChunk",
     "ConversationResponse",
@@ -708,6 +907,9 @@ __all__ = [
     "hook_generic",
     "trace_by_call_id",
     "recent_call_ids",
+    "recent_traces",
     "conversation_snapshot",
     "conversation_stream",
+    "conversation_snapshot_by_trace",
+    "conversation_stream_by_trace",
 ]

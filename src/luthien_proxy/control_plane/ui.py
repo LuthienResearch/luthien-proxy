@@ -35,6 +35,12 @@ async def hooks_trace_ui(request: Request):
     return templates.TemplateResponse(request, "hooks_trace.html")
 
 
+@router.get("/hooks/conversation/by_trace", response_class=HTMLResponse)
+async def conversation_by_trace_ui(request: Request):
+    """Render the conversation view grouped by trace id."""
+    return templates.TemplateResponse(request, "conversation_by_trace.html")
+
+
 @router.get("/hooks/conversation", response_class=HTMLResponse)
 async def hooks_conversation_ui(request: Request):
     """Render the live conversation impact view."""
