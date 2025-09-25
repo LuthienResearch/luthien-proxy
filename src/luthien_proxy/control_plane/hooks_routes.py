@@ -37,6 +37,24 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+_stream_indices: dict[str, dict[str, int]] = {}
+
+
+def _reset_stream_indices(call_id: str) -> None:
+    _stream_indices[call_id] = {"original": 0, "final": 0}
+
+
+def _next_chunk_index(call_id: str, stream: Literal["original", "final"]) -> int:
+    state = _stream_indices.setdefault(call_id, {"original": 0, "final": 0})
+    idx = state[stream]
+    state[stream] = idx + 1
+    return idx
+
+
+def _clear_stream_indices(call_id: str) -> None:
+    _stream_indices.pop(call_id, None)
+
+
 class TraceEntry(BaseModel):
     """A single hook event for a call ID, optionally with nanosecond time."""
 
@@ -108,6 +126,8 @@ class ConversationCallSnapshot(BaseModel):
     original_response: str = ""
     final_response: str = ""
     chunk_count: int = 0
+    original_chunks: list[str] = Field(default_factory=list)
+    final_chunks: list[str] = Field(default_factory=list)
 
 
 class ConversationSnapshot(BaseModel):
@@ -506,6 +526,7 @@ def _build_conversation_events(
         result_payload = _require_dict(result, "pre-call result payload") if result is not None else original_payload
         originals = _messages_from_payload(original_payload)
         finals = _messages_from_payload(result_payload)
+        _reset_stream_indices(call_id)
         events.append(
             ConversationEvent(
                 call_id=call_id,
@@ -537,6 +558,7 @@ def _build_conversation_events(
 
         if original_chunk is not None:
             original_delta = _delta_from_chunk(original_chunk)
+            chunk_index = _next_chunk_index(call_id, "original")
             events.append(
                 ConversationEvent(
                     call_id=call_id,
@@ -546,6 +568,7 @@ def _build_conversation_events(
                     timestamp=timestamp,
                     hook=hook,
                     payload={
+                        "chunk_index": chunk_index,
                         "delta": original_delta,
                         "choice_index": choice_index,
                         "raw_chunk": original_chunk,
@@ -556,6 +579,7 @@ def _build_conversation_events(
 
         if final_chunk is not None:
             final_delta = _delta_from_chunk(final_chunk)
+            chunk_index = _next_chunk_index(call_id, "final")
             events.append(
                 ConversationEvent(
                     call_id=call_id,
@@ -565,6 +589,7 @@ def _build_conversation_events(
                     timestamp=timestamp,
                     hook=hook,
                     payload={
+                        "chunk_index": chunk_index,
                         "delta": final_delta,
                         "choice_index": choice_index,
                         "raw_chunk": final_chunk,
@@ -610,6 +635,7 @@ def _build_conversation_events(
                 payload=payload,
             )
         )
+        _clear_stream_indices(call_id)
         return events
 
     if hook == "async_post_call_streaming_hook":
@@ -636,6 +662,7 @@ def _build_conversation_events(
                 },
             )
         )
+        _clear_stream_indices(call_id)
         return events
 
     if hook == "async_post_call_failure_hook":
@@ -654,6 +681,7 @@ def _build_conversation_events(
                 },
             )
         )
+        _clear_stream_indices(call_id)
         return events
 
     return events
@@ -903,6 +931,8 @@ def _build_call_snapshots(events: Iterable[ConversationEvent]) -> list[Conversat
         request_final: list[dict[str, str]] = []
         original_response_parts: list[str] = []
         final_response_parts: list[str] = []
+        original_chunks: list[str] = []
+        final_chunks: list[str] = []
         chunk_count = 0
         started_at: Optional[datetime] = None
         completed_at: Optional[datetime] = None
@@ -925,12 +955,14 @@ def _build_call_snapshots(events: Iterable[ConversationEvent]) -> list[Conversat
                 delta = str(event.payload.get("delta") or "")
                 if delta:
                     original_response_parts.append(delta)
+                    original_chunks.append(delta)
 
             elif event.event_type == "final_chunk":
                 delta = str(event.payload.get("delta") or "")
                 if delta:
                     final_response_parts.append(delta)
                     chunk_count += 1
+                    final_chunks.append(delta)
 
             elif event.event_type == "request_completed":
                 payload = event.payload
@@ -939,12 +971,20 @@ def _build_call_snapshots(events: Iterable[ConversationEvent]) -> list[Conversat
                 final_text = str(payload.get("final_response") or "")
                 if original_text:
                     original_response_parts = [original_text]
+                    original_chunks = [original_text]
                 if final_text:
                     final_response_parts = [final_text]
+                    final_chunks = [final_text]
                 completed_at = event.timestamp
 
         original_response = "".join(original_response_parts)
         final_response = "".join(final_response_parts) or original_response
+
+        if not original_chunks and original_response:
+            original_chunks = [original_response]
+        if not final_chunks and final_response:
+            final_chunks = [final_response]
+        chunk_count = len(final_chunks)
 
         if status == "pending":
             if completed_at is not None:
@@ -991,6 +1031,8 @@ def _build_call_snapshots(events: Iterable[ConversationEvent]) -> list[Conversat
                 original_response=original_response,
                 final_response=final_response,
                 chunk_count=chunk_count,
+                original_chunks=original_chunks,
+                final_chunks=final_chunks,
             )
         )
 

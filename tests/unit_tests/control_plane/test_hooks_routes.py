@@ -273,7 +273,9 @@ async def test_conversation_snapshot_builds_events(project_config: ProjectConfig
     assert first_event.payload["original_messages"][0]["content"] == "Hello"
     assert first_event.payload["final_messages"][0]["content"] == "Hello sanitized"
     assert snapshot.events[1].payload["delta"] == "Hi"
+    assert snapshot.events[1].payload["chunk_index"] == 0
     assert snapshot.events[2].payload["delta"] == "Hello!"
+    assert snapshot.events[2].payload["chunk_index"] == 0
     assert snapshot.events[-1].payload["final_response"] == "Hello friend!"
     assert len(snapshot.calls) == 1
     call_snapshot = snapshot.calls[0]
@@ -284,6 +286,8 @@ async def test_conversation_snapshot_builds_events(project_config: ProjectConfig
     assert call_snapshot.new_messages == [
         ConversationMessageDiff(role="user", original="Hello", final="Hello sanitized")
     ]
+    assert call_snapshot.final_chunks == ["Hello friend!"]
+    assert call_snapshot.original_chunks == ["Hi"]
 
 
 @pytest.mark.asyncio
@@ -342,6 +346,8 @@ async def test_conversation_snapshot_by_trace_collects_calls(project_config: Pro
     assert [call.call_id for call in snapshot.calls] == ["call-1", "call-2"]
     response_map = {call.call_id: call.final_response for call in snapshot.calls}
     assert response_map == {"call-1": "Hello", "call-2": "Howdy partner"}
+    assert snapshot.calls[0].final_chunks == ["Hello"]
+    assert snapshot.calls[1].final_chunks == ["Howdy partner"]
 
 
 @pytest.mark.asyncio
