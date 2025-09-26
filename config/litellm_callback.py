@@ -21,6 +21,8 @@ from litellm._logging import verbose_logger
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.types.utils import ModelResponseStream
 
+JSONValue = Union[dict[str, Any], list[Any], str, int, float, bool, None]
+
 
 class LuthienCallback(CustomLogger):
     """Thin callback that forwards everything to the control plane."""
@@ -37,15 +39,22 @@ class LuthienCallback(CustomLogger):
         self,
         hook: str,
         payload: dict,
-    ) -> Any:
+    ) -> JSONValue:
         """Send an async hook payload to the control plane (fire-and-forget).
 
         Returns:
-            The JSON response from control plane if successful, None otherwise.
+            Parsed JSON from the control plane when available, otherwise None.
+
+        Raises:
+            httpx.HTTPError: If returned status is 4xx/5xx or response is invalid.
+            httpx.TimeoutException: If the request times out.
+            httpx.ConnectError: If the connection to the control plane fails.
+
 
         Note:
-            Errors are logged but not raised to prevent proxy failures.
-            Distinguishes between transient (network) and persistent (config) errors.
+            Connection, timeout, and HTTP status errors are logged and suppressed to
+            avoid breaking the proxy, but malformed success responses raise an
+            `httpx.HTTPError` so we fail fast on unexpected control-plane behavior.
         """
         try:
             payload["post_time_ns"] = _time.time_ns()
@@ -56,30 +65,29 @@ class LuthienCallback(CustomLogger):
                 )
                 response.raise_for_status()
                 content_type = response.headers.get("content-type", "")
-                if "application/json" in content_type.lower() and response.content:
-                    try:
-                        return response.json()
-                    except ValueError:
-                        return None
+                if "application/json" not in content_type:
+                    raise httpx.HTTPError(f"Unexpected content-type from control plane for {hook} hook: {content_type}")
+                if not response.content:
+                    raise httpx.HTTPError(f"Empty response from control plane for {hook} hook")
+                try:
+                    return response.json()
+                except ValueError:
+                    raise httpx.HTTPError(f"Invalid JSON response from control plane for {hook} hook")
                 return None
         except httpx.ConnectError as e:
             # Network connectivity issues - likely transient
-            verbose_logger.warning(f"Transient network error posting {hook} hook: {e}")
+            verbose_logger.error(f"Network error (potentially transient) posting {hook} hook: {e}")
             return None
         except httpx.HTTPStatusError as e:
             # HTTP error response - could be persistent configuration issue
             if e.response.status_code >= 500:
-                verbose_logger.warning(f"Control plane server error for {hook} hook: {e}")
+                verbose_logger.error(f"Control plane server error for {hook} hook: {e}")
             else:
                 verbose_logger.error(f"Client error posting {hook} hook (possible misconfiguration): {e}")
             return None
         except httpx.TimeoutException as e:
             # Timeout - likely transient but could indicate overload
-            verbose_logger.warning(f"Timeout posting {hook} hook: {e}")
-            return None
-        except Exception as e:
-            # Unexpected error - likely persistent
-            verbose_logger.error(f"Unexpected error posting {hook} hook: {e}")
+            verbose_logger.error(f"Timeout posting {hook} hook: {e}")
             return None
 
     # --------------------- Hooks ----------------------
@@ -170,7 +178,7 @@ class LuthienCallback(CustomLogger):
                         "user_api_key_dict": self._json_safe(user_api_key_dict),
                     },
                 )
-                yield self._normalize_stream_chunk(item, policy_result)
+                yield self._normalize_stream_chunk(policy_result)
         except Exception as e:
             verbose_logger.error(f"async_post_call_streaming_iterator_hook error: {e}")
             # If wrapping fails, yield from original response to avoid breaking stream
@@ -234,60 +242,29 @@ class LuthienCallback(CustomLogger):
         else:
             raise ValueError("response is not a dict or pydantic model!")
 
-    def _normalize_stream_chunk(self, original: Any, edited: Any | None) -> ModelResponseStream:
-        """Normalize stream chunks from the policy back to ModelResponseStream.
+    def _normalize_stream_chunk(self, chunk: Any) -> ModelResponseStream:
+        """Normalize policy-provided stream chunks back to ModelResponseStream."""
+        if chunk is None:
+            raise ValueError("policy returned no stream chunk")
 
-        Args:
-            original: The original chunk from upstream.
-            edited: The potentially edited chunk from the policy.
+        if not isinstance(chunk, dict):
+            raise TypeError(f"policy stream chunks must be dict, got {type(chunk).__name__}")
 
-        Returns:
-            A valid ModelResponseStream object.
+        payload = dict(chunk)
+        payload.pop("_source_type_", None)
 
-        Raises:
-            TypeError: If the chunk cannot be normalized to ModelResponseStream.
-            ValueError: If required fields are missing.
-        """
-        if edited is None:
-            # No edits from policy, return original if valid
-            if isinstance(original, ModelResponseStream):
-                return original
-            raise TypeError(f"expected ModelResponseStream, got {type(original).__name__}")
+        if not payload:
+            raise ValueError("policy returned empty stream chunk")
 
-        # Policy provided edits
-        if isinstance(edited, ModelResponseStream):
-            return edited
+        required_keys = {"choices", "model", "created"}
+        missing_keys = sorted(required_keys - payload.keys())
+        if missing_keys:
+            raise ValueError(f"policy stream chunk missing required fields: {missing_keys}")
 
-        if isinstance(edited, dict):
-            try:
-                payload = dict(edited)
-                payload.pop("_source_type_", None)
-
-                # Validate required fields exist before attempting conversion
-                if not payload:
-                    raise ValueError("Empty payload dictionary from policy")
-
-                # Check for partial dict or missing required structure
-                # These are essential fields for a valid stream response
-                if "choices" not in payload or "model" not in payload or "created" not in payload:
-                    verbose_logger.warning(
-                        f"Policy returned incomplete stream chunk: missing required fields. Keys: {list(payload.keys())}"
-                    )
-                    # Fall back to original for incomplete responses
-                    if isinstance(original, ModelResponseStream):
-                        return original
-                    raise ValueError("Incomplete stream chunk and no valid original to fall back to")
-
-                return ModelResponseStream.model_validate(payload)
-            except (pydantic.ValidationError, ValueError) as e:
-                verbose_logger.error(f"Failed to validate stream chunk from policy: {e}")
-                # Fall back to original if policy response is invalid
-                if isinstance(original, ModelResponseStream):
-                    verbose_logger.warning("Falling back to original stream chunk due to policy error")
-                    return original
-                raise
-
-        raise TypeError(f"unexpected policy stream result type: {type(edited).__name__}")
+        try:
+            return ModelResponseStream.model_validate(payload)
+        except pydantic.ValidationError as exc:
+            raise ValueError("policy stream chunk failed validation") from exc
 
     def _json_safe(self, obj):
         """Recursively convert objects into JSON-serializable structures.

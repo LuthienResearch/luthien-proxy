@@ -1,13 +1,11 @@
 """Test suite for LiteLLM callback error handling and type normalization."""
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from litellm.types.utils import ModelResponseStream
-
 from config.litellm_callback import LuthienCallback
+from litellm.types.utils import ModelResponseStream
 
 
 @pytest.fixture
@@ -55,9 +53,7 @@ async def test_apost_hook_handles_server_errors(callback):
         mock_response = MagicMock()
         mock_response.status_code = 500
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "Internal Server Error",
-            request=MagicMock(),
-            response=mock_response
+            "Internal Server Error", request=MagicMock(), response=mock_response
         )
         mock_client.post.return_value = mock_response
         mock_client_class.return_value = mock_client
@@ -78,9 +74,7 @@ async def test_apost_hook_handles_client_errors(callback):
         mock_response = MagicMock()
         mock_response.status_code = 400
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "Bad Request",
-            request=MagicMock(),
-            response=mock_response
+            "Bad Request", request=MagicMock(), response=mock_response
         )
         mock_client.post.return_value = mock_response
         mock_client_class.return_value = mock_client
@@ -90,106 +84,127 @@ async def test_apost_hook_handles_client_errors(callback):
         assert result is None
 
 
-def test_normalize_stream_chunk_with_valid_original(callback):
-    """Test normalization when original is already ModelResponseStream."""
-    original = ModelResponseStream(
-        id="test",
-        choices=[{"index": 0, "delta": {"content": "test"}}],
-        created=1234567890,
-        model="gpt-3.5-turbo",
-        object="chat.completion.chunk"
+@pytest.mark.asyncio
+async def test_apost_hook_raises_on_non_json_response(callback):
+    """Ensure the hook raises when the control plane response is not JSON."""
+    with patch("httpx.AsyncClient") as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "text/plain"}
+        mock_response.content = b"ok"
+        mock_response.raise_for_status.return_value = None
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
+        with pytest.raises(httpx.HTTPError, match="Unexpected content-type"):
+            await callback._apost_hook("test_hook", {"data": "test"})
+
+
+@pytest.mark.asyncio
+async def test_apost_hook_raises_on_empty_response(callback):
+    """Ensure the hook raises when the control plane returns empty JSON body."""
+    with patch("httpx.AsyncClient") as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b""
+        mock_response.raise_for_status.return_value = None
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
+        with pytest.raises(httpx.HTTPError, match="Empty response"):
+            await callback._apost_hook("test_hook", {"data": "test"})
+
+
+@pytest.mark.asyncio
+async def test_apost_hook_raises_on_invalid_json(callback):
+    """Ensure the hook raises when the control plane returns malformed JSON."""
+    with patch("httpx.AsyncClient") as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b"not-json"
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.side_effect = ValueError("bad json")
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
+        with pytest.raises(httpx.HTTPError, match="Invalid JSON"):
+            await callback._apost_hook("test_hook", {"data": "test"})
+
+
+def test_normalize_stream_chunk_with_model_response_edit(callback):
+    """Fail when policy returns a ModelResponseStream instead of JSON."""
+    edited = ModelResponseStream.model_validate(
+        {
+            "id": "test",
+            "choices": [{"index": 0, "delta": {"content": "edited"}}],
+            "created": 1234567890,
+            "model": "gpt-3.5-turbo",
+            "object": "chat.completion.chunk",
+        }
     )
 
-    result = callback._normalize_stream_chunk(original, None)
-    assert result == original
-
-
-def test_normalize_stream_chunk_with_valid_edit(callback):
-    """Test normalization when edit is ModelResponseStream."""
-    original = MagicMock()
-    edited = ModelResponseStream(
-        id="test",
-        choices=[{"index": 0, "delta": {"content": "edited"}}],
-        created=1234567890,
-        model="gpt-3.5-turbo",
-        object="chat.completion.chunk"
-    )
-
-    result = callback._normalize_stream_chunk(original, edited)
-    assert result == edited
+    with pytest.raises(TypeError, match="policy stream chunks must be dict"):
+        callback._normalize_stream_chunk(edited)
 
 
 def test_normalize_stream_chunk_with_dict_edit(callback):
     """Test normalization when edit is a dictionary."""
-    original = MagicMock()
     edited = {
         "id": "test",
         "choices": [{"index": 0, "delta": {"content": "edited"}}],
         "created": 1234567890,
         "model": "gpt-3.5-turbo",
         "object": "chat.completion.chunk",
-        "_source_type_": "dict"  # Should be stripped
+        "_source_type_": "dict",  # Should be stripped
     }
 
-    result = callback._normalize_stream_chunk(original, edited)
+    result = callback._normalize_stream_chunk(edited)
     assert isinstance(result, ModelResponseStream)
     assert result.choices[0]["delta"]["content"] == "edited"
 
 
 def test_normalize_stream_chunk_with_empty_dict(callback):
     """Test normalization fails gracefully with empty dict."""
-    original = ModelResponseStream(
-        id="test",
-        choices=[{"index": 0, "delta": {"content": "original"}}],
-        created=1234567890,
-        model="gpt-3.5-turbo",
-        object="chat.completion.chunk"
-    )
     edited = {}
 
-    with patch("config.litellm_callback.verbose_logger") as mock_logger:
-        result = callback._normalize_stream_chunk(original, edited)
-        # Should fall back to original on error
-        assert result == original
-        mock_logger.warning.assert_called()
+    with pytest.raises(ValueError, match="policy returned empty stream chunk"):
+        callback._normalize_stream_chunk(edited)
 
 
 def test_normalize_stream_chunk_with_partial_dict(callback):
     """Test normalization with incomplete dictionary."""
-    original = ModelResponseStream(
-        id="test",
-        choices=[{"index": 0, "delta": {"content": "original"}}],
-        created=1234567890,
-        model="gpt-3.5-turbo",
-        object="chat.completion.chunk"
-    )
     edited = {
         "id": "test",
         # Missing required fields
     }
 
-    with patch("config.litellm_callback.verbose_logger") as mock_logger:
-        result = callback._normalize_stream_chunk(original, edited)
-        # Should fall back to original on error
-        assert result == original
-        mock_logger.warning.assert_called()
+    with pytest.raises(ValueError, match="missing required fields"):
+        callback._normalize_stream_chunk(edited)
 
 
 def test_normalize_stream_chunk_with_invalid_type(callback):
     """Test normalization raises error for unexpected types."""
-    original = MagicMock()
     edited = ["invalid", "type"]
 
-    with pytest.raises(TypeError, match="unexpected policy stream result type"):
-        callback._normalize_stream_chunk(original, edited)
+    with pytest.raises(TypeError, match="policy stream chunks must be dict"):
+        callback._normalize_stream_chunk(edited)
 
 
-def test_normalize_stream_chunk_with_invalid_original(callback):
-    """Test normalization raises error when original is invalid and no edit."""
-    original = {"not": "a ModelResponseStream"}
-
-    with pytest.raises(TypeError, match="expected ModelResponseStream"):
-        callback._normalize_stream_chunk(original, None)
+def test_normalize_stream_chunk_none(callback):
+    """Policy must not return None for stream chunks."""
+    with pytest.raises(ValueError, match="policy returned no stream chunk"):
+        callback._normalize_stream_chunk(None)
 
 
 def test_update_cumulative_choices():
@@ -197,19 +212,9 @@ def test_update_cumulative_choices():
     cumulative_choices = []
     cumulative_tokens = []
     new_tokens = []
-    response = {
-        "choices": [
-            {"index": 0, "delta": {"content": "Hello"}},
-            {"index": 1, "delta": {"content": "World"}}
-        ]
-    }
+    response = {"choices": [{"index": 0, "delta": {"content": "Hello"}}, {"index": 1, "delta": {"content": "World"}}]}
 
-    LuthienCallback._update_cumulative_choices(
-        cumulative_choices,
-        cumulative_tokens,
-        new_tokens,
-        response
-    )
+    LuthienCallback._update_cumulative_choices(cumulative_choices, cumulative_tokens, new_tokens, response)
 
     assert len(cumulative_choices) == 2
     assert len(cumulative_tokens) == 2
@@ -230,9 +235,4 @@ def test_update_cumulative_choices_missing_index():
     }
 
     with pytest.raises(ValueError, match="choice missing index"):
-        LuthienCallback._update_cumulative_choices(
-            cumulative_choices,
-            cumulative_tokens,
-            new_tokens,
-            response
-        )
+        LuthienCallback._update_cumulative_choices(cumulative_choices, cumulative_tokens, new_tokens, response)

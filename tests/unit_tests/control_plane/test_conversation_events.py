@@ -2,8 +2,6 @@
 
 from datetime import UTC, datetime
 
-import pytest
-
 from luthien_proxy.control_plane.conversation.events import (
     build_conversation_events,
     clear_stream_indices,
@@ -75,15 +73,11 @@ def test_build_conversation_events_pre_call_hook():
     """Test event building for pre-call hook."""
     timestamp = datetime.now(UTC)
     original = {
-        "request_data": {
-            "messages": [{"role": "user", "content": "Hello"}]
-        },
+        "request_data": {"messages": [{"role": "user", "content": "Hello"}]},
         "post_time_ns": 1000000000,
     }
     result = {
-        "request_data": {
-            "messages": [{"role": "user", "content": "Hello sanitized"}]
-        },
+        "request_data": {"messages": [{"role": "user", "content": "Hello sanitized"}]},
         "post_time_ns": 1000000001,
     }
 
@@ -110,15 +104,11 @@ def test_build_conversation_events_stream_chunk():
     """Test event building for streaming chunks."""
     timestamp = datetime.now(UTC)
     original = {
-        "response": {
-            "choices": [{"index": 0, "delta": {"content": "Original"}}]
-        },
+        "response": {"choices": [{"index": 0, "delta": {"content": "Original"}}]},
         "post_time_ns": 1000000000,
     }
     result = {
-        "response": {
-            "choices": [{"index": 0, "delta": {"content": "Modified"}}]
-        },
+        "response": {"choices": [{"index": 0, "delta": {"content": "Modified"}}]},
         "post_time_ns": 1000000001,
     }
 
@@ -177,15 +167,11 @@ def test_build_conversation_events_success_hook():
     """Test event building for successful completion."""
     timestamp = datetime.now(UTC)
     original = {
-        "response": {
-            "choices": [{"message": {"content": "Original response"}}]
-        },
+        "response": {"choices": [{"message": {"content": "Original response"}}]},
         "post_time_ns": 1000000000,
     }
     result = {
-        "response": {
-            "choices": [{"message": {"content": "Modified response"}}]
-        },
+        "response": {"choices": [{"message": {"content": "Modified response"}}]},
         "post_time_ns": 1000000001,
     }
 
@@ -235,9 +221,7 @@ def test_build_conversation_events_stream_summary():
     """Test event building for streaming summary."""
     timestamp = datetime.now(UTC)
     original = {
-        "response": {
-            "choices": [{"message": {"content": "Full response"}}]
-        },
+        "response": {"choices": [{"message": {"content": "Full response"}}]},
         "post_time_ns": 1000000000,
     }
 
@@ -279,9 +263,7 @@ def test_build_conversation_events_extract_trace_id_from_original():
     """Test trace_id extraction from original payload."""
     timestamp = datetime.now(UTC)
     original = {
-        "request_data": {
-            "messages": [{"role": "user", "content": "Hello"}]
-        },
+        "request_data": {"messages": [{"role": "user", "content": "Hello"}]},
         "litellm_trace_id": "extracted-trace",
         "post_time_ns": 1000000000,
     }
@@ -304,15 +286,11 @@ def test_build_conversation_events_extract_trace_id_from_result():
     """Test trace_id extraction from result payload."""
     timestamp = datetime.now(UTC)
     original = {
-        "request_data": {
-            "messages": [{"role": "user", "content": "Hello"}]
-        },
+        "request_data": {"messages": [{"role": "user", "content": "Hello"}]},
         "post_time_ns": 1000000000,
     }
     result = {
-        "request_data": {
-            "messages": [{"role": "user", "content": "Hello"}]
-        },
+        "request_data": {"messages": [{"role": "user", "content": "Hello"}]},
         "litellm_trace_id": "result-trace",
         "post_time_ns": 1000000001,
     }
