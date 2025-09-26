@@ -268,10 +268,15 @@ class LuthienCallback(CustomLogger):
                     raise ValueError("Empty payload dictionary from policy")
 
                 # Check for partial dict or missing required structure
-                if "choices" not in payload and "model" not in payload:
+                # These are essential fields for a valid stream response
+                if "choices" not in payload or "model" not in payload or "created" not in payload:
                     verbose_logger.warning(
-                        f"Policy returned incomplete stream chunk: missing 'choices' or 'model'. Keys: {list(payload.keys())}"
+                        f"Policy returned incomplete stream chunk: missing required fields. Keys: {list(payload.keys())}"
                     )
+                    # Fall back to original for incomplete responses
+                    if isinstance(original, ModelResponseStream):
+                        return original
+                    raise ValueError("Incomplete stream chunk and no valid original to fall back to")
 
                 return ModelResponseStream.model_validate(payload)
             except (pydantic.ValidationError, ValueError) as e:

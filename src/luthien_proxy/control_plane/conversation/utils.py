@@ -130,11 +130,17 @@ def extract_trace_id(payload: Any) -> Optional[str]:
     """Find a trace identifier within a request payload if present."""
     if not isinstance(payload, dict):
         return None
+    # Check at the root level first
+    trace_id = payload.get("litellm_trace_id")
+    if isinstance(trace_id, str) and trace_id:
+        return trace_id
+    # Then check in request_data
     request_data = payload.get("request_data")
     if isinstance(request_data, dict):
         trace_id = request_data.get("litellm_trace_id")
         if isinstance(trace_id, str) and trace_id:
             return trace_id
+    # Finally check in data
     data = payload.get("data")
     if isinstance(data, dict):
         trace_id = data.get("litellm_trace_id")
@@ -158,8 +164,7 @@ def extract_response_text(response: Any) -> str:
     """Convert an LLM response payload into plain text."""
     if response is None:
         return ""
-    if isinstance(response, str):
-        return response
+    # Don't accept plain strings - expect properly structured response
     response_dict = require_dict(response, "response payload")
     if "choices" in response_dict:
         choices = require_list(response_dict["choices"], "response choices")
