@@ -18,6 +18,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from luthien_proxy.control_plane.conversation import TraceEntry
 from luthien_proxy.control_plane.stream_context import StreamContextStore
 from luthien_proxy.control_plane.ui import router as ui_router
 from luthien_proxy.utils import db, redis_client
@@ -43,7 +44,6 @@ from .dependencies import (
 )
 from .hooks_routes import (
     CallIdInfo,
-    TraceEntry,
     TraceResponse,
     get_hook_counters,
     hook_generic,
