@@ -13,15 +13,13 @@ Implements a thin bridge:
 
 import os
 import time as _time
-from typing import Any, AsyncGenerator, Optional, Union
+from typing import AsyncGenerator, Optional, Union
 
 import httpx
 import pydantic
 from litellm._logging import verbose_logger
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.types.utils import ModelResponseStream
-
-JSONValue = Union[dict[str, Any], list[Any], str, int, float, bool, None]
 
 
 class LuthienCallback(CustomLogger):
@@ -39,7 +37,7 @@ class LuthienCallback(CustomLogger):
         self,
         hook: str,
         payload: dict,
-    ) -> JSONValue:
+    ) -> Optional[dict]:
         """Send an async hook payload to the control plane (fire-and-forget).
 
         Returns:
@@ -73,7 +71,6 @@ class LuthienCallback(CustomLogger):
                     return response.json()
                 except ValueError:
                     raise httpx.HTTPError(f"Invalid JSON response from control plane for {hook} hook")
-                return None
         except httpx.ConnectError as e:
             # Network connectivity issues - likely transient
             verbose_logger.error(f"Network error (potentially transient) posting {hook} hook: {e}")
@@ -156,14 +153,15 @@ class LuthienCallback(CustomLogger):
 
     async def async_post_call_streaming_iterator_hook(
         self, user_api_key_dict, response, request_data: dict
-    ) -> AsyncGenerator[Any, None]:
+    ) -> AsyncGenerator[ModelResponseStream, None]:
         """Wrap the streaming iterator to allow per-chunk edits or suppression."""
         try:
             cumulative_choices: list[list[dict]] = []
             cumulative_tokens: list[list[str]] = []
             new_tokens: list[str] = []
+            item: ModelResponseStream
             async for item in response:
-                serialized_chunk = self._serialize_response(item)
+                serialized_chunk: dict = item.model_dump()
                 LuthienCallback._update_cumulative_choices(
                     cumulative_choices, cumulative_tokens, new_tokens, serialized_chunk
                 )
@@ -178,7 +176,13 @@ class LuthienCallback(CustomLogger):
                         "user_api_key_dict": self._json_safe(user_api_key_dict),
                     },
                 )
-                yield self._normalize_stream_chunk(policy_result)
+                if policy_result is None:
+                    # No edit, yield original chunk
+                    verbose_logger.error("async_post_call_streaming_iterator_hook: no policy_result, yielding original")
+                    # TODO: fallback behavior should be configurable (e.g. suppress vs yield original)
+                    yield item
+                else:
+                    yield self._normalize_stream_chunk(policy_result)
         except Exception as e:
             verbose_logger.error(f"async_post_call_streaming_iterator_hook error: {e}")
             # If wrapping fails, yield from original response to avoid breaking stream
@@ -187,62 +191,7 @@ class LuthienCallback(CustomLogger):
         finally:
             return
 
-    # Fallback for LiteLLM versions that emit async_on_stream_event instead of iterator hook
-    async def async_on_stream_event(self, kwargs, response_obj, start_time, end_time) -> None:
-        """Compatibility wrapper for LiteLLM variants emitting per-chunk events."""
-        try:
-            request_data = None
-            user_api_key_dict = None
-            try:
-                if isinstance(kwargs, dict):
-                    request_data = kwargs.get("request_data") or kwargs.get("data") or kwargs.get("kwargs")
-                    user_api_key_dict = kwargs.get("user_api_key_dict")
-            except Exception:
-                request_data = None
-                user_api_key_dict = None
-
-            await self._apost_hook(
-                "async_post_call_streaming_iterator_hook",
-                {
-                    "user_api_key_dict": self._json_safe(user_api_key_dict),
-                    "response": self._serialize_response(response_obj),
-                    "request_data": (self._json_safe(request_data) if request_data else {}),
-                },
-            )
-        except Exception as e:
-            verbose_logger.error(f"async_on_stream_event forward error: {e}")
-            return None
-
-    def _serialize_dict(self, obj):
-        """Safely serialize objects to dict."""
-        if obj is None:
-            return None
-        if isinstance(obj, dict):
-            return obj
-        # Try to extract attributes for user_api_key_dict objects
-        result = {}
-        for attr in ["user_id", "team_id", "email", "org_id"]:
-            val = getattr(obj, attr, None)
-            if val is not None:
-                result[attr] = val
-        return result if result else None
-
-    def _serialize_response(self, response):
-        """Safely serialize response objects."""
-        if response is None:
-            raise ValueError("response is None")
-        if isinstance(response, dict):
-            serialized = dict(response)
-            serialized["_source_type_"] = "dict"
-            return serialized
-        elif isinstance(response, pydantic.BaseModel):
-            response_dict = response.model_dump()
-            response_dict["_source_type_"] = "pydantic"
-            return response_dict
-        else:
-            raise ValueError("response is not a dict or pydantic model!")
-
-    def _normalize_stream_chunk(self, chunk: Any) -> ModelResponseStream:
+    def _normalize_stream_chunk(self, chunk: dict) -> ModelResponseStream:
         """Normalize policy-provided stream chunks back to ModelResponseStream."""
         if chunk is None:
             raise ValueError("policy returned no stream chunk")
@@ -264,7 +213,9 @@ class LuthienCallback(CustomLogger):
         try:
             return ModelResponseStream.model_validate(payload)
         except pydantic.ValidationError as exc:
-            raise ValueError("policy stream chunk failed validation") from exc
+            raise ValueError(
+                f"Policy returned invalid data, unable to build ModelResponseStream from {payload}"
+            ) from exc
 
     def _json_safe(self, obj):
         """Recursively convert objects into JSON-serializable structures.
@@ -292,6 +243,7 @@ class LuthienCallback(CustomLogger):
         try:
             return repr(obj)
         except Exception:
+            verbose_logger.warning(f"Failed to repr() object of type {type(obj).__name__}, using placeholder")
             return "<unserializable>"
 
 
