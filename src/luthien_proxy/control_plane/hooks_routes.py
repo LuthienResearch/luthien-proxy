@@ -63,7 +63,7 @@ async def get_hook_counters(
     return dict(counters)
 
 
-@router.post("/hooks/{hook_name}")
+@router.post("/api/hooks/{hook_name}")
 async def hook_generic(
     hook_name: str,
     payload: dict[str, Any],

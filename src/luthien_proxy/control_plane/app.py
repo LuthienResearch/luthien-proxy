@@ -73,7 +73,12 @@ async def list_endpoints() -> dict[str, Any]:
     """List notable HTTP endpoints for quick discoverability."""
     return {
         "hooks": [
-            "POST /hooks/{hook_name}",
+            "POST /api/hooks/{hook_name}",
+        ],
+        "ui": [
+            "GET /ui/hooks/trace",
+            "GET /ui/conversation",
+            "GET /ui/conversation/by_trace",
         ],
         "health": "GET /health",
     }

@@ -29,19 +29,19 @@ async def debug_ui(request: Request, debug_type: str):
 # Removed request_logs UI
 
 
-@router.get("/hooks/trace", response_class=HTMLResponse)
+@router.get("/ui/hooks/trace", response_class=HTMLResponse)
 async def hooks_trace_ui(request: Request):
     """Render the hooks trace UI for a given call ID."""
     return templates.TemplateResponse(request, "hooks_trace.html")
 
 
-@router.get("/hooks/conversation/by_trace", response_class=HTMLResponse)
+@router.get("/ui/conversation/by_trace", response_class=HTMLResponse)
 async def conversation_by_trace_ui(request: Request):
     """Render the conversation view grouped by trace id."""
     return templates.TemplateResponse(request, "conversation_by_trace.html")
 
 
-@router.get("/hooks/conversation", response_class=HTMLResponse)
+@router.get("/ui/conversation", response_class=HTMLResponse)
 async def hooks_conversation_ui(request: Request):
     """Render the live conversation impact view."""
     return templates.TemplateResponse(request, "conversation_view.html")

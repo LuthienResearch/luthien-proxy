@@ -108,7 +108,7 @@
 - Framework: `pytest`
 - Location: under `tests/unit_tests/`, `tests/integration_tests/`, `tests/e2e_tests/`
 - Name files `test_*.py` and mirror package paths within the test-type directory.
-- Prefer fast unit tests for policies; add integration tests against `/hooks/*` and `/health`.
+- Prefer fast unit tests for policies; add integration tests against `/api/hooks/*` and `/health`.
 - Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.
 
 ## Security & Configuration

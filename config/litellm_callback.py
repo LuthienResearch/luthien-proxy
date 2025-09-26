@@ -7,7 +7,7 @@ This module is loaded by LiteLLM via the `callbacks` entry in
 `config/litellm_config.yaml`.
 
 Implements a thin bridge:
-- All hooks are forwarded via `POST /hooks/{hook_name}` (fire-and-forget)
+- All hooks are forwarded via `POST /api/hooks/{hook_name}` (fire-and-forget)
 - Streaming iterator events are wrapped to forward each chunk through the same path
 """
 
@@ -58,7 +58,7 @@ class LuthienCallback(CustomLogger):
             payload["post_time_ns"] = _time.time_ns()
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
-                    f"{self.control_plane_url}/hooks/{hook}",
+                    f"{self.control_plane_url}/api/hooks/{hook}",
                     json=self._json_safe(payload),
                 )
                 response.raise_for_status()

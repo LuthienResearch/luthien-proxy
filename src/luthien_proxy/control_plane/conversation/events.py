@@ -40,8 +40,8 @@ def clear_stream_indices(call_id: str) -> None:
     _stream_indices.pop(call_id, None)
 
 
+# TODO: refactor this logic, it's a mess
 def build_conversation_events(
-    *,
     hook: str,
     call_id: Optional[str],
     trace_id: Optional[str],
