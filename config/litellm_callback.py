@@ -38,7 +38,15 @@ class LuthienCallback(CustomLogger):
         hook: str,
         payload: dict,
     ) -> Any:
-        """Send an async hook payload to the control plane (fire-and-forget)."""
+        """Send an async hook payload to the control plane (fire-and-forget).
+
+        Returns:
+            The JSON response from control plane if successful, None otherwise.
+
+        Note:
+            Errors are logged but not raised to prevent proxy failures.
+            Distinguishes between transient (network) and persistent (config) errors.
+        """
         try:
             payload["post_time_ns"] = _time.time_ns()
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -54,8 +62,24 @@ class LuthienCallback(CustomLogger):
                     except ValueError:
                         return None
                 return None
+        except httpx.ConnectError as e:
+            # Network connectivity issues - likely transient
+            verbose_logger.warning(f"Transient network error posting {hook} hook: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            # HTTP error response - could be persistent configuration issue
+            if e.response.status_code >= 500:
+                verbose_logger.warning(f"Control plane server error for {hook} hook: {e}")
+            else:
+                verbose_logger.error(f"Client error posting {hook} hook (possible misconfiguration): {e}")
+            return None
+        except httpx.TimeoutException as e:
+            # Timeout - likely transient but could indicate overload
+            verbose_logger.warning(f"Timeout posting {hook} hook: {e}")
+            return None
         except Exception as e:
-            verbose_logger.error(f"hook post error ({hook}): {e}")
+            # Unexpected error - likely persistent
+            verbose_logger.error(f"Unexpected error posting {hook} hook: {e}")
             return None
 
     # --------------------- Hooks ----------------------
@@ -211,16 +235,53 @@ class LuthienCallback(CustomLogger):
             raise ValueError("response is not a dict or pydantic model!")
 
     def _normalize_stream_chunk(self, original: Any, edited: Any | None) -> ModelResponseStream:
+        """Normalize stream chunks from the policy back to ModelResponseStream.
+
+        Args:
+            original: The original chunk from upstream.
+            edited: The potentially edited chunk from the policy.
+
+        Returns:
+            A valid ModelResponseStream object.
+
+        Raises:
+            TypeError: If the chunk cannot be normalized to ModelResponseStream.
+            ValueError: If required fields are missing.
+        """
         if edited is None:
+            # No edits from policy, return original if valid
             if isinstance(original, ModelResponseStream):
                 return original
             raise TypeError(f"expected ModelResponseStream, got {type(original).__name__}")
+
+        # Policy provided edits
         if isinstance(edited, ModelResponseStream):
             return edited
+
         if isinstance(edited, dict):
-            payload = dict(edited)
-            payload.pop("_source_type_", None)
-            return ModelResponseStream.model_validate(payload)
+            try:
+                payload = dict(edited)
+                payload.pop("_source_type_", None)
+
+                # Validate required fields exist before attempting conversion
+                if not payload:
+                    raise ValueError("Empty payload dictionary from policy")
+
+                # Check for partial dict or missing required structure
+                if "choices" not in payload and "model" not in payload:
+                    verbose_logger.warning(
+                        f"Policy returned incomplete stream chunk: missing 'choices' or 'model'. Keys: {list(payload.keys())}"
+                    )
+
+                return ModelResponseStream.model_validate(payload)
+            except (pydantic.ValidationError, ValueError) as e:
+                verbose_logger.error(f"Failed to validate stream chunk from policy: {e}")
+                # Fall back to original if policy response is invalid
+                if isinstance(original, ModelResponseStream):
+                    verbose_logger.warning("Falling back to original stream chunk due to policy error")
+                    return original
+                raise
+
         raise TypeError(f"unexpected policy stream result type: {type(edited).__name__}")
 
     def _json_safe(self, obj):
