@@ -214,7 +214,8 @@ def test_update_cumulative_choices():
     new_tokens = []
     response = {"choices": [{"index": 0, "delta": {"content": "Hello"}}, {"index": 1, "delta": {"content": "World"}}]}
 
-    LuthienCallback._update_cumulative_choices(cumulative_choices, cumulative_tokens, new_tokens, response)
+    callback = LuthienCallback()
+    callback._update_cumulative_choices(cumulative_choices, cumulative_tokens, new_tokens, response)
 
     assert len(cumulative_choices) == 2
     assert len(cumulative_tokens) == 2
@@ -235,4 +236,5 @@ def test_update_cumulative_choices_missing_index():
     }
 
     with pytest.raises(ValueError, match="choice missing index"):
-        LuthienCallback._update_cumulative_choices(cumulative_choices, cumulative_tokens, new_tokens, response)
+        callback = LuthienCallback()
+        callback._update_cumulative_choices(cumulative_choices, cumulative_tokens, new_tokens, response)

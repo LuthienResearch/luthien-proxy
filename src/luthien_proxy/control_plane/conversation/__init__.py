@@ -37,6 +37,7 @@ from .models import (
 )
 from .snapshots import build_call_snapshots
 from .streams import (
+    ConversationStreamConfig,
     conversation_sse_stream,
     conversation_sse_stream_by_trace,
     publish_conversation_event,
@@ -61,6 +62,7 @@ __all__ = [
     "publish_trace_conversation_event",
     "conversation_sse_stream",
     "conversation_sse_stream_by_trace",
+    "ConversationStreamConfig",
     "fetch_trace_entries",
     "fetch_trace_entries_by_trace",
     "json_safe",
