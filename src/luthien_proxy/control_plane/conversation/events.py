@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from threading import Lock
 from typing import Any, Dict, Iterable, Literal, Optional
 
 from .models import ConversationEvent, TraceEntry
@@ -20,24 +21,28 @@ from .utils import (
 )
 
 _stream_indices: Dict[str, Dict[str, int]] = {}
+_stream_indices_lock = Lock()
 
 
 def reset_stream_indices(call_id: str) -> None:
     """Initialise per-stream chunk indices for a call."""
-    _stream_indices[call_id] = {"original": 0, "final": 0}
+    with _stream_indices_lock:
+        _stream_indices[call_id] = {"original": 0, "final": 0}
 
 
 def next_chunk_index(call_id: str, stream: Literal["original", "final"]) -> int:
     """Return and advance the next chunk index for the given stream."""
-    state = _stream_indices.setdefault(call_id, {"original": 0, "final": 0})
-    idx = state[stream]
-    state[stream] = idx + 1
-    return idx
+    with _stream_indices_lock:
+        state = _stream_indices.setdefault(call_id, {"original": 0, "final": 0})
+        idx = state[stream]
+        state[stream] = idx + 1
+        return idx
 
 
 def clear_stream_indices(call_id: str) -> None:
     """Forget chunk indices for a completed call."""
-    _stream_indices.pop(call_id, None)
+    with _stream_indices_lock:
+        _stream_indices.pop(call_id, None)
 
 
 # TODO: refactor this logic, it's a mess

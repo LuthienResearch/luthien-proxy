@@ -1,13 +1,21 @@
+function sanitizeText(value) {
+  if (value == null) {
+    return '';
+  }
+  const text = String(value);
+  return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
+}
+
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
     if (key === 'class') {
       node.className = value;
     } else if (key === 'text') {
-      node.textContent = value;
+      node.textContent = sanitizeText(value);
     } else if (key === 'dataset' && value && typeof value === 'object') {
       for (const [dataKey, dataValue] of Object.entries(value)) {
-        node.dataset[dataKey] = dataValue;
+        node.dataset[dataKey] = sanitizeText(dataValue);
       }
     } else {
       node.setAttribute(key, value);
@@ -15,7 +23,11 @@ function el(tag, attrs = {}, ...children) {
   }
   for (const child of children) {
     if (child == null) continue;
-    node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+    if (typeof child === 'string') {
+      node.appendChild(document.createTextNode(sanitizeText(child)));
+    } else {
+      node.appendChild(child);
+    }
   }
   return node;
 }

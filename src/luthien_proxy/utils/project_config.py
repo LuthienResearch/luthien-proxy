@@ -59,6 +59,11 @@ CONTROL_PLANE_HOST = ConfigValue[str]("CONTROL_PLANE_HOST", "0.0.0.0")
 CONTROL_PLANE_PORT = ConfigValue[int]("CONTROL_PLANE_PORT", 8081, parser=int)
 CONTROL_PLANE_LOG_LEVEL = ConfigValue[str]("CONTROL_PLANE_LOG_LEVEL", "INFO")
 STREAM_CONTEXT_TTL = ConfigValue[int]("STREAM_CONTEXT_TTL", 3600, parser=int)
+CONVERSATION_STREAM_HEARTBEAT = ConfigValue[float]("CONVERSATION_STREAM_HEARTBEAT_INTERVAL", 15.0, parser=float)
+CONVERSATION_STREAM_RATE_LIMIT_MAX = ConfigValue[int]("CONVERSATION_STREAM_RATE_LIMIT_MAX_REQUESTS", 30, parser=int)
+CONVERSATION_STREAM_RATE_LIMIT_WINDOW = ConfigValue[float](
+    "CONVERSATION_STREAM_RATE_LIMIT_WINDOW_SECONDS", 60.0, parser=float
+)
 
 
 @dataclass(frozen=True)
@@ -162,6 +167,21 @@ class ProjectConfig:
     def stream_context_ttl(self) -> int:
         """TTL for stream contexts in seconds."""
         return get_config_value(self._env_map, STREAM_CONTEXT_TTL)
+
+    @cached_property
+    def conversation_stream_heartbeat_interval(self) -> float:
+        """Heartbeat interval (seconds) for SSE conversation streams."""
+        return get_config_value(self._env_map, CONVERSATION_STREAM_HEARTBEAT)
+
+    @cached_property
+    def conversation_stream_rate_limit_max_requests(self) -> int:
+        """Maximum SSE stream requests allowed within the configured window."""
+        return get_config_value(self._env_map, CONVERSATION_STREAM_RATE_LIMIT_MAX)
+
+    @cached_property
+    def conversation_stream_rate_limit_window_seconds(self) -> float:
+        """Sliding window duration in seconds for SSE stream rate limiting."""
+        return get_config_value(self._env_map, CONVERSATION_STREAM_RATE_LIMIT_WINDOW)
 
     @cached_property
     def proxy_config(self) -> ProxyConfig:

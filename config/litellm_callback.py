@@ -22,8 +22,21 @@ from litellm.integrations.custom_logger import CustomLogger
 from litellm.types.utils import ModelResponseStream
 
 
+def _load_stream_history_limit() -> int:
+    raw_value = os.getenv("LUTHIEN_STREAM_HISTORY_LIMIT")
+    if raw_value is None:
+        return 2048
+    try:
+        return max(int(raw_value), 0)
+    except ValueError:
+        verbose_logger.warning("Invalid LUTHIEN_STREAM_HISTORY_LIMIT %r; defaulting to 2048", raw_value)
+        return 2048
+
+
 class LuthienCallback(CustomLogger):
     """Thin callback that forwards everything to the control plane."""
+
+    STREAM_HISTORY_LIMIT = _load_stream_history_limit()
 
     def __init__(self):
         """Initialize callback with control-plane endpoint and defaults."""
@@ -149,7 +162,19 @@ class LuthienCallback(CustomLogger):
                 cumulative_choices[index].append(choice)
                 cumulative_tokens[index].append(choice.get("delta", {}).get("content", ""))
                 new_tokens[index] = cumulative_tokens[index][-1]  # last token for this choice
+                LuthienCallback._trim_history(cumulative_choices[index])
+                LuthienCallback._trim_history(cumulative_tokens[index])
         return
+
+    @staticmethod
+    def _trim_history(entries: list, limit: int | None = None) -> None:
+        """Ensure per-choice history stays within configurable bounds."""
+        effective_limit = LuthienCallback.STREAM_HISTORY_LIMIT if limit is None else max(limit, 0)
+        if effective_limit <= 0:
+            return
+        excess = len(entries) - effective_limit
+        if excess > 0:
+            del entries[:excess]
 
     async def async_post_call_streaming_iterator_hook(
         self, user_api_key_dict, response, request_data: dict
@@ -178,7 +203,7 @@ class LuthienCallback(CustomLogger):
                 )
                 if policy_result is None:
                     # No edit, yield original chunk
-                    verbose_logger.error("async_post_call_streaming_iterator_hook: no policy_result, yielding original")
+                    verbose_logger.info("async_post_call_streaming_iterator_hook: no policy_result, yielding original")
                     # TODO: fallback behavior should be configurable (e.g. suppress vs yield original)
                     yield item
                 else:

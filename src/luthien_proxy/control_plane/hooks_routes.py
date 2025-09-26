@@ -12,7 +12,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from luthien_proxy.control_plane.conversation import (
@@ -49,10 +49,32 @@ from .dependencies import (
     get_project_config,
     get_redis_client,
 )
+from .rate_limiter import SlidingWindowRateLimiter
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+_stream_rate_limiter = SlidingWindowRateLimiter()
+
+
+async def enforce_stream_rate_limit(
+    request: Request,
+    config: ProjectConfig = Depends(get_project_config),
+) -> None:
+    """Throttle SSE stream endpoints to mitigate abuse."""
+
+    client_host = request.client.host if request.client else "unknown"
+    allowed = await _stream_rate_limiter.allow(
+        client_host,
+        config.conversation_stream_rate_limit_max_requests,
+        config.conversation_stream_rate_limit_window_seconds,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many streaming connections opened recently.",
+        )
 
 
 @router.get("/api/hooks/counters")
@@ -267,9 +289,15 @@ async def conversation_snapshot(
 async def conversation_stream(
     call_id: str = Query(..., min_length=4),
     redis_conn: redis_client.RedisClient = Depends(get_redis_client),
+    config: ProjectConfig = Depends(get_project_config),
+    _: None = Depends(enforce_stream_rate_limit),
 ) -> StreamingResponse:
     """Stream live conversation deltas for a call ID via SSE."""
-    stream = conversation_sse_stream(redis_conn, call_id)
+    stream = conversation_sse_stream(
+        redis_conn,
+        call_id,
+        heartbeat_interval=config.conversation_stream_heartbeat_interval,
+    )
     return StreamingResponse(stream, media_type="text/event-stream")
 
 
@@ -291,9 +319,15 @@ async def conversation_snapshot_by_trace(
 async def conversation_stream_by_trace(
     trace_id: str = Query(..., min_length=4),
     redis_conn: redis_client.RedisClient = Depends(get_redis_client),
+    config: ProjectConfig = Depends(get_project_config),
+    _: None = Depends(enforce_stream_rate_limit),
 ) -> StreamingResponse:
     """Stream live conversation deltas for a trace id via SSE."""
-    stream = conversation_sse_stream_by_trace(redis_conn, trace_id)
+    stream = conversation_sse_stream_by_trace(
+        redis_conn,
+        trace_id,
+        heartbeat_interval=config.conversation_stream_heartbeat_interval,
+    )
     return StreamingResponse(stream, media_type="text/event-stream")
 
 
