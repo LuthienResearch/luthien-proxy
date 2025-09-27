@@ -8,6 +8,7 @@
 
 - [ ] 99% unit test coverage
 - [ ] Why does the control plane docker container take ~5 seconds to restart?
+- [ ] Simplify/reduce data passed from litellm to control plane
 
 ## Low Priority
 

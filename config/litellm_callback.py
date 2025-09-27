@@ -13,6 +13,7 @@ Implements a thin bridge:
 
 import os
 import time as _time
+from functools import cached_property
 from typing import AsyncGenerator, Optional, Union
 
 import httpx
@@ -30,28 +31,27 @@ class LuthienCallback(CustomLogger):
         super().__init__()
         self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
-        limit_raw = os.getenv("LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT")
-        default_limit = 512
-        limit_value = default_limit
-        if limit_raw:
+        verbose_logger.info(f"LuthienCallback initialized with control plane URL: {self.control_plane_url}")
+
+    @cached_property
+    def _chunk_history_limit(self) -> int:
+        """Maximum number of recent chunks to retain per choice for streaming calls.
+
+        This limits memory usage when forwarding cumulative tokens/choices to the
+        control plane for potential edits.
+        """
+        if not hasattr(self, "__chunk_history_limit"):
             try:
-                parsed = int(limit_raw)
-                if parsed >= 0:
-                    limit_value = parsed
-                else:
-                    verbose_logger.warning(
-                        "LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT must be non-negative, got %s; using default %s",
-                        limit_raw,
-                        default_limit,
+                self.__chunk_history_limit = int(os.getenv("LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT", "512000"))
+                if self.__chunk_history_limit < 0:
+                    raise ValueError(
+                        f"LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT must be non-negative, got {self.__chunk_history_limit}"
                     )
             except ValueError:
-                verbose_logger.warning(
-                    "Invalid LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT=%s; using default %s",
-                    limit_raw,
-                    default_limit,
+                raise ValueError(
+                    f"LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT must be an integer, got {os.getenv('LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT')!r}"
                 )
-        self._chunk_history_limit = limit_value
-        verbose_logger.info(f"LuthienCallback initialized with control plane URL: {self.control_plane_url}")
+        return self.__chunk_history_limit
 
     # ------------- internal helpers -------------
     async def _apost_hook(
