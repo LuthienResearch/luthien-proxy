@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from luthien_proxy.control_plane.utils.rate_limiter import RateLimitExceeded, RateLimiter
+from luthien_proxy.control_plane.utils.rate_limiter import RateLimiter, RateLimitExceeded
 
 
 @pytest.mark.asyncio

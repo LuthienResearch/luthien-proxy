@@ -105,7 +105,6 @@ def get_redis_client(request: Request) -> redis_client.RedisClient:
 
 def get_conversation_rate_limiter(request: Request) -> RateLimiter:
     """Return the configured conversation SSE rate limiter."""
-
     state = _require_app_state(request)
     try:
         limiter = state.conversation_rate_limiter
@@ -118,7 +117,6 @@ def get_conversation_rate_limiter(request: Request) -> RateLimiter:
 
 def get_conversation_stream_config(request: Request) -> ConversationStreamConfig:
     """Return the configured conversation stream settings."""
-
     state = _require_app_state(request)
     try:
         cfg = state.conversation_stream_config

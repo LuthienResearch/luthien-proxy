@@ -43,15 +43,14 @@ from luthien_proxy.utils.project_config import ConversationStreamConfig, Project
 from .dependencies import (
     DebugLogWriter,
     get_active_policy,
+    get_conversation_rate_limiter,
+    get_conversation_stream_config,
     get_database_pool,
     get_debug_log_writer,
     get_hook_counter_state,
     get_project_config,
-    get_conversation_rate_limiter,
-    get_conversation_stream_config,
     get_redis_client,
 )
-
 from .utils.rate_limiter import RateLimiter
 
 router = APIRouter()
@@ -64,7 +63,6 @@ async def enforce_conversation_rate_limit(
     limiter: RateLimiter = Depends(get_conversation_rate_limiter),
 ) -> None:
     """Apply rate limiting for SSE streaming endpoints."""
-
     client_host = request.client.host if request.client else "unknown"
     key = f"{client_host}:{request.url.path}"
     allowed = await limiter.try_acquire(key)
