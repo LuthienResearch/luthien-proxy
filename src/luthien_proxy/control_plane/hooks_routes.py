@@ -12,7 +12,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from luthien_proxy.control_plane.conversation import (
@@ -38,21 +38,39 @@ from luthien_proxy.control_plane.conversation.utils import extract_trace_id
 from luthien_proxy.control_plane.utils.hooks import extract_call_id_for_hook
 from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.utils import db, redis_client
-from luthien_proxy.utils.project_config import ProjectConfig
+from luthien_proxy.utils.project_config import ConversationStreamConfig, ProjectConfig
 
 from .dependencies import (
     DebugLogWriter,
     get_active_policy,
+    get_conversation_rate_limiter,
+    get_conversation_stream_config,
     get_database_pool,
     get_debug_log_writer,
     get_hook_counter_state,
     get_project_config,
     get_redis_client,
 )
+from .utils.rate_limiter import RateLimiter
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+
+async def enforce_conversation_rate_limit(
+    request: Request,
+    limiter: RateLimiter = Depends(get_conversation_rate_limiter),
+) -> None:
+    """Apply rate limiting for SSE streaming endpoints."""
+    client_host = request.client.host if request.client else "unknown"
+    key = f"{client_host}:{request.url.path}"
+    allowed = await limiter.try_acquire(key)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many streaming requests, please slow down.",
+        )
 
 
 @router.get("/api/hooks/counters")
@@ -267,9 +285,11 @@ async def conversation_snapshot(
 async def conversation_stream(
     call_id: str = Query(..., min_length=4),
     redis_conn: redis_client.RedisClient = Depends(get_redis_client),
+    _: None = Depends(enforce_conversation_rate_limit),
+    stream_config: ConversationStreamConfig = Depends(get_conversation_stream_config),
 ) -> StreamingResponse:
     """Stream live conversation deltas for a call ID via SSE."""
-    stream = conversation_sse_stream(redis_conn, call_id)
+    stream = conversation_sse_stream(redis_conn, call_id, config=stream_config)
     return StreamingResponse(stream, media_type="text/event-stream")
 
 
@@ -291,9 +311,11 @@ async def conversation_snapshot_by_trace(
 async def conversation_stream_by_trace(
     trace_id: str = Query(..., min_length=4),
     redis_conn: redis_client.RedisClient = Depends(get_redis_client),
+    _: None = Depends(enforce_conversation_rate_limit),
+    stream_config: ConversationStreamConfig = Depends(get_conversation_stream_config),
 ) -> StreamingResponse:
     """Stream live conversation deltas for a trace id via SSE."""
-    stream = conversation_sse_stream_by_trace(redis_conn, trace_id)
+    stream = conversation_sse_stream_by_trace(redis_conn, trace_id, config=stream_config)
     return StreamingResponse(stream, media_type="text/event-stream")
 
 

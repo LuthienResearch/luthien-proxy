@@ -13,6 +13,7 @@ Implements a thin bridge:
 
 import os
 import time as _time
+from functools import cached_property
 from typing import AsyncGenerator, Optional, Union
 
 import httpx
@@ -31,6 +32,26 @@ class LuthienCallback(CustomLogger):
         self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
         verbose_logger.info(f"LuthienCallback initialized with control plane URL: {self.control_plane_url}")
+
+    @cached_property
+    def _chunk_history_limit(self) -> int:
+        """Maximum number of recent chunks to retain per choice for streaming calls.
+
+        This limits memory usage when forwarding cumulative tokens/choices to the
+        control plane for potential edits.
+        """
+        if not hasattr(self, "__chunk_history_limit"):
+            try:
+                self.__chunk_history_limit = int(os.getenv("LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT", "512000"))
+                if self.__chunk_history_limit < 0:
+                    raise ValueError(
+                        f"LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT must be non-negative, got {self.__chunk_history_limit}"
+                    )
+            except ValueError:
+                raise ValueError(
+                    f"LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT must be an integer, got {os.getenv('LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT')!r}"
+                )
+        return self.__chunk_history_limit
 
     # ------------- internal helpers -------------
     async def _apost_hook(
@@ -128,9 +149,12 @@ class LuthienCallback(CustomLogger):
         )
         return None
 
-    @staticmethod
     def _update_cumulative_choices(
-        cumulative_choices: list[list[dict]], cumulative_tokens: list[list[str]], new_tokens: list[str], response: dict
+        self,
+        cumulative_choices: list[list[dict]],
+        cumulative_tokens: list[list[str]],
+        new_tokens: list[str],
+        response: dict,
     ) -> None:
         """Update cumulative choices and tokens from a new response chunk."""
         if "choices" in response and isinstance(response["choices"], list):
@@ -148,7 +172,13 @@ class LuthienCallback(CustomLogger):
                     new_tokens.append("")
                 cumulative_choices[index].append(choice)
                 cumulative_tokens[index].append(choice.get("delta", {}).get("content", ""))
-                new_tokens[index] = cumulative_tokens[index][-1]  # last token for this choice
+                limit = self._chunk_history_limit
+                if limit and limit > 0:
+                    overflow = len(cumulative_choices[index]) - limit
+                    if overflow > 0:
+                        del cumulative_choices[index][:overflow]
+                        del cumulative_tokens[index][:overflow]
+                new_tokens[index] = cumulative_tokens[index][-1] if cumulative_tokens[index] else ""
         return
 
     async def async_post_call_streaming_iterator_hook(
@@ -162,9 +192,7 @@ class LuthienCallback(CustomLogger):
             item: ModelResponseStream
             async for item in response:
                 serialized_chunk: dict = item.model_dump()
-                LuthienCallback._update_cumulative_choices(
-                    cumulative_choices, cumulative_tokens, new_tokens, serialized_chunk
-                )
+                self._update_cumulative_choices(cumulative_choices, cumulative_tokens, new_tokens, serialized_chunk)
                 policy_result = await self._apost_hook(
                     "async_post_call_streaming_iterator_hook",
                     {
@@ -178,7 +206,9 @@ class LuthienCallback(CustomLogger):
                 )
                 if policy_result is None:
                     # No edit, yield original chunk
-                    verbose_logger.error("async_post_call_streaming_iterator_hook: no policy_result, yielding original")
+                    verbose_logger.debug(
+                        "async_post_call_streaming_iterator_hook: control plane returned no edits; yielding original chunk"
+                    )
                     # TODO: fallback behavior should be configurable (e.g. suppress vs yield original)
                     yield item
                 else:

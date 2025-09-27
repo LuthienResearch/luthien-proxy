@@ -9,7 +9,9 @@ from fastapi import Request
 
 from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.utils import db, redis_client
-from luthien_proxy.utils.project_config import ProjectConfig
+from luthien_proxy.utils.project_config import ConversationStreamConfig, ProjectConfig
+
+from .utils.rate_limiter import RateLimiter
 
 DebugLogWriter = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
@@ -23,6 +25,8 @@ class AppState(Protocol):
     debug_log_writer: DebugLogWriter | None
     database_pool: db.DatabasePool | None
     redis_client: redis_client.RedisClient | None
+    conversation_rate_limiter: RateLimiter | None
+    conversation_stream_config: ConversationStreamConfig | None
 
 
 def _require_app_state(request: Request) -> AppState:
@@ -99,6 +103,30 @@ def get_redis_client(request: Request) -> redis_client.RedisClient:
     return client
 
 
+def get_conversation_rate_limiter(request: Request) -> RateLimiter:
+    """Return the configured conversation SSE rate limiter."""
+    state = _require_app_state(request)
+    try:
+        limiter = state.conversation_rate_limiter
+    except AttributeError as exc:
+        raise RuntimeError("Conversation rate limiter not configured") from exc
+    if limiter is None:
+        raise RuntimeError("Conversation rate limiter not configured")
+    return limiter
+
+
+def get_conversation_stream_config(request: Request) -> ConversationStreamConfig:
+    """Return the configured conversation stream settings."""
+    state = _require_app_state(request)
+    try:
+        cfg = state.conversation_stream_config
+    except AttributeError as exc:
+        raise RuntimeError("Conversation stream config not available") from exc
+    if cfg is None:
+        raise RuntimeError("Conversation stream config not available")
+    return cfg
+
+
 __all__ = [
     "AppState",
     "DebugLogWriter",
@@ -108,4 +136,6 @@ __all__ = [
     "get_debug_log_writer",
     "get_database_pool",
     "get_redis_client",
+    "get_conversation_rate_limiter",
+    "get_conversation_stream_config",
 ]

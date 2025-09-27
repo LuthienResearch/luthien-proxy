@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from typing import Any, Dict, Iterable, Literal, Optional
 
@@ -19,25 +20,46 @@ from .utils import (
     unwrap_response,
 )
 
-_stream_indices: Dict[str, Dict[str, int]] = {}
+
+class _StreamIndexStore:
+    """Track stream chunk counters per call under a re-entrant lock."""
+
+    def __init__(self) -> None:
+        self._indices: Dict[str, Dict[str, int]] = {}
+        self._lock = threading.RLock()
+
+    def reset(self, call_id: str) -> None:
+        with self._lock:
+            self._indices[call_id] = {"original": 0, "final": 0}
+
+    def next_index(self, call_id: str, stream: Literal["original", "final"]) -> int:
+        with self._lock:
+            state = self._indices.setdefault(call_id, {"original": 0, "final": 0})
+            current = state[stream]
+            state[stream] = current + 1
+            return current
+
+    def clear(self, call_id: str) -> None:
+        with self._lock:
+            self._indices.pop(call_id, None)
+
+
+_stream_indices = _StreamIndexStore()
 
 
 def reset_stream_indices(call_id: str) -> None:
     """Initialise per-stream chunk indices for a call."""
-    _stream_indices[call_id] = {"original": 0, "final": 0}
+    _stream_indices.reset(call_id)
 
 
 def next_chunk_index(call_id: str, stream: Literal["original", "final"]) -> int:
     """Return and advance the next chunk index for the given stream."""
-    state = _stream_indices.setdefault(call_id, {"original": 0, "final": 0})
-    idx = state[stream]
-    state[stream] = idx + 1
-    return idx
+    return _stream_indices.next_index(call_id, stream)
 
 
 def clear_stream_indices(call_id: str) -> None:
     """Forget chunk indices for a completed call."""
-    _stream_indices.pop(call_id, None)
+    _stream_indices.clear(call_id)
 
 
 # TODO: refactor this logic, it's a mess
