@@ -78,7 +78,6 @@ async def _stream_from_channel(
     config: Optional[ConversationStreamConfig] = None,
 ) -> AsyncGenerator[str, None]:
     """Internal helper yielding SSE frames for a redis pub/sub channel."""
-
     settings = config or _DEFAULT_STREAM_CONFIG
     heartbeat_interval = max(0.5, settings.heartbeat_seconds)
     timeout = max(0.1, settings.redis_poll_timeout_seconds)
@@ -86,7 +85,11 @@ async def _stream_from_channel(
         await pubsub.subscribe(channel)
         last_heartbeat = time.monotonic()
         try:
-            while True:
+            attempts = 0
+            max_attempts = 20
+            exponential_backoff = 0.1
+            while attempts < max_attempts:
+                attempts += 1
                 try:
                     message = await pubsub.get_message(
                         ignore_subscribe_messages=True,
@@ -94,9 +97,14 @@ async def _stream_from_channel(
                     )
                 except asyncio.CancelledError:  # pragma: no cover - cooperative cancellation
                     raise
+                # timeout
                 except Exception as exc:  # pragma: no cover - defensive logging
-                    logger.error("conversation stream poll error on %s: %s", channel, exc)
-                    await asyncio.sleep(timeout)
+                    logger.error(
+                        f"Conversation stream poll error on {channel}: {exc} (attempt {attempts} / {max_attempts}); "
+                        "retrying in {exponential_backoff:.1f}s"
+                    )
+                    await asyncio.sleep(exponential_backoff)
+                    exponential_backoff = min(exponential_backoff * 2, 10)
                     continue
 
                 now = time.monotonic()
@@ -126,7 +134,6 @@ async def conversation_sse_stream(
     config: Optional[ConversationStreamConfig] = None,
 ) -> AsyncGenerator[str, None]:
     """Yield SSE data for a call-level channel."""
-
     channel = conversation_channel(call_id)
     async for chunk in _stream_from_channel(redis, channel, config=config):
         yield chunk
@@ -138,7 +145,6 @@ async def conversation_sse_stream_by_trace(
     config: Optional[ConversationStreamConfig] = None,
 ) -> AsyncGenerator[str, None]:
     """Yield SSE data for a trace-level channel."""
-
     channel = conversation_trace_channel(trace_id)
     async for chunk in _stream_from_channel(redis, channel, config=config):
         yield chunk
