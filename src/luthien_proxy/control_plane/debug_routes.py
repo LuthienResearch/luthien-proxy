@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -26,7 +26,7 @@ class DebugEntry(BaseModel):
     id: str
     time_created: datetime
     debug_type_identifier: str
-    jsonblob: dict[str, Any]
+    jsonblob: dict[str, object]
 
 
 class DebugTypeInfo(BaseModel):
@@ -77,6 +77,8 @@ async def get_debug_entries(
                         jb = json.loads(jb)
                     except Exception:
                         jb = {"raw": jb}
+                if not isinstance(jb, dict):
+                    jb = {"raw": jb}
                 entries.append(
                     DebugEntry(
                         id=str(row["id"]),
@@ -164,6 +166,8 @@ async def get_debug_page(
                         jb = json.loads(jb)
                     except Exception:
                         jb = {"raw": jb}
+                if not isinstance(jb, dict):
+                    jb = {"raw": jb}
                 items.append(
                     DebugEntry(
                         id=str(row["id"]),

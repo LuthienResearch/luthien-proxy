@@ -12,7 +12,7 @@ import os
 from collections import Counter
 from contextlib import asynccontextmanager
 from functools import partial
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,13 +67,13 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 
 @router.get("/health")
-async def health_check() -> dict[str, Any]:
+async def health_check() -> dict[str, str]:
     """Return a simple health payload without touching external services."""
     return {"status": "healthy", "service": "luthien-control-plane", "version": "0.1.0"}
 
 
 @router.get("/endpoints")
-async def list_endpoints() -> dict[str, Any]:
+async def list_endpoints() -> dict[str, list[str] | str]:
     """List notable HTTP endpoints for quick discoverability."""
     return {
         "hooks": [

@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Callable, Coroutine, Optional, Protocol, cast
+from typing import Awaitable, Callable, Optional, Protocol, cast
 
 from fastapi import Request
 
+from luthien_proxy.control_plane.conversation.utils import JSONValue
 from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ConversationStreamConfig, ProjectConfig
 
 from .utils.rate_limiter import RateLimiter
 
-DebugLogWriter = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
+DebugLogWriter = Callable[[str, dict[str, JSONValue]], Awaitable[None]]
 
 
 class AppState(Protocol):

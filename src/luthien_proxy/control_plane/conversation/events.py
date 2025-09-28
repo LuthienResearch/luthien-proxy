@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime
-from typing import Any, Dict, Iterable, Literal, Optional
+from typing import Dict, Iterable, Literal, Optional
 
 from .models import ConversationEvent, TraceEntry
 from .utils import (
+    JSONValue,
     delta_from_chunk,
     derive_sequence_ns,
     extract_choice_index,
@@ -67,8 +68,8 @@ def build_conversation_events(
     hook: str,
     call_id: Optional[str],
     trace_id: Optional[str],
-    original: Any,
-    result: Any,
+    original: JSONValue | None,
+    result: JSONValue | None,
     timestamp_ns_fallback: int,
     timestamp: datetime,
 ) -> list[ConversationEvent]:

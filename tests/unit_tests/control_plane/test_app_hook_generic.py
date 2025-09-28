@@ -1,6 +1,5 @@
 import asyncio
 from collections import Counter
-from typing import Any
 
 import pytest
 
@@ -10,9 +9,9 @@ from luthien_proxy.policies.noop import NoOpPolicy
 
 class _Recorder:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.calls: list[tuple[str, dict[str, object]]] = []
 
-    async def __call__(self, debug_type: str, payload: dict[str, Any], *_args, **_kwargs) -> None:
+    async def __call__(self, debug_type: str, payload: dict[str, object], *_args, **_kwargs) -> None:
         self.calls.append((debug_type, payload))
 
 

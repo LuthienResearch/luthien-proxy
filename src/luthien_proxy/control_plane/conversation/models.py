@@ -7,7 +7,6 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-
 class TraceEntry(BaseModel):
     """A single hook event for a call ID, optionally with nanosecond time."""
 

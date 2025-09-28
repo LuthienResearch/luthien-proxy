@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional, cast
+from typing import Optional
 
 import yaml
 
@@ -24,7 +24,7 @@ def load_policy_from_config(
     if not resolved_path:
         raise RuntimeError("LUTHIEN_POLICY_CONFIG must be set to load a policy")
 
-    def _read(path: str) -> tuple[Optional[str], Optional[dict[str, Any]]]:
+    def _read(path: str) -> tuple[Optional[str], Optional[dict[str, object]]]:
         if not os.path.exists(path):
             logger.warning("Policy config not found at %s; using NoOpPolicy", path)
             return None, None
@@ -36,20 +36,24 @@ def load_policy_from_config(
             logger.error("Failed to read policy config %s: %s", path, exc)
             return None, None
 
-    def _import(ref: str):
+    def _import(ref: str) -> tuple[type[LuthienPolicy] | None, str | None, str | None]:
         try:
             module_path, class_name = ref.split(":", 1)
             module = __import__(module_path, fromlist=[class_name])
             cls = getattr(module, class_name)
+            if not isinstance(cls, type):
+                raise TypeError(f"Policy reference {ref} did not resolve to a class")
             return cls, module_path, class_name
         except Exception as exc:
             logger.error("Failed to import policy '%s': %s", ref, exc)
             return None, None, None
 
-    def _instantiate(cls, options: Optional[dict[str, Any]]) -> LuthienPolicy:
+    def _instantiate(
+        cls: type[LuthienPolicy], options: Optional[dict[str, object]]
+    ) -> LuthienPolicy:
         if options is not None:
             try:
-                return cast(Any, cls)(options=options)
+                return cls(options=options)
             except TypeError:
                 pass
         return cls()

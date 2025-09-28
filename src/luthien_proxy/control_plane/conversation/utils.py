@@ -4,31 +4,35 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Iterable, Literal, Optional, Tuple
+from typing import Iterable, Literal, Optional, Tuple, TypeAlias
 
 
-def require_dict(value: Any, context: str) -> dict[str, Any]:
+JSONPrimitive = str | int | float | bool | None
+JSONValue: TypeAlias = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
+
+
+def require_dict(value: object, context: str) -> dict[str, JSONValue]:
     """Ensure *value* is a dict, raising a descriptive error otherwise."""
     if not isinstance(value, dict):
         raise ValueError(f"{context} must be a dict; saw {type(value)!r}")
     return value
 
 
-def require_list(value: Any, context: str) -> list[Any]:
+def require_list(value: object, context: str) -> list[JSONValue]:
     """Ensure *value* is a list, raising a descriptive error otherwise."""
     if not isinstance(value, list):
         raise ValueError(f"{context} must be a list; saw {type(value)!r}")
     return value
 
 
-def require_str(value: Any, context: str) -> str:
+def require_str(value: object, context: str) -> str:
     """Ensure *value* is a string, raising a descriptive error otherwise."""
     if not isinstance(value, str):
         raise ValueError(f"{context} must be a string; saw {type(value)!r}")
     return value
 
 
-def json_safe(value: Any) -> Any:
+def json_safe(value: object) -> JSONValue:
     """Recursively coerce *value* into a JSON-serializable structure."""
     try:
         json.dumps(value)
@@ -46,7 +50,7 @@ def json_safe(value: Any) -> Any:
             return "<unserializable>"
 
 
-def message_content_to_text(content: Any) -> str:
+def message_content_to_text(content: object) -> str:
     """Flatten OpenAI-style message content into plain text."""
     if content is None:
         return ""
@@ -68,7 +72,7 @@ def message_content_to_text(content: Any) -> str:
     raise ValueError(f"Unexpected message content type: {type(content)!r}")
 
 
-def messages_from_payload(payload: Any) -> list[Tuple[str, str]]:
+def messages_from_payload(payload: object) -> list[Tuple[str, str]]:
     """Extract (role, content) tuples from a request payload."""
     payload_dict = require_dict(payload, "messages payload")
     container_key = "data" if "data" in payload_dict else "request_data"
@@ -90,7 +94,7 @@ def format_messages(message_pairs: Iterable[Tuple[str, str]]) -> list[dict[str, 
     return [{"role": role, "content": content} for role, content in message_pairs]
 
 
-def extract_choice_index(chunk: Any) -> int:
+def extract_choice_index(chunk: object) -> int:
     """Return the index of the first choice in a streaming chunk."""
     chunk_dict = require_dict(chunk, "stream chunk")
     choices = require_list(chunk_dict.get("choices"), "stream chunk choices")
@@ -103,7 +107,7 @@ def extract_choice_index(chunk: Any) -> int:
     return idx
 
 
-def delta_from_chunk(chunk: Any) -> str:
+def delta_from_chunk(chunk: object) -> str:
     """Pull the textual delta from a streaming chunk payload."""
     if chunk is None:
         return ""
@@ -115,7 +119,7 @@ def delta_from_chunk(chunk: Any) -> str:
     return extract_delta_text(chunk_dict)
 
 
-def extract_stream_chunk(payload: Any) -> Any:
+def extract_stream_chunk(payload: object) -> JSONValue | None:
     """Peel off envelope wrappers to access the chunk payload."""
     if payload is None:
         return None
@@ -126,7 +130,7 @@ def extract_stream_chunk(payload: Any) -> Any:
     return payload_dict
 
 
-def extract_trace_id(payload: Any) -> Optional[str]:
+def extract_trace_id(payload: object) -> Optional[str]:
     """Find a trace identifier within a request payload if present."""
     if not isinstance(payload, dict):
         return None
@@ -149,7 +153,7 @@ def extract_trace_id(payload: Any) -> Optional[str]:
     return None
 
 
-def unwrap_response(payload: Any) -> Any:
+def unwrap_response(payload: object) -> JSONValue | None:
     """Return the response object nested within a hook payload."""
     if payload is None:
         return None
@@ -160,7 +164,7 @@ def unwrap_response(payload: Any) -> Any:
     return payload_dict
 
 
-def extract_response_text(response: Any) -> str:
+def extract_response_text(response: object) -> str:
     """Convert an LLM response payload into plain text."""
     if response is None:
         return ""
@@ -184,7 +188,7 @@ def extract_response_text(response: Any) -> str:
     raise ValueError("Unrecognized response payload structure")
 
 
-def extract_post_time_ns_from_any(value: Any) -> Optional[int]:
+def extract_post_time_ns_from_any(value: object) -> Optional[int]:
     """Search arbitrarily nested data for a `post_time_ns` integer."""
     if isinstance(value, dict):
         candidate = value.get("post_time_ns")
@@ -208,7 +212,7 @@ def extract_post_time_ns_from_any(value: Any) -> Optional[int]:
     return None
 
 
-def derive_sequence_ns(fallback_ns: int, *candidates: Any) -> int:
+def derive_sequence_ns(fallback_ns: int, *candidates: object) -> int:
     """Pick the first available `post_time_ns`, falling back to *fallback_ns*."""
     for candidate in candidates:
         ns = extract_post_time_ns_from_any(candidate)
@@ -217,7 +221,7 @@ def derive_sequence_ns(fallback_ns: int, *candidates: Any) -> int:
     return fallback_ns
 
 
-def strip_post_time_ns(value: Any) -> Any:
+def strip_post_time_ns(value: JSONValue) -> JSONValue:
     """Remove `post_time_ns` keys from nested structures."""
     if isinstance(value, dict):
         return {key: strip_post_time_ns(inner) for key, inner in value.items() if key != "post_time_ns"}
@@ -226,7 +230,9 @@ def strip_post_time_ns(value: Any) -> Any:
     return value
 
 
-def message_equals(a: Optional[dict[str, Any]], b: Optional[dict[str, Any]]) -> bool:
+def message_equals(
+    a: Optional[dict[str, JSONValue]], b: Optional[dict[str, JSONValue]]
+) -> bool:
     """Return True if two role/content dictionaries are equal."""
     if a is None or b is None:
         return False
@@ -235,7 +241,7 @@ def message_equals(a: Optional[dict[str, Any]], b: Optional[dict[str, Any]]) -> 
     ) == (b.get("content") or "")
 
 
-def clone_messages(messages: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+def clone_messages(messages: Iterable[dict[str, JSONValue]]) -> list[dict[str, str]]:
     """Create shallow copies of role/content message dictionaries."""
     cloned: list[dict[str, str]] = []
     for msg in messages:
@@ -267,6 +273,7 @@ def normalize_status(
 
 
 __all__ = [
+    "JSONValue",
     "require_dict",
     "require_list",
     "require_str",
