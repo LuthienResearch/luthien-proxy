@@ -72,7 +72,7 @@ Editor setup (VS Code)
 - **LiteLLM Proxy**: OpenAI-compatible gateway with custom hooks
 - **Control Plane**: Policy orchestration and decision logic
 - **Policy Engine**: Configuration and threshold management
-- **Debug UI**: `/debug` for recent debug types, `/hooks/trace` for call traces
+- **Debug UI**: `/debug` for recent debug types, `/ui/hooks/trace` for call traces
 
 ## Endpoints
 
@@ -80,7 +80,7 @@ Editor setup (VS Code)
   - `GET /health` — basic health check
   - `GET /debug` — debug browser
   - `GET /debug/{debug_type}` — view entries for a type
-  - `GET /hooks/trace` — UI to trace a call by `call_id`
+  - `GET /ui/hooks/trace` — UI to trace a call by `call_id`
   - `GET /api/debug/types` — list debug types with counts
   - `GET /api/debug/{debug_type}` — recent entries (default limit 50)
   - `GET /api/debug/{debug_type}/page?page=1&page_size=20` — paginated

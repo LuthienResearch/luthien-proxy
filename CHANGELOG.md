@@ -9,6 +9,9 @@
 - shared redis/db client provisioning and pooling
 - refactored app.py into smaller, more focused modules
 - unit test coverage >80%
+- [stream-view](stream-view): Delivered live conversation trace and trace-by-call UIs with real-time SSE updates
+- [stream-view](stream-view): Added configurable chunk history limits to prevent runaway memory use during long streams
+- [stream-view](stream-view): Hardened streaming reliability with cleanup on disconnects and exponential backoff for reconnects
 
 ## 0.0.0 | 2025-11-22
 

@@ -18,6 +18,10 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from luthien_proxy.control_plane.conversation import (
+    ConversationStreamConfig,
+    TraceEntry,
+)
 from luthien_proxy.control_plane.stream_context import StreamContextStore
 from luthien_proxy.control_plane.ui import router as ui_router
 from luthien_proxy.utils import db, redis_client
@@ -43,7 +47,6 @@ from .dependencies import (
 )
 from .hooks_routes import (
     CallIdInfo,
-    TraceEntry,
     TraceResponse,
     get_hook_counters,
     hook_generic,
@@ -54,6 +57,7 @@ from .hooks_routes import (
     router as hooks_router,
 )
 from .policy_loader import load_policy_from_config
+from .utils.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +77,12 @@ async def list_endpoints() -> dict[str, Any]:
     """List notable HTTP endpoints for quick discoverability."""
     return {
         "hooks": [
-            "POST /hooks/{hook_name}",
+            "POST /api/hooks/{hook_name}",
+        ],
+        "ui": [
+            "GET /ui/hooks/trace",
+            "GET /ui/conversation",
+            "GET /ui/conversation/by_trace",
         ],
         "health": "GET /health",
     }
@@ -92,8 +101,12 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
         database_pool: Optional[db.DatabasePool] = None
         redis_instance: Optional[redis_client.RedisClient] = None
         redis_manager = redis_client.RedisClientManager()
+        rate_limiter: Optional[RateLimiter] = None
+        stream_config: Optional[ConversationStreamConfig] = None
 
         try:
+            app.state.conversation_rate_limiter = None
+            app.state.conversation_stream_config = None
             database_pool = db.DatabasePool(control_cfg.database_url)
             await database_pool.get_pool()
             app.state.database_pool = database_pool
@@ -104,6 +117,14 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             app.state.redis_client = redis_instance
 
             policy = load_policy_from_config(config, control_cfg.policy_config_path)
+
+            stream_config = control_cfg.conversation_stream_config
+            rate_limiter = RateLimiter(
+                max_events=stream_config.rate_limit_max_requests,
+                window_seconds=stream_config.rate_limit_window_seconds,
+            )
+            app.state.conversation_rate_limiter = rate_limiter
+            app.state.conversation_stream_config = stream_config
 
             stream_store = StreamContextStore(
                 redis_client=redis_instance,
@@ -122,6 +143,8 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             app.state.database_pool = None
             app.state.redis_client = None
             app.state.redis_manager = None
+            app.state.conversation_rate_limiter = None
+            app.state.conversation_stream_config = None
             if database_pool is not None:
                 await database_pool.close()
             await redis_manager.close_all()

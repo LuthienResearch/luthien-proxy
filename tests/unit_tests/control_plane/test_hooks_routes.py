@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 
@@ -7,7 +8,12 @@ from fastapi import HTTPException
 
 from luthien_proxy.control_plane.hooks_routes import (
     CallIdInfo,
+    ConversationMessageDiff,
+    ConversationSnapshot,
+    TraceConversationSnapshot,
     TraceResponse,
+    conversation_snapshot,
+    conversation_snapshot_by_trace,
     get_hook_counters,
     hook_generic,
     recent_call_ids,
@@ -180,6 +186,168 @@ async def test_get_hook_counters_exposes_state():
     counters = Counter({"a": 1})
     result = await get_hook_counters(counters=counters)
     assert result == {"a": 1}
+
+
+@pytest.mark.asyncio
+async def test_conversation_snapshot_builds_events(project_config: ProjectConfig):
+    now = datetime.now(UTC)
+
+    pre_payload = {
+        "hook": "async_pre_call_hook",
+        "litellm_call_id": "call-1",
+        "litellm_trace_id": "trace-1",
+        "original": {
+            "request_data": {
+                "messages": [{"role": "user", "content": "Hello"}],
+                "post_time_ns": 1,
+            }
+        },
+        "result": {
+            "request_data": {
+                "messages": [{"role": "user", "content": "Hello sanitized"}],
+                "post_time_ns": 2,
+            }
+        },
+    }
+
+    stream_payload = {
+        "hook": "async_post_call_streaming_iterator_hook",
+        "litellm_call_id": "call-1",
+        "litellm_trace_id": "trace-1",
+        "original": {
+            "response": {"choices": [{"index": 0, "delta": {"content": "Hi"}}]},
+            "post_time_ns": 3,
+        },
+        "result": {
+            "response": {"choices": [{"index": 0, "delta": {"content": "Hello!"}}]},
+            "post_time_ns": 4,
+        },
+    }
+
+    success_payload = {
+        "hook": "async_post_call_success_hook",
+        "litellm_call_id": "call-1",
+        "litellm_trace_id": "trace-1",
+        "original": {
+            "response": {"choices": [{"message": {"content": "Hi"}}]},
+            "post_time_ns": 5,
+        },
+        "result": {
+            "response": {"choices": [{"message": {"content": "Hello friend!"}}]},
+            "post_time_ns": 6,
+        },
+    }
+
+    rows = [
+        {
+            "time_created": now,
+            "debug_type_identifier": "hook_result:async_pre_call_hook",
+            "jsonblob": json.dumps(pre_payload),
+        },
+        {
+            "time_created": now + timedelta(milliseconds=1),
+            "debug_type_identifier": "hook_result:async_post_call_streaming_iterator_hook",
+            "jsonblob": json.dumps(stream_payload),
+        },
+        {
+            "time_created": now + timedelta(milliseconds=2),
+            "debug_type_identifier": "hook_result:async_post_call_success_hook",
+            "jsonblob": json.dumps(success_payload),
+        },
+    ]
+
+    pool = _PoolWrapper(_FakeTraceConn(rows))
+
+    snapshot = await conversation_snapshot("call-1", pool=pool, config=project_config)
+
+    assert isinstance(snapshot, ConversationSnapshot)
+    assert snapshot.call_id == "call-1"
+    assert snapshot.trace_id == "trace-1"
+    assert [event.event_type for event in snapshot.events] == [
+        "request_started",
+        "original_chunk",
+        "final_chunk",
+        "request_completed",
+    ]
+    first_event = snapshot.events[0]
+    assert first_event.payload["original_messages"][0]["content"] == "Hello"
+    assert first_event.payload["final_messages"][0]["content"] == "Hello sanitized"
+    assert snapshot.events[1].payload["delta"] == "Hi"
+    assert snapshot.events[1].payload["chunk_index"] == 0
+    assert snapshot.events[2].payload["delta"] == "Hello!"
+    assert snapshot.events[2].payload["chunk_index"] == 0
+    assert snapshot.events[-1].payload["final_response"] == "Hello friend!"
+    assert len(snapshot.calls) == 1
+    call_snapshot = snapshot.calls[0]
+    assert call_snapshot.call_id == "call-1"
+    assert call_snapshot.final_response == "Hello friend!"
+    assert call_snapshot.original_response == "Hi"
+    assert call_snapshot.chunk_count == 1
+    assert call_snapshot.new_messages == [
+        ConversationMessageDiff(role="user", original="Hello", final="Hello sanitized")
+    ]
+    assert call_snapshot.final_chunks == ["Hello friend!"]
+    assert call_snapshot.original_chunks == ["Hi"]
+
+
+@pytest.mark.asyncio
+async def test_conversation_snapshot_by_trace_collects_calls(project_config: ProjectConfig):
+    now = datetime.now(UTC)
+
+    call1_payload = {
+        "hook": "async_post_call_success_hook",
+        "litellm_call_id": "call-1",
+        "litellm_trace_id": "trace-1",
+        "original": {
+            "response": {"choices": [{"message": {"content": "Hi"}}]},
+            "post_time_ns": 5,
+        },
+        "result": {
+            "response": {"choices": [{"message": {"content": "Hello"}}]},
+            "post_time_ns": 6,
+        },
+    }
+
+    call2_payload = {
+        "hook": "async_post_call_success_hook",
+        "litellm_call_id": "call-2",
+        "litellm_trace_id": "trace-1",
+        "original": {
+            "response": {"choices": [{"message": {"content": "Howdy"}}]},
+            "post_time_ns": 7,
+        },
+        "result": {
+            "response": {"choices": [{"message": {"content": "Howdy partner"}}]},
+            "post_time_ns": 8,
+        },
+    }
+
+    rows = [
+        {
+            "time_created": now,
+            "debug_type_identifier": "hook_result:async_post_call_success_hook",
+            "jsonblob": json.dumps(call1_payload),
+        },
+        {
+            "time_created": now + timedelta(milliseconds=1),
+            "debug_type_identifier": "hook_result:async_post_call_success_hook",
+            "jsonblob": json.dumps(call2_payload),
+        },
+    ]
+
+    pool = _PoolWrapper(_FakeTraceConn(rows))
+
+    snapshot = await conversation_snapshot_by_trace("trace-1", pool=pool, config=project_config)
+
+    assert isinstance(snapshot, TraceConversationSnapshot)
+    assert snapshot.trace_id == "trace-1"
+    assert snapshot.call_ids == ["call-1", "call-2"]
+    assert len(snapshot.events) == 2
+    assert [call.call_id for call in snapshot.calls] == ["call-1", "call-2"]
+    response_map = {call.call_id: call.final_response for call in snapshot.calls}
+    assert response_map == {"call-1": "Hello", "call-2": "Howdy partner"}
+    assert snapshot.calls[0].final_chunks == ["Hello"]
+    assert snapshot.calls[1].final_chunks == ["Howdy partner"]
 
 
 @pytest.mark.asyncio

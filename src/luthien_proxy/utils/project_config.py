@@ -11,6 +11,7 @@ __all__ = [
     "ProjectConfig",
     "ProxyConfig",
     "ControlPlaneConfig",
+    "ConversationStreamConfig",
 ]
 
 T = TypeVar("T")
@@ -59,6 +60,16 @@ CONTROL_PLANE_HOST = ConfigValue[str]("CONTROL_PLANE_HOST", "0.0.0.0")
 CONTROL_PLANE_PORT = ConfigValue[int]("CONTROL_PLANE_PORT", 8081, parser=int)
 CONTROL_PLANE_LOG_LEVEL = ConfigValue[str]("CONTROL_PLANE_LOG_LEVEL", "INFO")
 STREAM_CONTEXT_TTL = ConfigValue[int]("STREAM_CONTEXT_TTL", 3600, parser=int)
+CONVERSATION_STREAM_HEARTBEAT_SECONDS = ConfigValue[float]("CONVERSATION_STREAM_HEARTBEAT_SECONDS", 15.0, parser=float)
+CONVERSATION_STREAM_REDIS_TIMEOUT_SECONDS = ConfigValue[float](
+    "CONVERSATION_STREAM_REDIS_TIMEOUT_SECONDS", 1.0, parser=float
+)
+CONVERSATION_STREAM_RATE_LIMIT_MAX_REQUESTS = ConfigValue[int](
+    "CONVERSATION_STREAM_RATE_LIMIT_MAX_REQUESTS", 60, parser=int
+)
+CONVERSATION_STREAM_RATE_LIMIT_WINDOW_SECONDS = ConfigValue[float](
+    "CONVERSATION_STREAM_RATE_LIMIT_WINDOW_SECONDS", 60.0, parser=float
+)
 
 
 @dataclass(frozen=True)
@@ -84,6 +95,17 @@ class ControlPlaneConfig:
     stream_context_ttl: int
     policy_config_path: str
     database_url: str
+    conversation_stream_config: "ConversationStreamConfig"
+
+
+@dataclass(frozen=True)
+class ConversationStreamConfig:
+    """Configuration for SSE conversation streaming."""
+
+    heartbeat_seconds: float
+    redis_poll_timeout_seconds: float
+    rate_limit_max_requests: int
+    rate_limit_window_seconds: float
 
 
 class ProjectConfig:
@@ -164,6 +186,20 @@ class ProjectConfig:
         return get_config_value(self._env_map, STREAM_CONTEXT_TTL)
 
     @cached_property
+    def conversation_stream_config(self) -> ConversationStreamConfig:
+        """Settings for SSE-based conversation streaming."""
+        return ConversationStreamConfig(
+            heartbeat_seconds=get_config_value(self._env_map, CONVERSATION_STREAM_HEARTBEAT_SECONDS),
+            redis_poll_timeout_seconds=get_config_value(self._env_map, CONVERSATION_STREAM_REDIS_TIMEOUT_SECONDS),
+            rate_limit_max_requests=max(
+                1, get_config_value(self._env_map, CONVERSATION_STREAM_RATE_LIMIT_MAX_REQUESTS)
+            ),
+            rate_limit_window_seconds=max(
+                0.1, get_config_value(self._env_map, CONVERSATION_STREAM_RATE_LIMIT_WINDOW_SECONDS)
+            ),
+        )
+
+    @cached_property
     def proxy_config(self) -> ProxyConfig:
         """Get the proxy configuration."""
         return ProxyConfig(
@@ -190,6 +226,7 @@ class ProjectConfig:
             stream_context_ttl=self.stream_context_ttl,
             policy_config_path=self.luthien_policy_config,
             database_url=self.database_url,
+            conversation_stream_config=self.conversation_stream_config,
         )
 
     def with_overrides(self, **changes) -> "ProjectConfig":
