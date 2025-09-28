@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -13,12 +14,36 @@ from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
 
-from .conversation.db import parse_jsonblob
 from .dependencies import get_database_pool, get_project_config
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+
+def _require_str(value: object, context: str) -> str:
+    """Return *value* when it is a non-empty string."""
+    if isinstance(value, str) and value:
+        return value
+    raise ValueError(f"{context} must be a non-empty string; saw {type(value)!r}")
+
+
+def _require_datetime(value: object, context: str) -> datetime:
+    """Return *value* when it is a datetime."""
+    if isinstance(value, datetime):
+        return value
+    raise ValueError(f"{context} must be a datetime; saw {type(value)!r}")
+
+
+def _require_int(value: object, context: str) -> int:
+    """Return *value* as an int when numeric."""
+    if isinstance(value, bool):
+        raise ValueError(f"{context} must be an int; saw bool")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    raise ValueError(f"{context} must be numeric; saw {type(value)!r}")
 
 
 class DebugEntry(BaseModel):
@@ -72,12 +97,18 @@ async def get_debug_entries(
                 limit,
             )
             for row in rows:
-                jb = parse_jsonblob(row["jsonblob"])
+                raw_blob = row["jsonblob"]
+                if not isinstance(raw_blob, str):
+                    raise TypeError("debug_logs.jsonblob must be a JSON string")
+                parsed_blob = json.loads(raw_blob)
+                if not isinstance(parsed_blob, dict):
+                    raise TypeError("debug_logs.jsonblob must decode to a JSON object")
+                jb = cast(JSONObject, parsed_blob)
                 entries.append(
                     DebugEntry(
                         id=str(row["id"]),
-                        time_created=row["time_created"],
-                        debug_type_identifier=row["debug_type_identifier"],
+                        time_created=_require_datetime(row.get("time_created"), "time_created"),
+                        debug_type_identifier=_require_str(row.get("debug_type_identifier"), "debug_type_identifier"),
                         jsonblob=jb,
                     )
                 )
@@ -108,9 +139,9 @@ async def get_debug_types(
             for row in rows:
                 types.append(
                     DebugTypeInfo(
-                        debug_type_identifier=row["debug_type_identifier"],
-                        count=int(row["count"]),
-                        latest=row["latest"],
+                        debug_type_identifier=_require_str(row.get("debug_type_identifier"), "debug_type_identifier"),
+                        count=_require_int(row.get("count"), "count"),
+                        latest=_require_datetime(row.get("latest"), "latest"),
                     )
                 )
     except Exception as exc:
@@ -139,7 +170,7 @@ async def get_debug_page(
                 """,
                 debug_type,
             )
-            total = int(total_row["cnt"]) if total_row else 0
+            total = _require_int(total_row["cnt"], "cnt") if total_row else 0
             offset = (page - 1) * page_size
             rows = await conn.fetch(
                 """
@@ -154,12 +185,18 @@ async def get_debug_page(
                 offset,
             )
             for row in rows:
-                jb = parse_jsonblob(row["jsonblob"])
+                raw_blob = row["jsonblob"]
+                if not isinstance(raw_blob, str):
+                    raise TypeError("debug_logs.jsonblob must be a JSON string")
+                parsed_blob = json.loads(raw_blob)
+                if not isinstance(parsed_blob, dict):
+                    raise TypeError("debug_logs.jsonblob must decode to a JSON object")
+                jb = cast(JSONObject, parsed_blob)
                 items.append(
                     DebugEntry(
                         id=str(row["id"]),
-                        time_created=row["time_created"],
-                        debug_type_identifier=row["debug_type_identifier"],
+                        time_created=_require_datetime(row.get("time_created"), "time_created"),
+                        debug_type_identifier=_require_str(row.get("debug_type_identifier"), "debug_type_identifier"),
                         jsonblob=jb,
                     )
                 )

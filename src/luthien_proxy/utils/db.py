@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import AsyncContextManager, AsyncIterator, Awaitable, Callable, Protocol
+from typing import AsyncContextManager, AsyncIterator, Awaitable, Callable, Mapping, Protocol, Sequence
 
 import asyncpg
 
 
 class ConnectionProtocol(Protocol):
     async def close(self) -> None: ...
+
+    async def fetch(self, query: str, *args: object) -> Sequence[Mapping[str, object]]: ...
+
+    async def fetchrow(self, query: str, *args: object) -> Mapping[str, object] | None: ...
+
+    async def execute(self, query: str, *args: object) -> object: ...
 
 
 class PoolProtocol(Protocol):

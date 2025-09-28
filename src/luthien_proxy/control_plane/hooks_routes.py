@@ -59,6 +59,40 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _require_str(value: object, context: str) -> str:
+    """Return *value* when it is a non-empty string."""
+    if isinstance(value, str) and value:
+        return value
+    raise ValueError(f"{context} must be a non-empty string; saw {type(value)!r}")
+
+
+def _require_int(value: object, context: str) -> int:
+    """Return *value* as an int when already numeric."""
+    if isinstance(value, bool):
+        raise ValueError(f"{context} must be an int; saw bool")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    raise ValueError(f"{context} must be numeric; saw {type(value)!r}")
+
+
+def _require_datetime(value: object, context: str) -> datetime:
+    """Return *value* when it is a datetime."""
+    if isinstance(value, datetime):
+        return value
+    raise ValueError(f"{context} must be a datetime; saw {type(value)!r}")
+
+
+def _spawn_background(awaitable: Awaitable[None]) -> None:
+    """Fire and forget an awaitable for background execution."""
+
+    async def _runner() -> None:
+        await awaitable
+
+    asyncio.create_task(_runner())
+
+
 async def enforce_conversation_rate_limit(
     request: Request,
     limiter: RateLimiter = Depends(get_conversation_rate_limiter),
@@ -114,7 +148,7 @@ async def hook_generic(
             stored_record["litellm_trace_id"] = trace_id
         if "litellm_call_id" in record:
             stored_record["litellm_call_id"] = record["litellm_call_id"]
-        asyncio.create_task(debug_writer(f"hook:{hook_name}", stored_record))
+        _spawn_background(debug_writer(f"hook:{hook_name}", stored_record))
         name = hook_name.lower()
         counters[name] += 1
         handler = cast(
@@ -146,7 +180,7 @@ async def hook_generic(
         }
         if trace_id:
             result_record["litellm_trace_id"] = trace_id
-        asyncio.create_task(debug_writer(f"hook_result:{hook_name}", result_record))
+        _spawn_background(debug_writer(f"hook_result:{hook_name}", result_record))
 
         call_id = result_record.get("litellm_call_id")
         if isinstance(call_id, str) and call_id:
@@ -161,8 +195,8 @@ async def hook_generic(
                 timestamp=timestamp_dt,
             )
             for event in events:
-                asyncio.create_task(publish_conversation_event(redis_conn, event))
-                asyncio.create_task(publish_trace_conversation_event(redis_conn, event))
+                _spawn_background(publish_conversation_event(redis_conn, event))
+                _spawn_background(publish_trace_conversation_event(redis_conn, event))
 
         return strip_post_time_ns(final_result)
     except Exception as exc:
@@ -207,10 +241,10 @@ async def recent_call_ids(
                 limit,
             )
             for row in rows:
-                cid = row["cid"]
-                if not cid:
-                    continue
-                out.append(CallIdInfo(call_id=cid, count=int(row["cnt"]), latest=row["latest"]))
+                cid = _require_str(row.get("cid"), "cid")
+                count = _require_int(row.get("cnt"), "cnt")
+                latest = _require_datetime(row.get("latest"), "latest")
+                out.append(CallIdInfo(call_id=cid, count=count, latest=latest))
     except Exception as exc:
         logger.error("Error fetching recent call ids: %s", exc)
     return out
@@ -252,15 +286,16 @@ async def recent_traces(
                 limit,
             )
             for row in rows:
-                trace_id = row["trace_id"]
-                if not trace_id:
-                    continue
+                trace_id = _require_str(row.get("trace_id"), "trace_id")
+                call_count = _require_int(row.get("call_count"), "call_count")
+                event_count = _require_int(row.get("event_count"), "event_count")
+                latest = _require_datetime(row.get("latest"), "latest")
                 out.append(
                     TraceInfo(
                         trace_id=trace_id,
-                        call_count=int(row["call_count"]),
-                        event_count=int(row["event_count"]),
-                        latest=row["latest"],
+                        call_count=call_count,
+                        event_count=event_count,
+                        latest=latest,
                     )
                 )
     except Exception as exc:

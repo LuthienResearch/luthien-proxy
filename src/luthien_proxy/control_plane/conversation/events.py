@@ -17,6 +17,7 @@ from .utils import (
     extract_stream_chunk,
     extract_trace_id,
     format_messages,
+    json_safe,
     messages_from_payload,
     require_dict,
     unwrap_response,
@@ -92,6 +93,8 @@ def build_conversation_events(
         result_payload = require_dict(result, "pre-call result payload") if result is not None else original_payload
         originals = messages_from_payload(original_payload)
         finals = messages_from_payload(result_payload)
+        formatted_originals = json_safe(format_messages(originals))
+        formatted_finals = json_safe(format_messages(finals))
         reset_stream_indices(call_id)
         events.append(
             ConversationEvent(
@@ -102,8 +105,8 @@ def build_conversation_events(
                 timestamp=timestamp,
                 hook=hook,
                 payload={
-                    "original_messages": format_messages(originals),
-                    "final_messages": format_messages(finals),
+                    "original_messages": formatted_originals,
+                    "final_messages": formatted_finals,
                     "raw_original": original_payload,
                     "raw_result": result_payload,
                 },
@@ -255,8 +258,10 @@ def events_from_trace_entry(entry: TraceEntry) -> list[ConversationEvent]:
     payload = require_dict(entry.payload, "trace entry payload")
     original = payload.get("original")
     result = payload.get("result")
-    call_id = payload.get("litellm_call_id")
-    trace_id = payload.get("litellm_trace_id")
+    call_id_raw = payload.get("litellm_call_id")
+    call_id = call_id_raw if isinstance(call_id_raw, str) and call_id_raw else None
+    trace_id_raw = payload.get("litellm_trace_id")
+    trace_id = trace_id_raw if isinstance(trace_id_raw, str) and trace_id_raw else None
     timestamp_ns = entry.post_time_ns if entry.post_time_ns is not None else int(entry.time.timestamp() * 1_000_000_000)
     timestamp = entry.time
 

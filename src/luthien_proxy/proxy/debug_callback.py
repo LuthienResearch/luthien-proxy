@@ -41,22 +41,24 @@ class DebugCallback(CustomLogger):
         if isinstance(resp, dict):
             return cast(JSONObject, json_safe(resp))
         if hasattr(resp, "model_dump"):
-            try:
-                return json_safe(resp.model_dump())
-            except Exception:
-                return json_safe(str(resp))
+            model_dump = getattr(resp, "model_dump")
+            if callable(model_dump):
+                try:
+                    return json_safe(model_dump())
+                except Exception:
+                    return json_safe(str(resp))
         return json_safe(str(resp))
 
     def _post(
         self,
         hook: str,
-        kwargs: JSONObject | None,
+        kwargs: object | None,
         response_obj: object,
     ) -> None:
         """Send a synchronous log payload to the control plane."""
         payload = {
             "hook": hook,
-            "kwargs": self._safe(kwargs or {}),
+            "kwargs": self._safe({} if kwargs is None else kwargs),
             "response_obj": self._safe(self._serialize_response(response_obj)),
         }
         try:
@@ -68,13 +70,13 @@ class DebugCallback(CustomLogger):
     async def _apost(
         self,
         hook: str,
-        kwargs: JSONObject | None,
+        kwargs: object | None,
         response_obj: object,
     ) -> None:
         """Send an async log payload to the control plane."""
         payload = {
             "hook": hook,
-            "kwargs": self._safe(kwargs or {}),
+            "kwargs": self._safe({} if kwargs is None else kwargs),
             "response_obj": self._safe(self._serialize_response(response_obj)),
         }
         try:

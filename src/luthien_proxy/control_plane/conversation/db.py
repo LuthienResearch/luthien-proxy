@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Mapping, Optional, cast
 
 from fastapi import HTTPException
@@ -12,22 +13,20 @@ from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
 
 from .models import TraceEntry
-from .utils import json_safe
 
 
-def parse_jsonblob(raw: object) -> JSONObject:
-    """Deserialize a debug log JSON blob into a dictionary."""
-    if isinstance(raw, dict):
-        return cast(JSONObject, raw)
-    if isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict):
-                return cast(JSONObject, parsed)
-            return {"raw": raw}
-        except Exception:
-            return {"raw": json_safe(raw)}
-    return {"raw": json_safe(raw)}
+def _require_datetime(value: object) -> datetime:
+    """Return *value* when it is a datetime, else raise."""
+    if isinstance(value, datetime):
+        return value
+    raise ValueError(f"{value} is a {type(value)!r}, expected datetime")
+
+
+def _optional_str(value: object) -> Optional[str]:
+    """Return *value* when it is a non-empty string, else None."""
+    if isinstance(value, str) and value:
+        return value
+    return None
 
 
 def extract_post_ns(jb: JSONObject) -> Optional[int]:
@@ -44,13 +43,22 @@ def extract_post_ns(jb: JSONObject) -> Optional[int]:
 
 
 def _row_to_trace_entry(row: Mapping[str, object]) -> TraceEntry:
-    jb = parse_jsonblob(row["jsonblob"])
+    raw_blob = str(row["jsonblob"])
+    try:
+        parsed_blob = cast(dict, json.loads(raw_blob))
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise TypeError(f"debug_logs.jsonblob is not a valid json string: {raw_blob}") from exc
+    if not isinstance(parsed_blob, dict):
+        raise TypeError(f"debug_logs.jsonblob must decode to a JSON mapping; got {type(parsed_blob)!r}")
+    time_created = _require_datetime(row.get("time_created"))
+    debug_identifier = row.get("debug_type_identifier")
+    debug_type = _optional_str(debug_identifier)
     return TraceEntry(
-        time=row["time_created"],
-        post_time_ns=extract_post_ns(jb),
-        hook=jb.get("hook"),
-        debug_type=row["debug_type_identifier"],
-        payload=jb,
+        time=time_created,
+        post_time_ns=extract_post_ns(parsed_blob),
+        hook=parsed_blob.get("hook"),
+        debug_type=debug_type,
+        payload=parsed_blob,
     )
 
 
@@ -126,4 +134,4 @@ async def fetch_trace_entries_by_trace(
     return entries
 
 
-__all__ = ["fetch_trace_entries", "fetch_trace_entries_by_trace", "parse_jsonblob", "extract_post_ns"]
+__all__ = ["fetch_trace_entries", "fetch_trace_entries_by_trace", "extract_post_ns"]

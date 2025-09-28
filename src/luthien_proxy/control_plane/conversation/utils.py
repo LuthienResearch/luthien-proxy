@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Iterable, Literal, Optional, Tuple, cast
+from typing import Iterable, Literal, Mapping, Optional, Tuple, cast
 
 from luthien_proxy.types import JSONArray, JSONObject, JSONValue
 
@@ -230,16 +230,18 @@ def strip_post_time_ns(value: JSONValue) -> JSONValue:
     return value
 
 
-def message_equals(a: Optional[JSONObject], b: Optional[JSONObject]) -> bool:
-    """Return True if two role/content dictionaries are equal."""
+def message_equals(a: Optional[Mapping[str, object]], b: Optional[Mapping[str, object]]) -> bool:
+    """Return True when two role/content mappings match after normalization."""
     if a is None or b is None:
         return False
-    return (a.get("role") or "").strip().lower() == (b.get("role") or "").strip().lower() and (
-        a.get("content") or ""
-    ) == (b.get("content") or "")
+    role_a = str(a.get("role") or "").strip().lower()
+    role_b = str(b.get("role") or "").strip().lower()
+    content_a = str(a.get("content") or "")
+    content_b = str(b.get("content") or "")
+    return role_a == role_b and content_a == content_b
 
 
-def clone_messages(messages: Iterable[JSONObject]) -> list[dict[str, str]]:
+def clone_messages(messages: Iterable[object]) -> list[dict[str, str]]:
     """Create shallow copies of role/content message dictionaries."""
     cloned: list[dict[str, str]] = []
     for msg in messages:
