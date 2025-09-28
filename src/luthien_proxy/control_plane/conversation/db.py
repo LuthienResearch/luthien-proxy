@@ -7,10 +7,9 @@ from typing import Mapping, Optional, cast
 
 from fastapi import HTTPException
 
+from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
-
-from luthien_proxy.types import JSONObject
 
 from .models import TraceEntry
 from .utils import json_safe

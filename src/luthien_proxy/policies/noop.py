@@ -6,8 +6,9 @@ setting the LUTHIEN_POLICY env var to "module.path:ClassName".
 
 from typing import Optional
 
-from .base import LuthienPolicy
 from luthien_proxy.types import JSONObject
+
+from .base import LuthienPolicy
 
 
 class NoOpPolicy(LuthienPolicy):

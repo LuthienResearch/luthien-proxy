@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import logging
 
-from luthien_proxy.utils import db
 from luthien_proxy.types import JSONObject
+from luthien_proxy.utils import db
 
 logger = logging.getLogger(__name__)
 

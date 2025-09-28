@@ -6,7 +6,6 @@ from typing import TypeAlias
 
 from pydantic import JsonValue
 
-
 # NOTE: We eagerly constrain JSON-like payloads rather than relying on ``Any``
 # so that type checkers surface incorrect assumptions immediately. These
 # aliases align with Pydantic's built-in JSON semantics.

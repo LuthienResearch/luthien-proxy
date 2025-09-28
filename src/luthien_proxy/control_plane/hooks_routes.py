@@ -37,9 +37,9 @@ from luthien_proxy.control_plane.conversation import (
 from luthien_proxy.control_plane.conversation.utils import extract_trace_id
 from luthien_proxy.control_plane.utils.hooks import extract_call_id_for_hook
 from luthien_proxy.policies.base import LuthienPolicy
+from luthien_proxy.types import JSONObject, JSONValue
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ConversationStreamConfig, ProjectConfig
-from luthien_proxy.types import JSONObject, JSONValue
 
 from .dependencies import (
     DebugLogWriter,

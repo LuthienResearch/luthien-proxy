@@ -6,6 +6,8 @@ import threading
 from datetime import datetime
 from typing import Iterable, Literal, Optional
 
+from luthien_proxy.types import JSONValue
+
 from .models import ConversationEvent, TraceEntry
 from .utils import (
     delta_from_chunk,
@@ -19,7 +21,6 @@ from .utils import (
     require_dict,
     unwrap_response,
 )
-from luthien_proxy.types import JSONValue
 
 
 class _StreamIndexStore:

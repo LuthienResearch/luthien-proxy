@@ -11,9 +11,10 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Optional
 
-from .base import LuthienPolicy
 from luthien_proxy.control_plane.conversation.utils import require_dict, require_list
 from luthien_proxy.types import JSONObject
+
+from .base import LuthienPolicy
 
 
 def _uppercase_choices(response: JSONObject) -> JSONObject:

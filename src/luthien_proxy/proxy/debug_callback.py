@@ -8,9 +8,9 @@ import httpx
 from litellm._logging import verbose_logger
 from litellm.integrations.custom_logger import CustomLogger
 
-from luthien_proxy.utils.project_config import ProjectConfig
 from luthien_proxy.control_plane.conversation.utils import json_safe
 from luthien_proxy.types import JSONObject, JSONValue
+from luthien_proxy.utils.project_config import ProjectConfig
 
 
 class DebugCallback(CustomLogger):

@@ -9,12 +9,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
+from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
-from luthien_proxy.types import JSONObject
 
-from .dependencies import get_database_pool, get_project_config
 from .conversation.db import parse_jsonblob
+from .dependencies import get_database_pool, get_project_config
 
 router = APIRouter()
 
