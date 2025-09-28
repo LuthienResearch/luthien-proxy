@@ -10,7 +10,7 @@ import time
 from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Optional, cast
+from typing import Awaitable, Callable, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -39,6 +39,7 @@ from luthien_proxy.control_plane.utils.hooks import extract_call_id_for_hook
 from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ConversationStreamConfig, ProjectConfig
+from luthien_proxy.types import JSONObject, JSONValue
 
 from .dependencies import (
     DebugLogWriter,
@@ -84,17 +85,17 @@ async def get_hook_counters(
 @router.post("/api/hooks/{hook_name}")
 async def hook_generic(
     hook_name: str,
-    payload: dict[str, Any],
+    payload: JSONObject,
     debug_writer: DebugLogWriter = Depends(get_debug_log_writer),
     policy: LuthienPolicy = Depends(get_active_policy),
     counters: Counter[str] = Depends(get_hook_counter_state),
     redis_conn: redis_client.RedisClient = Depends(get_redis_client),
-) -> Any:
+) -> JSONValue:
     """Generic hook endpoint for any CustomLogger hook."""
     try:
-        record_payload = json_safe(payload)
-        stored_payload = deepcopy(record_payload)
-        record = {
+        record_payload = cast(JSONObject, json_safe(payload))
+        stored_payload: JSONObject = deepcopy(record_payload)
+        record: JSONObject = {
             "hook": hook_name,
             "payload": record_payload,
         }
@@ -106,7 +107,7 @@ async def hook_generic(
         except Exception:
             pass
 
-        stored_record: dict[str, Any] = {"hook": hook_name, "payload": stored_payload}
+        stored_record: JSONObject = {"hook": hook_name, "payload": stored_payload}
         trace_id = extract_trace_id(payload)
         if trace_id:
             record["litellm_trace_id"] = trace_id
@@ -117,13 +118,13 @@ async def hook_generic(
         name = hook_name.lower()
         counters[name] += 1
         handler = cast(
-            Optional[Callable[..., Awaitable[Any]]],
+            Optional[Callable[..., Awaitable[JSONValue | None]]],
             getattr(policy, name, None),
         )
 
-        handler_result = None
+        handler_result: JSONValue | None = None
         if handler:
-            policy_payload = strip_post_time_ns(payload)
+            policy_payload = cast(JSONObject, strip_post_time_ns(payload))
             signature = inspect.signature(handler)
             parameters = signature.parameters
             accepts_var_kw = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values())
@@ -133,11 +134,11 @@ async def hook_generic(
                 parameter_names = {name for name in parameters.keys() if name != "self"}
                 filtered_payload = {k: v for k, v in policy_payload.items() if k in parameter_names}
             handler_result = await handler(**filtered_payload)
-        final_result = handler_result if handler_result is not None else payload
+        final_result: JSONValue = handler_result if handler_result is not None else payload
 
         sanitized_result = json_safe(final_result)
 
-        result_record = {
+        result_record: JSONObject = {
             "hook": hook_name,
             "litellm_call_id": record.get("litellm_call_id"),
             "original": stored_payload,

@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
+from luthien_proxy.types import JSONObject
 
 from .dependencies import get_database_pool, get_project_config
+from .conversation.db import parse_jsonblob
 
 router = APIRouter()
 
@@ -26,7 +27,7 @@ class DebugEntry(BaseModel):
     id: str
     time_created: datetime
     debug_type_identifier: str
-    jsonblob: dict[str, Any]
+    jsonblob: JSONObject
 
 
 class DebugTypeInfo(BaseModel):
@@ -71,12 +72,7 @@ async def get_debug_entries(
                 limit,
             )
             for row in rows:
-                jb = row["jsonblob"]
-                if isinstance(jb, str):
-                    try:
-                        jb = json.loads(jb)
-                    except Exception:
-                        jb = {"raw": jb}
+                jb = parse_jsonblob(row["jsonblob"])
                 entries.append(
                     DebugEntry(
                         id=str(row["id"]),
@@ -158,12 +154,7 @@ async def get_debug_page(
                 offset,
             )
             for row in rows:
-                jb = row["jsonblob"]
-                if isinstance(jb, str):
-                    try:
-                        jb = json.loads(jb)
-                    except Exception:
-                        jb = {"raw": jb}
+                jb = parse_jsonblob(row["jsonblob"])
                 items.append(
                     DebugEntry(
                         id=str(row["id"]),

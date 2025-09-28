@@ -3,30 +3,35 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Mapping, Optional, cast
 
 from fastapi import HTTPException
 
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
 
+from luthien_proxy.types import JSONObject
+
 from .models import TraceEntry
+from .utils import json_safe
 
 
-def parse_jsonblob(raw: Any) -> dict[str, Any]:
+def parse_jsonblob(raw: object) -> JSONObject:
     """Deserialize a debug log JSON blob into a dictionary."""
     if isinstance(raw, dict):
-        return raw
+        return cast(JSONObject, raw)
     if isinstance(raw, str):
         try:
             parsed = json.loads(raw)
-            return parsed if isinstance(parsed, dict) else {"raw": raw}
-        except Exception:
+            if isinstance(parsed, dict):
+                return cast(JSONObject, parsed)
             return {"raw": raw}
-    return {"raw": raw}
+        except Exception:
+            return {"raw": json_safe(raw)}
+    return {"raw": json_safe(raw)}
 
 
-def extract_post_ns(jb: dict[str, Any]) -> Optional[int]:
+def extract_post_ns(jb: JSONObject) -> Optional[int]:
     """Extract `post_time_ns` from a log payload when present."""
     payload = jb.get("payload")
     if not isinstance(payload, dict):
@@ -39,7 +44,7 @@ def extract_post_ns(jb: dict[str, Any]) -> Optional[int]:
     return None
 
 
-def _row_to_trace_entry(row: Any) -> TraceEntry:
+def _row_to_trace_entry(row: Mapping[str, object]) -> TraceEntry:
     jb = parse_jsonblob(row["jsonblob"])
     return TraceEntry(
         time=row["time_created"],

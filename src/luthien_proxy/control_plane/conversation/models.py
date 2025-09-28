@@ -7,6 +7,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from luthien_proxy.types import JSONObject
+
 
 class TraceEntry(BaseModel):
     """A single hook event for a call ID, optionally with nanosecond time."""
@@ -15,7 +17,7 @@ class TraceEntry(BaseModel):
     post_time_ns: Optional[int] = None
     hook: Optional[str] = None
     debug_type: Optional[str] = None
-    payload: dict[str, object]
+    payload: JSONObject
 
 
 class TraceResponse(BaseModel):
@@ -56,7 +58,7 @@ class ConversationEvent(BaseModel):
     sequence: int
     timestamp: datetime
     hook: str
-    payload: dict[str, object] = Field(default_factory=dict)
+    payload: JSONObject = Field(default_factory=dict)
 
 
 class ConversationMessageDiff(BaseModel):

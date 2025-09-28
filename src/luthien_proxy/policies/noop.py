@@ -4,9 +4,10 @@ Users can implement their own policies by providing the same methods and
 setting the LUTHIEN_POLICY env var to "module.path:ClassName".
 """
 
-from typing import Any, Optional
+from typing import Optional
 
 from .base import LuthienPolicy
+from luthien_proxy.types import JSONObject
 
 
 class NoOpPolicy(LuthienPolicy):
@@ -14,9 +15,9 @@ class NoOpPolicy(LuthienPolicy):
 
     async def async_post_call_success_hook(
         self,
-        data: dict[str, Any],
-        user_api_key_dict: Optional[dict[str, Any]],
-        response: dict[str, Any],
-    ) -> Optional[dict[str, Any]]:
+        data: JSONObject,
+        user_api_key_dict: Optional[JSONObject],
+        response: JSONObject,
+    ) -> Optional[JSONObject]:
         """Return the unmodified final response for non-streaming calls."""
         return response

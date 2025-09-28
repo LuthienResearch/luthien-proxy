@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime
-from typing import Any, Dict, Iterable, Literal, Optional
+from typing import Iterable, Literal, Optional
 
 from .models import ConversationEvent, TraceEntry
 from .utils import (
@@ -19,13 +19,14 @@ from .utils import (
     require_dict,
     unwrap_response,
 )
+from luthien_proxy.types import JSONValue
 
 
 class _StreamIndexStore:
     """Track stream chunk counters per call under a re-entrant lock."""
 
     def __init__(self) -> None:
-        self._indices: Dict[str, Dict[str, int]] = {}
+        self._indices: dict[str, dict[str, int]] = {}
         self._lock = threading.RLock()
 
     def reset(self, call_id: str) -> None:
@@ -67,8 +68,8 @@ def build_conversation_events(
     hook: str,
     call_id: Optional[str],
     trace_id: Optional[str],
-    original: Any,
-    result: Any,
+    original: JSONValue | None,
+    result: JSONValue | None,
     timestamp_ns_fallback: int,
     timestamp: datetime,
 ) -> list[ConversationEvent]:
@@ -195,7 +196,7 @@ def build_conversation_events(
         return events
 
     if hook == "async_post_call_streaming_hook":
-        summary_payload = result if result is not None else original
+        summary_payload: JSONValue | None = result if result is not None else original
         summary_response = unwrap_response(summary_payload)
         final_text = ""
         try:
