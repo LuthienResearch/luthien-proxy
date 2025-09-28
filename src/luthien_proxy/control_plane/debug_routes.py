@@ -98,12 +98,19 @@ async def get_debug_entries(
             )
             for row in rows:
                 raw_blob = row["jsonblob"]
-                if not isinstance(raw_blob, str):
-                    raise TypeError("debug_logs.jsonblob must be a JSON string")
-                parsed_blob = json.loads(raw_blob)
-                if not isinstance(parsed_blob, dict):
-                    raise TypeError("debug_logs.jsonblob must decode to a JSON object")
-                jb = cast(JSONObject, parsed_blob)
+                if isinstance(raw_blob, str):
+                    try:
+                        parsed_blob = json.loads(raw_blob)
+                        if not isinstance(parsed_blob, dict):
+                            jb = cast(JSONObject, {"raw": raw_blob})
+                        else:
+                            jb = cast(JSONObject, parsed_blob)
+                    except (json.JSONDecodeError, ValueError):
+                        jb = cast(JSONObject, {"raw": raw_blob})
+                elif isinstance(raw_blob, dict):
+                    jb = cast(JSONObject, raw_blob)
+                else:
+                    jb = cast(JSONObject, {"raw": str(raw_blob)})
                 entries.append(
                     DebugEntry(
                         id=str(row["id"]),
@@ -186,12 +193,19 @@ async def get_debug_page(
             )
             for row in rows:
                 raw_blob = row["jsonblob"]
-                if not isinstance(raw_blob, str):
-                    raise TypeError("debug_logs.jsonblob must be a JSON string")
-                parsed_blob = json.loads(raw_blob)
-                if not isinstance(parsed_blob, dict):
-                    raise TypeError("debug_logs.jsonblob must decode to a JSON object")
-                jb = cast(JSONObject, parsed_blob)
+                if isinstance(raw_blob, str):
+                    try:
+                        parsed_blob = json.loads(raw_blob)
+                        if not isinstance(parsed_blob, dict):
+                            jb = cast(JSONObject, {"raw": raw_blob})
+                        else:
+                            jb = cast(JSONObject, parsed_blob)
+                    except (json.JSONDecodeError, ValueError):
+                        jb = cast(JSONObject, {"raw": raw_blob})
+                elif isinstance(raw_blob, dict):
+                    jb = cast(JSONObject, raw_blob)
+                else:
+                    jb = cast(JSONObject, {"raw": str(raw_blob)})
                 items.append(
                     DebugEntry(
                         id=str(row["id"]),

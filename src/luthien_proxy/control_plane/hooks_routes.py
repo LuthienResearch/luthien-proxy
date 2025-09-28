@@ -241,7 +241,10 @@ async def recent_call_ids(
                 limit,
             )
             for row in rows:
-                cid = _require_str(row.get("cid"), "cid")
+                cid = row.get("cid")
+                if not isinstance(cid, str) or not cid:
+                    # Skip empty or non-string call IDs
+                    continue
                 count = _require_int(row.get("cnt"), "cnt")
                 latest = _require_datetime(row.get("latest"), "latest")
                 out.append(CallIdInfo(call_id=cid, count=count, latest=latest))

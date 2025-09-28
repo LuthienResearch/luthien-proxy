@@ -43,13 +43,19 @@ def extract_post_ns(jb: JSONObject) -> Optional[int]:
 
 
 def _row_to_trace_entry(row: Mapping[str, object]) -> TraceEntry:
-    raw_blob = str(row["jsonblob"])
-    try:
-        parsed_blob = cast(dict, json.loads(raw_blob))
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise TypeError(f"debug_logs.jsonblob is not a valid json string: {raw_blob}") from exc
-    if not isinstance(parsed_blob, dict):
-        raise TypeError(f"debug_logs.jsonblob must decode to a JSON mapping; got {type(parsed_blob)!r}")
+    raw_blob = row["jsonblob"]
+    if isinstance(raw_blob, str):
+        try:
+            parsed_blob = json.loads(raw_blob)
+            if not isinstance(parsed_blob, dict):
+                parsed_blob = {"raw": raw_blob}
+        except (TypeError, json.JSONDecodeError):
+            parsed_blob = {"raw": raw_blob}
+    elif isinstance(raw_blob, dict):
+        parsed_blob = raw_blob
+    else:
+        parsed_blob = {"raw": str(raw_blob)}
+
     time_created = _require_datetime(row.get("time_created"))
     debug_identifier = row.get("debug_type_identifier")
     debug_type = _optional_str(debug_identifier)
