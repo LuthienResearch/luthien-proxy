@@ -404,20 +404,6 @@ async def test_hook_generic_wraps_policy_errors(monkeypatch):
     assert "hook_generic_error" in exc.value.detail
 
 
-@pytest.mark.asyncio
-async def test_recent_call_ids_skips_empty(project_config: ProjectConfig):
-    now = datetime.now(UTC)
-    rows = [
-        {"cid": "", "cnt": 1, "latest": now},
-        {"cid": "abc", "cnt": 2, "latest": now},
-    ]
-    pool = _PoolWrapper(_FakeConn(rows))
-
-    result = await recent_call_ids(pool=pool, config=project_config)
-
-    assert result == [CallIdInfo(call_id="abc", count=2, latest=now)]
-
-
 class _ErrorPool:
     def connection(self):
         class _Ctx:

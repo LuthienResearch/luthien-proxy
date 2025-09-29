@@ -21,6 +21,24 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _parse_debug_jsonblob(raw_blob: object) -> JSONObject:
+    """Decode jsonblob column to a JSON object or return structured error payload."""
+    if not isinstance(raw_blob, str):
+        error = TypeError("debug_logs.jsonblob must be a JSON string")
+        logger.error(f"Failed to parse debug_logs.jsonblob: {error}")
+        return cast(JSONObject, {"raw": raw_blob, "error": str(error)})
+    try:
+        parsed_blob = json.loads(raw_blob)
+    except json.JSONDecodeError as exc:
+        logger.error(f"Failed to parse debug_logs.jsonblob: {exc}")
+        return cast(JSONObject, {"raw": raw_blob, "error": str(exc)})
+    if not isinstance(parsed_blob, dict):
+        error = TypeError("debug_logs.jsonblob must decode to a JSON object")
+        logger.error(f"Failed to parse debug_logs.jsonblob: {error}")
+        return cast(JSONObject, {"raw": raw_blob, "error": str(error)})
+    return cast(JSONObject, parsed_blob)
+
+
 def _require_str(value: object, context: str) -> str:
     """Return *value* when it is a non-empty string."""
     if isinstance(value, str) and value:
@@ -97,20 +115,7 @@ async def get_debug_entries(
                 limit,
             )
             for row in rows:
-                raw_blob = row["jsonblob"]
-                if isinstance(raw_blob, str):
-                    try:
-                        parsed_blob = json.loads(raw_blob)
-                        if not isinstance(parsed_blob, dict):
-                            jb = cast(JSONObject, {"raw": raw_blob})
-                        else:
-                            jb = cast(JSONObject, parsed_blob)
-                    except (json.JSONDecodeError, ValueError):
-                        jb = cast(JSONObject, {"raw": raw_blob})
-                elif isinstance(raw_blob, dict):
-                    jb = cast(JSONObject, raw_blob)
-                else:
-                    jb = cast(JSONObject, {"raw": str(raw_blob)})
+                jb = _parse_debug_jsonblob(row["jsonblob"])
                 entries.append(
                     DebugEntry(
                         id=str(row["id"]),
@@ -120,7 +125,7 @@ async def get_debug_entries(
                     )
                 )
     except Exception as exc:
-        logger.error("Error fetching debug logs: %s", exc)
+        logger.error(f"Error fetching debug logs: {exc}")
     return entries
 
 
@@ -152,7 +157,7 @@ async def get_debug_types(
                     )
                 )
     except Exception as exc:
-        logger.error("Error fetching debug types: %s", exc)
+        logger.error(f"Error fetching debug types: {exc}")
     return types
 
 
@@ -192,20 +197,7 @@ async def get_debug_page(
                 offset,
             )
             for row in rows:
-                raw_blob = row["jsonblob"]
-                if isinstance(raw_blob, str):
-                    try:
-                        parsed_blob = json.loads(raw_blob)
-                        if not isinstance(parsed_blob, dict):
-                            jb = cast(JSONObject, {"raw": raw_blob})
-                        else:
-                            jb = cast(JSONObject, parsed_blob)
-                    except (json.JSONDecodeError, ValueError):
-                        jb = cast(JSONObject, {"raw": raw_blob})
-                elif isinstance(raw_blob, dict):
-                    jb = cast(JSONObject, raw_blob)
-                else:
-                    jb = cast(JSONObject, {"raw": str(raw_blob)})
+                jb = _parse_debug_jsonblob(row["jsonblob"])
                 items.append(
                     DebugEntry(
                         id=str(row["id"]),
@@ -215,7 +207,7 @@ async def get_debug_page(
                     )
                 )
     except Exception as exc:
-        logger.error("Error fetching debug page: %s", exc)
+        logger.error(f"Error fetching debug page: {exc}")
     return DebugPage(items=items, page=page, page_size=page_size, total=total)
 
 

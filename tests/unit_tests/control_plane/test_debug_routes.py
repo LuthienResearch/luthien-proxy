@@ -92,7 +92,8 @@ async def test_get_debug_entries_handles_raw_blob(project_config: ProjectConfig)
 
     entries = await get_debug_entries("hook:test", pool=pool, config=project_config)
 
-    assert entries[0].jsonblob == {"raw": "{"}
+    assert entries[0].jsonblob["raw"] == "{"
+    assert "error" in entries[0].jsonblob
 
 
 @pytest.mark.asyncio
@@ -146,7 +147,9 @@ async def test_get_debug_page_handles_raw_strings(project_config: ProjectConfig)
 
     assert isinstance(page, DebugPage)
     assert page.total == 5
-    assert page.items[0].jsonblob == {"raw": "not-json"}
+    blob = page.items[0].jsonblob
+    assert blob["raw"] == "not-json"
+    assert "error" in blob
 
 
 @pytest.mark.asyncio

@@ -41,13 +41,12 @@ class FakePool:
 
 @pytest.mark.asyncio
 async def test_get_debug_entries_parses_blob():
-    # One row with dict jsonblob, one with string jsonblob
     rows = [
         {
             "id": 1,
             "time_created": datetime.now(tz=timezone.utc),
             "debug_type_identifier": "t1",
-            "jsonblob": {"a": 1},
+            "jsonblob": json.dumps({"a": 1}),
         },
         {
             "id": 2,
@@ -62,7 +61,9 @@ async def test_get_debug_entries_parses_blob():
     pool = FakePool(conn)
 
     out = await app_mod.get_debug_entries("t1", pool=pool, config=config)
-    assert len(out) == 2 and out[0].jsonblob.get("a") == 1 and out[1].jsonblob.get("b") == 2
+    assert len(out) == 2
+    assert out[0].jsonblob.get("a") == 1
+    assert out[1].jsonblob.get("b") == 2
 
 
 @pytest.mark.asyncio
@@ -95,7 +96,7 @@ async def test_get_debug_page():
             "id": 1,
             "time_created": datetime.now(tz=timezone.utc),
             "debug_type_identifier": "t1",
-            "jsonblob": {"a": 1},
+            "jsonblob": json.dumps({"a": 1}),
         },
     ]
     conn = FakeConn(rows=rows, row={"cnt": 10})
@@ -114,12 +115,12 @@ async def test_trace_by_call_id_sorts_by_ns():
         {
             "time_created": datetime.fromtimestamp(100),
             "debug_type_identifier": "hook:x",
-            "jsonblob": {"payload": {"post_time_ns": 1000}, "hook": "x"},
+            "jsonblob": json.dumps({"payload": {"post_time_ns": 1000}, "hook": "x"}),
         },
         {
             "time_created": datetime.fromtimestamp(50),
             "debug_type_identifier": "hook:y",
-            "jsonblob": {"payload": {"post_time_ns": 500}, "hook": "y"},
+            "jsonblob": json.dumps({"payload": {"post_time_ns": 500}, "hook": "y"}),
         },
     ]
     conn = FakeConn(rows=rows)
