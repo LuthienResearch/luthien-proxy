@@ -8,7 +8,6 @@ from typing import Callable, Optional, cast
 
 import yaml
 
-from luthien_proxy.control_plane.conversation.utils import json_safe
 from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.policies.noop import NoOpPolicy
 from luthien_proxy.types import JSONObject

@@ -11,9 +11,19 @@ Behavior:
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, AsyncIterator, Optional
 
-from .base import LuthienPolicy
+from .base import LuthienPolicy, StreamPolicyContext
+
+
+@dataclass
+class SeparatorStreamContext(StreamPolicyContext):
+    """Context tracking per-stream separator state."""
+
+    every_n: int = 1
+    separator_str: str = " | "
+    token_count: int = 0
 
 
 class StreamingSeparatorPolicy(LuthienPolicy):
@@ -31,31 +41,38 @@ class StreamingSeparatorPolicy(LuthienPolicy):
         opts = options or {}
         self.every_n: int = opts.get("every_n", 1)
         self.separator_str: str = opts.get("separator_str", " | ")
-        self.token_count: int = 0
 
         if self.every_n < 1:
             raise ValueError("every_n must be at least 1")
 
-    async def async_post_call_streaming_iterator_hook(
+    def create_stream_context(self, stream_id: str, request_data: dict) -> SeparatorStreamContext:
+        """Build a separator context for the supplied stream."""
+        return SeparatorStreamContext(
+            stream_id=stream_id,
+            original_request=request_data,
+            every_n=self.every_n,
+            separator_str=self.separator_str,
+        )
+
+    async def generate_response_stream(
         self,
-        user_api_key_dict: Optional[dict[str, Any]],
-        response: Any,
-        request_data: dict[str, Any],
-    ) -> Optional[dict[str, Any]]:
-        """Insert separator string every N tokens in streaming delta content."""
-        try:
-            response = dict(response)
-            for c in response.get("choices", []):
-                delta = c.get("delta", {})
-                content = delta.get("content")
+        context: SeparatorStreamContext,
+        incoming_stream: AsyncIterator[dict[str, Any]],
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Insert configured separators while preserving per-stream state."""
+        async for chunk in incoming_stream:
+            context.chunk_count += 1
 
-                if content:
-                    # Increment token count and insert separator if needed
-                    self.token_count += 1
-                    if self.token_count % self.every_n == 0:
-                        delta["content"] = content + self.separator_str
+            try:
+                for choice in chunk.get("choices", []):
+                    delta = choice.get("delta", {})
+                    content = delta.get("content")
 
-            return response
-        except Exception:
-            # On any failure, return original response
-            return response
+                    if content:
+                        context.token_count += 1
+                        if context.token_count % context.every_n == 0:
+                            delta["content"] = content + context.separator_str
+
+                yield chunk
+            except Exception:
+                yield chunk
