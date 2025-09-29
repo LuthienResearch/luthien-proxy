@@ -33,12 +33,17 @@ def load_policy_from_config(
         try:
             with open(path, "r", encoding="utf-8") as file:
                 cfg = yaml.safe_load(file) or {}
-            policy_ref = cfg.get("policy")
-            raw_options = cfg.get("policy_options")
-            options: Optional[JSONObject] = None
-            if isinstance(raw_options, dict):
-                options = {str(k): json_safe(v) for k, v in raw_options.items()}
-            return policy_ref, options
+
+            # Nested format: policy.class and policy.config
+            policy_section = cfg.get("policy")
+            if isinstance(policy_section, dict):
+                policy_ref = policy_section.get("class")
+                policy_options = policy_section.get("config")
+            else:
+                policy_ref = None
+                policy_options = None
+
+            return policy_ref, policy_options
         except Exception as exc:
             logger.error("Failed to read policy config %s: %s", path, exc)
             return None, None

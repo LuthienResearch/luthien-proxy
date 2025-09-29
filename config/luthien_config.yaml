@@ -1,10 +1,17 @@
 # Luthien consolidated configuration
 
-# Active policy (module.path:ClassName)
-# policy: "luthien_proxy.policies.logging:LoggingPolicy"
-# policy: "luthien_proxy.policies.noop:NoOpPolicy"
-policy: "luthien_proxy.policies.all_caps:AllCapsPolicy"
+# Active policy configuration
+policy:
+  class: "luthien_proxy.policies.streaming_separator:StreamingSeparatorPolicy"
+  config:
+    every_n: 1
+    separator_str: " | "
 
-# Policy-specific options
-policy_options:
-  policy_specific_arg: 'someval'
+# Other policy examples:
+# policy:
+#   class: "luthien_proxy.policies.all_caps:AllCapsPolicy"
+#   config: {}
+#
+# policy:
+#   class: "luthien_proxy.policies.noop:NoOpPolicy"
+#   config: {}

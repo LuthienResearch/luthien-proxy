@@ -49,10 +49,10 @@ Copy `.env.example` to `.env` and add your API keys.
   - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
   - Minimal YAML:
     ```yaml
-    policy: "luthien_proxy.policies.noop:NoOpPolicy"
-    # optional
-    policy_options:
-      policy_specific_arg: 'someval'
+    policy:
+      class: "luthien_proxy.policies.noop:NoOpPolicy"
+      config:
+        policy_specific_arg: 'someval'
     ```
 
 ## Dev Tooling

@@ -16,7 +16,7 @@
 4. Update `dev/OBJECTIVE.md` with a short statement of the current OBJECTIVE (this should be the only content in the file)
 5. Commit the changes, push to origin, and open a draft PR (to `main`)
 6. Implement the OBJECTIVE. Track design thoughts in `dev/NOTES.md`. Add any items that should be done but are out of scope for the current OBJECTIVE to `dev/TODO.md` (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
-7. Regularly format + test (`scripts/dev_checks.sh), commit, and push to origin (on the feature branch).
+7. Regularly format + test (`scripts/dev_checks.sh`), commit, and push to origin (on the feature branch).
 8. When the OBJECTIVE is complete, update `CHANGELOG.md`
 9. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
 10. Mark the PR as ready.
@@ -59,7 +59,7 @@
    - Clear `dev/NOTES.md` and `dev/OBJECTIVE.md`.
 
    ```bash
-   git commit -A "<objective> is ready"
+   git commit -a -m "<objective> is ready"
    gh pr ready
    ```
 
@@ -72,7 +72,7 @@
   - `*plan.md`: Medium- and long-term development plans may be recorded here.
 - `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
 - `src/luthien_proxy/`: core package
-  - `control_plane/`: FastAPI app factory plus routers (`app.py`, `dependencies.py`, `hooks_routes.py`, `debug_routes.py`) and the `__main__` launcher
+  - `control_plane/`: FastAPI app and `__main__` launcher
   - `proxy/`: LiteLLM proxy integration and custom logger
   - `policies/`: policy interfaces and defaults (`noop.py`)
   - `control_plane/templates` + `static`: debug and trace UIs
@@ -125,8 +125,8 @@
 - Minimal YAML:
 
   ```yaml
-  policy: "luthien_proxy.policies.noop:NoOpPolicy"
-  # optional
-  policy_options:
-    policy_specific_arg: 'someval'
+  policy:
+    class: "luthien_proxy.policies.noop:NoOpPolicy"
+    config:
+      policy_specific_arg: 'someval'
   ```
