@@ -8,5 +8,11 @@
     "source.organizeImports.ruff": "always"
   },
   "ruff.format.enable": true,
-  "ruff.lint.enable": true
+  "ruff.lint.enable": true,
+  "python.testing.pytestArgs": [
+    "--show-capture=all",
+    "tests"
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
 }
