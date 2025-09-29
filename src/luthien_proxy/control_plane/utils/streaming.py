@@ -2,25 +2,28 @@
 
 from __future__ import annotations
 
-from typing import Any
+from luthien_proxy.control_plane.conversation.utils import require_dict, require_list
+from luthien_proxy.types import JSONObject
 
 
-def extract_delta_text(chunk: dict[str, Any]) -> str:
+def extract_delta_text(chunk: JSONObject) -> str:
     """Extract text delta from an OpenAI-style streaming chunk (best-effort)."""
-    try:
-        choices = chunk.get("choices")
-        if not isinstance(choices, list) or not choices:
-            return ""
-        parts: list[str] = []
-        for c in choices:
-            if not isinstance(c, dict):
-                continue
-            delta = c.get("delta") or {}
-            if not isinstance(delta, dict):
-                continue
-            t = delta.get("content")
-            if isinstance(t, str):
-                parts.append(t)
-        return "".join(parts)
-    except Exception:
+    choices_value = chunk.get("choices")
+    if choices_value is None:
         return ""
+    choices = require_list(choices_value, "stream chunk choices")
+    if not choices:
+        return ""
+    parts: list[str] = []
+    for index, choice_value in enumerate(choices):
+        if not isinstance(choice_value, dict):
+            continue
+        choice = require_dict(choice_value, f"stream chunk choice #{index}")
+        delta_value = choice.get("delta")
+        if not isinstance(delta_value, dict):
+            continue
+        delta = require_dict(delta_value, f"stream chunk choice #{index}.delta")
+        content = delta.get("content")
+        if isinstance(content, str):
+            parts.append(content)
+    return "".join(parts)

@@ -5,13 +5,15 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
+from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
+from luthien_proxy.utils.validation import require_type
 
 from .dependencies import get_database_pool, get_project_config
 
@@ -20,13 +22,31 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _parse_debug_jsonblob(raw_blob: object) -> JSONObject:
+    """Decode jsonblob column to a JSON object or return structured error payload."""
+    if not isinstance(raw_blob, str):
+        error = TypeError("debug_logs.jsonblob must be a JSON string")
+        logger.error(f"Failed to parse debug_logs.jsonblob: {error}")
+        return cast(JSONObject, {"raw": raw_blob, "error": str(error)})
+    try:
+        parsed_blob = json.loads(raw_blob)
+    except json.JSONDecodeError as exc:
+        logger.error(f"Failed to parse debug_logs.jsonblob: {exc}")
+        return cast(JSONObject, {"raw": raw_blob, "error": str(exc)})
+    if not isinstance(parsed_blob, dict):
+        error = TypeError("debug_logs.jsonblob must decode to a JSON object")
+        logger.error(f"Failed to parse debug_logs.jsonblob: {error}")
+        return cast(JSONObject, {"raw": raw_blob, "error": str(error)})
+    return cast(JSONObject, parsed_blob)
+
+
 class DebugEntry(BaseModel):
     """Row from debug_logs representing a single debug record."""
 
     id: str
     time_created: datetime
     debug_type_identifier: str
-    jsonblob: dict[str, Any]
+    jsonblob: JSONObject
 
 
 class DebugTypeInfo(BaseModel):
@@ -71,22 +91,19 @@ async def get_debug_entries(
                 limit,
             )
             for row in rows:
-                jb = row["jsonblob"]
-                if isinstance(jb, str):
-                    try:
-                        jb = json.loads(jb)
-                    except Exception:
-                        jb = {"raw": jb}
+                jb = _parse_debug_jsonblob(row["jsonblob"])
                 entries.append(
                     DebugEntry(
                         id=str(row["id"]),
-                        time_created=row["time_created"],
-                        debug_type_identifier=row["debug_type_identifier"],
+                        time_created=require_type(row.get("time_created"), datetime, "time_created"),
+                        debug_type_identifier=require_type(
+                            row.get("debug_type_identifier"), str, "debug_type_identifier"
+                        ),
                         jsonblob=jb,
                     )
                 )
     except Exception as exc:
-        logger.error("Error fetching debug logs: %s", exc)
+        logger.error(f"Error fetching debug logs: {exc}")
     return entries
 
 
@@ -112,13 +129,15 @@ async def get_debug_types(
             for row in rows:
                 types.append(
                     DebugTypeInfo(
-                        debug_type_identifier=row["debug_type_identifier"],
-                        count=int(row["count"]),
-                        latest=row["latest"],
+                        debug_type_identifier=require_type(
+                            row.get("debug_type_identifier"), str, "debug_type_identifier"
+                        ),
+                        count=require_type(row.get("count"), int, "count"),
+                        latest=require_type(row.get("latest"), datetime, "latest"),
                     )
                 )
     except Exception as exc:
-        logger.error("Error fetching debug types: %s", exc)
+        logger.error(f"Error fetching debug types: {exc}")
     return types
 
 
@@ -143,7 +162,7 @@ async def get_debug_page(
                 """,
                 debug_type,
             )
-            total = int(total_row["cnt"]) if total_row else 0
+            total = require_type(total_row["cnt"], int, "cnt") if total_row else 0
             offset = (page - 1) * page_size
             rows = await conn.fetch(
                 """
@@ -158,22 +177,19 @@ async def get_debug_page(
                 offset,
             )
             for row in rows:
-                jb = row["jsonblob"]
-                if isinstance(jb, str):
-                    try:
-                        jb = json.loads(jb)
-                    except Exception:
-                        jb = {"raw": jb}
+                jb = _parse_debug_jsonblob(row["jsonblob"])
                 items.append(
                     DebugEntry(
                         id=str(row["id"]),
-                        time_created=row["time_created"],
-                        debug_type_identifier=row["debug_type_identifier"],
+                        time_created=require_type(row.get("time_created"), datetime, "time_created"),
+                        debug_type_identifier=require_type(
+                            row.get("debug_type_identifier"), str, "debug_type_identifier"
+                        ),
                         jsonblob=jb,
                     )
                 )
     except Exception as exc:
-        logger.error("Error fetching debug page: %s", exc)
+        logger.error(f"Error fetching debug page: {exc}")
     return DebugPage(items=items, page=page, page_size=page_size, total=total)
 
 

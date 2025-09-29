@@ -14,9 +14,11 @@ Outputs a timeline of hook invocations and includes the full request/response st
 import asyncio
 import json
 import os
-from typing import Any, Dict, List
+from typing import List, cast
 
 import httpx
+
+from luthien_proxy.types import JSONObject
 
 PROXY_URL = os.getenv("LITELLM_URL", "http://localhost:4000")
 CONTROL_URL = os.getenv("CONTROL_PLANE_URL", "http://localhost:8081")
@@ -28,13 +30,13 @@ async def clear_logs(client: httpx.AsyncClient) -> None:
     await client.delete(f"{CONTROL_URL}/api/hooks/logs")
 
 
-async def fetch_logs(client: httpx.AsyncClient) -> List[Dict[str, Any]]:
+async def fetch_logs(client: httpx.AsyncClient) -> List[JSONObject]:
     r = await client.get(f"{CONTROL_URL}/api/hooks/logs", params={"limit": 200})
     r.raise_for_status()
-    return r.json()
+    return cast(List[JSONObject], r.json())
 
 
-def pretty(entry: Dict[str, Any]) -> str:
+def pretty(entry: JSONObject) -> str:
     hook = entry.get("hook")
     when = entry.get("when")
     t0 = entry.get("t0")

@@ -8,9 +8,31 @@ Behavior:
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from copy import deepcopy
+from typing import Optional
+
+from luthien_proxy.control_plane.conversation.utils import require_dict, require_list
+from luthien_proxy.types import JSONObject
 
 from .base import LuthienPolicy
+
+
+def _uppercase_choices(response: JSONObject) -> JSONObject:
+    mutated = deepcopy(response)
+    choices = require_list(mutated.get("choices"), "response choices")
+    for index, choice_value in enumerate(choices):
+        choice = require_dict(choice_value, f"response choice #{index}")
+        if "delta" in choice:
+            delta = require_dict(choice["delta"], f"response choice #{index}.delta")
+            content = delta.get("content")
+            if isinstance(content, str):
+                delta["content"] = content.upper()
+        if "message" in choice:
+            message = require_dict(choice["message"], f"response choice #{index}.message")
+            content = message.get("content")
+            if isinstance(content, str):
+                message["content"] = content.upper()
+    return mutated
 
 
 class AllCapsPolicy(LuthienPolicy):
@@ -18,27 +40,18 @@ class AllCapsPolicy(LuthienPolicy):
 
     async def async_post_call_streaming_iterator_hook(
         self,
-        user_api_key_dict: Optional[dict[str, Any]],
-        response: Any,
-        request_data: dict[str, Any],
-    ) -> Optional[dict[str, Any]]:
+        user_api_key_dict: Optional[JSONObject],
+        response: JSONObject,
+        request_data: JSONObject,
+    ) -> Optional[JSONObject]:
         """Uppercase streaming delta content per chunk when possible."""
-        try:
-            response = dict(response)
-            for c in response.get("choices", []):
-                c["delta"]["content"] = c["delta"]["content"].upper()
-            return response
-        except Exception:
-            # On any failure, keep original
-            return response
+        return _uppercase_choices(response)
 
-    async def async_post_call_success_hook(self, **kwargs: Any) -> dict[str, Any]:
+    async def async_post_call_success_hook(
+        self,
+        *,
+        response_obj: JSONObject,
+        **_unused: object,
+    ) -> JSONObject:
         """Uppercase content in a non-streaming final response."""
-        try:
-            response = dict(kwargs.get("response_obj", {}))
-            for c in response.get("choices", []):
-                c["delta"]["content"] = c["delta"]["content"].upper()
-            return response
-        except Exception:
-            # On any failure, keep original
-            return kwargs.get("response_obj", {})
+        return _uppercase_choices(response_obj)

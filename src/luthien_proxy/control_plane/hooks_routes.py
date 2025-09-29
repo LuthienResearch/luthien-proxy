@@ -10,7 +10,7 @@ import time
 from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Optional, cast
+from typing import Awaitable, Callable, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -37,8 +37,10 @@ from luthien_proxy.control_plane.conversation import (
 from luthien_proxy.control_plane.conversation.utils import extract_trace_id
 from luthien_proxy.control_plane.utils.hooks import extract_call_id_for_hook
 from luthien_proxy.policies.base import LuthienPolicy
+from luthien_proxy.types import JSONObject, JSONValue
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ConversationStreamConfig, ProjectConfig
+from luthien_proxy.utils.validation import require_type
 
 from .dependencies import (
     DebugLogWriter,
@@ -56,6 +58,15 @@ from .utils.rate_limiter import RateLimiter
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+
+def _spawn_background(awaitable: Awaitable[None]) -> None:
+    """Fire and forget an awaitable for background execution."""
+
+    async def _runner() -> None:
+        await awaitable
+
+    asyncio.create_task(_runner())
 
 
 async def enforce_conversation_rate_limit(
@@ -84,17 +95,17 @@ async def get_hook_counters(
 @router.post("/api/hooks/{hook_name}")
 async def hook_generic(
     hook_name: str,
-    payload: dict[str, Any],
+    payload: JSONObject,
     debug_writer: DebugLogWriter = Depends(get_debug_log_writer),
     policy: LuthienPolicy = Depends(get_active_policy),
     counters: Counter[str] = Depends(get_hook_counter_state),
     redis_conn: redis_client.RedisClient = Depends(get_redis_client),
-) -> Any:
+) -> JSONValue:
     """Generic hook endpoint for any CustomLogger hook."""
     try:
-        record_payload = json_safe(payload)
-        stored_payload = deepcopy(record_payload)
-        record = {
+        record_payload = cast(JSONObject, json_safe(payload))
+        stored_payload: JSONObject = deepcopy(record_payload)
+        record: JSONObject = {
             "hook": hook_name,
             "payload": record_payload,
         }
@@ -106,24 +117,24 @@ async def hook_generic(
         except Exception:
             pass
 
-        stored_record: dict[str, Any] = {"hook": hook_name, "payload": stored_payload}
+        stored_record: JSONObject = {"hook": hook_name, "payload": stored_payload}
         trace_id = extract_trace_id(payload)
         if trace_id:
             record["litellm_trace_id"] = trace_id
             stored_record["litellm_trace_id"] = trace_id
         if "litellm_call_id" in record:
             stored_record["litellm_call_id"] = record["litellm_call_id"]
-        asyncio.create_task(debug_writer(f"hook:{hook_name}", stored_record))
+        _spawn_background(debug_writer(f"hook:{hook_name}", stored_record))
         name = hook_name.lower()
         counters[name] += 1
         handler = cast(
-            Optional[Callable[..., Awaitable[Any]]],
+            Optional[Callable[..., Awaitable[JSONValue | None]]],
             getattr(policy, name, None),
         )
 
-        handler_result = None
+        handler_result: JSONValue | None = None
         if handler:
-            policy_payload = strip_post_time_ns(payload)
+            policy_payload = cast(JSONObject, strip_post_time_ns(payload))
             signature = inspect.signature(handler)
             parameters = signature.parameters
             accepts_var_kw = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values())
@@ -133,11 +144,11 @@ async def hook_generic(
                 parameter_names = {name for name in parameters.keys() if name != "self"}
                 filtered_payload = {k: v for k, v in policy_payload.items() if k in parameter_names}
             handler_result = await handler(**filtered_payload)
-        final_result = handler_result if handler_result is not None else payload
+        final_result: JSONValue = handler_result if handler_result is not None else payload
 
         sanitized_result = json_safe(final_result)
 
-        result_record = {
+        result_record: JSONObject = {
             "hook": hook_name,
             "litellm_call_id": record.get("litellm_call_id"),
             "original": stored_payload,
@@ -145,7 +156,7 @@ async def hook_generic(
         }
         if trace_id:
             result_record["litellm_trace_id"] = trace_id
-        asyncio.create_task(debug_writer(f"hook_result:{hook_name}", result_record))
+        _spawn_background(debug_writer(f"hook_result:{hook_name}", result_record))
 
         call_id = result_record.get("litellm_call_id")
         if isinstance(call_id, str) and call_id:
@@ -160,8 +171,8 @@ async def hook_generic(
                 timestamp=timestamp_dt,
             )
             for event in events:
-                asyncio.create_task(publish_conversation_event(redis_conn, event))
-                asyncio.create_task(publish_trace_conversation_event(redis_conn, event))
+                _spawn_background(publish_conversation_event(redis_conn, event))
+                _spawn_background(publish_trace_conversation_event(redis_conn, event))
 
         return strip_post_time_ns(final_result)
     except Exception as exc:
@@ -206,10 +217,10 @@ async def recent_call_ids(
                 limit,
             )
             for row in rows:
-                cid = row["cid"]
-                if not cid:
-                    continue
-                out.append(CallIdInfo(call_id=cid, count=int(row["cnt"]), latest=row["latest"]))
+                cid = str(row.get("cid"))
+                count = require_type(row.get("cnt"), int, "cnt")
+                latest = require_type(row.get("latest"), datetime, "latest")
+                out.append(CallIdInfo(call_id=cid, count=count, latest=latest))
     except Exception as exc:
         logger.error("Error fetching recent call ids: %s", exc)
     return out
@@ -251,15 +262,16 @@ async def recent_traces(
                 limit,
             )
             for row in rows:
-                trace_id = row["trace_id"]
-                if not trace_id:
-                    continue
+                trace_id = require_type(row.get("trace_id"), str, "trace_id")
+                call_count = require_type(row.get("call_count"), int, "call_count")
+                event_count = require_type(row.get("event_count"), int, "event_count")
+                latest = require_type(row.get("latest"), datetime, "latest")
                 out.append(
                     TraceInfo(
                         trace_id=trace_id,
-                        call_count=int(row["call_count"]),
-                        event_count=int(row["event_count"]),
-                        latest=row["latest"],
+                        call_count=call_count,
+                        event_count=event_count,
+                        latest=latest,
                     )
                 )
     except Exception as exc:

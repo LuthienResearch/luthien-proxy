@@ -1,18 +1,18 @@
 import asyncio
 from collections import Counter
-from typing import Any
 
 import pytest
 
 import luthien_proxy.control_plane.app as app_mod
 from luthien_proxy.policies.noop import NoOpPolicy
+from luthien_proxy.types import JSONObject
 
 
 class _Recorder:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.calls: list[tuple[str, JSONObject]] = []
 
-    async def __call__(self, debug_type: str, payload: dict[str, Any], *_args, **_kwargs) -> None:
+    async def __call__(self, debug_type: str, payload: JSONObject, *_args: object, **_kwargs: object) -> None:
         self.calls.append((debug_type, payload))
 
 

@@ -12,7 +12,7 @@ import os
 from collections import Counter
 from contextlib import asynccontextmanager
 from functools import partial
-from typing import Any, Optional
+from typing import Optional, TypedDict
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,6 +59,19 @@ from .hooks_routes import (
 from .policy_loader import load_policy_from_config
 from .utils.rate_limiter import RateLimiter
 
+
+class HealthPayload(TypedDict):
+    status: str
+    service: str
+    version: str
+
+
+class EndpointListing(TypedDict):
+    hooks: list[str]
+    ui: list[str]
+    health: str
+
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -67,13 +80,13 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 
 @router.get("/health")
-async def health_check() -> dict[str, Any]:
+async def health_check() -> HealthPayload:
     """Return a simple health payload without touching external services."""
     return {"status": "healthy", "service": "luthien-control-plane", "version": "0.1.0"}
 
 
 @router.get("/endpoints")
-async def list_endpoints() -> dict[str, Any]:
+async def list_endpoints() -> EndpointListing:
     """List notable HTTP endpoints for quick discoverability."""
     return {
         "hooks": [

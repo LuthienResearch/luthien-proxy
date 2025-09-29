@@ -3,20 +3,29 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from contextlib import asynccontextmanager
-from typing import Any, AsyncContextManager, AsyncIterator, Awaitable, Callable, Protocol
+from typing import AsyncContextManager, AsyncIterator, Awaitable, Callable, Mapping, Protocol, Sequence
 
 import asyncpg
 
 
+class ConnectionProtocol(Protocol):
+    async def close(self) -> None: ...
+
+    async def fetch(self, query: str, *args: object) -> Sequence[Mapping[str, object]]: ...
+
+    async def fetchrow(self, query: str, *args: object) -> Mapping[str, object] | None: ...
+
+    async def execute(self, query: str, *args: object) -> object: ...
+
+
 class PoolProtocol(Protocol):
-    def acquire(self) -> AsyncContextManager[Any]: ...
+    def acquire(self) -> AsyncContextManager[ConnectionProtocol]: ...
 
-    async def close(self) -> Any: ...
+    async def close(self) -> None: ...
 
 
-ConnectFn = Callable[[str], Awaitable[Any]]
+ConnectFn = Callable[[str], Awaitable[ConnectionProtocol]]
 PoolFactory = Callable[..., Awaitable[PoolProtocol]]
 
 
@@ -30,7 +39,7 @@ def get_pool_factory() -> PoolFactory:
     return asyncpg.create_pool
 
 
-async def open_connection(connect: ConnectFn | None = None, url: str | None = None) -> Any:
+async def open_connection(connect: ConnectFn | None = None, url: str | None = None) -> ConnectionProtocol:
     """Open a database connection using the provided connector."""
     if url is None:
         raise RuntimeError("Database URL must be provided")
@@ -38,21 +47,16 @@ async def open_connection(connect: ConnectFn | None = None, url: str | None = No
     return await connector(url)
 
 
-async def close_connection(conn: Any) -> None:
-    """Close a database connection if it supports an async close."""
-    close = getattr(conn, "close", None)
-    if not callable(close):
-        return
-    result = close()
-    if inspect.isawaitable(result):
-        await result
+async def close_connection(conn: ConnectionProtocol) -> None:
+    """Close a database connection."""
+    await conn.close()
 
 
 async def create_pool(
     factory: PoolFactory | None = None,
     url: str | None = None,
-    **kwargs: Any,
-) -> Any:
+    **kwargs: object,
+) -> PoolProtocol:
     """Create a connection pool using the provided factory."""
     if url is None:
         raise RuntimeError("Database URL must be provided")
@@ -68,7 +72,7 @@ class DatabasePool:
         url: str,
         *,
         factory: PoolFactory | None = None,
-        **pool_kwargs: Any,
+        **pool_kwargs: object,
     ) -> None:
         """Initialize the database connection pool."""
         if not url:
@@ -94,7 +98,7 @@ class DatabasePool:
         return self._pool
 
     @asynccontextmanager
-    async def connection(self) -> AsyncIterator[Any]:
+    async def connection(self) -> AsyncIterator[ConnectionProtocol]:
         """Yield a connection from the shared pool."""
         pool = await self.get_pool()
         async with pool.acquire() as conn:

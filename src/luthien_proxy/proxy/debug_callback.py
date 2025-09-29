@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Callable, Optional, cast
 
 import httpx
 from litellm._logging import verbose_logger
 from litellm.integrations.custom_logger import CustomLogger
 
+from luthien_proxy.control_plane.conversation.utils import json_safe
+from luthien_proxy.types import JSONObject, JSONValue
 from luthien_proxy.utils.project_config import ProjectConfig
 
 
@@ -28,49 +30,35 @@ class DebugCallback(CustomLogger):
         self._client_factory = client_factory or httpx.Client
         self._async_client_factory = async_client_factory or httpx.AsyncClient
 
-    def _safe(self, obj: Any) -> Any:
+    def _safe(self, obj: object) -> JSONValue:
         """Recursively convert objects into JSON-serializable structures."""
-        try:
-            import json
+        return json_safe(obj)
 
-            json.dumps(obj)
-            return obj
-        except Exception:
-            pass
-        if isinstance(obj, dict):
-            return {self._safe(k): self._safe(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple, set)):
-            return [self._safe(v) for v in obj]
-        if isinstance(obj, (str, int, float, bool)) or obj is None:
-            return obj
-        try:
-            return repr(obj)
-        except Exception:
-            return "<unserializable>"
-
-    def _serialize_response(self, resp: Any) -> Any:
+    def _serialize_response(self, resp: object) -> JSONValue:
         """Return a serializable representation of LiteLLM response objects."""
         if resp is None:
             return None
         if isinstance(resp, dict):
-            return resp
+            return cast(JSONObject, json_safe(resp))
         if hasattr(resp, "model_dump"):
-            try:
-                return resp.model_dump()
-            except Exception:
-                return str(resp)
-        return str(resp)
+            model_dump = getattr(resp, "model_dump")
+            if callable(model_dump):
+                try:
+                    return json_safe(model_dump())
+                except Exception:
+                    return json_safe(str(resp))
+        return json_safe(str(resp))
 
     def _post(
         self,
         hook: str,
-        kwargs: Any,
-        response_obj: Any,
+        kwargs: object | None,
+        response_obj: object,
     ) -> None:
         """Send a synchronous log payload to the control plane."""
         payload = {
             "hook": hook,
-            "kwargs": self._safe(kwargs or {}),
+            "kwargs": self._safe({} if kwargs is None else kwargs),
             "response_obj": self._safe(self._serialize_response(response_obj)),
         }
         try:
@@ -82,13 +70,13 @@ class DebugCallback(CustomLogger):
     async def _apost(
         self,
         hook: str,
-        kwargs: Any,
-        response_obj: Any,
+        kwargs: object | None,
+        response_obj: object,
     ) -> None:
         """Send an async log payload to the control plane."""
         payload = {
             "hook": hook,
-            "kwargs": self._safe(kwargs or {}),
+            "kwargs": self._safe({} if kwargs is None else kwargs),
             "response_obj": self._safe(self._serialize_response(response_obj)),
         }
         try:

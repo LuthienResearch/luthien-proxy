@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
+from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 async def record_debug_event(
     pool: db.DatabasePool,
     debug_type: str,
-    payload: dict[str, Any],
+    payload: JSONObject,
 ) -> None:
     """Persist a debug entry for later inspection (best-effort)."""
     try:

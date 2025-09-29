@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Luthien UI</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 2rem auto;
+        max-width: 600px;
+        line-height: 1.6;
+      }
+      h1 {
+        font-size: 1.75rem;
+        margin-bottom: 1rem;
+      }
+      nav ul {
+        list-style: none;
+        padding: 0;
+      }
+      nav li {
+        margin: 0.5rem 0;
+      }
+      a {
+        color: #2563eb;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Luthien UI Entrypoints</h1>
+    <nav>
+      <ul>
+        {% for path in ui_paths %}
+        <li><a href="{{ path }}">{{ path }}</a></li>
+        {% endfor %}
+        <li><a href="/debug">/debug</a></li>
+      </ul>
+    </nav>
+  </body>
+</html>
