@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
+from luthien_proxy.utils.validation import require_type
 
 from .dependencies import get_database_pool, get_project_config
 
@@ -37,31 +38,6 @@ def _parse_debug_jsonblob(raw_blob: object) -> JSONObject:
         logger.error(f"Failed to parse debug_logs.jsonblob: {error}")
         return cast(JSONObject, {"raw": raw_blob, "error": str(error)})
     return cast(JSONObject, parsed_blob)
-
-
-def _require_str(value: object, context: str) -> str:
-    """Return *value* when it is a non-empty string."""
-    if isinstance(value, str) and value:
-        return value
-    raise ValueError(f"{context} must be a non-empty string; saw {type(value)!r}")
-
-
-def _require_datetime(value: object, context: str) -> datetime:
-    """Return *value* when it is a datetime."""
-    if isinstance(value, datetime):
-        return value
-    raise ValueError(f"{context} must be a datetime; saw {type(value)!r}")
-
-
-def _require_int(value: object, context: str) -> int:
-    """Return *value* as an int when numeric."""
-    if isinstance(value, bool):
-        raise ValueError(f"{context} must be an int; saw bool")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    raise ValueError(f"{context} must be numeric; saw {type(value)!r}")
 
 
 class DebugEntry(BaseModel):
@@ -119,8 +95,10 @@ async def get_debug_entries(
                 entries.append(
                     DebugEntry(
                         id=str(row["id"]),
-                        time_created=_require_datetime(row.get("time_created"), "time_created"),
-                        debug_type_identifier=_require_str(row.get("debug_type_identifier"), "debug_type_identifier"),
+                        time_created=require_type(row.get("time_created"), datetime, "time_created"),
+                        debug_type_identifier=require_type(
+                            row.get("debug_type_identifier"), str, "debug_type_identifier"
+                        ),
                         jsonblob=jb,
                     )
                 )
@@ -151,9 +129,11 @@ async def get_debug_types(
             for row in rows:
                 types.append(
                     DebugTypeInfo(
-                        debug_type_identifier=_require_str(row.get("debug_type_identifier"), "debug_type_identifier"),
-                        count=_require_int(row.get("count"), "count"),
-                        latest=_require_datetime(row.get("latest"), "latest"),
+                        debug_type_identifier=require_type(
+                            row.get("debug_type_identifier"), str, "debug_type_identifier"
+                        ),
+                        count=require_type(row.get("count"), int, "count"),
+                        latest=require_type(row.get("latest"), datetime, "latest"),
                     )
                 )
     except Exception as exc:
@@ -182,7 +162,7 @@ async def get_debug_page(
                 """,
                 debug_type,
             )
-            total = _require_int(total_row["cnt"], "cnt") if total_row else 0
+            total = require_type(total_row["cnt"], int, "cnt") if total_row else 0
             offset = (page - 1) * page_size
             rows = await conn.fetch(
                 """
@@ -201,8 +181,10 @@ async def get_debug_page(
                 items.append(
                     DebugEntry(
                         id=str(row["id"]),
-                        time_created=_require_datetime(row.get("time_created"), "time_created"),
-                        debug_type_identifier=_require_str(row.get("debug_type_identifier"), "debug_type_identifier"),
+                        time_created=require_type(row.get("time_created"), datetime, "time_created"),
+                        debug_type_identifier=require_type(
+                            row.get("debug_type_identifier"), str, "debug_type_identifier"
+                        ),
                         jsonblob=jb,
                     )
                 )

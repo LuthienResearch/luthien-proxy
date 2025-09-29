@@ -11,15 +11,9 @@ from fastapi import HTTPException
 from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
+from luthien_proxy.utils.validation import require_type
 
 from .models import TraceEntry
-
-
-def _require_datetime(value: object) -> datetime:
-    """Return *value* when it is a datetime, else raise."""
-    if isinstance(value, datetime):
-        return value
-    raise ValueError(f"{value} is a {type(value)!r}, expected datetime")
 
 
 def _optional_str(value: object) -> Optional[str]:
@@ -50,7 +44,7 @@ def _row_to_trace_entry(row: Mapping[str, object]) -> TraceEntry:
         raise TypeError(f"debug_logs.jsonblob is not a valid json string: {raw_blob}") from exc
     if not isinstance(parsed_blob, dict):
         raise TypeError(f"debug_logs.jsonblob must decode to a JSON mapping; got {type(parsed_blob)!r}")
-    time_created = _require_datetime(row.get("time_created"))
+    time_created = require_type(row.get("time_created"), datetime, "time_created")
     debug_identifier = row.get("debug_type_identifier")
     debug_type = _optional_str(debug_identifier)
     return TraceEntry(

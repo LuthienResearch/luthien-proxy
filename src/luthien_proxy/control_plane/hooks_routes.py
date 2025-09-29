@@ -40,6 +40,7 @@ from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.types import JSONObject, JSONValue
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ConversationStreamConfig, ProjectConfig
+from luthien_proxy.utils.validation import require_type
 
 from .dependencies import (
     DebugLogWriter,
@@ -57,31 +58,6 @@ from .utils.rate_limiter import RateLimiter
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
-
-
-def _require_str(value: object, context: str) -> str:
-    """Return *value* when it is a non-empty string."""
-    if isinstance(value, str) and value:
-        return value
-    raise ValueError(f"{context} must be a non-empty string; saw {type(value)!r}")
-
-
-def _require_int(value: object, context: str) -> int:
-    """Return *value* as an int when already numeric."""
-    if isinstance(value, bool):
-        raise ValueError(f"{context} must be an int; saw bool")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    raise ValueError(f"{context} must be numeric; saw {type(value)!r}")
-
-
-def _require_datetime(value: object, context: str) -> datetime:
-    """Return *value* when it is a datetime."""
-    if isinstance(value, datetime):
-        return value
-    raise ValueError(f"{context} must be a datetime; saw {type(value)!r}")
 
 
 def _spawn_background(awaitable: Awaitable[None]) -> None:
@@ -241,9 +217,9 @@ async def recent_call_ids(
                 limit,
             )
             for row in rows:
-                cid = _require_str(row.get("cid"), "cid")
-                count = _require_int(row.get("cnt"), "cnt")
-                latest = _require_datetime(row.get("latest"), "latest")
+                cid = str(row.get("cid"))
+                count = require_type(row.get("cnt"), int, "cnt")
+                latest = require_type(row.get("latest"), datetime, "latest")
                 out.append(CallIdInfo(call_id=cid, count=count, latest=latest))
     except Exception as exc:
         logger.error("Error fetching recent call ids: %s", exc)
@@ -286,10 +262,10 @@ async def recent_traces(
                 limit,
             )
             for row in rows:
-                trace_id = _require_str(row.get("trace_id"), "trace_id")
-                call_count = _require_int(row.get("call_count"), "call_count")
-                event_count = _require_int(row.get("event_count"), "event_count")
-                latest = _require_datetime(row.get("latest"), "latest")
+                trace_id = require_type(row.get("trace_id"), str, "trace_id")
+                call_count = require_type(row.get("call_count"), int, "call_count")
+                event_count = require_type(row.get("event_count"), int, "event_count")
+                latest = require_type(row.get("latest"), datetime, "latest")
                 out.append(
                     TraceInfo(
                         trace_id=trace_id,
