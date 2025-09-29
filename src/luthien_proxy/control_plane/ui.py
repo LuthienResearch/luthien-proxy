@@ -6,12 +6,24 @@ import os
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
+from fastapi.routing import APIRoute
 from fastapi.templating import Jinja2Templates
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 router = APIRouter()
+
+
+@router.get("/ui", response_class=HTMLResponse)
+async def ui_index(request: Request):
+    """Render a simple index that links to the available UI endpoints."""
+    ui_paths = sorted(
+        {route.path for route in request.app.routes if isinstance(route, APIRoute) and route.path.startswith("/ui/")}
+    )
+
+    context = {"request": request, "ui_paths": ui_paths}
+    return templates.TemplateResponse(request, "ui_index.html", context)
 
 
 @router.get("/debug", response_class=HTMLResponse)
