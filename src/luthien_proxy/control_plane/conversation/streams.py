@@ -81,7 +81,7 @@ async def _stream_from_channel(
     settings = config or _DEFAULT_STREAM_CONFIG
     heartbeat_interval = max(0.5, settings.heartbeat_seconds)
     timeout = max(0.1, settings.redis_poll_timeout_seconds)
-    async with redis.pubsub(close_connection=False) as pubsub:
+    async with redis.pubsub() as pubsub:
         await pubsub.subscribe(channel)
         last_heartbeat = time.monotonic()
         try:

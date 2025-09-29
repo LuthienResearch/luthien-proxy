@@ -75,4 +75,4 @@ async def test_conversation_stream_yields_events_and_heartbeat():
 
     await stream.aclose()
     await asyncio.sleep(0)
-    assert redis.pubsub_call_kwargs == {"close_connection": False}
+    assert redis.pubsub_call_kwargs == {}

@@ -5,9 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncIterator, Dict, Literal
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from luthien_proxy.control_plane.dependencies import get_active_policy
 from luthien_proxy.policies.base import LuthienPolicy, StreamPolicyContext
 
 logger = logging.getLogger(__name__)
@@ -98,15 +97,26 @@ async def _safe_close(websocket: WebSocket) -> None:
         pass
 
 
+def _policy_from_websocket(websocket: WebSocket) -> LuthienPolicy:
+    """Read the active policy from FastAPI app state for WebSocket handlers."""
+    state = getattr(websocket.app, "state", None)
+    if state is None:
+        raise RuntimeError("WebSocket missing application state")
+    policy = getattr(state, "active_policy", None)
+    if policy is None:
+        raise RuntimeError("Active policy not loaded for this app instance")
+    return policy
+
+
 @router.websocket("/stream/{stream_id}")
 async def policy_stream_endpoint(
     websocket: WebSocket,
     stream_id: str,
-    policy: LuthienPolicy = Depends(get_active_policy),
 ) -> None:
     """Coordinate streaming requests between proxy and policies."""
     await websocket.accept()
 
+    policy = _policy_from_websocket(websocket)
     context: StreamPolicyContext | None = None
 
     try:
