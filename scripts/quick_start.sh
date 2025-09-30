@@ -27,6 +27,25 @@ fi
 
 echo "✅ Dependencies check passed"
 
+wait_for_service() {
+    local service="$1"
+    local timeout="$2"
+    local elapsed=0
+    local interval=2
+
+    while [ "$elapsed" -lt "$timeout" ]; do
+        if docker compose ps "$service" | tail -n +2 | grep -q "Up"; then
+            echo "✅ $service is healthy"
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    echo "⚠️ $service did not become healthy within ${timeout}s"
+    return 1
+}
+
 # Create .env from template if missing
 if [ ! -f .env ]; then
     echo "📝 Creating .env file from template..."
@@ -72,7 +91,7 @@ echo "✅ PostgreSQL is ready"
 
 # Apply Prisma migrations for the control plane schema
 echo "🗂️  Applying control-plane Prisma migrations..."
-uv run prisma migrate deploy --schema prisma/control_plane/schema.prisma
+docker compose run --rm control-plane-migrations >/dev/null
 echo "✅ Prisma migrations applied"
 
 # Wait for Redis
@@ -113,14 +132,9 @@ docker compose up -d litellm-proxy
 
 # Wait for services to be healthy
 echo "⏳ Waiting for services to be healthy..."
-sleep 5
-
-# Check service health
 services_healthy=true
-
 for service in control-plane litellm-proxy local-llm; do
-    if ! docker compose ps "$service" | grep -q "Up"; then
-        echo "⚠️ $service is not running properly"
+    if ! wait_for_service "$service" 60; then
         services_healthy=false
     fi
 done

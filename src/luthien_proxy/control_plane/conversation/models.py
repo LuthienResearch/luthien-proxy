@@ -25,6 +25,10 @@ class TraceResponse(BaseModel):
 
     call_id: str
     entries: list[TraceEntry]
+    offset: int
+    limit: int
+    has_more: bool
+    next_offset: Optional[int] = None
 
 
 class CallIdInfo(BaseModel):

@@ -10,7 +10,7 @@ import time
 from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Awaitable, Callable, Optional, cast
+from typing import Annotated, Awaitable, Callable, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -182,13 +182,23 @@ async def hook_generic(
 
 @router.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
 async def trace_by_call_id(
-    call_id: str = Query(..., min_length=4),
+    call_id: Annotated[str, Query(min_length=4)],
+    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
+    offset: Annotated[int, Query(ge=0)] = 0,
     pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> TraceResponse:
     """Return ordered hook entries from debug_logs for a litellm_call_id."""
-    entries = await fetch_trace_entries(call_id, pool, config)
-    return TraceResponse(call_id=call_id, entries=entries)
+    entries, has_more = await fetch_trace_entries(call_id, pool, config, limit=limit, offset=offset)
+    next_offset = offset + len(entries) if has_more else None
+    return TraceResponse(
+        call_id=call_id,
+        entries=entries,
+        offset=offset,
+        limit=limit,
+        has_more=has_more,
+        next_offset=next_offset,
+    )
 
 
 @router.get("/api/hooks/recent_call_ids", response_model=list[CallIdInfo])
@@ -281,12 +291,12 @@ async def recent_traces(
 
 @router.get("/api/hooks/conversation", response_model=ConversationSnapshot)
 async def conversation_snapshot(
-    call_id: str = Query(..., min_length=4),
+    call_id: Annotated[str, Query(min_length=4)],
     pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> ConversationSnapshot:
     """Return normalized conversation events for a call ID."""
-    entries = await fetch_trace_entries(call_id, pool, config)
+    entries, _ = await fetch_trace_entries(call_id, pool, config)
     events = events_from_trace_entries(entries)
     trace_id = next((evt.trace_id for evt in events if evt.trace_id), None)
     calls = build_call_snapshots(events)
@@ -295,7 +305,7 @@ async def conversation_snapshot(
 
 @router.get("/api/hooks/conversation/stream")
 async def conversation_stream(
-    call_id: str = Query(..., min_length=4),
+    call_id: Annotated[str, Query(min_length=4)],
     redis_conn: redis_client.RedisClient = Depends(get_redis_client),
     _: None = Depends(enforce_conversation_rate_limit),
     stream_config: ConversationStreamConfig = Depends(get_conversation_stream_config),
@@ -307,12 +317,12 @@ async def conversation_stream(
 
 @router.get("/api/hooks/conversation/by_trace", response_model=TraceConversationSnapshot)
 async def conversation_snapshot_by_trace(
-    trace_id: str = Query(..., min_length=4),
+    trace_id: Annotated[str, Query(min_length=4)],
     pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> TraceConversationSnapshot:
     """Return normalized conversation events grouped by trace id."""
-    entries = await fetch_trace_entries_by_trace(trace_id, pool, config)
+    entries, _ = await fetch_trace_entries_by_trace(trace_id, pool, config)
     events = events_from_trace_entries(entries)
     call_ids = sorted({evt.call_id for evt in events if evt.call_id})
     calls = build_call_snapshots(events)

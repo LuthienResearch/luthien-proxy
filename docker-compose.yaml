@@ -65,6 +65,7 @@ services:
     volumes:
       - ./config:/app/config:ro
       - ./src:/app/src:ro
+      - ./prisma:/app/prisma:ro
     depends_on:
       db:
         condition: service_healthy

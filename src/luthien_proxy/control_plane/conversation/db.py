@@ -60,23 +60,29 @@ async def fetch_trace_entries(
     call_id: str,
     pool: Optional[db.DatabasePool],
     config: ProjectConfig,
-) -> list[TraceEntry]:
+    *,
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> tuple[list[TraceEntry], bool]:
     """Load all debug log entries recorded for a call ID."""
     if config.database_url is None or pool is None:
         raise HTTPException(status_code=500, detail="DATABASE_URL is required for trace lookups")
 
     entries: list[TraceEntry] = []
+    has_more = False
     try:
         async with pool.connection() as conn:
-            rows = await conn.fetch(
-                """
+            sql = """
                 SELECT time_created, debug_type_identifier, jsonblob
                 FROM debug_logs
                 WHERE jsonblob->>'litellm_call_id' = $1
                 ORDER BY time_created ASC
-                """,
-                call_id,
-            )
+                """
+            params: list[object] = [call_id]
+            if limit is not None:
+                sql += " LIMIT $2 OFFSET $3"
+                params.extend([limit + 1, offset])
+            rows = await conn.fetch(sql, *params)
             for row in rows:
                 entries.append(_row_to_trace_entry(row))
     except HTTPException:
@@ -84,26 +90,33 @@ async def fetch_trace_entries(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"trace_error: {exc}")
 
+    if limit is not None and len(entries) > limit:
+        has_more = True
+        entries = entries[:limit]
+
     entries.sort(
         key=lambda e: (e.post_time_ns if e.post_time_ns is not None else int(e.time.timestamp() * 1_000_000_000))
     )
-    return entries
+    return entries, has_more
 
 
 async def fetch_trace_entries_by_trace(
     trace_id: str,
     pool: Optional[db.DatabasePool],
     config: ProjectConfig,
-) -> list[TraceEntry]:
+    *,
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> tuple[list[TraceEntry], bool]:
     """Load all debug log entries recorded for a trace ID."""
     if config.database_url is None or pool is None:
         raise HTTPException(status_code=500, detail="DATABASE_URL is required for trace lookups")
 
     entries: list[TraceEntry] = []
+    has_more = False
     try:
         async with pool.connection() as conn:
-            rows = await conn.fetch(
-                """
+            sql = """
                 SELECT time_created, debug_type_identifier, jsonblob
                 FROM debug_logs
                 WHERE COALESCE(
@@ -112,9 +125,12 @@ async def fetch_trace_entries_by_trace(
                     jsonblob->'payload'->'data'->>'litellm_trace_id'
                 ) = $1
                 ORDER BY time_created ASC
-                """,
-                trace_id,
-            )
+                """
+            params: list[object] = [trace_id]
+            if limit is not None:
+                sql += " LIMIT $2 OFFSET $3"
+                params.extend([limit + 1, offset])
+            rows = await conn.fetch(sql, *params)
             for row in rows:
                 entries.append(_row_to_trace_entry(row))
     except HTTPException:
@@ -122,10 +138,14 @@ async def fetch_trace_entries_by_trace(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"trace_error: {exc}")
 
+    if limit is not None and len(entries) > limit:
+        has_more = True
+        entries = entries[:limit]
+
     entries.sort(
         key=lambda e: (e.post_time_ns if e.post_time_ns is not None else int(e.time.timestamp() * 1_000_000_000))
     )
-    return entries
+    return entries, has_more
 
 
 __all__ = ["fetch_trace_entries", "fetch_trace_entries_by_trace", "extract_post_ns"]

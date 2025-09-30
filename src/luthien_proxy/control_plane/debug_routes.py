@@ -21,6 +21,8 @@ router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
+TOOL_CALL_DEBUG_TYPE = "conversation:tool-call"
+
 
 def _parse_debug_jsonblob(raw_blob: object) -> JSONObject:
     """Decode jsonblob column to a JSON object or return structured error payload."""
@@ -66,6 +68,27 @@ class DebugPage(BaseModel):
     total: int
 
 
+class ConversationLogEntry(BaseModel):
+    """Structured view of conversation turn logs stored in debug_logs."""
+
+    call_id: str
+    trace_id: Optional[str]
+    direction: str
+    timestamp: datetime
+    payload: JSONObject
+
+
+class ToolCallLogEntry(BaseModel):
+    """Structured view of tool-call records stored in debug_logs."""
+
+    call_id: str
+    trace_id: Optional[str]
+    timestamp: datetime
+    stream_id: Optional[str]
+    chunks_buffered: Optional[int]
+    tool_calls: list[JSONObject]
+
+
 @router.get("/api/debug/{debug_type}", response_model=list[DebugEntry])
 async def get_debug_entries(
     debug_type: str,
@@ -105,6 +128,112 @@ async def get_debug_entries(
     except Exception as exc:
         logger.error(f"Error fetching debug logs: {exc}")
     return entries
+
+
+@router.get("/api/conversation/logs", response_model=list[ConversationLogEntry])
+async def get_conversation_logs(
+    call_id: Optional[str] = Query(default=None, min_length=1),
+    limit: int = Query(default=100, ge=1, le=500),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
+    config: ProjectConfig = Depends(get_project_config),
+) -> list[ConversationLogEntry]:
+    """Return recent conversation turn logs optionally filtered by call id."""
+    turns: list[ConversationLogEntry] = []
+    call_filter = call_id if isinstance(call_id, str) and call_id else None
+    entries = await get_debug_entries("conversation:turn", limit=limit, pool=pool, config=config)
+    for entry in entries:
+        blob = entry.jsonblob
+        if not isinstance(blob, dict):
+            continue
+        record_call_id = blob.get("call_id")
+        if not isinstance(record_call_id, str) or not record_call_id:
+            continue
+        if call_filter is not None and record_call_id != call_filter:
+            continue
+        timestamp_value = blob.get("timestamp")
+        timestamp: datetime
+        if isinstance(timestamp_value, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp_value)
+            except ValueError:
+                timestamp = entry.time_created
+        else:
+            timestamp = entry.time_created
+        direction = blob.get("direction")
+        if not isinstance(direction, str) or not direction:
+            direction = "unknown"
+        trace_candidate = blob.get("trace_id")
+        trace_id: str | None = trace_candidate if isinstance(trace_candidate, str) else None
+        turns.append(
+            ConversationLogEntry(
+                call_id=record_call_id,
+                trace_id=trace_id,
+                direction=direction,
+                timestamp=timestamp,
+                payload=blob,
+            )
+        )
+    return turns
+
+
+@router.get("/api/tool-calls/logs", response_model=list[ToolCallLogEntry])
+async def get_tool_call_logs(
+    call_id: Optional[str] = Query(default=None, min_length=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
+    config: ProjectConfig = Depends(get_project_config),
+) -> list[ToolCallLogEntry]:
+    """Return recent tool-call logs optionally filtered by call id."""
+    entries = await get_debug_entries(TOOL_CALL_DEBUG_TYPE, limit=limit, pool=pool, config=config)
+    filtered: list[ToolCallLogEntry] = []
+    call_filter = call_id if isinstance(call_id, str) and call_id else None
+
+    for entry in entries:
+        blob = entry.jsonblob
+        if not isinstance(blob, dict):
+            continue
+        call_identifier = blob.get("call_id")
+        if not isinstance(call_identifier, str) or not call_identifier:
+            continue
+        if call_filter is not None and call_identifier != call_filter:
+            continue
+
+        timestamp_raw = blob.get("timestamp")
+        if isinstance(timestamp_raw, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp_raw)
+            except ValueError:
+                timestamp = entry.time_created
+        else:
+            timestamp = entry.time_created
+
+        stream_id = blob.get("stream_id")
+        stream_value = stream_id if isinstance(stream_id, str) and stream_id else None
+        chunks_value = blob.get("chunks_buffered")
+        chunks_buffered = chunks_value if isinstance(chunks_value, int) else None
+
+        tool_calls_raw = blob.get("tool_calls")
+        tool_calls: list[JSONObject] = []
+        if isinstance(tool_calls_raw, list):
+            for item in tool_calls_raw:
+                if isinstance(item, dict):
+                    tool_calls.append(item)
+
+        trace_candidate = blob.get("trace_id")
+        trace_value = trace_candidate if isinstance(trace_candidate, str) and trace_candidate else None
+
+        filtered.append(
+            ToolCallLogEntry(
+                call_id=call_identifier,
+                trace_id=trace_value,
+                timestamp=timestamp,
+                stream_id=stream_value,
+                chunks_buffered=chunks_buffered,
+                tool_calls=tool_calls,
+            )
+        )
+
+    return filtered
 
 
 @router.get("/api/debug/types", response_model=list[DebugTypeInfo])
@@ -198,7 +327,11 @@ __all__ = [
     "DebugEntry",
     "DebugTypeInfo",
     "DebugPage",
+    "ConversationLogEntry",
+    "ToolCallLogEntry",
     "get_debug_entries",
     "get_debug_types",
     "get_debug_page",
+    "get_conversation_logs",
+    "get_tool_call_logs",
 ]

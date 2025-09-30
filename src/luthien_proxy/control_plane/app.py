@@ -24,6 +24,7 @@ from luthien_proxy.control_plane.conversation import (
 )
 from luthien_proxy.control_plane.stream_context import StreamContextStore
 from luthien_proxy.control_plane.ui import router as ui_router
+from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ProjectConfig
 
@@ -99,6 +100,8 @@ async def list_endpoints() -> EndpointListing:
             "GET /ui/hooks/trace",
             "GET /ui/conversation",
             "GET /ui/conversation/by_trace",
+            "GET /ui/conversation/logs",
+            "GET /ui/tool-calls",
         ],
         "health": "GET /health",
     }
@@ -114,6 +117,7 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
         app.state.hook_counters = hook_counters
 
         control_cfg = config.control_plane_config
+        policy: Optional[LuthienPolicy] = None
         database_pool: Optional[db.DatabasePool] = None
         redis_instance: Optional[redis_client.RedisClient] = None
         redis_manager = redis_client.RedisClientManager()
@@ -126,13 +130,16 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             database_pool = db.DatabasePool(control_cfg.database_url)
             await database_pool.get_pool()
             app.state.database_pool = database_pool
-            app.state.debug_log_writer = partial(record_debug_event, database_pool)
+            debug_writer = partial(record_debug_event, database_pool)
+            app.state.debug_log_writer = debug_writer
 
             redis_instance = await redis_manager.get_client(control_cfg.redis_url)
             app.state.redis_manager = redis_manager
             app.state.redis_client = redis_instance
 
             policy = load_policy_from_config(config, control_cfg.policy_config_path)
+            if isinstance(policy, LuthienPolicy):
+                policy.set_debug_log_writer(debug_writer)
 
             stream_config = control_cfg.conversation_stream_config
             rate_limiter = RateLimiter(
@@ -153,6 +160,8 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             logger.info("Control plane services initialized successfully")
             yield
         finally:
+            if isinstance(policy, LuthienPolicy):
+                policy.set_debug_log_writer(None)
             app.state.active_policy = None
             app.state.stream_store = None
             app.state.debug_log_writer = None

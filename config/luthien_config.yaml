@@ -2,10 +2,8 @@
 
 # Active policy configuration
 policy:
-  class: "luthien_proxy.policies.streaming_separator:StreamingSeparatorPolicy"
-  config:
-    every_n: 1
-    separator_str: "|"
+  class: "luthien_proxy.policies.tool_call_buffer:ToolCallBufferPolicy"
+  config: {}
 
 # Other policy examples:
 # policy:

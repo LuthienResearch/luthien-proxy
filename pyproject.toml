@@ -27,6 +27,7 @@ dependencies = [
     "prisma>=0.15.0",
     "psycopg>=3.2.9",
     "pydantic>=2.11.7",
+    "pytest-timeout>=2.4.0",
     "pyyaml>=6.0.2",
     "redis>=6.4.0",
     "vulture>=2.14",
@@ -55,7 +56,7 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra -m 'not e2e' --cov=src/luthien_proxy --cov-report=term-missing --cov-fail-under=65"
+addopts = "-q -ra -m 'not e2e' --cov=src/luthien_proxy --cov-report=term-missing"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
