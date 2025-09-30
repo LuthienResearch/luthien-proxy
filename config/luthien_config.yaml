@@ -5,7 +5,7 @@ policy:
   class: "luthien_proxy.policies.streaming_separator:StreamingSeparatorPolicy"
   config:
     every_n: 1
-    separator_str: " | "
+    separator_str: "|"
 
 # Other policy examples:
 # policy:
