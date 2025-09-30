@@ -68,7 +68,23 @@ async def test_streaming_tool_call_gets_buffered_and_logged():
     async for emitted in policy.generate_response_stream(context, iterator()):
         seen.append(emitted)
 
-    assert seen == chunks
+    assert len(seen) == 1
+    final_chunk = seen[0]
+    choices = final_chunk.get("choices")
+    assert isinstance(choices, list) and choices
+    choice = choices[0]
+    assert choice.get("finish_reason") == "tool_calls"
+    delta = choice.get("delta")
+    assert isinstance(delta, dict)
+    tool_calls = delta.get("tool_calls")
+    assert isinstance(tool_calls, list) and len(tool_calls) == 1
+    tool_call = tool_calls[0]
+    assert tool_call.get("type") == "function"
+    function_payload = tool_call.get("function")
+    assert isinstance(function_payload, dict)
+    assert function_payload.get("name") == "shell"
+    args = json.loads(function_payload.get("arguments"))
+    assert args["command"] == ["echo", "hello"]
 
     tool_logs = [payload for dtype, payload in records if dtype == "conversation:tool-call"]
     assert len(tool_logs) == 1
@@ -213,7 +229,16 @@ async def test_tool_call_flush_without_finish_reason():
     async for emitted in policy.generate_response_stream(context, iterator()):
         seen.append(emitted)
 
-    assert seen == chunks
+    assert len(seen) == 1
+    final_chunk = seen[0]
+    choice = final_chunk["choices"][0]
+    delta = choice.get("delta")
+    assert isinstance(delta, dict)
+    tool_calls = delta.get("tool_calls")
+    assert isinstance(tool_calls, list) and len(tool_calls) == 1
+    function_payload = tool_calls[0].get("function")
+    assert isinstance(function_payload, dict)
+    assert json.loads(function_payload.get("arguments")) == {"command": ["touch", "file.txt"]}
     tool_logs = [payload for dtype, payload in records if dtype == "conversation:tool-call"]
     assert len(tool_logs) == 1
     assert tool_logs[0]["tool_calls"][0]["arguments"] == json.dumps({"command": ["touch", "file.txt"]})

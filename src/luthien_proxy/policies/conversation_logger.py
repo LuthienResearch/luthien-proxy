@@ -31,6 +31,7 @@ class ConversationLogStreamContext(StreamPolicyContext):
 
     content_parts: list[str] = field(default_factory=list)
     tool_calls: dict[str, ToolCallState] = field(default_factory=dict)
+    tool_call_indexes: dict[int, str] = field(default_factory=dict)
     finish_reason: Optional[str] = None
     role: Optional[str] = None
 
@@ -250,7 +251,7 @@ class ConversationLoggingPolicy(LuthienPolicy):
             for index, raw in enumerate(tool_calls):
                 if not isinstance(raw, Mapping):
                     raise TypeError("tool call delta entries must be mappings")
-                identifier = self._tool_call_identifier(raw, index)
+                identifier = self._resolve_tool_call_identifier(context, raw, index)
                 state = context.tool_calls.get(identifier)
                 if state is None:
                     call_type = raw.get("type")
@@ -277,6 +278,35 @@ class ConversationLoggingPolicy(LuthienPolicy):
     # ------------------------------------------------------------------
     # Shared helpers
     # ------------------------------------------------------------------
+    def _resolve_tool_call_identifier(
+        self,
+        context: ConversationLogStreamContext,
+        payload: Mapping[str, Any],
+        fallback_index: int,
+    ) -> str:
+        call_index = payload.get("index")
+        raw_identifier = payload.get("id")
+        if isinstance(call_index, int):
+            mapped_identifier = context.tool_call_indexes.get(call_index)
+            if isinstance(raw_identifier, str) and raw_identifier:
+                if mapped_identifier is not None and mapped_identifier != raw_identifier:
+                    state = context.tool_calls.pop(mapped_identifier, None)
+                    if state is not None:
+                        state.identifier = raw_identifier
+                        context.tool_calls[raw_identifier] = state
+                context.tool_call_indexes[call_index] = raw_identifier
+                return raw_identifier
+            if mapped_identifier is not None:
+                return mapped_identifier
+
+        if isinstance(raw_identifier, str) and raw_identifier:
+            return raw_identifier
+
+        identifier = self._tool_call_identifier(payload, fallback_index)
+        if isinstance(call_index, int):
+            context.tool_call_indexes.setdefault(call_index, identifier)
+        return identifier
+
     def _tool_call_identifier(self, payload: Mapping[str, Any], index: int) -> str:
         identifier = payload.get("id")
         if isinstance(identifier, str) and identifier:

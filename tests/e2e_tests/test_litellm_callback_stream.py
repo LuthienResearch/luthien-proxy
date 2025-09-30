@@ -1,23 +1,17 @@
 import asyncio
 import json
-import sys
-from pathlib import Path
 
 import pytest
 import websockets
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.append(str(REPO_ROOT))
-
-from config.litellm_callback import LuthienCallback  # noqa: E402
-from litellm.types.utils import ModelResponseStream  # noqa: E402
 
 pytestmark = pytest.mark.e2e
 
 
 @pytest.mark.asyncio
 async def test_callback_emits_end_when_stream_finishes():
+    from config.litellm_callback import LuthienCallback
+    from litellm.types.utils import ModelResponseStream
+
     received: list[dict[str, object]] = []
 
     async def handler(websocket: websockets.WebSocketServerProtocol):

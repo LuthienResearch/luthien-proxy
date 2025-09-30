@@ -1,24 +1,17 @@
 """Test suite for LiteLLM callback error handling and type normalization."""
 
 import asyncio
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.append(str(REPO_ROOT))
-
-from config.litellm_callback import LuthienCallback  # noqa: E402
-from litellm.types.utils import ModelResponseStream  # noqa: E402
-
 
 @pytest.fixture
 def callback():
     """Create a LuthienCallback instance for testing."""
+    from config.litellm_callback import LuthienCallback
+
     return LuthienCallback()
 
 
@@ -152,6 +145,8 @@ async def test_apost_hook_raises_on_invalid_json(callback):
 
 def test_normalize_stream_chunk_with_model_response_edit(callback):
     """Fail when policy returns a ModelResponseStream instead of JSON."""
+    from litellm.types.utils import ModelResponseStream
+
     edited = ModelResponseStream.model_validate(
         {
             "id": "test",
@@ -168,6 +163,8 @@ def test_normalize_stream_chunk_with_model_response_edit(callback):
 
 def test_normalize_stream_chunk_with_dict_edit(callback):
     """Test normalization when edit is a dictionary."""
+    from litellm.types.utils import ModelResponseStream
+
     edited = {
         "id": "test",
         "choices": [{"index": 0, "delta": {"content": "edited"}}],
@@ -217,6 +214,8 @@ def test_normalize_stream_chunk_none(callback):
 
 @pytest.mark.asyncio
 async def test_streaming_hook_without_stream_id_passthrough(callback):
+    from litellm.types.utils import ModelResponseStream
+
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -239,6 +238,8 @@ async def test_streaming_hook_without_stream_id_passthrough(callback):
 
 @pytest.mark.asyncio
 async def test_streaming_hook_falls_back_on_connection_error(callback):
+    from litellm.types.utils import ModelResponseStream
+
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -269,6 +270,8 @@ async def test_streaming_hook_falls_back_on_connection_error(callback):
 
 @pytest.mark.asyncio
 async def test_streaming_hook_returns_transformed_chunk(callback):
+    from litellm.types.utils import ModelResponseStream
+
     original = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -342,6 +345,8 @@ class _StreamingConnection:
 
 @pytest.mark.asyncio
 async def test_streaming_hook_cleans_up_after_control_end(callback):
+    from litellm.types.utils import ModelResponseStream
+
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -377,6 +382,8 @@ async def test_streaming_hook_cleans_up_after_control_end(callback):
 
 @pytest.mark.asyncio
 async def test_streaming_hook_skips_end_when_control_plane_signals_close(callback):
+    from litellm.types.utils import ModelResponseStream
+
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -412,6 +419,8 @@ async def test_streaming_hook_skips_end_when_control_plane_signals_close(callbac
 
 @pytest.mark.asyncio
 async def test_streaming_hook_waits_for_control_plane_chunk(callback):
+    from litellm.types.utils import ModelResponseStream
+
     original = ModelResponseStream.model_validate(
         {
             "id": "stream",

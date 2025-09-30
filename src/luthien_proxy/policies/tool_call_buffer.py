@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping
 
@@ -139,29 +140,89 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
             if identifier not in context.logged_tool_ids:
                 new_states.append(state)
 
-        if new_states:
-            payload = self._build_log_record(
-                call_id=call_id,
-                trace_id=self._extract_trace_id(context.original_request),
-                stream_id=context.stream_id,
-                chunks_buffered=len(context.buffered_chunks),
-                tool_calls=[
-                    {
-                        "id": state.identifier,
-                        "type": state.call_type,
-                        "name": state.name,
-                        "arguments": state.arguments,
-                    }
-                    for state in new_states
-                ],
-            )
-            await self._record_debug_event(TOOL_CALL_DEBUG_TYPE, payload)
-            context.logged_tool_ids.update(state.identifier for state in new_states)
+        if not new_states:
+            context.buffered_chunks.clear()
+            context.tool_call_active = False
+            return []
 
-        buffered = list(context.buffered_chunks)
+        payload = self._build_log_record(
+            call_id=call_id,
+            trace_id=self._extract_trace_id(context.original_request),
+            stream_id=context.stream_id,
+            chunks_buffered=len(context.buffered_chunks),
+            tool_calls=[
+                {
+                    "id": state.identifier,
+                    "type": state.call_type,
+                    "name": state.name,
+                    "arguments": state.arguments,
+                }
+                for state in new_states
+            ],
+        )
+        await self._record_debug_event(TOOL_CALL_DEBUG_TYPE, payload)
+        context.logged_tool_ids.update(state.identifier for state in new_states)
+
+        chunk = self._build_buffered_tool_chunk(context, new_states)
         context.buffered_chunks.clear()
         context.tool_call_active = False
-        return buffered
+        return [chunk]
+
+    def _build_buffered_tool_chunk(
+        self,
+        context: ToolCallBufferContext,
+        states: list[ToolCallState],
+    ) -> dict[str, Any]:
+        base = context.buffered_chunks[-1] if context.buffered_chunks else {"choices": [{"index": 0}]}
+        chunk = deepcopy(base)
+        choices = chunk.get("choices")
+        if not isinstance(choices, list) or not choices:
+            choices = [{"index": 0}]
+            chunk["choices"] = choices
+        raw_choice = choices[0]
+        if isinstance(raw_choice, dict):
+            choice: dict[str, Any] = raw_choice
+        else:
+            choice = {}
+            choices[0] = choice
+        choice.pop("message", None)
+        choice.pop("logprobs", None)
+
+        index_value = choice.get("index")
+        if not isinstance(index_value, int):
+            choice["index"] = 0
+
+        delta = {
+            "role": context.role or "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": state.identifier,
+                    "type": state.call_type or "function",
+                    "function": {
+                        "name": state.name or "",
+                        "arguments": state.arguments,
+                    },
+                }
+                for state in states
+            ],
+        }
+        choice["delta"] = delta
+        choice["finish_reason"] = "tool_calls"
+        return chunk
+
+    def _merge_legacy_function_delta(
+        self,
+        context: ToolCallBufferContext,
+        legacy: Mapping[str, Any],
+    ) -> None:
+        """Normalize legacy LiteLLM `function_call` payloads into tool-call state."""
+        synthetic = {
+            "id": legacy.get("id"),
+            "type": "function",
+            "function": legacy,
+        }
+        self._merge_message_tool_calls(context, [synthetic])
 
     def _chunk_contains_tool_call(self, chunk: Mapping[str, Any]) -> bool:
         choice = self._first_choice(chunk)
@@ -255,7 +316,7 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
         for index, raw in enumerate(tool_calls):
             if not isinstance(raw, Mapping):
                 continue
-            identifier = self._tool_call_identifier(raw, index)
+            identifier = self._resolve_tool_call_identifier(context, raw, index)
             state = context.tool_calls.get(identifier)
             if state is None:
                 call_type = raw.get("type")
@@ -263,6 +324,8 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
                     call_type = "function"
                 state = ToolCallState(identifier=identifier, call_type=call_type)
                 context.tool_calls[identifier] = state
+            else:
+                state.identifier = identifier
             name = raw.get("name")
             if isinstance(name, str) and name:
                 state.name = name
