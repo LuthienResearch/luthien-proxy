@@ -17,6 +17,27 @@ def test_extract_call_id_known_hooks():
         )
         == "C"
     )
+    assert (
+        extract_call_id_for_hook(
+            "async_post_call_streaming_hook",
+            {"data": {"litellm_call_id": "D"}},
+        )
+        == "D"
+    )
+    assert (
+        extract_call_id_for_hook(
+            "async_post_call_streaming_hook",
+            {"litellm_call_id": "E"},
+        )
+        == "E"
+    )
+    assert (
+        extract_call_id_for_hook(
+            "async_post_call_streaming_hook",
+            {"request_data": {"litellm_call_id": "F"}},
+        )
+        == "F"
+    )
 
 
 def test_extract_call_id_missing_value_returns_none():

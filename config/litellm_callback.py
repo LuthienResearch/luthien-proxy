@@ -116,11 +116,7 @@ class LuthienCallback(CustomLogger):
         return None
 
     async def async_post_call_streaming_hook(self, **kwargs):
-        """Forward aggregate streaming info post-call."""
-        await self._apost_hook(
-            "async_post_call_streaming_hook",
-            self._json_safe(kwargs),
-        )
+        """Skip forwarding aggregate streaming info (handled via WebSocket)."""
         return None
 
     def _get_connection_manager(self) -> StreamConnectionManager:
