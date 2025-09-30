@@ -196,51 +196,57 @@ class LuthienCallback(CustomLogger):
         cleanup_after_stream = False
         stream_closed = False
 
-        async for item in response:
-            if passthrough:
-                yield item
-                continue
-
-            chunk_dict = item.model_dump()
-            try:
-                await connection.send({"type": "CHUNK", "data": chunk_dict})
-            except Exception as exc:
-                verbose_logger.error(f"stream[{stream_id}] unable to forward chunk: {exc}")
-                passthrough = True
-                cleanup_after_stream = True
-                yield item
-                continue
-
-            message = await connection.receive(timeout=5.0)
-            if message is None:
-                verbose_logger.warning(f"stream[{stream_id}] control plane timeout; falling back to original chunk")
-                yield item
-                continue
-
-            msg_type = message.get("type")
-            if msg_type == "CHUNK":
-                data = message.get("data")
-                try:
-                    yield self._normalize_stream_chunk(data)
-                except Exception as exc:
-                    verbose_logger.error(f"stream[{stream_id}] invalid transformed chunk: {exc}")
+        try:
+            async for item in response:
+                if passthrough:
                     yield item
-            elif msg_type == "ERROR":
-                verbose_logger.error(f"stream[{stream_id}] control plane error: {message.get('error')}")
-                passthrough = True
-                cleanup_after_stream = True
-                yield item
-            elif msg_type == "END":
-                stream_closed = True
-                break
-            else:
-                verbose_logger.warning(
-                    f"stream[{stream_id}] unexpected message type {msg_type}; yielding original chunk"
-                )
-                yield item
+                    continue
 
-        if stream_closed or cleanup_after_stream:
-            await self._cleanup_stream(stream_id, send_end=False)
+                chunk_dict = item.model_dump()
+                try:
+                    await connection.send({"type": "CHUNK", "data": chunk_dict})
+                except Exception as exc:
+                    verbose_logger.error(f"stream[{stream_id}] unable to forward chunk: {exc}")
+                    passthrough = True
+                    cleanup_after_stream = True
+                    yield item
+                    continue
+
+                message = await connection.receive(timeout=5.0)
+                if message is None:
+                    verbose_logger.warning(f"stream[{stream_id}] control plane timeout; falling back to original chunk")
+                    yield item
+                    continue
+
+                msg_type = message.get("type")
+                if msg_type == "CHUNK":
+                    data = message.get("data")
+                    try:
+                        yield self._normalize_stream_chunk(data)
+                    except Exception as exc:
+                        verbose_logger.error(f"stream[{stream_id}] invalid transformed chunk: {exc}")
+                        yield item
+                elif msg_type == "ERROR":
+                    verbose_logger.error(f"stream[{stream_id}] control plane error: {message.get('error')}")
+                    passthrough = True
+                    cleanup_after_stream = True
+                    yield item
+                elif msg_type == "END":
+                    stream_closed = True
+                    break
+                else:
+                    verbose_logger.warning(
+                        f"stream[{stream_id}] unexpected message type {msg_type}; yielding original chunk"
+                    )
+                    yield item
+        finally:
+            try:
+                await self._cleanup_stream(
+                    stream_id,
+                    send_end=not (stream_closed or cleanup_after_stream),
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                verbose_logger.error(f"stream[{stream_id}] cleanup failed: {exc}")
 
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
         """Hook called when stream completes successfully."""

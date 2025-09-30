@@ -1,11 +1,18 @@
 """Test suite for LiteLLM callback error handling and type normalization."""
 
+import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from config.litellm_callback import LuthienCallback
-from litellm.types.utils import ModelResponseStream
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from config.litellm_callback import LuthienCallback  # noqa: E402
+from litellm.types.utils import ModelResponseStream  # noqa: E402
 
 
 @pytest.fixture
@@ -310,6 +317,90 @@ async def test_streaming_hook_returns_transformed_chunk(callback):
 
     assert len(results) == 1
     assert results[0].choices[0]["delta"]["content"] == "HELLO"
+
+
+class _StreamingConnection:
+    def __init__(self, responses):
+        self.sent = []
+        self._responses = list(responses)
+
+    async def send(self, message):
+        self.sent.append(message)
+
+    async def receive(self, timeout=None):
+        if self._responses:
+            return self._responses.pop(0)
+        return None
+
+
+@pytest.mark.asyncio
+async def test_streaming_hook_cleans_up_without_control_plane_end(callback):
+    chunk = ModelResponseStream.model_validate(
+        {
+            "id": "stream",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "gpt-test",
+            "choices": [{"index": 0, "delta": {"content": "hi"}}],
+        }
+    )
+
+    connection = _StreamingConnection(responses=[])
+
+    manager = AsyncMock()
+    manager.get_or_create.return_value = connection
+
+    with patch.object(callback, "_get_connection_manager", return_value=manager):
+        with patch.object(callback, "_cleanup_stream", new_callable=AsyncMock) as cleanup:
+
+            async def upstream():
+                yield chunk
+
+            results = []
+            async for item in callback.async_post_call_streaming_iterator_hook(
+                None,
+                upstream(),
+                {"litellm_call_id": "abc"},
+            ):
+                results.append(item)
+
+    assert len(results) == 1
+    cleanup.assert_awaited_once_with("abc", send_end=True)
+
+
+@pytest.mark.asyncio
+async def test_streaming_hook_skips_end_when_control_plane_signals_close(callback):
+    chunk = ModelResponseStream.model_validate(
+        {
+            "id": "stream",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "gpt-test",
+            "choices": [{"index": 0, "delta": {"content": "hi"}}],
+        }
+    )
+
+    connection = _StreamingConnection(responses=[{"type": "END"}])
+
+    manager = AsyncMock()
+    manager.get_or_create.return_value = connection
+
+    with patch.object(callback, "_get_connection_manager", return_value=manager):
+        with patch.object(callback, "_cleanup_stream", new_callable=AsyncMock) as cleanup:
+
+            async def upstream():
+                yield chunk
+
+            results = []
+            async for item in callback.async_post_call_streaming_iterator_hook(
+                None,
+                upstream(),
+                {"litellm_call_id": "abc"},
+            ):
+                results.append(item)
+
+    assert results == []
+    cleanup.assert_awaited_once_with("abc", send_end=False)
 
 
 @pytest.mark.asyncio

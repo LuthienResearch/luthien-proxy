@@ -66,6 +66,16 @@ class DebugPage(BaseModel):
     total: int
 
 
+class ConversationLogEntry(BaseModel):
+    """Structured view of conversation turn logs stored in debug_logs."""
+
+    call_id: str
+    trace_id: Optional[str]
+    direction: str
+    timestamp: datetime
+    payload: JSONObject
+
+
 @router.get("/api/debug/{debug_type}", response_model=list[DebugEntry])
 async def get_debug_entries(
     debug_type: str,
@@ -105,6 +115,52 @@ async def get_debug_entries(
     except Exception as exc:
         logger.error(f"Error fetching debug logs: {exc}")
     return entries
+
+
+@router.get("/api/conversation/logs", response_model=list[ConversationLogEntry])
+async def get_conversation_logs(
+    call_id: Optional[str] = Query(default=None, min_length=1),
+    limit: int = Query(default=100, ge=1, le=500),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
+    config: ProjectConfig = Depends(get_project_config),
+) -> list[ConversationLogEntry]:
+    """Return recent conversation turn logs optionally filtered by call id."""
+    turns: list[ConversationLogEntry] = []
+    call_filter = call_id if isinstance(call_id, str) and call_id else None
+    entries = await get_debug_entries("conversation:turn", limit=limit, pool=pool, config=config)
+    for entry in entries:
+        blob = entry.jsonblob
+        if not isinstance(blob, dict):
+            continue
+        record_call_id = blob.get("call_id")
+        if not isinstance(record_call_id, str) or not record_call_id:
+            continue
+        if call_filter is not None and record_call_id != call_filter:
+            continue
+        timestamp_value = blob.get("timestamp")
+        timestamp: datetime
+        if isinstance(timestamp_value, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp_value)
+            except ValueError:
+                timestamp = entry.time_created
+        else:
+            timestamp = entry.time_created
+        direction = blob.get("direction")
+        if not isinstance(direction, str) or not direction:
+            direction = "unknown"
+        trace_candidate = blob.get("trace_id")
+        trace_id: str | None = trace_candidate if isinstance(trace_candidate, str) else None
+        turns.append(
+            ConversationLogEntry(
+                call_id=record_call_id,
+                trace_id=trace_id,
+                direction=direction,
+                timestamp=timestamp,
+                payload=blob,
+            )
+        )
+    return turns
 
 
 @router.get("/api/debug/types", response_model=list[DebugTypeInfo])
@@ -198,7 +254,9 @@ __all__ = [
     "DebugEntry",
     "DebugTypeInfo",
     "DebugPage",
+    "ConversationLogEntry",
     "get_debug_entries",
     "get_debug_types",
     "get_debug_page",
+    "get_conversation_logs",
 ]

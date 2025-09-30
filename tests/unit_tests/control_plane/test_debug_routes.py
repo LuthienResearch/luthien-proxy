@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from luthien_proxy.control_plane.debug_routes import (
     DebugPage,
     DebugTypeInfo,
+    get_conversation_logs,
     get_debug_entries,
     get_debug_page,
     get_debug_types,
@@ -202,3 +204,71 @@ async def test_get_debug_page_logs_and_recovers(project_config: ProjectConfig):
     assert isinstance(page, DebugPage)
     assert page.items == []
     assert page.total == 0
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_logs_filters_call_id(project_config: ProjectConfig):
+    now = datetime.now(UTC)
+    payload_match = {
+        "call_id": "call-1",
+        "timestamp": now.isoformat(),
+        "direction": "request",
+    }
+    payload_other = {
+        "call_id": "call-2",
+        "timestamp": now.isoformat(),
+        "direction": "response",
+    }
+    conn = _FakeDebugConn(
+        [
+            {
+                "id": 1,
+                "time_created": now,
+                "debug_type_identifier": "conversation:turn",
+                "jsonblob": json.dumps(payload_match),
+            },
+            {
+                "id": 2,
+                "time_created": now,
+                "debug_type_identifier": "conversation:turn",
+                "jsonblob": json.dumps(payload_other),
+            },
+        ]
+    )
+    pool = _FakePool(conn)
+
+    logs = await get_conversation_logs(call_id="call-1", limit=10, pool=pool, config=project_config)
+
+    assert len(logs) == 1
+    entry = logs[0]
+    assert entry.call_id == "call-1"
+    assert entry.direction == "request"
+    assert entry.timestamp == datetime.fromisoformat(payload_match["timestamp"])
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_logs_handles_invalid_timestamp(project_config: ProjectConfig):
+    now = datetime.now(UTC)
+    payload = {
+        "call_id": "call-3",
+        "timestamp": "not-a-timestamp",
+        "direction": "response",
+    }
+    conn = _FakeDebugConn(
+        [
+            {
+                "id": 3,
+                "time_created": now,
+                "debug_type_identifier": "conversation:turn",
+                "jsonblob": json.dumps(payload),
+            }
+        ]
+    )
+    pool = _FakePool(conn)
+
+    logs = await get_conversation_logs(pool=pool, config=project_config)
+
+    assert len(logs) == 1
+    entry = logs[0]
+    assert entry.call_id == "call-3"
+    assert entry.timestamp == now

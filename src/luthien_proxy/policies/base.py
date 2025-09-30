@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Awaitable, Callable, Optional
 
 from litellm.integrations.custom_logger import CustomLogger
+
+from luthien_proxy.types import JSONObject
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -27,12 +32,16 @@ class StreamPolicyContext:
     start_time: float = field(default_factory=time.time)
 
 
+DebugLogWriter = Callable[[str, JSONObject], Awaitable[None]]
+
+
 class LuthienPolicy(ABC, CustomLogger):
     """Mirror of LiteLLM hook API, executed server-side in the control plane."""
 
     def __init__(self) -> None:
         """Initialise policy base class and underlying CustomLogger."""
         super().__init__()
+        self._debug_log_writer: Optional[DebugLogWriter] = None
 
     # ------------------------------------------------------------------
     # Streaming API
@@ -72,8 +81,25 @@ class LuthienPolicy(ABC, CustomLogger):
 
         return response
 
+    # ------------------------------------------------------------------
+    # Debug logging helpers
+    # ------------------------------------------------------------------
+    def set_debug_log_writer(self, writer: Optional[DebugLogWriter]) -> None:
+        """Configure the async writer used for persisting debug records."""
+        self._debug_log_writer = writer
+
+    async def _record_debug_event(self, debug_type: str, payload: JSONObject) -> None:
+        """Persist *payload* best-effort via the configured debug writer."""
+        if self._debug_log_writer is None:
+            return
+        try:
+            await self._debug_log_writer(debug_type, payload)
+        except Exception:
+            logger.warning("debug log writer failed for %s", debug_type)
+
 
 __all__ = [
     "LuthienPolicy",
     "StreamPolicyContext",
+    "DebugLogWriter",
 ]

@@ -57,3 +57,9 @@ async def conversation_by_trace_ui(request: Request):
 async def hooks_conversation_ui(request: Request):
     """Render the live conversation impact view."""
     return templates.TemplateResponse(request, "conversation_view.html")
+
+
+@router.get("/ui/conversation/logs", response_class=HTMLResponse)
+async def conversation_logs_ui(request: Request):
+    """Render a simple view over recorded conversation turns."""
+    return templates.TemplateResponse(request, "conversation_logs.html")
