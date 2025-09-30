@@ -5,7 +5,7 @@
 
 import os
 import time as _time
-from typing import AsyncGenerator, Optional, Union
+from typing import Any, AsyncGenerator, Optional, Union
 
 import httpx
 import pydantic
@@ -84,38 +84,68 @@ class LuthienCallback(CustomLogger):
 
     # --------------------- Hooks ----------------------
 
-    async def async_pre_call_hook(self, **kwargs) -> Optional[Union[Exception, str, dict]]:
+    async def async_pre_call_hook(
+        self,
+        user_api_key_dict: Any,
+        cache: Any,
+        data: dict,
+        call_type: str,
+    ) -> Optional[Union[Exception, str, dict]]:
         """Forward pre-call data; may return a string/Exception to short-circuit."""
         await self._apost_hook(
             "async_pre_call_hook",
-            self._json_safe(kwargs),
+            {
+                "user_api_key_dict": user_api_key_dict,
+                "cache": cache,
+                "data": data,
+                "call_type": call_type,
+            },
         )
 
-    async def async_post_call_failure_hook(self, **kwargs):
+    async def async_post_call_failure_hook(
+        self,
+        request_data: dict,
+        original_exception: Exception,
+        user_api_key_dict: Any,
+        traceback_str: Optional[str] = None,
+    ):
         """Notify control plane of a failed call."""
         await self._apost_hook(
             "async_post_call_failure_hook",
-            self._json_safe(kwargs),
+            {
+                "request_data": request_data,
+                "original_exception": original_exception,
+                "user_api_key_dict": user_api_key_dict,
+                "traceback_str": traceback_str,
+            },
         )
         return None
 
-    async def async_post_call_success_hook(self, **kwargs):
+    async def async_post_call_success_hook(self, data: dict, user_api_key_dict: Any, response: Any):
         """Allow control plane to replace final response for non-streaming calls."""
         result = await self._apost_hook(
             "async_post_call_success_hook",
-            self._json_safe(kwargs),
+            {
+                "data": data,
+                "user_api_key_dict": user_api_key_dict,
+                "response": response,
+            },
         )
         return result
 
-    async def async_moderation_hook(self, **kwargs):
+    async def async_moderation_hook(self, data: dict, user_api_key_dict: Any, call_type: str):
         """Forward moderation evaluations to the control plane."""
         await self._apost_hook(
             "async_moderation_hook",
-            self._json_safe(kwargs),
+            {
+                "data": data,
+                "user_api_key_dict": user_api_key_dict,
+                "call_type": call_type,
+            },
         )
         return None
 
-    async def async_post_call_streaming_hook(self, **kwargs):
+    async def async_post_call_streaming_hook(self, user_api_key_dict: Any, response: Any):
         """Skip forwarding aggregate streaming info (handled via WebSocket)."""
         return None
 
@@ -139,7 +169,10 @@ class LuthienCallback(CustomLogger):
         await manager.close(stream_id)
 
     async def async_post_call_streaming_iterator_hook(
-        self, user_api_key_dict, response, request_data: dict
+        self,
+        user_api_key_dict: Any,
+        response: AsyncGenerator[ModelResponseStream, None],
+        request_data: dict[str, Any],
     ) -> AsyncGenerator[ModelResponseStream, None]:
         """Forward streaming chunks through the control plane WebSocket."""
         stream_id = request_data.get("litellm_call_id")
