@@ -21,6 +21,7 @@ from luthien_proxy.control_plane.conversation.streams import (
     publish_trace_conversation_event,
 )
 from luthien_proxy.control_plane.conversation.utils import json_safe
+from luthien_proxy.control_plane.stream_context import StreamContextStore
 from luthien_proxy.policies.base import LuthienPolicy, StreamPolicyContext
 
 logger = logging.getLogger(__name__)
@@ -151,6 +152,13 @@ def _debug_writer_from_websocket(websocket: WebSocket):
     return getattr(state, "debug_log_writer", None)
 
 
+def _stream_store_from_websocket(websocket: WebSocket) -> StreamContextStore | None:
+    state = getattr(websocket.app, "state", None)
+    if state is None:
+        return None
+    return getattr(state, "stream_store", None)
+
+
 class _StreamEventPublisher:
     """Helper to record debug logs and conversation events for streamed chunks."""
 
@@ -164,7 +172,9 @@ class _StreamEventPublisher:
         self._call_id = request_data.get("litellm_call_id")
         trace_id = request_data.get("litellm_trace_id")
         self._trace_id = trace_id if isinstance(trace_id, str) else None
+        self._stream_store = _stream_store_from_websocket(websocket)
         self._pending_payload: dict[str, Any] | None = None
+        self._original_text_parts: list[str] = []
         self._final_text_parts: list[str] = []
         if isinstance(self._call_id, str) and self._call_id:
             reset_stream_indices(self._call_id)
@@ -187,6 +197,12 @@ class _StreamEventPublisher:
             if isinstance(self._call_id, str):
                 record["litellm_call_id"] = self._call_id
             asyncio.create_task(self._debug_writer(f"hook:{self.hook_name}", record))
+
+        for choice in chunk.get("choices", []):
+            delta = choice.get("delta", {})
+            content = delta.get("content")
+            if isinstance(content, str):
+                self._original_text_parts.append(content)
 
     async def record_result(self, chunk: dict[str, Any]) -> None:
         if self._pending_payload is None:
@@ -227,48 +243,66 @@ class _StreamEventPublisher:
         for choice in chunk.get("choices", []):
             delta = choice.get("delta", {})
             content = delta.get("content")
-            if isinstance(content, str):
-                self._final_text_parts.append(content)
+            if not isinstance(content, str):
+                continue
+            self._final_text_parts.append(content)
+            if self._stream_store is not None and isinstance(self._call_id, str):
+                await self._stream_store.append_delta(self._call_id, content)
 
     async def finish(self) -> None:
         if isinstance(self._call_id, str) and self._call_id:
-            final_text = "".join(self._final_text_parts).strip()
-            if final_text:
-                summary_payload: dict[str, Any] = {
-                    "response": {"choices": [{"message": {"content": final_text}}]},
-                    "post_time_ns": time.time_ns(),
+            original_text = "".join(self._original_text_parts).strip()
+            final_text = "".join(self._final_text_parts)
+            if self._stream_store is not None:
+                try:
+                    final_text = await self._stream_store.get_accumulated(self._call_id)
+                except Exception:  # pragma: no cover - defensive
+                    pass
+            final_text = final_text.strip()
+            if not final_text and original_text:
+                final_text = original_text
+
+            original_payload: dict[str, Any] = {
+                "response": {"choices": [{"message": {"content": original_text}}]},
+                "post_time_ns": time.time_ns(),
+            }
+            summary_payload: dict[str, Any] = {
+                "response": {"choices": [{"message": {"content": final_text}}]},
+                "post_time_ns": time.time_ns(),
+            }
+
+            if self._debug_writer is not None:
+                record = {
+                    "hook": "async_post_call_streaming_hook",
+                    "litellm_call_id": self._call_id,
+                    "original": original_payload,
+                    "result": summary_payload,
                 }
-
-                if self._debug_writer is not None:
-                    record = {
-                        "hook": "async_post_call_streaming_hook",
-                        "litellm_call_id": self._call_id,
-                        "original": summary_payload,
-                        "result": summary_payload,
-                    }
-                    if self._trace_id:
-                        record["litellm_trace_id"] = self._trace_id
-                    asyncio.create_task(
-                        self._debug_writer(
-                            "hook_result:async_post_call_streaming_hook",
-                            record,
-                        )
+                if self._trace_id:
+                    record["litellm_trace_id"] = self._trace_id
+                asyncio.create_task(
+                    self._debug_writer(
+                        "hook_result:async_post_call_streaming_hook",
+                        record,
                     )
-
-                events = build_conversation_events(
-                    hook="async_post_call_streaming_hook",
-                    call_id=self._call_id,
-                    trace_id=self._trace_id,
-                    original=summary_payload,
-                    result=None,
-                    timestamp_ns_fallback=time.time_ns(),
-                    timestamp=datetime.now(timezone.utc),
                 )
-                for event in events:
-                    await publish_conversation_event(self._redis, event)
-                    await publish_trace_conversation_event(self._redis, event)
+
+            events = build_conversation_events(
+                hook="async_post_call_streaming_hook",
+                call_id=self._call_id,
+                trace_id=self._trace_id,
+                original=original_payload,
+                result=summary_payload,
+                timestamp_ns_fallback=time.time_ns(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            for event in events:
+                await publish_conversation_event(self._redis, event)
+                await publish_trace_conversation_event(self._redis, event)
 
             clear_stream_indices(self._call_id)
+            if self._stream_store is not None:
+                await self._stream_store.clear(self._call_id)
 
 
 @router.websocket("/stream/{stream_id}")
