@@ -1,11 +1,14 @@
-"""Policy that blocks harmful SQL tool calls like DROP TABLE operations."""
+"""Toy policy that blocks harmful SQL tool calls like DROP TABLE operations.
+
+This is meant for debugging and proof of concept, it's intentionally dumb and not actually important.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from luthien_proxy.types import JSONObject
 
@@ -56,7 +59,7 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
 
         # Guard against non-dict responses
         if not isinstance(response, Mapping):
-            logger.warning("Response is not a Mapping, type=%s", type(response))
+            logger.warning(f"Response is not a Mapping, type={type(response)}")
             return response
 
         # Check for harmful SQL in non-streaming responses
@@ -133,7 +136,7 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
         # Check against harmful patterns
         for pattern in HARMFUL_SQL_PATTERNS:
             if pattern.search(query):
-                logger.warning("Blocked harmful SQL: %s", query)
+                logger.warning(f"Blocked harmful SQL: {query}")
                 return True
 
         return False
@@ -198,12 +201,14 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
         tool_call: dict[str, str],
     ) -> None:
         """Record that a harmful SQL call was blocked."""
+        blocked_tool_call = cast(JSONObject, tool_call)
+
         record: JSONObject = {
             "schema": SQL_PROTECTION_SCHEMA,
             "call_id": call_id,
             "trace_id": trace_id,
             "timestamp": self._timestamp(),
-            "blocked_tool_call": tool_call,
+            "blocked_tool_call": blocked_tool_call,
             "reason": "harmful_sql_detected",
         }
         await self._record_debug_event(SQL_PROTECTION_DEBUG_TYPE, record)

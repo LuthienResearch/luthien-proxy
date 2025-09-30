@@ -190,10 +190,7 @@ class LuthienCallback(CustomLogger):
             },
         )
         verbose_logger.debug(
-            "Control plane hook result: type=%s is_none=%s preview=%s",
-            type(result),
-            result is None,
-            str(result)[:300],
+            f"Control plane hook result: type={type(result)} is_none={result is None} preview={str(result)[:300]}"
         )
 
         if result is None:
@@ -202,7 +199,7 @@ class LuthienCallback(CustomLogger):
         try:
             self._apply_policy_response(response, result)
         except Exception as exc:  # pragma: no cover - defensive
-            verbose_logger.error("Failed to apply control plane response override: %s", exc)
+            verbose_logger.error(f"Failed to apply control plane response override: {exc}")
 
         return result
 

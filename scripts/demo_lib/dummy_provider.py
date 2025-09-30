@@ -115,7 +115,7 @@ class DeterministicLLMProvider:
         except KeyError as exc:  # pragma: no cover - defensive guard
             raise HTTPException(status_code=404, detail=f"Unknown scenario '{key}'") from exc
 
-        logger.info("Dummy provider issued response for scenario %s", key)
+        logger.info(f"Dummy provider issued response for scenario {key}")
 
         # Build the assistant message with tool calls
         assistant_message = Message(

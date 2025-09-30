@@ -21,9 +21,9 @@ def main() -> None:
 
     db_url = control.database_url
 
-    logger.info("Starting control plane on %s:%s", control.host, control.port)
-    logger.info("Database URL: %s", db_url)
-    logger.info("Redis URL: %s", control.redis_url)
+    logger.info(f"Starting control plane on {control.host}:{control.port}")
+    logger.info(f"Database URL: {db_url}")
+    logger.info(f"Redis URL: {control.redis_url}")
     logger.info("Changes are being picked up.")
 
     uvicorn.run(
