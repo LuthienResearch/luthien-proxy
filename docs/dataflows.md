@@ -64,10 +64,9 @@ All control-plane schema changes are managed by Prisma migrations in `prisma/con
 
 ## Diagram
 ```mermaid
-document
-  title Luthien Dataflow
-  LiteLLM -->|hooks/stream| ControlPlane
-  ControlPlane -->|debug_logs| Postgres
-  ControlPlane -->|events + context| Redis
+flowchart LR
+  LiteLLM["LiteLLM Proxy"] -->|hooks / stream| ControlPlane["Control Plane"]
+  ControlPlane -->|debug logs| Postgres[(Postgres)]
+  ControlPlane -->|events + context| Redis[(Redis)]
   LiteLLM -->|response cache| Redis
 ```
