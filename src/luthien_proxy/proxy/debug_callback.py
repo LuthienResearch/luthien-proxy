@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable, Optional, cast
 
 import httpx
-from litellm._logging import verbose_logger
+from litellm._logging import verbose_proxy_logger
 from litellm.integrations.custom_logger import CustomLogger
 
 from luthien_proxy.control_plane.conversation.utils import json_safe
@@ -24,6 +24,7 @@ class DebugCallback(CustomLogger):
     ):
         """Initialize callback with control-plane URL and defaults."""
         super().__init__()
+        verbose_proxy_logger.info("DebugCallback initialized")
         project_config = config or ProjectConfig()
         self.control_plane_url = project_config.control_plane_url
         self.timeout = 10.0
@@ -45,8 +46,18 @@ class DebugCallback(CustomLogger):
             if callable(model_dump):
                 try:
                     return json_safe(model_dump())
-                except Exception:
+                except Exception as e:
+                    verbose_proxy_logger.debug(f"model_dump() failed: {e}, falling back to str()")
                     return json_safe(str(resp))
+        if hasattr(resp, "dict"):
+            dict_method = getattr(resp, "dict")
+            if callable(dict_method):
+                try:
+                    return json_safe(dict_method())
+                except Exception as e:
+                    verbose_proxy_logger.debug(f"dict() failed: {e}, falling back to str()")
+                    return json_safe(str(resp))
+        verbose_proxy_logger.debug(f"Response has no model_dump or dict, type={type(resp)}")
         return json_safe(str(resp))
 
     def _post(
@@ -65,7 +76,7 @@ class DebugCallback(CustomLogger):
             with self._client_factory(timeout=self.timeout) as client:
                 client.post(f"{self.control_plane_url}/api/hooks/log", json=payload)
         except Exception as e:
-            verbose_logger.debug(f"DEBUG-CB post error: {e}")
+            verbose_proxy_logger.debug(f"DEBUG-CB post error: {e}")
 
     async def _apost(
         self,
@@ -83,7 +94,7 @@ class DebugCallback(CustomLogger):
             async with self._async_client_factory(timeout=self.timeout) as client:
                 await client.post(f"{self.control_plane_url}/api/hooks/log", json=payload)
         except Exception as e:
-            verbose_logger.debug(f"DEBUG-CB apost error: {e}")
+            verbose_proxy_logger.debug(f"DEBUG-CB apost error: {e}")
 
     def log_pre_api_call(self, model, messages, kwargs):
         """Log pre-call data for a non-async invocation."""

@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 import os
 import time as _time
-from typing import Any, AsyncGenerator, Optional, Union
+from typing import Any, AsyncGenerator, Mapping, Optional, Union
 
 import httpx
 import pydantic
@@ -61,12 +61,19 @@ class LuthienCallback(CustomLogger):
                 response.raise_for_status()
                 content_type = response.headers.get("content-type", "")
                 if "application/json" not in content_type:
+                    verbose_logger.error(f"Unexpected content-type from control plane for {hook} hook: {content_type}")
                     raise httpx.HTTPError(f"Unexpected content-type from control plane for {hook} hook: {content_type}")
                 if not response.content:
+                    verbose_logger.warning(f"Empty response from control plane for {hook} hook")
                     raise httpx.HTTPError(f"Empty response from control plane for {hook} hook")
                 try:
-                    return response.json()
-                except ValueError:
+                    parsed = response.json()
+                    verbose_logger.debug(f"Control plane response for {hook}: {str(parsed)[:300]}")
+                    return parsed
+                except ValueError as e:
+                    verbose_logger.error(
+                        f"Invalid JSON response from control plane for {hook} hook: {e}, content={response.content[:200]}"
+                    )
                     raise httpx.HTTPError(f"Invalid JSON response from control plane for {hook} hook")
         except httpx.ConnectError as e:
             # Network connectivity issues - likely transient
@@ -83,6 +90,55 @@ class LuthienCallback(CustomLogger):
             # Timeout - likely transient but could indicate overload
             verbose_logger.error(f"Timeout posting {hook} hook: {e}")
             return None
+
+    def _apply_policy_response(self, response: Any, policy_result: Any) -> None:
+        """Mutate *response* using the structure returned by the policy."""
+        if response is None or policy_result is None:
+            return
+
+        # Convert BaseModel responses from the control plane into plain dicts.
+        if isinstance(policy_result, pydantic.BaseModel):
+            payload: Mapping[str, Any] = policy_result.model_dump()
+        elif isinstance(policy_result, Mapping):
+            payload = policy_result
+        else:
+            raise TypeError(f"Policy result must be Mapping or BaseModel, got {type(policy_result).__name__}")
+
+        if isinstance(response, dict):
+            response.clear()
+            response.update(payload)
+            return
+
+        if isinstance(response, pydantic.BaseModel):
+            # Drop helper markers that the policy might include for debugging.
+            prepared: dict[str, Any] = dict(payload)
+            prepared.pop("_source_type_", None)
+
+            try:
+                updated = response.__class__(**prepared)
+            except Exception as exc:  # pragma: no cover - defensive
+                raise ValueError(
+                    f"Policy returned data that failed validation for {response.__class__.__name__}: {exc}"
+                ) from exc
+
+            response.__dict__.clear()
+            response.__dict__.update(updated.__dict__)
+
+            if hasattr(updated, "__pydantic_extra__"):
+                object.__setattr__(
+                    response,
+                    "__pydantic_extra__",
+                    getattr(updated, "__pydantic_extra__", None),
+                )
+            if hasattr(updated, "__pydantic_fields_set__"):
+                object.__setattr__(
+                    response,
+                    "__pydantic_fields_set__",
+                    getattr(updated, "__pydantic_fields_set__", set()),
+                )
+            return
+
+        raise TypeError(f"Unsupported response type: {type(response).__name__}")
 
     # --------------------- Hooks ----------------------
 
@@ -133,6 +189,21 @@ class LuthienCallback(CustomLogger):
                 "response": response,
             },
         )
+        verbose_logger.debug(
+            "Control plane hook result: type=%s is_none=%s preview=%s",
+            type(result),
+            result is None,
+            str(result)[:300],
+        )
+
+        if result is None:
+            return result
+
+        try:
+            self._apply_policy_response(response, result)
+        except Exception as exc:  # pragma: no cover - defensive
+            verbose_logger.error("Failed to apply control plane response override: %s", exc)
+
         return result
 
     async def async_moderation_hook(self, data: dict, user_api_key_dict: Any, call_type: str):
@@ -372,6 +443,7 @@ class LuthienCallback(CustomLogger):
 
         - Dicts/lists/tuples/sets: processed recursively
         - Basic scalars: returned as-is
+        - Pydantic models: converted to dict via model_dump() or dict()
         - Other objects: converted to string via repr()
         """
         try:
@@ -381,6 +453,18 @@ class LuthienCallback(CustomLogger):
             return obj
         except Exception:
             pass
+
+        # Try Pydantic model serialization first
+        if hasattr(obj, "model_dump"):
+            try:
+                return self._json_safe(obj.model_dump())
+            except Exception:
+                pass
+        if hasattr(obj, "dict"):
+            try:
+                return self._json_safe(obj.dict())
+            except Exception:
+                pass
 
         # Recursive conversion
         if isinstance(obj, dict):

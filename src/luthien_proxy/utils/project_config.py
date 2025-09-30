@@ -54,7 +54,7 @@ LITELLM_CONFIG_PATH = ConfigValue[str]("LITELLM_CONFIG_PATH")
 LITELLM_HOST = ConfigValue[str]("LITELLM_HOST", "0.0.0.0")
 LITELLM_PORT = ConfigValue[int]("LITELLM_PORT", 4000, parser=int)
 LITELLM_DETAILED_DEBUG = ConfigValue[bool]("LITELLM_DETAILED_DEBUG", False, parser=_parse_bool)
-LITELLM_LOG_LEVEL = ConfigValue[str]("LITELLM_LOG_LEVEL", "INFO")
+LITELLM_LOG = ConfigValue[str]("LITELLM_LOG", "INFO")
 CONTROL_PLANE_URL = ConfigValue[str]("CONTROL_PLANE_URL", "http://localhost:8081")
 CONTROL_PLANE_HOST = ConfigValue[str]("CONTROL_PLANE_HOST", "0.0.0.0")
 CONTROL_PLANE_PORT = ConfigValue[int]("CONTROL_PLANE_PORT", 8081, parser=int)
@@ -158,7 +158,7 @@ class ProjectConfig:
     @cached_property
     def litellm_log_level(self) -> str:
         """Log level for the LiteLLM server."""
-        return get_config_value(self._env_map, LITELLM_LOG_LEVEL)
+        return get_config_value(self._env_map, LITELLM_LOG)
 
     @cached_property
     def control_plane_url(self) -> str:

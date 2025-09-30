@@ -174,7 +174,9 @@ async def hook_generic(
                 _spawn_background(publish_conversation_event(redis_conn, event))
                 _spawn_background(publish_trace_conversation_event(redis_conn, event))
 
-        return strip_post_time_ns(final_result)
+        result_to_return = strip_post_time_ns(final_result)
+        logger.info(f"Hook {hook_name} returning: type={type(result_to_return)}, preview={str(result_to_return)[:200]}")
+        return result_to_return
     except Exception as exc:
         logger.error("hook_generic_error: %s", exc)
         raise HTTPException(status_code=500, detail=f"hook_generic_error: {exc}")
