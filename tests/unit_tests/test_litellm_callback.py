@@ -207,34 +207,130 @@ def test_normalize_stream_chunk_none(callback):
         callback._normalize_stream_chunk(None)
 
 
-def test_update_cumulative_choices():
-    """Test the _update_cumulative_choices helper method."""
-    cumulative_choices = []
-    cumulative_tokens = []
-    new_tokens = []
-    response = {"choices": [{"index": 0, "delta": {"content": "Hello"}}, {"index": 1, "delta": {"content": "World"}}]}
+@pytest.mark.asyncio
+async def test_streaming_hook_without_stream_id_passthrough(callback):
+    chunk = ModelResponseStream.model_validate(
+        {
+            "id": "stream",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "gpt-test",
+            "choices": [{"index": 0, "delta": {"content": "hi"}}],
+        }
+    )
 
-    callback = LuthienCallback()
-    callback._update_cumulative_choices(cumulative_choices, cumulative_tokens, new_tokens, response)
+    async def upstream():
+        yield chunk
 
-    assert len(cumulative_choices) == 2
-    assert len(cumulative_tokens) == 2
-    assert cumulative_tokens[0] == ["Hello"]
-    assert cumulative_tokens[1] == ["World"]
-    assert new_tokens == ["Hello", "World"]
+    results = []
+    async for item in callback.async_post_call_streaming_iterator_hook(None, upstream(), {}):
+        results.append(item)
+
+    assert results == [chunk]
 
 
-def test_update_cumulative_choices_missing_index():
-    """Test that missing index in choice raises ValueError."""
-    cumulative_choices = []
-    cumulative_tokens = []
-    new_tokens = []
-    response = {
-        "choices": [
-            {"delta": {"content": "Hello"}}  # Missing index
-        ]
+@pytest.mark.asyncio
+async def test_streaming_hook_falls_back_on_connection_error(callback):
+    chunk = ModelResponseStream.model_validate(
+        {
+            "id": "stream",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "gpt-test",
+            "choices": [{"index": 0, "delta": {"content": "hi"}}],
+        }
+    )
+
+    async def upstream():
+        yield chunk
+
+    manager = AsyncMock()
+    manager.get_or_create.side_effect = RuntimeError("boom")
+
+    with patch.object(callback, "_get_connection_manager", return_value=manager):
+        results = []
+        async for item in callback.async_post_call_streaming_iterator_hook(
+            None,
+            upstream(),
+            {"litellm_call_id": "abc"},
+        ):
+            results.append(item)
+
+    assert results == [chunk]
+
+
+@pytest.mark.asyncio
+async def test_streaming_hook_returns_transformed_chunk(callback):
+    original = ModelResponseStream.model_validate(
+        {
+            "id": "stream",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "gpt-test",
+            "choices": [{"index": 0, "delta": {"content": "hi"}}],
+        }
+    )
+
+    transformed = {
+        "id": "stream",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "gpt-test",
+        "choices": [{"index": 0, "delta": {"content": "HELLO"}}],
     }
 
-    with pytest.raises(ValueError, match="choice missing index"):
-        callback = LuthienCallback()
-        callback._update_cumulative_choices(cumulative_choices, cumulative_tokens, new_tokens, response)
+    class DummyConnection:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, message):
+            self.sent.append(message)
+
+        async def receive(self, timeout=None):
+            return {"type": "CHUNK", "data": transformed}
+
+    manager = AsyncMock()
+    connection = DummyConnection()
+    manager.get_or_create.return_value = connection
+    manager.lookup.return_value = connection
+    manager.close.return_value = None
+
+    with patch.object(callback, "_get_connection_manager", return_value=manager):
+        results = []
+
+        async def upstream():
+            yield original
+
+        async for item in callback.async_post_call_streaming_iterator_hook(
+            None,
+            upstream(),
+            {"litellm_call_id": "abc"},
+        ):
+            results.append(item)
+
+    assert len(results) == 1
+    assert results[0].choices[0]["delta"]["content"] == "HELLO"
+
+
+@pytest.mark.asyncio
+async def test_success_log_triggers_cleanup(callback):
+    with patch.object(callback, "_cleanup_stream", new_callable=AsyncMock) as cleanup:
+        await callback.async_log_success_event(
+            {"litellm_params": {"metadata": {"litellm_call_id": "abc"}}},
+            None,
+            None,
+            None,
+        )
+    cleanup.assert_awaited_once_with("abc", send_end=True)
+
+
+@pytest.mark.asyncio
+async def test_failure_log_triggers_cleanup(callback):
+    with patch.object(callback, "_cleanup_stream", new_callable=AsyncMock) as cleanup:
+        await callback.async_log_failure_event(
+            {"litellm_params": {"metadata": {"litellm_call_id": "abc"}}},
+            None,
+            None,
+            None,
+        )
+    cleanup.assert_awaited_once_with("abc", send_end=False)

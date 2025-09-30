@@ -24,22 +24,34 @@ def extract_call_id_for_hook(hook: str, payload: JSONObject) -> Optional[str]:
     single, table‑driven extractor avoids drift and long if/elif chains.
     """
     hook = hook.lower()
-    hook_to_id_path = {
-        "async_pre_call_hook": ["data", "litellm_call_id"],
-        "async_post_call_success_hook": ["data", "litellm_call_id"],
-        "async_post_call_streaming_iterator_hook": ["request_data", "litellm_call_id"],
+    hook_to_id_paths: dict[str, list[list[str]]] = {
+        "async_pre_call_hook": [["data", "litellm_call_id"], ["litellm_call_id"]],
+        "async_post_call_success_hook": [["data", "litellm_call_id"], ["litellm_call_id"]],
+        "async_post_call_streaming_iterator_hook": [
+            ["request_data", "litellm_call_id"],
+            ["data", "litellm_call_id"],
+            ["litellm_call_id"],
+        ],
+        "async_post_call_streaming_hook": [
+            ["data", "litellm_call_id"],
+            ["request_data", "litellm_call_id"],
+            ["litellm_call_id"],
+        ],
     }
-    if hook not in hook_to_id_path:
+    paths = hook_to_id_paths.get(hook)
+    if not paths:
         logging.error(f"No litellm_call_id path defined for hook '{hook}'")
         return None
-    path = hook_to_id_path[hook]
-    litellm_call_id_value = _get_in(payload, path)
-    if litellm_call_id_value is None:
-        logging.error(f"Could not find litellm_call_id at path {path} in payload")
-        return None
-    if not isinstance(litellm_call_id_value, str):
-        logging.error(
-            f"litellm_call_id at path {path} is not a string: {litellm_call_id_value}",
-        )
-        return None
-    return litellm_call_id_value
+    for path in paths:
+        litellm_call_id_value = _get_in(payload, path)
+        if litellm_call_id_value is None:
+            continue
+        if not isinstance(litellm_call_id_value, str):
+            logging.error(
+                f"litellm_call_id at path {path} is not a string: {litellm_call_id_value}",
+            )
+            return None
+        return litellm_call_id_value
+
+    logging.error(f"Could not find litellm_call_id at any known path for hook '{hook}'")
+    return None

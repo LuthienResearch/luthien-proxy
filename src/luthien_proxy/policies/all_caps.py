@@ -9,12 +9,12 @@ Behavior:
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Optional
+from typing import AsyncIterator
 
 from luthien_proxy.control_plane.conversation.utils import require_dict, require_list
 from luthien_proxy.types import JSONObject
 
-from .base import LuthienPolicy
+from .base import LuthienPolicy, StreamPolicyContext
 
 
 def _uppercase_choices(response: JSONObject) -> JSONObject:
@@ -38,14 +38,15 @@ def _uppercase_choices(response: JSONObject) -> JSONObject:
 class AllCapsPolicy(LuthienPolicy):
     """Demonstration policy that uppercases content in responses."""
 
-    async def async_post_call_streaming_iterator_hook(
+    async def generate_response_stream(
         self,
-        user_api_key_dict: Optional[JSONObject],
-        response: JSONObject,
-        request_data: JSONObject,
-    ) -> Optional[JSONObject]:
-        """Uppercase streaming delta content per chunk when possible."""
-        return _uppercase_choices(response)
+        context: StreamPolicyContext,
+        incoming_stream: AsyncIterator[JSONObject],
+    ) -> AsyncIterator[JSONObject]:
+        """Yield incoming chunks with text content uppercased."""
+        async for chunk in incoming_stream:
+            context.chunk_count += 1
+            yield _uppercase_choices(chunk)
 
     async def async_post_call_success_hook(
         self,

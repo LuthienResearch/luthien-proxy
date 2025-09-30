@@ -57,6 +57,9 @@ from .hooks_routes import (
     router as hooks_router,
 )
 from .policy_loader import load_policy_from_config
+from .streaming_routes import (
+    router as streaming_router,
+)
 from .utils.rate_limiter import RateLimiter
 
 
@@ -183,6 +186,7 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
     app.include_router(router)
     app.include_router(debug_router)
     app.include_router(hooks_router)
+    app.include_router(streaming_router)
 
     return app
 

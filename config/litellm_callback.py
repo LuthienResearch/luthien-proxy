@@ -1,19 +1,10 @@
 # ABOUTME: Minimal callback skeleton that LiteLLM can load directly
 # ABOUTME: Acts as a thin proxy forwarding all calls to the control plane
 
-"""Minimal LiteLLM callback that forwards all calls to the control plane.
-
-This module is loaded by LiteLLM via the `callbacks` entry in
-`config/litellm_config.yaml`.
-
-Implements a thin bridge:
-- All hooks are forwarded via `POST /api/hooks/{hook_name}` (fire-and-forget)
-- Streaming iterator events are wrapped to forward each chunk through the same path
-"""
+"""Minimal LiteLLM callback that forwards all calls to the control plane."""
 
 import os
 import time as _time
-from functools import cached_property
 from typing import AsyncGenerator, Optional, Union
 
 import httpx
@@ -21,6 +12,8 @@ import pydantic
 from litellm._logging import verbose_logger
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.types.utils import ModelResponseStream
+
+from luthien_proxy.proxy.stream_connection_manager import StreamConnectionManager
 
 
 class LuthienCallback(CustomLogger):
@@ -32,26 +25,7 @@ class LuthienCallback(CustomLogger):
         self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
         verbose_logger.info(f"LuthienCallback initialized with control plane URL: {self.control_plane_url}")
-
-    @cached_property
-    def _chunk_history_limit(self) -> int:
-        """Maximum number of recent chunks to retain per choice for streaming calls.
-
-        This limits memory usage when forwarding cumulative tokens/choices to the
-        control plane for potential edits.
-        """
-        if not hasattr(self, "__chunk_history_limit"):
-            try:
-                self.__chunk_history_limit = int(os.getenv("LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT", "512000"))
-                if self.__chunk_history_limit < 0:
-                    raise ValueError(
-                        f"LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT must be non-negative, got {self.__chunk_history_limit}"
-                    )
-            except ValueError:
-                raise ValueError(
-                    f"LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT must be an integer, got {os.getenv('LUTHIEN_STREAM_CHUNK_HISTORY_LIMIT')!r}"
-                )
-        return self.__chunk_history_limit
+        self._connection_manager: Optional[StreamConnectionManager] = None
 
     # ------------- internal helpers -------------
     async def _apost_hook(
@@ -142,84 +116,118 @@ class LuthienCallback(CustomLogger):
         return None
 
     async def async_post_call_streaming_hook(self, **kwargs):
-        """Forward aggregate streaming info post-call."""
-        await self._apost_hook(
-            "async_post_call_streaming_hook",
-            self._json_safe(kwargs),
-        )
+        """Skip forwarding aggregate streaming info (handled via WebSocket)."""
         return None
 
-    def _update_cumulative_choices(
-        self,
-        cumulative_choices: list[list[dict]],
-        cumulative_tokens: list[list[str]],
-        new_tokens: list[str],
-        response: dict,
-    ) -> None:
-        """Update cumulative choices and tokens from a new response chunk."""
-        if "choices" in response and isinstance(response["choices"], list):
-            choices = response["choices"]
-            for choice in choices:
-                if "index" not in choice:
-                    raise ValueError(f"_update_cumulative_choices: choice missing index! {choice}")
-                index: int = choice["index"]
-                # Ensure lists are long enough
-                while len(cumulative_tokens) <= index:
-                    cumulative_tokens.append([])
-                while len(cumulative_choices) <= index:
-                    cumulative_choices.append([])
-                while len(new_tokens) <= index:
-                    new_tokens.append("")
-                cumulative_choices[index].append(choice)
-                cumulative_tokens[index].append(choice.get("delta", {}).get("content", ""))
-                limit = self._chunk_history_limit
-                if limit and limit > 0:
-                    overflow = len(cumulative_choices[index]) - limit
-                    if overflow > 0:
-                        del cumulative_choices[index][:overflow]
-                        del cumulative_tokens[index][:overflow]
-                new_tokens[index] = cumulative_tokens[index][-1] if cumulative_tokens[index] else ""
-        return
+    def _get_connection_manager(self) -> StreamConnectionManager:
+        if self._connection_manager is None:
+            self._connection_manager = StreamConnectionManager(self.control_plane_url)
+        return self._connection_manager
+
+    async def _cleanup_stream(self, stream_id: str, send_end: bool) -> None:
+        manager = self._get_connection_manager()
+        connection = await manager.lookup(stream_id)
+        if connection is None:
+            return
+
+        if send_end:
+            try:
+                await connection.send({"type": "END"})
+            except Exception as exc:
+                verbose_logger.error(f"stream[{stream_id}] failed to notify END: {exc}")
+
+        await manager.close(stream_id)
 
     async def async_post_call_streaming_iterator_hook(
         self, user_api_key_dict, response, request_data: dict
     ) -> AsyncGenerator[ModelResponseStream, None]:
-        """Wrap the streaming iterator to allow per-chunk edits or suppression."""
-        try:
-            cumulative_choices: list[list[dict]] = []
-            cumulative_tokens: list[list[str]] = []
-            new_tokens: list[str] = []
-            item: ModelResponseStream
-            async for item in response:
-                serialized_chunk: dict = item.model_dump()
-                self._update_cumulative_choices(cumulative_choices, cumulative_tokens, new_tokens, serialized_chunk)
-                policy_result = await self._apost_hook(
-                    "async_post_call_streaming_iterator_hook",
-                    {
-                        "cumulative_tokens": cumulative_tokens,
-                        "new_tokens": new_tokens,
-                        "response": serialized_chunk,
-                        "request_data": self._json_safe(request_data),
-                        "cumulative_choices": cumulative_choices,
-                        "user_api_key_dict": self._json_safe(user_api_key_dict),
-                    },
-                )
-                if policy_result is None:
-                    # No edit, yield original chunk
-                    verbose_logger.debug(
-                        "async_post_call_streaming_iterator_hook: control plane returned no edits; yielding original chunk"
-                    )
-                    # TODO: fallback behavior should be configurable (e.g. suppress vs yield original)
-                    yield item
-                else:
-                    yield self._normalize_stream_chunk(policy_result)
-        except Exception as e:
-            verbose_logger.error(f"async_post_call_streaming_iterator_hook error: {e}")
-            # If wrapping fails, yield from original response to avoid breaking stream
+        """Forward streaming chunks through the control plane WebSocket."""
+        stream_id = request_data.get("litellm_call_id")
+        if not stream_id:
             async for item in response:
                 yield item
-        finally:
             return
+
+        sanitized_request = self._json_safe(request_data)
+
+        try:
+            manager = self._get_connection_manager()
+            connection = await manager.get_or_create(stream_id, sanitized_request)
+        except Exception as exc:
+            verbose_logger.error(f"stream[{stream_id}] unable to establish control plane connection: {exc}")
+            async for item in response:
+                yield item
+            return
+
+        passthrough = False
+        cleanup_after_stream = False
+        stream_closed = False
+
+        async for item in response:
+            if passthrough:
+                yield item
+                continue
+
+            chunk_dict = item.model_dump()
+            try:
+                await connection.send({"type": "CHUNK", "data": chunk_dict})
+            except Exception as exc:
+                verbose_logger.error(f"stream[{stream_id}] unable to forward chunk: {exc}")
+                passthrough = True
+                cleanup_after_stream = True
+                yield item
+                continue
+
+            message = await connection.receive(timeout=5.0)
+            if message is None:
+                verbose_logger.warning(f"stream[{stream_id}] control plane timeout; falling back to original chunk")
+                yield item
+                continue
+
+            msg_type = message.get("type")
+            if msg_type == "CHUNK":
+                data = message.get("data")
+                try:
+                    yield self._normalize_stream_chunk(data)
+                except Exception as exc:
+                    verbose_logger.error(f"stream[{stream_id}] invalid transformed chunk: {exc}")
+                    yield item
+            elif msg_type == "ERROR":
+                verbose_logger.error(f"stream[{stream_id}] control plane error: {message.get('error')}")
+                passthrough = True
+                cleanup_after_stream = True
+                yield item
+            elif msg_type == "END":
+                stream_closed = True
+                break
+            else:
+                verbose_logger.warning(
+                    f"stream[{stream_id}] unexpected message type {msg_type}; yielding original chunk"
+                )
+                yield item
+
+        if stream_closed or cleanup_after_stream:
+            await self._cleanup_stream(stream_id, send_end=False)
+
+    async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
+        """Hook called when stream completes successfully."""
+        stream_id = kwargs.get("litellm_params", {}).get("metadata", {}).get("litellm_call_id")
+        if not stream_id:
+            return
+        try:
+            await self._cleanup_stream(stream_id, send_end=True)
+        except Exception as exc:
+            verbose_logger.error(f"stream[{stream_id}] success cleanup failed: {exc}")
+
+    async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
+        """Hook called when a stream terminates in failure."""
+        stream_id = kwargs.get("litellm_params", {}).get("metadata", {}).get("litellm_call_id")
+        if not stream_id:
+            return
+        try:
+            await self._cleanup_stream(stream_id, send_end=False)
+        except Exception as exc:
+            verbose_logger.error(f"stream[{stream_id}] failure cleanup failed: {exc}")
 
     def _normalize_stream_chunk(self, chunk: dict) -> ModelResponseStream:
         """Normalize policy-provided stream chunks back to ModelResponseStream."""

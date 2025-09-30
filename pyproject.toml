@@ -55,13 +55,16 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra --cov=src/luthien_proxy --cov-report=term-missing --cov-fail-under=65"
+addopts = "-q -ra -m 'not e2e' --cov=src/luthien_proxy --cov-report=term-missing --cov-fail-under=65"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
     "default::DeprecationWarning",
     "default::PendingDeprecationWarning",
     "default::ResourceWarning",
+]
+markers = [
+    "e2e: marks end-to-end tests that require an assembled control plane",
 ]
 
 [tool.pyright]

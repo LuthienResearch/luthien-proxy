@@ -81,30 +81,29 @@ async def _stream_from_channel(
     settings = config or _DEFAULT_STREAM_CONFIG
     heartbeat_interval = max(0.5, settings.heartbeat_seconds)
     timeout = max(0.1, settings.redis_poll_timeout_seconds)
-    async with redis.pubsub(close_connection=False) as pubsub:
+    async with redis.pubsub() as pubsub:
         await pubsub.subscribe(channel)
         last_heartbeat = time.monotonic()
         try:
-            attempts = 0
-            max_attempts = 20
-            exponential_backoff = 0.1
-            while attempts < max_attempts:
-                attempts += 1
+            backoff = 0.1
+            while True:
                 try:
                     message = await pubsub.get_message(
                         ignore_subscribe_messages=True,
                         timeout=timeout,
                     )
+                    backoff = 0.1
                 except asyncio.CancelledError:  # pragma: no cover - cooperative cancellation
                     raise
-                # timeout
                 except Exception as exc:  # pragma: no cover - defensive logging
                     logger.error(
-                        f"Conversation stream poll error on {channel}: {exc} (attempt {attempts} / {max_attempts}); "
-                        "retrying in {exponential_backoff:.1f}s"
+                        "Conversation stream poll error on %s: %s; retrying in %.1fs",
+                        channel,
+                        exc,
+                        backoff,
                     )
-                    await asyncio.sleep(exponential_backoff)
-                    exponential_backoff = min(exponential_backoff * 2, 10)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 10)
                     continue
 
                 now = time.monotonic()
