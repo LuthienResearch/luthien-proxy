@@ -2,7 +2,7 @@
 
 # Active policy configuration
 policy:
-  class: "luthien_proxy.policies.conversation_logger:ConversationLoggingPolicy"
+  class: "luthien_proxy.policies.tool_call_buffer:ToolCallBufferPolicy"
   config: {}
 
 # Other policy examples:

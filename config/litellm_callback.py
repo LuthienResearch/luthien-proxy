@@ -3,6 +3,8 @@
 
 """Minimal LiteLLM callback that forwards all calls to the control plane."""
 
+import asyncio
+import contextlib
 import os
 import time as _time
 from typing import Any, AsyncGenerator, Optional, Union
@@ -196,11 +198,85 @@ class LuthienCallback(CustomLogger):
         cleanup_after_stream = False
         stream_closed = False
 
+        receive_task: asyncio.Task[Optional[dict]] | None = None
+        control_signaled_end = False
+
+        def schedule_receive() -> None:
+            nonlocal receive_task
+            if receive_task is None and not stream_closed and not passthrough:
+                receive_task = asyncio.create_task(connection.receive())
+
+        async def poll_control(initial_timeout: float | None) -> list[ModelResponseStream]:
+            nonlocal receive_task, passthrough, cleanup_after_stream, stream_closed, control_signaled_end
+
+            chunks: list[ModelResponseStream] = []
+            timeout = initial_timeout
+            needs_reschedule = False
+
+            while receive_task is not None:
+                task = receive_task
+                if timeout is not None:
+                    try:
+                        await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+                    except asyncio.TimeoutError:
+                        break
+                    timeout = None
+                else:
+                    if not task.done():
+                        break
+
+                receive_task = None
+                try:
+                    message = task.result()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # pragma: no cover - defensive
+                    verbose_logger.error(f"stream[{stream_id}] control receive failed: {exc}")
+                    passthrough = True
+                    cleanup_after_stream = True
+                    break
+
+                if message is None:
+                    stream_closed = True
+                    break
+
+                msg_type = message.get("type")
+                if msg_type == "CHUNK":
+                    data = message.get("data")
+                    try:
+                        chunks.append(self._normalize_stream_chunk(data))
+                    except Exception as exc:
+                        verbose_logger.error(f"stream[{stream_id}] invalid transformed chunk: {exc}")
+                    needs_reschedule = True
+                elif msg_type == "ERROR":
+                    verbose_logger.error(f"stream[{stream_id}] control plane error: {message.get('error')}")
+                    passthrough = True
+                    cleanup_after_stream = True
+                    break
+                elif msg_type == "END":
+                    stream_closed = True
+                    control_signaled_end = True
+                    break
+                else:
+                    verbose_logger.warning(
+                        f"stream[{stream_id}] unexpected message type {msg_type}; ignoring control output"
+                    )
+                    needs_reschedule = True
+
+                timeout = None
+
+            if needs_reschedule and not stream_closed and not passthrough:
+                schedule_receive()
+
+            return chunks
+
         try:
+            schedule_receive()
             async for item in response:
-                if passthrough:
-                    yield item
-                    continue
+                for pending in await poll_control(initial_timeout=0):
+                    yield pending
+                if stream_closed or passthrough:
+                    break
 
                 chunk_dict = item.model_dump()
                 try:
@@ -209,41 +285,33 @@ class LuthienCallback(CustomLogger):
                     verbose_logger.error(f"stream[{stream_id}] unable to forward chunk: {exc}")
                     passthrough = True
                     cleanup_after_stream = True
-                    yield item
                     continue
 
-                message = await connection.receive(timeout=5.0)
-                if message is None:
-                    verbose_logger.warning(f"stream[{stream_id}] control plane timeout; falling back to original chunk")
-                    yield item
-                    continue
+                transformed_chunks = await poll_control(initial_timeout=0.05)
+                for transformed in transformed_chunks:
+                    yield transformed
 
-                msg_type = message.get("type")
-                if msg_type == "CHUNK":
-                    data = message.get("data")
-                    try:
-                        yield self._normalize_stream_chunk(data)
-                    except Exception as exc:
-                        verbose_logger.error(f"stream[{stream_id}] invalid transformed chunk: {exc}")
-                        yield item
-                elif msg_type == "ERROR":
-                    verbose_logger.error(f"stream[{stream_id}] control plane error: {message.get('error')}")
-                    passthrough = True
-                    cleanup_after_stream = True
-                    yield item
-                elif msg_type == "END":
-                    stream_closed = True
+                if stream_closed or passthrough:
                     break
-                else:
-                    verbose_logger.warning(
-                        f"stream[{stream_id}] unexpected message type {msg_type}; yielding original chunk"
-                    )
-                    yield item
+
+            # Upstream finished; flush remaining control-plane output.
+            for transformed in await poll_control(initial_timeout=0.05):
+                yield transformed
+            while True:
+                extra = await poll_control(initial_timeout=None)
+                if not extra:
+                    break
+                for transformed in extra:
+                    yield transformed
         finally:
+            if receive_task is not None:
+                receive_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await receive_task
             try:
                 await self._cleanup_stream(
                     stream_id,
-                    send_end=not (stream_closed or cleanup_after_stream),
+                    send_end=not control_signaled_end,
                 )
             except Exception as exc:  # pragma: no cover - defensive
                 verbose_logger.error(f"stream[{stream_id}] cleanup failed: {exc}")

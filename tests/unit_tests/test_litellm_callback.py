@@ -1,5 +1,6 @@
 """Test suite for LiteLLM callback error handling and type normalization."""
 
+import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -289,12 +290,17 @@ async def test_streaming_hook_returns_transformed_chunk(callback):
     class DummyConnection:
         def __init__(self):
             self.sent = []
+            self._delivered = False
 
         async def send(self, message):
             self.sent.append(message)
 
         async def receive(self, timeout=None):
-            return {"type": "CHUNK", "data": transformed}
+            if not self._delivered:
+                self._delivered = True
+                return {"type": "CHUNK", "data": transformed}
+            await asyncio.sleep(0)
+            return None
 
     manager = AsyncMock()
     connection = DummyConnection()
@@ -315,8 +321,7 @@ async def test_streaming_hook_returns_transformed_chunk(callback):
         ):
             results.append(item)
 
-    assert len(results) == 1
-    assert results[0].choices[0]["delta"]["content"] == "HELLO"
+    assert [chunk.choices[0]["delta"]["content"] for chunk in results] == ["HELLO"]
 
 
 class _StreamingConnection:
@@ -328,13 +333,15 @@ class _StreamingConnection:
         self.sent.append(message)
 
     async def receive(self, timeout=None):
-        if self._responses:
-            return self._responses.pop(0)
-        return None
+        if not self._responses:
+            await asyncio.sleep(0)
+            return None
+        await asyncio.sleep(0)
+        return self._responses.pop(0)
 
 
 @pytest.mark.asyncio
-async def test_streaming_hook_cleans_up_without_control_plane_end(callback):
+async def test_streaming_hook_cleans_up_after_control_end(callback):
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -345,7 +352,7 @@ async def test_streaming_hook_cleans_up_without_control_plane_end(callback):
         }
     )
 
-    connection = _StreamingConnection(responses=[])
+    connection = _StreamingConnection(responses=[{"type": "END"}])
 
     manager = AsyncMock()
     manager.get_or_create.return_value = connection
@@ -364,8 +371,8 @@ async def test_streaming_hook_cleans_up_without_control_plane_end(callback):
             ):
                 results.append(item)
 
-    assert len(results) == 1
-    cleanup.assert_awaited_once_with("abc", send_end=True)
+    assert results == []
+    cleanup.assert_awaited_once_with("abc", send_end=False)
 
 
 @pytest.mark.asyncio
@@ -401,6 +408,64 @@ async def test_streaming_hook_skips_end_when_control_plane_signals_close(callbac
 
     assert results == []
     cleanup.assert_awaited_once_with("abc", send_end=False)
+
+
+@pytest.mark.asyncio
+async def test_streaming_hook_waits_for_control_plane_chunk(callback):
+    original = ModelResponseStream.model_validate(
+        {
+            "id": "stream",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "gpt-test",
+            "choices": [{"index": 0, "delta": {"content": "hi"}}],
+        }
+    )
+
+    transformed = {
+        "id": "stream",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "gpt-test",
+        "choices": [{"index": 0, "delta": {"content": "HELLO"}}],
+    }
+
+    class DelayedConnection:
+        def __init__(self):
+            self.sent = []
+            self._emitted = False
+
+        async def send(self, message):
+            self.sent.append(message)
+
+        async def receive(self, timeout=None):
+            if self._emitted:
+                await asyncio.sleep(0)
+                return {"type": "END"}
+            await asyncio.sleep(0.01)
+            self._emitted = True
+            return {"type": "CHUNK", "data": transformed}
+
+    manager = AsyncMock()
+    connection = DelayedConnection()
+    manager.get_or_create.return_value = connection
+    manager.lookup.return_value = connection
+    manager.close.return_value = None
+
+    with patch.object(callback, "_get_connection_manager", return_value=manager):
+        results = []
+
+        async def upstream():
+            yield original
+
+        async for item in callback.async_post_call_streaming_iterator_hook(
+            None,
+            upstream(),
+            {"litellm_call_id": "abc"},
+        ):
+            results.append(item)
+
+    assert [chunk.choices[0]["delta"]["content"] for chunk in results] == ["HELLO"]
 
 
 @pytest.mark.asyncio

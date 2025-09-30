@@ -6,10 +6,12 @@ import pytest
 from luthien_proxy.control_plane.debug_routes import (
     DebugPage,
     DebugTypeInfo,
+    ToolCallLogEntry,
     get_conversation_logs,
     get_debug_entries,
     get_debug_page,
     get_debug_types,
+    get_tool_call_logs,
 )
 from luthien_proxy.utils.project_config import ProjectConfig
 
@@ -272,3 +274,59 @@ async def test_get_conversation_logs_handles_invalid_timestamp(project_config: P
     entry = logs[0]
     assert entry.call_id == "call-3"
     assert entry.timestamp == now
+
+
+@pytest.mark.asyncio
+async def test_get_tool_call_logs_parses_entries(project_config: ProjectConfig):
+    now = datetime.now(UTC)
+    payload = {
+        "schema": "luthien.conversation.tool_call.v1",
+        "call_id": "call-1",
+        "trace_id": "trace-1",
+        "timestamp": now.isoformat(),
+        "stream_id": "stream-1",
+        "chunks_buffered": 3,
+        "tool_calls": [{"id": "tool-1", "type": "function", "name": "shell", "arguments": "{}"}],
+    }
+    conn = _FakeDebugConn(
+        [
+            {
+                "id": 10,
+                "time_created": now,
+                "debug_type_identifier": "conversation:tool-call",
+                "jsonblob": json.dumps(payload),
+            }
+        ]
+    )
+    pool = _FakePool(conn)
+
+    logs = await get_tool_call_logs(pool=pool, config=project_config)
+
+    assert len(logs) == 1
+    entry = logs[0]
+    assert isinstance(entry, ToolCallLogEntry)
+    assert entry.call_id == "call-1"
+    assert entry.trace_id == "trace-1"
+    assert entry.stream_id == "stream-1"
+    assert entry.chunks_buffered == 3
+    assert entry.tool_calls[0]["name"] == "shell"
+
+
+@pytest.mark.asyncio
+async def test_get_tool_call_logs_filters_call_id(project_config: ProjectConfig):
+    now = datetime.now(UTC)
+    conn = _FakeDebugConn(
+        [
+            {
+                "id": 11,
+                "time_created": now,
+                "debug_type_identifier": "conversation:tool-call",
+                "jsonblob": json.dumps({"call_id": "other", "timestamp": now.isoformat(), "tool_calls": []}),
+            }
+        ]
+    )
+    pool = _FakePool(conn)
+
+    logs = await get_tool_call_logs(call_id="call-1", pool=pool, config=project_config)
+
+    assert logs == []

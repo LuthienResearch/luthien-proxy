@@ -39,6 +39,12 @@ class _FakeTraceConn:
         self._rows = rows
 
     async def fetch(self, *args, **kwargs):
+        if len(args) >= 4:
+            # sql, call_id, limit_plus_one, offset
+            limit_plus_one = args[2]
+            offset = args[3]
+            end = offset + limit_plus_one
+            return self._rows[offset:end]
         return self._rows
 
     async def fetchrow(self, *args, **kwargs):
@@ -156,6 +162,49 @@ async def test_trace_by_call_id_orders_entries(project_config: ProjectConfig):
     assert isinstance(response, TraceResponse)
     assert [entry.hook for entry in response.entries] == ["alpha", "beta"]
     assert response.entries[0].post_time_ns == 10
+    assert response.limit == 500
+    assert response.offset == 0
+    assert response.has_more is False
+    assert response.next_offset is None
+
+
+@pytest.mark.asyncio
+async def test_trace_by_call_id_supports_pagination(project_config: ProjectConfig):
+    now = datetime.now(UTC)
+    rows = [
+        {
+            "time_created": now + timedelta(milliseconds=idx),
+            "debug_type_identifier": f"hook:{idx}",
+            "jsonblob": f'{{"payload": {{}}, "hook": "h{idx}"}}',
+        }
+        for idx in range(3)
+    ]
+    pool = _PoolWrapper(_FakeTraceConn(rows))
+
+    response = await trace_by_call_id(
+        "abc123",
+        limit=2,
+        offset=0,
+        pool=pool,
+        config=project_config,
+    )
+
+    assert len(response.entries) == 2
+    assert response.entries[0].hook == "h0"
+    assert response.has_more is True
+    assert response.next_offset == 2
+
+    response_next = await trace_by_call_id(
+        "abc123",
+        limit=2,
+        offset=response.next_offset,
+        pool=pool,
+        config=project_config,
+    )
+
+    assert [entry.hook for entry in response_next.entries] == ["h2"]
+    assert response_next.has_more is False
+    assert response_next.next_offset is None
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,228 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Tool Call Logs</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background: #f4f5f7;
+      }
+      .wrapper {
+        max-width: 960px;
+        margin: 24px auto;
+        padding: 16px;
+        background: #ffffff;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 24px;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      input[type="text"] {
+        flex: 1;
+        padding: 8px;
+        border: 1px solid #ccd0d5;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      button {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        background: #2563eb;
+        color: #ffffff;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #6b7280;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      #status {
+        font-size: 13px;
+        color: #374151;
+        margin-bottom: 12px;
+      }
+      ul.log-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .entry {
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        padding: 12px;
+        background: #fafafa;
+      }
+      .entry-header {
+        font-size: 13px;
+        color: #1f2937;
+        margin-bottom: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .badge {
+        background: #dbeafe;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .tool-list {
+        margin: 0 0 8px;
+        padding-left: 16px;
+      }
+      .tool-list li {
+        font-size: 13px;
+        margin-bottom: 4px;
+      }
+      pre.json {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12px;
+        background: #111827;
+        color: #f9fafb;
+        padding: 8px;
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <h1>Tool Call Logs</h1>
+      <div class="controls">
+        <input id="call-id" type="text" placeholder="Filter by litellm_call_id (optional)" />
+        <button id="load">Load</button>
+        <button id="clear" class="secondary">Clear</button>
+      </div>
+      <div id="status">Idle</div>
+      <ul id="log-list" class="log-list"></ul>
+    </div>
+    <script>
+      const callInput = document.getElementById("call-id");
+      const loadBtn = document.getElementById("load");
+      const clearBtn = document.getElementById("clear");
+      const statusEl = document.getElementById("status");
+      const listEl = document.getElementById("log-list");
+
+      async function loadLogs() {
+        const callId = callInput.value.trim();
+        let url = "/api/tool-calls/logs?limit=50";
+        if (callId) {
+          url += `&call_id=${encodeURIComponent(callId)}`;
+        }
+        loadBtn.disabled = true;
+        statusEl.textContent = "Loading…";
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const entries = await response.json();
+          render(entries);
+          statusEl.textContent = `Loaded ${entries.length} entr${entries.length === 1 ? "y" : "ies"}.`;
+        } catch (error) {
+          statusEl.textContent = `Error: ${error.message}`;
+        } finally {
+          loadBtn.disabled = false;
+        }
+      }
+
+      function render(entries) {
+        listEl.innerHTML = "";
+        if (!entries.length) {
+          const empty = document.createElement("li");
+          empty.textContent = "No tool call logs found.";
+          empty.style.color = "#6b7280";
+          listEl.appendChild(empty);
+          return;
+        }
+
+        entries.forEach((entry) => {
+          const item = document.createElement("li");
+          item.className = "entry";
+
+          const header = document.createElement("div");
+          header.className = "entry-header";
+
+          const timestamp = document.createElement("strong");
+          timestamp.textContent = new Date(entry.timestamp).toLocaleString();
+          header.appendChild(timestamp);
+
+          const callBadge = document.createElement("span");
+          callBadge.className = "badge";
+          callBadge.textContent = `Call: ${entry.call_id}`;
+          header.appendChild(callBadge);
+
+          if (entry.stream_id) {
+            const streamBadge = document.createElement("span");
+            streamBadge.className = "badge";
+            streamBadge.textContent = `Stream: ${entry.stream_id}`;
+            header.appendChild(streamBadge);
+          }
+
+          if (entry.trace_id) {
+            const traceBadge = document.createElement("span");
+            traceBadge.className = "badge";
+            traceBadge.textContent = `Trace: ${entry.trace_id}`;
+            header.appendChild(traceBadge);
+          }
+
+          if (typeof entry.chunks_buffered === "number") {
+            const chunkBadge = document.createElement("span");
+            chunkBadge.className = "badge";
+            chunkBadge.textContent = `${entry.chunks_buffered} chunk${entry.chunks_buffered === 1 ? "" : "s"}`;
+            header.appendChild(chunkBadge);
+          }
+
+          item.appendChild(header);
+
+          const tools = Array.isArray(entry.tool_calls) ? entry.tool_calls : [];
+          if (tools.length) {
+            const toolList = document.createElement("ul");
+            toolList.className = "tool-list";
+            tools.forEach((tool) => {
+              const li = document.createElement("li");
+              const name = tool.name || tool.id || "tool";
+              li.textContent = `${name} (${tool.type || "unknown"})`;
+              toolList.appendChild(li);
+            });
+            item.appendChild(toolList);
+          }
+
+          const pre = document.createElement("pre");
+          pre.className = "json";
+          pre.textContent = JSON.stringify(entry.tool_calls, null, 2);
+          item.appendChild(pre);
+
+          listEl.appendChild(item);
+        });
+      }
+
+      loadBtn.addEventListener("click", loadLogs);
+      clearBtn.addEventListener("click", () => {
+        callInput.value = "";
+        listEl.innerHTML = "";
+        statusEl.textContent = "Idle";
+      });
+
+      loadLogs();
+    </script>
+  </body>
+</html>

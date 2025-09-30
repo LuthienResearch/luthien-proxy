@@ -63,3 +63,9 @@ async def hooks_conversation_ui(request: Request):
 async def conversation_logs_ui(request: Request):
     """Render a simple view over recorded conversation turns."""
     return templates.TemplateResponse(request, "conversation_logs.html")
+
+
+@router.get("/ui/tool-calls", response_class=HTMLResponse)
+async def tool_call_logs_ui(request: Request):
+    """Render a view over recorded tool-call interventions."""
+    return templates.TemplateResponse(request, "tool_call_logs.html")
