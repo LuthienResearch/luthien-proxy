@@ -1,0 +1,19 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-py"
+}
+
+model DebugLog {
+  id                  String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  timeCreated         DateTime @default(now()) @map("time_created")
+  debugTypeIdentifier String   @map("debug_type_identifier")
+  jsonblob            Json
+
+  @@map("debug_logs")
+  @@index([timeCreated], name: "idx_debug_logs_created_at")
+  @@index([debugTypeIdentifier], name: "idx_debug_logs_type")
+}

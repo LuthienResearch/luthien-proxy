@@ -70,13 +70,10 @@ while ! docker compose exec -T db pg_isready -U "${POSTGRES_USER:-luthien}" -d "
 done
 echo "✅ PostgreSQL is ready"
 
-# Apply idempotent SQL migrations (for new tables like debug_logs)
-echo "🗂️  Applying SQL migrations..."
-for sql in $(ls -1 migrations/*.sql | sort); do
-  echo "   • $sql"
-  docker compose exec -T db psql -U "${POSTGRES_USER:-luthien}" -d "${POSTGRES_DB:-luthien_control}" -f "/docker-entrypoint-initdb.d/$(basename "$sql")" >/dev/null 2>&1 || true
-done
-echo "✅ SQL migrations applied (idempotent)"
+# Apply Prisma migrations for the control plane schema
+echo "🗂️  Applying control-plane Prisma migrations..."
+uv run prisma migrate deploy --schema prisma/control_plane/schema.prisma
+echo "✅ Prisma migrations applied"
 
 # Wait for Redis
 echo "⏳ Waiting for Redis to be ready..."

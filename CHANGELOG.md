@@ -12,6 +12,10 @@
 - [stream-view](stream-view): Delivered live conversation trace and trace-by-call UIs with real-time SSE updates
 - [stream-view](stream-view): Added configurable chunk history limits to prevent runaway memory use during long streams
 - [stream-view](stream-view): Hardened streaming reliability with cleanup on disconnects and exponential backoff for reconnects
+- [conversations] Switched to websockets architecture for two-way streaming between litellm and control plane, enabling arbitrary policy intervention
+- [control-plane-prisma](control-plane-prisma): Migrated the control-plane database to Prisma-managed migrations with automated deploy steps in docker-compose and `scripts/quick_start.sh`
+- [control-plane-prisma](control-plane-prisma): Removed unused legacy tables from the control-plane schema and unified LiteLLM Prisma assets under `prisma/litellm/`
+- [dataflows-doc](dataflows-doc): Added comprehensive documentation covering Postgres and Redis dataflows, retention, and operational nuances
 
 ## 0.0.0 | 2025-11-22
 

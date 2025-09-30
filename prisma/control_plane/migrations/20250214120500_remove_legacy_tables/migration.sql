@@ -1,5 +1,3 @@
--- ABOUTME: Remove unused placeholder tables that are no longer part of the control plane
-
 DROP TABLE IF EXISTS audit_requests CASCADE;
 DROP TABLE IF EXISTS control_decisions CASCADE;
 DROP TABLE IF EXISTS honeypot_results CASCADE;
