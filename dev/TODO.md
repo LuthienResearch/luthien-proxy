@@ -3,14 +3,12 @@
 ## High Priority
 
 - [ ] Demo: DB drop
-- [ ] Settle migration history (restore 001 or guarantee 004 runs everywhere) and document rollout plan
 
 ## Medium Priority
 
 - [ ] 99% unit test coverage
 - [ ] Why does the control plane docker container take ~5 seconds to restart?
 - [ ] Simplify/reduce data passed from litellm to control plane
-- [ ] Add lightweight migration runner service so docker-compose applies new SQL files automatically
 
 ## Low Priority
 
