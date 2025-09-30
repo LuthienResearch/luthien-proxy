@@ -29,7 +29,7 @@ class SeparatorStreamContext(StreamPolicyContext):
 class StreamingSeparatorPolicy(LuthienPolicy):
     """Policy that inserts separator strings between tokens in streaming responses."""
 
-    def __init__(self, options: Optional[dict[str, Any]] = None):
+    def __init__(self, options: Optional[dict[str, int | str]] = None):
         """Initialize with configuration options.
 
         Args:
@@ -39,8 +39,8 @@ class StreamingSeparatorPolicy(LuthienPolicy):
         """
         super().__init__()
         opts = options or {}
-        self.every_n: int = opts.get("every_n", 1)
-        self.separator_str: str = opts.get("separator_str", " | ")
+        self.every_n: int = int(opts.get("every_n", 1))
+        self.separator_str: str = str(opts.get("separator_str", " | "))
 
         if self.every_n < 1:
             raise ValueError("every_n must be at least 1")
