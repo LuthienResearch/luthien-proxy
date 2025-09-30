@@ -202,11 +202,14 @@ class LuthienCallback(CustomLogger):
         control_signaled_end = False
 
         def schedule_receive() -> None:
+            """Kick off the control-plane receive task when needed."""
             nonlocal receive_task
             if receive_task is None and not stream_closed and not passthrough:
+                verbose_logger.debug(f"stream[{stream_id}] scheduling control receive task")
                 receive_task = asyncio.create_task(connection.receive())
 
         async def poll_control(initial_timeout: float | None) -> list[ModelResponseStream]:
+            """Drain any buffered control-plane output within the timeout window."""
             nonlocal receive_task, passthrough, cleanup_after_stream, stream_closed, control_signaled_end
 
             chunks: list[ModelResponseStream] = []
@@ -216,9 +219,8 @@ class LuthienCallback(CustomLogger):
             while receive_task is not None:
                 task = receive_task
                 if timeout is not None:
-                    try:
-                        await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
-                    except asyncio.TimeoutError:
+                    done, _ = await asyncio.wait({task}, timeout=timeout)
+                    if not done:
                         break
                     timeout = None
                 else:
@@ -254,6 +256,7 @@ class LuthienCallback(CustomLogger):
                     cleanup_after_stream = True
                     break
                 elif msg_type == "END":
+                    verbose_logger.debug(f"stream[{stream_id}] control plane signaled END")
                     stream_closed = True
                     control_signaled_end = True
                     break
@@ -273,6 +276,8 @@ class LuthienCallback(CustomLogger):
         try:
             schedule_receive()
             async for item in response:
+                if stream_closed:
+                    verbose_logger.debug(f"stream[{stream_id}] upstream chunk skipped; control closed")
                 for pending in await poll_control(initial_timeout=0):
                     yield pending
                 if stream_closed or passthrough:
