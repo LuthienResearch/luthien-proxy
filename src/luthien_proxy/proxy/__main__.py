@@ -8,7 +8,18 @@ from luthien_proxy.utils.project_config import ProjectConfig, ProxyConfig
 
 def _run_prisma_migrations(runner: Callable) -> None:
     run = runner or subprocess.run
-    run(["uv", "run", "prisma", "db", "push"], check=True)
+    run(
+        [
+            "uv",
+            "run",
+            "prisma",
+            "db",
+            "push",
+            "--schema",
+            "prisma/litellm/schema.prisma",
+        ],
+        check=True,
+    )
 
 
 def _litellm_command(

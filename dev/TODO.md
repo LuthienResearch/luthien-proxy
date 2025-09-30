@@ -9,6 +9,7 @@
 - [ ] 99% unit test coverage
 - [ ] Why does the control plane docker container take ~5 seconds to restart?
 - [ ] Simplify/reduce data passed from litellm to control plane
+- [x] Add CI/CD step that runs Prisma migration validation for both control-plane and LiteLLM schemas
 
 ## Low Priority
 
@@ -19,6 +20,7 @@
 - [ ] Extract shared jsonblob parsing into `parse_data.py` for hooks/debug routes
 - [ ] Maybe logging for bg tasks [comment](https://github.com/LuthienResearch/luthien-proxy/pull/13#issuecomment-3321954052)
 - [ ] Actual type signatures on hook functions in litellm_callback
+- [ ] Make callback module independent (include connection manager)
 
 ### Performance (streamview, pr #16)
 
@@ -66,8 +68,9 @@
 
 ### Documentation (streamview, from pr #16)
 
-- [ ] Add architecture diagram showing data flow from proxy → control plane → UI
+- [x] Add architecture diagram showing data flow from proxy → control plane → UI
 - [ ] Add docstrings to frontend JS functions for maintainability
 - [ ] Write API documentation for new streaming and trace endpoints [comment](https://github.com/LuthienResearch/luthien-proxy/pull/16#issuecomment-3340920605)
 - [ ] Document frontend components supporting streaming views (props, state transitions) [comment](https://github.com/LuthienResearch/luthien-proxy/pull/16#issuecomment-3340920605)
 - [ ] Capture deployment considerations (Redis, SSE scaling, CSP requirements) [comment](https://github.com/LuthienResearch/luthien-proxy/pull/16#issuecomment-3340920605)
+- [ ] Link `docs/dataflows.md` from README for discoverability
