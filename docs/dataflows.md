@@ -3,7 +3,7 @@
 ## Component Overview
 - LiteLLM proxy runs under `config/litellm_config.yaml` and persists request metadata through Prisma migrations before starting (`src/luthien_proxy/proxy/__main__.py:9-56`).
 - Control plane FastAPI app initialises a shared asyncpg pool and Redis client in its lifespan hook; both handles are cached on `app.state` for request handlers (`src/luthien_proxy/control_plane/app.py:107-166`).
-- `config/litellm_callback.py` forwards configured LiteLLM hook invocations and streaming chunks to the control plane. The control plane stores structured logs in Postgres and publishes conversation events over Redis.
+- `config/litellm_callback.py` forwards LiteLLM hooks and maintains per-call WebSocket streams with the control plane, mirroring upstream chunks, collecting policy-transformed output, and ensuring both sides tear streams down cleanly.
 
 ## Postgres
 
@@ -59,7 +59,7 @@ All control-plane schema changes are managed by Prisma migrations in `prisma/con
 
 ## End-to-End Flow Highlights
 - **Synchronous hooks:** LiteLLM calls `POST /api/hooks/{hook}`; the control plane logs the incoming payload, runs the active policy, logs the result, writes both records into `debug_logs`, and publishes derived conversation events over Redis (`config/litellm_callback.py`, `src/luthien_proxy/control_plane/hooks_routes.py:95-188`). Trace endpoints replay those events by querying `debug_logs`.
-- **Streaming hooks:** LiteLLM upgrades to `/stream/{stream_id}`. Streaming routes log chunks and policy output, persist interim/final text in Redis, publish deltas to pub/sub channels, and record summary entries in `debug_logs` when the stream ends (`src/luthien_proxy/control_plane/streaming_routes.py:162-305`).
+- **Streaming hooks:** LiteLLM streams responses to the callback. The callback’s `StreamConnectionManager` establishes a control-plane WebSocket on first chunk, forwards upstream deltas as `CHUNK` messages, and polls for transformed output. Policies such as `ToolCallBufferPolicy` can buffer raw tool-call fragments, log the assembled tool call, and push a synthesized chunk back over the socket. The callback yields those transformed chunks to the client, flushes any remaining control-plane output when the model finishes, cancels the receive task, and sends a final `END` so the control plane can clean up (`config/litellm_callback.py`, `src/luthien_proxy/policies/tool_call_buffer.py`, `src/luthien_proxy/control_plane/streaming_routes.py:162-305`).
 - **Observability:** UI and API consumers read conversation history either live via SSE streams or after the fact through Postgres queries against `debug_logs`.
 
 ## Diagram

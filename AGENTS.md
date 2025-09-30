@@ -94,6 +94,10 @@
 - Run proxy locally: `uv run python -m luthien_proxy.proxy`
 - Docker iterate: `docker compose restart control-plane` or `litellm-proxy`
 
+## Tooling
+
+- Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent `debug_logs` rows. Example: `uv run python scripts/query_debug_logs.py --call-id <litellm_call_id> --host localhost --summary`.
+
 
 ## Coding Style & Naming Conventions
 
