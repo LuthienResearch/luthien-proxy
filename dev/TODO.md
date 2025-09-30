@@ -9,6 +9,7 @@
 - [ ] 99% unit test coverage
 - [ ] Why does the control plane docker container take ~5 seconds to restart?
 - [ ] Simplify/reduce data passed from litellm to control plane
+- [x] Add CI/CD step that runs Prisma migration validation for both control-plane and LiteLLM schemas
 
 ## Low Priority
 

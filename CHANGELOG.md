@@ -16,6 +16,7 @@
 - [control-plane-prisma](control-plane-prisma): Migrated the control-plane database to Prisma-managed migrations with automated deploy steps in docker-compose and `scripts/quick_start.sh`
 - [control-plane-prisma](control-plane-prisma): Removed unused legacy tables from the control-plane schema and unified LiteLLM Prisma assets under `prisma/litellm/`
 - [dataflows-doc](dataflows-doc): Added comprehensive documentation covering Postgres and Redis dataflows, retention, and operational nuances
+- [ci-prisma-validations](ci-prisma-validations): CI runs Prisma migration deploy/push against an ephemeral Postgres service to catch schema drift early
 
 ## 0.0.0 | 2025-11-22
 

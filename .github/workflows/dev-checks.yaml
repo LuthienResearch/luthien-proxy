@@ -11,6 +11,21 @@ jobs:
   dev-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: luthien
+          POSTGRES_PASSWORD: luthien
+          POSTGRES_DB: luthien_control
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U luthien" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://luthien:luthien@localhost:5432/luthien_control
+      LITELLM_DATABASE_URL: postgresql://luthien:luthien@localhost:5432/litellm_db
+      PGPASSWORD: luthien
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,8 +35,26 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
       - name: Sync project dependencies
         run: uv sync --all-groups --locked
+
+      - name: Prepare databases
+        run: |
+          until pg_isready -h localhost -p 5432 -U luthien; do
+            echo "Waiting for Postgres..."
+            sleep 1
+          done
+          psql -h localhost -U luthien -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='litellm_db';" | grep -q 1 || \
+            psql -h localhost -U luthien -d postgres -c "CREATE DATABASE litellm_db;"
+
+      - name: Validate control-plane migrations
+        run: uv run prisma migrate deploy --schema prisma/control_plane/schema.prisma
+
+      - name: Validate LiteLLM schema
+        run: uv run prisma db push --schema prisma/litellm/schema.prisma
 
       - name: Run formatting, lint, and tests
         run: ./scripts/dev_checks.sh

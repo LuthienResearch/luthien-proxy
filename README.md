@@ -73,6 +73,7 @@ Editor setup (VS Code)
 - **Control Plane**: Policy orchestration and decision logic
 - **Policy Engine**: Configuration and threshold management
 - **Debug UI**: `/debug` for recent debug types, `/ui/hooks/trace` for call traces
+- **Dataflows**: See [`docs/dataflows.md`](docs/dataflows.md) for Postgres/Redis interactions, retention, and streaming flows
 
 ## Endpoints
 
