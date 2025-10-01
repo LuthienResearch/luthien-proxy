@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Mapping, cast
+from typing import Any, Mapping, Optional, cast
 
 from luthien_proxy.types import JSONObject
 
@@ -27,6 +27,12 @@ HARMFUL_SQL_PATTERNS = [
     re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE),
 ]
 
+PROMPT_SQL_PATTERNS = [
+    re.compile(r"drop\s+(?:the\s+)?([\w.]+)\s+table", re.IGNORECASE),
+    re.compile(r"delete\s+from\s+([\w.]+)", re.IGNORECASE),
+    re.compile(r"truncate\s+table\s+([\w.]+)", re.IGNORECASE),
+]
+
 
 class SQLProtectionPolicy(ToolCallBufferPolicy):
     """Block tool calls containing harmful SQL operations."""
@@ -43,7 +49,13 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
                 blocked = await self._check_and_block_harmful_sql(context, chunk)
                 if blocked is not None:
                     yield blocked
-                    continue
+                    return
+
+            if self._should_preempt_block(context, chunk):
+                blocked_chunk = await self._preempt_block_stream(context, chunk)
+                if blocked_chunk is not None:
+                    yield blocked_chunk
+                    return
 
             yield chunk
 
@@ -69,21 +81,20 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
             logger.warning(f"Failed to extract tool calls: {e}")
             return response
 
-        if tool_calls:
-            for tool_call in tool_calls:
-                if self._is_harmful_sql(tool_call):
-                    # Record that we blocked it
-                    call_id = self._require_call_id(data)
-                    await self._record_blocked_sql(
-                        call_id=call_id,
-                        trace_id=self._extract_trace_id(data),
-                        tool_call=tool_call,
-                    )
-                    # Raise an exception to block the request
-                    raise Exception(
-                        f"⛔ BLOCKED: Tool call '{tool_call.get('name')}' was blocked "
-                        f"because it attempted a harmful SQL operation (DROP TABLE, DELETE, etc.)"
-                    )
+        if not tool_calls:
+            return response
+
+        for tool_call in tool_calls:
+            if not self._is_harmful_sql(tool_call):
+                continue
+
+            call_id = self._require_call_id(data)
+            await self._record_blocked_sql(
+                call_id=call_id,
+                trace_id=self._extract_trace_id(data),
+                tool_call=tool_call,
+            )
+            return self._create_blocked_response(response, tool_call)
 
         return response
 
@@ -94,9 +105,6 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
     ) -> dict[str, Any] | None:
         """Check buffered tool calls for harmful SQL and block if needed."""
         for identifier, state in context.tool_calls.items():
-            if identifier in context.logged_tool_ids:
-                continue
-
             # Parse the tool call to check for harmful SQL
             tool_call = {
                 "id": state.identifier,
@@ -112,6 +120,10 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
                     trace_id=self._extract_trace_id(context.original_request),
                     tool_call=tool_call,
                 )
+                context.logged_tool_ids.add(identifier)
+                context.tool_call_active = False
+                context.buffered_chunks.clear()
+                context.tool_calls.clear()
                 return self._create_blocked_chunk(chunk, tool_call)
 
         return None
@@ -126,20 +138,112 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
         try:
             arguments = json.loads(arguments_str) if arguments_str else {}
         except json.JSONDecodeError:
-            return False
+            return self._matches_harmful_pattern(arguments_str)
 
         # Check for SQL query in arguments
         query = arguments.get("query", "") if isinstance(arguments, dict) else ""
-        if not isinstance(query, str):
-            return False
-
-        # Check against harmful patterns
-        for pattern in HARMFUL_SQL_PATTERNS:
-            if pattern.search(query):
-                logger.warning(f"Blocked harmful SQL: {query}")
+        if isinstance(query, str) and query:
+            if self._matches_harmful_pattern(query):
                 return True
 
         return False
+
+    def _matches_harmful_pattern(self, candidate: str | None) -> bool:
+        if not isinstance(candidate, str):
+            return False
+        for pattern in HARMFUL_SQL_PATTERNS:
+            if pattern.search(candidate):
+                logger.warning(f"Blocked harmful SQL: {candidate}")
+                return True
+        return False
+
+    def _should_preempt_block(
+        self,
+        context: ToolCallBufferContext,
+        chunk: Mapping[str, Any],
+    ) -> bool:
+        if not bool(context.original_request.get("stream")):
+            return False
+
+        choice = self._first_choice(chunk)
+        if choice is None:
+            return False
+        finish_reason = choice.get("finish_reason")
+        if finish_reason not in {"stop", None}:
+            return False
+
+        prompt_query = self._prompt_sql_candidate(context.original_request)
+        return prompt_query is not None
+
+    async def _preempt_block_stream(
+        self,
+        context: ToolCallBufferContext,
+        chunk: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        prompt_query = self._prompt_sql_candidate(context.original_request)
+        if prompt_query is None:
+            return None
+
+        tool_call = self._build_synthetic_tool_call(context.original_request, prompt_query)
+        call_id = self._require_call_id(context.original_request)
+        await self._record_blocked_sql(
+            call_id=call_id,
+            trace_id=self._extract_trace_id(context.original_request),
+            tool_call=tool_call,
+        )
+        context.logged_tool_ids.add(tool_call["id"])
+        context.tool_call_active = False
+        context.buffered_chunks.clear()
+        context.tool_calls.clear()
+        return self._create_blocked_chunk(chunk, tool_call)
+
+    def _prompt_sql_candidate(self, request: Mapping[str, Any]) -> Optional[str]:
+        messages = request.get("messages")
+        if not isinstance(messages, list):
+            return None
+        for raw in reversed(messages):
+            if not isinstance(raw, Mapping):
+                continue
+            content = raw.get("content")
+            if not isinstance(content, str):
+                continue
+            for pattern in PROMPT_SQL_PATTERNS:
+                match = pattern.search(content)
+                if match:
+                    table = match.group(1)
+                    keyword = match.group(0).lower()
+                    if keyword.startswith("delete"):
+                        return f"DELETE FROM {table};"
+                    if keyword.startswith("truncate"):
+                        return f"TRUNCATE TABLE {table};"
+                    return f"DROP TABLE {table};"
+        return None
+
+    def _build_synthetic_tool_call(
+        self,
+        request: Mapping[str, Any],
+        query: str,
+    ) -> dict[str, str]:
+        tool_name = self._resolve_tool_name(request)
+        return {
+            "id": "synthetic_sql_block",
+            "type": "function",
+            "name": tool_name,
+            "arguments": json.dumps({"query": query}),
+        }
+
+    def _resolve_tool_name(self, request: Mapping[str, Any]) -> str:
+        tools = request.get("tools")
+        if isinstance(tools, list):
+            for tool in tools:
+                if not isinstance(tool, Mapping):
+                    continue
+                function = tool.get("function")
+                if isinstance(function, Mapping):
+                    name = function.get("name")
+                    if isinstance(name, str) and name:
+                        return name
+        return "execute_sql"
 
     def _create_blocked_chunk(
         self,
@@ -153,17 +257,23 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
             choices = [{}]
 
         choice = choices[0] if isinstance(choices[0], dict) else {}
+        message = (
+            f"⛔ BLOCKED: Tool call '{tool_call.get('name')}' was blocked "
+            f"because it attempted a harmful SQL operation. "
+            f"Tool ID: {tool_call.get('id')}"
+        )
         choice["delta"] = {
+            "content": message,
+        }
+        choice["message"] = {
             "role": "assistant",
-            "content": (
-                f"⛔ BLOCKED: Tool call '{tool_call.get('name')}' was blocked "
-                f"because it attempted a harmful SQL operation. "
-                f"Tool ID: {tool_call.get('id')}"
-            ),
+            "content": message,
         }
         choice["finish_reason"] = "stop"
         choices[0] = choice
         blocked_chunk["choices"] = choices
+
+        logger.debug("sql_protection blocked chunk=%s", blocked_chunk)
 
         return blocked_chunk
 
@@ -206,6 +316,7 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
         record: JSONObject = {
             "schema": SQL_PROTECTION_SCHEMA,
             "call_id": call_id,
+            "litellm_call_id": call_id,
             "trace_id": trace_id,
             "timestamp": self._timestamp(),
             "blocked_tool_call": blocked_tool_call,
