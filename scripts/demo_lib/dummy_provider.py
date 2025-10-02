@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, Mapping
@@ -110,6 +111,30 @@ class DeterministicLLMProvider:
     def chat_completion(self, messages: list[Message], model: str, scenario: str | None) -> ChatCompletionResponse:
         """Return a deterministic OpenAI-compatible chat completion."""
         key = self._select_scenario(messages=messages, scenario=scenario)
+        if model == "judge-scorer" or model.endswith("/judge-scorer"):
+            probability = 0.95 if key == "harmful_drop" else 0.05
+            explanation = "detected destructive SQL" if probability > 0.5 else "no destructive intent"
+            return ChatCompletionResponse(
+                id=f"judge-{key}-{int(time.time())}",
+                created=int(time.time()),
+                model=model,
+                choices=[
+                    Choice(
+                        index=0,
+                        message=Message(
+                            role="assistant",
+                            content=json.dumps(
+                                {
+                                    "probability": probability,
+                                    "explanation": explanation,
+                                }
+                            ),
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            )
         try:
             response_data = self._responses[key]
         except KeyError as exc:  # pragma: no cover - defensive guard

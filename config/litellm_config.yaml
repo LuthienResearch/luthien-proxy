@@ -67,6 +67,12 @@ model_list:
       api_base: http://dummy-provider:8080/v1
       api_key: dummy-key
 
+  - model_name: judge-scorer
+    litellm_params:
+      model: openai/judge-scorer
+      api_base: http://dummy-provider:8080/v1
+      api_key: dummy-key
+
 
 # LiteLLM proxy settings
 litellm_settings:

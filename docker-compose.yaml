@@ -134,6 +134,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile.control-plane
     command: ["uv", "run", "python", "scripts/run_dummy_provider.py", "--port", "8080"]
+    environment:
+      - UV_CACHE_DIR=/tmp/uv-cache
     ports:
       - "4015:8080"
     volumes:

@@ -42,7 +42,7 @@ ENV PRISMA_QUERY_ENGINE_BINARY_PATH="/home/app/.cache/prisma"
 ENV PRISMA_CLI_BINARY_TARGETS="linux-arm64-openssl-3.0.x"
 
 # Generate Prisma client for LiteLLM database functionality
-RUN uv run prisma generate
+RUN uv run prisma generate --schema prisma/litellm/schema.prisma
 
 # Copy config in final layer (changes frequently)
 COPY --chown=app:app config/ ./config/
