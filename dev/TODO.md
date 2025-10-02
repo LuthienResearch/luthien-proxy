@@ -3,6 +3,7 @@
 ## High Priority
 
 - [ ] Demo: DB drop
+- [ ] Make data logging more efficient
 
 ## Medium Priority
 
