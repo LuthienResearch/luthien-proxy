@@ -22,6 +22,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 TOOL_CALL_DEBUG_TYPE = "conversation:tool-call"
+JUDGE_DEBUG_TYPE = "protection:llm-judge-block"
 
 
 def _parse_debug_jsonblob(raw_blob: object) -> JSONObject:
@@ -87,6 +88,23 @@ class ToolCallLogEntry(BaseModel):
     stream_id: Optional[str]
     chunks_buffered: Optional[int]
     tool_calls: list[JSONObject]
+
+
+class JudgeBlockEntry(BaseModel):
+    """Structured view of judge decisions recorded by the protection policy."""
+
+    call_id: str
+    trace_id: Optional[str]
+    timestamp: datetime
+    probability: float
+    explanation: str
+    tool_call: JSONObject
+    judge_prompt: list[JSONObject]
+    judge_response_text: str
+    original_request: Optional[JSONObject]
+    original_response: Optional[JSONObject]
+    stream_chunks: Optional[list[JSONObject]]
+    blocked_response: JSONObject
 
 
 @router.get("/api/debug/{debug_type}", response_model=list[DebugEntry])
@@ -236,6 +254,102 @@ async def get_tool_call_logs(
     return filtered
 
 
+@router.get("/api/policy/judge", response_model=list[JudgeBlockEntry])
+async def get_judge_blocks(
+    trace_id: str = Query(min_length=1),
+    call_id: Optional[str] = Query(default=None, min_length=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
+    config: ProjectConfig = Depends(get_project_config),
+) -> list[JudgeBlockEntry]:
+    """Return judge decision records filtered by trace id (and optional call id)."""
+    if config.database_url is None or pool is None:
+        return []
+
+    entries = await get_debug_entries(JUDGE_DEBUG_TYPE, limit=limit, pool=pool, config=config)
+    filtered: list[JudgeBlockEntry] = []
+
+    for entry in entries:
+        blob = entry.jsonblob
+        if not isinstance(blob, dict):
+            continue
+        blob_trace = blob.get("trace_id")
+        trace_value = blob_trace if isinstance(blob_trace, str) and blob_trace else None
+        if trace_value != trace_id:
+            continue
+        blob_call = blob.get("call_id")
+        call_value = blob_call if isinstance(blob_call, str) and blob_call else None
+        if call_id and call_value != call_id:
+            continue
+        call_identifier = call_value or (blob_call if isinstance(blob_call, str) and blob_call else "unknown")
+
+        timestamp_raw = blob.get("timestamp")
+        if isinstance(timestamp_raw, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp_raw)
+            except ValueError:
+                timestamp = entry.time_created
+        else:
+            timestamp = entry.time_created
+
+        tool_call_raw = blob.get("tool_call")
+        tool_call = tool_call_raw if isinstance(tool_call_raw, dict) else {}
+
+        judge_prompt_raw = blob.get("judge_prompt")
+        judge_prompt: list[JSONObject] = []
+        if isinstance(judge_prompt_raw, list):
+            for item in judge_prompt_raw:
+                if isinstance(item, dict):
+                    judge_prompt.append(item)
+
+        stream_chunks_raw = blob.get("stream_chunks")
+        stream_chunks: list[JSONObject] | None = None
+        if isinstance(stream_chunks_raw, list):
+            stream_chunks = []
+            for chunk in stream_chunks_raw:
+                if isinstance(chunk, dict):
+                    stream_chunks.append(chunk)
+
+        original_request_raw = blob.get("original_request")
+        original_request = original_request_raw if isinstance(original_request_raw, dict) else None
+
+        original_response_raw = blob.get("original_response")
+        original_response = original_response_raw if isinstance(original_response_raw, dict) else None
+
+        blocked_response_raw = blob.get("blocked_response")
+        blocked_response = blocked_response_raw if isinstance(blocked_response_raw, dict) else {}
+
+        judge_response_raw = blob.get("judge_response_text")
+        if isinstance(judge_response_raw, str):
+            judge_response_text = judge_response_raw
+        elif judge_response_raw is not None:
+            judge_response_text = json.dumps(judge_response_raw)
+        else:
+            judge_response_text = ""
+
+        probability_raw = blob.get("probability")
+        explanation_raw = blob.get("explanation")
+
+        filtered.append(
+            JudgeBlockEntry(
+                call_id=call_identifier,
+                trace_id=trace_value,
+                timestamp=timestamp,
+                probability=float(probability_raw) if isinstance(probability_raw, (int, float)) else 0.0,
+                explanation=str(explanation_raw) if explanation_raw is not None else "",
+                tool_call=tool_call,
+                judge_prompt=judge_prompt,
+                judge_response_text=judge_response_text,
+                original_request=original_request,
+                original_response=original_response,
+                stream_chunks=stream_chunks,
+                blocked_response=blocked_response,
+            )
+        )
+
+    return filtered
+
+
 @router.get("/api/debug/types", response_model=list[DebugTypeInfo])
 async def get_debug_types(
     pool: Optional[db.DatabasePool] = Depends(get_database_pool),
@@ -334,4 +448,6 @@ __all__ = [
     "get_debug_page",
     "get_conversation_logs",
     "get_tool_call_logs",
+    "get_judge_blocks",
+    "JudgeBlockEntry",
 ]

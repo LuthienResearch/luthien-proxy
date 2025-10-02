@@ -1,0 +1,279 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>LLM Judge Decisions</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 0;
+        background: #f4f5f7;
+      }
+      .wrapper {
+        max-width: 1080px;
+        margin: 24px auto;
+        padding: 16px;
+        background: #ffffff;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 24px;
+        color: #111827;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      input[type="text"] {
+        flex: 1 1 240px;
+        padding: 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      button {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        background: #2563eb;
+        color: white;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #6b7280;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      #status {
+        font-size: 13px;
+        color: #374151;
+        margin-bottom: 16px;
+      }
+      .entry {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+        background: #fafafa;
+      }
+      .entry-header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: baseline;
+        margin-bottom: 12px;
+        font-size: 14px;
+      }
+      .badge {
+        background: #dbeafe;
+        border-radius: 4px;
+        padding: 2px 6px;
+      }
+      .section {
+        margin-bottom: 12px;
+      }
+      .section h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+        color: #111827;
+      }
+      pre.json {
+        margin: 0;
+        background: #111827;
+        color: #f9fafb;
+        border-radius: 6px;
+        padding: 10px;
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .empty {
+        color: #6b7280;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <h1>LLM Judge Decisions</h1>
+      <div class="controls">
+        <input id="trace-id" type="text" placeholder="litellm_trace_id" />
+        <input id="call-id" type="text" placeholder="litellm_call_id (optional)" />
+        <button id="load">Load</button>
+        <button id="clear" class="secondary">Clear</button>
+      </div>
+      <div id="status">Idle</div>
+      <div id="results"></div>
+    </div>
+    <script>
+      const traceInput = document.getElementById("trace-id");
+      const callInput = document.getElementById("call-id");
+      const loadBtn = document.getElementById("load");
+      const clearBtn = document.getElementById("clear");
+      const statusEl = document.getElementById("status");
+      const resultsEl = document.getElementById("results");
+
+      loadBtn.addEventListener("click", loadDecisions);
+      clearBtn.addEventListener("click", () => {
+        traceInput.value = "";
+        callInput.value = "";
+        resultsEl.innerHTML = "";
+        statusEl.textContent = "Idle";
+      });
+
+      async function loadDecisions() {
+        const traceId = traceInput.value.trim();
+        if (!traceId) {
+          statusEl.textContent = "Enter a trace id first.";
+          return;
+        }
+
+        const params = new URLSearchParams({ trace_id: traceId });
+        const callId = callInput.value.trim();
+        if (callId) {
+          params.set("call_id", callId);
+        }
+
+        const url = `/api/policy/judge?${params.toString()}`;
+        loadBtn.disabled = true;
+        statusEl.textContent = "Loading…";
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          render(data);
+          statusEl.textContent = `Loaded ${data.length} entr${data.length === 1 ? "y" : "ies"}.`;
+        } catch (error) {
+          statusEl.textContent = `Error: ${error.message}`;
+          resultsEl.innerHTML = "";
+        } finally {
+          loadBtn.disabled = false;
+        }
+      }
+
+      function render(entries) {
+        resultsEl.innerHTML = "";
+        if (!Array.isArray(entries) || !entries.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No judge decisions found for that trace.";
+          resultsEl.appendChild(empty);
+          return;
+        }
+
+        entries.forEach((entry) => {
+          const container = document.createElement("div");
+          container.className = "entry";
+
+          const header = document.createElement("div");
+          header.className = "entry-header";
+
+          const timestamp = document.createElement("strong");
+          timestamp.textContent = new Date(entry.timestamp).toLocaleString();
+          header.appendChild(timestamp);
+
+          const probability = document.createElement("span");
+          probability.className = "badge";
+          const prob = typeof entry.probability === "number" ? entry.probability.toFixed(2) : "?";
+          probability.textContent = `Probability: ${prob}`;
+          header.appendChild(probability);
+
+          if (entry.call_id) {
+            const callBadge = document.createElement("span");
+            callBadge.className = "badge";
+            callBadge.textContent = `Call: ${entry.call_id}`;
+            header.appendChild(callBadge);
+          }
+
+          if (entry.trace_id) {
+            const traceBadge = document.createElement("span");
+            traceBadge.className = "badge";
+            traceBadge.textContent = `Trace: ${entry.trace_id}`;
+            header.appendChild(traceBadge);
+          }
+
+          if (entry.explanation) {
+            const explanation = document.createElement("span");
+            explanation.textContent = `— ${entry.explanation}`;
+            header.appendChild(explanation);
+          }
+
+          container.appendChild(header);
+
+          container.appendChild(createJSONSection("Prompt", extractPrompt(entry.original_request)));
+          container.appendChild(createJSONSection("Original Response", entry.original_response || entry.stream_chunks));
+          container.appendChild(createJSONSection("Judge Request", entry.judge_prompt));
+          container.appendChild(createTextSection("Judge Response", entry.judge_response_text));
+          container.appendChild(createJSONSection("Blocked Response", entry.blocked_response));
+          container.appendChild(createJSONSection("Tool Call", entry.tool_call));
+          if (entry.stream_chunks) {
+            container.appendChild(createJSONSection("Buffered Stream Chunks", entry.stream_chunks));
+          }
+
+          resultsEl.appendChild(container);
+        });
+      }
+
+      function extractPrompt(originalRequest) {
+        if (!originalRequest || typeof originalRequest !== "object") {
+          return null;
+        }
+        if (Array.isArray(originalRequest.messages)) {
+          return originalRequest.messages;
+        }
+        return originalRequest;
+      }
+
+      function createJSONSection(title, value) {
+        const section = document.createElement("div");
+        section.className = "section";
+        const heading = document.createElement("h3");
+        heading.textContent = title;
+        section.appendChild(heading);
+        if (value === null || value === undefined) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No data";
+          section.appendChild(empty);
+          return section;
+        }
+        const pre = document.createElement("pre");
+        pre.className = "json";
+        pre.textContent = JSON.stringify(value, null, 2);
+        section.appendChild(pre);
+        return section;
+      }
+
+      function createTextSection(title, text) {
+        const section = document.createElement("div");
+        section.className = "section";
+        const heading = document.createElement("h3");
+        heading.textContent = title;
+        section.appendChild(heading);
+        if (!text) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No data";
+          section.appendChild(empty);
+          return section;
+        }
+        const pre = document.createElement("pre");
+        pre.className = "json";
+        pre.textContent = text;
+        section.appendChild(pre);
+        return section;
+      }
+    </script>
+  </body>
+</html>
