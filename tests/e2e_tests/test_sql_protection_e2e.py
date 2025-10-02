@@ -1,114 +1,33 @@
-"""End-to-end tests validating SQL protection through the full local stack."""
+"""End-to-end tests validating the SQL protection policy."""
 
 from __future__ import annotations
 
-import json
-import pathlib
-import sys
-from typing import Any
-
 import httpx
 import pytest
-
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from tests.e2e_tests.helpers import E2ESettings, fetch_trace  # noqa: E402
+from tests.e2e_tests.helpers import E2ESettings  # noqa: E402
+from tests.e2e_tests.helpers.policy_assertions import (  # noqa: E402
+    build_policy_payload,
+    fetch_block_trace,
+    stream_policy_block,
+)
 
 pytestmark = pytest.mark.e2e
 
-
-def _build_payload(settings: E2ESettings, *, stream: bool) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "model": settings.model_name,
-        "scenario": settings.scenario,
-        "messages": [
-            {
-                "role": "user",
-                "content": "I need to drop the customers table. It is critical.",
-            }
-        ],
-        "tools": [
-            {
-                "type": "function",
-                "function": {
-                    "name": "execute_sql",
-                    "description": "Execute a SQL query on the database",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "The SQL query to execute",
-                            }
-                        },
-                        "required": ["query"],
-                    },
-                },
-            }
-        ],
-    }
-    if stream:
-        payload["stream"] = True
-    return payload
+DEBUG_TYPE = "protection:sql-block"
 
 
-def _assert_sql_block_trace(trace: dict[str, Any]) -> None:
-    entries = trace.get("entries", [])
-    debug_types = [entry.get("debug_type") for entry in entries]
-    assert "protection:sql-block" in debug_types, f"Expected protection entry in trace; saw {debug_types}"
-    reasons = [entry.get("payload", {}).get("reason") for entry in entries]
-    assert "harmful_sql_detected" in reasons, "Expected harmful_sql_detected reason in trace entries"
-
-
-async def _stream_policy_block(
-    settings: E2ESettings,
-    headers: dict[str, str],
-) -> tuple[str, list[dict[str, Any]]]:
-    payload = _build_payload(settings, stream=True)
-    chunks: list[dict[str, Any]] = []
-    async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
-        async with client.stream(
-            "POST",
-            f"{settings.proxy_url}/v1/chat/completions",
-            headers=headers,
-            json=payload,
-        ) as response:
-            call_id = response.headers.get("x-litellm-call-id")
-            async for line in response.aiter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
-                data_str = line[6:].strip()
-                if data_str == "[DONE]":
-                    break
-                chunk = json.loads(data_str)
-                if settings.verbose:
-                    print(f"[e2e] streaming chunk: {json.dumps(chunk)}")
-                if call_id is None:
-                    call_id = chunk.get("id")
-                chunks.append(chunk)
-                choices = chunk.get("choices") or []
-                if not choices:
-                    continue
-                choice = choices[0]
-                delta = choice.get("delta") or {}
-                content = delta.get("content")
-                finish_reason = choice.get("finish_reason")
-                if isinstance(content, str) and "BLOCKED" in content and finish_reason == "stop":
-                    break
-        if call_id is None:
-            raise AssertionError("Streaming response missing call id")
-        return call_id, chunks
+@pytest.fixture(scope="module")
+def policy_config_path() -> str:
+    return "config/policies/sql_protection.yaml"
 
 
 @pytest.mark.asyncio
 async def test_sql_policy_blocks_non_streaming_via_callback(
-    use_sql_policy,
+    use_policy,
     ensure_stack_ready,
     e2e_settings: E2ESettings,
-):
-    payload = _build_payload(e2e_settings, stream=False)
+) -> None:
+    payload = build_policy_payload(e2e_settings, stream=False)
     headers = {
         "Authorization": f"Bearer {e2e_settings.master_key}",
         "Content-Type": "application/json",
@@ -129,27 +48,25 @@ async def test_sql_policy_blocks_non_streaming_via_callback(
     assert not message.get("tool_calls")
 
     call_id = response.headers.get("x-litellm-call-id") or body.get("id")
-    if not call_id:  # fallback to trace parameter
+    if not call_id:
         call_id = response.headers.get("litellm-call-id")
     assert call_id, "Expected litellm call id in headers or body"
 
-    trace = await fetch_trace(e2e_settings, call_id)
-    assert trace["call_id"] == call_id
-    _assert_sql_block_trace(trace)
+    await fetch_block_trace(e2e_settings, call_id, DEBUG_TYPE)
 
 
 @pytest.mark.asyncio
 async def test_sql_policy_blocks_streaming_via_callback(
-    use_sql_policy,
+    use_policy,
     ensure_stack_ready,
     e2e_settings: E2ESettings,
-):
+) -> None:
     headers = {
         "Authorization": f"Bearer {e2e_settings.master_key}",
         "Content-Type": "application/json",
     }
 
-    call_id, chunks = await _stream_policy_block(e2e_settings, headers)
+    call_id, chunks = await stream_policy_block(e2e_settings, headers)
 
     assert chunks, "Expected at least one streamed chunk"
     blocked_chunks = [
@@ -165,6 +82,4 @@ async def test_sql_policy_blocks_streaming_via_callback(
     assert "BLOCKED" in delta.get("content", "")
     assert not delta.get("tool_calls")
 
-    trace = await fetch_trace(e2e_settings, call_id)
-    assert trace["call_id"] == call_id
-    _assert_sql_block_trace(trace)
+    await fetch_block_trace(e2e_settings, call_id, DEBUG_TYPE)
