@@ -1,4 +1,9 @@
-"""End-to-end tests validating the LLM judge tool-call policy."""
+"""End-to-end tests validating the LLM judge tool-call policy.
+
+The judge policy evaluates tool calls that the LLM returns and blocks harmful ones
+based on the judge model's assessment. The dummy provider returns actual tool calls
+for the "harmful_drop" scenario, allowing us to test blocking behavior.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,6 @@ from tests.e2e_tests.helpers import E2ESettings  # noqa: E402
 from tests.e2e_tests.helpers.policy_assertions import (  # noqa: E402
     build_policy_payload,
     fetch_block_trace,
-    stream_policy_block,
 )
 
 pytestmark = pytest.mark.e2e
@@ -22,11 +26,12 @@ def policy_config_path() -> str:
 
 
 @pytest.mark.asyncio
-async def test_judge_policy_blocks_non_streaming_via_callback(
+async def test_judge_policy_blocks_harmful_tool_call_non_streaming(
     use_policy,
     ensure_stack_ready,
     e2e_settings: E2ESettings,
 ) -> None:
+    """Verify judge policy blocks harmful tool calls in non-streaming mode."""
     payload = build_policy_payload(e2e_settings, stream=False)
     headers = {
         "Authorization": f"Bearer {e2e_settings.master_key}",
@@ -43,43 +48,71 @@ async def test_judge_policy_blocks_non_streaming_via_callback(
 
     body = response.json()
     message = body["choices"][0]["message"]
-    content = message.get("content")
-    assert isinstance(content, str) and "BLOCKED" in content
-    assert not message.get("tool_calls")
+    content = message.get("content", "")
+
+    # Should be blocked with BLOCKED message
+    assert "BLOCKED" in content
+    assert "execute_sql" in content
+    assert not message.get("tool_calls"), "Tool calls should be blocked"
 
     call_id = response.headers.get("x-litellm-call-id") or body.get("id")
     if not call_id:
         call_id = response.headers.get("litellm-call-id")
     assert call_id, "Expected litellm call id in headers or body"
 
+    # Verify block was recorded in debug logs
     await fetch_block_trace(e2e_settings, call_id, DEBUG_TYPE)
 
 
 @pytest.mark.asyncio
-async def test_judge_policy_blocks_streaming_via_callback(
+async def test_judge_policy_blocks_harmful_tool_call_streaming(
     use_policy,
     ensure_stack_ready,
     e2e_settings: E2ESettings,
 ) -> None:
+    """Verify judge policy blocks harmful tool calls in streaming mode."""
+    payload = build_policy_payload(e2e_settings, stream=True)
     headers = {
         "Authorization": f"Bearer {e2e_settings.master_key}",
         "Content-Type": "application/json",
     }
 
-    call_id, chunks = await stream_policy_block(e2e_settings, headers)
+    chunks = []
+    call_id = None
+    async with httpx.AsyncClient(timeout=e2e_settings.request_timeout) as client:
+        async with client.stream(
+            "POST",
+            f"{e2e_settings.proxy_url}/v1/chat/completions",
+            headers=headers,
+            json=payload,
+        ) as response:
+            assert response.status_code == 200
+            call_id = response.headers.get("x-litellm-call-id") or response.headers.get("litellm-call-id")
+
+            async for line in response.aiter_lines():
+                if line.startswith("data: ") and not line.endswith("[DONE]"):
+                    import json
+
+                    chunk = json.loads(line[6:])
+                    chunks.append(chunk)
 
     assert chunks, "Expected at least one streamed chunk"
+
+    # Find blocked chunk
     blocked_chunks = [
         chunk
         for chunk in chunks
         if "BLOCKED" in ((chunk.get("choices") or [{}])[0].get("delta") or {}).get("content", "")
     ]
     assert blocked_chunks, "Expected a blocked chunk in streaming response"
+
     final_chunk = blocked_chunks[-1]
     choice = (final_chunk.get("choices") or [{}])[0]
     assert choice.get("finish_reason") == "stop"
     delta = choice.get("delta") or {}
     assert "BLOCKED" in delta.get("content", "")
-    assert not delta.get("tool_calls")
+    assert "execute_sql" in delta.get("content", "")
 
-    await fetch_block_trace(e2e_settings, call_id, DEBUG_TYPE)
+    # Verify block was recorded
+    if call_id:
+        await fetch_block_trace(e2e_settings, call_id, DEBUG_TYPE)

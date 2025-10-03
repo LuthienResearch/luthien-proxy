@@ -78,21 +78,117 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
         context: ToolCallBufferContext,
         incoming_stream: Any,
     ) -> Any:
-        """Stream assistant chunks while intercepting tool calls for judge review."""
-        upstream = super().generate_response_stream(context, incoming_stream)
-        preempt = await self._preempt_prompt_block(context)
-        if preempt is not None:
-            yield preempt
-            async for _ in upstream:
-                pass
-            return
+        """Stream assistant chunks while intercepting tool calls for judge review.
 
-        async for chunk in upstream:
-            blocked = await self._maybe_block_streaming(context, chunk)
-            if blocked is not None:
-                yield blocked
-                return
-            yield chunk
+        Overrides parent to properly stop streaming when a block occurs.
+        """
+        try:
+            async for chunk in incoming_stream:
+                context.chunk_count += 1
+                self._capture_stream_chunk(context, chunk)
+
+                if self._buffer_tool_chunk(context, chunk):
+                    flushed = await self._maybe_flush_tool_calls(context, chunk)
+                    if flushed:
+                        for buffered in flushed:
+                            # Check if this is a blocked response
+                            if self._is_blocked_response(buffered):
+                                logger.info("Yielding blocked response chunk and stopping stream")
+                                yield buffered
+                                return  # Stop streaming after block
+                            logger.info("Yielding normal flushed chunk")
+                            yield buffered
+                    continue
+
+                yield chunk
+        finally:
+            if context.tool_call_active and context.buffered_chunks:
+                flushed = await self._flush_tool_calls(context)
+                for buffered in flushed:
+                    yield buffered
+            await self._emit_stream_summary(context)
+
+    def _is_blocked_response(self, chunk: Mapping[str, Any]) -> bool:
+        """Check if a chunk is a blocked response."""
+        choices = chunk.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return False
+        choice = choices[0]
+        if not isinstance(choice, Mapping):
+            return False
+        # Check for blocked message in both message and delta
+        for key in ["message", "delta"]:
+            msg = choice.get(key)
+            if isinstance(msg, Mapping):
+                content = msg.get("content")
+                if isinstance(content, str) and "BLOCKED" in content:
+                    return True
+        return False
+
+    async def _maybe_flush_tool_calls(
+        self,
+        context: ToolCallBufferContext,
+        chunk: Mapping[str, Any],
+    ) -> list[dict[str, Any]] | None:
+        """Intercept tool call flush to evaluate with judge before marking as logged.
+
+        This is called by the parent class when a tool call is complete and ready
+        to be flushed. We evaluate it here BEFORE the parent marks it as logged.
+        """
+        if not context.tool_call_active:
+            return None
+
+        # Check if tool call is complete
+        choice = self._first_choice(chunk)
+        if choice is None:
+            return None
+
+        finish_reason = choice.get("finish_reason")
+        is_complete = isinstance(finish_reason, str) and finish_reason == "tool_calls"
+
+        message = choice.get("message")
+        if isinstance(message, Mapping):
+            if self._message_contains_tool_call(message):
+                is_complete = True
+
+        if not is_complete:
+            return None
+
+        # Tool call is complete - evaluate it BEFORE flushing
+        logger.info("Tool call complete, evaluating with judge. tool_calls: %d", len(context.tool_calls))
+        for identifier, state in list(context.tool_calls.items()):
+            if identifier in context.logged_tool_ids:
+                logger.info("Skipping already-logged tool call: %s", identifier)
+                continue
+
+            logger.info(
+                "Evaluating tool call: id=%s, name=%s, args=%s",
+                state.identifier,
+                state.name,
+                state.arguments[:100] if state.arguments else None,
+            )
+            tool_call = {
+                "id": state.identifier,
+                "type": state.call_type or "function",
+                "name": state.name or "",
+                "arguments": state.arguments,
+            }
+            result = await self._score_and_maybe_block(
+                tool_call,
+                context.original_request,
+                stream_chunks=context.buffered_chunks,
+            )
+            if result is not None:
+                logger.info("Tool call BLOCKED by judge - response: %s", json.dumps(result, default=str)[:500])
+                context.tool_call_active = False
+                context.buffered_chunks.clear()
+                context.tool_calls.clear()
+                # Return as a list to match parent signature
+                return [result]
+            logger.info("Tool call passed judge evaluation")
+
+        # No blocks - let parent flush normally
+        return await super()._maybe_flush_tool_calls(context, chunk)
 
     async def async_post_call_success_hook(
         self,
@@ -111,49 +207,6 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             if block is not None:
                 return block
         return response
-
-    async def _maybe_block_streaming(
-        self,
-        context: ToolCallBufferContext,
-        chunk: Mapping[str, Any],
-    ) -> dict[str, Any] | None:
-        if context.tool_calls:
-            for identifier, state in list(context.tool_calls.items()):
-                if identifier in context.logged_tool_ids:
-                    continue
-                tool_call = {
-                    "id": state.identifier,
-                    "type": state.call_type or "function",
-                    "name": state.name or "",
-                    "arguments": state.arguments,
-                }
-                result = await self._score_and_maybe_block(
-                    tool_call,
-                    context.original_request,
-                    stream_chunks=context.buffered_chunks,
-                )
-                context.logged_tool_ids.add(identifier)
-                if result is not None:
-                    context.tool_call_active = False
-                    context.buffered_chunks.clear()
-                    context.tool_calls.clear()
-                    return result
-        choice = self._first_choice(chunk)
-        finish_reason = choice.get("finish_reason") if choice else None
-        if finish_reason in {None, "stop"}:
-            synthetic = self._build_prompt_tool_call(context.original_request)
-            if synthetic and synthetic["id"] not in context.logged_tool_ids:
-                result = await self._score_and_maybe_block(
-                    synthetic,
-                    context.original_request,
-                    stream_chunks=context.buffered_chunks,
-                )
-                context.logged_tool_ids.add(synthetic["id"])
-                if result is not None:
-                    context.tool_call_active = False
-                    context.buffered_chunks.clear()
-                    return result
-        return None
 
     async def _score_and_maybe_block(
         self,
@@ -279,83 +332,6 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             },
         ]
 
-    def _build_prompt_tool_call(self, request: Mapping[str, Any]) -> dict[str, Any] | None:
-        messages = request.get("messages")
-        if not isinstance(messages, list):
-            return None
-        user_message = ""
-        for raw in reversed(messages):
-            if isinstance(raw, Mapping) and raw.get("role") == "user":
-                content = raw.get("content")
-                if isinstance(content, str) and content.strip():
-                    user_message = content.strip()
-                    break
-        if not user_message:
-            return None
-        tool_name = self._resolve_tool_name(request)
-        arguments = self._resolve_prompt_arguments(request, user_message)
-        return {
-            "id": "prompt_synthetic_call",
-            "type": "function",
-            "name": tool_name,
-            "arguments": json.dumps(arguments, ensure_ascii=False),
-        }
-
-    def _resolve_tool_name(self, request: Mapping[str, Any]) -> str:
-        tools = request.get("tools")
-        if isinstance(tools, list):
-            for tool in tools:
-                if not isinstance(tool, Mapping):
-                    continue
-                function = tool.get("function")
-                if isinstance(function, Mapping):
-                    name = function.get("name")
-                    if isinstance(name, str) and name:
-                        return name
-        return "analyzed_tool_call"
-
-    def _resolve_prompt_arguments(
-        self,
-        request: Mapping[str, Any],
-        user_message: str,
-    ) -> dict[str, str]:
-        tools = request.get("tools")
-        if isinstance(tools, list):
-            for tool in tools:
-                if not isinstance(tool, Mapping):
-                    continue
-                function = tool.get("function")
-                if not isinstance(function, Mapping):
-                    continue
-                params = function.get("parameters")
-                if isinstance(params, Mapping):
-                    properties = params.get("properties")
-                    if isinstance(properties, Mapping) and "query" in properties:
-                        return {"query": user_message}
-        return {"prompt": user_message}
-
-    async def _preempt_prompt_block(
-        self,
-        context: ToolCallBufferContext,
-    ) -> dict[str, Any] | None:
-        synthetic = self._build_prompt_tool_call(context.original_request)
-        if not synthetic:
-            return None
-        identifier = synthetic.get("id")
-        if isinstance(identifier, str) and identifier in context.logged_tool_ids:
-            return None
-
-        result = await self._score_and_maybe_block(
-            synthetic,
-            context.original_request,
-            stream_chunks=context.buffered_chunks,
-        )
-        if result is not None and isinstance(identifier, str):
-            context.logged_tool_ids.add(identifier)
-            context.tool_call_active = False
-            context.buffered_chunks.clear()
-        return result
-
     def _blocked_response(
         self,
         tool_call: Mapping[str, Any],
@@ -449,8 +425,11 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
         self,
         stream_chunks: Sequence[Mapping[str, Any]] | None,
     ) -> list[dict[str, Any]] | None:
-        if not stream_chunks:
+        if stream_chunks is None:
             return None
+        if not stream_chunks:
+            # Empty list - LLM returned no content chunks
+            return []
         return [dict(deepcopy(chunk)) for chunk in stream_chunks]
 
 

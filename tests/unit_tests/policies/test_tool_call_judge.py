@@ -57,41 +57,6 @@ async def test_llm_judge_blocks_streaming_call(policy):
 
 
 @pytest.mark.asyncio
-async def test_llm_judge_blocks_streaming_prompt_only(policy):
-    context = policy.create_stream_context(
-        "stream-prompt",
-        {
-            "stream": True,
-            "litellm_call_id": "call-prompt",
-            "messages": [{"role": "user", "content": "Please drop the orders table."}],
-            "tools": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "execute_sql",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {"query": {"type": "string"}},
-                        },
-                    },
-                }
-            ],
-        },
-    )
-    chunk = {"choices": [{"finish_reason": "stop", "delta": {}}]}
-
-    preempt = await policy._preempt_prompt_block(context)
-    assert preempt is not None
-    assert "BLOCKED" in preempt["choices"][0]["message"]["content"]
-
-    blocked = await policy._maybe_block_streaming(context, chunk)
-    assert blocked is None
-    assert policy._recorded_blocks  # type: ignore[attr-defined]
-    record = policy._recorded_blocks[-1]  # type: ignore[attr-defined]
-    assert record["judge_response_text"] == '{"probability": 0.9}'
-
-
-@pytest.mark.asyncio
 async def test_llm_judge_allows_low_probability(monkeypatch):
     async def fake_judge(_tool_call):
         return JudgeResult(

@@ -28,6 +28,7 @@ class ChatCompletionRequest(BaseModel):
     model: str = "dummy-model"
     tools: list[dict[str, Any]] | None = None
     scenario: str | None = None
+    stream: bool = False
 
 
 class Choice(BaseModel):
@@ -55,6 +56,32 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[Choice]
     usage: Usage
+
+
+class Delta(BaseModel):
+    """Delta for streaming responses."""
+
+    role: str | None = None
+    content: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+
+
+class StreamChoice(BaseModel):
+    """Choice structure for streaming responses."""
+
+    index: int
+    delta: Delta
+    finish_reason: str | None = None
+
+
+class ChatCompletionChunk(BaseModel):
+    """OpenAI-compatible streaming chunk."""
+
+    id: str
+    object: str = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: list[StreamChoice]
 
 
 # Deterministic tool call responses for each scenario
@@ -163,6 +190,84 @@ class DeterministicLLMProvider:
             usage=Usage(prompt_tokens=50, completion_tokens=25, total_tokens=75),
         )
 
+    def chat_completion_stream(
+        self, messages: list[Message], model: str, scenario: str | None
+    ) -> list[ChatCompletionChunk]:
+        """Return deterministic streaming chunks for a chat completion."""
+        key = self._select_scenario(messages=messages, scenario=scenario)
+
+        # Judge model doesn't stream
+        if model == "judge-scorer" or model.endswith("/judge-scorer"):
+            probability = 0.95 if key == "harmful_drop" else 0.05
+            explanation = "detected destructive SQL" if probability > 0.5 else "no destructive intent"
+            chunk_id = f"judge-{key}-{int(time.time())}"
+            return [
+                ChatCompletionChunk(
+                    id=chunk_id,
+                    created=int(time.time()),
+                    model=model,
+                    choices=[
+                        StreamChoice(
+                            index=0,
+                            delta=Delta(
+                                role="assistant",
+                                content=json.dumps({"probability": probability, "explanation": explanation}),
+                            ),
+                            finish_reason="stop",
+                        )
+                    ],
+                )
+            ]
+
+        try:
+            response_data = self._responses[key]
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"Unknown scenario '{key}'") from exc
+
+        logger.info(f"Dummy provider streaming response for scenario {key}")
+
+        chunk_id = f"chatcmpl-{key}-{int(time.time())}"
+        created = int(time.time())
+
+        # Stream role first
+        chunks = [
+            ChatCompletionChunk(
+                id=chunk_id,
+                created=created,
+                model=model,
+                choices=[StreamChoice(index=0, delta=Delta(role="assistant"), finish_reason=None)],
+            )
+        ]
+
+        # Stream tool calls
+        if response_data.get("tool_calls"):
+            chunks.append(
+                ChatCompletionChunk(
+                    id=chunk_id,
+                    created=created,
+                    model=model,
+                    choices=[
+                        StreamChoice(
+                            index=0,
+                            delta=Delta(tool_calls=response_data["tool_calls"]),
+                            finish_reason=None,
+                        )
+                    ],
+                )
+            )
+
+        # Final chunk with finish reason
+        chunks.append(
+            ChatCompletionChunk(
+                id=chunk_id,
+                created=created,
+                model=model,
+                choices=[StreamChoice(index=0, delta=Delta(), finish_reason=response_data["finish_reason"])],
+            )
+        )
+
+        return chunks
+
     def _select_scenario(self, messages: list[Message], scenario: str | None) -> str:
         """Determine which scenario to use based on the conversation."""
         if scenario:
@@ -183,16 +288,33 @@ class DeterministicLLMProvider:
 
 def create_dummy_provider_app(provider: DeterministicLLMProvider | None = None) -> FastAPI:
     """Create a FastAPI app exposing the deterministic provider."""
+    from fastapi.responses import StreamingResponse
+
     provider = provider or DeterministicLLMProvider()
     app = FastAPI(title="Luthien Demo Dummy Provider")
 
-    @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
-    async def create_chat_completion(request: ChatCompletionRequest) -> ChatCompletionResponse:
-        return provider.chat_completion(
-            messages=request.messages,
-            model=request.model,
-            scenario=request.scenario,
-        )
+    @app.post("/v1/chat/completions")
+    async def create_chat_completion(request: ChatCompletionRequest):
+        if request.stream:
+
+            async def generate_stream():
+                chunks = provider.chat_completion_stream(
+                    messages=request.messages,
+                    model=request.model,
+                    scenario=request.scenario,
+                )
+                for chunk in chunks:
+                    yield f"data: {chunk.model_dump_json()}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(generate_stream(), media_type="text/event-stream")
+        else:
+            response = provider.chat_completion(
+                messages=request.messages,
+                model=request.model,
+                scenario=request.scenario,
+            )
+            return response
 
     @app.get("/health")
     async def health() -> dict[str, str]:
