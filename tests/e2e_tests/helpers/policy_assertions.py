@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
 
 import httpx
@@ -13,6 +14,7 @@ def build_policy_payload(settings: E2ESettings, *, stream: bool) -> dict[str, An
     payload: dict[str, Any] = {
         "model": settings.model_name,
         "scenario": settings.scenario,
+        "litellm_trace_id": f"e2e-test-{uuid.uuid4()}",
         "messages": [
             {
                 "role": "user",

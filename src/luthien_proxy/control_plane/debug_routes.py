@@ -105,6 +105,18 @@ class JudgeBlockEntry(BaseModel):
     original_response: Optional[JSONObject]
     stream_chunks: Optional[list[JSONObject]]
     blocked_response: JSONObject
+    timing: Optional[JSONObject]
+    judge_config: Optional[JSONObject]
+
+
+class JudgeTraceSummary(BaseModel):
+    """Summary of a trace with judge policy applications."""
+
+    trace_id: str
+    first_seen: datetime
+    last_seen: datetime
+    block_count: int
+    max_probability: float
 
 
 @router.get("/api/debug/{debug_type}", response_model=list[DebugEntry])
@@ -330,6 +342,12 @@ async def get_judge_blocks(
         probability_raw = blob.get("probability")
         explanation_raw = blob.get("explanation")
 
+        timing_raw = blob.get("timing")
+        timing = timing_raw if isinstance(timing_raw, dict) else None
+
+        judge_config_raw = blob.get("judge_config")
+        judge_config = judge_config_raw if isinstance(judge_config_raw, dict) else None
+
         filtered.append(
             JudgeBlockEntry(
                 call_id=call_identifier,
@@ -344,10 +362,84 @@ async def get_judge_blocks(
                 original_response=original_response,
                 stream_chunks=stream_chunks,
                 blocked_response=blocked_response,
+                timing=timing,
+                judge_config=judge_config,
             )
         )
 
     return filtered
+
+
+@router.get("/api/policy/judge/traces", response_model=list[JudgeTraceSummary])
+async def get_judge_traces(
+    limit: int = Query(default=50, ge=1, le=200),
+    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
+    config: ProjectConfig = Depends(get_project_config),
+) -> list[JudgeTraceSummary]:
+    """Return list of traces with judge policy applications, sorted by most recent."""
+    if config.database_url is None or pool is None:
+        return []
+
+    entries = await get_debug_entries(JUDGE_DEBUG_TYPE, limit=limit * 10, pool=pool, config=config)
+    trace_map: dict[str, dict[str, object]] = {}
+
+    for entry in entries:
+        blob = entry.jsonblob
+        if not isinstance(blob, dict):
+            continue
+
+        trace_id_raw = blob.get("trace_id")
+        if not isinstance(trace_id_raw, str) or not trace_id_raw:
+            continue
+
+        timestamp_raw = blob.get("timestamp")
+        if isinstance(timestamp_raw, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp_raw)
+            except ValueError:
+                timestamp = entry.time_created
+        else:
+            timestamp = entry.time_created
+
+        probability_raw = blob.get("probability")
+        probability = float(probability_raw) if isinstance(probability_raw, (int, float)) else 0.0
+
+        if trace_id_raw not in trace_map:
+            trace_map[trace_id_raw] = {
+                "trace_id": trace_id_raw,
+                "first_seen": timestamp,
+                "last_seen": timestamp,
+                "block_count": 1,
+                "max_probability": probability,
+            }
+        else:
+            trace_data = trace_map[trace_id_raw]
+            first_seen = trace_data["first_seen"]
+            last_seen = trace_data["last_seen"]
+            if isinstance(first_seen, datetime) and timestamp < first_seen:
+                trace_data["first_seen"] = timestamp
+            if isinstance(last_seen, datetime) and timestamp > last_seen:
+                trace_data["last_seen"] = timestamp
+            current_count = trace_data["block_count"]
+            if isinstance(current_count, int):
+                trace_data["block_count"] = current_count + 1
+            max_prob = trace_data["max_probability"]
+            if isinstance(max_prob, (int, float)) and probability > max_prob:
+                trace_data["max_probability"] = probability
+
+    summaries = [
+        JudgeTraceSummary(
+            trace_id=str(data["trace_id"]),
+            first_seen=data["first_seen"] if isinstance(data["first_seen"], datetime) else datetime.now(),
+            last_seen=data["last_seen"] if isinstance(data["last_seen"], datetime) else datetime.now(),
+            block_count=data["block_count"] if isinstance(data["block_count"], int) else 0,
+            max_probability=data["max_probability"] if isinstance(data["max_probability"], (int, float)) else 0.0,
+        )
+        for data in trace_map.values()
+    ]
+
+    summaries.sort(key=lambda s: s.last_seen, reverse=True)
+    return summaries[:limit]
 
 
 @router.get("/api/debug/types", response_model=list[DebugTypeInfo])

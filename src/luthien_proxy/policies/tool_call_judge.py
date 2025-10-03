@@ -162,13 +162,23 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
         original_response: Mapping[str, Any] | None = None,
         stream_chunks: Sequence[Mapping[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
+        timing_start = time.time()
+        tool_call_complete_ts = timing_start
+
+        judge_query_start = time.time()
         judge = await self._call_judge(tool_call)
+        judge_response_ts = time.time()
+
         if judge.probability < self._config.probability_threshold:
             return None
+
         call_id = self._require_call_id(payload)
         trace_id = self._extract_trace_id(payload)
         response_payload = original_response or self._response_defaults(payload)
         blocked = self._blocked_response(tool_call, judge.probability, judge.explanation, response_payload)
+
+        response_sent_ts = time.time()
+
         await self._record_judge_block(
             call_id=call_id,
             trace_id=trace_id,
@@ -181,6 +191,19 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             original_response=original_response,
             stream_chunks=self._serialize_stream_chunks(stream_chunks),
             blocked_response=blocked,
+            timing={
+                "tool_call_complete": tool_call_complete_ts,
+                "judge_query_sent": judge_query_start,
+                "judge_response_received": judge_response_ts,
+                "blocked_response_sent": response_sent_ts,
+            },
+            judge_config={
+                "model": self._config.model,
+                "api_base": self._config.api_base,
+                "probability_threshold": self._config.probability_threshold,
+                "temperature": self._config.temperature,
+                "max_tokens": self._config.max_tokens,
+            },
         )
         return blocked
 
@@ -383,6 +406,8 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
         original_response: Mapping[str, Any] | None,
         stream_chunks: list[dict[str, Any]] | None,
         blocked_response: Mapping[str, Any],
+        timing: Mapping[str, float],
+        judge_config: Mapping[str, Any],
     ) -> None:
         record = {
             "schema": JUDGE_SCHEMA,
@@ -399,6 +424,8 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             "original_response": dict(original_response) if original_response else None,
             "stream_chunks": stream_chunks,
             "blocked_response": dict(blocked_response),
+            "timing": dict(timing),
+            "judge_config": dict(judge_config),
         }
         await self._record_debug_event(JUDGE_DEBUG_TYPE, record)
 
