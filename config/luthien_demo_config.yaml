@@ -1,0 +1,6 @@
+# Luthien Demo Configuration - SQL Protection Policy
+# This configuration blocks harmful SQL tool calls like DROP TABLE
+
+policy:
+  class: "luthien_proxy.policies.sql_protection:SQLProtectionPolicy"
+  config: {}

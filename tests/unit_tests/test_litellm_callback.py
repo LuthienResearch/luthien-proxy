@@ -198,6 +198,58 @@ def test_normalize_stream_chunk_with_partial_dict(callback):
         callback._normalize_stream_chunk(edited)
 
 
+@pytest.mark.asyncio
+async def test_post_call_success_hook_mutates_response_in_place(callback):
+    """Ensure non-stream responses are mutated rather than replaced."""
+    from litellm.types.utils import ModelResponse
+
+    response = ModelResponse(
+        model="gpt-initial",
+        choices=[
+            {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "allowed"},
+            }
+        ],
+    )
+    original_identity = id(response)
+
+    blocked_text = "\u26d4 BLOCKED"
+
+    updated_payload = {
+        "id": response.id,
+        "created": response.created,
+        "model": "gpt-moderated",
+        "object": response.object,
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": blocked_text,
+                },
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 3,
+            "completion_tokens": 1,
+            "total_tokens": 4,
+        },
+    }
+
+    with patch.object(callback, "_apost_hook", AsyncMock(return_value=updated_payload)) as hook:
+        result = await callback.async_post_call_success_hook({"stream": False}, None, response)
+
+    hook.assert_awaited_once()
+    assert result == updated_payload
+    assert id(response) == original_identity
+    assert response.model == "gpt-moderated"
+    assert response.choices[0]["message"]["content"] == blocked_text
+    assert response.usage.total_tokens == 4
+
+
 def test_normalize_stream_chunk_with_invalid_type(callback):
     """Test normalization raises error for unexpected types."""
     edited = ["invalid", "type"]

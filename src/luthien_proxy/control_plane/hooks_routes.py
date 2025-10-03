@@ -109,7 +109,7 @@ async def hook_generic(
             "hook": hook_name,
             "payload": record_payload,
         }
-        logger.debug("hook=%s payload=%s", hook_name, json.dumps(record_payload, ensure_ascii=False))
+        logger.debug(f"hook={hook_name} payload={json.dumps(record_payload, ensure_ascii=False)}")
         try:
             call_id = extract_call_id_for_hook(hook_name, payload)
             if isinstance(call_id, str) and call_id:
@@ -174,9 +174,11 @@ async def hook_generic(
                 _spawn_background(publish_conversation_event(redis_conn, event))
                 _spawn_background(publish_trace_conversation_event(redis_conn, event))
 
-        return strip_post_time_ns(final_result)
+        result_to_return = strip_post_time_ns(final_result)
+        logger.info(f"Hook {hook_name} returning: type={type(result_to_return)}, preview={str(result_to_return)[:200]}")
+        return result_to_return
     except Exception as exc:
-        logger.error("hook_generic_error: %s", exc)
+        logger.error(f"hook_generic_error: {exc}")
         raise HTTPException(status_code=500, detail=f"hook_generic_error: {exc}")
 
 
@@ -232,7 +234,7 @@ async def recent_call_ids(
                 latest = require_type(row.get("latest"), datetime, "latest")
                 out.append(CallIdInfo(call_id=cid, count=count, latest=latest))
     except Exception as exc:
-        logger.error("Error fetching recent call ids: %s", exc)
+        logger.error(f"Error fetching recent call ids: {exc}")
     return out
 
 
@@ -285,7 +287,7 @@ async def recent_traces(
                     )
                 )
     except Exception as exc:
-        logger.error("Error fetching recent traces: %s", exc)
+        logger.error(f"Error fetching recent traces: {exc}")
     return out
 
 

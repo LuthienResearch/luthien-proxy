@@ -57,7 +57,7 @@ services:
       - CONTROL_PLANE_URL=${CONTROL_PLANE_URL}
       - LITELLM_CONFIG_PATH=/app/config/litellm_config.yaml
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
-      - LITELLM_LOG_LEVEL=${LITELLM_LOG_LEVEL}
+      - LITELLM_LOG=INFO
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     ports:
@@ -126,6 +126,23 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:4000/test"]
       interval: 10s
       timeout: 5s
+      retries: 5
+
+  # Dummy provider for demo (deterministic tool call responses)
+  dummy-provider:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.control-plane
+    command: ["uv", "run", "python", "scripts/run_dummy_provider.py", "--port", "8080"]
+    ports:
+      - "4015:8080"
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./src:/app/src:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
       retries: 5
 
 volumes:

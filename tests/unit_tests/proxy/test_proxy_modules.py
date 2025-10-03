@@ -52,7 +52,7 @@ def test_start_proxy_main_runs_with_injected_dependencies():
             "LITELLM_CONFIG_PATH": "/tmp/config.yaml",
             "LITELLM_HOST": "127.0.0.1",
             "LITELLM_PORT": "4010",
-            "LITELLM_LOG_LEVEL": "DEBUG",
+            "LITELLM_LOG": "DEBUG",
             "CONTROL_PLANE_URL": "http://localhost:8081",
         }
     )

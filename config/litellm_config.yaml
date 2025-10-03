@@ -60,6 +60,13 @@ model_list:
       api_key: os.environ/ANTHROPIC_API_KEY
       max_tokens: 4096
 
+  # Demo dummy provider (for testing AI control with tool calls)
+  - model_name: dummy-agent
+    litellm_params:
+      model: openai/dummy-model
+      api_base: http://dummy-provider:8080/v1
+      api_key: dummy-key
+
 
 # LiteLLM proxy settings
 litellm_settings:
