@@ -21,6 +21,7 @@ from luthien_proxy.control_plane.conversation.streams import (
     publish_trace_conversation_event,
 )
 from luthien_proxy.control_plane.conversation.utils import json_safe
+from luthien_proxy.control_plane.endpoint_logger import get_endpoint_logger
 from luthien_proxy.control_plane.stream_context import StreamContextStore
 from luthien_proxy.policies.base import LuthienPolicy, StreamPolicyContext
 
@@ -64,6 +65,9 @@ async def _incoming_stream_from_websocket(
     on_chunk=None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Yield chunks received from the websocket as an async iterator."""
+    endpoint_logger = get_endpoint_logger()
+    chunk_index = 0
+
     try:
         while True:
             message = await websocket.receive_json()
@@ -71,6 +75,9 @@ async def _incoming_stream_from_websocket(
             if outcome == STREAM_END:
                 break
             if outcome is not None:
+                endpoint_logger.log_incoming_chunk(stream_id, outcome, chunk_index)
+                chunk_index += 1
+
                 if on_chunk is not None:
                     await on_chunk(copy.deepcopy(outcome))
                 yield outcome
@@ -96,7 +103,13 @@ async def _forward_policy_output(
     on_chunk=None,
 ) -> None:
     """Send policy-generated chunks back over the websocket."""
+    endpoint_logger = get_endpoint_logger()
+    chunk_index = 0
+
     async for outgoing_chunk in policy.generate_response_stream(context, incoming_stream):
+        endpoint_logger.log_outgoing_chunk(context.stream_id, outgoing_chunk, chunk_index)
+        chunk_index += 1
+
         await websocket.send_json({"type": "CHUNK", "data": outgoing_chunk})
         if on_chunk is not None:
             await on_chunk(copy.deepcopy(outgoing_chunk))
@@ -315,13 +328,18 @@ async def policy_stream_endpoint(
 
     policy = _policy_from_websocket(websocket)
     context: StreamPolicyContext | None = None
+    endpoint_logger = get_endpoint_logger()
 
     try:
         request_data = await _ensure_start_message(websocket)
+        endpoint_logger.log_start_message(stream_id, request_data)
+
         publisher = _StreamEventPublisher(websocket, request_data)
 
         context = policy.create_stream_context(stream_id, request_data)
         _active_streams[stream_id] = context
+
+        endpoint_logger.log_policy_invocation(stream_id, policy.__class__.__name__, request_data)
 
         incoming_stream = _incoming_stream_from_websocket(
             websocket,
@@ -337,9 +355,11 @@ async def policy_stream_endpoint(
         )
         await publisher.finish()
         await _safe_send_json(websocket, {"type": "END"})
+        endpoint_logger.log_end_message(stream_id)
 
     except StreamProtocolError as exc:
         logger.warning("stream[%s] protocol error: %s", stream_id, exc)
+        endpoint_logger.log_error(stream_id, f"Protocol error: {exc}")
         await websocket.close(code=1002, reason=str(exc))
         return
 
@@ -347,6 +367,7 @@ async def policy_stream_endpoint(
         logger.info("stream[%s] disconnected during processing", stream_id)
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("stream[%s] policy error: %s", stream_id, exc)
+        endpoint_logger.log_error(stream_id, str(exc))
         await _safe_send_json(websocket, {"type": "ERROR", "error": str(exc)})
     finally:
         _active_streams.pop(stream_id, None)
