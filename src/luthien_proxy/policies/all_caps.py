@@ -50,9 +50,9 @@ class AllCapsPolicy(LuthienPolicy):
 
     async def async_post_call_success_hook(
         self,
-        *,
-        response_obj: JSONObject,
-        **_unused: object,
+        data: JSONObject,
+        user_api_key_dict: JSONObject | None,
+        response: JSONObject,
     ) -> JSONObject:
         """Uppercase content in a non-streaming final response."""
-        return _uppercase_choices(response_obj)
+        return _uppercase_choices(response)
