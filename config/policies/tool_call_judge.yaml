@@ -1,6 +1,4 @@
-# Luthien Demo Configuration - SQL Protection Policy
-# This configuration blocks harmful SQL tool calls like DROP TABLE
-
+# Configuration for the LLM judge tool-call policy used in e2e tests
 policy:
   class: "luthien_proxy.policies.tool_call_judge:LLMJudgeToolPolicy"
   config:

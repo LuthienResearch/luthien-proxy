@@ -4,5 +4,6 @@
 """Policy management for control protocols."""
 
 from .sql_protection import SQLProtectionPolicy
+from .tool_call_judge import LLMJudgeToolPolicy
 
-__all__ = ["SQLProtectionPolicy"]
+__all__ = ["SQLProtectionPolicy", "LLMJudgeToolPolicy"]

@@ -27,6 +27,7 @@ dependencies = [
     "prisma>=0.15.0",
     "psycopg>=3.2.9",
     "pydantic>=2.11.7",
+    "pyright",
     "pytest-timeout>=2.4.0",
     "pyyaml>=6.0.2",
     "redis>=6.4.0",
@@ -85,6 +86,6 @@ dev = [
     "pytest-asyncio>=1.1.0",
     "pytest-cov>=6.2.1",
     "ruff>=0.12.10",
-    "pyright>=1.1.386",
+    "pyright",
     "radon>=6.0.1",
 ]

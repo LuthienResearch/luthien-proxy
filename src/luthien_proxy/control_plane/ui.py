@@ -69,3 +69,9 @@ async def conversation_logs_ui(request: Request):
 async def tool_call_logs_ui(request: Request):
     """Render a view over recorded tool-call interventions."""
     return templates.TemplateResponse(request, "tool_call_logs.html")
+
+
+@router.get("/ui/policy/judge", response_class=HTMLResponse)
+async def judge_policy_ui(request: Request):
+    """Render a view of LLM judge policy decisions for a trace."""
+    return templates.TemplateResponse(request, "policy_judge.html")

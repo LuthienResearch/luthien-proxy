@@ -1,0 +1,4 @@
+# Configuration for the SQL protection policy used in e2e tests
+policy:
+  class: "luthien_proxy.policies.sql_protection:SQLProtectionPolicy"
+  config: {}

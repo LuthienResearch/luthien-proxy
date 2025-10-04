@@ -3,13 +3,16 @@
 ## High Priority
 
 - [ ] Demo: DB drop
+- [ ] Make data logging more efficient
 
 ## Medium Priority
 
 - [ ] 99% unit test coverage
-- [ ] Why does the control plane docker container take ~5 seconds to restart?
+- [x] Why does the control plane docker container take ~5 seconds to restart?
 - [ ] Simplify/reduce data passed from litellm to control plane
 - [x] Add CI/CD step that runs Prisma migration validation for both control-plane and LiteLLM schemas
+- [ ] Event logging architecture indexed by call_id, trace_id to replace the current debug logs system
+- [ ] OpenTelemetry/Grafana/Loki for instrumentation/logging/debugging
 
 ## Low Priority
 

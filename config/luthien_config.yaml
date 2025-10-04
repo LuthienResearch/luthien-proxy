@@ -2,8 +2,9 @@
 
 # Active policy configuration
 policy:
-  class: "luthien_proxy.policies.tool_call_buffer:ToolCallBufferPolicy"
-  config: {}
+  class: "luthien_proxy.policies.tool_call_judge:LLMJudgeToolPolicy"
+#  class: "luthien_proxy.policies.tool_call_buffer:ToolCallBufferPolicy"
+#  config: {}
 
 # Other policy examples:
 # policy:

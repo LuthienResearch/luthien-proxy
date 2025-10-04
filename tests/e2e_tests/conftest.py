@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+from typing import Optional
 
 import pytest
 
@@ -28,9 +29,22 @@ def control_plane_manager(e2e_settings: E2ESettings) -> ControlPlaneManager:
 
 
 @pytest.fixture(scope="module")
-def use_sql_policy(control_plane_manager: ControlPlaneManager, e2e_settings: E2ESettings):
-    with control_plane_manager.apply_policy(e2e_settings.target_policy_config):
+def policy_config_path(e2e_settings: E2ESettings) -> Optional[str]:
+    return e2e_settings.target_policy_config
+
+
+@pytest.fixture(scope="module")
+def use_policy(
+    control_plane_manager: ControlPlaneManager,
+    policy_config_path: Optional[str],
+):
+    with control_plane_manager.apply_policy(policy_config_path):
         yield
+
+
+@pytest.fixture(scope="module")
+def use_sql_policy(use_policy):  # backward compatibility for existing tests
+    yield
 
 
 @pytest.fixture(scope="module")
