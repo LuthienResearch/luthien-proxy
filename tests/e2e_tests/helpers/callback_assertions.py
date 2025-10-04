@@ -1,24 +1,11 @@
-"""ABOUTME: E2E test helpers for asserting callback invocation and data flow
-ABOUTME: Provides utilities to inspect callback inputs, outputs, and verify they reach the client
+"""ABOUTME: E2E test helpers for asserting callback invocation and data flow.
+
+ABOUTME: Provides utilities to inspect callback inputs, outputs, and verify they reach the client.
 """
 
-import re
-import subprocess
 from typing import Any
 
 from luthien_proxy.proxy.callback_instrumentation import CallbackInvocation, get_tracer
-
-
-def get_litellm_logs(since_seconds: int = 10) -> str:
-    """Get recent logs from the litellm-proxy container."""
-    result = subprocess.run(
-        ["docker", "compose", "logs", "--since", f"{since_seconds}s", "--no-color", "litellm-proxy"],
-        capture_output=True,
-        text=True,
-    )
-    # Strip ANSI escape codes that were embedded in the logs by LiteLLM
-    ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
-    return ansi_escape.sub("", result.stdout)
 
 
 def get_callback_invocations(callback_name: str) -> list[CallbackInvocation]:

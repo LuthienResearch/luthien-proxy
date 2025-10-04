@@ -2,29 +2,9 @@
 
 import httpx
 import pytest
-
-
-def get_control_plane_logs(since_seconds: int = 10) -> str:
-    """Get recent logs from the control-plane container."""
-    import re
-    import subprocess
-
-    result = subprocess.run(
-        [
-            "docker",
-            "compose",
-            "logs",
-            "--since",
-            f"{since_seconds}s",
-            "--no-color",
-            "control-plane",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    # Strip ANSI escape codes
-    ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
-    return ansi_escape.sub("", result.stdout)
+from tests.e2e_tests.helpers import (
+    get_control_plane_logs,
+)
 
 
 @pytest.mark.e2e
