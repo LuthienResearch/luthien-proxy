@@ -15,6 +15,7 @@ from litellm._logging import verbose_logger
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.types.utils import ModelResponseStream
 
+from luthien_proxy.proxy.callback_chunk_logger import get_callback_chunk_logger
 from luthien_proxy.proxy.stream_connection_manager import StreamConnectionManager
 
 
@@ -276,6 +277,10 @@ class LuthienCallback(CustomLogger):
                 verbose_logger.debug(f"stream[{stream_id}] scheduling control receive task")
                 receive_task = asyncio.create_task(connection.receive())
 
+        chunk_logger = get_callback_chunk_logger()
+        control_chunk_index = [0]  # Use list for mutability in nested function
+        client_chunk_index = [0]
+
         async def poll_control(initial_timeout: float | None) -> list[ModelResponseStream]:
             """Drain any buffered control-plane output within the timeout window."""
             nonlocal receive_task, passthrough, cleanup_after_stream, stream_closed, control_signaled_end
@@ -310,13 +315,19 @@ class LuthienCallback(CustomLogger):
                     stream_closed = True
                     break
 
+                chunk_logger.log_control_chunk_received(stream_id, message, control_chunk_index[0])
+                control_chunk_index[0] += 1
+
                 msg_type = message.get("type")
                 if msg_type == "CHUNK":
                     data = message.get("data")
                     try:
-                        chunks.append(self._normalize_stream_chunk(data))
+                        normalized = self._normalize_stream_chunk(data)
+                        chunk_logger.log_chunk_normalized(stream_id, data, success=True)
+                        chunks.append(normalized)
                     except Exception as exc:
                         verbose_logger.error(f"stream[{stream_id}] invalid transformed chunk: {exc}")
+                        chunk_logger.log_chunk_normalized(stream_id, data, success=False, error=str(exc))
                     needs_reschedule = True
                 elif msg_type == "ERROR":
                     verbose_logger.error(f"stream[{stream_id}] control plane error: {message.get('error')}")
@@ -347,6 +358,9 @@ class LuthienCallback(CustomLogger):
                 if stream_closed:
                     verbose_logger.debug(f"stream[{stream_id}] upstream chunk skipped; control closed")
                 for pending in await poll_control(initial_timeout=0):
+                    pending_dict = pending.model_dump()
+                    chunk_logger.log_chunk_to_client(stream_id, pending_dict, client_chunk_index[0])
+                    client_chunk_index[0] += 1
                     yield pending
                 if stream_closed or passthrough:
                     break
@@ -362,6 +376,9 @@ class LuthienCallback(CustomLogger):
 
                 transformed_chunks = await poll_control(initial_timeout=0.05)
                 for transformed in transformed_chunks:
+                    transformed_dict = transformed.model_dump()
+                    chunk_logger.log_chunk_to_client(stream_id, transformed_dict, client_chunk_index[0])
+                    client_chunk_index[0] += 1
                     yield transformed
 
                 if stream_closed or passthrough:
@@ -369,12 +386,18 @@ class LuthienCallback(CustomLogger):
 
             # Upstream finished; flush remaining control-plane output.
             for transformed in await poll_control(initial_timeout=0.05):
+                transformed_dict = transformed.model_dump()
+                chunk_logger.log_chunk_to_client(stream_id, transformed_dict, client_chunk_index[0])
+                client_chunk_index[0] += 1
                 yield transformed
             while True:
                 extra = await poll_control(initial_timeout=None)
                 if not extra:
                     break
                 for transformed in extra:
+                    transformed_dict = transformed.model_dump()
+                    chunk_logger.log_chunk_to_client(stream_id, transformed_dict, client_chunk_index[0])
+                    client_chunk_index[0] += 1
                     yield transformed
         finally:
             if receive_task is not None:

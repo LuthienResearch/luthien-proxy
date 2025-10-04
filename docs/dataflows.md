@@ -58,11 +58,15 @@ All control-plane schema changes are managed by Prisma migrations in `prisma/con
 - LiteLLM response cache uses LiteLLM-managed TTLs defined in `config/litellm_config.yaml`.
 
 ## Streaming Pipeline Instrumentation
-- **Callback instrumentation**: The `@instrument_callback` decorator logs inputs, outputs, and yielded chunks for LiteLLM callbacks (`src/luthien_proxy/proxy/callback_instrumentation.py`). Each callback invocation is recorded with metadata, arguments, and return values; streaming callbacks additionally log each chunk yielded to the client.
-- **WebSocket message logging**: `WebSocketMessageLogger` logs all messages flowing over the litellm↔control-plane WebSocket connection (`src/luthien_proxy/proxy/websocket_logger.py`). Outgoing messages (litellm → control plane) and incoming messages (control plane → litellm) are logged in `StreamConnection._sender_loop()` and `_receiver_loop()` with message type, keys, and stream ID for correlation. This provides visibility into START/CHUNK/END/ERROR message flow.
-- **Control plane endpoint logging**: `StreamingEndpointLogger` logs WebSocket messages received at the streaming endpoint and policy invocations (`src/luthien_proxy/control_plane/endpoint_logger.py`). Logs include START messages with request data, incoming/outgoing CHUNK messages, POLICY invocations with policy class name, END messages, and ERROR messages. All logs include stream_id for correlation.
-- **Policy stream logging**: `PolicyStreamLogger` logs chunks received and yielded by policy processing (`src/luthien_proxy/policies/policy_instrumentation.py`). Instrumentation is applied via wrapper functions in `streaming_routes.py:_forward_policy_output()`, so it works for ALL policies without modification. Logs include STREAM START, CHUNK IN (from backend), CHUNK OUT (to client), and STREAM END with total chunks processed.
-- **E2E tests**: Instrumentation is verified through E2E tests that parse docker logs to confirm callbacks are invoked correctly, WebSocket messages are logged, endpoint handling is tracked, and policy processing is visible (`tests/e2e_tests/test_callback_invocation.py`, `tests/e2e_tests/test_websocket_logging.py`, `tests/e2e_tests/test_endpoint_logging.py`, `tests/e2e_tests/test_policy_logging.py`).
+The streaming pipeline has comprehensive logging at all 6 steps from backend to client:
+
+- **Step 1 - Callback instrumentation**: The `@instrument_callback` decorator logs inputs, outputs, and yielded chunks for LiteLLM callbacks (`src/luthien_proxy/proxy/callback_instrumentation.py`). Each callback invocation is recorded with metadata, arguments, and return values; streaming callbacks additionally log each chunk yielded to the client.
+- **Step 2 - WebSocket message logging (OUT)**: `WebSocketMessageLogger` logs outgoing messages (litellm → control plane) in `StreamConnection._sender_loop()` (`src/luthien_proxy/proxy/websocket_logger.py`). Logs include START, CHUNK, END, ERROR messages with type, keys, and stream ID for correlation.
+- **Step 3 - Control plane endpoint logging**: `StreamingEndpointLogger` logs WebSocket messages received at the streaming endpoint and policy invocations (`src/luthien_proxy/control_plane/endpoint_logger.py`). Logs include ENDPOINT START, CHUNK IN/OUT, POLICY invocation, and END messages. All logs include stream_id for correlation.
+- **Step 4 - Policy stream logging**: `PolicyStreamLogger` logs chunks received and yielded by policy processing (`src/luthien_proxy/policies/policy_instrumentation.py`). Instrumentation is applied via wrapper in `streaming_routes.py:_forward_policy_output()`, working for ALL policies. Logs include POLICY STREAM START, CHUNK IN (from backend), CHUNK OUT (to client), and STREAM END.
+- **Step 5 - WebSocket message logging (IN)**: Same `WebSocketMessageLogger` logs incoming messages (control plane → litellm) in `StreamConnection._receiver_loop()`. Logs CHUNK and END messages received from control plane.
+- **Step 6 - Callback chunk processing**: `CallbackChunkLogger` logs chunk processing in the callback (`src/luthien_proxy/proxy/callback_chunk_logger.py`). Integrated into `config/litellm_callback.py:poll_control()` and yield points. Logs CALLBACK CONTROL IN (messages received), NORMALIZED (validation results), and TO CLIENT (chunks yielded).
+- **E2E tests**: Instrumentation is verified through E2E tests that parse docker logs (`tests/e2e_tests/test_callback_invocation.py`, `tests/e2e_tests/test_websocket_logging.py`, `tests/e2e_tests/test_endpoint_logging.py`, `tests/e2e_tests/test_policy_logging.py`, `tests/e2e_tests/test_callback_chunk_processing.py`).
 
 ### Usage Examples
 
@@ -136,6 +140,24 @@ docker compose logs control-plane --no-color | grep "POLICY STREAM END"
 
 # See specific policy in action (e.g., LLMJudgeToolPolicy)
 docker compose logs control-plane --no-color | grep "POLICY.*LLMJudgeToolPolicy"
+```
+
+**Trace callback chunk processing:**
+```bash
+# See all callback chunk processing (litellm-proxy logs)
+docker compose logs litellm-proxy --no-color | grep "CALLBACK"
+
+# See messages received from control plane
+docker compose logs litellm-proxy --no-color | grep "CALLBACK CONTROL IN"
+
+# See chunk normalization results
+docker compose logs litellm-proxy --no-color | grep "CALLBACK NORMALIZED"
+
+# See chunks being sent to client
+docker compose logs litellm-proxy --no-color | grep "CALLBACK TO CLIENT"
+
+# Check for normalization failures
+docker compose logs litellm-proxy --no-color | grep "CALLBACK NORMALIZED.*success=False"
 ```
 
 **Debug a specific request:**

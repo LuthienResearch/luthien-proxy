@@ -68,17 +68,19 @@ Build debugging and inspection capabilities at every step of the streaming respo
   - Logs CHUNK/END/ERROR messages
   - Same stream_id correlation as outgoing messages
 
-### Step 6: LiteLLM Callback Chunk Processing ⏸️ PENDING
+### Step 6: LiteLLM Callback Chunk Processing ✅ COMPLETE
 **Location**: `config/litellm_callback.py:poll_control()` and `_normalize_stream_chunk()`
 - **Receives**: WebSocket messages from control plane
 - **Processes**: Validates and converts to `ModelResponseStream`
 - **Yields**: Chunks to client
-- **Tool Needed**: Callback chunk logger
-- **Status**: ⏸️ Pending
-- **Implementation Notes**:
-  - Log what `poll_control()` receives from WebSocket
-  - Log normalization results
-  - Log what gets yielded to client
+- **Tool Built**: `CallbackChunkLogger` in `src/luthien_proxy/proxy/callback_chunk_logger.py`
+- **Status**: ✅ Instrumentation integrated
+- **Tests**: E2E tests in `tests/e2e_tests/test_callback_chunk_processing.py`
+- **Implementation**:
+  - Logs CALLBACK CONTROL IN for messages received from control plane in `poll_control()`
+  - Logs CALLBACK NORMALIZED for chunk normalization results (success/failure)
+  - Logs CALLBACK TO CLIENT for each chunk yielded to the client
+  - All logs include stream_id and chunk index for correlation
 
 ## E2E Validation ⏸️ PENDING
 **Goal**: Create a test that traces a single chunk through all 6 steps
@@ -113,3 +115,9 @@ Build debugging and inspection capabilities at every step of the streaming respo
   - Instrumentation works for ALL policies (applied at call site, not in each policy)
   - Created E2E tests in `test_policy_logging.py`
   - All 4 tests passing (STREAM START, CHUNKS, STREAM END, correlation)
+- ✅ Completed Step 6: Callback chunk processing logging
+  - Created `CallbackChunkLogger` in `callback_chunk_logger.py`
+  - Integrated into `config/litellm_callback.py:poll_control()` and yield points
+  - Logs CONTROL IN (messages from control plane), NORMALIZED (validation results), TO CLIENT (chunks yielded)
+  - Created E2E tests in `test_callback_chunk_processing.py` (4 tests)
+  - All 6 pipeline steps now instrumented with correlation IDs
