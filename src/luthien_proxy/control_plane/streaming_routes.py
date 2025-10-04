@@ -95,6 +95,23 @@ async def _ensure_start_message(websocket: WebSocket) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+async def _instrumented_incoming_stream(
+    stream_id: str,
+    policy_class_name: str,
+    incoming_stream: AsyncIterator[dict[str, Any]],
+) -> AsyncIterator[dict[str, Any]]:
+    """Wrap incoming stream with policy instrumentation logging."""
+    from luthien_proxy.policies.policy_instrumentation import get_policy_logger
+
+    policy_logger = get_policy_logger()
+    chunk_in_index = 0
+
+    async for chunk in incoming_stream:
+        policy_logger.log_chunk_in(stream_id, policy_class_name, chunk, chunk_in_index)
+        chunk_in_index += 1
+        yield chunk
+
+
 async def _forward_policy_output(
     websocket: WebSocket,
     policy: LuthienPolicy,
@@ -103,16 +120,33 @@ async def _forward_policy_output(
     on_chunk=None,
 ) -> None:
     """Send policy-generated chunks back over the websocket."""
+    from luthien_proxy.policies.policy_instrumentation import get_policy_logger
+
     endpoint_logger = get_endpoint_logger()
-    chunk_index = 0
+    policy_logger = get_policy_logger()
 
-    async for outgoing_chunk in policy.generate_response_stream(context, incoming_stream):
-        endpoint_logger.log_outgoing_chunk(context.stream_id, outgoing_chunk, chunk_index)
-        chunk_index += 1
+    policy_class_name = policy.__class__.__name__
+    policy_logger.log_stream_start(context.stream_id, policy_class_name)
 
-        await websocket.send_json({"type": "CHUNK", "data": outgoing_chunk})
-        if on_chunk is not None:
-            await on_chunk(copy.deepcopy(outgoing_chunk))
+    # Wrap incoming stream with instrumentation
+    instrumented_incoming = _instrumented_incoming_stream(
+        context.stream_id,
+        policy_class_name,
+        incoming_stream,
+    )
+
+    chunk_out_index = 0
+    try:
+        async for outgoing_chunk in policy.generate_response_stream(context, instrumented_incoming):
+            policy_logger.log_chunk_out(context.stream_id, policy_class_name, outgoing_chunk, chunk_out_index)
+            endpoint_logger.log_outgoing_chunk(context.stream_id, outgoing_chunk, chunk_out_index)
+            chunk_out_index += 1
+
+            await websocket.send_json({"type": "CHUNK", "data": outgoing_chunk})
+            if on_chunk is not None:
+                await on_chunk(copy.deepcopy(outgoing_chunk))
+    finally:
+        policy_logger.log_stream_end(context.stream_id, policy_class_name, chunk_out_index)
 
 
 async def _safe_send_json(websocket: WebSocket, payload: dict[str, Any]) -> None:

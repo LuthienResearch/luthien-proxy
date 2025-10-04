@@ -26,26 +26,36 @@ Build debugging and inspection capabilities at every step of the streaming respo
   - JSON parsing error logging
   - Tracks stream_id for correlation
 
-### Step 3: Control Plane Endpoint Handling ⏸️ PENDING
+### Step 3: Control Plane Endpoint Handling ✅ COMPLETE
 **Location**: `src/luthien_proxy/control_plane/streaming_routes.py:policy_stream_endpoint()`
 - **Receives**: WebSocket messages from litellm
 - **Forwards to**: Policy's `generate_response_stream()`
-- **Tool Needed**: Endpoint request/response logger
-- **Status**: ⏸️ Pending
-- **Implementation Notes**:
-  - Log incoming WebSocket messages
-  - Log what gets passed to policy
+- **Tool Built**: `StreamingEndpointLogger` in `src/luthien_proxy/control_plane/endpoint_logger.py`
+- **Status**: ✅ Integrated into streaming routes
+- **Tests**: E2E tests in `tests/e2e_tests/test_endpoint_logging.py`
+- **Implementation**:
+  - Logs START message with request data
+  - Logs incoming CHUNK messages from litellm (backend output)
+  - Logs POLICY invocation with policy class name
+  - Logs outgoing CHUNK messages to litellm (policy output)
+  - Logs END message when stream completes
+  - Logs ERROR messages if failures occur
+  - All logs include stream_id for correlation
 
-### Step 4: Policy Processing ⏸️ PENDING
-**Location**: Policy's `generate_response_stream()` method
+### Step 4: Policy Processing ✅ COMPLETE
+**Location**: Wrapper in `src/luthien_proxy/control_plane/streaming_routes.py:_forward_policy_output()`
 - **Receives**: Async iterator of chunks from backend
 - **Yields**: Modified/novel chunks (or blocks)
-- **Tool Needed**: Policy input/output logger
-- **Status**: ⏸️ Pending
-- **Implementation Notes**:
-  - Decorator similar to `@instrument_callback`
-  - Log each chunk received from backend
-  - Log each chunk/block decision yielded
+- **Tool Built**: `PolicyStreamLogger` in `src/luthien_proxy/policies/policy_instrumentation.py`
+- **Status**: ✅ Instrumentation wrapped around all policy streams
+- **Tests**: E2E tests in `tests/e2e_tests/test_policy_logging.py`
+- **Implementation**:
+  - Logs POLICY STREAM START when policy begins processing
+  - Logs POLICY CHUNK IN for each chunk received from backend (via instrumented wrapper)
+  - Logs POLICY CHUNK OUT for each chunk yielded by policy
+  - Logs POLICY STREAM END with total chunks processed
+  - All logs include stream_id and policy class name for correlation
+  - Instrumentation applied via wrapper in `_forward_policy_output`, so works for ALL policies
 
 ### Step 5: Control Plane → LiteLLM WebSocket Response ✅ COMPLETE
 **Location**: `src/luthien_proxy/control_plane/streaming_routes.py:_forward_policy_output()`
@@ -91,3 +101,15 @@ Build debugging and inspection capabilities at every step of the streaming respo
   - test_websocket_logs_include_stream_id: verifies stream ID correlation
   - Fixed ANSI escape code handling in log parsing
   - Fixed timing issues with docker logs --since
+
+### 2025-10-04
+- ✅ Completed Step 3: Control plane endpoint logging
+  - `StreamingEndpointLogger` was already implemented and integrated
+  - Created comprehensive E2E tests in `test_endpoint_logging.py`
+  - All 5 tests passing (START, POLICY, CHUNKS, END, correlation)
+- ✅ Completed Step 4: Policy stream instrumentation
+  - Created `PolicyStreamLogger` in `policy_instrumentation.py`
+  - Integrated via wrapper functions in `streaming_routes.py:_forward_policy_output()`
+  - Instrumentation works for ALL policies (applied at call site, not in each policy)
+  - Created E2E tests in `test_policy_logging.py`
+  - All 4 tests passing (STREAM START, CHUNKS, STREAM END, correlation)

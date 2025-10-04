@@ -60,7 +60,9 @@ All control-plane schema changes are managed by Prisma migrations in `prisma/con
 ## Streaming Pipeline Instrumentation
 - **Callback instrumentation**: The `@instrument_callback` decorator logs inputs, outputs, and yielded chunks for LiteLLM callbacks (`src/luthien_proxy/proxy/callback_instrumentation.py`). Each callback invocation is recorded with metadata, arguments, and return values; streaming callbacks additionally log each chunk yielded to the client.
 - **WebSocket message logging**: `WebSocketMessageLogger` logs all messages flowing over the litellm↔control-plane WebSocket connection (`src/luthien_proxy/proxy/websocket_logger.py`). Outgoing messages (litellm → control plane) and incoming messages (control plane → litellm) are logged in `StreamConnection._sender_loop()` and `_receiver_loop()` with message type, keys, and stream ID for correlation. This provides visibility into START/CHUNK/END/ERROR message flow.
-- **E2E tests**: Instrumentation is verified through E2E tests that parse docker logs to confirm callbacks are invoked correctly and WebSocket messages are logged (`tests/e2e_tests/test_callback_invocation.py`, `tests/e2e_tests/test_websocket_logging.py`).
+- **Control plane endpoint logging**: `StreamingEndpointLogger` logs WebSocket messages received at the streaming endpoint and policy invocations (`src/luthien_proxy/control_plane/endpoint_logger.py`). Logs include START messages with request data, incoming/outgoing CHUNK messages, POLICY invocations with policy class name, END messages, and ERROR messages. All logs include stream_id for correlation.
+- **Policy stream logging**: `PolicyStreamLogger` logs chunks received and yielded by policy processing (`src/luthien_proxy/policies/policy_instrumentation.py`). Instrumentation is applied via wrapper functions in `streaming_routes.py:_forward_policy_output()`, so it works for ALL policies without modification. Logs include STREAM START, CHUNK IN (from backend), CHUNK OUT (to client), and STREAM END with total chunks processed.
+- **E2E tests**: Instrumentation is verified through E2E tests that parse docker logs to confirm callbacks are invoked correctly, WebSocket messages are logged, endpoint handling is tracked, and policy processing is visible (`tests/e2e_tests/test_callback_invocation.py`, `tests/e2e_tests/test_websocket_logging.py`, `tests/e2e_tests/test_endpoint_logging.py`, `tests/e2e_tests/test_policy_logging.py`).
 
 ### Usage Examples
 
@@ -94,6 +96,48 @@ docker compose logs litellm-proxy --no-color | grep "a1b2c3d4-5678-90ab-cdef-123
 docker compose logs litellm-proxy --no-color | grep "WebSocket OUT.*type=START"
 ```
 
+**Trace control plane endpoint handling:**
+```bash
+# See all endpoint events (control plane logs)
+docker compose logs control-plane --no-color | grep "ENDPOINT"
+
+# See when streams start
+docker compose logs control-plane --no-color | grep "ENDPOINT START"
+
+# See policy invocations
+docker compose logs control-plane --no-color | grep "ENDPOINT POLICY"
+
+# See chunks flowing through endpoint (both IN and OUT)
+docker compose logs control-plane --no-color | grep "ENDPOINT CHUNK"
+
+# See when streams complete
+docker compose logs control-plane --no-color | grep "ENDPOINT END"
+
+# Follow a specific stream through the endpoint
+docker compose logs control-plane --no-color | grep "ENDPOINT.*a1b2c3d4-5678-90ab-cdef-1234567890ab"
+```
+
+**Trace policy processing:**
+```bash
+# See all policy events (control plane logs)
+docker compose logs control-plane --no-color | grep "POLICY"
+
+# See when policy streams start
+docker compose logs control-plane --no-color | grep "POLICY STREAM START"
+
+# See chunks received by policy (from backend)
+docker compose logs control-plane --no-color | grep "POLICY CHUNK IN"
+
+# See chunks yielded by policy (to client)
+docker compose logs control-plane --no-color | grep "POLICY CHUNK OUT"
+
+# See when policy streams complete
+docker compose logs control-plane --no-color | grep "POLICY STREAM END"
+
+# See specific policy in action (e.g., LLMJudgeToolPolicy)
+docker compose logs control-plane --no-color | grep "POLICY.*LLMJudgeToolPolicy"
+```
+
 **Debug a specific request:**
 ```bash
 # Make a request, then immediately check recent logs
@@ -106,17 +150,36 @@ curl -X POST http://localhost:4000/v1/chat/completions \
 docker compose logs litellm-proxy --since 30s --no-color | grep -E "CALLBACK|WebSocket"
 ```
 
-**Correlation workflow:**
+**Correlation workflow (trace a chunk through all 6 pipeline steps):**
 ```bash
-# 1. Find the stream ID from a WebSocket message
+# 1. Find the stream ID from a recent request
 docker compose logs litellm-proxy --tail 100 --no-color | grep "WebSocket OUT.*START"
 # Output: WebSocket OUT [abc-123-def]: type=START, keys=[...]
 
-# 2. Trace all messages for that stream
+# 2. Trace litellm-proxy side (Steps 1, 2, 6)
 docker compose logs litellm-proxy --no-color | grep "abc-123-def"
+# Shows: CALLBACK invocations, WebSocket OUT messages, WebSocket IN messages
 
-# 3. Verify chunks reach the client
-docker compose logs litellm-proxy --no-color | grep -A5 "abc-123-def.*WebSocket IN.*CHUNK"
+# 3. Trace control-plane side (Steps 3, 4, 5)
+docker compose logs control-plane --no-color | grep "abc-123-def"
+# Shows: ENDPOINT events, POLICY events, including chunks IN and OUT
+
+# 4. Verify end-to-end flow for specific stream
+docker compose logs --no-color | grep "abc-123-def" | grep -E "CALLBACK|WebSocket|ENDPOINT|POLICY"
+# Combined view showing all instrumentation points in chronological order
+
+# 5. Count chunks at each stage
+echo "Chunks sent to control plane:"
+docker compose logs litellm-proxy --no-color | grep "abc-123-def.*WebSocket OUT.*type=CHUNK" | wc -l
+
+echo "Chunks received by policy:"
+docker compose logs control-plane --no-color | grep "abc-123-def.*POLICY CHUNK IN" | wc -l
+
+echo "Chunks yielded by policy:"
+docker compose logs control-plane --no-color | grep "abc-123-def.*POLICY CHUNK OUT" | wc -l
+
+echo "Chunks received from control plane:"
+docker compose logs litellm-proxy --no-color | grep "abc-123-def.*WebSocket IN.*type=CHUNK" | wc -l
 ```
 
 ## End-to-End Flow Highlights
