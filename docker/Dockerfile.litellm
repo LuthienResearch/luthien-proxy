@@ -47,8 +47,8 @@ RUN uv run prisma generate --schema prisma/litellm/schema.prisma
 # Copy config in final layer (changes frequently)
 COPY --chown=app:app config/ ./config/
 
-# Add src to Python path so LiteLLM can find our modules
-ENV PYTHONPATH="/app/src:$PYTHONPATH"
+# Add src and app root to Python path so LiteLLM can find our modules and config
+ENV PYTHONPATH="/app/src:/app:$PYTHONPATH"
 
 # Expose port
 EXPOSE 4000

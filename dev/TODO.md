@@ -12,6 +12,7 @@
 - [ ] Simplify/reduce data passed from litellm to control plane
 - [x] Add CI/CD step that runs Prisma migration validation for both control-plane and LiteLLM schemas
 - [ ] Event logging architecture indexed by call_id, trace_id to replace the current debug logs system
+- [ ] OpenTelemetry/Grafana/Loki for instrumentation/logging/debugging
 
 ## Low Priority
 

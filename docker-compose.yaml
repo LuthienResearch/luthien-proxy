@@ -57,7 +57,7 @@ services:
       - CONTROL_PLANE_URL=${CONTROL_PLANE_URL}
       - LITELLM_CONFIG_PATH=/app/config/litellm_config.yaml
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
-      - LITELLM_LOG=INFO
+      - LITELLM_LOG=DEBUG
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     ports:
