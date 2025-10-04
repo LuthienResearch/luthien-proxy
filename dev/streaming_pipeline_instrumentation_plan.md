@@ -18,6 +18,7 @@ Build debugging and inspection capabilities at every step of the streaming respo
 - **Sends**: START message with request data, then CHUNK messages for each backend chunk
 - **Tool Built**: `WebSocketMessageLogger` in `src/luthien_proxy/proxy/websocket_logger.py`
 - **Status**: ✅ Integrated into `StreamConnection._sender_loop()` and `_receiver_loop()`
+- **Tests**: E2E tests in `tests/e2e_tests/test_websocket_logging.py`
 - **Implementation**:
   - Logs all outgoing messages (litellm → control plane) with type and keys
   - Logs all incoming messages (control plane → litellm) with type and keys
@@ -51,6 +52,7 @@ Build debugging and inspection capabilities at every step of the streaming respo
 - **Sends**: CHUNK messages back over WebSocket, then END message
 - **Tool Built**: Same `WebSocketMessageLogger` (logs incoming messages in `_receiver_loop()`)
 - **Status**: ✅ Already covered by Step 2's WebSocket logger
+- **Tests**: E2E tests in `tests/e2e_tests/test_websocket_logging.py`
 - **Implementation**:
   - Logs all incoming WebSocket messages (control plane → litellm)
   - Logs CHUNK/END/ERROR messages
@@ -83,3 +85,9 @@ Build debugging and inspection capabilities at every step of the streaming respo
   - Created `WebSocketMessageLogger` class with log_outgoing/log_incoming methods
   - Integrated into `StreamConnection._sender_loop()` and `_receiver_loop()`
   - Logs both directions of WebSocket communication (steps 2 and 5)
+- ✅ Created E2E tests for WebSocket logging
+  - test_websocket_outgoing_messages_logged: verifies OUT messages logged
+  - test_websocket_incoming_messages_logged: verifies IN messages logged
+  - test_websocket_logs_include_stream_id: verifies stream ID correlation
+  - Fixed ANSI escape code handling in log parsing
+  - Fixed timing issues with docker logs --since
