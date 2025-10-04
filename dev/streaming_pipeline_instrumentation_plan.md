@@ -1,0 +1,85 @@
+# Streaming Pipeline Instrumentation Plan
+
+## Objective
+Build debugging and inspection capabilities at every step of the streaming response pipeline to diagnose why streaming judge policy blocks aren't reaching clients.
+
+## Pipeline Steps
+
+### Step 1: LiteLLM Callback Invocation ✅ COMPLETE
+**Location**: `config/litellm_callback.py:async_post_call_streaming_iterator_hook()`
+- **Receives**: Backend stream, request metadata
+- **Returns**: Async generator of chunks to send to client
+- **Tool Built**: `@instrument_callback` decorator in `src/luthien_proxy/proxy/callback_instrumentation.py`
+- **Status**: ✅ Can log callback inputs, outputs, and yielded chunks
+- **Tests**: E2E tests in `tests/e2e_tests/test_callback_invocation.py`
+
+### Step 2: LiteLLM → Control Plane WebSocket Communication ✅ COMPLETE
+**Location**: `config/litellm_callback.py:_forward_to_control_plane()`
+- **Sends**: START message with request data, then CHUNK messages for each backend chunk
+- **Tool Built**: `WebSocketMessageLogger` in `src/luthien_proxy/proxy/websocket_logger.py`
+- **Status**: ✅ Integrated into `StreamConnection._sender_loop()` and `_receiver_loop()`
+- **Implementation**:
+  - Logs all outgoing messages (litellm → control plane) with type and keys
+  - Logs all incoming messages (control plane → litellm) with type and keys
+  - Detailed logging for START, CHUNK, END, ERROR messages
+  - JSON parsing error logging
+  - Tracks stream_id for correlation
+
+### Step 3: Control Plane Endpoint Handling ⏸️ PENDING
+**Location**: `src/luthien_proxy/control_plane/streaming_routes.py:policy_stream_endpoint()`
+- **Receives**: WebSocket messages from litellm
+- **Forwards to**: Policy's `generate_response_stream()`
+- **Tool Needed**: Endpoint request/response logger
+- **Status**: ⏸️ Pending
+- **Implementation Notes**:
+  - Log incoming WebSocket messages
+  - Log what gets passed to policy
+
+### Step 4: Policy Processing ⏸️ PENDING
+**Location**: Policy's `generate_response_stream()` method
+- **Receives**: Async iterator of chunks from backend
+- **Yields**: Modified/novel chunks (or blocks)
+- **Tool Needed**: Policy input/output logger
+- **Status**: ⏸️ Pending
+- **Implementation Notes**:
+  - Decorator similar to `@instrument_callback`
+  - Log each chunk received from backend
+  - Log each chunk/block decision yielded
+
+### Step 5: Control Plane → LiteLLM WebSocket Response ✅ COMPLETE
+**Location**: `src/luthien_proxy/control_plane/streaming_routes.py:_forward_policy_output()`
+- **Sends**: CHUNK messages back over WebSocket, then END message
+- **Tool Built**: Same `WebSocketMessageLogger` (logs incoming messages in `_receiver_loop()`)
+- **Status**: ✅ Already covered by Step 2's WebSocket logger
+- **Implementation**:
+  - Logs all incoming WebSocket messages (control plane → litellm)
+  - Logs CHUNK/END/ERROR messages
+  - Same stream_id correlation as outgoing messages
+
+### Step 6: LiteLLM Callback Chunk Processing ⏸️ PENDING
+**Location**: `config/litellm_callback.py:poll_control()` and `_normalize_stream_chunk()`
+- **Receives**: WebSocket messages from control plane
+- **Processes**: Validates and converts to `ModelResponseStream`
+- **Yields**: Chunks to client
+- **Tool Needed**: Callback chunk logger
+- **Status**: ⏸️ Pending
+- **Implementation Notes**:
+  - Log what `poll_control()` receives from WebSocket
+  - Log normalization results
+  - Log what gets yielded to client
+
+## E2E Validation ⏸️ PENDING
+**Goal**: Create a test that traces a single chunk through all 6 steps
+- **Tool Needed**: End-to-end pipeline tracer with correlation IDs
+- **Status**: ⏸️ Pending after all steps instrumented
+
+## Progress Log
+
+### 2025-10-03
+- ✅ Completed Step 1: Built callback instrumentation infrastructure
+- ✅ Created E2E tests for callback invocation
+- ✅ Verified callbacks work with test callback
+- ✅ Completed Step 2: Built WebSocket message logger
+  - Created `WebSocketMessageLogger` class with log_outgoing/log_incoming methods
+  - Integrated into `StreamConnection._sender_loop()` and `_receiver_loop()`
+  - Logs both directions of WebSocket communication (steps 2 and 5)

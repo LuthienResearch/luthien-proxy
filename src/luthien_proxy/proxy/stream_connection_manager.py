@@ -12,6 +12,8 @@ import websockets
 from websockets import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed
 
+from luthien_proxy.proxy.websocket_logger import get_websocket_logger
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,11 +75,14 @@ class StreamConnection:
                 logger.debug("Receiver task finished with error: %s", exc)
 
     async def _sender_loop(self) -> None:
+        ws_logger = get_websocket_logger()
         while True:
             message = await self.outgoing_queue.get()
             if "_sentinel" in message:
                 break
             try:
+                # Log outgoing message before sending
+                ws_logger.log_outgoing(self.stream_id, message)
                 await self.websocket.send(json.dumps(message))
             except Exception as exc:  # pragma: no cover - network failure path
                 self.error = exc
@@ -85,11 +90,15 @@ class StreamConnection:
                 break
 
     async def _receiver_loop(self) -> None:
+        ws_logger = get_websocket_logger()
         try:
             async for raw in self.websocket:
                 try:
                     payload = json.loads(raw)
+                    # Log incoming message after parsing
+                    ws_logger.log_incoming(self.stream_id, payload)
                 except Exception as exc:  # pragma: no cover - defensive
+                    ws_logger.log_json_error(self.stream_id, raw, exc)
                     logger.error("stream[%s] invalid JSON from control plane: %s", self.stream_id, exc)
                     continue
                 await self.incoming_queue.put(payload)
