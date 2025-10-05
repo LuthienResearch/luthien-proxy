@@ -1,4 +1,6 @@
-"""Shared helpers for policy-specific e2e tests."""
+"""ABOUTME: Shared helpers for policy-specific e2e tests.
+ABOUTME: Provides request execution, response validation, and trace assertion utilities.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +9,15 @@ import uuid
 from typing import Any
 
 import httpx
-from tests.e2e_tests.helpers import E2ESettings, fetch_trace
+
+from .infra import E2ESettings, fetch_trace
+
+try:
+    from .policy_test_models import RequestSpec, ResponseAssertion
+except ImportError:
+    # For backward compatibility with existing tests
+    RequestSpec = None  # type: ignore
+    ResponseAssertion = None  # type: ignore
 
 
 def build_policy_payload(settings: E2ESettings, *, stream: bool) -> dict[str, Any]:
@@ -130,9 +140,240 @@ async def fetch_block_trace(
     return assert_block_trace(trace, debug_type)
 
 
+# ==============================================================================
+# Parameterized Test Execution Helpers
+# ==============================================================================
+
+
+def build_request_payload(
+    settings: E2ESettings,
+    request_spec: Any,  # RequestSpec type
+    stream: bool,
+) -> dict[str, Any]:
+    """Build a request payload from a RequestSpec."""
+    payload: dict[str, Any] = {
+        "model": settings.model_name,
+        "scenario": request_spec.scenario or settings.scenario,
+        "litellm_trace_id": f"e2e-test-{uuid.uuid4()}",
+        "messages": [
+            {
+                "role": msg.role,
+                "content": msg.content,
+                **({"tool_calls": msg.tool_calls} if msg.tool_calls else {}),
+            }
+            for msg in request_spec.messages
+        ],
+    }
+
+    if request_spec.tools:
+        payload["tools"] = list(request_spec.tools)
+
+    if stream:
+        payload["stream"] = True
+
+    if request_spec.extra_params:
+        payload.update(request_spec.extra_params)
+
+    return payload
+
+
+async def execute_non_streaming_request(
+    settings: E2ESettings,
+    request_spec: Any,  # RequestSpec type
+) -> tuple[dict[str, Any], str]:
+    """Execute a non-streaming request and return (response_body, call_id)."""
+    payload = build_request_payload(settings, request_spec, stream=False)
+    headers = {
+        "Authorization": f"Bearer {settings.master_key}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+        response = await client.post(
+            f"{settings.proxy_url}/v1/chat/completions",
+            headers=headers,
+            json=payload,
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    call_id = response.headers.get("x-litellm-call-id") or body.get("id")
+    if not call_id:
+        call_id = response.headers.get("litellm-call-id")
+    assert call_id, "Expected litellm call id in headers or body"
+
+    return body, call_id
+
+
+async def execute_streaming_request(
+    settings: E2ESettings,
+    request_spec: Any,  # RequestSpec type
+) -> tuple[list[dict[str, Any]], str]:
+    """Execute a streaming request and return (chunks, call_id)."""
+    payload = build_request_payload(settings, request_spec, stream=True)
+    headers = {
+        "Authorization": f"Bearer {settings.master_key}",
+        "Content-Type": "application/json",
+    }
+
+    chunks: list[dict[str, Any]] = []
+    call_id = None
+
+    async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+        async with client.stream(
+            "POST",
+            f"{settings.proxy_url}/v1/chat/completions",
+            headers=headers,
+            json=payload,
+        ) as response:
+            assert response.status_code == 200
+            call_id = response.headers.get("x-litellm-call-id") or response.headers.get("litellm-call-id")
+
+            async for line in response.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[6:].strip()
+                if data_str == "[DONE]":
+                    break
+                chunk = json.loads(data_str)
+                if call_id is None:
+                    call_id = chunk.get("id")
+                chunks.append(chunk)
+
+    assert call_id, "Streaming response missing call id"
+    return chunks, call_id
+
+
+def extract_message_content(response_body: dict[str, Any]) -> str:
+    """Extract message content from a non-streaming response."""
+    choices = response_body.get("choices", [])
+    if not choices:
+        return ""
+    choice = choices[0]
+    message = choice.get("message", {})
+    return message.get("content", "")
+
+
+def extract_streaming_content(chunks: list[dict[str, Any]]) -> str:
+    """Extract accumulated content from streaming chunks."""
+    content_parts = []
+    for chunk in chunks:
+        choices = chunk.get("choices", [])
+        if not choices:
+            continue
+        choice = choices[0]
+        delta = choice.get("delta", {})
+        content = delta.get("content")
+        if content:
+            content_parts.append(content)
+    return "".join(content_parts)
+
+
+def extract_finish_reason(response_or_chunks: dict[str, Any] | list[dict[str, Any]]) -> str | None:
+    """Extract finish_reason from response or chunks."""
+    if isinstance(response_or_chunks, dict):
+        # Non-streaming
+        choices = response_or_chunks.get("choices", [])
+        if choices:
+            return choices[0].get("finish_reason")
+    else:
+        # Streaming - get last chunk's finish_reason
+        for chunk in reversed(response_or_chunks):
+            choices = chunk.get("choices", [])
+            if choices:
+                finish_reason = choices[0].get("finish_reason")
+                if finish_reason:
+                    return finish_reason
+    return None
+
+
+def has_tool_calls(response_body: dict[str, Any]) -> bool:
+    """Check if response contains tool calls."""
+    choices = response_body.get("choices", [])
+    if not choices:
+        return False
+    message = choices[0].get("message", {})
+    tool_calls = message.get("tool_calls")
+    return bool(tool_calls)
+
+
+def assert_response_expectations(
+    response_or_chunks: dict[str, Any] | list[dict[str, Any]],
+    assertion: Any,  # ResponseAssertion type
+    content: str,
+) -> None:
+    """Validate response against assertions."""
+    # Check text content
+    if assertion.should_contain_text:
+        for text in assertion.should_contain_text:
+            assert text in content, f"Expected '{text}' in response content, got: {content}"
+
+    if assertion.should_not_contain_text:
+        for text in assertion.should_not_contain_text:
+            assert text not in content, f"Did not expect '{text}' in response content, got: {content}"
+
+    # Check finish_reason
+    if assertion.finish_reason:
+        actual_finish_reason = extract_finish_reason(response_or_chunks)
+        assert actual_finish_reason == assertion.finish_reason, (
+            f"Expected finish_reason={assertion.finish_reason}, got {actual_finish_reason}"
+        )
+
+    # Check tool calls (non-streaming only)
+    if assertion.should_have_tool_calls is not None and isinstance(response_or_chunks, dict):
+        has_calls = has_tool_calls(response_or_chunks)
+        if assertion.should_have_tool_calls:
+            assert has_calls, "Expected response to have tool calls"
+        else:
+            assert not has_calls, "Expected response to NOT have tool calls"
+
+
+async def assert_debug_log(
+    settings: E2ESettings,
+    call_id: str,
+    assertion: Any,  # ResponseAssertion type
+) -> None:
+    """Validate debug logs against assertions."""
+    if not assertion.debug_type:
+        return
+
+    trace = await fetch_trace(settings, call_id)
+    assert trace.get("call_id") == call_id, f"Trace call id mismatch: {trace.get('call_id')} != {call_id}"
+
+    entries_raw = trace.get("entries", [])
+    entries = entries_raw if isinstance(entries_raw, list) else []
+    matching_entries = [
+        entry for entry in entries if isinstance(entry, dict) and entry.get("debug_type") == assertion.debug_type
+    ]
+
+    assert matching_entries, (
+        f"Expected debug type {assertion.debug_type}, "
+        f"found: {[e.get('debug_type') if isinstance(e, dict) else None for e in entries]}"
+    )
+
+    if assertion.debug_payload_assertions:
+        payload = matching_entries[0].get("payload", {})
+        for key, expected_value in assertion.debug_payload_assertions.items():
+            actual_value = payload.get(key)
+            assert actual_value == expected_value, (
+                f"Debug payload mismatch for {key}: expected {expected_value}, got {actual_value}"
+            )
+
+
 __all__ = [
     "build_policy_payload",
     "stream_policy_block",
     "assert_block_trace",
     "fetch_block_trace",
+    # Parameterized test helpers
+    "build_request_payload",
+    "execute_non_streaming_request",
+    "execute_streaming_request",
+    "extract_message_content",
+    "extract_streaming_content",
+    "extract_finish_reason",
+    "has_tool_calls",
+    "assert_response_expectations",
+    "assert_debug_log",
 ]
