@@ -2,7 +2,69 @@
 
 **Status**: Implementation Plan
 **Created**: 2025-10-05
+**Updated**: 2025-10-05 (added fixes for JSON serialization, keepalive, resource cleanup)
 **Goal**: Rewrite `async_post_call_streaming_iterator_hook` to implement clean bidirectional streaming protocol
+
+## Critical Fixes Applied to Plan
+
+This plan addresses three critical issues identified during review:
+
+1. **JSON Serialization Bug** (MAJOR)
+   - **Issue**: Plan forwarded raw `ModelResponseStream` objects to WebSocket
+   - **Impact**: Would crash with `TypeError: Object of type ModelResponseStream is not JSON serializable`
+   - **Fix**: Line 316 now calls `chunk.model_dump()` before sending
+
+2. **Timeout Logic for Slow Policies** (MAJOR)
+   - **Issue**: 30s timeout would fire even if control plane legitimately processing (e.g., policies that buffer the full upstream before emitting)
+   - **Impact**: Timeouts on valid requests with slow LLM responses or heavy processing
+   - **Fix**: Added `KEEPALIVE` message type allowing control plane to signal "I'm alive" without sending content
+
+3. **Resource Leak on Early Exit** (MEDIUM)
+   - **Issue**: Returning empty response without consuming/closing upstream iterator
+   - **Impact**: LLM request continues running in background, wasting resources
+   - **Fix**: Lines 417, 430 now call `await response.aclose()` before early returns
+
+## Protocol Overview
+
+The streaming architecture uses a bidirectional WebSocket protocol between the LiteLLM proxy and the control plane:
+
+### Message Format
+
+All messages are JSON objects with a `type` field and optional `data`/`error` fields:
+
+```json
+{"type": "MESSAGE_TYPE", "data": {...}}
+```
+
+### Message Types
+
+**Proxy → Control Plane:**
+- `START` - Connection initiation with request metadata
+- `CHUNK` - Upstream LLM response chunk (forwarded as-is)
+- `END` - Upstream stream completed (sent by proxy)
+
+**Control Plane → Proxy:**
+- `CHUNK` - Final response chunk (policy output, sent to client)
+- `KEEPALIVE` - Heartbeat to extend timeout (no client output)
+- `END` - Policy stream completed successfully
+- `ERROR` - Policy encountered an error
+
+### Key Terms
+
+- **Upstream**: The original LLM provider response (e.g., OpenAI, Anthropic)
+- **Control Plane**: The policy evaluation service receiving upstream chunks
+- **Final Response**: What the control plane sends back (may differ from upstream)
+- **Client**: The end user making the request through the proxy
+
+### Flow Summary
+
+1. Proxy opens WebSocket, sends `START` with request metadata
+2. Proxy forwards upstream chunks via `CHUNK` messages
+3. Control plane processes and emits its own `CHUNK` messages
+4. Control plane sends `END` when complete (or `ERROR` on failure)
+5. Proxy returns final chunks to client, closes connection
+
+**Critical Principle**: The client receives ONLY what the control plane explicitly sends. The control plane's response may be identical to upstream (NoOp policy), transformed (AllCaps policy), blocked (judge policy), or any other policy-defined behavior.
 
 ## Executive Summary
 
@@ -11,7 +73,7 @@ The current streaming implementation is fundamentally confused about its role: i
 We're rewriting from scratch to implement a clean protocol where:
 - **Control plane is the canonical source of responses**
 - Client receives NOTHING unless control plane explicitly sends it
-- Clear completion semantics (FINAL_END signal)
+- Clear completion semantics (END signal from control plane)
 - Proper timeout and failure handling (return empty response)
 
 ## Core Architectural Principle
@@ -53,9 +115,9 @@ They happen to be correlated (NoOp policy copies chunks, Judge policy uses them 
 **Requirement**: Both sides must know when streams are done, no ambiguity.
 
 **Protocol**:
-- Control plane sends `{"type": "FINAL_END"}` when policy completes
-- Proxy closes connection immediately upon FINAL_END
-- No explicit UPSTREAM_END from proxy (control plane detects via `finish_reason`)
+- Control plane sends `{"type": "END"}` when policy completes
+- Proxy closes connection immediately upon receiving END from control plane
+- Proxy sends `{"type": "END"}` when upstream completes (control plane can also detect via `finish_reason`)
 
 **Why**: LiteLLM callback blocks until generator completes. Must exit cleanly when control plane is done, even if upstream still streaming.
 
@@ -73,18 +135,7 @@ They happen to be correlated (NoOp policy copies chunks, Judge policy uses them 
 
 ## Protocol Design
 
-### Message Types
-
-```python
-# Proxy → Control Plane
-{"type": "INIT", "data": {stream_id, model, messages, tools, ...}}  # Connection start
-{"type": "CHUNK", "data": <original_chunk>}                         # Upstream chunk
-
-# Control Plane → Proxy
-{"type": "CHUNK", "data": <final_chunk>}                            # Final response chunk
-{"type": "FINAL_END"}                                                # Response complete
-{"type": "ERROR", "error": <description>}                           # Policy error
-```
+See **Protocol Overview** section above for full message type reference. This section focuses on specific flows and edge cases.
 
 ### Connection Lifecycle
 
@@ -101,7 +152,7 @@ sequenceDiagram
     Proxy->>Upstream: Start request
 
     Note over Proxy,ControlPlane: Phase 2: Concurrent Streaming
-    loop Until FINAL_END or timeout
+    loop Until END or timeout
         Upstream-->>Proxy: Chunk
         Proxy->>ControlPlane: Forward chunk
         ControlPlane-->>Proxy: Final chunk (when ready)
@@ -109,7 +160,7 @@ sequenceDiagram
     end
 
     Note over Proxy,ControlPlane: Phase 3: Completion
-    ControlPlane->>Proxy: FINAL_END
+    ControlPlane->>Proxy: END
     Proxy->>ControlPlane: Close WebSocket
     Proxy->>Client: End stream
     Note over Upstream: May still be streaming (ignored)
@@ -125,7 +176,7 @@ sequenceDiagram
     participant C as Control Plane
     participant U as Upstream
 
-    P->>C: INIT
+    P->>C: START
     U-->>P: Chunk #1
     P->>C: CHUNK #1
     C-->>P: CHUNK #1 (immediate)
@@ -137,7 +188,7 @@ sequenceDiagram
     P-->>Client: Yield #2
 
     Note over C: Detects finish_reason
-    C->>P: FINAL_END
+    C->>P: END
     P->>C: Close WS
     P-->>Client: Complete
 ```
@@ -150,7 +201,7 @@ sequenceDiagram
     participant C as Control Plane
     participant U as Upstream
 
-    P->>C: INIT
+    P->>C: START
     U-->>P: Chunk #1 (role)
     P->>C: CHUNK #1
     Note over C: Buffer, wait for tool call
@@ -159,13 +210,15 @@ sequenceDiagram
     P->>C: CHUNK #2
     Note over C: Detect finish_reason<br/>Start judge evaluation (5s)
 
-    Note over U: May send more chunks
-    Note over P: Still forwarding to C
+    Note over C: Send keepalive every 10s<br/>during evaluation
+    C->>P: KEEPALIVE
+    Note over P: Extend timeout, no client output
+
     Note over C: Judge completes: BLOCK
 
     C-->>P: CHUNK "BLOCKED"
     P-->>Client: Yield "BLOCKED"
-    C->>P: FINAL_END
+    C->>P: END
     P->>C: Close WS
     Note over P: Stop reading from upstream
     P-->>Client: Complete
@@ -179,7 +232,7 @@ sequenceDiagram
     participant C as Control Plane
     participant U as Upstream
 
-    P->>C: INIT
+    P->>C: START
     U-->>P: Chunk #1
     P->>C: CHUNK #1
     Note over C: Policy hangs/crashes
@@ -199,7 +252,7 @@ sequenceDiagram
     participant C as Control Plane
     participant U as Upstream
 
-    P->>C: INIT
+    P->>C: START
     U-->>P: Chunk #1
     P->>C: CHUNK #1
     Note over C: Control plane crashes
@@ -231,7 +284,7 @@ stream_orchestrator.py (NEW)
 │
 └── StreamState (Enum)                              ← Clean state machine
     ├── ACTIVE
-    ├── ENDED (received FINAL_END)
+    ├── ENDED (received END)
     └── FAILED (error/timeout)
 ```
 
@@ -244,7 +297,7 @@ stream_orchestrator.py (NEW)
 ```python
 class StreamState(Enum):
     ACTIVE = "active"      # Normal operation
-    ENDED = "ended"        # Received FINAL_END
+    ENDED = "ended"        # Received END
     FAILED = "failed"      # Error or timeout
 
 class StreamOrchestrator:
@@ -254,7 +307,7 @@ class StreamOrchestrator:
     - Forwards upstream chunks to control plane (fire-and-forget)
     - Polls control plane for final response chunks
     - Yields only control plane chunks to client
-    - Handles timeout, FINAL_END, and errors
+    - Handles timeout, END, and errors
     """
 
     def __init__(
@@ -312,7 +365,7 @@ async def _forward_upstream(self) -> None:
                 break
 
             try:
-                await self.connection.send({"type": "CHUNK", "data": chunk})
+                await self.connection.send({"type": "CHUNK", "data": chunk.model_dump()})
             except Exception as exc:
                 logger.error(f"Failed to forward chunk: {exc}")
                 self.state = StreamState.FAILED
@@ -325,9 +378,9 @@ async def _poll_control_plane(self) -> AsyncGenerator[ModelResponseStream, None]
     """Poll control plane for final response chunks with timeout.
 
     Yields chunks until:
-    - FINAL_END received
+    - END received
     - Timeout exceeded
-    - Error received
+    - ERROR received
     - Connection broken
     """
     receive_task = None
@@ -377,7 +430,13 @@ async def _poll_control_plane(self) -> AsyncGenerator[ModelResponseStream, None]
             chunk_data = message.get("data")
             yield self._normalize_chunk(chunk_data)
 
-        elif msg_type == "FINAL_END":
+        elif msg_type == "KEEPALIVE":
+            # Extend timeout without yielding anything
+            self.last_activity = time.time()
+            self.deadline = self.last_activity + self.timeout
+            logger.debug("Received keepalive, extended deadline")
+
+        elif msg_type == "END":
             self.state = StreamState.ENDED
             break
 
@@ -406,7 +465,8 @@ async def async_post_call_streaming_iterator_hook(
     """
     stream_id = request_data.get("litellm_call_id")
     if not stream_id:
-        # No stream ID - return empty
+        # No stream ID - close upstream and return empty
+        await response.aclose()
         return
 
     # Open connection to control plane
@@ -418,6 +478,8 @@ async def async_post_call_streaming_iterator_hook(
         )
     except Exception as exc:
         logger.error(f"Failed to connect to control plane: {exc}")
+        # Close upstream to avoid resource leak
+        await response.aclose()
         return  # Empty response
 
     # Run orchestrator
@@ -447,15 +509,22 @@ async def async_post_call_streaming_iterator_hook(
 
 ### 1. Timeout is Activity-Based, Not Total Duration
 
-**Correct**: Timeout resets when control plane sends a chunk
+**Correct**: Timeout resets when control plane sends a chunk OR keepalive
 ```python
 if msg_type == "CHUNK":
     self.last_activity = time.time()
     self.deadline = self.last_activity + self.timeout  # Reset
     yield chunk
+
+elif msg_type == "KEEPALIVE":
+    self.last_activity = time.time()
+    self.deadline = self.last_activity + self.timeout  # Reset
+    # No yield - just extends timeout
 ```
 
 **Why**: Policy might stream a long response over >30 seconds. That's fine as long as it's actively sending chunks. We only timeout if NO activity for 30 seconds.
+
+**Keepalive Use Case**: Policies that need to wait for the full upstream before emitting anything (e.g., policies that buffer and analyze the complete response before deciding what to emit). The control plane can send `{"type": "KEEPALIVE"}` periodically (e.g., every 10 seconds) to signal "I'm alive and working" without sending actual content. This prevents timeout during long processing periods.
 
 ### 2. Detect Original Stream Completion via finish_reason
 
@@ -469,7 +538,7 @@ async for chunk in incoming_stream:
     if finish_reason:
         # Stream is complete, do final processing
         ...
-        return  # Stops generator, triggers FINAL_END
+        return  # Stops generator, triggers END
 ```
 
 Common `finish_reason` values:
@@ -513,17 +582,32 @@ def _extract_finish_reason(self, chunk: dict) -> str | None:
 
 ### 3. Empty Response in Streaming Context
 
-When returning empty response due to error/timeout, we simply return from the generator without yielding anything:
+When returning empty response due to error/timeout, we must:
+1. Close the upstream generator to avoid resource leaks
+2. Return without yielding anything
 
 ```python
 async def async_post_call_streaming_iterator_hook(...):
+    stream_id = request_data.get("litellm_call_id")
+    if not stream_id:
+        await response.aclose()  # CRITICAL: Close upstream
+        return
+
+    try:
+        connection = await manager.get_or_create(...)
+    except Exception:
+        await response.aclose()  # CRITICAL: Close upstream
+        return
+
     try:
         # ... orchestration ...
         async for chunk in orchestrator.run():
             yield chunk
     except Exception:
-        return  # No more yields = empty response to client
+        return  # Orchestrator already manages upstream cleanup
 ```
+
+**Why**: The `response` generator represents an active LLM request. If we don't consume or close it, the request may continue running, wasting resources. Calling `aclose()` explicitly terminates the upstream request.
 
 LiteLLM will handle this gracefully - client sees immediate end-of-stream.
 
@@ -567,7 +651,7 @@ except Exception as exc:
 
 **Test Cases**:
 - Normal flow: upstream chunks → control plane chunks → client
-- FINAL_END: stops immediately
+- END: stops immediately
 - Timeout: no control plane activity for 30s → empty response
 - Connection broken: detect and return empty
 - Control plane ERROR: return empty
@@ -593,7 +677,7 @@ async def test_finish_reason_detection_openai():
     """Verify control plane detects stream end from OpenAI finish_reason."""
     # Send real request to OpenAI via proxy
     # Control plane should detect finish_reason="stop"
-    # Should send FINAL_END
+    # Should send END
     # Client should receive complete response
 
 @pytest.mark.e2e
@@ -611,16 +695,42 @@ async def test_finish_reason_detection_tool_calls():
 
 **Why Critical**: Our protocol assumes `finish_reason` detection works. If providers don't send it consistently, the whole system breaks.
 
-### 4. Existing Test Updates
+### 4. Keepalive Mechanism Tests
+
+**Test Cases**:
+- Policy sends keepalive every 10s while buffering upstream
+- Slow upstream (>30s) with keepalives doesn't timeout
+- Policy that sends keepalive then crashes still times out after 30s from last keepalive
+- Keepalive doesn't yield any chunks to client
+
+```python
+@pytest.mark.asyncio
+async def test_keepalive_prevents_timeout():
+    """Verify keepalive extends deadline without timing out."""
+    # Mock control plane that:
+    # - Sends KEEPALIVE at t=0s, t=10s, t=20s, t=30s
+    # - Sends CHUNK at t=40s
+    # - Sends END at t=41s
+    # Should succeed even though >30s total duration
+
+@pytest.mark.asyncio
+async def test_keepalive_no_client_output():
+    """Verify keepalive doesn't yield chunks to client."""
+    # Mock control plane sends KEEPALIVE
+    # Client should receive nothing (no chunk yielded)
+```
+
+### 5. Existing Test Updates
 
 **E2E parameterized tests** (`test_policies_parameterized.py`):
 - Should all pass with new implementation
 - Currently 9/10 pass (judge streaming fails due to timeout bug)
 - After rewrite: should be 10/10 passing
 
-**Judge-specific tests** (`test_tool_call_judge_e2e.py`):
+**Policy-specific tests** (e.g., `test_tool_call_judge_e2e.py`):
 - Already test streaming and non-streaming
 - Should continue to pass
+- Policies that buffer may need keepalive implementation for very slow LLM responses
 
 ## Migration Path
 
@@ -639,12 +749,88 @@ Update `config/litellm_callback.py`:
 - Remove old `poll_control` nested function
 - Remove `passthrough` flag and logic
 
-### Step 3: Update Tests
+### Step 3: Add Keepalive Support to Control Plane (Optional for MVP)
+
+For the initial implementation, we can skip keepalive support and just increase timeout to 60s. For production, we'll use **dependency injection** to provide keepalive capability:
+
+#### Keepalive Injection Design
+
+**A. Create a keepalive protocol** (in `policies/base.py` or new `policies/streaming_support.py`):
+```python
+from typing import Protocol
+
+class KeepaliveSupport(Protocol):
+    """Protocol for sending keepalive signals during streaming."""
+
+    async def send_keepalive(self) -> None:
+        """Send a keepalive signal to extend timeout without emitting content."""
+        ...
+```
+
+**B. Implement in control plane WebSocket wrapper**:
+```python
+# In streaming_routes.py
+class WebSocketKeepalive:
+    """Concrete implementation of KeepaliveSupport for WebSocket."""
+
+    def __init__(self, websocket: WebSocket):
+        self.websocket = websocket
+
+    async def send_keepalive(self) -> None:
+        await self.websocket.send_json({"type": "KEEPALIVE"})
+```
+
+**C. Inject into StreamPolicyContext**:
+```python
+# In policies/base.py
+@dataclasses.dataclass
+class StreamPolicyContext:
+    stream_id: str
+    request_data: dict[str, Any]
+    keepalive: KeepaliveSupport | None = None  # Optional injection
+```
+
+**D. Update control plane to inject keepalive**:
+```python
+# In streaming_routes.py _forward_policy_output()
+keepalive = WebSocketKeepalive(websocket)
+context = policy.create_stream_context(stream_id, request_data)
+context.keepalive = keepalive  # Inject
+```
+
+**E. Policies use it if available**:
+```python
+# Example in any policy
+async def generate_response_stream(self, context, incoming_stream):
+    chunks = []
+    last_keepalive = time.time()
+
+    async for chunk in incoming_stream:
+        chunks.append(chunk)
+
+        # Send keepalive if available and needed
+        if context.keepalive and time.time() - last_keepalive > 10.0:
+            await context.keepalive.send_keepalive()
+            last_keepalive = time.time()
+
+    # ... process and emit
+```
+
+**Benefits**:
+- Unit testable: inject mock keepalive in tests
+- Optional: policies work with or without keepalive support
+- No coupling: policies don't depend on WebSocket implementation
+- Future-proof: can inject different implementations (e.g., Redis pub/sub)
+
+This is **optional** for the initial rewrite - we can validate the architecture works first, then add keepalive support in a follow-up PR.
+
+### Step 4: Update Tests
 
 Fix any broken tests:
 - Update assertions if error messages changed
 - Update timeout expectations if behavior changed
 - Add new tests for empty response behavior
+- Add tests for keepalive mechanism (if implemented)
 
 ### Step 4: Validate E2E
 
@@ -701,7 +887,43 @@ uv run pytest tests/e2e_tests/test_real_llm_backends.py -v
 
 **Solution**: Timeout is **activity-based**, not total duration. As long as chunks arrive, deadline keeps resetting. Only timeout if NO chunks for 30 consecutive seconds.
 
-### 5. Control Plane Sends FINAL_END But Connection Doesn't Close
+**For Policies That Buffer**: If a policy needs to wait >30s for upstream to complete before processing, it should send periodic keepalive signals using the injected `KeepaliveSupport`:
+
+```python
+# Example: A policy that buffers the full stream before processing
+import time
+
+async def generate_response_stream(self, context, incoming_stream):
+    chunks = []
+    last_keepalive = time.time()
+    KEEPALIVE_INTERVAL = 10.0  # Send every 10 seconds
+
+    # Collect all chunks (may take >30s for slow LLM)
+    async for chunk in incoming_stream:
+        chunks.append(chunk)
+
+        # Send keepalive if available and needed
+        if context.keepalive and time.time() - last_keepalive > KEEPALIVE_INTERVAL:
+            await context.keepalive.send_keepalive()
+            last_keepalive = time.time()
+
+    # Now process (may also take >30s)
+    # Send keepalive during long processing
+    if context.keepalive and time.time() - last_keepalive > KEEPALIVE_INTERVAL:
+        await context.keepalive.send_keepalive()
+        last_keepalive = time.time()
+
+    # Do whatever policy-specific processing is needed
+    processed = await self._process(chunks)
+
+    # Emit final response
+    for chunk in processed:
+        yield chunk
+```
+
+**Note**: The `KeepaliveSupport` protocol will be injected into `StreamPolicyContext` by the control plane (see Step 3 in Migration Path). For the initial implementation, we can skip this and just increase the timeout to 60s.
+
+### 5. Control Plane Sends END But Connection Doesn't Close
 
 **Risk**: We set `state = ENDED` but WebSocket doesn't actually close until `finally` block.
 
@@ -715,12 +937,16 @@ uv run pytest tests/e2e_tests/test_real_llm_backends.py -v
 
 1. ✅ `StreamOrchestrator` class exists with full implementation
 2. ✅ `async_post_call_streaming_iterator_hook` rewritten to use orchestrator
-3. ✅ All unit tests pass (including new orchestrator tests)
-4. ✅ All E2E tests pass (10/10 in parameterized suite)
-5. ✅ Real LLM backend test confirms `finish_reason` detection
-6. ✅ Timeout behavior works (empty response after 30s)
-7. ✅ Error behavior works (empty response on connection failure)
-8. ✅ No `passthrough` mode exists anywhere
+3. ✅ JSON serialization fix applied (`chunk.model_dump()`)
+4. ✅ KEEPALIVE message type implemented in proxy
+5. ✅ Resource cleanup implemented (`await response.aclose()`)
+6. ✅ All unit tests pass (including new orchestrator tests)
+7. ✅ All E2E tests pass (10/10 in parameterized suite)
+8. ✅ Real LLM backend test confirms `finish_reason` detection
+9. ✅ Timeout behavior works (empty response after 30s of inactivity)
+10. ✅ Keepalive prevents timeout (test >30s with keepalives)
+11. ✅ Error behavior works (empty response on connection failure)
+12. ✅ No `passthrough` mode exists anywhere
 
 ### Validation Checklist:
 
@@ -728,8 +954,12 @@ uv run pytest tests/e2e_tests/test_real_llm_backends.py -v
 - [ ] AllCaps policy transforms correctly
 - [ ] SQL protection policy allows SELECT
 - [ ] SQL protection policy blocks DROP
-- [ ] Judge policy blocks harmful tool calls (streaming and non-streaming)
-- [ ] Timeout returns empty response (test with mock slow control plane)
+- [ ] Policies that block harmful content work correctly (streaming and non-streaming)
+- [ ] Keepalive message extends timeout without yielding chunks
+- [ ] Keepalive allows >30s processing time for policies that buffer
+- [ ] Timeout returns empty response (test with mock slow control plane, no keepalives)
+- [ ] Resource cleanup on early exit (verify upstream closed)
+- [ ] JSON serialization works (chunks sent as dicts, not objects)
 - [ ] Connection failure returns empty response
 - [ ] Control plane ERROR returns empty response
 - [ ] Real OpenAI streaming works
