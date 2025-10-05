@@ -385,13 +385,15 @@ class LuthienCallback(CustomLogger):
                     break
 
             # Upstream finished; flush remaining control-plane output.
-            # Use longer timeout to allow control plane to finish processing buffered tool calls.
-            # Judge policy evaluation can take 100-200ms for LLM round-trip.
-            for transformed in await poll_control(initial_timeout=0.5):
+            # Use long timeout to allow control plane to finish processing buffered tool calls.
+            # Judge policy evaluation can take up to 30 seconds for LLM round-trip depending on
+            # model speed, network conditions, and provider rate limits.
+            for transformed in await poll_control(initial_timeout=30.0):
                 transformed_dict = transformed.model_dump()
                 chunk_logger.log_chunk_to_client(stream_id, transformed_dict, client_chunk_index[0])
                 client_chunk_index[0] += 1
                 yield transformed
+            # Drain any remaining chunks that arrived while we were processing
             while True:
                 extra = await poll_control(initial_timeout=None)
                 if not extra:

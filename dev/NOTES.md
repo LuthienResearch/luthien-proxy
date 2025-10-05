@@ -35,7 +35,7 @@ Judge policy correctly blocks harmful tool calls in non-streaming mode but fails
 Increase the `poll_control` timeout after upstream finishes to give control plane time to complete buffered processing.
 
 **File**: `config/litellm_callback.py`
-**Line**: ~388 in `async_post_call_streaming_iterator_hook`
+**Line**: ~391 in `async_post_call_streaming_iterator_hook`
 
 Change from:
 ```python
@@ -44,10 +44,10 @@ for transformed in await poll_control(initial_timeout=0.05):
 
 To:
 ```python
-for transformed in await poll_control(initial_timeout=0.5):  # 500ms for policy processing
+for transformed in await poll_control(initial_timeout=30.0):  # 30 seconds for LLM judge evaluation
 ```
 
-This gives the control plane up to 500ms to finish processing buffered tool calls before the proxy closes the connection.
+This gives the control plane up to 30 seconds to finish processing buffered tool calls before the proxy closes the connection. This accounts for slow LLM judge responses, network conditions, and provider rate limits.
 
 ### Alternative Considered
 Keep polling until control plane signals END, but this adds complexity. The simpler timeout increase should suffice since judge evaluation is deterministic and bounded.

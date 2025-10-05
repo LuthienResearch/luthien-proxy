@@ -1,6 +1,5 @@
 import pytest
 
-from luthien_proxy.policies.tool_call_buffer import ToolCallState
 from luthien_proxy.policies.tool_call_judge import JudgeResult, LLMJudgeToolPolicy
 
 
@@ -39,18 +38,51 @@ async def test_llm_judge_blocks_streaming_call(policy):
         "stream-1",
         {"stream": True, "litellm_call_id": "call-1"},
     )
-    state = ToolCallState(
-        identifier="tool-1", call_type="function", name="execute_sql", arguments='{"query": "DROP TABLE users;"}'
-    )
-    context.tool_calls[state.identifier] = state
-    chunk = {"choices": [{"finish_reason": "tool_calls", "delta": {}}]}
 
-    blocked = await policy._maybe_block_streaming(context, chunk)
+    # Simulate streaming chunks that contain a harmful tool call
+    chunks = [
+        {"choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]},
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "id": "tool-1",
+                                "type": "function",
+                                "function": {
+                                    "name": "execute_sql",
+                                    "arguments": '{"query": "DROP TABLE users;"}',
+                                },
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        },
+    ]
 
-    assert blocked is not None, policy._build_prompt_tool_call(context.original_request)
+    async def stream_generator():
+        for chunk in chunks:
+            yield chunk
+
+    results = []
+    async for output_chunk in policy.generate_response_stream(context, stream_generator()):
+        results.append(output_chunk)
+
+    # Should get role chunk first, then BLOCKED response instead of the tool call
+    assert len(results) == 2
+    # First chunk is the role
+    assert results[0]["choices"][0]["delta"]["role"] == "assistant"
+    # Second chunk is the BLOCKED response
+    blocked = results[1]
     choice = blocked["choices"][0]
     assert choice["finish_reason"] == "stop"
-    assert "BLOCKED" in choice["message"]["content"]
+    # Check for BLOCKED in either message or delta
+    content = choice.get("message", {}).get("content") or choice.get("delta", {}).get("content")
+    assert "BLOCKED" in content
     assert policy._recorded_blocks  # type: ignore[attr-defined]
     record = policy._recorded_blocks[-1]  # type: ignore[attr-defined]
     assert record["stream_chunks"] is None or isinstance(record["stream_chunks"], list)
@@ -76,14 +108,55 @@ async def test_llm_judge_allows_low_probability(monkeypatch):
     )
     monkeypatch.setattr(policy, "_call_judge", fake_judge)
     context = policy.create_stream_context("stream-2", {"stream": True, "litellm_call_id": "call-2"})
-    state = ToolCallState(
-        identifier="tool-2", call_type="function", name="execute_sql", arguments='{"query": "SELECT *"}'
-    )
-    context.tool_calls[state.identifier] = state
-    chunk = {"choices": [{"finish_reason": "tool_calls", "delta": {}}]}
 
-    blocked = await policy._maybe_block_streaming(context, chunk)
-    assert blocked is None
+    # Simulate streaming chunks with a benign tool call
+    chunks = [
+        {"choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]},
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "id": "tool-2",
+                                "type": "function",
+                                "function": {
+                                    "name": "execute_sql",
+                                    "arguments": '{"query": "SELECT *"}',
+                                },
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        },
+    ]
+
+    async def stream_generator():
+        for chunk in chunks:
+            yield chunk
+
+    results = []
+    async for output_chunk in policy.generate_response_stream(context, stream_generator()):
+        results.append(output_chunk)
+
+    # Should get role chunk first, then the tool call since probability is low
+    assert len(results) == 2
+    # First chunk is the role
+    assert results[0]["choices"][0]["delta"]["role"] == "assistant"
+    # Second chunk is the allowed tool call
+    result = results[1]
+    choice = result["choices"][0]
+    assert choice["finish_reason"] == "tool_calls"
+    # Check it has tool calls and is not blocked
+    delta = choice.get("delta", {})
+    assert delta.get("tool_calls") is not None, "Expected tool_calls in delta"
+    # Content should be None or empty for tool calls, not "BLOCKED"
+    content = choice.get("message", {}).get("content") or choice.get("delta", {}).get("content")
+    if content:
+        assert "BLOCKED" not in content
 
 
 @pytest.mark.asyncio
