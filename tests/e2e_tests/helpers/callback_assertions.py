@@ -5,6 +5,8 @@ ABOUTME: Provides utilities to inspect callback inputs, outputs, and verify they
 
 from typing import Any
 
+from tests.e2e_tests.helpers.docker_logs import get_litellm_logs as _get_litellm_logs
+
 from luthien_proxy.proxy.callback_instrumentation import CallbackInvocation, get_tracer
 
 
@@ -123,6 +125,11 @@ def get_callback_summary() -> dict[str, int]:
     return get_tracer().get_invocation_summary()
 
 
+def get_litellm_logs(since_seconds: int = 10) -> str:
+    """Fetch recent LiteLLM proxy logs for assertions."""
+    return _get_litellm_logs(since_seconds=since_seconds)
+
+
 __all__ = [
     "get_callback_invocations",
     "assert_callback_was_called",
@@ -133,4 +140,5 @@ __all__ = [
     "assert_callback_completed_successfully",
     "clear_callback_trace",
     "get_callback_summary",
+    "get_litellm_logs",
 ]

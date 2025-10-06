@@ -6,9 +6,9 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from litellm.types.utils import ModelResponseStream
 
@@ -57,6 +57,7 @@ class StreamOrchestrator:
         poll_interval: float = 0.1,
         clock: Callable[[], float] | None = None,
     ) -> None:
+        """Store streaming dependencies and timers for coordinating flow control."""
         self._stream_id = stream_id
         self._connection = connection
         self._upstream = upstream
@@ -79,11 +80,11 @@ class StreamOrchestrator:
 
     @property
     def state(self) -> StreamState:
+        """Report the current lifecycle state."""
         return self._state
 
     async def run(self) -> AsyncGenerator[ModelResponseStream, None]:
         """Coordinate upstream forwarding and control-plane responses."""
-
         forward_task = asyncio.create_task(self._forward_upstream(), name=f"forward-{self._stream_id}")
 
         try:
@@ -103,7 +104,6 @@ class StreamOrchestrator:
 
     async def _forward_upstream(self) -> None:
         """Forward upstream chunks to the control plane in the background."""
-
         try:
             async for chunk in self._upstream:
                 if self._state != StreamState.ACTIVE:
@@ -135,14 +135,14 @@ class StreamOrchestrator:
                 )
                 logger.error("stream[%s] failed to forward upstream END: %s", self._stream_id, exc)
 
-            aclose = getattr(self._upstream, "aclose", None)
-            if callable(aclose):
+            aclose_attr = getattr(self._upstream, "aclose", None)
+            if callable(aclose_attr):
+                aclose = cast(Callable[[], Awaitable[None]], aclose_attr)
                 with contextlib.suppress(Exception):  # pragma: no cover - best-effort cleanup
                     await aclose()
 
     async def _poll_control_plane(self) -> AsyncGenerator[ModelResponseStream, None]:
         """Yield control-plane chunks while enforcing the activity timeout."""
-
         while True:
             if self._state == StreamState.FAILED:
                 if self._failure_exc is not None:
@@ -155,9 +155,7 @@ class StreamOrchestrator:
             now = self._clock()
             remaining = self._deadline - now
             if remaining <= 0:
-                timeout_exc = StreamTimeoutError(
-                    f"no control-plane activity for {self._timeout:.2f}s"
-                )
+                timeout_exc = StreamTimeoutError(f"no control-plane activity for {self._timeout:.2f}s")
                 self._fail(timeout_exc)
                 raise timeout_exc
 
@@ -169,9 +167,7 @@ class StreamOrchestrator:
                     cause=exc,
                 )
                 logger.error("stream[%s] failed to receive from control plane: %s", self._stream_id, exc)
-                failure = self._failure_exc or StreamConnectionError(
-                    "control plane receive failed"
-                )
+                failure = self._failure_exc or StreamConnectionError("control plane receive failed")
                 raise failure
 
             if message is None:
@@ -180,22 +176,25 @@ class StreamOrchestrator:
                         StreamConnectionError("control plane connection error"),
                         cause=self._connection.error,
                     )
-                    failure = self._failure_exc or StreamConnectionError(
-                        "control plane connection error"
-                    )
+                    failure = self._failure_exc or StreamConnectionError("control plane connection error")
                     raise failure
                 continue
 
+            message = cast(dict[str, Any], message)
+
             if self._chunk_logger is not None:
-                self._chunk_logger.log_control_chunk_received(
-                    self._stream_id, message, self._control_chunk_index
-                )
+                self._chunk_logger.log_control_chunk_received(self._stream_id, message, self._control_chunk_index)
             self._control_chunk_index += 1
 
             msg_type = message.get("type")
 
             if msg_type == "CHUNK":
-                chunk_payload = message.get("data")
+                chunk_payload_raw = message.get("data")
+                if not isinstance(chunk_payload_raw, dict):
+                    self._fail(StreamProtocolError("control plane returned non-dict chunk"))
+                    failure = self._failure_exc or StreamProtocolError("control plane returned non-dict chunk")
+                    raise failure
+                chunk_payload: dict[str, Any] = chunk_payload_raw
                 try:
                     normalized = self._normalize_chunk(chunk_payload)
                 except Exception as exc:
@@ -210,9 +209,7 @@ class StreamOrchestrator:
                         StreamProtocolError("control plane returned invalid chunk"),
                         cause=exc,
                     )
-                    failure = self._failure_exc or StreamProtocolError(
-                        "control plane returned invalid chunk"
-                    )
+                    failure = self._failure_exc or StreamProtocolError("control plane returned invalid chunk")
                     raise failure
 
                 if self._chunk_logger is not None:
@@ -251,9 +248,7 @@ class StreamOrchestrator:
                 failure = self._failure_exc or StreamProtocolError("control plane error")
                 raise failure
 
-            logger.warning(
-                "stream[%s] unexpected control-plane message type %r", self._stream_id, msg_type
-            )
+            logger.warning("stream[%s] unexpected control-plane message type %r", self._stream_id, msg_type)
 
         return
 

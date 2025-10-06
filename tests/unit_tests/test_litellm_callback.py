@@ -309,6 +309,7 @@ async def test_streaming_hook_returns_empty_on_connection_error(callback):
     manager.get_or_create.side_effect = RuntimeError("boom")
 
     with patch.object(callback, "_get_connection_manager", return_value=manager):
+
         async def collect():
             return [
                 item

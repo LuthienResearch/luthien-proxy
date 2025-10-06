@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import websockets
 from websockets import WebSocketClientProtocol
@@ -23,8 +23,8 @@ class StreamConnection:
 
     stream_id: str
     websocket: WebSocketClientProtocol
-    outgoing_queue: asyncio.Queue[dict] = field(default_factory=asyncio.Queue)
-    incoming_queue: asyncio.Queue[dict] = field(default_factory=asyncio.Queue)
+    outgoing_queue: asyncio.Queue[dict[str, Any]] = field(default_factory=asyncio.Queue)
+    incoming_queue: asyncio.Queue[dict[str, Any]] = field(default_factory=asyncio.Queue)
     sender_task: Optional[asyncio.Task[None]] = None
     receiver_task: Optional[asyncio.Task[None]] = None
     error: Optional[BaseException] = None
@@ -93,12 +93,16 @@ class StreamConnection:
         ws_logger = get_websocket_logger()
         try:
             async for raw in self.websocket:
+                # raw may be str or bytes
+                raw_text = raw if isinstance(raw, str) else raw.decode("utf-8", errors="replace")
                 try:
-                    payload = json.loads(raw)
+                    payload = json.loads(raw_text)
+                    if not isinstance(payload, dict):
+                        raise ValueError("control plane returned non-object message")
                     # Log incoming message after parsing
                     ws_logger.log_incoming(self.stream_id, payload)
                 except Exception as exc:  # pragma: no cover - defensive
-                    ws_logger.log_json_error(self.stream_id, raw, exc)
+                    ws_logger.log_json_error(self.stream_id, raw_text, exc)
                     logger.error("stream[%s] invalid JSON from control plane: %s", self.stream_id, exc)
                     continue
                 await self.incoming_queue.put(payload)

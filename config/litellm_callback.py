@@ -17,8 +17,8 @@ from litellm.types.utils import ModelResponseStream
 from luthien_proxy.proxy.callback_chunk_logger import get_callback_chunk_logger
 from luthien_proxy.proxy.stream_connection_manager import StreamConnectionManager
 from luthien_proxy.proxy.stream_orchestrator import (
-    StreamOrchestrator,
     StreamOrchestrationError,
+    StreamOrchestrator,
     StreamTimeoutError,
 )
 
@@ -248,7 +248,6 @@ class LuthienCallback(CustomLogger):
         self, iterator: AsyncGenerator[ModelResponseStream, None] | AsyncIterator[ModelResponseStream]
     ) -> None:
         """Attempt to close an upstream async iterator, ignoring errors."""
-
         aclose = getattr(iterator, "aclose", None)
         if callable(aclose):
             with contextlib.suppress(Exception):
@@ -272,9 +271,7 @@ class LuthienCallback(CustomLogger):
             manager = self._get_connection_manager()
             connection = await manager.get_or_create(stream_id, sanitized_request)
         except Exception as exc:
-            verbose_logger.error(
-                f"stream[{stream_id}] unable to establish control plane connection: {exc}"
-            )
+            verbose_logger.error(f"stream[{stream_id}] unable to establish control plane connection: {exc}")
             await self._close_async_iterator(response)
             return
 
