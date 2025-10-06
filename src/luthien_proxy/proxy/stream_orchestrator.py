@@ -262,7 +262,7 @@ class StreamOrchestrator:
             return
         if cause is not None:
             try:
-                exc.__cause__ = cause  # type: ignore[attr-defined]
+                exc.__cause__ = cause
             except Exception:  # pragma: no cover - defensive
                 pass
         self._state = StreamState.FAILED

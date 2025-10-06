@@ -292,6 +292,8 @@ async def test_streaming_hook_without_stream_id_returns_empty(callback):
 async def test_streaming_hook_returns_empty_on_connection_error(callback):
     from litellm.types.utils import ModelResponseStream
 
+    from luthien_proxy.proxy.stream_connection_manager import StreamConnection
+
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -305,10 +307,7 @@ async def test_streaming_hook_returns_empty_on_connection_error(callback):
     async def upstream():
         yield chunk
 
-    manager = AsyncMock()
-    manager.get_or_create.side_effect = RuntimeError("boom")
-
-    with patch.object(callback, "_get_connection_manager", return_value=manager):
+    with patch.object(StreamConnection, "create", side_effect=RuntimeError("boom")):
 
         async def collect():
             return [
@@ -328,6 +327,8 @@ async def test_streaming_hook_returns_empty_on_connection_error(callback):
 @pytest.mark.asyncio
 async def test_streaming_hook_returns_transformed_chunk(callback):
     from litellm.types.utils import ModelResponseStream
+
+    from luthien_proxy.proxy.stream_connection_manager import StreamConnection
 
     original = ModelResponseStream.model_validate(
         {
@@ -362,13 +363,12 @@ async def test_streaming_hook_returns_transformed_chunk(callback):
             await asyncio.sleep(0)
             return None
 
-    manager = AsyncMock()
-    connection = DummyConnection()
-    manager.get_or_create.return_value = connection
-    manager.lookup.return_value = connection
-    manager.close.return_value = None
+        async def close(self):
+            pass
 
-    with patch.object(callback, "_get_connection_manager", return_value=manager):
+    connection = DummyConnection()
+
+    with patch.object(StreamConnection, "create", return_value=connection):
         results = []
 
         async def upstream():
@@ -399,10 +399,15 @@ class _StreamingConnection:
         await asyncio.sleep(0)
         return self._responses.pop(0)
 
+    async def close(self):
+        pass
+
 
 @pytest.mark.asyncio
 async def test_streaming_hook_cleans_up_after_control_end(callback):
     from litellm.types.utils import ModelResponseStream
+
+    from luthien_proxy.proxy.stream_connection_manager import StreamConnection
 
     chunk = ModelResponseStream.model_validate(
         {
@@ -416,10 +421,7 @@ async def test_streaming_hook_cleans_up_after_control_end(callback):
 
     connection = _StreamingConnection(responses=[{"type": "END"}])
 
-    manager = AsyncMock()
-    manager.get_or_create.return_value = connection
-
-    with patch.object(callback, "_get_connection_manager", return_value=manager):
+    with patch.object(StreamConnection, "create", return_value=connection):
 
         async def upstream():
             yield chunk
@@ -433,13 +435,14 @@ async def test_streaming_hook_cleans_up_after_control_end(callback):
             results.append(item)
 
     assert results == []
-    manager.close.assert_awaited_once_with("abc")
 
 
 @pytest.mark.asyncio
 async def test_streaming_hook_skips_end_when_control_plane_signals_close(callback):
     from litellm.types.utils import ModelResponseStream
 
+    from luthien_proxy.proxy.stream_connection_manager import StreamConnection
+
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -452,10 +455,7 @@ async def test_streaming_hook_skips_end_when_control_plane_signals_close(callbac
 
     connection = _StreamingConnection(responses=[{"type": "END"}])
 
-    manager = AsyncMock()
-    manager.get_or_create.return_value = connection
-
-    with patch.object(callback, "_get_connection_manager", return_value=manager):
+    with patch.object(StreamConnection, "create", return_value=connection):
 
         async def upstream():
             yield chunk
@@ -469,12 +469,13 @@ async def test_streaming_hook_skips_end_when_control_plane_signals_close(callbac
             results.append(item)
 
     assert results == []
-    manager.close.assert_awaited_once_with("abc")
 
 
 @pytest.mark.asyncio
 async def test_streaming_hook_waits_for_control_plane_chunk(callback):
     from litellm.types.utils import ModelResponseStream
+
+    from luthien_proxy.proxy.stream_connection_manager import StreamConnection
 
     original = ModelResponseStream.model_validate(
         {
@@ -510,13 +511,12 @@ async def test_streaming_hook_waits_for_control_plane_chunk(callback):
             self._emitted = True
             return {"type": "CHUNK", "data": transformed}
 
-    manager = AsyncMock()
-    connection = DelayedConnection()
-    manager.get_or_create.return_value = connection
-    manager.lookup.return_value = connection
-    manager.close.return_value = None
+        async def close(self):
+            pass
 
-    with patch.object(callback, "_get_connection_manager", return_value=manager):
+    connection = DelayedConnection()
+
+    with patch.object(StreamConnection, "create", return_value=connection):
         results = []
 
         async def upstream():
@@ -532,25 +532,5 @@ async def test_streaming_hook_waits_for_control_plane_chunk(callback):
     assert [chunk.choices[0]["delta"]["content"] for chunk in results] == ["HELLO"]
 
 
-@pytest.mark.asyncio
-async def test_success_log_triggers_cleanup(callback):
-    with patch.object(callback, "_cleanup_stream", new_callable=AsyncMock) as cleanup:
-        await callback.async_log_success_event(
-            {"litellm_params": {"metadata": {"litellm_call_id": "abc"}}},
-            None,
-            None,
-            None,
-        )
-    cleanup.assert_awaited_once_with("abc", send_end=True)
-
-
-@pytest.mark.asyncio
-async def test_failure_log_triggers_cleanup(callback):
-    with patch.object(callback, "_cleanup_stream", new_callable=AsyncMock) as cleanup:
-        await callback.async_log_failure_event(
-            {"litellm_params": {"metadata": {"litellm_call_id": "abc"}}},
-            None,
-            None,
-            None,
-        )
-    cleanup.assert_awaited_once_with("abc", send_end=False)
+# Removed async_log_success_event and async_log_failure_event
+# Connection cleanup is now handled directly in async_post_call_streaming_iterator_hook

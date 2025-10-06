@@ -15,7 +15,7 @@ from litellm.integrations.custom_logger import CustomLogger
 from litellm.types.utils import ModelResponseStream
 
 from luthien_proxy.proxy.callback_chunk_logger import get_callback_chunk_logger
-from luthien_proxy.proxy.stream_connection_manager import StreamConnectionManager
+from luthien_proxy.proxy.stream_connection_manager import StreamConnection
 from luthien_proxy.proxy.stream_orchestrator import (
     StreamOrchestrationError,
     StreamOrchestrator,
@@ -33,7 +33,6 @@ class LuthienCallback(CustomLogger):
         self.timeout = 10.0
         self.stream_timeout = float(os.getenv("CONTROL_PLANE_STREAM_TIMEOUT", "30"))
         verbose_logger.info(f"LuthienCallback initialized with control plane URL: {self.control_plane_url}")
-        self._connection_manager: Optional[StreamConnectionManager] = None
 
     # ------------- internal helpers -------------
     async def _apost_hook(
@@ -225,25 +224,6 @@ class LuthienCallback(CustomLogger):
         """Skip forwarding aggregate streaming info (handled via WebSocket)."""
         return None
 
-    def _get_connection_manager(self) -> StreamConnectionManager:
-        if self._connection_manager is None:
-            self._connection_manager = StreamConnectionManager(self.control_plane_url)
-        return self._connection_manager
-
-    async def _cleanup_stream(self, stream_id: str, send_end: bool) -> None:
-        manager = self._get_connection_manager()
-        connection = await manager.lookup(stream_id)
-        if connection is None:
-            return
-
-        if send_end:
-            try:
-                await connection.send({"type": "END"})
-            except Exception as exc:
-                verbose_logger.error(f"stream[{stream_id}] failed to notify END: {exc}")
-
-        await manager.close(stream_id)
-
     async def _close_async_iterator(
         self, iterator: AsyncGenerator[ModelResponseStream, None] | AsyncIterator[ModelResponseStream]
     ) -> None:
@@ -268,8 +248,11 @@ class LuthienCallback(CustomLogger):
         sanitized_request = self._json_safe(request_data)
 
         try:
-            manager = self._get_connection_manager()
-            connection = await manager.get_or_create(stream_id, sanitized_request)
+            connection = await StreamConnection.create(
+                stream_id=stream_id,
+                control_plane_url=self.control_plane_url,
+                request_data=sanitized_request,
+            )
         except Exception as exc:
             verbose_logger.error(f"stream[{stream_id}] unable to establish control plane connection: {exc}")
             await self._close_async_iterator(response)
@@ -296,29 +279,9 @@ class LuthienCallback(CustomLogger):
             verbose_logger.error(f"stream[{stream_id}] unexpected streaming failure: {exc}")
         finally:
             try:
-                await manager.close(stream_id)
+                await connection.close()
             except Exception as exc:  # pragma: no cover - defensive
-                verbose_logger.error(f"stream[{stream_id}] manager close failed: {exc}")
-
-    async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
-        """Hook called when stream completes successfully."""
-        stream_id = kwargs.get("litellm_params", {}).get("metadata", {}).get("litellm_call_id")
-        if not stream_id:
-            return
-        try:
-            await self._cleanup_stream(stream_id, send_end=True)
-        except Exception as exc:
-            verbose_logger.error(f"stream[{stream_id}] success cleanup failed: {exc}")
-
-    async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
-        """Hook called when a stream terminates in failure."""
-        stream_id = kwargs.get("litellm_params", {}).get("metadata", {}).get("litellm_call_id")
-        if not stream_id:
-            return
-        try:
-            await self._cleanup_stream(stream_id, send_end=False)
-        except Exception as exc:
-            verbose_logger.error(f"stream[{stream_id}] failure cleanup failed: {exc}")
+                verbose_logger.error(f"stream[{stream_id}] connection close failed: {exc}")
 
     def _normalize_stream_chunk(self, chunk: dict) -> ModelResponseStream:
         """Normalize policy-provided stream chunks back to ModelResponseStream."""
