@@ -265,7 +265,7 @@ def test_normalize_stream_chunk_none(callback):
 
 
 @pytest.mark.asyncio
-async def test_streaming_hook_without_stream_id_passthrough(callback):
+async def test_streaming_hook_without_stream_id_returns_empty(callback):
     from litellm.types.utils import ModelResponseStream
 
     chunk = ModelResponseStream.model_validate(
@@ -281,15 +281,15 @@ async def test_streaming_hook_without_stream_id_passthrough(callback):
     async def upstream():
         yield chunk
 
-    results = []
-    async for item in callback.async_post_call_streaming_iterator_hook(None, upstream(), {}):
-        results.append(item)
+    async def collect():
+        return [item async for item in callback.async_post_call_streaming_iterator_hook(None, upstream(), {})]
 
-    assert results == [chunk]
+    results = await collect()
+    assert results == []
 
 
 @pytest.mark.asyncio
-async def test_streaming_hook_falls_back_on_connection_error(callback):
+async def test_streaming_hook_returns_empty_on_connection_error(callback):
     from litellm.types.utils import ModelResponseStream
 
     chunk = ModelResponseStream.model_validate(
@@ -309,15 +309,19 @@ async def test_streaming_hook_falls_back_on_connection_error(callback):
     manager.get_or_create.side_effect = RuntimeError("boom")
 
     with patch.object(callback, "_get_connection_manager", return_value=manager):
-        results = []
-        async for item in callback.async_post_call_streaming_iterator_hook(
-            None,
-            upstream(),
-            {"litellm_call_id": "abc"},
-        ):
-            results.append(item)
+        async def collect():
+            return [
+                item
+                async for item in callback.async_post_call_streaming_iterator_hook(
+                    None,
+                    upstream(),
+                    {"litellm_call_id": "abc"},
+                )
+            ]
 
-    assert results == [chunk]
+        results = await collect()
+
+    assert results == []
 
 
 @pytest.mark.asyncio
@@ -415,21 +419,20 @@ async def test_streaming_hook_cleans_up_after_control_end(callback):
     manager.get_or_create.return_value = connection
 
     with patch.object(callback, "_get_connection_manager", return_value=manager):
-        with patch.object(callback, "_cleanup_stream", new_callable=AsyncMock) as cleanup:
 
-            async def upstream():
-                yield chunk
+        async def upstream():
+            yield chunk
 
-            results = []
-            async for item in callback.async_post_call_streaming_iterator_hook(
-                None,
-                upstream(),
-                {"litellm_call_id": "abc"},
-            ):
-                results.append(item)
+        results = []
+        async for item in callback.async_post_call_streaming_iterator_hook(
+            None,
+            upstream(),
+            {"litellm_call_id": "abc"},
+        ):
+            results.append(item)
 
     assert results == []
-    cleanup.assert_awaited_once_with("abc", send_end=False)
+    manager.close.assert_awaited_once_with("abc")
 
 
 @pytest.mark.asyncio
@@ -452,21 +455,20 @@ async def test_streaming_hook_skips_end_when_control_plane_signals_close(callbac
     manager.get_or_create.return_value = connection
 
     with patch.object(callback, "_get_connection_manager", return_value=manager):
-        with patch.object(callback, "_cleanup_stream", new_callable=AsyncMock) as cleanup:
 
-            async def upstream():
-                yield chunk
+        async def upstream():
+            yield chunk
 
-            results = []
-            async for item in callback.async_post_call_streaming_iterator_hook(
-                None,
-                upstream(),
-                {"litellm_call_id": "abc"},
-            ):
-                results.append(item)
+        results = []
+        async for item in callback.async_post_call_streaming_iterator_hook(
+            None,
+            upstream(),
+            {"litellm_call_id": "abc"},
+        ):
+            results.append(item)
 
     assert results == []
-    cleanup.assert_awaited_once_with("abc", send_end=False)
+    manager.close.assert_awaited_once_with("abc")
 
 
 @pytest.mark.asyncio
