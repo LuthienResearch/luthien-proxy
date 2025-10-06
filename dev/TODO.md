@@ -24,6 +24,8 @@
 - [ ] Maybe logging for bg tasks [comment](https://github.com/LuthienResearch/luthien-proxy/pull/13#issuecomment-3321954052)
 - [ ] Actual type signatures on hook functions in litellm_callback
 - [ ] Make callback module independent (include connection manager)
+- [ ] Prefer (Type | None) to (Optional\[Type\]) throughout codebase
+- [ ] Minimize :  ignore flags
 
 ### Performance (streamview, pr #16)
 
