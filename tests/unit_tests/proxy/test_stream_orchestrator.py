@@ -7,7 +7,9 @@ import pytest
 from litellm.types.utils import ModelResponseStream
 
 from luthien_proxy.proxy.stream_orchestrator import (
+    StreamConnectionError,
     StreamOrchestrator,
+    StreamProtocolError,
     StreamTimeoutError,
 )
 
@@ -18,12 +20,17 @@ class DummyConnection:
     def __init__(self) -> None:
         self.sent: list[dict] = []
         self._incoming: asyncio.Queue[dict] = asyncio.Queue()
-        self.error: BaseException | None = None
+        self.send_error: BaseException | None = None
+        self.receive_error: BaseException | None = None
 
     async def send(self, message: dict) -> None:
+        if self.send_error is not None:
+            raise self.send_error
         self.sent.append(message)
 
     async def receive(self, timeout: float | None = None) -> dict | None:
+        if self.receive_error is not None:
+            raise self.receive_error
         try:
             if timeout is None:
                 return await self._incoming.get()
@@ -138,3 +145,98 @@ async def test_keepalive_extends_deadline() -> None:
     await producer
 
     assert [chunk.model_dump() for chunk in received] == [control_chunk.model_dump()]
+
+
+@pytest.mark.asyncio
+async def test_control_plane_non_dict_chunk_raises_protocol_error() -> None:
+    connection = DummyConnection()
+    connection.queue_message({"type": "CHUNK", "data": "oops"})
+
+    async def upstream() -> AsyncIterator[ModelResponseStream]:
+        yield make_stream_chunk("upstream")
+
+    orchestrator = StreamOrchestrator(
+        stream_id="protocol-nondict",
+        connection=connection,
+        upstream=upstream(),
+        normalize_chunk=lambda data: ModelResponseStream.model_validate(data),
+        timeout=0.1,
+        chunk_logger=None,
+        poll_interval=0.01,
+    )
+
+    with pytest.raises(StreamProtocolError):
+        async for _ in orchestrator.run():
+            pass
+
+
+@pytest.mark.asyncio
+async def test_normalize_failure_raises_protocol_error() -> None:
+    connection = DummyConnection()
+    connection.queue_message({"type": "CHUNK", "data": {"foo": "bar"}})
+
+    async def upstream() -> AsyncIterator[ModelResponseStream]:
+        yield make_stream_chunk("upstream")
+
+    def normalize(_: dict) -> ModelResponseStream:
+        raise ValueError("bad payload")
+
+    orchestrator = StreamOrchestrator(
+        stream_id="protocol-normalize",
+        connection=connection,
+        upstream=upstream(),
+        normalize_chunk=normalize,
+        timeout=0.1,
+        chunk_logger=None,
+        poll_interval=0.01,
+    )
+
+    with pytest.raises(StreamProtocolError):
+        async for _ in orchestrator.run():
+            pass
+
+
+@pytest.mark.asyncio
+async def test_receive_failure_raises_connection_error() -> None:
+    connection = DummyConnection()
+    connection.receive_error = RuntimeError("recv boom")
+
+    async def upstream() -> AsyncIterator[ModelResponseStream]:
+        yield make_stream_chunk("ignored")
+
+    orchestrator = StreamOrchestrator(
+        stream_id="receive-error",
+        connection=connection,
+        upstream=upstream(),
+        normalize_chunk=lambda data: ModelResponseStream.model_validate(data),
+        timeout=0.1,
+        chunk_logger=None,
+        poll_interval=0.01,
+    )
+
+    with pytest.raises(StreamConnectionError):
+        async for _ in orchestrator.run():
+            pass
+
+
+@pytest.mark.asyncio
+async def test_upstream_failure_surfaces_as_connection_error() -> None:
+    connection = DummyConnection()
+
+    async def upstream() -> AsyncIterator[ModelResponseStream]:
+        raise RuntimeError("upstream boom")
+        yield make_stream_chunk("unreachable")
+
+    orchestrator = StreamOrchestrator(
+        stream_id="upstream-error",
+        connection=connection,
+        upstream=upstream(),
+        normalize_chunk=lambda data: ModelResponseStream.model_validate(data),
+        timeout=0.1,
+        chunk_logger=None,
+        poll_interval=0.01,
+    )
+
+    with pytest.raises(StreamConnectionError):
+        async for _ in orchestrator.run():
+            pass

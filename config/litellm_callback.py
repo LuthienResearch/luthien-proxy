@@ -280,6 +280,7 @@ class LuthienCallback(CustomLogger):
             verbose_logger.error(f"stream[{stream_id}] unexpected streaming failure: {exc}")
         finally:
             try:
+                # Ensure the WebSocket is torn down even if orchestration failed mid-stream.
                 await connection.close()
             except Exception as exc:  # pragma: no cover - defensive
                 verbose_logger.error(f"stream[{stream_id}] connection close failed: {exc}")

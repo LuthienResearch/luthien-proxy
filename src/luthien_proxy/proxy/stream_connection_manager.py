@@ -28,6 +28,7 @@ class StreamConnection:
         self.stream_id = stream_id
         self._ws = websocket
         self._ws_logger = get_websocket_logger()
+        self._closed = False
 
     @classmethod
     async def create(
@@ -57,7 +58,7 @@ class StreamConnection:
         try:
             websocket = await websockets.connect(ws_url)
         except Exception as exc:  # pragma: no cover - network failure path
-            logger.error("failed to connect to control plane for stream %s: %s", stream_id, exc)
+            logger.error(f"failed to connect to control plane for stream {stream_id}: {exc}")
             raise
 
         return cls(stream_id=stream_id, websocket=websocket)
@@ -104,14 +105,21 @@ class StreamConnection:
             return payload
         except Exception as exc:
             self._ws_logger.log_json_error(self.stream_id, raw_text, exc)
-            logger.error("stream[%s] invalid JSON from control plane: %s", self.stream_id, exc)
+            logger.error(f"stream[{self.stream_id}] invalid JSON from control plane: {exc}")
             raise
 
     async def close(self) -> None:
-        """Close the WebSocket connection."""
+        """Close the WebSocket connection.
+
+        Safe to call multiple times; subsequent calls are ignored.
+        """
+        if self._closed:
+            return
+        self._closed = True
         try:
             await self._ws.close()
-        except Exception:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.error(f"stream[{self.stream_id}] error closing WebSocket: {exc}")
             pass
 
 

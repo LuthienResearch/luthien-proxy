@@ -1,4 +1,18 @@
-"""Bidirectional streaming orchestrator between LiteLLM and the control plane."""
+"""Bidirectional streaming orchestrator between LiteLLM and the control plane.
+
+The orchestrator coordinates upstream forwarding, control-plane polling, and
+timeout enforcement. Control-plane messages must be JSON objects with a
+``type`` field and one of the following payloads:
+
+* ``CHUNK``: includes a ``data`` dict that will be normalised back to
+  ``ModelResponseStream``.
+* ``KEEPALIVE``: extends the activity deadline without emitting chunks.
+* ``END``: signals completion and stops iteration.
+* ``ERROR``: aborts the stream with a ``StreamProtocolError``.
+
+Connection shutdown remains the caller's responsibility; the orchestrator only
+sends control-plane ``END`` notifications.
+"""
 
 from __future__ import annotations
 
@@ -6,9 +20,9 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, cast
 
 from litellm.types.utils import ModelResponseStream
 
@@ -43,7 +57,21 @@ class StreamConnectionError(StreamOrchestrationError):
 
 
 class StreamOrchestrator:
-    """Manage bidirectional streaming between upstream and the control plane."""
+    """Manage bidirectional streaming between upstream and the control plane.
+
+    Args:
+        stream_id: Identifier used for logging and correlation.
+        connection: Active WebSocket connection to the control plane. Callers are
+            responsible for closing the connection after ``run`` completes.
+        upstream: Async iterator yielding chunks from the upstream model.
+        normalize_chunk: Callable converting control-plane payloads into
+            ``ModelResponseStream`` instances.
+        timeout: Maximum idle period (seconds) before the stream fails.
+        chunk_logger: Optional tracer for debugging the control-plane loop.
+        poll_interval: Maximum interval between control-plane polls. Lower values
+            reduce timeout jitter but increase wakeups.
+        clock: Injectable monotonic clock used for deterministic testing.
+    """
 
     def __init__(
         self,
@@ -57,7 +85,7 @@ class StreamOrchestrator:
         poll_interval: float = 0.1,
         clock: Callable[[], float] | None = None,
     ) -> None:
-        """Initialize orchestrator with upstream source and control plane connection."""
+        """Initialize orchestrator state and timers."""
         self._stream_id = stream_id
         self._connection = connection
         self._upstream = upstream
@@ -75,7 +103,7 @@ class StreamOrchestrator:
         self._control_chunk_index = 0
         self._client_chunk_index = 0
 
-        self._failure_exc: Optional[BaseException] = None
+        self._failure_exc: BaseException | None = None
         self._sent_end = False
 
     @property
@@ -84,7 +112,12 @@ class StreamOrchestrator:
         return self._state
 
     async def run(self) -> AsyncGenerator[ModelResponseStream, None]:
-        """Coordinate upstream forwarding and control-plane responses."""
+        """Coordinate upstream forwarding and control-plane responses.
+
+        Yields normalized chunks until the control plane signals ``END`` or an
+        error occurs. Raises ``StreamTimeoutError``, ``StreamProtocolError`` or
+        ``StreamConnectionError`` to surface the corresponding failure modes.
+        """
         forward_task = asyncio.create_task(self._forward_upstream(), name=f"forward-{self._stream_id}")
 
         try:
@@ -116,13 +149,13 @@ class StreamOrchestrator:
                         StreamConnectionError("failed to forward upstream chunk"),
                         cause=exc,
                     )
-                    logger.error("stream[%s] failed to forward upstream chunk: %s", self._stream_id, exc)
+                    logger.error(f"stream[{self._stream_id}] failed to forward upstream chunk: {exc}")
                     break
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # pragma: no cover - defensive
             self._fail(StreamConnectionError("upstream iteration failed"), cause=exc)
-            logger.error("stream[%s] upstream iteration failed: %s", self._stream_id, exc)
+            logger.error(f"stream[{self._stream_id}] upstream iteration failed: {exc}")
         finally:
             try:
                 if not self._sent_end and self._state != StreamState.FAILED:
@@ -133,11 +166,13 @@ class StreamOrchestrator:
                     StreamConnectionError("failed to forward upstream END"),
                     cause=exc,
                 )
-                logger.error("stream[%s] failed to forward upstream END: %s", self._stream_id, exc)
+                logger.error(f"stream[{self._stream_id}] failed to forward upstream END: {exc}")
 
-            if isinstance(self._upstream, AsyncGenerator):
+            aclose = getattr(self._upstream, "aclose", None)
+            if callable(aclose):
+                close_callable = cast(Callable[[], Awaitable[None]], aclose)
                 with contextlib.suppress(Exception):  # pragma: no cover - best-effort cleanup
-                    await self._upstream.aclose()
+                    await close_callable()
 
     async def _poll_control_plane(self) -> AsyncGenerator[ModelResponseStream, None]:
         """Yield control-plane chunks while enforcing the activity timeout."""
@@ -164,7 +199,7 @@ class StreamOrchestrator:
                     StreamConnectionError("failed to receive from control plane"),
                     cause=exc,
                 )
-                logger.error("stream[%s] failed to receive from control plane: %s", self._stream_id, exc)
+                logger.error(f"stream[{self._stream_id}] failed to receive from control plane: {exc}")
                 failure = self._failure_exc or StreamConnectionError("control plane receive failed")
                 raise failure
 
@@ -221,11 +256,11 @@ class StreamOrchestrator:
 
             if msg_type == "KEEPALIVE":
                 self._register_activity()
-                logger.debug("stream[%s] received KEEPALIVE", self._stream_id)
+                logger.debug(f"stream[{self._stream_id}] received KEEPALIVE")
                 continue
 
             if msg_type == "END":
-                logger.debug("stream[%s] received END", self._stream_id)
+                logger.debug(f"stream[{self._stream_id}] received END")
                 self._state = StreamState.ENDED
                 break
 
@@ -235,7 +270,7 @@ class StreamOrchestrator:
                 self._fail(exc)
                 raise exc
 
-            logger.warning("stream[%s] unexpected control-plane message type %r", self._stream_id, msg_type)
+            logger.warning(f"stream[{self._stream_id}] unexpected control-plane message type {msg_type!r}")
 
         return
 
