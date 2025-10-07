@@ -251,8 +251,9 @@ class LuthienCallback(CustomLogger):
             connection = await StreamConnection.create(
                 stream_id=stream_id,
                 control_plane_url=self.control_plane_url,
-                request_data=sanitized_request,
             )
+            # Send START message to initiate the stream
+            await connection.send({"type": "START", "data": sanitized_request})
         except Exception as exc:
             verbose_logger.error(f"stream[{stream_id}] unable to establish control plane connection: {exc}")
             await self._close_async_iterator(response)
