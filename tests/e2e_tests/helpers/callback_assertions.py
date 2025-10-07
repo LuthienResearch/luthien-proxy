@@ -125,9 +125,24 @@ def get_callback_summary() -> dict[str, int]:
     return get_tracer().get_invocation_summary()
 
 
-def get_litellm_logs(since_seconds: int = 10) -> str:
-    """Fetch recent LiteLLM proxy logs for assertions."""
-    return _get_litellm_logs(since_seconds=since_seconds)
+def get_litellm_logs(
+    since_seconds: int = 10,
+    *,
+    since_time: float | None = None,
+    until_time: float | None = None,
+    call_id: str | None = None,
+    retries: int = 5,
+    retry_delay: float = 0.2,
+) -> str:
+    """Fetch LiteLLM proxy logs for assertions."""
+    return _get_litellm_logs(
+        since_seconds=since_seconds,
+        since_time=since_time,
+        until_time=until_time,
+        call_id=call_id,
+        retries=retries,
+        retry_delay=retry_delay,
+    )
 
 
 __all__ = [

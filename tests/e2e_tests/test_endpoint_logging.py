@@ -1,16 +1,19 @@
 """E2E tests for control plane endpoint logging in streaming pipeline."""
 
+import json
+import time
+
 import httpx
 import pytest
-from tests.e2e_tests.helpers import (
-    get_control_plane_logs,
-)
+from tests.e2e_tests.helpers import get_control_plane_logs
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_endpoint_start_message_logged():
     """Verify ENDPOINT START message is logged when stream begins."""
+    start_time = time.time()
+    call_id = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "http://localhost:4000/v1/chat/completions",
@@ -23,11 +26,21 @@ async def test_endpoint_start_message_logged():
         )
 
         # Consume the stream
+        call_id = response.headers.get("x-litellm-call-id")
         async for line in response.aiter_lines():
-            pass
+            if not line.startswith("data: ") or line.endswith("[DONE]"):
+                continue
+            if call_id is None:
+                payload = json.loads(line[6:])
+                call_id = payload.get("id")
+
+    assert call_id, "Streaming response missing call id"
 
     # Get logs and verify ENDPOINT START was logged
-    logs = get_control_plane_logs(since_seconds=10)
+    logs = get_control_plane_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
     all_lines = logs.splitlines()
 
     start_logs = [line for line in all_lines if "ENDPOINT START" in line]
@@ -46,6 +59,8 @@ async def test_endpoint_start_message_logged():
 @pytest.mark.asyncio
 async def test_endpoint_policy_invocation_logged():
     """Verify ENDPOINT POLICY message is logged when policy is invoked."""
+    start_time = time.time()
+    call_id = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "http://localhost:4000/v1/chat/completions",
@@ -58,11 +73,21 @@ async def test_endpoint_policy_invocation_logged():
         )
 
         # Consume the stream
+        call_id = response.headers.get("x-litellm-call-id")
         async for line in response.aiter_lines():
-            pass
+            if not line.startswith("data: ") or line.endswith("[DONE]"):
+                continue
+            if call_id is None:
+                payload = json.loads(line[6:])
+                call_id = payload.get("id")
+
+    assert call_id, "Streaming response missing call id"
 
     # Get logs and verify ENDPOINT POLICY was logged
-    logs = get_control_plane_logs(since_seconds=10)
+    logs = get_control_plane_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
     all_lines = logs.splitlines()
 
     policy_logs = [line for line in all_lines if "ENDPOINT POLICY" in line]
@@ -80,6 +105,8 @@ async def test_endpoint_policy_invocation_logged():
 @pytest.mark.asyncio
 async def test_endpoint_chunks_logged():
     """Verify ENDPOINT CHUNK IN and CHUNK OUT messages are logged."""
+    start_time = time.time()
+    call_id = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "http://localhost:4000/v1/chat/completions",
@@ -92,11 +119,21 @@ async def test_endpoint_chunks_logged():
         )
 
         # Consume the stream
+        call_id = response.headers.get("x-litellm-call-id")
         async for line in response.aiter_lines():
-            pass
+            if not line.startswith("data: ") or line.endswith("[DONE]"):
+                continue
+            if call_id is None:
+                payload = json.loads(line[6:])
+                call_id = payload.get("id")
+
+    assert call_id, "Streaming response missing call id"
 
     # Get logs and verify ENDPOINT CHUNK messages were logged
-    logs = get_control_plane_logs(since_seconds=10)
+    logs = get_control_plane_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
     all_lines = logs.splitlines()
 
     chunk_in_logs = [line for line in all_lines if "ENDPOINT CHUNK IN" in line]
@@ -119,6 +156,8 @@ async def test_endpoint_chunks_logged():
 @pytest.mark.asyncio
 async def test_endpoint_end_message_logged():
     """Verify ENDPOINT END message is logged when stream completes."""
+    start_time = time.time()
+    call_id = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "http://localhost:4000/v1/chat/completions",
@@ -131,11 +170,21 @@ async def test_endpoint_end_message_logged():
         )
 
         # Consume the stream
+        call_id = response.headers.get("x-litellm-call-id")
         async for line in response.aiter_lines():
-            pass
+            if not line.startswith("data: ") or line.endswith("[DONE]"):
+                continue
+            if call_id is None:
+                payload = json.loads(line[6:])
+                call_id = payload.get("id")
+
+    assert call_id, "Streaming response missing call id"
 
     # Get logs and verify ENDPOINT END was logged
-    logs = get_control_plane_logs(since_seconds=10)
+    logs = get_control_plane_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
     all_lines = logs.splitlines()
 
     end_logs = [line for line in all_lines if "ENDPOINT END" in line]
@@ -152,6 +201,8 @@ async def test_endpoint_end_message_logged():
 @pytest.mark.asyncio
 async def test_endpoint_logs_use_same_stream_id():
     """Verify all endpoint logs for a request use the same stream ID."""
+    start_time = time.time()
+    call_id = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "http://localhost:4000/v1/chat/completions",
@@ -164,11 +215,21 @@ async def test_endpoint_logs_use_same_stream_id():
         )
 
         # Consume the stream
+        call_id = response.headers.get("x-litellm-call-id")
         async for line in response.aiter_lines():
-            pass
+            if not line.startswith("data: ") or line.endswith("[DONE]"):
+                continue
+            if call_id is None:
+                payload = json.loads(line[6:])
+                call_id = payload.get("id")
+
+    assert call_id, "Streaming response missing call id"
 
     # Get logs and verify all ENDPOINT logs use the same stream ID
-    logs = get_control_plane_logs(since_seconds=5)
+    logs = get_control_plane_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
     all_lines = logs.splitlines()
 
     # Find the START log for our request to get the stream ID

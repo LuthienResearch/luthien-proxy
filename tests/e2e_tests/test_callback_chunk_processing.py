@@ -4,6 +4,9 @@ Verifies that CallbackChunkLogger logs messages received from control plane,
 normalization results, and chunks yielded to client.
 """
 
+import json
+import time
+
 import httpx
 import pytest
 from tests.e2e_tests.helpers import get_litellm_logs
@@ -13,6 +16,8 @@ from tests.e2e_tests.helpers import get_litellm_logs
 @pytest.mark.asyncio
 async def test_callback_control_chunks_received():
     """Verify CALLBACK CONTROL IN messages are logged when receiving from control plane."""
+    start_time = time.time()
+    call_id = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "http://localhost:4000/v1/chat/completions",
@@ -25,11 +30,22 @@ async def test_callback_control_chunks_received():
         )
 
         # Consume the stream
+        call_id = response.headers.get("x-litellm-call-id")
         async for line in response.aiter_lines():
-            pass
+            if not line.startswith("data: ") or line.endswith("[DONE]"):
+                continue
+            if call_id is None:
+                payload = json.loads(line[6:])
+                call_id = payload.get("id")
+
+        assert call_id, "Streaming response missing call id"
+        assert response.status_code == 200, response.text
 
     # Get logs and verify CALLBACK CONTROL IN was logged
-    logs = get_litellm_logs(since_seconds=10)
+    logs = get_litellm_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
     all_lines = logs.splitlines()
 
     control_in_logs = [line for line in all_lines if "CALLBACK CONTROL IN" in line]
@@ -46,6 +62,8 @@ async def test_callback_control_chunks_received():
 @pytest.mark.asyncio
 async def test_callback_chunk_normalized():
     """Verify CALLBACK NORMALIZED messages are logged for chunk normalization."""
+    start_time = time.time()
+    call_id = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "http://localhost:4000/v1/chat/completions",
@@ -58,11 +76,22 @@ async def test_callback_chunk_normalized():
         )
 
         # Consume the stream
+        call_id = response.headers.get("x-litellm-call-id")
         async for line in response.aiter_lines():
-            pass
+            if not line.startswith("data: ") or line.endswith("[DONE]"):
+                continue
+            if call_id is None:
+                payload = json.loads(line[6:])
+                call_id = payload.get("id")
+
+        assert call_id, "Streaming response missing call id"
+        assert response.status_code == 200, response.text
 
     # Get logs and verify CALLBACK NORMALIZED was logged
-    logs = get_litellm_logs(since_seconds=10)
+    logs = get_litellm_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
     all_lines = logs.splitlines()
 
     normalized_logs = [line for line in all_lines if "CALLBACK NORMALIZED" in line]
@@ -79,6 +108,8 @@ async def test_callback_chunk_normalized():
 @pytest.mark.asyncio
 async def test_callback_chunks_to_client():
     """Verify CALLBACK TO CLIENT messages are logged for chunks yielded to client."""
+    start_time = time.time()
+    call_id = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "http://localhost:4000/v1/chat/completions",
@@ -91,15 +122,25 @@ async def test_callback_chunks_to_client():
         )
 
         # Consume the stream
+        call_id = response.headers.get("x-litellm-call-id")
         chunks_received = 0
         async for line in response.aiter_lines():
-            if line.startswith("data: ") and not line.endswith("[DONE]"):
-                chunks_received += 1
+            if not line.startswith("data: ") or line.endswith("[DONE]"):
+                continue
+            if call_id is None:
+                payload = json.loads(line[6:])
+                call_id = payload.get("id")
+            chunks_received += 1
 
-    assert chunks_received > 0, "Should have received streaming chunks"
+        assert chunks_received > 0, "Should have received streaming chunks"
+        assert call_id, "Streaming response missing call id"
+        assert response.status_code == 200, response.text
 
     # Get logs and verify CALLBACK TO CLIENT was logged
-    logs = get_litellm_logs(since_seconds=10)
+    logs = get_litellm_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
     all_lines = logs.splitlines()
 
     to_client_logs = [line for line in all_lines if "CALLBACK TO CLIENT" in line]
@@ -118,6 +159,8 @@ async def test_callback_chunks_to_client():
 @pytest.mark.asyncio
 async def test_callback_chunk_processing_flow():
     """Verify complete flow: CONTROL IN → NORMALIZED → TO CLIENT."""
+    start_time = time.time()
+    call_id = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "http://localhost:4000/v1/chat/completions",
@@ -130,11 +173,22 @@ async def test_callback_chunk_processing_flow():
         )
 
         # Consume the stream
+        call_id = response.headers.get("x-litellm-call-id")
         async for line in response.aiter_lines():
-            pass
+            if not line.startswith("data: ") or line.endswith("[DONE]"):
+                continue
+            if call_id is None:
+                payload = json.loads(line[6:])
+                call_id = payload.get("id")
+
+        assert call_id, "Streaming response missing call id"
+        assert response.status_code == 200, response.text
 
     # Get logs and verify all stages are present
-    logs = get_litellm_logs(since_seconds=10)
+    logs = get_litellm_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
     all_lines = logs.splitlines()
 
     control_in_logs = [line for line in all_lines if "CALLBACK CONTROL IN" in line]

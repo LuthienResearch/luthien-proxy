@@ -15,6 +15,7 @@ from litellm.integrations.custom_logger import CustomLogger
 from litellm.types.utils import ModelResponseStream
 
 from luthien_proxy.proxy.callback_chunk_logger import get_callback_chunk_logger
+from luthien_proxy.proxy.callback_instrumentation import instrument_callback
 from luthien_proxy.proxy.stream_connection_manager import StreamConnection
 from luthien_proxy.proxy.stream_orchestrator import (
     StreamOrchestrationError,
@@ -147,6 +148,7 @@ class LuthienCallback(CustomLogger):
 
     # --------------------- Hooks ----------------------
 
+    @instrument_callback
     async def async_pre_call_hook(
         self,
         user_api_key_dict: Any,
@@ -165,6 +167,7 @@ class LuthienCallback(CustomLogger):
             },
         )
 
+    @instrument_callback
     async def async_post_call_failure_hook(
         self,
         request_data: dict,
@@ -184,6 +187,7 @@ class LuthienCallback(CustomLogger):
         )
         return None
 
+    @instrument_callback
     async def async_post_call_success_hook(self, data: dict, user_api_key_dict: Any, response: Any):
         """Allow control plane to replace final response for non-streaming calls."""
         result = await self._apost_hook(
@@ -208,6 +212,7 @@ class LuthienCallback(CustomLogger):
 
         return result
 
+    @instrument_callback
     async def async_moderation_hook(self, data: dict, user_api_key_dict: Any, call_type: str):
         """Forward moderation evaluations to the control plane."""
         await self._apost_hook(
@@ -220,6 +225,7 @@ class LuthienCallback(CustomLogger):
         )
         return None
 
+    @instrument_callback
     async def async_post_call_streaming_hook(self, user_api_key_dict: Any, response: Any):
         """Skip forwarding aggregate streaming info (handled via WebSocket)."""
         return None
@@ -233,6 +239,7 @@ class LuthienCallback(CustomLogger):
             with contextlib.suppress(Exception):
                 await aclose()
 
+    @instrument_callback
     async def async_post_call_streaming_iterator_hook(
         self,
         user_api_key_dict: Any,

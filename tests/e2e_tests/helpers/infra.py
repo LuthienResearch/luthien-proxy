@@ -30,6 +30,7 @@ class E2ESettings:
     trace_retry_delay: float
     control_plane_restart_timeout: float
     verbose: bool
+    dummy_provider_url: str
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -70,8 +71,9 @@ def load_e2e_settings() -> E2ESettings:
         request_timeout=float(os.getenv("SQL_POLICY_E2E_TIMEOUT", "15")),
         trace_retries=int(os.getenv("SQL_POLICY_E2E_TRACE_RETRIES", "10")),
         trace_retry_delay=float(os.getenv("SQL_POLICY_E2E_TRACE_DELAY", "0.3")),
-        control_plane_restart_timeout=float(os.getenv("SQL_POLICY_CONTROL_PLANE_TIMEOUT", "30")),
+        control_plane_restart_timeout=float(os.getenv("SQL_POLICY_CONTROL_PLANE_TIMEOUT", "60")),
         verbose=_env_flag("SQL_POLICY_E2E_VERBOSE"),
+        dummy_provider_url=os.getenv("DUMMY_PROVIDER_URL", "http://localhost:4015/health"),
     )
 
 
@@ -137,6 +139,29 @@ async def wait_for_control_plane_ready(settings: E2ESettings, timeout: float | N
         )
 
 
+async def wait_for_dummy_provider_ready(settings: E2ESettings, timeout: float | None = None) -> None:
+    if timeout is None:
+        timeout = settings.control_plane_restart_timeout
+    deadline = time.monotonic() + timeout
+    last_error: Optional[Exception] = None
+    async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+        while time.monotonic() < deadline:
+            try:
+                response = await client.get(settings.dummy_provider_url)
+                if settings.verbose:
+                    print(f"[e2e] dummy-provider health attempt: status={response.status_code}")
+                response.raise_for_status()
+                if settings.verbose:
+                    print("[e2e] dummy-provider reported healthy")
+                return
+            except Exception as exc:
+                last_error = exc
+                if settings.verbose:
+                    print(f"[e2e] dummy-provider health check failed: {exc}")
+                await asyncio.sleep(0.5)
+        raise RuntimeError("Dummy provider failed to become healthy" + (f": {last_error}" if last_error else ""))
+
+
 async def ensure_services_available(settings: E2ESettings) -> None:
     async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
         try:
@@ -157,6 +182,34 @@ async def ensure_services_available(settings: E2ESettings) -> None:
                 print("[e2e] control-plane health OK")
         except Exception as exc:
             pytest.skip(f"Control plane not reachable at {settings.control_plane_url}/health: {exc}")
+
+
+@contextmanager
+def dummy_provider_running(settings: E2ESettings):
+    env = os.environ.copy()
+    _run_docker_compose(
+        settings,
+        [
+            "up",
+            "-d",
+            "--no-deps",
+            "--force-recreate",
+            "dummy-provider",
+        ],
+        env,
+    )
+    asyncio.run(wait_for_dummy_provider_ready(settings))
+    try:
+        yield
+    finally:
+        try:
+            _run_docker_compose(settings, ["stop", "dummy-provider"], env)
+        except AssertionError:
+            pass
+        try:
+            _run_docker_compose(settings, ["rm", "-f", "dummy-provider"], env)
+        except AssertionError:
+            pass
 
 
 async def fetch_trace(settings: E2ESettings, call_id: str) -> dict[str, object]:
@@ -241,6 +294,7 @@ class ControlPlaneManager:
 __all__ = [
     "E2ESettings",
     "ControlPlaneManager",
+    "dummy_provider_running",
     "ensure_services_available",
     "fetch_trace",
     "load_e2e_settings",

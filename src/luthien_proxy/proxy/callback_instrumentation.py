@@ -17,10 +17,19 @@ T = TypeVar("T")
 class CallbackInvocation:
     """Record of a single callback invocation with inputs and outputs."""
 
-    def __init__(self, callback_name: str, args: tuple, kwargs: dict):  # noqa: D107
+    def __init__(
+        self,
+        callback_name: str,
+        args: tuple,
+        kwargs: dict,
+        *,
+        call_id: str | None = None,
+    ) -> None:
+        """Initialize invocation metadata."""
         self.callback_name = callback_name
         self.args = args
         self.kwargs = kwargs
+        self.call_id = call_id
         self.start_time = time.time()
         self.end_time: float | None = None
         self.return_value: Any = None
@@ -50,6 +59,7 @@ class CallbackInvocation:
             "callback_name": self.callback_name,
             "args_types": [type(arg).__name__ for arg in self.args],
             "kwargs_keys": list(self.kwargs.keys()),
+            "call_id": self.call_id,
             "start_time": self.start_time,
             "end_time": self.end_time,
             "duration": self.duration,
@@ -122,6 +132,44 @@ def _safe_preview(obj: Any, max_length: int = 200) -> str:
         return f"{type(obj).__name__}(unprintable)"
 
 
+def _find_call_id(candidate: Any) -> str | None:
+    """Search for a call/stream identifier inside a nested structure."""
+    if isinstance(candidate, dict):
+        for key in ("litellm_call_id", "stream_id", "call_id", "id"):
+            value = candidate.get(key)
+            if isinstance(value, str) and value:
+                return value
+        for value in candidate.values():
+            found = _find_call_id(value)
+            if found:
+                return found
+        return None
+
+    if isinstance(candidate, (list, tuple, set)):
+        for item in candidate:
+            found = _find_call_id(item)
+            if found:
+                return found
+        return None
+
+    return None
+
+
+def _extract_call_id(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str | None:
+    """Try to extract a call identifier from callback arguments."""
+    for candidate in args:
+        call_id = _find_call_id(candidate)
+        if call_id:
+            return call_id
+
+    for candidate in kwargs.values():
+        call_id = _find_call_id(candidate)
+        if call_id:
+            return call_id
+
+    return None
+
+
 def instrument_callback(func: Callable[..., T]) -> Callable[..., T]:
     """Decorator to instrument callback functions with logging and tracing.
 
@@ -132,10 +180,13 @@ def instrument_callback(func: Callable[..., T]) -> Callable[..., T]:
 
     @functools.wraps(func)
     async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+        call_id = _extract_call_id(args, kwargs)
+        call_id_label = call_id or "unknown"
         # Log invocation
-        logger.info(
-            "Callback invoked: %s, args_types=[%s], kwargs_keys=%s",
+        logger.warning(
+            "Callback invoked: %s [call_id=%s], args_types=[%s], kwargs_keys=%s",
             callback_name,
+            call_id_label,
             ", ".join(type(arg).__name__ for arg in args),
             list(kwargs.keys()),
         )
@@ -146,7 +197,7 @@ def instrument_callback(func: Callable[..., T]) -> Callable[..., T]:
         if kwargs.get("response"):
             logger.debug("  response type: %s", type(kwargs["response"]).__name__)
 
-        invocation = CallbackInvocation(callback_name, args, kwargs)
+        invocation = CallbackInvocation(callback_name, args, kwargs, call_id=call_id)
         get_tracer().record(invocation)
 
         try:
@@ -172,15 +223,21 @@ def instrument_callback(func: Callable[..., T]) -> Callable[..., T]:
                             yield chunk
 
                         invocation.finish()
-                        logger.info(
-                            "Callback completed: %s, yielded %d chunks in %.3fs",
+                        logger.warning(
+                            "Callback completed: %s [call_id=%s], yielded %d chunks in %.3fs",
                             callback_name,
+                            call_id_label,
                             chunk_count,
                             invocation.duration or 0,
                         )
                     except Exception as exc:
                         invocation.finish(exception=exc)
-                        logger.error("Callback failed: %s, error: %s", callback_name, exc)
+                        logger.error(
+                            "Callback failed: %s [call_id=%s], error: %s",
+                            callback_name,
+                            call_id_label,
+                            exc,
+                        )
                         raise
 
                 return instrumented_generator()
@@ -190,9 +247,10 @@ def instrument_callback(func: Callable[..., T]) -> Callable[..., T]:
                 result = await result  # type: ignore[misc]
                 invocation.finish(return_value=result)
 
-                logger.info(
-                    "Callback completed: %s, return_type=%s, duration=%.3fs",
+                logger.warning(
+                    "Callback completed: %s [call_id=%s], return_type=%s, duration=%.3fs",
                     callback_name,
+                    call_id_label,
                     type(result).__name__,
                     invocation.duration or 0,
                 )
@@ -204,19 +262,27 @@ def instrument_callback(func: Callable[..., T]) -> Callable[..., T]:
 
         except Exception as exc:
             invocation.finish(exception=exc)
-            logger.error("Callback failed: %s, error: %s", callback_name, exc)
+            logger.error(
+                "Callback failed: %s [call_id=%s], error: %s",
+                callback_name,
+                call_id_label,
+                exc,
+            )
             raise
 
     @functools.wraps(func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+        call_id = _extract_call_id(args, kwargs)
+        call_id_label = call_id or "unknown"
         logger.info(
-            "Callback invoked (sync): %s, args_types=[%s], kwargs_keys=%s",
+            "Callback invoked (sync): %s [call_id=%s], args_types=[%s], kwargs_keys=%s",
             callback_name,
+            call_id_label,
             ", ".join(type(arg).__name__ for arg in args),
             list(kwargs.keys()),
         )
 
-        invocation = CallbackInvocation(callback_name, args, kwargs)
+        invocation = CallbackInvocation(callback_name, args, kwargs, call_id=call_id)
         get_tracer().record(invocation)
 
         try:
@@ -224,8 +290,9 @@ def instrument_callback(func: Callable[..., T]) -> Callable[..., T]:
             invocation.finish(return_value=result)
 
             logger.info(
-                "Callback completed (sync): %s, return_type=%s, duration=%.3fs",
+                "Callback completed (sync): %s [call_id=%s], return_type=%s, duration=%.3fs",
                 callback_name,
+                call_id_label,
                 type(result).__name__,
                 invocation.duration or 0,
             )
@@ -234,7 +301,12 @@ def instrument_callback(func: Callable[..., T]) -> Callable[..., T]:
 
         except Exception as exc:
             invocation.finish(exception=exc)
-            logger.error("Callback failed (sync): %s, error: %s", callback_name, exc)
+            logger.error(
+                "Callback failed (sync): %s [call_id=%s], error: %s",
+                callback_name,
+                call_id_label,
+                exc,
+            )
             raise
 
     # Return appropriate wrapper based on function type
