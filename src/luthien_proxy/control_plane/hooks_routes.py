@@ -171,8 +171,10 @@ async def hook_generic(
         logger.info(f"Hook {hook_name} returning: type={type(result_to_return)}, preview={str(result_to_return)[:200]}")
         return result_to_return
     except Exception as exc:
-        logger.error(f"hook_generic_error: {exc}")
-        raise HTTPException(status_code=500, detail=f"hook_generic_error: {exc}")
+        import traceback
+
+        logger.error(f"hook_generic_error in {hook_name}: {exc}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"hook_generic_error in {hook_name}: {exc}")
 
 
 @router.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)

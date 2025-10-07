@@ -83,6 +83,14 @@ def build_call_snapshots(events: Iterable[ConversationEvent]) -> list[Conversati
                     final_chunks = [final_text]
                 completed_at = event.timestamp
 
+                # If we don't have request messages from request_started (no call_id in pre_call_hook),
+                # extract them from the request_messages field in the completion event
+                if not request_original and not request_final:
+                    request_messages_raw = payload.get("request_messages")
+                    if isinstance(request_messages_raw, list):
+                        request_original = clone_messages(request_messages_raw)
+                        request_final = clone_messages(request_messages_raw)
+
         original_response = "".join(original_chunks)
         final_response = "".join(final_chunks) or original_response
 

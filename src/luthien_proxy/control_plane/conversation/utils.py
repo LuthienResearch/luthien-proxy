@@ -228,9 +228,12 @@ def extract_response_text(response: object) -> str:
     # Don't accept plain strings - expect properly structured response
     response_dict = require_dict(response, "response payload")
     if "choices" in response_dict:
-        choices = require_list(response_dict["choices"], "response choices")
+        choices_raw = response_dict["choices"]
+        if choices_raw is None:
+            return ""
+        choices = require_list(choices_raw, "response choices")
         if not choices:
-            raise ValueError("response choices list is empty")
+            return ""
         choice = require_dict(choices[0], "response choice")
         if "message" in choice:
             message = require_dict(choice["message"], "response choice.message")
@@ -271,6 +274,11 @@ def extract_response_text(response: object) -> str:
         content = response_dict["content"]
         if isinstance(content, str):
             return content
+        # Handle Anthropic Messages API format with content array
+        try:
+            return message_content_to_text(content)
+        except Exception:
+            pass
     raise ValueError("Unrecognized response payload structure")
 
 

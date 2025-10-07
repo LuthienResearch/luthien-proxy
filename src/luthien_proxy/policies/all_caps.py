@@ -19,7 +19,10 @@ from .base import LuthienPolicy, StreamPolicyContext
 
 def _uppercase_choices(response: JSONObject) -> JSONObject:
     mutated = deepcopy(response)
-    choices = require_list(mutated.get("choices"), "response choices")
+    choices_raw = mutated.get("choices")
+    if choices_raw is None:
+        return mutated
+    choices = require_list(choices_raw, "response choices")
     for index, choice_value in enumerate(choices):
         choice = require_dict(choice_value, f"response choice #{index}")
         if "delta" in choice:

@@ -179,6 +179,17 @@ def build_conversation_events(
             final_text = extract_response_text(final_response) if final_response is not None else ""
         except Exception:
             final_text = ""
+
+        # Extract request messages from the data field (since pre_call_hook doesn't have call_id)
+        request_messages = []
+        try:
+            original_dict = require_dict(original, "success hook original")
+            data_dict = require_dict(original_dict.get("data"), "success hook data")
+            messages = messages_from_payload({"data": data_dict})
+            request_messages = json_safe(format_messages(messages))
+        except Exception:
+            pass
+
         events.append(
             ConversationEvent(
                 call_id=call_id,
@@ -191,6 +202,7 @@ def build_conversation_events(
                     "status": "success",
                     "original_response": original_text,
                     "final_response": final_text,
+                    "request_messages": request_messages,
                     "raw_original": original_response,
                     "raw_result": final_response,
                 },
