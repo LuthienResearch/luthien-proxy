@@ -242,6 +242,117 @@ def test_build_conversation_events_stream_summary():
     assert event.payload["final_response"] == "Full response"
 
 
+def test_build_conversation_events_success_with_tool_call():
+    """Ensure tool-call responses surface readable originals."""
+    timestamp = datetime.now(UTC)
+    original = {
+        "response": {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_x",
+                                "function": {
+                                    "name": "lookup",
+                                    "arguments": '{"query": "status"}',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "post_time_ns": 1000000000,
+    }
+    result = {
+        "response": {
+            "choices": [
+                {"message": {"content": "Final response"}},
+            ]
+        },
+        "post_time_ns": 1000000001,
+    }
+
+    events = build_conversation_events(
+        hook="async_post_call_success_hook",
+        call_id="call-tool",
+        trace_id="trace-tool",
+        original=original,
+        result=result,
+        timestamp_ns_fallback=999999999,
+        timestamp=timestamp,
+    )
+
+    assert len(events) == 1
+    payload = events[0].payload
+    assert payload["original_response"].startswith("[tool lookup]")
+    assert "query" in payload["original_response"]
+    assert payload["final_response"] == "Final response"
+
+
+def test_build_conversation_events_stream_chunk_tool_call():
+    """Tool-call streaming deltas should produce readable chunks."""
+    timestamp = datetime.now(UTC)
+    original = {
+        "response": {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "id": "call_delta",
+                                "function": {
+                                    "name": "lookup",
+                                    "arguments": '{"foo": "',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "post_time_ns": 1000000000,
+    }
+    result = {
+        "response": {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "id": "call_delta",
+                                "function": {
+                                    "arguments": 'bar"}',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "post_time_ns": 1000000001,
+    }
+
+    reset_stream_indices("call-tool-stream")
+    events = build_conversation_events(
+        hook="async_post_call_streaming_iterator_hook",
+        call_id="call-tool-stream",
+        trace_id="trace-tool-stream",
+        original=original,
+        result=result,
+        timestamp_ns_fallback=999999999,
+        timestamp=timestamp,
+    )
+
+    assert len(events) == 2
+    assert events[0].event_type == "original_chunk"
+    assert events[0].payload["delta"].startswith("[tool lookup]")
+    assert '{"foo":' in events[0].payload["delta"]
+    assert events[1].event_type == "final_chunk"
+    assert events[1].payload["delta"]
+
+
 def test_build_conversation_events_unknown_hook():
     """Test that unknown hooks produce no events."""
     timestamp = datetime.now(UTC)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import json
 import logging
@@ -54,19 +53,11 @@ from .dependencies import (
     get_redis_client,
 )
 from .utils.rate_limiter import RateLimiter
+from .utils.task_queue import CONVERSATION_EVENT_QUEUE, DEBUG_LOG_QUEUE
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
-
-
-def _spawn_background(awaitable: Awaitable[None]) -> None:
-    """Fire and forget an awaitable for background execution."""
-
-    async def _runner() -> None:
-        await awaitable
-
-    asyncio.create_task(_runner())
 
 
 async def enforce_conversation_rate_limit(
@@ -118,13 +109,14 @@ async def hook_generic(
             pass
 
         stored_record: JSONObject = {"hook": hook_name, "payload": stored_payload}
+        stored_record["post_time_ns"] = time.time_ns()
         trace_id = extract_trace_id(payload)
         if trace_id:
             record["litellm_trace_id"] = trace_id
             stored_record["litellm_trace_id"] = trace_id
         if "litellm_call_id" in record:
             stored_record["litellm_call_id"] = record["litellm_call_id"]
-        _spawn_background(debug_writer(f"hook:{hook_name}", stored_record))
+        DEBUG_LOG_QUEUE.submit(debug_writer(f"hook:{hook_name}", stored_record))
         name = hook_name.lower()
         counters[name] += 1
         handler = cast(
@@ -154,9 +146,10 @@ async def hook_generic(
             "original": stored_payload,
             "result": sanitized_result,
         }
+        result_record["post_time_ns"] = time.time_ns()
         if trace_id:
             result_record["litellm_trace_id"] = trace_id
-        _spawn_background(debug_writer(f"hook_result:{hook_name}", result_record))
+        DEBUG_LOG_QUEUE.submit(debug_writer(f"hook_result:{hook_name}", result_record))
 
         call_id = result_record.get("litellm_call_id")
         if isinstance(call_id, str) and call_id:
@@ -171,8 +164,8 @@ async def hook_generic(
                 timestamp=timestamp_dt,
             )
             for event in events:
-                _spawn_background(publish_conversation_event(redis_conn, event))
-                _spawn_background(publish_trace_conversation_event(redis_conn, event))
+                CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(redis_conn, event))
+                CONVERSATION_EVENT_QUEUE.submit(publish_trace_conversation_event(redis_conn, event))
 
         result_to_return = strip_post_time_ns(final_result)
         logger.info(f"Hook {hook_name} returning: type={type(result_to_return)}, preview={str(result_to_return)[:200]}")

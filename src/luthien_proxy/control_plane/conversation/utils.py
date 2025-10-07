@@ -50,6 +50,63 @@ def json_safe(value: object) -> JSONValue:
             return "<unserializable>"
 
 
+def _stringify_arguments(value: object) -> str:
+    """Convert tool/function call arguments into a readable string."""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except Exception:
+        return repr(value)
+
+
+def _format_call(label: str, name_value: object, arguments_value: object) -> str:
+    """Format a tool/function call with optional name and arguments."""
+    prefix = ""
+    if isinstance(name_value, str) and name_value:
+        prefix = f"[{label} {name_value}] "
+    elif label:
+        prefix = f"[{label}] "
+    args_text = _stringify_arguments(arguments_value)
+    if args_text:
+        return f"{prefix}{args_text}" if prefix else args_text
+    return prefix.strip()
+
+
+def format_function_call_delta(function_payload: Mapping[str, object]) -> str:
+    """Render an assistant function_call payload as human-readable text."""
+    function = require_dict(function_payload, "function call payload")
+    return _format_call("function", function.get("name"), function.get("arguments"))
+
+
+def format_tool_call_delta(call_payload: Mapping[str, object]) -> str:
+    """Render an assistant tool_call payload as human-readable text."""
+    call = require_dict(call_payload, "tool call payload")
+    func_payload = call.get("function")
+    if isinstance(func_payload, dict):
+        func = require_dict(func_payload, "tool call function")
+        return _format_call("tool", func.get("name"), func.get("arguments"))
+    return _format_call("tool", call.get("name"), call.get("arguments"))
+
+
+def format_tool_calls_summary(tool_calls: Iterable[object]) -> str:
+    """Condense a list of tool calls into newline-separated text."""
+    lines: list[str] = []
+    for index, call_value in enumerate(tool_calls):
+        try:
+            call = require_dict(call_value, f"tool call #{index}")
+        except ValueError:
+            continue
+        summary = format_tool_call_delta(call)
+        if not summary:
+            continue
+        call_id = call.get("id")
+        if isinstance(call_id, str) and call_id:
+            summary = f"{summary} (id: {call_id})"
+        lines.append(summary)
+    return "\n".join(lines)
+
+
 def message_content_to_text(content: JSONValue | None) -> str:
     """Flatten OpenAI-style message content into plain text."""
     if content is None:
@@ -177,10 +234,39 @@ def extract_response_text(response: object) -> str:
         choice = require_dict(choices[0], "response choice")
         if "message" in choice:
             message = require_dict(choice["message"], "response choice.message")
-            return message_content_to_text(message.get("content"))
+            content_value = message.get("content")
+            if content_value is not None:
+                try:
+                    return message_content_to_text(cast(JSONValue | None, content_value))
+                except Exception:
+                    pass
+            tool_calls_value = message.get("tool_calls")
+            if isinstance(tool_calls_value, list):
+                summary = format_tool_calls_summary(tool_calls_value)
+                if summary:
+                    return summary
+            function_call_value = message.get("function_call")
+            if isinstance(function_call_value, dict):
+                return format_function_call_delta(function_call_value)
         if "delta" in choice:
             delta = require_dict(choice["delta"], "response choice.delta")
-            return require_str(delta.get("content"), "response choice.delta.content")
+            content_value = delta.get("content")
+            if isinstance(content_value, str):
+                return content_value
+            if content_value is not None:
+                try:
+                    return message_content_to_text(cast(JSONValue | None, content_value))
+                except Exception:
+                    pass
+            tool_calls_value = delta.get("tool_calls")
+            if isinstance(tool_calls_value, list):
+                summary = format_tool_calls_summary(tool_calls_value)
+                if summary:
+                    return summary
+            function_call_value = delta.get("function_call")
+            if isinstance(function_call_value, dict):
+                return format_function_call_delta(function_call_value)
+            return ""
     if "content" in response_dict:
         content = response_dict["content"]
         if isinstance(content, str):
@@ -280,6 +366,9 @@ __all__ = [
     "message_content_to_text",
     "messages_from_payload",
     "format_messages",
+    "format_function_call_delta",
+    "format_tool_call_delta",
+    "format_tool_calls_summary",
     "extract_choice_index",
     "delta_from_chunk",
     "extract_stream_chunk",
