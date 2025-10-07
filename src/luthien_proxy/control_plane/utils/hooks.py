@@ -25,18 +25,10 @@ def extract_call_id_for_hook(hook: str, payload: JSONObject) -> Optional[str]:
     """
     hook = hook.lower()
     hook_to_id_paths: dict[str, list[list[str]]] = {
-        "async_pre_call_hook": [["data", "litellm_call_id"], ["litellm_call_id"]],
-        "async_post_call_success_hook": [["data", "litellm_call_id"], ["litellm_call_id"]],
-        "async_post_call_streaming_iterator_hook": [
-            ["request_data", "litellm_call_id"],
-            ["data", "litellm_call_id"],
-            ["litellm_call_id"],
-        ],
-        "async_post_call_streaming_hook": [
-            ["data", "litellm_call_id"],
-            ["request_data", "litellm_call_id"],
-            ["litellm_call_id"],
-        ],
+        "async_pre_call_hook": [["data", "litellm_call_id"]],
+        "async_post_call_success_hook": [["data", "litellm_call_id"]],
+        "async_post_call_streaming_iterator_hook": [["request_data", "litellm_call_id"]],
+        "async_post_call_streaming_hook": [["data", "litellm_call_id"]],
     }
     paths = hook_to_id_paths.get(hook)
     if not paths:
