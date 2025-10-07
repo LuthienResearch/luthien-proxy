@@ -487,6 +487,200 @@ Solution: Reset deadline on every CHUNK or KEEPALIVE.
 
 **Clarity**: Client either gets approved content or nothing.
 
+## Debugging & Instrumentation
+
+The streaming pipeline includes comprehensive logging at every layer for debugging streaming issues.
+
+### Available Logging Tools
+
+#### 1. WebSocket Message Logger (Proxy Side)
+**Location**: `src/luthien_proxy/proxy/websocket_logger.py`
+
+Logs all messages sent and received over WebSocket connections between LiteLLM and the control plane.
+
+**Usage**:
+```python
+from luthien_proxy.proxy.websocket_logger import get_websocket_logger, enable_websocket_logging
+
+# Get the singleton logger
+ws_logger = get_websocket_logger()
+
+# Enable/disable logging
+enable_websocket_logging()  # Enabled by default
+disable_websocket_logging()
+```
+
+**Log Output**:
+```
+WebSocket OUT [stream-abc123]: type=START, keys=['type', 'data']
+  START: model=gpt-4
+WebSocket OUT [stream-abc123]: type=CHUNK, keys=['type', 'data']
+  CHUNK: id=chatcmpl-123
+WebSocket IN  [stream-abc123]: type=CHUNK, keys=['type', 'data']
+  CHUNK: content='Hello'
+WebSocket IN  [stream-abc123]: type=END, keys=['type']
+```
+
+**What it logs**:
+- **Outgoing** (Proxy → Control Plane): START, CHUNK, END messages
+- **Incoming** (Control Plane → Proxy): CHUNK, KEEPALIVE, END, ERROR messages
+- Message type, stream ID, and key structure
+- Additional details (model, chunk ID, content preview)
+
+#### 2. Callback Chunk Logger (Proxy Side)
+**Location**: `src/luthien_proxy/proxy/callback_chunk_logger.py`
+
+Logs chunk processing in the LiteLLM callback layer: chunks received from control plane, normalization, and yielding to client.
+
+**Usage**:
+```python
+from luthien_proxy.proxy.callback_chunk_logger import get_callback_chunk_logger
+
+# Get the singleton logger
+chunk_logger = get_callback_chunk_logger()
+```
+
+**Log Output**:
+```
+CALLBACK CONTROL IN  [stream-abc123] #0: type=CHUNK
+CALLBACK NORMALIZED  [stream-abc123]: success=True, model=gpt-4
+CALLBACK TO CLIENT   [stream-abc123] #0: content='Hello'
+```
+
+**What it logs**:
+- Messages received from control plane in `_poll_control_plane()`
+- Chunk normalization (success/failure with validation errors)
+- Chunks yielded to client with index and content preview
+
+#### 3. Streaming Endpoint Logger (Control Plane Side)
+**Location**: `src/luthien_proxy/control_plane/endpoint_logger.py`
+
+Logs WebSocket endpoint handling: START messages, incoming/outgoing chunks, policy invocations.
+
+**Usage**:
+```python
+from luthien_proxy.control_plane.endpoint_logger import get_endpoint_logger
+
+# Get the singleton logger
+endpoint_logger = get_endpoint_logger()
+```
+
+**Log Output**:
+```
+ENDPOINT START [stream-abc123]: call_id=abc123, model=gpt-4, stream=True
+ENDPOINT CHUNK IN [stream-abc123] #0: content='Hello'
+ENDPOINT POLICY INVOKE [stream-abc123]: policy=NoOpPolicy
+ENDPOINT CHUNK OUT [stream-abc123] #0: content='Hello'
+ENDPOINT END [stream-abc123]
+```
+
+**What it logs**:
+- START message with request metadata
+- Incoming chunks from LiteLLM (upstream output)
+- Policy invocations
+- Outgoing chunks to LiteLLM (policy output)
+- END/ERROR messages
+
+#### 4. Policy Stream Logger (Control Plane Side)
+**Location**: `src/luthien_proxy/policies/policy_instrumentation.py`
+
+Logs policy-level streaming: chunks in, chunks out, stream lifecycle.
+
+**Usage**:
+```python
+from luthien_proxy.policies.policy_instrumentation import get_policy_logger
+
+# Get the singleton logger
+policy_logger = get_policy_logger()
+```
+
+**Log Output**:
+```
+POLICY STREAM START [stream-abc123]: policy=NoOpPolicy
+POLICY CHUNK IN  [stream-abc123:NoOpPolicy] #0: delta='Hello'
+POLICY CHUNK OUT [stream-abc123:NoOpPolicy] #0: delta='Hello'
+POLICY STREAM END [stream-abc123:NoOpPolicy]: total_chunks=5
+```
+
+**What it logs**:
+- Stream lifecycle (start/end)
+- Chunks entering policy's `generate_response_stream()`
+- Chunks emitted by policy
+- Total chunk counts
+
+### Debugging Workflow
+
+When debugging streaming issues, follow this diagnostic flow:
+
+1. **Check WebSocket connectivity**: Look for `WebSocket OUT/IN` logs
+   - Missing OUT logs → Problem before StreamConnection
+   - Missing IN logs → Control plane not responding
+   - JSON errors → Malformed messages
+
+2. **Check control plane processing**: Look for `ENDPOINT` logs
+   - START received? → Connection established
+   - CHUNK IN received? → Upstream forwarding works
+   - POLICY INVOKE logged? → Endpoint routing works
+   - CHUNK OUT sent? → Policy is generating output
+
+3. **Check policy behavior**: Look for `POLICY` logs
+   - STREAM START? → Policy context created
+   - CHUNK IN? → Policy receiving upstream chunks
+   - CHUNK OUT? → Policy emitting output
+   - Compare IN vs OUT counts → Policy transformation behavior
+
+4. **Check callback normalization**: Look for `CALLBACK` logs
+   - CONTROL IN? → Proxy receiving control plane responses
+   - NORMALIZED success? → Chunks are valid ModelResponseStream
+   - TO CLIENT? → Chunks reaching end user
+
+### Common Issues & Diagnosis
+
+| Symptom | Check Logs | Likely Cause |
+|---------|------------|--------------|
+| Client sees nothing | `CALLBACK TO CLIENT` | Control plane not sending chunks |
+| Timeout error | `WebSocket IN` timestamps | Control plane hung, no keepalive |
+| JSON validation error | `CALLBACK NORMALIZED` | Control plane sending malformed chunks |
+| Partial response | `POLICY CHUNK OUT` count | Policy stopped emitting early |
+| Wrong content | `ENDPOINT CHUNK IN` vs `CHUNK OUT` | Policy transformation issue |
+
+### Enabling Debug Logging
+
+By default, loggers are enabled. To control verbosity:
+
+```python
+# In application code
+import logging
+
+# Enable detailed WebSocket logging
+logging.getLogger("luthien_proxy.proxy.websocket_logger").setLevel(logging.DEBUG)
+
+# Enable detailed callback logging
+logging.getLogger("luthien_proxy.proxy.callback_chunk_logger").setLevel(logging.DEBUG)
+
+# Enable detailed endpoint logging
+logging.getLogger("luthien_proxy.control_plane.endpoint_logger").setLevel(logging.DEBUG)
+
+# Enable detailed policy logging
+logging.getLogger("luthien_proxy.policies.policy_instrumentation").setLevel(logging.DEBUG)
+```
+
+Or via environment:
+```bash
+export LITELLM_LOG=DEBUG  # Enables all LiteLLM logging including our loggers
+```
+
+### Debug UI
+
+The control plane also provides web UI endpoints for inspecting streaming activity:
+
+- `/debug` - Debug logs browser
+- `/debug/conversation-logs` - Conversation traces
+- `/debug/tool-call-logs` - Tool call logs
+- `/debug/judge-blocks` - Judge policy blocks
+
+These UIs query the `debug_logs` table which captures all hook invocations including streaming chunks.
+
 ## Future Enhancements
 
 - Make timeout configurable per-request
@@ -498,6 +692,6 @@ Solution: Reset deadline on every CHUNK or KEEPALIVE.
 
 ## References
 
-- Original implementation plan: [dev/streaming-rewrite-plan.md](./streaming-rewrite-plan.md)
+- Implementation plan (completed): [dev/archive/streaming-rewrite-plan.md](./archive/streaming-rewrite-plan.md)
 - WebSocket protocol: [RFC 6455](https://tools.ietf.org/html/rfc6455)
 - LiteLLM callbacks: [LiteLLM docs](https://docs.litellm.ai/docs/observability/custom_callback)
