@@ -352,6 +352,7 @@ async def test_streaming_hook_returns_transformed_chunk(callback):
         def __init__(self):
             self.sent = []
             self._delivered = False
+            self._ended = False
 
         async def send(self, message):
             self.sent.append(message)
@@ -360,6 +361,9 @@ async def test_streaming_hook_returns_transformed_chunk(callback):
             if not self._delivered:
                 self._delivered = True
                 return {"type": "CHUNK", "data": transformed}
+            if not self._ended:
+                self._ended = True
+                return {"type": "END"}
             await asyncio.sleep(0)
             return None
 
