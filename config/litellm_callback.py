@@ -249,10 +249,13 @@ class LuthienCallback(CustomLogger):
         """Forward streaming chunks through the control plane WebSocket."""
         stream_id = request_data.get("litellm_call_id")
         if not stream_id:
+            verbose_logger.warning("stream request missing litellm_call_id; dropping stream")
             await self._close_async_iterator(response)
             return
 
         sanitized_request = self._json_safe(request_data)
+
+        connection: StreamConnection | None = None
 
         try:
             connection = await StreamConnection.create(
@@ -263,6 +266,9 @@ class LuthienCallback(CustomLogger):
             await connection.send({"type": "START", "data": sanitized_request})
         except Exception as exc:
             verbose_logger.error(f"stream[{stream_id}] unable to establish control plane connection: {exc}")
+            if connection is not None:
+                with contextlib.suppress(Exception):
+                    await connection.close()
             await self._close_async_iterator(response)
             return
 

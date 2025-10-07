@@ -234,6 +234,19 @@ class StreamOrchestrator:
                     self._fail(protocol_exc, cause=exc)
                     raise protocol_exc
 
+                if not isinstance(normalized, ModelResponseStream):
+                    error_msg = f"normalize_chunk must return ModelResponseStream, got {type(normalized).__name__}"
+                    if self._chunk_logger is not None:
+                        self._chunk_logger.log_chunk_normalized(
+                            self._stream_id,
+                            chunk_payload,
+                            success=False,
+                            error=error_msg,
+                        )
+                    protocol_exc = StreamProtocolError(error_msg)
+                    self._fail(protocol_exc)
+                    raise protocol_exc
+
                 if self._chunk_logger is not None:
                     self._chunk_logger.log_chunk_normalized(
                         self._stream_id,

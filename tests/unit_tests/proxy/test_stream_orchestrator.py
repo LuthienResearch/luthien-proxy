@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from typing import cast
 
 import pytest
 from litellm.types.utils import ModelResponseStream
@@ -183,6 +184,33 @@ async def test_normalize_failure_raises_protocol_error() -> None:
 
     orchestrator = StreamOrchestrator(
         stream_id="protocol-normalize",
+        connection=connection,
+        upstream=upstream(),
+        normalize_chunk=normalize,
+        timeout=0.1,
+        chunk_logger=None,
+        poll_interval=0.01,
+    )
+
+    with pytest.raises(StreamProtocolError):
+        async for _ in orchestrator.run():
+            pass
+
+
+@pytest.mark.asyncio
+async def test_normalize_must_return_model_response_stream() -> None:
+    connection = DummyConnection()
+    control_chunk = make_stream_chunk("control")
+    connection.queue_message({"type": "CHUNK", "data": control_chunk.model_dump()})
+
+    async def upstream() -> AsyncIterator[ModelResponseStream]:
+        yield make_stream_chunk("upstream")
+
+    def normalize(_: dict) -> ModelResponseStream:
+        return cast(ModelResponseStream, {"not": "a-model"})
+
+    orchestrator = StreamOrchestrator(
+        stream_id="protocol-normalize-type",
         connection=connection,
         upstream=upstream(),
         normalize_chunk=normalize,
