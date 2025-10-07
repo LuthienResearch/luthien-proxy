@@ -4,6 +4,7 @@
 
 - [ ] Demo: DB drop
 - [ ] Make data logging more efficient
+- [ ] Unify response format passed to callbacks
 
 ## Medium Priority
 
