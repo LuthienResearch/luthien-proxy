@@ -83,7 +83,8 @@ model_list:
 # LiteLLM proxy settings
 litellm_settings:
   # Enable our custom logger (control-plane forwarder)
-  callbacks: ["litellm_callback.luthien_callback"]
+  # callbacks: ["litellm_callback.luthien_callback"]
+  callbacks: ["replay_callback.replay_callback"]
 
   # Model parameter handling
   drop_params: true  # Drop unsupported params to improve compatibility with gpt-5/o3/Responses API
