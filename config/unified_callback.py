@@ -64,6 +64,8 @@ def _is_anthropic_model(model_name: str | None) -> bool:
 class UnifiedCallback(CustomLogger):
     """LiteLLM callback that forwards provider-agnostic payloads."""
 
+    _JSON_SAFE_MAX_DEPTH = 20
+
     def __init__(self) -> None:
         """Capture control-plane configuration and defaults."""
         super().__init__()
@@ -347,7 +349,64 @@ class UnifiedCallback(CustomLogger):
 
         return ModelResponseStream.model_validate(payload)
 
-    def _json_safe(self, obj: Any) -> Any:
+    def _json_safe(self, obj: Any, *, _depth: int = 0, _seen: set[int] | None = None) -> Any:
+        if _depth > self._JSON_SAFE_MAX_DEPTH:
+            return "<max-depth-exceeded>"
+
+        if _seen is None:
+            _seen = set()
+
+        if isinstance(obj, (str, int, float, bool)) or obj is None:
+            return obj
+
+        if hasattr(obj, "model_dump"):
+            try:
+                return self._json_safe(obj.model_dump(), _depth=_depth + 1, _seen=_seen)
+            except Exception:
+                pass
+        if hasattr(obj, "dict"):
+            try:
+                return self._json_safe(obj.dict(), _depth=_depth + 1, _seen=_seen)
+            except Exception:
+                pass
+
+        if isinstance(obj, dict):
+            obj_id = id(obj)
+            if obj_id in _seen:
+                return "<recursion>"
+            _seen.add(obj_id)
+            try:
+                return {
+                    self._json_safe(k, _depth=_depth + 1, _seen=_seen): self._json_safe(
+                        v, _depth=_depth + 1, _seen=_seen
+                    )
+                    for k, v in obj.items()
+                }
+            finally:
+                _seen.remove(obj_id)
+        if isinstance(obj, (list, tuple, set)):
+            obj_id = id(obj)
+            if obj_id in _seen:
+                return "<recursion>"
+            _seen.add(obj_id)
+            try:
+                return [self._json_safe(v, _depth=_depth + 1, _seen=_seen) for v in obj]
+            finally:
+                _seen.remove(obj_id)
+        if hasattr(obj, "__dict__"):
+            obj_id = id(obj)
+            if obj_id in _seen:
+                return "<recursion>"
+            _seen.add(obj_id)
+            try:
+                return {
+                    self._json_safe(k, _depth=_depth + 1, _seen=_seen): self._json_safe(
+                        v, _depth=_depth + 1, _seen=_seen
+                    )
+                    for k, v in vars(obj).items()
+                }
+            finally:
+                _seen.remove(obj_id)
         try:
             import json as _json
 
@@ -355,25 +414,10 @@ class UnifiedCallback(CustomLogger):
             return obj
         except Exception:
             pass
-
-        if hasattr(obj, "model_dump"):
-            try:
-                return self._json_safe(obj.model_dump())
-            except Exception:
-                pass
-        if hasattr(obj, "dict"):
-            try:
-                return self._json_safe(obj.dict())
-            except Exception:
-                pass
-
-        if isinstance(obj, dict):
-            return {self._json_safe(k): self._json_safe(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple, set)):
-            return [self._json_safe(v) for v in obj]
-        if isinstance(obj, (str, int, float, bool)) or obj is None:
-            return obj
-        return repr(obj)
+        try:
+            return repr(obj)
+        except Exception:
+            return "<unserializable>"
 
 
 unified_callback = UnifiedCallback()
