@@ -6,7 +6,9 @@ ABOUTME: Logs chunks received from control plane, normalization, and client yiel
 import logging
 from typing import Any
 
-logger = logging.getLogger("luthien_proxy.proxy.callback_chunk_logger")
+from litellm._logging import verbose_logger as logger
+
+logger.setLevel(logging.INFO)
 
 
 class CallbackChunkLogger:
@@ -31,7 +33,7 @@ class CallbackChunkLogger:
             return
 
         msg_type = message.get("type", "UNKNOWN")
-        logger.info(
+        logger.warning(
             "CALLBACK CONTROL IN  [%s] #%d: type=%s",
             stream_id,
             chunk_index,
@@ -59,7 +61,7 @@ class CallbackChunkLogger:
                 if content:
                     content_preview = content[:50] + "..." if len(content) > 50 else content
 
-            logger.info(
+            logger.warning(
                 "CALLBACK NORMALIZED  [%s]: success=True, content=%r",
                 stream_id,
                 content_preview,
@@ -90,7 +92,7 @@ class CallbackChunkLogger:
             if content:
                 content_preview = content[:50] + "..." if len(content) > 50 else content
 
-        logger.info(
+        logger.warning(
             "CALLBACK TO CLIENT   [%s] #%d: content=%r",
             stream_id,
             chunk_index,

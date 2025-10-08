@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import logging
 import time
@@ -23,6 +22,10 @@ from luthien_proxy.control_plane.conversation.streams import (
 from luthien_proxy.control_plane.conversation.utils import json_safe
 from luthien_proxy.control_plane.endpoint_logger import get_endpoint_logger
 from luthien_proxy.control_plane.stream_context import StreamContextStore
+from luthien_proxy.control_plane.utils.task_queue import (
+    CONVERSATION_EVENT_QUEUE,
+    DEBUG_LOG_QUEUE,
+)
 from luthien_proxy.policies.base import LuthienPolicy, StreamPolicyContext
 
 logger = logging.getLogger(__name__)
@@ -239,11 +242,12 @@ class _StreamEventPublisher:
 
         if self._debug_writer is not None:
             record: dict[str, Any] = {"hook": self.hook_name, "payload": payload}
+            record["post_time_ns"] = time.time_ns()
             if self._trace_id:
                 record["litellm_trace_id"] = self._trace_id
             if isinstance(self._call_id, str):
                 record["litellm_call_id"] = self._call_id
-            asyncio.create_task(self._debug_writer(f"hook:{self.hook_name}", record))
+            DEBUG_LOG_QUEUE.submit(self._debug_writer(f"hook:{self.hook_name}", record))
 
         for choice in chunk.get("choices", []):
             delta = choice.get("delta", {})
@@ -267,9 +271,10 @@ class _StreamEventPublisher:
                 "original": self._pending_payload,
                 "result": json_safe(result_payload),
             }
+            record["post_time_ns"] = time.time_ns()
             if self._trace_id:
                 record["litellm_trace_id"] = self._trace_id
-            asyncio.create_task(self._debug_writer(f"hook_result:{self.hook_name}", record))
+            DEBUG_LOG_QUEUE.submit(self._debug_writer(f"hook_result:{self.hook_name}", record))
 
         if isinstance(self._call_id, str) and self._call_id:
             events = build_conversation_events(
@@ -282,8 +287,8 @@ class _StreamEventPublisher:
                 timestamp=datetime.now(timezone.utc),
             )
             for event in events:
-                await publish_conversation_event(self._redis, event)
-                await publish_trace_conversation_event(self._redis, event)
+                CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(self._redis, event))
+                CONVERSATION_EVENT_QUEUE.submit(publish_trace_conversation_event(self._redis, event))
 
         self._pending_payload = None
 
@@ -325,9 +330,10 @@ class _StreamEventPublisher:
                     "original": original_payload,
                     "result": summary_payload,
                 }
+                record["post_time_ns"] = time.time_ns()
                 if self._trace_id:
                     record["litellm_trace_id"] = self._trace_id
-                asyncio.create_task(
+                DEBUG_LOG_QUEUE.submit(
                     self._debug_writer(
                         "hook_result:async_post_call_streaming_hook",
                         record,
@@ -344,8 +350,8 @@ class _StreamEventPublisher:
                 timestamp=datetime.now(timezone.utc),
             )
             for event in events:
-                await publish_conversation_event(self._redis, event)
-                await publish_trace_conversation_event(self._redis, event)
+                CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(self._redis, event))
+                CONVERSATION_EVENT_QUEUE.submit(publish_trace_conversation_event(self._redis, event))
 
             clear_stream_indices(self._call_id)
             if self._stream_store is not None:

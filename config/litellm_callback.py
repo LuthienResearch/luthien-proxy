@@ -3,11 +3,10 @@
 
 """Minimal LiteLLM callback that forwards all calls to the control plane."""
 
-import asyncio
 import contextlib
 import os
 import time as _time
-from typing import Any, AsyncGenerator, Mapping, Optional, Union
+from typing import Any, AsyncGenerator, AsyncIterator, Mapping, Optional, Union
 
 import httpx
 import pydantic
@@ -16,7 +15,13 @@ from litellm.integrations.custom_logger import CustomLogger
 from litellm.types.utils import ModelResponseStream
 
 from luthien_proxy.proxy.callback_chunk_logger import get_callback_chunk_logger
-from luthien_proxy.proxy.stream_connection_manager import StreamConnectionManager
+from luthien_proxy.proxy.callback_instrumentation import instrument_callback
+from luthien_proxy.proxy.stream_connection_manager import StreamConnection
+from luthien_proxy.proxy.stream_orchestrator import (
+    StreamOrchestrationError,
+    StreamOrchestrator,
+    StreamTimeoutError,
+)
 
 
 class LuthienCallback(CustomLogger):
@@ -27,8 +32,21 @@ class LuthienCallback(CustomLogger):
         super().__init__()
         self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
+        self.stream_timeout = float(os.getenv("CONTROL_PLANE_STREAM_TIMEOUT", "30"))
+
+        # Validate stream timeout bounds
+        if self.stream_timeout < 1.0:
+            verbose_logger.error(
+                f"CONTROL_PLANE_STREAM_TIMEOUT={self.stream_timeout} is below minimum (1.0s). "
+                "This may cause premature timeouts."
+            )
+        elif self.stream_timeout > 600.0:
+            verbose_logger.error(
+                f"CONTROL_PLANE_STREAM_TIMEOUT={self.stream_timeout} exceeds maximum (600s). "
+                "This may cause resource exhaustion."
+            )
+
         verbose_logger.info(f"LuthienCallback initialized with control plane URL: {self.control_plane_url}")
-        self._connection_manager: Optional[StreamConnectionManager] = None
 
     # ------------- internal helpers -------------
     async def _apost_hook(
@@ -143,6 +161,7 @@ class LuthienCallback(CustomLogger):
 
     # --------------------- Hooks ----------------------
 
+    @instrument_callback
     async def async_pre_call_hook(
         self,
         user_api_key_dict: Any,
@@ -161,6 +180,7 @@ class LuthienCallback(CustomLogger):
             },
         )
 
+    @instrument_callback
     async def async_post_call_failure_hook(
         self,
         request_data: dict,
@@ -180,6 +200,7 @@ class LuthienCallback(CustomLogger):
         )
         return None
 
+    @instrument_callback
     async def async_post_call_success_hook(self, data: dict, user_api_key_dict: Any, response: Any):
         """Allow control plane to replace final response for non-streaming calls."""
         result = await self._apost_hook(
@@ -204,6 +225,7 @@ class LuthienCallback(CustomLogger):
 
         return result
 
+    @instrument_callback
     async def async_moderation_hook(self, data: dict, user_api_key_dict: Any, call_type: str):
         """Forward moderation evaluations to the control plane."""
         await self._apost_hook(
@@ -216,29 +238,21 @@ class LuthienCallback(CustomLogger):
         )
         return None
 
+    @instrument_callback
     async def async_post_call_streaming_hook(self, user_api_key_dict: Any, response: Any):
         """Skip forwarding aggregate streaming info (handled via WebSocket)."""
         return None
 
-    def _get_connection_manager(self) -> StreamConnectionManager:
-        if self._connection_manager is None:
-            self._connection_manager = StreamConnectionManager(self.control_plane_url)
-        return self._connection_manager
+    async def _close_async_iterator(
+        self, iterator: AsyncGenerator[ModelResponseStream, None] | AsyncIterator[ModelResponseStream]
+    ) -> None:
+        """Attempt to close an upstream async iterator, ignoring errors."""
+        aclose = getattr(iterator, "aclose", None)
+        if callable(aclose):
+            with contextlib.suppress(Exception):
+                await aclose()
 
-    async def _cleanup_stream(self, stream_id: str, send_end: bool) -> None:
-        manager = self._get_connection_manager()
-        connection = await manager.lookup(stream_id)
-        if connection is None:
-            return
-
-        if send_end:
-            try:
-                await connection.send({"type": "END"})
-            except Exception as exc:
-                verbose_logger.error(f"stream[{stream_id}] failed to notify END: {exc}")
-
-        await manager.close(stream_id)
-
+    @instrument_callback
     async def async_post_call_streaming_iterator_hook(
         self,
         user_api_key_dict: Any,
@@ -248,193 +262,54 @@ class LuthienCallback(CustomLogger):
         """Forward streaming chunks through the control plane WebSocket."""
         stream_id = request_data.get("litellm_call_id")
         if not stream_id:
-            async for item in response:
-                yield item
+            verbose_logger.warning("stream request missing litellm_call_id; dropping stream")
+            await self._close_async_iterator(response)
             return
 
         sanitized_request = self._json_safe(request_data)
 
+        connection: StreamConnection | None = None
+
         try:
-            manager = self._get_connection_manager()
-            connection = await manager.get_or_create(stream_id, sanitized_request)
+            connection = await StreamConnection.create(
+                stream_id=stream_id,
+                control_plane_url=self.control_plane_url,
+            )
+            # Send START message to initiate the stream
+            await connection.send({"type": "START", "data": sanitized_request})
         except Exception as exc:
             verbose_logger.error(f"stream[{stream_id}] unable to establish control plane connection: {exc}")
-            async for item in response:
-                yield item
+            if connection is not None:
+                with contextlib.suppress(Exception):
+                    await connection.close()
+            await self._close_async_iterator(response)
             return
-
-        passthrough = False
-        cleanup_after_stream = False
-        stream_closed = False
-
-        receive_task: asyncio.Task[Optional[dict]] | None = None
-        control_signaled_end = False
-
-        def schedule_receive() -> None:
-            """Kick off the control-plane receive task when needed."""
-            nonlocal receive_task
-            if receive_task is None and not stream_closed and not passthrough:
-                verbose_logger.debug(f"stream[{stream_id}] scheduling control receive task")
-                receive_task = asyncio.create_task(connection.receive())
 
         chunk_logger = get_callback_chunk_logger()
-        control_chunk_index = [0]  # Use list for mutability in nested function
-        client_chunk_index = [0]
-
-        async def poll_control(initial_timeout: float | None) -> list[ModelResponseStream]:
-            """Drain any buffered control-plane output within the timeout window."""
-            nonlocal receive_task, passthrough, cleanup_after_stream, stream_closed, control_signaled_end
-
-            chunks: list[ModelResponseStream] = []
-            timeout = initial_timeout
-            needs_reschedule = False
-
-            while receive_task is not None:
-                task = receive_task
-                if timeout is not None:
-                    done, _ = await asyncio.wait({task}, timeout=timeout)
-                    if not done:
-                        break
-                    timeout = None
-                else:
-                    if not task.done():
-                        break
-
-                receive_task = None
-                try:
-                    message = task.result()
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # pragma: no cover - defensive
-                    verbose_logger.error(f"stream[{stream_id}] control receive failed: {exc}")
-                    passthrough = True
-                    cleanup_after_stream = True
-                    break
-
-                if message is None:
-                    stream_closed = True
-                    break
-
-                chunk_logger.log_control_chunk_received(stream_id, message, control_chunk_index[0])
-                control_chunk_index[0] += 1
-
-                msg_type = message.get("type")
-                if msg_type == "CHUNK":
-                    data = message.get("data")
-                    try:
-                        normalized = self._normalize_stream_chunk(data)
-                        chunk_logger.log_chunk_normalized(stream_id, data, success=True)
-                        chunks.append(normalized)
-                    except Exception as exc:
-                        verbose_logger.error(f"stream[{stream_id}] invalid transformed chunk: {exc}")
-                        chunk_logger.log_chunk_normalized(stream_id, data, success=False, error=str(exc))
-                    needs_reschedule = True
-                elif msg_type == "ERROR":
-                    verbose_logger.error(f"stream[{stream_id}] control plane error: {message.get('error')}")
-                    passthrough = True
-                    cleanup_after_stream = True
-                    break
-                elif msg_type == "END":
-                    verbose_logger.debug(f"stream[{stream_id}] control plane signaled END")
-                    stream_closed = True
-                    control_signaled_end = True
-                    break
-                else:
-                    verbose_logger.warning(
-                        f"stream[{stream_id}] unexpected message type {msg_type}; ignoring control output"
-                    )
-                    needs_reschedule = True
-
-                timeout = None
-
-            if needs_reschedule and not stream_closed and not passthrough:
-                schedule_receive()
-
-            return chunks
+        orchestrator = StreamOrchestrator(
+            stream_id=stream_id,
+            connection=connection,
+            upstream=response,
+            normalize_chunk=self._normalize_stream_chunk,
+            timeout=self.stream_timeout,
+            chunk_logger=chunk_logger,
+        )
 
         try:
-            schedule_receive()
-            async for item in response:
-                if stream_closed:
-                    verbose_logger.debug(f"stream[{stream_id}] upstream chunk skipped; control closed")
-                for pending in await poll_control(initial_timeout=0):
-                    pending_dict = pending.model_dump()
-                    chunk_logger.log_chunk_to_client(stream_id, pending_dict, client_chunk_index[0])
-                    client_chunk_index[0] += 1
-                    yield pending
-                if stream_closed or passthrough:
-                    break
-
-                chunk_dict = item.model_dump()
-                try:
-                    await connection.send({"type": "CHUNK", "data": chunk_dict})
-                except Exception as exc:
-                    verbose_logger.error(f"stream[{stream_id}] unable to forward chunk: {exc}")
-                    passthrough = True
-                    cleanup_after_stream = True
-                    continue
-
-                transformed_chunks = await poll_control(initial_timeout=0.05)
-                for transformed in transformed_chunks:
-                    transformed_dict = transformed.model_dump()
-                    chunk_logger.log_chunk_to_client(stream_id, transformed_dict, client_chunk_index[0])
-                    client_chunk_index[0] += 1
-                    yield transformed
-
-                if stream_closed or passthrough:
-                    break
-
-            # Upstream finished; flush remaining control-plane output.
-            # Use long timeout to allow control plane to finish processing buffered tool calls.
-            # Judge policy evaluation can take up to 30 seconds for LLM round-trip depending on
-            # model speed, network conditions, and provider rate limits.
-            for transformed in await poll_control(initial_timeout=30.0):
-                transformed_dict = transformed.model_dump()
-                chunk_logger.log_chunk_to_client(stream_id, transformed_dict, client_chunk_index[0])
-                client_chunk_index[0] += 1
+            async for transformed in orchestrator.run():
                 yield transformed
-            # Drain any remaining chunks that arrived while we were processing
-            while True:
-                extra = await poll_control(initial_timeout=None)
-                if not extra:
-                    break
-                for transformed in extra:
-                    transformed_dict = transformed.model_dump()
-                    chunk_logger.log_chunk_to_client(stream_id, transformed_dict, client_chunk_index[0])
-                    client_chunk_index[0] += 1
-                    yield transformed
+        except StreamTimeoutError as exc:
+            verbose_logger.error(f"stream[{stream_id}] control plane timeout: {exc}")
+        except StreamOrchestrationError as exc:
+            verbose_logger.error(f"stream[{stream_id}] orchestration failed: {exc}")
+        except Exception as exc:  # pragma: no cover - defensive
+            verbose_logger.error(f"stream[{stream_id}] unexpected streaming failure: {exc}")
         finally:
-            if receive_task is not None:
-                receive_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await receive_task
             try:
-                await self._cleanup_stream(
-                    stream_id,
-                    send_end=not control_signaled_end,
-                )
+                # Ensure the WebSocket is torn down even if orchestration failed mid-stream.
+                await connection.close()
             except Exception as exc:  # pragma: no cover - defensive
-                verbose_logger.error(f"stream[{stream_id}] cleanup failed: {exc}")
-
-    async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
-        """Hook called when stream completes successfully."""
-        stream_id = kwargs.get("litellm_params", {}).get("metadata", {}).get("litellm_call_id")
-        if not stream_id:
-            return
-        try:
-            await self._cleanup_stream(stream_id, send_end=True)
-        except Exception as exc:
-            verbose_logger.error(f"stream[{stream_id}] success cleanup failed: {exc}")
-
-    async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
-        """Hook called when a stream terminates in failure."""
-        stream_id = kwargs.get("litellm_params", {}).get("metadata", {}).get("litellm_call_id")
-        if not stream_id:
-            return
-        try:
-            await self._cleanup_stream(stream_id, send_end=False)
-        except Exception as exc:
-            verbose_logger.error(f"stream[{stream_id}] failure cleanup failed: {exc}")
+                verbose_logger.error(f"stream[{stream_id}] connection close failed: {exc}")
 
     def _normalize_stream_chunk(self, chunk: dict) -> ModelResponseStream:
         """Normalize policy-provided stream chunks back to ModelResponseStream."""

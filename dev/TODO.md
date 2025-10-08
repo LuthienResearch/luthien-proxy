@@ -4,6 +4,7 @@
 
 - [ ] Demo: DB drop
 - [ ] Make data logging more efficient
+- [ ] Unify response format passed to callbacks
 
 ## Medium Priority
 
@@ -13,6 +14,7 @@
 - [x] Add CI/CD step that runs Prisma migration validation for both control-plane and LiteLLM schemas
 - [ ] Event logging architecture indexed by call_id, trace_id to replace the current debug logs system
 - [ ] OpenTelemetry/Grafana/Loki for instrumentation/logging/debugging
+- [ ] Document all env vars
 
 ## Low Priority
 
@@ -24,6 +26,9 @@
 - [ ] Maybe logging for bg tasks [comment](https://github.com/LuthienResearch/luthien-proxy/pull/13#issuecomment-3321954052)
 - [ ] Actual type signatures on hook functions in litellm_callback
 - [ ] Make callback module independent (include connection manager)
+- [ ] Prefer (Type | None) to (Optional\[Type\]) throughout codebase
+- [ ] Minimize :  ignore flags
+- [ ] Extract magic numbers to named constants (chunk preview length=50, poll_interval minimum=0.01) [comment](https://github.com/LuthienResearch/luthien-proxy/pull/28#issuecomment-MULTIPLE)
 
 ### Performance (streamview, pr #16)
 
@@ -52,6 +57,7 @@
 - [ ] Add circuit breaker or backoff guard for control-plane connection failures to prevent cascading outages [comment](https://github.com/LuthienResearch/luthien-proxy/pull/16#issuecomment-3340920605)
 - [ ] Revisit chunk deletion logic in litellm_callback.py (176-180) to ensure limits don't drop in-progress chunks [comment](https://github.com/LuthienResearch/luthien-proxy/pull/16#issuecomment-3340920605)
 - [ ] Bound exponential backoff attempt tracking in streams.py (89-92) so retry loops reset predictably [comment](https://github.com/LuthienResearch/luthien-proxy/pull/16#issuecomment-3340920605)
+- [ ] Decide on timeout error handling strategy: should client receive error chunk on timeout, or is silent failure intentional? [comment](https://github.com/LuthienResearch/luthien-proxy/pull/28#issuecomment-MULTIPLE)
 
 ### Monitoring & Configuration (streamview, from pr #16)
 

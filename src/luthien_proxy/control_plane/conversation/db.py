@@ -14,6 +14,7 @@ from luthien_proxy.utils.project_config import ProjectConfig
 from luthien_proxy.utils.validation import require_type
 
 from .models import TraceEntry
+from .utils import extract_post_time_ns_from_any
 
 
 def _optional_str(value: object) -> Optional[str]:
@@ -25,14 +26,9 @@ def _optional_str(value: object) -> Optional[str]:
 
 def extract_post_ns(jb: JSONObject) -> Optional[int]:
     """Extract `post_time_ns` from a log payload when present."""
-    payload = jb.get("payload")
-    if not isinstance(payload, dict):
-        return None
-    ns = payload.get("post_time_ns")
-    if isinstance(ns, int):
+    ns = extract_post_time_ns_from_any(jb)
+    if ns is not None:
         return ns
-    if isinstance(ns, float):
-        return int(ns)
     return None
 
 

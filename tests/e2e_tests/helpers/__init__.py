@@ -1,5 +1,9 @@
 """Helper utilities for end-to-end tests."""
 
+from .callback_assertions import (
+    clear_callback_trace,
+    get_callback_invocations,
+)
 from .docker_logs import (
     extract_stream_ids,
     filter_logs_by_pattern,
@@ -11,6 +15,7 @@ from .docker_logs import (
 from .infra import (
     ControlPlaneManager,
     E2ESettings,
+    dummy_provider_running,
     ensure_services_available,
     fetch_trace,
     load_e2e_settings,
@@ -41,6 +46,7 @@ __all__ = [
     # Infrastructure
     "ControlPlaneManager",
     "E2ESettings",
+    "dummy_provider_running",
     "ensure_services_available",
     "fetch_trace",
     "load_e2e_settings",
@@ -70,4 +76,7 @@ __all__ = [
     "extract_streaming_content",
     "assert_response_expectations",
     "assert_debug_log",
+    # Callback assertions
+    "get_callback_invocations",
+    "clear_callback_trace",
 ]

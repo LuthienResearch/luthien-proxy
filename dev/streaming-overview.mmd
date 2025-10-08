@@ -1,0 +1,85 @@
+%%{init: {
+  "theme": "dark",
+  "themeVariables": {
+    "background": "#0f172a",
+    "mainBkg": "#0f172a",
+    "primaryColor": "#111827",
+    "primaryTextColor": "#f8fafc",
+    "primaryBorderColor": "#1e293b",
+    "secondaryColor": "#1f2937",
+    "secondaryTextColor": "#f8fafc",
+    "secondaryBorderColor": "#1e293b",
+    "tertiaryColor": "#1f2937",
+    "tertiaryTextColor": "#f8fafc",
+    "tertiaryBorderColor": "#1e293b",
+    "lineColor": "#f8fafc",
+    "textColor": "#f8fafc",
+    "edgeLabelBackground": "#1f2937",
+    "actorBorderColor": "#e2e8f0",
+    "actorBkg": "#0f172a",
+    "actorTextColor": "#f8fafc",
+    "actorLineColor": "#e2e8f0",
+    "labelBoxBorderColor": "#e2e8f0",
+    "labelBoxBackgroundColor": "#1f2937",
+    "labelTextColor": "#f8fafc",
+    "signalColor": "#f8fafc",
+    "signalTextColor": "#f8fafc",
+    "sequenceNumberColor": "#f8fafc",
+    "loopTextColor": "#f8fafc",
+    "noteBorderColor": "#334155",
+    "noteBkgColor": "#1e293b",
+    "noteTextColor": "#f8fafc",
+    "sectionBkgColor": "#111827",
+    "sectionBkgColor2": "#0f172a",
+    "altSectionBkgColor": "#0f172a",
+    "activationBorderColor": "#475569",
+    "activationBackgroundColor": "#0f172a"
+  }
+}}%%
+
+sequenceDiagram
+    participant Client
+    participant Proxy as LiteLLM Proxy<br/>(StreamOrchestrator)
+    participant CP as Control Plane<br/>(Policy)
+    participant Upstream as Upstream LLM
+
+    Note over Client,Upstream: Phase 1: Setup
+
+    Client->>Proxy: POST /chat/completions (stream=true)
+    Proxy->>Upstream: Start LLM request
+    Proxy->>CP: WebSocket connect + START message
+    CP->>CP: Create policy stream context
+
+    Note over Client,Upstream: Phase 2: Bidirectional Streaming
+
+    par Forward Upstream (background)
+        loop Each chunk
+            Upstream-->>Proxy: Chunk
+            Proxy->>CP: CHUNK message
+            CP->>CP: Policy processes chunk
+        end
+        Upstream-->>Proxy: Stream done
+        Proxy->>CP: END message
+    and Poll Control Plane (main loop)
+        loop Until END or timeout
+            Proxy->>CP: Poll for response (100ms timeout)
+
+            alt Chunk available
+                CP->>Proxy: CHUNK message
+                Proxy->>Client: Yield chunk
+                Note over Proxy: Reset timeout
+            else Keepalive (policy still processing)
+                CP->>Proxy: KEEPALIVE message
+                Note over Proxy: Reset timeout, no output
+            else No message (within timeout window)
+                Note over Proxy: Continue polling
+            end
+        end
+    end
+
+    Note over Client,Upstream: Phase 3: Completion
+
+    CP->>Proxy: END message
+    Note over Proxy: Cancel background task
+    Proxy->>CP: Close WebSocket
+    Proxy->>Client: Complete stream

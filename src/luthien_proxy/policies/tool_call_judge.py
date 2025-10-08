@@ -8,7 +8,7 @@ import os
 import time
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from litellm import acompletion
 
@@ -76,7 +76,7 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
     async def generate_response_stream(
         self,
         context: ToolCallBufferContext,
-        incoming_stream: Any,
+        incoming_stream: AsyncIterator[Mapping[str, Any]],
     ) -> Any:
         """Stream assistant chunks while intercepting tool calls for judge review.
 

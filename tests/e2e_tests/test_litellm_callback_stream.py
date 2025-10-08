@@ -51,7 +51,6 @@ async def test_callback_emits_end_when_stream_finishes():
             pass
 
         await asyncio.sleep(0.1)
-        await callback._get_connection_manager().close_all()
     finally:
         server.close()
         await server.wait_closed()

@@ -2,23 +2,14 @@
 ABOUTME: Tests that callbacks are called at the right time with the right data
 """
 
+import json
 import re
-import subprocess
 import time
 
 import httpx
 import pytest
 from tests.e2e_tests.conftest import E2ESettings
-
-
-def get_litellm_logs(since_seconds: int = 10) -> str:
-    """Get recent logs from the litellm-proxy container."""
-    result = subprocess.run(
-        ["docker", "compose", "logs", "--since", f"{since_seconds}s", "litellm-proxy"],
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout
+from tests.e2e_tests.helpers import get_litellm_logs
 
 
 def assert_callback_in_logs(logs: str, callback_name: str, expected_count: int = 1) -> None:
@@ -75,10 +66,14 @@ async def test_non_streaming_callback_invocation_order(
         )
 
     assert response.status_code == 200
+    body = response.json()
+    call_id = response.headers.get("x-litellm-call-id") or body.get("id")
+    assert call_id, "Non-streaming response missing call id"
 
-    # Get logs since the request started
-    elapsed = int(time.time() - start_time) + 2
-    logs = get_litellm_logs(since_seconds=elapsed)
+    logs = get_litellm_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
 
     # Verify callbacks were called
     assert_callback_in_logs(logs, "async_pre_call_hook", expected_count=1)
@@ -112,6 +107,7 @@ async def test_streaming_callback_yields_chunks_to_client(
         "Content-Type": "application/json",
     }
 
+    call_id = None
     chunks_received = []
     async with httpx.AsyncClient(timeout=e2e_settings.request_timeout) as client:
         async with client.stream(
@@ -121,26 +117,32 @@ async def test_streaming_callback_yields_chunks_to_client(
             json=payload,
         ) as response:
             assert response.status_code == 200
+            call_id = response.headers.get("x-litellm-call-id")
 
             async for line in response.aiter_lines():
-                if line.startswith("data: ") and not line.endswith("[DONE]"):
-                    import json
-
-                    chunk = json.loads(line[6:])
-                    chunks_received.append(chunk)
+                if not line.startswith("data: ") or line.endswith("[DONE]"):
+                    continue
+                chunk = json.loads(line[6:])
+                if call_id is None:
+                    call_id = chunk.get("id")
+                chunks_received.append(chunk)
 
     assert chunks_received, "Should have received at least one chunk from client"
+    assert call_id, "Streaming response missing call id"
 
     # Get logs
-    elapsed = int(time.time() - start_time) + 2
-    logs = get_litellm_logs(since_seconds=elapsed)
+    logs = get_litellm_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
 
     # Verify streaming callback was invoked
     assert_callback_in_logs(logs, "async_post_call_streaming_iterator_hook", expected_count=1)
     assert_callback_completed_in_logs(logs, "async_post_call_streaming_iterator_hook")
 
     # Get the number of chunks the callback yielded
-    yielded_count = get_yielded_chunk_count_from_logs(logs, "async_post_call_streaming_iterator_hook")
+    chunk_log_count = sum(1 for line in logs.splitlines() if "CALLBACK TO CLIENT" in line)
+    yielded_count = chunk_log_count
 
     assert yielded_count > 0, f"Callback should have yielded chunks (found {yielded_count} in logs)"
 
@@ -171,6 +173,7 @@ async def test_streaming_callback_invoked_before_non_streaming_hook(
         "Content-Type": "application/json",
     }
 
+    call_id = None
     async with httpx.AsyncClient(timeout=e2e_settings.request_timeout) as client:
         async with client.stream(
             "POST",
@@ -179,12 +182,21 @@ async def test_streaming_callback_invoked_before_non_streaming_hook(
             json=payload,
         ) as response:
             assert response.status_code == 200
+            call_id = response.headers.get("x-litellm-call-id")
             # Consume stream
             async for line in response.aiter_lines():
-                pass
+                if not line.startswith("data: ") or line.endswith("[DONE]"):
+                    continue
+                if call_id is None:
+                    chunk = json.loads(line[6:])
+                    call_id = chunk.get("id")
 
-    elapsed = int(time.time() - start_time) + 2
-    logs = get_litellm_logs(since_seconds=elapsed)
+    assert call_id, "Streaming response missing call id"
+
+    logs = get_litellm_logs(
+        since_time=start_time - 0.5,
+        call_id=call_id,
+    )
 
     # Should call streaming hook
     assert_callback_in_logs(logs, "async_post_call_streaming_iterator_hook", expected_count=1)

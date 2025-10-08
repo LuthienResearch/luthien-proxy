@@ -13,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from tests.e2e_tests.helpers import (  # noqa: E402
     ControlPlaneManager,
     E2ESettings,
+    dummy_provider_running,
     ensure_services_available,
     load_e2e_settings,
 )
@@ -26,6 +27,12 @@ def e2e_settings() -> E2ESettings:
 @pytest.fixture(scope="session")
 def control_plane_manager(e2e_settings: E2ESettings) -> ControlPlaneManager:
     return ControlPlaneManager(e2e_settings)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_dummy_provider(e2e_settings: E2ESettings):
+    with dummy_provider_running(e2e_settings):
+        yield
 
 
 @pytest.fixture(scope="module")

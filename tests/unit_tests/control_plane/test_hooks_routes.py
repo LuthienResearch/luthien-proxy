@@ -245,6 +245,7 @@ async def test_conversation_snapshot_builds_events(project_config: ProjectConfig
         "hook": "async_pre_call_hook",
         "litellm_call_id": "call-1",
         "litellm_trace_id": "trace-1",
+        "post_time_ns": 1,
         "original": {
             "request_data": {
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -263,6 +264,7 @@ async def test_conversation_snapshot_builds_events(project_config: ProjectConfig
         "hook": "async_post_call_streaming_iterator_hook",
         "litellm_call_id": "call-1",
         "litellm_trace_id": "trace-1",
+        "post_time_ns": 2,
         "original": {
             "response": {"choices": [{"index": 0, "delta": {"content": "Hi"}}]},
             "post_time_ns": 3,
@@ -277,6 +279,7 @@ async def test_conversation_snapshot_builds_events(project_config: ProjectConfig
         "hook": "async_post_call_success_hook",
         "litellm_call_id": "call-1",
         "litellm_trace_id": "trace-1",
+        "post_time_ns": 3,
         "original": {
             "response": {"choices": [{"message": {"content": "Hi"}}]},
             "post_time_ns": 5,
@@ -289,7 +292,7 @@ async def test_conversation_snapshot_builds_events(project_config: ProjectConfig
 
     rows = [
         {
-            "time_created": now,
+            "time_created": now + timedelta(milliseconds=3),
             "debug_type_identifier": "hook_result:async_pre_call_hook",
             "jsonblob": json.dumps(pre_payload),
         },
