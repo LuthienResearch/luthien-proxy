@@ -52,10 +52,10 @@ fi
 # Export proxy configuration for Claude Code
 export ANTHROPIC_BASE_URL="http://localhost:${PROXY_PORT}/"
 export ANTHROPIC_API_KEY="${LITELLM_MASTER_KEY:-sk-luthien-dev-key}"
-export ANTHROPIC_MODEL="claude-opus-4-1"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4"
+export ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-3-5-haiku"
-export CLAUDE_CODE_SUBAGENT_MODEL="claude-sonnet-4"
+export CLAUDE_CODE_SUBAGENT_MODEL="anthropic/claude-sonnet-4-5"
 
 
 echo -e "${BLUE}📋 Proxy Configuration:${NC}"

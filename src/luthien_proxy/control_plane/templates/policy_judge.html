@@ -1,0 +1,513 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>LLM Judge Decisions</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 0;
+        background: #f4f5f7;
+      }
+      .wrapper {
+        max-width: 1080px;
+        margin: 24px auto;
+        padding: 16px;
+        background: #ffffff;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 24px;
+        color: #111827;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      input[type="text"] {
+        flex: 1 1 240px;
+        padding: 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      button {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        background: #2563eb;
+        color: white;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #6b7280;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      #status {
+        font-size: 13px;
+        color: #374151;
+        margin-bottom: 16px;
+      }
+      .entry {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+        background: #fafafa;
+      }
+      .entry-header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: baseline;
+        margin-bottom: 12px;
+        font-size: 14px;
+      }
+      .badge {
+        background: #dbeafe;
+        border-radius: 4px;
+        padding: 2px 6px;
+      }
+      .section {
+        margin-bottom: 12px;
+      }
+      .section h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+        color: #111827;
+      }
+      pre.json {
+        margin: 0;
+        background: #111827;
+        color: #f9fafb;
+        border-radius: 6px;
+        padding: 10px;
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .empty {
+        color: #6b7280;
+        font-size: 13px;
+      }
+      .trace-list {
+        margin-bottom: 24px;
+      }
+      .trace-list h2 {
+        font-size: 18px;
+        margin: 0 0 12px;
+        color: #111827;
+      }
+      .trace-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        margin-bottom: 6px;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .trace-item:hover {
+        background: #f3f4f6;
+        border-color: #d1d5db;
+      }
+      .trace-item-left {
+        flex: 1;
+        min-width: 0;
+      }
+      .trace-item-id {
+        font-family: monospace;
+        font-size: 13px;
+        color: #1f2937;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .trace-item-meta {
+        font-size: 12px;
+        color: #6b7280;
+        margin-top: 4px;
+      }
+      .trace-item-right {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .trace-badge {
+        background: #dbeafe;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .trace-badge.high-prob {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      hr {
+        border: none;
+        border-top: 1px solid #e5e7eb;
+        margin: 24px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <h1>LLM Judge Decisions</h1>
+
+      <div class="trace-list">
+        <h2>Recent Traces</h2>
+        <div id="trace-list-container"></div>
+      </div>
+
+      <hr />
+
+      <div class="controls">
+        <input id="trace-id" type="text" placeholder="litellm_trace_id" />
+        <input id="call-id" type="text" placeholder="litellm_call_id (optional)" />
+        <button id="load">Load</button>
+        <button id="clear" class="secondary">Clear</button>
+      </div>
+      <div id="status">Idle</div>
+      <div id="results"></div>
+    </div>
+    <script>
+      const traceInput = document.getElementById("trace-id");
+      const callInput = document.getElementById("call-id");
+      const loadBtn = document.getElementById("load");
+      const clearBtn = document.getElementById("clear");
+      const statusEl = document.getElementById("status");
+      const resultsEl = document.getElementById("results");
+      const traceListContainer = document.getElementById("trace-list-container");
+
+      loadBtn.addEventListener("click", loadDecisions);
+      clearBtn.addEventListener("click", () => {
+        traceInput.value = "";
+        callInput.value = "";
+        resultsEl.innerHTML = "";
+        statusEl.textContent = "Idle";
+      });
+
+      async function loadTraceList() {
+        try {
+          const response = await fetch("/api/policy/judge/traces?limit=20");
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const traces = await response.json();
+          renderTraceList(traces);
+        } catch (error) {
+          traceListContainer.innerHTML = `<div class="empty">Error loading traces: ${error.message}</div>`;
+        }
+      }
+
+      function renderTraceList(traces) {
+        traceListContainer.innerHTML = "";
+        if (!Array.isArray(traces) || !traces.length) {
+          traceListContainer.innerHTML = '<div class="empty">No traces with judge decisions found.</div>';
+          return;
+        }
+
+        traces.forEach((trace) => {
+          const item = document.createElement("div");
+          item.className = "trace-item";
+          item.addEventListener("click", () => {
+            traceInput.value = trace.trace_id;
+            callInput.value = "";
+            loadDecisions();
+          });
+
+          const left = document.createElement("div");
+          left.className = "trace-item-left";
+
+          const id = document.createElement("div");
+          id.className = "trace-item-id";
+          id.textContent = trace.trace_id;
+          left.appendChild(id);
+
+          const meta = document.createElement("div");
+          meta.className = "trace-item-meta";
+          const lastSeen = new Date(trace.last_seen).toLocaleString();
+          meta.textContent = `Last seen: ${lastSeen}`;
+          left.appendChild(meta);
+
+          const right = document.createElement("div");
+          right.className = "trace-item-right";
+
+          const countBadge = document.createElement("span");
+          countBadge.className = "trace-badge";
+          countBadge.textContent = `${trace.block_count} block${trace.block_count === 1 ? "" : "s"}`;
+          right.appendChild(countBadge);
+
+          const probBadge = document.createElement("span");
+          probBadge.className = trace.max_probability >= 0.7 ? "trace-badge high-prob" : "trace-badge";
+          probBadge.textContent = `Max p: ${trace.max_probability.toFixed(2)}`;
+          right.appendChild(probBadge);
+
+          item.appendChild(left);
+          item.appendChild(right);
+          traceListContainer.appendChild(item);
+        });
+      }
+
+      loadTraceList();
+
+      async function loadDecisions() {
+        const traceId = traceInput.value.trim();
+        if (!traceId) {
+          statusEl.textContent = "Enter a trace id first.";
+          return;
+        }
+
+        const params = new URLSearchParams({ trace_id: traceId });
+        const callId = callInput.value.trim();
+        if (callId) {
+          params.set("call_id", callId);
+        }
+
+        const url = `/api/policy/judge?${params.toString()}`;
+        loadBtn.disabled = true;
+        statusEl.textContent = "Loading…";
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          render(data);
+          statusEl.textContent = `Loaded ${data.length} entr${data.length === 1 ? "y" : "ies"}.`;
+        } catch (error) {
+          statusEl.textContent = `Error: ${error.message}`;
+          resultsEl.innerHTML = "";
+        } finally {
+          loadBtn.disabled = false;
+        }
+      }
+
+      function render(entries) {
+        resultsEl.innerHTML = "";
+        if (!Array.isArray(entries) || !entries.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No judge decisions found for that trace.";
+          resultsEl.appendChild(empty);
+          return;
+        }
+
+        entries.forEach((entry) => {
+          const container = document.createElement("div");
+          container.className = "entry";
+
+          const header = document.createElement("div");
+          header.className = "entry-header";
+
+          const timestamp = document.createElement("strong");
+          timestamp.textContent = new Date(entry.timestamp).toLocaleString();
+          header.appendChild(timestamp);
+
+          const probability = document.createElement("span");
+          probability.className = "badge";
+          const prob = typeof entry.probability === "number" ? entry.probability.toFixed(2) : "?";
+          probability.textContent = `Probability: ${prob}`;
+          header.appendChild(probability);
+
+          if (entry.call_id) {
+            const callBadge = document.createElement("span");
+            callBadge.className = "badge";
+            callBadge.textContent = `Call: ${entry.call_id}`;
+            header.appendChild(callBadge);
+          }
+
+          if (entry.trace_id) {
+            const traceBadge = document.createElement("span");
+            traceBadge.className = "badge";
+            traceBadge.textContent = `Trace: ${entry.trace_id}`;
+            header.appendChild(traceBadge);
+          }
+
+          if (entry.explanation) {
+            const explanation = document.createElement("span");
+            explanation.textContent = `— ${entry.explanation}`;
+            header.appendChild(explanation);
+          }
+
+          container.appendChild(header);
+
+          if (entry.timing) {
+            container.appendChild(createTimingSection("Performance Timing", entry.timing));
+          }
+          if (entry.judge_config) {
+            container.appendChild(createJSONSection("Judge Configuration", entry.judge_config));
+          }
+          container.appendChild(createJSONSection("Prompt", extractPrompt(entry.original_request)));
+
+          const toolCallSource = entry.tool_call && entry.tool_call.id && entry.tool_call.id.includes("synthetic")
+            ? "inferred from prompt"
+            : "from LLM response";
+
+          if (entry.original_response) {
+            container.appendChild(createJSONSection("Original Response (non-streaming)", entry.original_response));
+          } else if (entry.stream_chunks && entry.stream_chunks.length > 0) {
+            container.appendChild(createJSONSection("Original Response (streaming chunks)", entry.stream_chunks));
+          } else {
+            const section = document.createElement("div");
+            section.className = "section";
+            const heading = document.createElement("h3");
+            heading.textContent = "Original Response";
+            section.appendChild(heading);
+            const info = document.createElement("div");
+            info.className = "empty";
+            info.textContent = `No LLM response captured (tool call ${toolCallSource})`;
+            section.appendChild(info);
+            container.appendChild(section);
+          }
+
+          container.appendChild(createJSONSection("Judge Request", entry.judge_prompt));
+          container.appendChild(createTextSection("Judge Response", entry.judge_response_text));
+          container.appendChild(createJSONSection("Blocked Response", entry.blocked_response));
+          container.appendChild(createJSONSection("Tool Call", entry.tool_call));
+
+          resultsEl.appendChild(container);
+        });
+      }
+
+      function extractPrompt(originalRequest) {
+        if (!originalRequest || typeof originalRequest !== "object") {
+          return null;
+        }
+        if (Array.isArray(originalRequest.messages)) {
+          return originalRequest.messages;
+        }
+        return originalRequest;
+      }
+
+      function createJSONSection(title, value) {
+        const section = document.createElement("div");
+        section.className = "section";
+        const heading = document.createElement("h3");
+        heading.textContent = title;
+        section.appendChild(heading);
+        if (value === null || value === undefined) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No data";
+          section.appendChild(empty);
+          return section;
+        }
+        const pre = document.createElement("pre");
+        pre.className = "json";
+        pre.textContent = JSON.stringify(value, null, 2);
+        section.appendChild(pre);
+        return section;
+      }
+
+      function createTextSection(title, text) {
+        const section = document.createElement("div");
+        section.className = "section";
+        const heading = document.createElement("h3");
+        heading.textContent = title;
+        section.appendChild(heading);
+        if (!text) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No data";
+          section.appendChild(empty);
+          return section;
+        }
+        const pre = document.createElement("pre");
+        pre.className = "json";
+        pre.textContent = text;
+        section.appendChild(pre);
+        return section;
+      }
+
+      function createTimingSection(title, timing) {
+        const section = document.createElement("div");
+        section.className = "section";
+        const heading = document.createElement("h3");
+        heading.textContent = title;
+        section.appendChild(heading);
+
+        if (!timing || typeof timing !== "object") {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No timing data";
+          section.appendChild(empty);
+          return section;
+        }
+
+        const table = document.createElement("table");
+        table.style.width = "100%";
+        table.style.borderCollapse = "collapse";
+        table.style.fontSize = "13px";
+        table.style.fontFamily = "monospace";
+
+        const stages = [
+          { key: "tool_call_complete", label: "Tool call complete" },
+          { key: "judge_query_sent", label: "Judge query sent" },
+          { key: "judge_response_received", label: "Judge response received" },
+          { key: "blocked_response_sent", label: "Blocked response sent" }
+        ];
+
+        let firstTimestamp = null;
+        stages.forEach(({ key, label }, index) => {
+          if (!timing[key]) return;
+
+          const ts = timing[key];
+          if (firstTimestamp === null) {
+            firstTimestamp = ts;
+          }
+          const elapsed = ((ts - firstTimestamp) * 1000).toFixed(1);
+
+          const row = document.createElement("tr");
+          row.style.borderBottom = "1px solid #e5e7eb";
+
+          const labelCell = document.createElement("td");
+          labelCell.style.padding = "6px 8px";
+          labelCell.textContent = label;
+          row.appendChild(labelCell);
+
+          const timeCell = document.createElement("td");
+          timeCell.style.padding = "6px 8px";
+          timeCell.style.textAlign = "right";
+          timeCell.style.color = "#6b7280";
+          timeCell.textContent = `+${elapsed}ms`;
+          row.appendChild(timeCell);
+
+          table.appendChild(row);
+
+          if (index < stages.length - 1 && timing[stages[index + 1].key]) {
+            const nextTs = timing[stages[index + 1].key];
+            const duration = ((nextTs - ts) * 1000).toFixed(1);
+
+            const durationRow = document.createElement("tr");
+            const durationCell = document.createElement("td");
+            durationCell.colSpan = 2;
+            durationCell.style.padding = "2px 8px 2px 24px";
+            durationCell.style.fontSize = "12px";
+            durationCell.style.color = "#9ca3af";
+            durationCell.textContent = `↳ ${duration}ms`;
+            durationRow.appendChild(durationCell);
+            table.appendChild(durationRow);
+          }
+        });
+
+        section.appendChild(table);
+        return section;
+      }
+    </script>
+  </body>
+</html>

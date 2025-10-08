@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import logging
 import time
@@ -21,7 +20,12 @@ from luthien_proxy.control_plane.conversation.streams import (
     publish_trace_conversation_event,
 )
 from luthien_proxy.control_plane.conversation.utils import json_safe
+from luthien_proxy.control_plane.endpoint_logger import get_endpoint_logger
 from luthien_proxy.control_plane.stream_context import StreamContextStore
+from luthien_proxy.control_plane.utils.task_queue import (
+    CONVERSATION_EVENT_QUEUE,
+    DEBUG_LOG_QUEUE,
+)
 from luthien_proxy.policies.base import LuthienPolicy, StreamPolicyContext
 
 logger = logging.getLogger(__name__)
@@ -64,6 +68,9 @@ async def _incoming_stream_from_websocket(
     on_chunk=None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Yield chunks received from the websocket as an async iterator."""
+    endpoint_logger = get_endpoint_logger()
+    chunk_index = 0
+
     try:
         while True:
             message = await websocket.receive_json()
@@ -71,6 +78,9 @@ async def _incoming_stream_from_websocket(
             if outcome == STREAM_END:
                 break
             if outcome is not None:
+                endpoint_logger.log_incoming_chunk(stream_id, outcome, chunk_index)
+                chunk_index += 1
+
                 if on_chunk is not None:
                     await on_chunk(copy.deepcopy(outcome))
                 yield outcome
@@ -88,6 +98,23 @@ async def _ensure_start_message(websocket: WebSocket) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+async def _instrumented_incoming_stream(
+    stream_id: str,
+    policy_class_name: str,
+    incoming_stream: AsyncIterator[dict[str, Any]],
+) -> AsyncIterator[dict[str, Any]]:
+    """Wrap incoming stream with policy instrumentation logging."""
+    from luthien_proxy.policies.policy_instrumentation import get_policy_logger
+
+    policy_logger = get_policy_logger()
+    chunk_in_index = 0
+
+    async for chunk in incoming_stream:
+        policy_logger.log_chunk_in(stream_id, policy_class_name, chunk, chunk_in_index)
+        chunk_in_index += 1
+        yield chunk
+
+
 async def _forward_policy_output(
     websocket: WebSocket,
     policy: LuthienPolicy,
@@ -96,10 +123,33 @@ async def _forward_policy_output(
     on_chunk=None,
 ) -> None:
     """Send policy-generated chunks back over the websocket."""
-    async for outgoing_chunk in policy.generate_response_stream(context, incoming_stream):
-        await websocket.send_json({"type": "CHUNK", "data": outgoing_chunk})
-        if on_chunk is not None:
-            await on_chunk(copy.deepcopy(outgoing_chunk))
+    from luthien_proxy.policies.policy_instrumentation import get_policy_logger
+
+    endpoint_logger = get_endpoint_logger()
+    policy_logger = get_policy_logger()
+
+    policy_class_name = policy.__class__.__name__
+    policy_logger.log_stream_start(context.stream_id, policy_class_name)
+
+    # Wrap incoming stream with instrumentation
+    instrumented_incoming = _instrumented_incoming_stream(
+        context.stream_id,
+        policy_class_name,
+        incoming_stream,
+    )
+
+    chunk_out_index = 0
+    try:
+        async for outgoing_chunk in policy.generate_response_stream(context, instrumented_incoming):
+            policy_logger.log_chunk_out(context.stream_id, policy_class_name, outgoing_chunk, chunk_out_index)
+            endpoint_logger.log_outgoing_chunk(context.stream_id, outgoing_chunk, chunk_out_index)
+            chunk_out_index += 1
+
+            await websocket.send_json({"type": "CHUNK", "data": outgoing_chunk})
+            if on_chunk is not None:
+                await on_chunk(copy.deepcopy(outgoing_chunk))
+    finally:
+        policy_logger.log_stream_end(context.stream_id, policy_class_name, chunk_out_index)
 
 
 async def _safe_send_json(websocket: WebSocket, payload: dict[str, Any]) -> None:
@@ -192,11 +242,12 @@ class _StreamEventPublisher:
 
         if self._debug_writer is not None:
             record: dict[str, Any] = {"hook": self.hook_name, "payload": payload}
+            record["post_time_ns"] = time.time_ns()
             if self._trace_id:
                 record["litellm_trace_id"] = self._trace_id
             if isinstance(self._call_id, str):
                 record["litellm_call_id"] = self._call_id
-            asyncio.create_task(self._debug_writer(f"hook:{self.hook_name}", record))
+            DEBUG_LOG_QUEUE.submit(self._debug_writer(f"hook:{self.hook_name}", record))
 
         for choice in chunk.get("choices", []):
             delta = choice.get("delta", {})
@@ -220,9 +271,10 @@ class _StreamEventPublisher:
                 "original": self._pending_payload,
                 "result": json_safe(result_payload),
             }
+            record["post_time_ns"] = time.time_ns()
             if self._trace_id:
                 record["litellm_trace_id"] = self._trace_id
-            asyncio.create_task(self._debug_writer(f"hook_result:{self.hook_name}", record))
+            DEBUG_LOG_QUEUE.submit(self._debug_writer(f"hook_result:{self.hook_name}", record))
 
         if isinstance(self._call_id, str) and self._call_id:
             events = build_conversation_events(
@@ -235,8 +287,8 @@ class _StreamEventPublisher:
                 timestamp=datetime.now(timezone.utc),
             )
             for event in events:
-                await publish_conversation_event(self._redis, event)
-                await publish_trace_conversation_event(self._redis, event)
+                CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(self._redis, event))
+                CONVERSATION_EVENT_QUEUE.submit(publish_trace_conversation_event(self._redis, event))
 
         self._pending_payload = None
 
@@ -278,9 +330,10 @@ class _StreamEventPublisher:
                     "original": original_payload,
                     "result": summary_payload,
                 }
+                record["post_time_ns"] = time.time_ns()
                 if self._trace_id:
                     record["litellm_trace_id"] = self._trace_id
-                asyncio.create_task(
+                DEBUG_LOG_QUEUE.submit(
                     self._debug_writer(
                         "hook_result:async_post_call_streaming_hook",
                         record,
@@ -297,8 +350,8 @@ class _StreamEventPublisher:
                 timestamp=datetime.now(timezone.utc),
             )
             for event in events:
-                await publish_conversation_event(self._redis, event)
-                await publish_trace_conversation_event(self._redis, event)
+                CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(self._redis, event))
+                CONVERSATION_EVENT_QUEUE.submit(publish_trace_conversation_event(self._redis, event))
 
             clear_stream_indices(self._call_id)
             if self._stream_store is not None:
@@ -315,13 +368,18 @@ async def policy_stream_endpoint(
 
     policy = _policy_from_websocket(websocket)
     context: StreamPolicyContext | None = None
+    endpoint_logger = get_endpoint_logger()
 
     try:
         request_data = await _ensure_start_message(websocket)
+        endpoint_logger.log_start_message(stream_id, request_data)
+
         publisher = _StreamEventPublisher(websocket, request_data)
 
         context = policy.create_stream_context(stream_id, request_data)
         _active_streams[stream_id] = context
+
+        endpoint_logger.log_policy_invocation(stream_id, policy.__class__.__name__, request_data)
 
         incoming_stream = _incoming_stream_from_websocket(
             websocket,
@@ -337,9 +395,11 @@ async def policy_stream_endpoint(
         )
         await publisher.finish()
         await _safe_send_json(websocket, {"type": "END"})
+        endpoint_logger.log_end_message(stream_id)
 
     except StreamProtocolError as exc:
         logger.warning("stream[%s] protocol error: %s", stream_id, exc)
+        endpoint_logger.log_error(stream_id, f"Protocol error: {exc}")
         await websocket.close(code=1002, reason=str(exc))
         return
 
@@ -347,6 +407,7 @@ async def policy_stream_endpoint(
         logger.info("stream[%s] disconnected during processing", stream_id)
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("stream[%s] policy error: %s", stream_id, exc)
+        endpoint_logger.log_error(stream_id, str(exc))
         await _safe_send_json(websocket, {"type": "ERROR", "error": str(exc)})
     finally:
         _active_streams.pop(stream_id, None)

@@ -19,7 +19,10 @@ from .base import LuthienPolicy, StreamPolicyContext
 
 def _uppercase_choices(response: JSONObject) -> JSONObject:
     mutated = deepcopy(response)
-    choices = require_list(mutated.get("choices"), "response choices")
+    choices_raw = mutated.get("choices")
+    if choices_raw is None:
+        return mutated
+    choices = require_list(choices_raw, "response choices")
     for index, choice_value in enumerate(choices):
         choice = require_dict(choice_value, f"response choice #{index}")
         if "delta" in choice:
@@ -50,9 +53,9 @@ class AllCapsPolicy(LuthienPolicy):
 
     async def async_post_call_success_hook(
         self,
-        *,
-        response_obj: JSONObject,
-        **_unused: object,
+        data: JSONObject,
+        user_api_key_dict: JSONObject | None,
+        response: JSONObject,
     ) -> JSONObject:
         """Uppercase content in a non-streaming final response."""
-        return _uppercase_choices(response_obj)
+        return _uppercase_choices(response)

@@ -21,13 +21,16 @@ async def _collect_stream(policy, stream_id, request, chunks):
 @pytest.mark.asyncio
 async def test_all_caps_success_hook_uppercases():
     policy = AllCapsPolicy()
+    response = {
+        "choices": [
+            {"delta": {"content": "hello"}},
+            {"delta": {"content": " world"}},
+        ]
+    }
     out = await policy.async_post_call_success_hook(
-        response_obj={
-            "choices": [
-                {"delta": {"content": "hello"}},
-                {"delta": {"content": " world"}},
-            ]
-        }
+        data={},
+        user_api_key_dict=None,
+        response=response,
     )
     text = "".join(c["delta"]["content"] for c in out.get("choices", []))
     assert text == "HELLO WORLD"
