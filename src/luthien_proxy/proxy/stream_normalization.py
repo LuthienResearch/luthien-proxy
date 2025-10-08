@@ -5,18 +5,17 @@
 from __future__ import annotations
 
 import ast
-import base64
 import json
 import time
 import uuid
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 
+PayloadType = bytes | bytearray | memoryview | str
 
-def _payload_to_bytes(payload: object) -> bytes:
+
+def _payload_to_bytes(payload: PayloadType) -> bytes:
     """Convert a LiteLLM streaming payload into raw bytes."""
-    if payload is None:
-        return b""
     if isinstance(payload, (bytes, bytearray, memoryview)):
         return bytes(payload)
     if isinstance(payload, str):
@@ -29,10 +28,6 @@ def _payload_to_bytes(payload: object) -> bytes:
             except (SyntaxError, ValueError):
                 pass
         return text.encode("utf-8")
-    if isinstance(payload, dict) and payload.get("type") == "bytes":
-        data = payload.get("data")
-        if isinstance(data, str):
-            return base64.b64decode(data)
     raise TypeError(f"Unsupported payload type: {type(payload).__name__}")
 
 
@@ -113,7 +108,7 @@ class AnthropicToOpenAIAdapter:
         self.tool_states: Dict[int, _ToolState] = {}
         self.finish_emitted = False
 
-    def process(self, payload: object) -> List[dict]:
+    def process(self, payload: PayloadType) -> List[dict]:
         """Convert an Anthropic SSE payload into zero or more OpenAI chunks."""
         try:
             raw = _payload_to_bytes(payload)
