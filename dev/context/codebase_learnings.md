@@ -13,7 +13,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - **Proxy** (`src/luthien_proxy/proxy/`): LiteLLM proxy integration with custom logging
 - **Policies** (`src/luthien_proxy/policies/`): Policy implementations that receive callbacks from the proxy
 
-The pattern follows Redwood-style AI control: centralized control plane makes decisions, proxy stays thin.
+Centralized control plane makes policy decisions, proxy stays thin and forwards callbacks.
 
 ## Key Patterns
 

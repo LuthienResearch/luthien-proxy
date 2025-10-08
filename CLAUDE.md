@@ -3,7 +3,7 @@
 ## Purpose & Scope
 
 - Core goal: implement AI Control for LLMs on top of the LiteLLM proxy.
-- Pattern: Redwood-style control with a centralized control plane making policy decisions; the proxy stays thin.
+- Architecture: centralized control plane making policy decisions; the proxy stays thin.
 - Configure models in `config/litellm_config.yaml`.
 - Select a policy via `LUTHIEN_POLICY_CONFIG` that points to a YAML file (defaults to `config/luthien_config.yaml`).
   - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
