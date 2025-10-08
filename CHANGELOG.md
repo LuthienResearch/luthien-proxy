@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## DEVEOPMENT | TBA
+## DEVELOPMENT | TBA
 
 - development framework
 - litellm integration
