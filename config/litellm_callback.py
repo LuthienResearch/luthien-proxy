@@ -33,6 +33,19 @@ class LuthienCallback(CustomLogger):
         self.control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8081")
         self.timeout = 10.0
         self.stream_timeout = float(os.getenv("CONTROL_PLANE_STREAM_TIMEOUT", "30"))
+
+        # Validate stream timeout bounds
+        if self.stream_timeout < 1.0:
+            verbose_logger.error(
+                f"CONTROL_PLANE_STREAM_TIMEOUT={self.stream_timeout} is below minimum (1.0s). "
+                "This may cause premature timeouts."
+            )
+        elif self.stream_timeout > 600.0:
+            verbose_logger.error(
+                f"CONTROL_PLANE_STREAM_TIMEOUT={self.stream_timeout} exceeds maximum (600s). "
+                "This may cause resource exhaustion."
+            )
+
         verbose_logger.info(f"LuthienCallback initialized with control plane URL: {self.control_plane_url}")
 
     # ------------- internal helpers -------------
