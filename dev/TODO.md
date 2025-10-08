@@ -16,6 +16,7 @@
 - [ ] OpenTelemetry/Grafana/Loki for instrumentation/logging/debugging
 - [ ] Document all env vars
 - [ ] Integration test for concurrent streams against control plane
+- [ ] Add dataflows pointer to AI prompts
 
 ## Low Priority
 
