@@ -11,15 +11,13 @@
 ## Development Workflow
 
 1. You will be given an OBJECTIVE to complete (e.g. 'implement this feature', 'fix this bug', 'build this UX', 'refactor this module')
-2. You will make sure that you're on the most recent commit on `main`
-3. You will create a new feature branch for the OBJECTIVE. This should look like `short-objective-description`, not `OBJECTIVE/short-desc`.
-4. Update `dev/OBJECTIVE.md` with a short statement of the current OBJECTIVE (this should be the only content in the file)
-5. Commit the changes, push to origin, and open a draft PR (to `main`)
-6. Implement the OBJECTIVE. Track design thoughts in `dev/NOTES.md`. Add any items that should be done but are out of scope for the current OBJECTIVE to `dev/TODO.md` (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
-7. Regularly format + test (`scripts/dev_checks.sh`), commit, and push to origin (on the feature branch).
-8. When the OBJECTIVE is complete, update `CHANGELOG.md`
-9. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
-10. Mark the PR as ready.
+2. Make sure we're on a feature branch (not `main`)
+3. Commit the changes, push to origin, and open a draft PR (to `main`)
+4. Implement the OBJECTIVE. Add any items that should be done but are out of scope for the current OBJECTIVE to `dev/TODO.md` (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
+5. Regularly format + test (`scripts/dev_checks.sh`), commit, and push to origin (on the feature branch).
+6. When the OBJECTIVE is complete, update `CHANGELOG.md`
+7. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
+8. Mark the PR as ready.
 
 ### Objective Workflow
 
@@ -41,11 +39,12 @@
      gh pr create --draft --fill --title "<Objective Title>"
      ```
 
-2. **Build momentum during development**
+2. **Develop**
 
    - Format everything with `./scripts/format_all.sh`.
    - Full lint + tests + type check: `./scripts/dev_checks.sh`.
    - Quick unit pass: `uv run pytest tests/unit_tests`.
+   - *infrequenty* run full e2e tests using `uv run pytest -m e2e`. This is SLOW and should be used sparingly to validate that core functionality remains intact.
    - Commit in small chunks with clear messages.
 
 3. **Wrap up the objective**
