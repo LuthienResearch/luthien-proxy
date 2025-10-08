@@ -4,7 +4,7 @@
 
 - [ ] Demo: DB drop
 - [ ] Make data logging more efficient
-- [ ] Unify response format passed to callbacks
+- [ ] Unify response format passed to callbacks *(see dev/unified_callback_migration.md)*
 
 ## Medium Priority
 

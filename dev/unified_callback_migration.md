@@ -10,10 +10,11 @@
   - Added `tests/e2e_tests/test_unified_callback_dummy.py` that launches the dummy stack, sends a streaming request, and asserts the returned chunks match the OpenAI schema.
 - **Documentation Inline**: Documented the canonical chunk structure inside `unified_callback.py` so future changes can reference a single source of truth.
 - **Control Plane Migration**: Validated incoming/outgoing WebSocket chunks in `streaming_routes.py`, ensuring only OpenAI-style payloads reach policies, and added regression tests for the canonicaliser.
+- **Unified Response**: Proxy now runs with `unified_callback`; end-to-end sanity checks and LLM-backed applications succeed using the normalized chunk format. Observability, documentation, and CI follow-ups tracked in TODO.md.
 
 ## TODO
 
-- **Default Proxy Config Switch**: Once the control plane is ready, point `config/litellm_config.yaml` (and deployment manifests) at `unified_callback` and phase out the legacy callback/replay wiring.
-- **Observability Pass**: Ensure logs/metrics capture the normalised chunks (stream IDs, tool events, etc.) and adjust dashboards/alerts if necessary.
-- **Documentation Refresh**: Update README/deployment guides to describe the unified callback, the dummy stack for quick validation, and any configuration/env changes required.
-- **CI/Automation**: Decide whether to incorporate the dummy-stack e2e into CI (Docker-dependent) or leave it as an on-demand regression; remove redundant scripts/configs after the migration stabilises.
+- **Unify response** *(see planning doc)*:
+  - [ ] Observability: ensure logs/metrics capture normalized chunks and adjust dashboards/alerts.
+  - [ ] Documentation: refresh README/deployment guides with unified callback workflow and dummy validation stack instructions.
+  - [ ] CI/Automation: decide on running the Docker dummy e2e in CI and clean up redundant scripts/configs afterwards.
