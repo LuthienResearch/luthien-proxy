@@ -2,6 +2,9 @@
 
 Architectural patterns, module relationships, and how subsystems work together.
 
+**Format**: Each entry is a subsection with a title, timestamp (YYYY-MM-DD), and content (bullet points or prose).
+If updating existing content significantly, note it: `## Topic (2025-10-08, updated 2025-11-15)`
+
 ---
 
 ## Architecture Overview (2025-10-08)

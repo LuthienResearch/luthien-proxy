@@ -2,6 +2,9 @@
 
 Non-obvious behaviors, edge cases, and things that are easy to get wrong.
 
+**Format**: Each entry is a subsection with a title, timestamp (YYYY-MM-DD), and content (bullet points).
+If updating existing content significantly, note it: `## Topic (2025-10-08, updated 2025-11-15)`
+
 ---
 
 ## Testing (2025-10-08)

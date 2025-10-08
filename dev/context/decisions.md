@@ -2,6 +2,9 @@
 
 Why certain approaches were chosen over alternatives.
 
+**Format**: Each entry is a subsection with a title, timestamp (YYYY-MM-DD), and content (decision + rationale).
+If updating existing content significantly, note it: `## Topic (2025-10-08, updated 2025-11-15)`
+
 ---
 
 ## Configuration (2025-10-08)
