@@ -17,6 +17,9 @@
 - [control-plane-prisma](control-plane-prisma): Removed unused legacy tables from the control-plane schema and unified LiteLLM Prisma assets under `prisma/litellm/`
 - [dataflows-doc](dataflows-doc): Added comprehensive documentation covering Postgres and Redis dataflows, retention, and operational nuances
 - [ci-prisma-validations](ci-prisma-validations): CI runs Prisma migration deploy/push against an ephemeral Postgres service to catch schema drift early
+- llm-monitor: Added an LLM-backed tool-call judge that blocks risky tools in streaming and non-streaming flows and exposes decisions in the control-plane UI (src/luthien_proxy/policies/tool_call_judge.py:1, src/luthien_proxy/control_plane/templates/policy_judge.html:1).
+- llm-monitor: Replaced the proxy streaming loop with a resilient orchestrator and layered callback/control-plane instrumentation so we can trace every chunk end to end (src/luthien_proxy/proxy/stream_orchestrator.py:1, src/luthien_proxy/proxy/callback_instrumentation.py:1, src/luthien_proxy/control_plane/debug_routes.py:1).
+- llm-monitor: Introduced an SQL tool-call protection policy, expanded the dummy provider to drive blocking scenarios, and added full e2e coverage for policy behavior (src/luthien_proxy/policies/sql_protection.py:1, scripts/demo_lib/dummy_provider.py:1, tests/e2e_tests/test_tool_call_judge_e2e.py:1).
 
 ## 0.0.0 | 2025-11-22
 
