@@ -19,6 +19,16 @@
 7. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
 8. Mark the PR as ready.
 
+### Maintaining Context
+
+Proactively update files in `dev/context/` as you learn about the codebase:
+
+- `codebase_learnings.md`: When you discover architectural patterns, module relationships, or how subsystems work together
+- `decisions.md`: When a technical decision is made (e.g., "why we use X instead of Y", "why this API is structured this way")
+- `gotchas.md`: When you encounter non-obvious behavior, edge cases, or common mistakes
+
+These files persist across sessions and help build institutional knowledge. Update them during development, not just at the end. Include timestamps (YYYY-MM-DD) when adding entries to detect when knowledge may be stale.
+
 ### Objective Workflow
 
 1. **Start a new objective**
@@ -69,6 +79,10 @@
   - `OBJECTIVE.md`: Succinct statement of the active objective with acceptance check.
   - `NOTES.md`: Scratchpad for implementation details while the current objective is in progress.
   - `*plan.md`: Medium- and long-term development plans may be recorded here.
+  - `context/`: Persistent knowledge accumulated across sessions (check these into git)
+    - `codebase_learnings.md`: Patterns, architecture insights, gotchas discovered while working
+    - `decisions.md`: Technical decisions made and their rationale
+    - `gotchas.md`: Non-obvious behaviors, edge cases, things that are easy to get wrong
 - `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
 - `src/luthien_proxy/`: core package
   - `control_plane/`: FastAPI app and `__main__` launcher
