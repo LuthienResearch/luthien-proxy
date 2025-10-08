@@ -1,17 +1,35 @@
 """Bidirectional streaming orchestrator between LiteLLM and the control plane.
 
 The orchestrator coordinates upstream forwarding, control-plane polling, and
-timeout enforcement. Control-plane messages must be JSON objects with a
-``type`` field and one of the following payloads:
+timeout enforcement.
 
-* ``CHUNK``: includes a ``data`` dict that will be normalised back to
-  ``ModelResponseStream``.
-* ``KEEPALIVE``: extends the activity deadline without emitting chunks.
-* ``END``: signals completion and stops iteration.
-* ``ERROR``: aborts the stream with a ``StreamProtocolError``.
+Protocol Specification
+----------------------
 
-Connection shutdown remains the caller's responsibility; the orchestrator only
-sends control-plane ``END`` notifications.
+Messages to Control Plane (via StreamConnection.send):
+  * ``{"type": "CHUNK", "data": <ModelResponseStream dict>}``: Forward upstream chunk
+  * ``{"type": "END"}``: Signal upstream completion
+
+Messages from Control Plane (via StreamConnection.receive):
+  * ``{"type": "CHUNK", "data": <dict>}``: Control plane chunk to yield to client.
+    The ``data`` dict will be normalized back to ``ModelResponseStream`` via the
+    normalize_chunk callback.
+  * ``{"type": "KEEPALIVE"}``: Extends the activity deadline without emitting chunks.
+    Used to prevent timeouts during slow policy processing.
+  * ``{"type": "END"}``: Signals completion and stops iteration. No more chunks
+    will be yielded.
+  * ``{"type": "ERROR", "message": <str>}``: Aborts the stream with a
+    ``StreamProtocolError``.
+
+State Machine
+-------------
+  ACTIVE → ENDED: Normal completion (upstream finished or control plane sent END)
+  ACTIVE → FAILED: Error condition (timeout, connection error, protocol violation)
+
+The orchestrator enforces an activity-based timeout that resets on ANY message
+from the control plane (including KEEPALIVE). Connection shutdown remains the
+caller's responsibility; the orchestrator only sends control-plane ``END``
+notifications.
 """
 
 from __future__ import annotations
