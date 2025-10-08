@@ -21,7 +21,7 @@ model_list:
     litellm_params:
       model: openai/gpt-5
       api_key: os.environ/OPENAI_API_KEY
-      max_tokens: 200000
+      max_tokens: 128000
 
   - model_name: o3
     litellm_params:
@@ -82,9 +82,9 @@ model_list:
 
 # LiteLLM proxy settings
 litellm_settings:
-  # Enable our custom logger (control-plane forwarder)
-  # callbacks: ["litellm_callback.luthien_callback"]
-  callbacks: ["replay_callback.replay_callback"]
+  # Enable sending all responses through the Luthien control plane
+  callbacks: ["unified_callback.unified_callback"]
+  # callbacks: ["replay_callback.replay_callback"]
 
   # Model parameter handling
   drop_params: true  # Drop unsupported params to improve compatibility with gpt-5/o3/Responses API

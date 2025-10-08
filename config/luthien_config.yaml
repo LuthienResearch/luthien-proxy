@@ -2,7 +2,7 @@
 
 # Active policy configuration
 policy:
-  class: "luthien_proxy.policies.all_caps:AllCapsPolicy"
+  class: "luthien_proxy.policies.noop:NoOpPolicy"
   config: {}
 
 # Other policy examples:
@@ -12,4 +12,7 @@ policy:
 #
 # policy:
 #   class: "luthien_proxy.policies.noop:NoOpPolicy"
+#   config: {}
+# policy:
+#   class: "luthien_proxy.policies.all_caps:AllCapsPolicy"
 #   config: {}
