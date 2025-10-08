@@ -7,17 +7,17 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Dict, Iterable, List, Optional
+from collections.abc import Iterable
 
 
-def _parse_sse_events(raw: bytes) -> List[tuple[str | None, dict]]:
+def _parse_sse_events(raw: bytes) -> list[tuple[str | None, dict]]:
     """Parse Anthropic SSE payload into `(event, data)` tuples."""
     text = raw.decode("utf-8")
     segments = [seg for seg in text.split("\n\n") if seg.strip()]
-    events: List[tuple[str | None, dict]] = []
+    events: list[tuple[str | None, dict]] = []
     for segment in segments:
         event_type: str | None = None
-        data_lines: List[str] = []
+        data_lines: list[str] = []
         for line in segment.splitlines():
             stripped = line.strip()
             if stripped.startswith("event:"):
@@ -35,7 +35,7 @@ def _parse_sse_events(raw: bytes) -> List[tuple[str | None, dict]]:
     return events
 
 
-def _map_anthropic_finish(reason: Optional[str]) -> Optional[str]:
+def _map_anthropic_finish(reason: str | None) -> str | None:
     """Map Anthropic stop reasons onto OpenAI equivalents."""
     if reason is None:
         return None
@@ -48,7 +48,7 @@ def _map_anthropic_finish(reason: Optional[str]) -> Optional[str]:
     return mapping.get(reason, reason)
 
 
-def _map_openai_finish(reason: Optional[str]) -> Optional[str]:
+def _map_openai_finish(reason: str | None) -> str | None:
     """Map OpenAI finish reasons back to Anthropic codes."""
     if reason is None:
         return None
@@ -72,15 +72,15 @@ class AnthropicToOpenAIAdapter:
 
     def __init__(self) -> None:
         """Initialize adapter state."""
-        self.model: Optional[str] = None
-        self.message_id: Optional[str] = None
+        self.model: str | None = None
+        self.message_id: str | None = None
         self.created: int = int(time.time())
-        self.tool_states: Dict[int, Dict[str, str]] = {}
+        self.tool_states: dict[int, dict[str, str]] = {}
         self.finish_emitted = False
 
-    def process(self, payload: bytes) -> List[dict]:
+    def process(self, payload: bytes) -> list[dict]:
         """Convert an Anthropic SSE payload into zero or more OpenAI chunks."""
-        chunks: List[dict] = []
+        chunks: list[dict] = []
         for event_type, data in _parse_sse_events(payload):
             if event_type == "message_start":
                 self.tool_states.clear()
@@ -160,11 +160,11 @@ class AnthropicToOpenAIAdapter:
             # ping/content_block_stop events are intentionally ignored
         return chunks
 
-    def finalize(self) -> List[dict]:
+    def finalize(self) -> list[dict]:
         """Return any trailing chunks that should be emitted after the stream."""
         return []
 
-    def _chunk(self, delta: dict, finish_reason: Optional[str] = None) -> dict:
+    def _chunk(self, delta: dict, finish_reason: str | None = None) -> dict:
         """Construct a single OpenAI-style chunk."""
         message_id = self.message_id or f"anthropic_{uuid.uuid4().hex}"
         model = self.model or "anthropic-unknown"
@@ -187,17 +187,17 @@ class AnthropicToOpenAIAdapter:
 class OpenAIToAnthropicAdapter:
     """Converts OpenAI-style streaming chunks back into Anthropic SSE events."""
 
-    def __init__(self, model: Optional[str] = None, message_id: Optional[str] = None) -> None:
+    def __init__(self, model: str | None = None, message_id: str | None = None) -> None:
         """Initialize adapter state."""
         self.model = model or "claude-sonnet"
         self.message_id = message_id or f"msg_{uuid.uuid4().hex}"
         self.started = False
         self.text_block_started = False
-        self.tool_blocks: Dict[str, int] = {}
+        self.tool_blocks: dict[str, int] = {}
         self.next_block_index = 1  # 0 reserved for text blocks
         self.finished = False
 
-    def process(self, chunk: dict) -> List[str]:
+    def process(self, chunk: dict) -> list[str]:
         """Convert an OpenAI streaming chunk into zero or more SSE events."""
         if self.finished:
             delta_peek = (chunk.get("choices") or [{}])[0].get("delta") or {}
@@ -205,7 +205,7 @@ class OpenAIToAnthropicAdapter:
                 self._reset_state()
             else:
                 return []
-        events: List[str] = []
+        events: list[str] = []
         chunk_model = chunk.get("model")
         if chunk_model:
             self.model = chunk_model
@@ -280,14 +280,14 @@ class OpenAIToAnthropicAdapter:
             self.finished = True
         return events
 
-    def finalize(self) -> List[str]:
+    def finalize(self) -> list[str]:
         """Emit termination events when the stream completes."""
         if self.finished:
             return []
         self.finished = True
         return [_serialize_event("message_stop", {})]
 
-    def _start_message(self, role: Optional[str]) -> List[str]:
+    def _start_message(self, role: str | None) -> list[str]:
         """Emit initial message_start event (and optional text block)."""
         self.started = True
         payload = {
@@ -305,13 +305,13 @@ class OpenAIToAnthropicAdapter:
         return [_serialize_event("message_start", payload)]
 
     @staticmethod
-    def _extract_content(content: object) -> List[str]:
+    def _extract_content(content: object) -> list[str]:
         """Normalize OpenAI delta content into a list of text fragments."""
         if content is None:
             return []
         if isinstance(content, str):
             return [content]
-        fragments: List[str] = []
+        fragments: list[str] = []
         if isinstance(content, list):
             for item in content:
                 if isinstance(item, dict) and item.get("type") == "text":
@@ -329,20 +329,20 @@ class OpenAIToAnthropicAdapter:
         self.finished = False
 
 
-def anthropic_stream_to_openai(raw_events: Iterable[bytes]) -> List[dict]:
+def anthropic_stream_to_openai(raw_events: Iterable[bytes]) -> list[dict]:
     """Convert an iterable of Anthropic SSE payloads into OpenAI chunks."""
     adapter = AnthropicToOpenAIAdapter()
-    chunks: List[dict] = []
+    chunks: list[dict] = []
     for payload in raw_events:
         chunks.extend(adapter.process(payload))
     chunks.extend(adapter.finalize())
     return chunks
 
 
-def openai_chunks_to_anthropic(chunks: Iterable[dict]) -> List[str]:
+def openai_chunks_to_anthropic(chunks: Iterable[dict]) -> list[str]:
     """Convert an iterable of OpenAI chunks back into Anthropic SSE events."""
     adapter = OpenAIToAnthropicAdapter()
-    events: List[str] = []
+    events: list[str] = []
     for chunk in chunks:
         events.extend(adapter.process(chunk))
     events.extend(adapter.finalize())
