@@ -34,6 +34,13 @@ async def echo_hook(hook: str, request: Request) -> Any:
     return payload
 
 
+@app.get("/health")
+async def health() -> dict[str, str]:
+    """Simple readiness endpoint."""
+
+    return {"status": "ok"}
+
+
 @app.websocket("/stream/{stream_id}")
 async def echo_stream(websocket: WebSocket, stream_id: str) -> None:
     """Round-trip streaming messages without modification."""

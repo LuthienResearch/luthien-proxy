@@ -1,0 +1,88 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-litellm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-litellm}
+      POSTGRES_DB: ${POSTGRES_DB:-litellm_db}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  dummy-control-plane:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.control-plane
+    command: ["uv", "run", "uvicorn", "scripts.dummy_control_plane:app", "--host", "0.0.0.0", "--port", "8081"]
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL}
+    volumes:
+      - ./scripts:/app/scripts:ro
+    ports:
+      - "8083:8081"
+
+  dummy-provider:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.control-plane
+    command: ["uv", "run", "python", "scripts/run_dummy_provider.py", "--port", "8080"]
+    environment:
+      - UV_CACHE_DIR=/tmp/uv-cache
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./src:/app/src:ro
+
+  litellm-proxy:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.litellm
+    environment:
+      - LITELLM_DATABASE_URL=postgresql://${POSTGRES_USER:-litellm}:${POSTGRES_PASSWORD:-litellm}@db:5432/${POSTGRES_DB:-litellm_db}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-litellm}:${POSTGRES_PASSWORD:-litellm}@db:5432/${POSTGRES_DB:-litellm_db}
+      - REDIS_URL=redis://redis:6379/0
+      - CONTROL_PLANE_URL=http://dummy-control-plane:8081
+      - LITELLM_CONFIG_PATH=/app/config/litellm_config_unified.yaml
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - LITELLM_LOG=DEBUG
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    ports:
+      - "${DUMMY_LITELLM_PORT:-4400}:4000"
+    volumes:
+      - ./config:/app/config:ro
+      - ./src:/app/src:ro
+      - ./prisma:/app/prisma:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      dummy-control-plane:
+        condition: service_started
+      dummy-provider:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/test"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    stop_grace_period: 2s
+
+volumes:
+  postgres_data:
