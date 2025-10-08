@@ -280,6 +280,7 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
                 kwargs["api_base"] = self._config.api_base
             if self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
+            kwargs.update(self._structured_output_parameters())
             response = await acompletion(**kwargs)
         except Exception as exc:  # pragma: no cover - judge failure should surface fast
             logger.error("LLM judge request failed: %s", exc)
@@ -298,12 +299,11 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             content_raw = getattr(message, "content", None)
         if not isinstance(content_raw, str):
             raise ValueError("Judge response content must be a string")
-        content = content_raw
         try:
-            data = json.loads(content)
-        except json.JSONDecodeError as exc:
-            logger.error("Judge response was not valid JSON: %s", content)
-            raise ValueError("Judge response JSON parsing failed") from exc
+            data, normalized = self._parse_judge_response(content_raw)
+        except ValueError:
+            logger.error("Judge response was not valid JSON: %s", content_raw)
+            raise
         probability = float(data.get("probability", 0.0))
         explanation = str(data.get("explanation", ""))
         probability = max(0.0, min(1.0, probability))
@@ -311,8 +311,38 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             probability=probability,
             explanation=explanation,
             prompt=prompt,
-            response_text=content,
+            response_text=normalized,
         )
+
+    def _parse_judge_response(self, content: str) -> tuple[Mapping[str, Any], str]:
+        """Return JSON-decoded judge output, handling fenced code blocks."""
+        text = content.strip()
+        if text.startswith("```"):
+            text = text.lstrip("`")
+            newline_index = text.find("\n")
+            if newline_index != -1:
+                prefix = text[:newline_index].strip().lower()
+                if prefix in {"json", "```json", ""}:
+                    text = text[newline_index + 1 :]
+            text = text.rstrip("`").strip()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Judge response JSON parsing failed") from exc
+        if not isinstance(data, Mapping):
+            raise ValueError("Judge response JSON parsing failed")
+        return data, text
+
+    def _structured_output_parameters(self) -> Mapping[str, Any]:
+        """Return provider-agnostic structured output hints for JSON replies."""
+        return {
+            "response_format": {
+                "type": "json_object",
+            },
+            "extra_body": {
+                "format": "json",
+            },
+        }
 
     def _build_prompt(self, *, name: str, arguments: str) -> list[dict[str, str]]:
         return [

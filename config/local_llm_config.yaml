@@ -3,7 +3,12 @@
 model_list:
   - model_name: gemma-scorer
     litellm_params:
-      # Use Ollama provider through LiteLLM
+      model: ollama/gemma2:2b
+      api_base: http://127.0.0.1:11434
+      temperature: 0.0
+      max_tokens: 256
+  - model_name: openai/gemma-scorer
+    litellm_params:
       model: ollama/gemma2:2b
       api_base: http://127.0.0.1:11434
       temperature: 0.0

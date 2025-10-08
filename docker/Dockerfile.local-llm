@@ -6,7 +6,12 @@ FROM python:3.13-slim
 ARG DEBIAN_FRONTEND=noninteractive
 
 # System deps
-RUN apt-get update && apt-get install -y curl ca-certificates procps && \
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    procps \
+    build-essential \
+    pkg-config && \
     rm -rf /var/lib/apt/lists/*
 
 # Install uv
