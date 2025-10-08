@@ -36,12 +36,6 @@ model_list:
       api_key: os.environ/ANTHROPIC_API_KEY
       max_tokens: 10000
 
-  - model_name: claude-3-5-haiku
-    litellm_params:
-      model: anthropic/claude-3-5-haiku-20241022
-      api_key: os.environ/ANTHROPIC_API_KEY
-      max_tokens: 100000
-
   - model_name: claude-sonnet-4
     litellm_params:
       model: anthropic/claude-sonnet-4-20250514
@@ -83,8 +77,8 @@ model_list:
 # LiteLLM proxy settings
 litellm_settings:
   # Enable our custom logger (control-plane forwarder)
-  # callbacks: ["litellm_callback.luthien_callback"]
   callbacks: ["unified_callback.unified_callback"]
+  # callbacks: ["replay_callback.replay_callback"]
 
   # Model parameter handling
   drop_params: true  # Drop unsupported params to improve compatibility with gpt-5/o3/Responses API
