@@ -4,7 +4,7 @@ Architectural patterns, module relationships, and how subsystems work together.
 
 ---
 
-## Architecture Overview
+## Architecture Overview (2025-10-08)
 
 - **Control Plane** (`src/luthien_proxy/control_plane/`): FastAPI application that makes policy decisions
 - **Proxy** (`src/luthien_proxy/proxy/`): LiteLLM proxy integration with custom logging
@@ -14,4 +14,4 @@ The pattern follows Redwood-style AI control: centralized control plane makes de
 
 ## Key Patterns
 
-(Add patterns as discovered during development)
+(Add patterns as discovered during development with timestamps: YYYY-MM-DD)
