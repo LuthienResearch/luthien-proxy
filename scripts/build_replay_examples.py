@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Extract replay callback examples for analysis."""
+"""Extract replay callback examples for analysis.
+
+NOTE: This script assumes the pre-v2 replay log structure where payloads are
+already JSON-serializable. The newer callback format that records rich type
+metadata will need updated parsing before this helper can be reused directly.
+"""
 
 from __future__ import annotations
 
