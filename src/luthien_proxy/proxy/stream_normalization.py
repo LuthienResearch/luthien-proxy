@@ -329,7 +329,7 @@ class OpenAIToAnthropicAdapter:
         self.finished = False
 
 
-def anthropic_stream_to_openai(raw_events: Iterable[object]) -> List[dict]:
+def anthropic_stream_to_openai(raw_events: Iterable[bytes]) -> List[dict]:
     """Convert an iterable of Anthropic SSE payloads into OpenAI chunks."""
     adapter = AnthropicToOpenAIAdapter()
     chunks: List[dict] = []
