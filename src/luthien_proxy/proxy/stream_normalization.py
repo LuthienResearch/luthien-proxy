@@ -4,31 +4,16 @@
 
 from __future__ import annotations
 
-import ast
 import json
 import time
 import uuid
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 
-PayloadType = bytes | bytearray | memoryview | str
 
-
-def _payload_to_bytes(payload: PayloadType) -> bytes:
-    """Convert a LiteLLM streaming payload into raw bytes."""
-    if isinstance(payload, (bytes, bytearray, memoryview)):
-        return bytes(payload)
-    if isinstance(payload, str):
-        text = payload
-        if text.startswith("b'") or text.startswith('b"'):
-            try:
-                literal = ast.literal_eval(text)
-                if isinstance(literal, bytes):
-                    return literal
-            except (SyntaxError, ValueError):
-                pass
-        return text.encode("utf-8")
-    raise TypeError(f"Unsupported payload type: {type(payload).__name__}")
+def _payload_to_bytes(payload: bytes) -> bytes:
+    """Return raw bytes as-is (Anthropic delivers SSE frames as bytes)."""
+    return payload
 
 
 def _parse_sse_events(raw: bytes) -> List[tuple[str | None, dict]]:
@@ -108,7 +93,7 @@ class AnthropicToOpenAIAdapter:
         self.tool_states: Dict[int, _ToolState] = {}
         self.finish_emitted = False
 
-    def process(self, payload: PayloadType) -> List[dict]:
+    def process(self, payload: bytes) -> List[dict]:
         """Convert an Anthropic SSE payload into zero or more OpenAI chunks."""
         try:
             raw = _payload_to_bytes(payload)

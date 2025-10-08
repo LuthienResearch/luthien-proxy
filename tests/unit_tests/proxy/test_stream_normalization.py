@@ -115,8 +115,13 @@ def _normalize_events(events: list[str]) -> list[tuple]:
     return normalized
 
 
+def _encode_events(events: list[str]) -> list[bytes]:
+    """Convert textual fixtures into byte payloads."""
+    return [payload.encode("utf-8") for payload in events]
+
+
 def test_anthropic_stream_to_openai_text_sample() -> None:
-    chunks = anthropic_stream_to_openai(CLAUDE_TEXT_EVENTS)
+    chunks = anthropic_stream_to_openai(_encode_events(CLAUDE_TEXT_EVENTS))
     assert chunks[0]["choices"][0]["delta"]["role"] == "assistant"
     assert _aggregate_text(chunks) == EXPECTED_TEXT
     finish_chunks = [chunk for chunk in chunks if chunk["choices"][0]["finish_reason"]]
@@ -124,7 +129,7 @@ def test_anthropic_stream_to_openai_text_sample() -> None:
 
 
 def test_anthropic_stream_to_openai_tool_sample() -> None:
-    chunks = anthropic_stream_to_openai(CLAUDE_TOOL_EVENTS)
+    chunks = anthropic_stream_to_openai(_encode_events(CLAUDE_TOOL_EVENTS))
     tool_args = _aggregate_tool_arguments(chunks)
     assert tool_args == EXPECTED_TOOL_ARGS
     finish_chunks = [chunk for chunk in chunks if chunk["choices"][0]["finish_reason"]]
@@ -133,7 +138,7 @@ def test_anthropic_stream_to_openai_tool_sample() -> None:
 
 def test_round_trip_anthropic_openai_preserves_structure() -> None:
     source_events = CLAUDE_TEXT_EVENTS + CLAUDE_TOOL_EVENTS
-    chunks = anthropic_stream_to_openai(source_events)
+    chunks = anthropic_stream_to_openai(_encode_events(source_events))
     round_trip_events = openai_chunks_to_anthropic(chunks)
     expected = _normalize_events(source_events)
     actual = _normalize_events(round_trip_events)
@@ -142,7 +147,7 @@ def test_round_trip_anthropic_openai_preserves_structure() -> None:
 
 def test_round_trip_openai_anthropic_preserves_content() -> None:
     source_events = CLAUDE_TEXT_EVENTS + CLAUDE_TOOL_EVENTS
-    chunks = anthropic_stream_to_openai(source_events)
-    recreated_chunks = anthropic_stream_to_openai(openai_chunks_to_anthropic(chunks))
+    chunks = anthropic_stream_to_openai(_encode_events(source_events))
+    recreated_chunks = anthropic_stream_to_openai(_encode_events(openai_chunks_to_anthropic(chunks)))
     assert _aggregate_text(recreated_chunks) == EXPECTED_TEXT
     assert _aggregate_tool_arguments(recreated_chunks) == EXPECTED_TOOL_ARGS
