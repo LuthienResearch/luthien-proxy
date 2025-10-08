@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Optional
+from typing import Any
 from urllib.parse import quote
 
 import websockets
@@ -76,7 +76,7 @@ class StreamConnection:
         self._ws_logger.log_outgoing(self.stream_id, message)
         await self._ws.send(json.dumps(message))
 
-    async def receive(self, timeout: float | None = None) -> Optional[dict]:
+    async def receive(self, timeout: float | None = None) -> dict[str, Any] | None:
         """Receive JSON message from control plane.
 
         Args:
