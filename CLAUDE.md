@@ -29,6 +29,8 @@ Proactively update files in `dev/context/` as you learn about the codebase:
 
 These files persist across sessions and help build institutional knowledge. Update them during development, not just at the end. Include timestamps (YYYY-MM-DD) when adding entries to detect when knowledge may be stale.
 
+Note that both Claude Code and Codex agents work in this repo and may read from and write to context.
+
 ### Objective Workflow
 
 1. **Start a new objective**
@@ -106,6 +108,10 @@ These files persist across sessions and help build institutional knowledge. Upda
 - Run control plane locally: `uv run python -m luthien_proxy.control_plane`
 - Run proxy locally: `uv run python -m luthien_proxy.proxy`
 - Docker iterate: `docker compose restart control-plane` or `litellm-proxy`
+
+## Tooling
+
+- Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent `debug_logs` rows. Example: `uv run python scripts/query_debug_logs.py --call-id <litellm_call_id> --host localhost --summary`.
 
 ## Coding Style & Naming Conventions
 
