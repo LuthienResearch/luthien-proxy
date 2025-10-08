@@ -7,13 +7,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
-
-
-def _payload_to_bytes(payload: bytes) -> bytes:
-    """Return raw bytes as-is (Anthropic delivers SSE frames as bytes)."""
-    return payload
 
 
 def _parse_sse_events(raw: bytes) -> List[tuple[str | None, dict]]:
@@ -73,15 +67,6 @@ def _serialize_event(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
-@dataclass
-class _ToolState:
-    """Tracks partial tool-call state while converting streams."""
-
-    id: str
-    name: str
-    buffer: str = ""
-
-
 class AnthropicToOpenAIAdapter:
     """Converts Anthropic SSE streaming events into OpenAI-style chunks."""
 
@@ -90,19 +75,13 @@ class AnthropicToOpenAIAdapter:
         self.model: Optional[str] = None
         self.message_id: Optional[str] = None
         self.created: int = int(time.time())
-        self.tool_states: Dict[int, _ToolState] = {}
+        self.tool_states: Dict[int, Dict[str, str]] = {}
         self.finish_emitted = False
 
     def process(self, payload: bytes) -> List[dict]:
         """Convert an Anthropic SSE payload into zero or more OpenAI chunks."""
-        try:
-            raw = _payload_to_bytes(payload)
-        except TypeError:
-            return []
-        if not raw:
-            return []
         chunks: List[dict] = []
-        for event_type, data in _parse_sse_events(raw):
+        for event_type, data in _parse_sse_events(payload):
             if event_type == "message_start":
                 self.tool_states.clear()
                 self.finish_emitted = False
@@ -118,20 +97,20 @@ class AnthropicToOpenAIAdapter:
                 index = data.get("index", 0)
                 block_type = block.get("type")
                 if block_type == "tool_use":
-                    tool_state = _ToolState(
-                        id=block.get("id", f"tool_{uuid.uuid4().hex}"),
-                        name=block.get("name", "tool"),
-                    )
+                    tool_state = {
+                        "id": block.get("id", f"tool_{uuid.uuid4().hex}"),
+                        "name": block.get("name", "tool"),
+                    }
                     self.tool_states[index] = tool_state
                     chunks.append(
                         self._chunk(
                             {
                                 "tool_calls": [
                                     {
-                                        "id": tool_state.id,
+                                        "id": tool_state["id"],
                                         "type": "function",
                                         "index": index,
-                                        "function": {"name": tool_state.name, "arguments": ""},
+                                        "function": {"name": tool_state["name"], "arguments": ""},
                                     }
                                 ]
                             }
@@ -148,21 +127,20 @@ class AnthropicToOpenAIAdapter:
                 elif delta_type == "input_json_delta":
                     fragment = delta.get("partial_json", "")
                     if fragment:
-                        tool_state = self.tool_states.setdefault(
-                            index,
-                            _ToolState(id=f"tool_{uuid.uuid4().hex}", name="tool"),
-                        )
-                        tool_state.buffer += fragment
+                        tool_state = self.tool_states.get(index)
+                        if tool_state is None:
+                            tool_state = {"id": f"tool_{uuid.uuid4().hex}", "name": "tool"}
+                            self.tool_states[index] = tool_state
                         chunks.append(
                             self._chunk(
                                 {
                                     "tool_calls": [
                                         {
-                                            "id": tool_state.id,
+                                            "id": tool_state["id"],
                                             "type": "function",
                                             "index": index,
                                             "function": {
-                                                "name": tool_state.name,
+                                                "name": tool_state["name"],
                                                 "arguments": fragment,
                                             },
                                         }
