@@ -124,9 +124,12 @@ class AnthropicToOpenAIAdapter:
         chunks: List[dict] = []
         for event_type, data in _parse_sse_events(raw):
             if event_type == "message_start":
+                self.tool_states.clear()
+                self.finish_emitted = False
                 message = data.get("message", {})
                 self.model = message.get("model", self.model)
                 self.message_id = message.get("id", self.message_id)
+                self.created = int(time.time())
                 role = message.get("role")
                 if role:
                     chunks.append(self._chunk({"role": role}))
@@ -239,7 +242,11 @@ class OpenAIToAnthropicAdapter:
     def process(self, chunk: dict) -> List[str]:
         """Convert an OpenAI streaming chunk into zero or more SSE events."""
         if self.finished:
-            return []
+            delta_peek = (chunk.get("choices") or [{}])[0].get("delta") or {}
+            if delta_peek.get("role"):
+                self._reset_state()
+            else:
+                return []
         events: List[str] = []
         chunk_model = chunk.get("model")
         if chunk_model:
@@ -354,6 +361,14 @@ class OpenAIToAnthropicAdapter:
                     if isinstance(text, str):
                         fragments.append(text)
         return fragments
+
+    def _reset_state(self) -> None:
+        """Reset adapter state for a new message."""
+        self.started = False
+        self.text_block_started = False
+        self.tool_blocks.clear()
+        self.next_block_index = 1
+        self.finished = False
 
 
 def anthropic_stream_to_openai(raw_events: Iterable[object]) -> List[dict]:
