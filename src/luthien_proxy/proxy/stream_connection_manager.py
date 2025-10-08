@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from typing import Optional
+from urllib.parse import quote
 
 import websockets
 from websockets import WebSocketClientProtocol
@@ -53,7 +54,7 @@ class StreamConnection:
             ws_url = "ws://" + ws_url[len("http://") :]
         elif ws_url.startswith("https://"):
             ws_url = "wss://" + ws_url[len("https://") :]
-        ws_url = f"{ws_url}/stream/{stream_id}"
+        ws_url = f"{ws_url}/stream/{quote(stream_id, safe='')}"
 
         try:
             websocket = await websockets.connect(ws_url)
