@@ -1,43 +1,10 @@
-"""Test suite for conversation event building and edge cases."""
+"""Test suite for conversation event building (request/response schema)."""
 
 from datetime import UTC, datetime
 
 from luthien_proxy.control_plane.conversation.events import (
     build_conversation_events,
-    clear_stream_indices,
-    next_chunk_index,
-    reset_stream_indices,
 )
-
-
-def test_reset_stream_indices():
-    """Test that stream indices are properly initialized."""
-    call_id = "test-call-1"
-    reset_stream_indices(call_id)
-
-    # Verify both streams start at 0
-    assert next_chunk_index(call_id, "original") == 0
-    assert next_chunk_index(call_id, "final") == 0
-
-    # Verify indices increment properly
-    assert next_chunk_index(call_id, "original") == 1
-    assert next_chunk_index(call_id, "final") == 1
-    assert next_chunk_index(call_id, "original") == 2
-    assert next_chunk_index(call_id, "final") == 2
-
-
-def test_clear_stream_indices():
-    """Test that stream indices are properly cleared."""
-    call_id = "test-call-2"
-    reset_stream_indices(call_id)
-    next_chunk_index(call_id, "original")
-    next_chunk_index(call_id, "final")
-
-    clear_stream_indices(call_id)
-
-    # After clearing, indices should start fresh
-    assert next_chunk_index(call_id, "original") == 0
-    assert next_chunk_index(call_id, "final") == 0
 
 
 def test_build_conversation_events_with_missing_call_id():
@@ -48,8 +15,8 @@ def test_build_conversation_events_with_missing_call_id():
     events = build_conversation_events(
         hook="async_pre_call_hook",
         call_id=None,
-        trace_id="trace-1",
-        original={"messages": []},
+        trace_id=None,
+        original={"data": {"messages": []}},
         result=None,
         timestamp_ns_fallback=1234567890,
         timestamp=timestamp,
@@ -60,8 +27,8 @@ def test_build_conversation_events_with_missing_call_id():
     events = build_conversation_events(
         hook="async_pre_call_hook",
         call_id="",
-        trace_id="trace-1",
-        original={"messages": []},
+        trace_id=None,
+        original={"data": {"messages": []}},
         result=None,
         timestamp_ns_fallback=1234567890,
         timestamp=timestamp,
@@ -70,21 +37,29 @@ def test_build_conversation_events_with_missing_call_id():
 
 
 def test_build_conversation_events_pre_call_hook():
-    """Test event building for pre-call hook."""
+    """Test event building for pre-call hook creates request event."""
     timestamp = datetime.now(UTC)
     original = {
-        "request_data": {"messages": [{"role": "user", "content": "Hello"}]},
+        "data": {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "gpt-4",
+            "temperature": 0.7,
+        },
         "post_time_ns": 1000000000,
     }
     result = {
-        "request_data": {"messages": [{"role": "user", "content": "Hello sanitized"}]},
+        "data": {
+            "messages": [{"role": "user", "content": "Hello sanitized"}],
+            "model": "gpt-4",
+            "temperature": 0.7,
+        },
         "post_time_ns": 1000000001,
     }
 
     events = build_conversation_events(
         hook="async_pre_call_hook",
         call_id="call-1",
-        trace_id="trace-1",
+        trace_id=None,
         original=original,
         result=result,
         timestamp_ns_fallback=999999999,
@@ -93,104 +68,46 @@ def test_build_conversation_events_pre_call_hook():
 
     assert len(events) == 1
     event = events[0]
-    assert event.event_type == "request_started"
+    assert event.event_type == "request"
     assert event.call_id == "call-1"
-    assert event.trace_id == "trace-1"
-    assert event.payload["original_messages"][0]["content"] == "Hello"
-    assert event.payload["final_messages"][0]["content"] == "Hello sanitized"
+    assert event.trace_id is None
+    assert event.payload["model"] == "gpt-4"
+    assert event.payload["temperature"] == 0.7
+    assert len(event.payload["messages"]) == 1
+    assert event.payload["messages"][0]["content"] == "Hello sanitized"
 
 
-def test_build_conversation_events_stream_chunk():
-    """Test event building for streaming chunks."""
-    timestamp = datetime.now(UTC)
-    original = {
-        "response": {"choices": [{"index": 0, "delta": {"content": "Original"}}]},
-        "post_time_ns": 1000000000,
-    }
-    result = {
-        "response": {"choices": [{"index": 0, "delta": {"content": "Modified"}}]},
-        "post_time_ns": 1000000001,
-    }
-
-    reset_stream_indices("call-2")
-    events = build_conversation_events(
-        hook="async_post_call_streaming_iterator_hook",
-        call_id="call-2",
-        trace_id="trace-2",
-        original=original,
-        result=result,
-        timestamp_ns_fallback=999999999,
-        timestamp=timestamp,
-    )
-
-    assert len(events) == 2
-    # Original chunk event
-    assert events[0].event_type == "original_chunk"
-    assert events[0].payload["delta"] == "Original"
-    assert events[0].payload["chunk_index"] == 0
-    assert events[0].payload["choice_index"] == 0
-
-    # Final chunk event
-    assert events[1].event_type == "final_chunk"
-    assert events[1].payload["delta"] == "Modified"
-    assert events[1].payload["chunk_index"] == 0
-    assert events[1].payload["choice_index"] == 0
-
-
-def test_build_conversation_events_stream_chunk_missing_choice_index():
-    """Test streaming chunk with missing choice index defaults to 0."""
+def test_build_conversation_events_success_hook():
+    """Test event building for successful completion creates response event."""
     timestamp = datetime.now(UTC)
     original = {
         "response": {
-            "choices": [{"delta": {"content": "No index"}}]  # Missing index field
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "Original response"},
+                    "finish_reason": "stop",
+                }
+            ]
         },
         "post_time_ns": 1000000000,
     }
 
-    reset_stream_indices("call-3")
     events = build_conversation_events(
-        hook="async_post_call_streaming_iterator_hook",
-        call_id="call-3",
-        trace_id="trace-3",
+        hook="async_post_call_success_hook",
+        call_id="call-2",
+        trace_id=None,
         original=original,
         result=None,
         timestamp_ns_fallback=999999999,
         timestamp=timestamp,
     )
 
-    # Should still create event with default choice_index of 0
-    assert len(events) == 1
-    assert events[0].payload["choice_index"] == 0
-
-
-def test_build_conversation_events_success_hook():
-    """Test event building for successful completion."""
-    timestamp = datetime.now(UTC)
-    original = {
-        "response": {"choices": [{"message": {"content": "Original response"}}]},
-        "post_time_ns": 1000000000,
-    }
-    result = {
-        "response": {"choices": [{"message": {"content": "Modified response"}}]},
-        "post_time_ns": 1000000001,
-    }
-
-    events = build_conversation_events(
-        hook="async_post_call_success_hook",
-        call_id="call-4",
-        trace_id="trace-4",
-        original=original,
-        result=result,
-        timestamp_ns_fallback=999999999,
-        timestamp=timestamp,
-    )
-
     assert len(events) == 1
     event = events[0]
-    assert event.event_type == "request_completed"
+    assert event.event_type == "response"
     assert event.payload["status"] == "success"
-    assert event.payload["original_response"] == "Original response"
-    assert event.payload["final_response"] == "Modified response"
+    assert event.payload["message"]["content"] == "Original response"
+    assert event.payload["finish_reason"] == "stop"
 
 
 def test_build_conversation_events_failure_hook():
@@ -203,8 +120,8 @@ def test_build_conversation_events_failure_hook():
 
     events = build_conversation_events(
         hook="async_post_call_failure_hook",
-        call_id="call-5",
-        trace_id="trace-5",
+        call_id="call-3",
+        trace_id=None,
         original=original,
         result=None,
         timestamp_ns_fallback=999999999,
@@ -213,22 +130,29 @@ def test_build_conversation_events_failure_hook():
 
     assert len(events) == 1
     event = events[0]
-    assert event.event_type == "request_completed"
+    assert event.event_type == "response"
     assert event.payload["status"] == "failure"
 
 
-def test_build_conversation_events_stream_summary():
-    """Test event building for streaming summary."""
+def test_build_conversation_events_streaming_hook():
+    """Test event building for streaming summary creates response event."""
     timestamp = datetime.now(UTC)
     original = {
-        "response": {"choices": [{"message": {"content": "Full response"}}]},
+        "response": {
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "Streamed response"},
+                    "finish_reason": "stop",
+                }
+            ]
+        },
         "post_time_ns": 1000000000,
     }
 
     events = build_conversation_events(
         hook="async_post_call_streaming_hook",
-        call_id="call-6",
-        trace_id="trace-6",
+        call_id="call-4",
+        trace_id=None,
         original=original,
         result=None,
         timestamp_ns_fallback=999999999,
@@ -237,120 +161,54 @@ def test_build_conversation_events_stream_summary():
 
     assert len(events) == 1
     event = events[0]
-    assert event.event_type == "request_completed"
-    assert event.payload["status"] == "stream_summary"
-    assert event.payload["final_response"] == "Full response"
+    assert event.event_type == "response"
+    assert event.payload["status"] == "success"
+    assert event.payload["message"]["content"] == "Streamed response"
 
 
-def test_build_conversation_events_success_with_tool_call():
-    """Ensure tool-call responses surface readable originals."""
+def test_build_conversation_events_with_tool_calls():
+    """Ensure tool-call responses are stored in message payload."""
     timestamp = datetime.now(UTC)
     original = {
         "response": {
             "choices": [
                 {
                     "message": {
+                        "role": "assistant",
                         "tool_calls": [
                             {
                                 "id": "call_x",
+                                "type": "function",
                                 "function": {
                                     "name": "lookup",
                                     "arguments": '{"query": "status"}',
                                 },
                             }
-                        ]
-                    }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
                 }
             ]
         },
         "post_time_ns": 1000000000,
     }
-    result = {
-        "response": {
-            "choices": [
-                {"message": {"content": "Final response"}},
-            ]
-        },
-        "post_time_ns": 1000000001,
-    }
 
     events = build_conversation_events(
         hook="async_post_call_success_hook",
         call_id="call-tool",
-        trace_id="trace-tool",
+        trace_id=None,
         original=original,
-        result=result,
+        result=None,
         timestamp_ns_fallback=999999999,
         timestamp=timestamp,
     )
 
     assert len(events) == 1
     payload = events[0].payload
-    assert payload["original_response"].startswith("[tool lookup]")
-    assert "query" in payload["original_response"]
-    assert payload["final_response"] == "Final response"
-
-
-def test_build_conversation_events_stream_chunk_tool_call():
-    """Tool-call streaming deltas should produce readable chunks."""
-    timestamp = datetime.now(UTC)
-    original = {
-        "response": {
-            "choices": [
-                {
-                    "delta": {
-                        "tool_calls": [
-                            {
-                                "id": "call_delta",
-                                "function": {
-                                    "name": "lookup",
-                                    "arguments": '{"foo": "',
-                                },
-                            }
-                        ]
-                    }
-                }
-            ]
-        },
-        "post_time_ns": 1000000000,
-    }
-    result = {
-        "response": {
-            "choices": [
-                {
-                    "delta": {
-                        "tool_calls": [
-                            {
-                                "id": "call_delta",
-                                "function": {
-                                    "arguments": 'bar"}',
-                                },
-                            }
-                        ]
-                    }
-                }
-            ]
-        },
-        "post_time_ns": 1000000001,
-    }
-
-    reset_stream_indices("call-tool-stream")
-    events = build_conversation_events(
-        hook="async_post_call_streaming_iterator_hook",
-        call_id="call-tool-stream",
-        trace_id="trace-tool-stream",
-        original=original,
-        result=result,
-        timestamp_ns_fallback=999999999,
-        timestamp=timestamp,
-    )
-
-    assert len(events) == 2
-    assert events[0].event_type == "original_chunk"
-    assert events[0].payload["delta"].startswith("[tool lookup]")
-    assert '{"foo":' in events[0].payload["delta"]
-    assert events[1].event_type == "final_chunk"
-    assert events[1].payload["delta"]
+    assert payload["status"] == "success"
+    assert "tool_calls" in payload["message"]
+    assert payload["message"]["tool_calls"][0]["id"] == "call_x"
+    assert payload["message"]["tool_calls"][0]["function"]["name"] == "lookup"
 
 
 def test_build_conversation_events_unknown_hook():
@@ -359,8 +217,8 @@ def test_build_conversation_events_unknown_hook():
 
     events = build_conversation_events(
         hook="unknown_hook",
-        call_id="call-7",
-        trace_id="trace-7",
+        call_id="call-5",
+        trace_id=None,
         original={"data": "test"},
         result=None,
         timestamp_ns_fallback=999999999,
@@ -370,54 +228,26 @@ def test_build_conversation_events_unknown_hook():
     assert events == []
 
 
-def test_build_conversation_events_extract_trace_id_from_original():
-    """Test trace_id extraction from original payload."""
+def test_build_conversation_events_streaming_chunks_ignored():
+    """Test that streaming chunk hooks are ignored (no longer stored)."""
     timestamp = datetime.now(UTC)
     original = {
-        "request_data": {"messages": [{"role": "user", "content": "Hello"}]},
-        "litellm_trace_id": "extracted-trace",
+        "response": {"choices": [{"index": 0, "delta": {"content": "chunk"}}]},
         "post_time_ns": 1000000000,
     }
 
     events = build_conversation_events(
-        hook="async_pre_call_hook",
-        call_id="call-8",
-        trace_id=None,  # No explicit trace_id
+        hook="async_post_call_streaming_iterator_hook",
+        call_id="call-6",
+        trace_id=None,
         original=original,
         result=None,
         timestamp_ns_fallback=999999999,
         timestamp=timestamp,
     )
 
-    assert len(events) == 1
-    assert events[0].trace_id == "extracted-trace"
-
-
-def test_build_conversation_events_extract_trace_id_from_result():
-    """Test trace_id extraction from result payload."""
-    timestamp = datetime.now(UTC)
-    original = {
-        "request_data": {"messages": [{"role": "user", "content": "Hello"}]},
-        "post_time_ns": 1000000000,
-    }
-    result = {
-        "request_data": {"messages": [{"role": "user", "content": "Hello"}]},
-        "litellm_trace_id": "result-trace",
-        "post_time_ns": 1000000001,
-    }
-
-    events = build_conversation_events(
-        hook="async_pre_call_hook",
-        call_id="call-9",
-        trace_id=None,  # No explicit trace_id
-        original=original,
-        result=result,
-        timestamp_ns_fallback=999999999,
-        timestamp=timestamp,
-    )
-
-    assert len(events) == 1
-    assert events[0].trace_id == "result-trace"
+    # Streaming chunks are no longer stored
+    assert events == []
 
 
 def test_build_conversation_events_malformed_response():
@@ -432,15 +262,13 @@ def test_build_conversation_events_malformed_response():
 
     events = build_conversation_events(
         hook="async_post_call_success_hook",
-        call_id="call-10",
-        trace_id="trace-10",
+        call_id="call-7",
+        trace_id=None,
         original=original,
         result=None,
         timestamp_ns_fallback=999999999,
         timestamp=timestamp,
     )
 
-    # Should still create event but with empty response text
-    assert len(events) == 1
-    assert events[0].event_type == "request_completed"
-    assert events[0].payload["original_response"] == ""
+    # Should return no events for malformed data
+    assert len(events) == 0
