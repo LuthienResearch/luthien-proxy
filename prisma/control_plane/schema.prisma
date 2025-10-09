@@ -19,89 +19,55 @@ model DebugLog {
 }
 
 model ConversationCall {
-  callId      String   @id @map("call_id")
-  traceId     String?  @map("trace_id")
-  modelName   String?  @map("model_name")
+  callId      String    @id @map("call_id")
+  modelName   String?   @map("model_name")
   provider    String?
   status      String?
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
   completedAt DateTime? @map("completed_at")
-  metadata    Json?
-  updatedAt   DateTime @default(now()) @map("updated_at")
 
-  events     ConversationEvent[]
-  toolCalls  ConversationToolCall[]
+  events       ConversationEvent[]
+  policyEvents PolicyEvent[]
 
   @@map("conversation_calls")
-  @@index([traceId], name: "idx_conversation_calls_trace")
   @@index([createdAt], name: "idx_conversation_calls_created")
 }
 
 model ConversationEvent {
-  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  callId      String   @map("call_id")
-  traceId     String?  @map("trace_id")
-  eventType   String   @map("event_type")
-  hook        String
-  sequence    BigInt?
-  chunkIndex  Int?     @map("chunk_index")
-  choiceIndex Int?     @map("choice_index")
-  role        String?
-  deltaText   String?  @map("delta_text")
-  rawChunk    Json?    @map("raw_chunk")
-  payload     Json?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  callId    String   @map("call_id")
+  eventType String   @map("event_type")
+  sequence  BigInt
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
 
-  call ConversationCall @relation(fields: [callId], references: [callId], onDelete: Cascade)
+  call                    ConversationCall @relation(fields: [callId], references: [callId], onDelete: Cascade)
+  originalPolicyEvents    PolicyEvent[]    @relation("OriginalEvent")
+  modifiedPolicyEvents    PolicyEvent[]    @relation("ModifiedEvent")
 
   @@map("conversation_events")
-  @@index([callId, createdAt], name: "idx_conversation_events_call_created")
-  @@index([traceId, createdAt], name: "idx_conversation_events_trace_created")
   @@index([callId, sequence], name: "idx_conversation_events_call_sequence")
   @@index([eventType], name: "idx_conversation_events_type")
+  @@index([createdAt], name: "idx_conversation_events_created")
 }
 
-model ConversationToolCall {
-  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  callId     String   @map("call_id")
-  traceId    String?  @map("trace_id")
-  toolCallId String?  @map("tool_call_id")
-  name       String?
-  arguments  Json?
-  status     String?
-  response   Json?
-  chunksBuffered Int?  @map("chunks_buffered")
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  call ConversationCall @relation(fields: [callId], references: [callId], onDelete: Cascade)
-
-  @@map("conversation_tool_calls")
-  @@index([callId, createdAt], name: "idx_conversation_tool_calls_call_created")
-  @@index([toolCallId], name: "idx_conversation_tool_calls_tool_id")
-  @@index([traceId, createdAt], name: "idx_conversation_tool_calls_trace_created")
-  @@unique([callId, toolCallId], map: "uq_conversation_tool_calls_call_tool")
-}
-
-model JudgeDecision {
+model PolicyEvent {
   id                String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   callId            String   @map("call_id")
-  traceId           String?  @map("trace_id")
-  toolCallId        String?  @map("tool_call_id")
-  probability       Float?
-  explanation       String?
-  toolCall          Json?    @map("tool_call")
-  judgePrompt       Json?    @map("judge_prompt")
-  judgeResponseText String?  @map("judge_response_text")
-  originalRequest   Json?    @map("original_request")
-  originalResponse  Json?    @map("original_response")
-  streamChunks      Json?    @map("stream_chunks")
-  blockedResponse   Json?    @map("blocked_response")
-  timing            Json?
-  judgeConfig       Json?    @map("judge_config")
+  policyClass       String   @map("policy_class")
+  policyConfig      Json?    @map("policy_config")
+  eventType         String   @map("event_type")
+  originalEventId   String?  @map("original_event_id") @db.Uuid
+  modifiedEventId   String?  @map("modified_event_id") @db.Uuid
+  metadata          Json?
   createdAt         DateTime @default(now()) @map("created_at")
 
-  @@map("conversation_judge_decisions")
-  @@index([traceId, createdAt], name: "idx_judge_decisions_trace_created")
-  @@index([callId, createdAt], name: "idx_judge_decisions_call_created")
-  @@index([createdAt], name: "idx_judge_decisions_created")
+  call            ConversationCall   @relation(fields: [callId], references: [callId], onDelete: Cascade)
+  originalEvent   ConversationEvent? @relation("OriginalEvent", fields: [originalEventId], references: [id], onDelete: SetNull)
+  modifiedEvent   ConversationEvent? @relation("ModifiedEvent", fields: [modifiedEventId], references: [id], onDelete: SetNull)
+
+  @@map("policy_events")
+  @@index([callId, createdAt], name: "idx_policy_events_call_created")
+  @@index([eventType], name: "idx_policy_events_type")
+  @@index([createdAt], name: "idx_policy_events_created")
 }
