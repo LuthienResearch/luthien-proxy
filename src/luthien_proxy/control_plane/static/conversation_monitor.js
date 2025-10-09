@@ -119,9 +119,7 @@ function closeStream() {
 function openStreamForCall(callId) {
   closeStream();
   if (!callId || state.streamPaused) return;
-  const targetUrl = state.traceId
-    ? `/api/hooks/conversation/stream_by_trace?trace_id=${encodeURIComponent(state.traceId)}`
-    : `/api/hooks/conversation/stream?call_id=${encodeURIComponent(callId)}`;
+  const targetUrl = `/api/hooks/conversation/stream?call_id=${encodeURIComponent(callId)}`;
   setStatus("Listening…", "live");
   const source = new EventSource(targetUrl);
   state.eventSource = source;
