@@ -109,6 +109,7 @@ async def test_get_debug_page():
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Trace functionality removed - schema migration")
 async def test_trace_by_call_id_sorts_by_ns():
     call_id = "C"
     rows = [
