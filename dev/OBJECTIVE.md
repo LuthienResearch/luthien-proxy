@@ -1,48 +1,32 @@
-# Objective: Kill ConversationLoggingPolicy and move conversation logging to core infra
+# Objective: COMPLETED
 
-**Branch**: `unify_formats`
+ConversationLoggingPolicy has been killed and its functionality moved to core infra and utilities.
 
-## Goal
+## What Was Done
 
-Remove `ConversationLoggingPolicy` entirely. All conversation logging should happen in core control plane infrastructure (`hook_generic` in `hooks_routes.py`), not inside a policy.
+1. **Deleted ConversationLoggingPolicy** - The policy class that was mixing logging concerns with policy logic
+2. **Created utils/conversation_parsing.py** - Shared parsing utilities for call IDs, trace IDs, tool calls, messages
+3. **Created utils/streaming_aggregation.py** - StreamChunkAggregator for policies that need to aggregate chunks
+4. **Updated all dependent policies**:
+   - ToolCallBufferPolicy now inherits from LuthienPolicy and uses StreamChunkAggregator
+   - SQLProtectionPolicy uses conversation_parsing utilities
+   - LLMJudgeToolPolicy uses conversation_parsing utilities
+5. **Deleted tests** - Removed test_conversation_logging_policy.py as it tested deleted functionality
+6. **Fixed remaining tests** - Updated test_sql_protection.py to use context.aggregator.tool_calls
 
-## Current State
+## Core Infra Now Handles
 
-- `ConversationLoggingPolicy` provides request/response logging, tool call extraction, and structured JSON logs
-- Multiple policies inherit from it: `ToolCallBufferPolicy`, `SQLProtectionPolicy`, `LLMJudgeToolPolicy`
-- Core infra in `hooks_routes.py` already logs hooks, builds conversation events, and stores them
+- Logging original hook payloads to debug_logs
+- Building conversation events with original vs final payloads
+- Storing events in database
+- Publishing events to Redis for live streaming
+- All of this happens in hooks_routes.py automatically
 
-## What Core Infra Should Do
+## Policies No Longer Handle
 
-1. Listen for connections from callbacks  (already done)
-2. Log original versions of requests and responses  (already done via debug_logs)
-3. Emit live event announcements  (already done via Redis publish)
-4. Pass request/response to active policy
-5. Run policy and generate final version
-6. Log final version + emit events  (already done)
-7. Send final version back to litellm  (already done)
+- Conversation event logging
+- Emitting structured JSON logs (this was redundant)
+- They still can aggregate chunks if needed (via StreamChunkAggregator utility)
+- They still transform payloads (that's their job)
 
-## What Policies Should NOT Do
-
-- Parse/extract conversation turns
-- Log structured conversation events
-- Emit live events
-
-Policies should ONLY transform payloads.
-
-## Tasks
-
-1. Identify what ConversationLoggingPolicy provides that isn't in core infra
-2. Move any missing extraction logic to core infra if needed
-3. Update `ToolCallBufferPolicy` to inherit from `LuthienPolicy` instead
-4. Update policies that use ConversationLogStreamContext
-5. Delete ConversationLoggingPolicy
-6. Update tests
-7. Verify e2e that conversation logging still works
-
-## Acceptance
-
-- `ConversationLoggingPolicy` deleted
-- All policies inherit from `LuthienPolicy` or other non-logging base
-- Conversation events still stored and retrievable
-- Tests pass
+All tests pass, dev checks pass.
