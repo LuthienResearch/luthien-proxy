@@ -1,6 +1,6 @@
-"""Toy policy that blocks harmful SQL tool calls like DROP TABLE operations.
+"""ABOUTME: Toy policy that blocks harmful SQL tool calls like DROP TABLE operations.
 
-This is meant for debugging and proof of concept, it's intentionally dumb and not actually important.
+ABOUTME: This is meant for debugging and proof of concept.
 """
 
 from __future__ import annotations
@@ -8,9 +8,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, cast
 
 from luthien_proxy.types import JSONObject
+from luthien_proxy.utils.conversation_parsing import extract_trace_id, require_call_id
 
 from .tool_call_buffer import ToolCallBufferContext, ToolCallBufferPolicy
 
@@ -45,7 +47,7 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
         """Intercept tool calls and block harmful SQL."""
         async for chunk in super().generate_response_stream(context, incoming_stream):
             # Check if this chunk contains a complete tool call
-            if context.tool_calls:
+            if context.aggregator.tool_calls:
                 blocked = await self._check_and_block_harmful_sql(context, chunk)
                 if blocked is not None:
                     yield blocked
@@ -88,10 +90,10 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
             if not self._is_harmful_sql(tool_call):
                 continue
 
-            call_id = self._require_call_id(data)
+            call_id = require_call_id(data)
             await self._record_blocked_sql(
                 call_id=call_id,
-                trace_id=self._extract_trace_id(data),
+                trace_id=extract_trace_id(data),
                 tool_call=tool_call,
             )
             return self._create_blocked_response(response, tool_call)
@@ -104,7 +106,7 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
         chunk: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Check buffered tool calls for harmful SQL and block if needed."""
-        for identifier, state in context.tool_calls.items():
+        for identifier, state in context.aggregator.tool_calls.items():
             # Parse the tool call to check for harmful SQL
             tool_call = {
                 "id": state.identifier,
@@ -114,16 +116,16 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
             }
 
             if self._is_harmful_sql(tool_call):
-                call_id = self._require_call_id(context.original_request)
+                call_id = require_call_id(context.original_request)
                 await self._record_blocked_sql(
                     call_id=call_id,
-                    trace_id=self._extract_trace_id(context.original_request),
+                    trace_id=extract_trace_id(context.original_request),
                     tool_call=tool_call,
                 )
                 context.logged_tool_ids.add(identifier)
                 context.tool_call_active = False
                 context.buffered_chunks.clear()
-                context.tool_calls.clear()
+                context.aggregator.tool_calls.clear()
                 return self._create_blocked_chunk(chunk, tool_call)
 
         return None
@@ -185,16 +187,16 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
             return None
 
         tool_call = self._build_synthetic_tool_call(context.original_request, prompt_query)
-        call_id = self._require_call_id(context.original_request)
+        call_id = require_call_id(context.original_request)
         await self._record_blocked_sql(
             call_id=call_id,
-            trace_id=self._extract_trace_id(context.original_request),
+            trace_id=extract_trace_id(context.original_request),
             tool_call=tool_call,
         )
         context.logged_tool_ids.add(tool_call["id"])
         context.tool_call_active = False
         context.buffered_chunks.clear()
-        context.tool_calls.clear()
+        context.aggregator.tool_calls.clear()
         return self._create_blocked_chunk(chunk, tool_call)
 
     def _prompt_sql_candidate(self, request: Mapping[str, Any]) -> Optional[str]:
@@ -318,7 +320,7 @@ class SQLProtectionPolicy(ToolCallBufferPolicy):
             "call_id": call_id,
             "litellm_call_id": call_id,
             "trace_id": trace_id,
-            "timestamp": self._timestamp(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "blocked_tool_call": blocked_tool_call,
             "reason": "harmful_sql_detected",
         }

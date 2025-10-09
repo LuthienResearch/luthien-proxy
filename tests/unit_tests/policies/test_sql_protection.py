@@ -116,7 +116,7 @@ async def test_sql_protection_blocks_streaming_harmful_call_and_stops():
     assert not delta.get("tool_calls")
     message = choice.get("message") or {}
     assert "BLOCKED" in message.get("content", "")
-    assert context.tool_calls == {}
+    assert context.aggregator.tool_calls == {}
     assert not context.tool_call_active
 
 
