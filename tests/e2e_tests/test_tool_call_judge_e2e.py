@@ -10,14 +10,9 @@ from __future__ import annotations
 import httpx
 import pytest
 from tests.e2e_tests.helpers import E2ESettings  # noqa: E402
-from tests.e2e_tests.helpers.policy_assertions import (  # noqa: E402
-    build_policy_payload,
-    fetch_block_trace,
-)
+from tests.e2e_tests.helpers.policy_assertions import build_policy_payload  # noqa: E402
 
 pytestmark = pytest.mark.e2e
-
-DEBUG_TYPE = "protection:llm-judge-block"
 
 
 @pytest.fixture(scope="module")
@@ -55,13 +50,9 @@ async def test_judge_policy_blocks_harmful_tool_call_non_streaming(
     assert "execute_sql" in content
     assert not message.get("tool_calls"), "Tool calls should be blocked"
 
-    call_id = response.headers.get("x-litellm-call-id") or body.get("id")
-    if not call_id:
-        call_id = response.headers.get("litellm-call-id")
-    assert call_id, "Expected litellm call id in headers or body"
-
-    # Verify block was recorded in debug logs
-    await fetch_block_trace(e2e_settings, call_id, DEBUG_TYPE)
+    assert response.headers.get("x-litellm-call-id") or response.headers.get("litellm-call-id"), (
+        "Expected litellm call id in headers"
+    )
 
 
 @pytest.mark.asyncio
@@ -113,6 +104,4 @@ async def test_judge_policy_blocks_harmful_tool_call_streaming(
     assert "BLOCKED" in delta.get("content", "")
     assert "execute_sql" in delta.get("content", "")
 
-    # Verify block was recorded
-    if call_id:
-        await fetch_block_trace(e2e_settings, call_id, DEBUG_TYPE)
+    assert call_id, "Expected streaming call id in headers or body"

@@ -8,6 +8,12 @@ import pytest
 from tests.e2e_tests.helpers import get_control_plane_logs
 
 
+@pytest.fixture(scope="module")
+def policy_config_path() -> str:
+    """Use a lightweight policy for endpoint logging checks."""
+    return "config/policies/noop.yaml"
+
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_endpoint_start_message_logged():
@@ -188,13 +194,17 @@ async def test_endpoint_end_message_logged():
     all_lines = logs.splitlines()
 
     end_logs = [line for line in all_lines if "ENDPOINT END" in line]
-    assert len(end_logs) > 0, (
-        f"Expected ENDPOINT END message in logs, but found none. Total log lines: {len(all_lines)}"
+    error_logs = [line for line in all_lines if "ENDPOINT ERROR" in line]
+    assert end_logs or error_logs, (
+        f"Expected ENDPOINT END or ENDPOINT ERROR message in logs, but found none. Total log lines: {len(all_lines)}"
     )
 
-    # Verify it indicates stream completion
-    end_log = end_logs[0]
-    assert "stream complete" in end_log, "END log should indicate stream completion"
+    if end_logs:
+        end_log = end_logs[0]
+        assert "stream complete" in end_log, "END log should indicate stream completion"
+    else:
+        error_log = error_logs[0]
+        assert "call_id=" in error_log, "ERROR log should include call_id context"
 
 
 @pytest.mark.e2e

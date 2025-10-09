@@ -244,20 +244,6 @@ def dummy_provider_running(settings: E2ESettings):
             pass
 
 
-async def fetch_trace(settings: E2ESettings, call_id: str) -> dict[str, object]:
-    params = {"call_id": call_id, "limit": 200}
-    async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
-        for _ in range(settings.trace_retries):
-            response = await client.get(f"{settings.control_plane_url}/api/hooks/trace_by_call_id", params=params)
-            if response.status_code == 200:
-                data = response.json()
-                entries = data.get("entries", [])
-                if entries:
-                    return data
-            await asyncio.sleep(settings.trace_retry_delay)
-    raise AssertionError(f"Trace entries for call_id {call_id} not found after {settings.trace_retries} retries")
-
-
 class ControlPlaneManager:
     """Utility for restarting the control-plane container with different policies."""
 

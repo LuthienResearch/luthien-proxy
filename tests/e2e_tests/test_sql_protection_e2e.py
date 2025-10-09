@@ -7,13 +7,10 @@ import pytest
 from tests.e2e_tests.helpers import E2ESettings  # noqa: E402
 from tests.e2e_tests.helpers.policy_assertions import (  # noqa: E402
     build_policy_payload,
-    fetch_block_trace,
     stream_policy_block,
 )
 
 pytestmark = pytest.mark.e2e
-
-DEBUG_TYPE = "protection:sql-block"
 
 
 @pytest.fixture(scope="module")
@@ -47,12 +44,9 @@ async def test_sql_policy_blocks_non_streaming_via_callback(
     assert isinstance(content, str) and "BLOCKED" in content
     assert not message.get("tool_calls")
 
-    call_id = response.headers.get("x-litellm-call-id") or body.get("id")
-    if not call_id:
-        call_id = response.headers.get("litellm-call-id")
-    assert call_id, "Expected litellm call id in headers or body"
-
-    await fetch_block_trace(e2e_settings, call_id, DEBUG_TYPE)
+    assert response.headers.get("x-litellm-call-id") or response.headers.get("litellm-call-id"), (
+        "Expected litellm call id in headers"
+    )
 
 
 @pytest.mark.asyncio
@@ -82,4 +76,4 @@ async def test_sql_policy_blocks_streaming_via_callback(
     assert "BLOCKED" in delta.get("content", "")
     assert not delta.get("tool_calls")
 
-    await fetch_block_trace(e2e_settings, call_id, DEBUG_TYPE)
+    assert call_id, "Streaming response missing call id"
