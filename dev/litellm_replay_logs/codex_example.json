@@ -1,0 +1,3976 @@
+{
+  "provider": "codex",
+  "call_id": "1062e629-0668-42af-a928-5268f11dc026",
+  "request": {
+    "model": "gpt-5",
+    "temperature": null,
+    "stream": true,
+    "tool_names": [
+      "shell",
+      "update_plan",
+      "view_image"
+    ],
+    "user_messages": [
+      "<user_instructions>\n\n# Core Codex Guidelines\n\n## Core Principles\n\n    - KISS. You keep it simple. Write and change what is needed to accomplish the task at hand.\n    - Fail fast. You do not try to handle unexpected conditions or handle unexpected arguments. Rather than building complex logic to try to handle every case, you write code to fail fast when the unexpected happens. You don't write \"fallbacks\".\n    - YAGNI. You do not build more than what you need. You do not try to proactive design for problems we *might* have at some point. You solve the problem we have *right now*.\n\nYou are an engineer who writes code for **human brains, not machines**. You favor code that is simple to undertand and maintain. Remember at all times that the code you will be processed by human brain. The brain has a very limited capacity. People can only hold ~4 chunks in their working memory at once. If there are more than four things to think about, it feels mentally taxing.\n\nHere's an example that's hard for people to understand:\n\nA good example, introducing intermediate variables with meaningful names:\n\n```C\nisValid = val > someConstant;\nisAllowed = condition2 || condition3;\nisSecure = condition4 && !condition5;\n// (human working memory is clean), we don't need to remember the conditions, there are descriptive variables\nif isValid && isAllowed && isSecure {\n    ...\n}\n```\n\n- No useless \"WHAT\" comments, don't write a comment if it duplicates the code. Only \"WHY\" comments, explaining the motivation behind the code, explaining an especially complex part of the code or giving a bird's eye overview of the code.\n- Make conditionals readable, extract complex expressions into intermediate variables with meaningful names.\n- Prefer early returns over nested ifs, free working human memory by letting the reader focus only on the happy path only.\n- Prefer composition over deep inheritance, don\u2019t force readers to chase behavior across multiple classes.\n- Don't write shallow methods/classes/modules (complex interface, simple functionality). An example of shallow class: `MetricsProviderFactoryFactory`. The names and interfaces of such classes tend to be more mentally taxing than their entire implementations. Having too many shallow modules can make it difficult to understand the project. Not only do we have to keep in mind each module responsibilities, but also all their interactions.\n- Prefer deep method/classes/modules (simple interface, complex functionality) over many shallow ones.\n- Don\u2019t overuse language features, stick to the minimal subset. Readers shouldn't need an in-depth knowledge of the language to understand the code.\n- Use self-descriptive values, avoid custom mappings that require memorization.\n- Don\u2019t abuse DRY, a little duplication is better than unnecessary dependencies.\n- Avoid unnecessary layers of abstractions, jumping between layers of abstractions is mentally exhausting, linear thinking is more natural to humans.\n- NEVER write comments about code changes (\"added feature X\", \"replaced A with B\", \"moved from otherplace.py to here\"). Comments are for understanding how and why the code works the way it is right now, not for annotating diffs.\n\n--- project-doc ---\n\n# Repository Guidelines\n\n## Purpose & Scope\n\n- Core goal: implement AI Control for LLMs on top of the LiteLLM proxy.\n- Pattern: Redwood-style control with a centralized control plane making policy decisions; the proxy stays thin.\n- Configure models in `config/litellm_config.yaml`.\n- Select a policy via `LUTHIEN_POLICY_CONFIG` that points to a YAML file (defaults to `config/luthien_config.yaml`).\n  - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`\n\n## Development Workflow\n\n1. You will be given an OBJECTIVE to complete (e.g. 'implement this feature', 'fix this bug', 'build this UX', 'refactor this module')\n2. Make sure we're on a feature branch (not `main`)\n3. Commit the changes, push to origin, and open a draft PR (to `main`)\n4. Implement the OBJECTIVE. Add any items that should be done but are out of scope for the current OBJECTIVE to `dev/TODO.md` (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).\n5. Regularly format + test (`scripts/dev_checks.sh`), commit, and push to origin (on the feature branch).\n6. When the OBJECTIVE is complete, update `CHANGELOG.md`\n7. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`\n8. Mark the PR as ready.\n\n### Objective Workflow\n\n1. **Start a new objective**\n\n   ```bash\n   git checkout main\n   git pull\n   git checkout -b <short-handle>\n   ```\n\n   - If the branch already exists, run `git checkout <short-handle>` instead of creating it.\n   - Update `dev/OBJECTIVE.md`, then:\n\n     ```bash\n     git add dev/OBJECTIVE.md\n     git commit -m \"chore: set objective to <short description>\"\n     git push -u origin objective/<short-handle>\n     gh pr create --draft --fill --title \"<Objective Title>\"\n     ```\n\n2. **Develop**\n\n   - Format everything with `./scripts/format_all.sh`.\n   - Full lint + tests + type check: `./scripts/dev_checks.sh`.\n   - Quick unit pass: `uv run pytest tests/unit_tests`.\n   - *infrequenty* run full e2e tests using `uv run pytest -m e2e`. This is SLOW and should be used sparingly to validate that core functionality remains intact.\n   - Commit in small chunks with clear messages.\n\n3. **Wrap up the objective**\n\n   ```bash\n   ./scripts/dev_checks.sh\n   git status\n   ```\n\n   - Update `CHANGELOG.md` with a bullet referencing the objective handle.\n   - Clear `dev/NOTES.md` and `dev/OBJECTIVE.md`.\n\n   ```bash\n   git commit -a -m \"<objective> is ready\"\n   gh pr ready\n   ```\n\n## Project Structure & Module Organization\n\n- `dev/`: Tracking current development information\n  - `TODO.md`: TODO list. Add to this when we notice changes we should make that are out-of-scope for the current PR.\n  - `OBJECTIVE.md`: Succinct statement of the active objective with acceptance check.\n  - `NOTES.md`: Scratchpad for implementation details while the current objective is in progress.\n  - `*plan.md`: Medium- and long-term development plans may be recorded here.\n- `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)\n- `src/luthien_proxy/`: core package\n  - `control_plane/`: FastAPI app and `__main__` launcher\n  - `proxy/`: LiteLLM proxy integration and custom logger\n  - `policies/`: policy interfaces and defaults (`noop.py`)\n  - `control_plane/templates` + `static`: debug and trace UIs\n- `config/`: `litellm_config.yaml`, `luthien_config.yaml`\n- `scripts/`: developer helpers (`quick_start.sh`, `test_proxy.py`)\n- `docker/` + `docker-compose.yaml`: local stack (db, redis, control-plane, proxy)\n- `migrations/`, `prisma/`: database setup\n- `tests/`: put unit/integration tests here\n\n## Build, Test, and Development Commands\n\n- Install dev deps: `uv sync --dev`\n- Start full stack: `./scripts/quick_start.sh`\n- Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)\n- Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.\n- Lint/format: `uv run ruff format` then `uv run ruff check --fix`; `./scripts/dev_checks.sh` wraps both plus pytest and pyright.\n- Type check: `uv run pyright`\n- Run control plane locally: `uv run python -m luthien_proxy.control_plane`\n- Run proxy locally: `uv run python -m luthien_proxy.proxy`\n- Docker iterate: `docker compose restart control-plane` or `litellm-proxy`\n\n## Tooling\n\n- Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent `debug_logs` rows. Example: `uv run python scripts/query_debug_logs.py --call-id <litellm_call_id> --host localhost --summary`.\n\n\n## Coding Style & Naming Conventions\n\n- Python 3.13; annotate public APIs and important internals. Pyright is the single static checker.\n- Formatting via Ruff: double quotes, spaces for indent (see `pyproject.toml`).\n- Naming: modules `snake_case`, classes `PascalCase`, functions and vars `snake_case`.\n- Docstrings: Google style for public modules/classes/functions; focus on WHY and non-trivial behavior.\n- Optional runtime type checking (`beartype`) for critical sections\n- String formatting: prefer f-strings over `.format()` or `%` formatting for readability and performance\n\n## Testing Guidelines\n\n- Framework: `pytest`\n- Location: under `tests/unit_tests/`, `tests/integration_tests/`, `tests/e2e_tests/`\n- Name files `test_*.py` and mirror package paths within the test-type directory.\n- Prefer fast unit tests for policies; add integration tests against `/api/hooks/*` and `/health`.\n- Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.\n\n## Security & Configuration\n\n- Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.\n- Copy `.env.example` to `.env`; never commit secrets.\n- Key env vars: `DATABASE_URL`, `REDIS_URL`, `CONTROL_PLANE_URL`, `LITELLM_*`, `LUTHIEN_POLICY_CONFIG`.\n- Update `config/litellm_config.yaml` and `config/luthien_config.yaml` rather than hardcoding.\n- Validate setup with `uv run python scripts/test_proxy.py` and `docker compose logs -f`.\n\n## Policy Selection\n\n- Policies are loaded from the YAML file pointed to by `LUTHIEN_POLICY_CONFIG` (default `config/luthien_config.yaml`).\n- Minimal YAML:\n\n  ```yaml\n  policy:\n    class: \"luthien_proxy.policies.noop:NoOpPolicy\"\n    config:\n      policy_specific_arg: 'someval'\n  ```\n\n\n</user_instructions>",
+      "<environment_context>\n  <cwd>/Users/jaidhyani/Desktop/luthien-proxy</cwd>\n  <approval_policy>on-request</approval_policy>\n  <sandbox_mode>workspace-write</sandbox_mode>\n  <network_access>restricted</network_access>\n  <shell>zsh</shell>\n</environment_context>",
+      "Hey",
+      "I'm testing something, this chat is running through the proxy as we speak and I want to capture a tool call. Can you create a short js file introducing some js basics to a newbie?"
+    ]
+  },
+  "stream": {
+    "text_chunk_previews": [
+      {
+        "chunk_index": 0,
+        "preview": "I"
+      },
+      {
+        "chunk_index": 1,
+        "preview": "\u2019m"
+      },
+      {
+        "chunk_index": 2,
+        "preview": " going"
+      },
+      {
+        "chunk_index": 3,
+        "preview": " to"
+      },
+      {
+        "chunk_index": 4,
+        "preview": " add"
+      },
+      {
+        "chunk_index": 5,
+        "preview": " a"
+      },
+      {
+        "chunk_index": 6,
+        "preview": " concise"
+      },
+      {
+        "chunk_index": 7,
+        "preview": " JS"
+      },
+      {
+        "chunk_index": 8,
+        "preview": " basics"
+      },
+      {
+        "chunk_index": 9,
+        "preview": " example"
+      },
+      {
+        "chunk_index": 10,
+        "preview": " file"
+      },
+      {
+        "chunk_index": 11,
+        "preview": " under"
+      },
+      {
+        "chunk_index": 12,
+        "preview": " dev"
+      },
+      {
+        "chunk_index": 13,
+        "preview": "/"
+      },
+      {
+        "chunk_index": 14,
+        "preview": " for"
+      },
+      {
+        "chunk_index": 15,
+        "preview": " you"
+      },
+      {
+        "chunk_index": 16,
+        "preview": " to"
+      },
+      {
+        "chunk_index": 17,
+        "preview": " capture"
+      },
+      {
+        "chunk_index": 18,
+        "preview": " the"
+      },
+      {
+        "chunk_index": 19,
+        "preview": " tool"
+      },
+      {
+        "chunk_index": 20,
+        "preview": " call"
+      },
+      {
+        "chunk_index": 21,
+        "preview": "."
+      }
+    ],
+    "tool_calls": [
+      {
+        "index": 0,
+        "name": "shell",
+        "arguments": "{\"command\":[\"apply_patch\",\"*** Begin Patch\\n*** Add File: dev/js_basics_intro.js\\n+// JavaScript basics \u2014 quick tour\\n+// Run: node dev/js_basics_intro.js\\n+\\n+console.log(\\\"=== JavaScript Basics: A 5\u2011minute tour ===\\\\n\\\");\\n+\\n+// 1) Variables\\n+// Prefer const by default; use let when the value changes.\\n+const language = \\\"JavaScript\\\";\\n+let counter = 0;\\n+counter += 1;\\n+console.log(\\\"Variables:\\\", { language, counter });\\n+\\n+// 2) Types & operations\\n+// Common primitive types: number, string, boolean, null, undefined, bigint, symbol\\n+const year = 2025; // number\\n+const pi = 3.14; // also number (no separate float/int types)\\n+const isFun = true;\\n+const nothingHere = null;\\n+let notSet; // undefined\\n+console.log(\\\"Types:\\\", { year, pi, isFun, nothingHere, notSet });\\n+\\n+// String building \u2014 prefer template literals for readability\\n+const name = \\\"Ada\\\";\\n+console.log(\\\"Greeting:\\\", `Hello, ${name}! The year is ${year}.`);\\n+\\n+// 3) Functions\\n+// Keep functions small and use early returns for clarity.\\n+function greet(person) {\\n+  if (!person) return \\\"Hello, mystery human\\\";\\n+  return `Hello, ${person}`;\\n+}\\n+console.log(\\\"Function:\\\", greet(name));\\n+console.log(\\\"Function (missing arg):\\\", greet());\\n+\\n+// 4) Objects\\n+// Objects group related data. Use dot or bracket notation for access.\\n+const user = {\\n+  name: \\\"Ada\\\",\\n+  skills: [\\\"math\\\", \\\"logic\\\"],\\n+  active: true,\\n+};\\n+user.email = \\\"ada@example.com\\\"; // add a new field\\n+console.log(\\\"Object:\\\", user);\\n+console.log(\\\"Object field:\\\", user.name, user[\\\"email\\\"]);\\n+\\n+// 5) Arrays & common helpers\\n+const numbers = [1, 2, 3, 4];\\n+const doubled = numbers.map((n) => n * 2); // transform\\n+const evens = numbers.filter((n) => n % 2 === 0); // keep some\\n+const sum = numbers.reduce((acc, n) => acc + n, 0); // fold\\n+console.log(\\\"Arrays:\\\", { numbers, doubled, evens, sum });\\n+\\n+// Looping \u2014 for..of is a simple way to walk arrays\\n+for (const n of numbers) {\\n+  if (n === 3) continue; // skip\\n+  if (n > 3) break; // stop\\n+  process.stdout.write(`${n} `);\\n+}\\n+process.stdout.write(\\\"\\\\n\\\");\\n+\\n+// 6) Equality\\n+// Use === to avoid surprising type coercion from ==\\n+console.log(\\\"Equality:\\\", 0 === false, 0 == false); // false, true\\n+\\n+// 7) Errors\\n+// Throw early when something unexpected happens; fail fast.\\n+function mustBePositive(n) {\\n+  if (typeof n !== \\\"number\\\" || n <= 0) {\\n+    throw new Error(\\\"n must be a positive number\\\");\\n+  }\\n+  return Math.sqrt(n);\\n+}\\n+try {\\n+  console.log(\\\"Sqrt:\\\", mustBePositive(16));\\n+  console.log(\\\"Sqrt:\\\", mustBePositive(-1)); // will throw\\n+} catch (err) {\\n+  console.log(\\\"Caught error:\\\", err.message);\\n+}\\n+\\n+// 8) Destructuring (nice to have)\\n+// Extract fields from objects/arrays for readability.\\n+const { name: userName, email } = user;\\n+const [first, second] = numbers;\\n+console.log(\\\"Destructuring:\\\", { userName, email, first, second });\\n+\\n+console.log(\\\"\\\\nDone. Tweak values and re\u2011run to experiment.\\\");\\n+\\n*** End Patch\"]}",
+        "fragment_previews": [
+          {
+            "chunk_index": 23,
+            "preview": "{\""
+          },
+          {
+            "chunk_index": 24,
+            "preview": "command"
+          },
+          {
+            "chunk_index": 25,
+            "preview": "\":[\""
+          },
+          {
+            "chunk_index": 26,
+            "preview": "apply"
+          },
+          {
+            "chunk_index": 27,
+            "preview": "_patch"
+          },
+          {
+            "chunk_index": 28,
+            "preview": "\",\""
+          },
+          {
+            "chunk_index": 29,
+            "preview": "***"
+          },
+          {
+            "chunk_index": 30,
+            "preview": " Begin"
+          },
+          {
+            "chunk_index": 31,
+            "preview": " Patch"
+          },
+          {
+            "chunk_index": 32,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 33,
+            "preview": "***"
+          },
+          {
+            "chunk_index": 34,
+            "preview": " Add"
+          },
+          {
+            "chunk_index": 35,
+            "preview": " File"
+          },
+          {
+            "chunk_index": 36,
+            "preview": ":"
+          },
+          {
+            "chunk_index": 37,
+            "preview": " dev"
+          },
+          {
+            "chunk_index": 38,
+            "preview": "/js"
+          },
+          {
+            "chunk_index": 39,
+            "preview": "_bas"
+          },
+          {
+            "chunk_index": 40,
+            "preview": "ics"
+          },
+          {
+            "chunk_index": 41,
+            "preview": "_intro"
+          },
+          {
+            "chunk_index": 42,
+            "preview": ".js"
+          },
+          {
+            "chunk_index": 43,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 44,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 45,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 46,
+            "preview": " Java"
+          },
+          {
+            "chunk_index": 47,
+            "preview": "Script"
+          },
+          {
+            "chunk_index": 48,
+            "preview": " basics"
+          },
+          {
+            "chunk_index": 49,
+            "preview": " \u2014"
+          },
+          {
+            "chunk_index": 50,
+            "preview": " quick"
+          },
+          {
+            "chunk_index": 51,
+            "preview": " tour"
+          },
+          {
+            "chunk_index": 52,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 53,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 54,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 55,
+            "preview": " Run"
+          },
+          {
+            "chunk_index": 56,
+            "preview": ":"
+          },
+          {
+            "chunk_index": 57,
+            "preview": " node"
+          },
+          {
+            "chunk_index": 58,
+            "preview": " dev"
+          },
+          {
+            "chunk_index": 59,
+            "preview": "/js"
+          },
+          {
+            "chunk_index": 60,
+            "preview": "_bas"
+          },
+          {
+            "chunk_index": 61,
+            "preview": "ics"
+          },
+          {
+            "chunk_index": 62,
+            "preview": "_intro"
+          },
+          {
+            "chunk_index": 63,
+            "preview": ".js"
+          },
+          {
+            "chunk_index": 64,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 65,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 66,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 67,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 68,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 69,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 70,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 71,
+            "preview": "==="
+          },
+          {
+            "chunk_index": 72,
+            "preview": " Java"
+          },
+          {
+            "chunk_index": 73,
+            "preview": "Script"
+          },
+          {
+            "chunk_index": 74,
+            "preview": " Basics"
+          },
+          {
+            "chunk_index": 75,
+            "preview": ":"
+          },
+          {
+            "chunk_index": 76,
+            "preview": " A"
+          },
+          {
+            "chunk_index": 77,
+            "preview": " "
+          },
+          {
+            "chunk_index": 78,
+            "preview": "5"
+          },
+          {
+            "chunk_index": 79,
+            "preview": "\u2011"
+          },
+          {
+            "chunk_index": 80,
+            "preview": "minute"
+          },
+          {
+            "chunk_index": 81,
+            "preview": " tour"
+          },
+          {
+            "chunk_index": 82,
+            "preview": " ==="
+          },
+          {
+            "chunk_index": 83,
+            "preview": "\\\\"
+          },
+          {
+            "chunk_index": 84,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 85,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 86,
+            "preview": "\");"
+          },
+          {
+            "chunk_index": 87,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 88,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 89,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 90,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 91,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 92,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 93,
+            "preview": " "
+          },
+          {
+            "chunk_index": 94,
+            "preview": "1"
+          },
+          {
+            "chunk_index": 95,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 96,
+            "preview": " Variables"
+          },
+          {
+            "chunk_index": 97,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 98,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 99,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 100,
+            "preview": " Prefer"
+          },
+          {
+            "chunk_index": 101,
+            "preview": " const"
+          },
+          {
+            "chunk_index": 102,
+            "preview": " by"
+          },
+          {
+            "chunk_index": 103,
+            "preview": " default"
+          },
+          {
+            "chunk_index": 104,
+            "preview": ";"
+          },
+          {
+            "chunk_index": 105,
+            "preview": " use"
+          },
+          {
+            "chunk_index": 106,
+            "preview": " let"
+          },
+          {
+            "chunk_index": 107,
+            "preview": " when"
+          },
+          {
+            "chunk_index": 108,
+            "preview": " the"
+          },
+          {
+            "chunk_index": 109,
+            "preview": " value"
+          },
+          {
+            "chunk_index": 110,
+            "preview": " changes"
+          },
+          {
+            "chunk_index": 111,
+            "preview": ".\\"
+          },
+          {
+            "chunk_index": 112,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 113,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 114,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 115,
+            "preview": " language"
+          },
+          {
+            "chunk_index": 116,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 117,
+            "preview": " \\\""
+          },
+          {
+            "chunk_index": 118,
+            "preview": "Java"
+          },
+          {
+            "chunk_index": 119,
+            "preview": "Script"
+          },
+          {
+            "chunk_index": 120,
+            "preview": "\\\""
+          },
+          {
+            "chunk_index": 121,
+            "preview": ";\\"
+          },
+          {
+            "chunk_index": 122,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 123,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 124,
+            "preview": "let"
+          },
+          {
+            "chunk_index": 125,
+            "preview": " counter"
+          },
+          {
+            "chunk_index": 126,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 127,
+            "preview": " "
+          },
+          {
+            "chunk_index": 128,
+            "preview": "0"
+          },
+          {
+            "chunk_index": 129,
+            "preview": ";\\"
+          },
+          {
+            "chunk_index": 130,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 131,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 132,
+            "preview": "counter"
+          },
+          {
+            "chunk_index": 133,
+            "preview": " +="
+          },
+          {
+            "chunk_index": 134,
+            "preview": " "
+          },
+          {
+            "chunk_index": 135,
+            "preview": "1"
+          },
+          {
+            "chunk_index": 136,
+            "preview": ";\\"
+          },
+          {
+            "chunk_index": 137,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 138,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 139,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 140,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 141,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 142,
+            "preview": "Variables"
+          },
+          {
+            "chunk_index": 143,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 144,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 145,
+            "preview": " {"
+          },
+          {
+            "chunk_index": 146,
+            "preview": " language"
+          },
+          {
+            "chunk_index": 147,
+            "preview": ","
+          },
+          {
+            "chunk_index": 148,
+            "preview": " counter"
+          },
+          {
+            "chunk_index": 149,
+            "preview": " });"
+          },
+          {
+            "chunk_index": 150,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 151,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 152,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 153,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 154,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 155,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 156,
+            "preview": " "
+          },
+          {
+            "chunk_index": 157,
+            "preview": "2"
+          },
+          {
+            "chunk_index": 158,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 159,
+            "preview": " Types"
+          },
+          {
+            "chunk_index": 160,
+            "preview": " &"
+          },
+          {
+            "chunk_index": 161,
+            "preview": " operations"
+          },
+          {
+            "chunk_index": 162,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 163,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 164,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 165,
+            "preview": " Common"
+          },
+          {
+            "chunk_index": 166,
+            "preview": " primitive"
+          },
+          {
+            "chunk_index": 167,
+            "preview": " types"
+          },
+          {
+            "chunk_index": 168,
+            "preview": ":"
+          },
+          {
+            "chunk_index": 169,
+            "preview": " number"
+          },
+          {
+            "chunk_index": 170,
+            "preview": ","
+          },
+          {
+            "chunk_index": 171,
+            "preview": " string"
+          },
+          {
+            "chunk_index": 172,
+            "preview": ","
+          },
+          {
+            "chunk_index": 173,
+            "preview": " boolean"
+          },
+          {
+            "chunk_index": 174,
+            "preview": ","
+          },
+          {
+            "chunk_index": 175,
+            "preview": " null"
+          },
+          {
+            "chunk_index": 176,
+            "preview": ","
+          },
+          {
+            "chunk_index": 177,
+            "preview": " undefined"
+          },
+          {
+            "chunk_index": 178,
+            "preview": ","
+          },
+          {
+            "chunk_index": 179,
+            "preview": " bigint"
+          },
+          {
+            "chunk_index": 180,
+            "preview": ","
+          },
+          {
+            "chunk_index": 181,
+            "preview": " symbol"
+          },
+          {
+            "chunk_index": 182,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 183,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 184,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 185,
+            "preview": " year"
+          },
+          {
+            "chunk_index": 186,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 187,
+            "preview": " "
+          },
+          {
+            "chunk_index": 188,
+            "preview": "202"
+          },
+          {
+            "chunk_index": 189,
+            "preview": "5"
+          },
+          {
+            "chunk_index": 190,
+            "preview": ";"
+          },
+          {
+            "chunk_index": 191,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 192,
+            "preview": " number"
+          },
+          {
+            "chunk_index": 193,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 194,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 195,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 196,
+            "preview": " pi"
+          },
+          {
+            "chunk_index": 197,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 198,
+            "preview": " "
+          },
+          {
+            "chunk_index": 199,
+            "preview": "3"
+          },
+          {
+            "chunk_index": 200,
+            "preview": "."
+          },
+          {
+            "chunk_index": 201,
+            "preview": "14"
+          },
+          {
+            "chunk_index": 202,
+            "preview": ";"
+          },
+          {
+            "chunk_index": 203,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 204,
+            "preview": " also"
+          },
+          {
+            "chunk_index": 205,
+            "preview": " number"
+          },
+          {
+            "chunk_index": 206,
+            "preview": " ("
+          },
+          {
+            "chunk_index": 207,
+            "preview": "no"
+          },
+          {
+            "chunk_index": 208,
+            "preview": " separate"
+          },
+          {
+            "chunk_index": 209,
+            "preview": " float"
+          },
+          {
+            "chunk_index": 210,
+            "preview": "/int"
+          },
+          {
+            "chunk_index": 211,
+            "preview": " types"
+          },
+          {
+            "chunk_index": 212,
+            "preview": ")\\"
+          },
+          {
+            "chunk_index": 213,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 214,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 215,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 216,
+            "preview": " is"
+          },
+          {
+            "chunk_index": 217,
+            "preview": "Fun"
+          },
+          {
+            "chunk_index": 218,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 219,
+            "preview": " true"
+          },
+          {
+            "chunk_index": 220,
+            "preview": ";\\"
+          },
+          {
+            "chunk_index": 221,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 222,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 223,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 224,
+            "preview": " nothing"
+          },
+          {
+            "chunk_index": 225,
+            "preview": "Here"
+          },
+          {
+            "chunk_index": 226,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 227,
+            "preview": " null"
+          },
+          {
+            "chunk_index": 228,
+            "preview": ";\\"
+          },
+          {
+            "chunk_index": 229,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 230,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 231,
+            "preview": "let"
+          },
+          {
+            "chunk_index": 232,
+            "preview": " not"
+          },
+          {
+            "chunk_index": 233,
+            "preview": "Set"
+          },
+          {
+            "chunk_index": 234,
+            "preview": ";"
+          },
+          {
+            "chunk_index": 235,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 236,
+            "preview": " undefined"
+          },
+          {
+            "chunk_index": 237,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 238,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 239,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 240,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 241,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 242,
+            "preview": "Types"
+          },
+          {
+            "chunk_index": 243,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 244,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 245,
+            "preview": " {"
+          },
+          {
+            "chunk_index": 246,
+            "preview": " year"
+          },
+          {
+            "chunk_index": 247,
+            "preview": ","
+          },
+          {
+            "chunk_index": 248,
+            "preview": " pi"
+          },
+          {
+            "chunk_index": 249,
+            "preview": ","
+          },
+          {
+            "chunk_index": 250,
+            "preview": " is"
+          },
+          {
+            "chunk_index": 251,
+            "preview": "Fun"
+          },
+          {
+            "chunk_index": 252,
+            "preview": ","
+          },
+          {
+            "chunk_index": 253,
+            "preview": " nothing"
+          },
+          {
+            "chunk_index": 254,
+            "preview": "Here"
+          },
+          {
+            "chunk_index": 255,
+            "preview": ","
+          },
+          {
+            "chunk_index": 256,
+            "preview": " not"
+          },
+          {
+            "chunk_index": 257,
+            "preview": "Set"
+          },
+          {
+            "chunk_index": 258,
+            "preview": " });"
+          },
+          {
+            "chunk_index": 259,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 260,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 261,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 262,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 263,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 264,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 265,
+            "preview": " String"
+          },
+          {
+            "chunk_index": 266,
+            "preview": " building"
+          },
+          {
+            "chunk_index": 267,
+            "preview": " \u2014"
+          },
+          {
+            "chunk_index": 268,
+            "preview": " prefer"
+          },
+          {
+            "chunk_index": 269,
+            "preview": " template"
+          },
+          {
+            "chunk_index": 270,
+            "preview": " literals"
+          },
+          {
+            "chunk_index": 271,
+            "preview": " for"
+          },
+          {
+            "chunk_index": 272,
+            "preview": " readability"
+          },
+          {
+            "chunk_index": 273,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 274,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 275,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 276,
+            "preview": " name"
+          },
+          {
+            "chunk_index": 277,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 278,
+            "preview": " \\\""
+          },
+          {
+            "chunk_index": 279,
+            "preview": "Ada"
+          },
+          {
+            "chunk_index": 280,
+            "preview": "\\\""
+          },
+          {
+            "chunk_index": 281,
+            "preview": ";\\"
+          },
+          {
+            "chunk_index": 282,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 283,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 284,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 285,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 286,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 287,
+            "preview": "Greeting"
+          },
+          {
+            "chunk_index": 288,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 289,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 290,
+            "preview": " `"
+          },
+          {
+            "chunk_index": 291,
+            "preview": "Hello"
+          },
+          {
+            "chunk_index": 292,
+            "preview": ","
+          },
+          {
+            "chunk_index": 293,
+            "preview": " ${"
+          },
+          {
+            "chunk_index": 294,
+            "preview": "name"
+          },
+          {
+            "chunk_index": 295,
+            "preview": "}!"
+          },
+          {
+            "chunk_index": 296,
+            "preview": " The"
+          },
+          {
+            "chunk_index": 297,
+            "preview": " year"
+          },
+          {
+            "chunk_index": 298,
+            "preview": " is"
+          },
+          {
+            "chunk_index": 299,
+            "preview": " ${"
+          },
+          {
+            "chunk_index": 300,
+            "preview": "year"
+          },
+          {
+            "chunk_index": 301,
+            "preview": "}."
+          },
+          {
+            "chunk_index": 302,
+            "preview": "`"
+          },
+          {
+            "chunk_index": 303,
+            "preview": ");\\"
+          },
+          {
+            "chunk_index": 304,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 305,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 306,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 307,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 308,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 309,
+            "preview": " "
+          },
+          {
+            "chunk_index": 310,
+            "preview": "3"
+          },
+          {
+            "chunk_index": 311,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 312,
+            "preview": " Functions"
+          },
+          {
+            "chunk_index": 313,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 314,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 315,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 316,
+            "preview": " Keep"
+          },
+          {
+            "chunk_index": 317,
+            "preview": " functions"
+          },
+          {
+            "chunk_index": 318,
+            "preview": " small"
+          },
+          {
+            "chunk_index": 319,
+            "preview": " and"
+          },
+          {
+            "chunk_index": 320,
+            "preview": " use"
+          },
+          {
+            "chunk_index": 321,
+            "preview": " early"
+          },
+          {
+            "chunk_index": 322,
+            "preview": " returns"
+          },
+          {
+            "chunk_index": 323,
+            "preview": " for"
+          },
+          {
+            "chunk_index": 324,
+            "preview": " clarity"
+          },
+          {
+            "chunk_index": 325,
+            "preview": ".\\"
+          },
+          {
+            "chunk_index": 326,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 327,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 328,
+            "preview": "function"
+          },
+          {
+            "chunk_index": 329,
+            "preview": " greet"
+          },
+          {
+            "chunk_index": 330,
+            "preview": "(person"
+          },
+          {
+            "chunk_index": 331,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 332,
+            "preview": " {\\"
+          },
+          {
+            "chunk_index": 333,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 334,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 335,
+            "preview": " "
+          },
+          {
+            "chunk_index": 336,
+            "preview": " if"
+          },
+          {
+            "chunk_index": 337,
+            "preview": " (!"
+          },
+          {
+            "chunk_index": 338,
+            "preview": "person"
+          },
+          {
+            "chunk_index": 339,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 340,
+            "preview": " return"
+          },
+          {
+            "chunk_index": 341,
+            "preview": " \\\""
+          },
+          {
+            "chunk_index": 342,
+            "preview": "Hello"
+          },
+          {
+            "chunk_index": 343,
+            "preview": ","
+          },
+          {
+            "chunk_index": 344,
+            "preview": " mystery"
+          },
+          {
+            "chunk_index": 345,
+            "preview": " human"
+          },
+          {
+            "chunk_index": 346,
+            "preview": "\\\""
+          },
+          {
+            "chunk_index": 347,
+            "preview": ";\\"
+          },
+          {
+            "chunk_index": 348,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 349,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 350,
+            "preview": " "
+          },
+          {
+            "chunk_index": 351,
+            "preview": " return"
+          },
+          {
+            "chunk_index": 352,
+            "preview": " `"
+          },
+          {
+            "chunk_index": 353,
+            "preview": "Hello"
+          },
+          {
+            "chunk_index": 354,
+            "preview": ","
+          },
+          {
+            "chunk_index": 355,
+            "preview": " ${"
+          },
+          {
+            "chunk_index": 356,
+            "preview": "person"
+          },
+          {
+            "chunk_index": 357,
+            "preview": "}`"
+          },
+          {
+            "chunk_index": 358,
+            "preview": ";\\"
+          },
+          {
+            "chunk_index": 359,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 360,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 361,
+            "preview": "}\\"
+          },
+          {
+            "chunk_index": 362,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 363,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 364,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 365,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 366,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 367,
+            "preview": "Function"
+          },
+          {
+            "chunk_index": 368,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 369,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 370,
+            "preview": " greet"
+          },
+          {
+            "chunk_index": 371,
+            "preview": "(name"
+          },
+          {
+            "chunk_index": 372,
+            "preview": "));"
+          },
+          {
+            "chunk_index": 373,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 374,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 375,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 376,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 377,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 378,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 379,
+            "preview": "Function"
+          },
+          {
+            "chunk_index": 380,
+            "preview": " ("
+          },
+          {
+            "chunk_index": 381,
+            "preview": "missing"
+          },
+          {
+            "chunk_index": 382,
+            "preview": " arg"
+          },
+          {
+            "chunk_index": 383,
+            "preview": "):"
+          },
+          {
+            "chunk_index": 384,
+            "preview": "\\\","
+          },
+          {
+            "chunk_index": 385,
+            "preview": " greet"
+          },
+          {
+            "chunk_index": 386,
+            "preview": "());"
+          },
+          {
+            "chunk_index": 387,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 388,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 389,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 390,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 391,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 392,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 393,
+            "preview": " "
+          },
+          {
+            "chunk_index": 394,
+            "preview": "4"
+          },
+          {
+            "chunk_index": 395,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 396,
+            "preview": " Objects"
+          },
+          {
+            "chunk_index": 397,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 398,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 399,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 400,
+            "preview": " Objects"
+          },
+          {
+            "chunk_index": 401,
+            "preview": " group"
+          },
+          {
+            "chunk_index": 402,
+            "preview": " related"
+          },
+          {
+            "chunk_index": 403,
+            "preview": " data"
+          },
+          {
+            "chunk_index": 404,
+            "preview": "."
+          },
+          {
+            "chunk_index": 405,
+            "preview": " Use"
+          },
+          {
+            "chunk_index": 406,
+            "preview": " dot"
+          },
+          {
+            "chunk_index": 407,
+            "preview": " or"
+          },
+          {
+            "chunk_index": 408,
+            "preview": " bracket"
+          },
+          {
+            "chunk_index": 409,
+            "preview": " notation"
+          },
+          {
+            "chunk_index": 410,
+            "preview": " for"
+          },
+          {
+            "chunk_index": 411,
+            "preview": " access"
+          },
+          {
+            "chunk_index": 412,
+            "preview": ".\\"
+          },
+          {
+            "chunk_index": 413,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 414,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 415,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 416,
+            "preview": " user"
+          },
+          {
+            "chunk_index": 417,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 418,
+            "preview": " {\\"
+          },
+          {
+            "chunk_index": 419,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 420,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 421,
+            "preview": " "
+          },
+          {
+            "chunk_index": 422,
+            "preview": " name"
+          },
+          {
+            "chunk_index": 423,
+            "preview": ":"
+          },
+          {
+            "chunk_index": 424,
+            "preview": " \\\""
+          },
+          {
+            "chunk_index": 425,
+            "preview": "Ada"
+          },
+          {
+            "chunk_index": 426,
+            "preview": "\\\",\\"
+          },
+          {
+            "chunk_index": 427,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 428,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 429,
+            "preview": " "
+          },
+          {
+            "chunk_index": 430,
+            "preview": " skills"
+          },
+          {
+            "chunk_index": 431,
+            "preview": ":"
+          },
+          {
+            "chunk_index": 432,
+            "preview": " ["
+          },
+          {
+            "chunk_index": 433,
+            "preview": "\\\""
+          },
+          {
+            "chunk_index": 434,
+            "preview": "math"
+          },
+          {
+            "chunk_index": 435,
+            "preview": "\\\","
+          },
+          {
+            "chunk_index": 436,
+            "preview": " \\\""
+          },
+          {
+            "chunk_index": 437,
+            "preview": "logic"
+          },
+          {
+            "chunk_index": 438,
+            "preview": "\\\""
+          },
+          {
+            "chunk_index": 439,
+            "preview": "],"
+          },
+          {
+            "chunk_index": 440,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 441,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 442,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 443,
+            "preview": " "
+          },
+          {
+            "chunk_index": 444,
+            "preview": " active"
+          },
+          {
+            "chunk_index": 445,
+            "preview": ":"
+          },
+          {
+            "chunk_index": 446,
+            "preview": " true"
+          },
+          {
+            "chunk_index": 447,
+            "preview": ",\\"
+          },
+          {
+            "chunk_index": 448,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 449,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 450,
+            "preview": "};"
+          },
+          {
+            "chunk_index": 451,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 452,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 453,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 454,
+            "preview": "user"
+          },
+          {
+            "chunk_index": 455,
+            "preview": ".email"
+          },
+          {
+            "chunk_index": 456,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 457,
+            "preview": " \\\""
+          },
+          {
+            "chunk_index": 458,
+            "preview": "ada"
+          },
+          {
+            "chunk_index": 459,
+            "preview": "@example"
+          },
+          {
+            "chunk_index": 460,
+            "preview": ".com"
+          },
+          {
+            "chunk_index": 461,
+            "preview": "\\\""
+          },
+          {
+            "chunk_index": 462,
+            "preview": ";"
+          },
+          {
+            "chunk_index": 463,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 464,
+            "preview": " add"
+          },
+          {
+            "chunk_index": 465,
+            "preview": " a"
+          },
+          {
+            "chunk_index": 466,
+            "preview": " new"
+          },
+          {
+            "chunk_index": 467,
+            "preview": " field"
+          },
+          {
+            "chunk_index": 468,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 469,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 470,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 471,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 472,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 473,
+            "preview": "Object"
+          },
+          {
+            "chunk_index": 474,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 475,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 476,
+            "preview": " user"
+          },
+          {
+            "chunk_index": 477,
+            "preview": ");\\"
+          },
+          {
+            "chunk_index": 478,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 479,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 480,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 481,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 482,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 483,
+            "preview": "Object"
+          },
+          {
+            "chunk_index": 484,
+            "preview": " field"
+          },
+          {
+            "chunk_index": 485,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 486,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 487,
+            "preview": " user"
+          },
+          {
+            "chunk_index": 488,
+            "preview": ".name"
+          },
+          {
+            "chunk_index": 489,
+            "preview": ","
+          },
+          {
+            "chunk_index": 490,
+            "preview": " user"
+          },
+          {
+            "chunk_index": 491,
+            "preview": "["
+          },
+          {
+            "chunk_index": 492,
+            "preview": "\\\""
+          },
+          {
+            "chunk_index": 493,
+            "preview": "email"
+          },
+          {
+            "chunk_index": 494,
+            "preview": "\\\"]"
+          },
+          {
+            "chunk_index": 495,
+            "preview": ");\\"
+          },
+          {
+            "chunk_index": 496,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 497,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 498,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 499,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 500,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 501,
+            "preview": " "
+          },
+          {
+            "chunk_index": 502,
+            "preview": "5"
+          },
+          {
+            "chunk_index": 503,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 504,
+            "preview": " Arrays"
+          },
+          {
+            "chunk_index": 505,
+            "preview": " &"
+          },
+          {
+            "chunk_index": 506,
+            "preview": " common"
+          },
+          {
+            "chunk_index": 507,
+            "preview": " helpers"
+          },
+          {
+            "chunk_index": 508,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 509,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 510,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 511,
+            "preview": " numbers"
+          },
+          {
+            "chunk_index": 512,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 513,
+            "preview": " ["
+          },
+          {
+            "chunk_index": 514,
+            "preview": "1"
+          },
+          {
+            "chunk_index": 515,
+            "preview": ","
+          },
+          {
+            "chunk_index": 516,
+            "preview": " "
+          },
+          {
+            "chunk_index": 517,
+            "preview": "2"
+          },
+          {
+            "chunk_index": 518,
+            "preview": ","
+          },
+          {
+            "chunk_index": 519,
+            "preview": " "
+          },
+          {
+            "chunk_index": 520,
+            "preview": "3"
+          },
+          {
+            "chunk_index": 521,
+            "preview": ","
+          },
+          {
+            "chunk_index": 522,
+            "preview": " "
+          },
+          {
+            "chunk_index": 523,
+            "preview": "4"
+          },
+          {
+            "chunk_index": 524,
+            "preview": "];"
+          },
+          {
+            "chunk_index": 525,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 526,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 527,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 528,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 529,
+            "preview": " doubled"
+          },
+          {
+            "chunk_index": 530,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 531,
+            "preview": " numbers"
+          },
+          {
+            "chunk_index": 532,
+            "preview": ".map"
+          },
+          {
+            "chunk_index": 533,
+            "preview": "(("
+          },
+          {
+            "chunk_index": 534,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 535,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 536,
+            "preview": " =>"
+          },
+          {
+            "chunk_index": 537,
+            "preview": " n"
+          },
+          {
+            "chunk_index": 538,
+            "preview": " *"
+          },
+          {
+            "chunk_index": 539,
+            "preview": " "
+          },
+          {
+            "chunk_index": 540,
+            "preview": "2"
+          },
+          {
+            "chunk_index": 541,
+            "preview": ");"
+          },
+          {
+            "chunk_index": 542,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 543,
+            "preview": " transform"
+          },
+          {
+            "chunk_index": 544,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 545,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 546,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 547,
+            "preview": " ev"
+          },
+          {
+            "chunk_index": 548,
+            "preview": "ens"
+          },
+          {
+            "chunk_index": 549,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 550,
+            "preview": " numbers"
+          },
+          {
+            "chunk_index": 551,
+            "preview": ".filter"
+          },
+          {
+            "chunk_index": 552,
+            "preview": "(("
+          },
+          {
+            "chunk_index": 553,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 554,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 555,
+            "preview": " =>"
+          },
+          {
+            "chunk_index": 556,
+            "preview": " n"
+          },
+          {
+            "chunk_index": 557,
+            "preview": " %"
+          },
+          {
+            "chunk_index": 558,
+            "preview": " "
+          },
+          {
+            "chunk_index": 559,
+            "preview": "2"
+          },
+          {
+            "chunk_index": 560,
+            "preview": " ==="
+          },
+          {
+            "chunk_index": 561,
+            "preview": " "
+          },
+          {
+            "chunk_index": 562,
+            "preview": "0"
+          },
+          {
+            "chunk_index": 563,
+            "preview": ");"
+          },
+          {
+            "chunk_index": 564,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 565,
+            "preview": " keep"
+          },
+          {
+            "chunk_index": 566,
+            "preview": " some"
+          },
+          {
+            "chunk_index": 567,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 568,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 569,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 570,
+            "preview": " sum"
+          },
+          {
+            "chunk_index": 571,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 572,
+            "preview": " numbers"
+          },
+          {
+            "chunk_index": 573,
+            "preview": ".reduce"
+          },
+          {
+            "chunk_index": 574,
+            "preview": "(("
+          },
+          {
+            "chunk_index": 575,
+            "preview": "acc"
+          },
+          {
+            "chunk_index": 576,
+            "preview": ","
+          },
+          {
+            "chunk_index": 577,
+            "preview": " n"
+          },
+          {
+            "chunk_index": 578,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 579,
+            "preview": " =>"
+          },
+          {
+            "chunk_index": 580,
+            "preview": " acc"
+          },
+          {
+            "chunk_index": 581,
+            "preview": " +"
+          },
+          {
+            "chunk_index": 582,
+            "preview": " n"
+          },
+          {
+            "chunk_index": 583,
+            "preview": ","
+          },
+          {
+            "chunk_index": 584,
+            "preview": " "
+          },
+          {
+            "chunk_index": 585,
+            "preview": "0"
+          },
+          {
+            "chunk_index": 586,
+            "preview": ");"
+          },
+          {
+            "chunk_index": 587,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 588,
+            "preview": " fold"
+          },
+          {
+            "chunk_index": 589,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 590,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 591,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 592,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 593,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 594,
+            "preview": "Arrays"
+          },
+          {
+            "chunk_index": 595,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 596,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 597,
+            "preview": " {"
+          },
+          {
+            "chunk_index": 598,
+            "preview": " numbers"
+          },
+          {
+            "chunk_index": 599,
+            "preview": ","
+          },
+          {
+            "chunk_index": 600,
+            "preview": " doubled"
+          },
+          {
+            "chunk_index": 601,
+            "preview": ","
+          },
+          {
+            "chunk_index": 602,
+            "preview": " ev"
+          },
+          {
+            "chunk_index": 603,
+            "preview": "ens"
+          },
+          {
+            "chunk_index": 604,
+            "preview": ","
+          },
+          {
+            "chunk_index": 605,
+            "preview": " sum"
+          },
+          {
+            "chunk_index": 606,
+            "preview": " });"
+          },
+          {
+            "chunk_index": 607,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 608,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 609,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 610,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 611,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 612,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 613,
+            "preview": " Loop"
+          },
+          {
+            "chunk_index": 614,
+            "preview": "ing"
+          },
+          {
+            "chunk_index": 615,
+            "preview": " \u2014"
+          },
+          {
+            "chunk_index": 616,
+            "preview": " for"
+          },
+          {
+            "chunk_index": 617,
+            "preview": ".."
+          },
+          {
+            "chunk_index": 618,
+            "preview": "of"
+          },
+          {
+            "chunk_index": 619,
+            "preview": " is"
+          },
+          {
+            "chunk_index": 620,
+            "preview": " a"
+          },
+          {
+            "chunk_index": 621,
+            "preview": " simple"
+          },
+          {
+            "chunk_index": 622,
+            "preview": " way"
+          },
+          {
+            "chunk_index": 623,
+            "preview": " to"
+          },
+          {
+            "chunk_index": 624,
+            "preview": " walk"
+          },
+          {
+            "chunk_index": 625,
+            "preview": " arrays"
+          },
+          {
+            "chunk_index": 626,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 627,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 628,
+            "preview": "for"
+          },
+          {
+            "chunk_index": 629,
+            "preview": " ("
+          },
+          {
+            "chunk_index": 630,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 631,
+            "preview": " n"
+          },
+          {
+            "chunk_index": 632,
+            "preview": " of"
+          },
+          {
+            "chunk_index": 633,
+            "preview": " numbers"
+          },
+          {
+            "chunk_index": 634,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 635,
+            "preview": " {\\"
+          },
+          {
+            "chunk_index": 636,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 637,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 638,
+            "preview": " "
+          },
+          {
+            "chunk_index": 639,
+            "preview": " if"
+          },
+          {
+            "chunk_index": 640,
+            "preview": " ("
+          },
+          {
+            "chunk_index": 641,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 642,
+            "preview": " ==="
+          },
+          {
+            "chunk_index": 643,
+            "preview": " "
+          },
+          {
+            "chunk_index": 644,
+            "preview": "3"
+          },
+          {
+            "chunk_index": 645,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 646,
+            "preview": " continue"
+          },
+          {
+            "chunk_index": 647,
+            "preview": ";"
+          },
+          {
+            "chunk_index": 648,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 649,
+            "preview": " skip"
+          },
+          {
+            "chunk_index": 650,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 651,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 652,
+            "preview": " "
+          },
+          {
+            "chunk_index": 653,
+            "preview": " if"
+          },
+          {
+            "chunk_index": 654,
+            "preview": " ("
+          },
+          {
+            "chunk_index": 655,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 656,
+            "preview": " >"
+          },
+          {
+            "chunk_index": 657,
+            "preview": " "
+          },
+          {
+            "chunk_index": 658,
+            "preview": "3"
+          },
+          {
+            "chunk_index": 659,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 660,
+            "preview": " break"
+          },
+          {
+            "chunk_index": 661,
+            "preview": ";"
+          },
+          {
+            "chunk_index": 662,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 663,
+            "preview": " stop"
+          },
+          {
+            "chunk_index": 664,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 665,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 666,
+            "preview": " "
+          },
+          {
+            "chunk_index": 667,
+            "preview": " process"
+          },
+          {
+            "chunk_index": 668,
+            "preview": ".stdout"
+          },
+          {
+            "chunk_index": 669,
+            "preview": ".write"
+          },
+          {
+            "chunk_index": 670,
+            "preview": "(`${"
+          },
+          {
+            "chunk_index": 671,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 672,
+            "preview": "}"
+          },
+          {
+            "chunk_index": 673,
+            "preview": " `"
+          },
+          {
+            "chunk_index": 674,
+            "preview": ");\\"
+          },
+          {
+            "chunk_index": 675,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 676,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 677,
+            "preview": "}\\"
+          },
+          {
+            "chunk_index": 678,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 679,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 680,
+            "preview": "process"
+          },
+          {
+            "chunk_index": 681,
+            "preview": ".stdout"
+          },
+          {
+            "chunk_index": 682,
+            "preview": ".write"
+          },
+          {
+            "chunk_index": 683,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 684,
+            "preview": "\\\\"
+          },
+          {
+            "chunk_index": 685,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 686,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 687,
+            "preview": "\");"
+          },
+          {
+            "chunk_index": 688,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 689,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 690,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 691,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 692,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 693,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 694,
+            "preview": " "
+          },
+          {
+            "chunk_index": 695,
+            "preview": "6"
+          },
+          {
+            "chunk_index": 696,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 697,
+            "preview": " Equality"
+          },
+          {
+            "chunk_index": 698,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 699,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 700,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 701,
+            "preview": " Use"
+          },
+          {
+            "chunk_index": 702,
+            "preview": " ==="
+          },
+          {
+            "chunk_index": 703,
+            "preview": " to"
+          },
+          {
+            "chunk_index": 704,
+            "preview": " avoid"
+          },
+          {
+            "chunk_index": 705,
+            "preview": " surprising"
+          },
+          {
+            "chunk_index": 706,
+            "preview": " type"
+          },
+          {
+            "chunk_index": 707,
+            "preview": " coerc"
+          },
+          {
+            "chunk_index": 708,
+            "preview": "ion"
+          },
+          {
+            "chunk_index": 709,
+            "preview": " from"
+          },
+          {
+            "chunk_index": 710,
+            "preview": " =="
+          },
+          {
+            "chunk_index": 711,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 712,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 713,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 714,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 715,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 716,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 717,
+            "preview": "Equality"
+          },
+          {
+            "chunk_index": 718,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 719,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 720,
+            "preview": " "
+          },
+          {
+            "chunk_index": 721,
+            "preview": "0"
+          },
+          {
+            "chunk_index": 722,
+            "preview": " ==="
+          },
+          {
+            "chunk_index": 723,
+            "preview": " false"
+          },
+          {
+            "chunk_index": 724,
+            "preview": ","
+          },
+          {
+            "chunk_index": 725,
+            "preview": " "
+          },
+          {
+            "chunk_index": 726,
+            "preview": "0"
+          },
+          {
+            "chunk_index": 727,
+            "preview": " =="
+          },
+          {
+            "chunk_index": 728,
+            "preview": " false"
+          },
+          {
+            "chunk_index": 729,
+            "preview": ");"
+          },
+          {
+            "chunk_index": 730,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 731,
+            "preview": " false"
+          },
+          {
+            "chunk_index": 732,
+            "preview": ","
+          },
+          {
+            "chunk_index": 733,
+            "preview": " true"
+          },
+          {
+            "chunk_index": 734,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 735,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 736,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 737,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 738,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 739,
+            "preview": " "
+          },
+          {
+            "chunk_index": 740,
+            "preview": "7"
+          },
+          {
+            "chunk_index": 741,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 742,
+            "preview": " Errors"
+          },
+          {
+            "chunk_index": 743,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 744,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 745,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 746,
+            "preview": " Throw"
+          },
+          {
+            "chunk_index": 747,
+            "preview": " early"
+          },
+          {
+            "chunk_index": 748,
+            "preview": " when"
+          },
+          {
+            "chunk_index": 749,
+            "preview": " something"
+          },
+          {
+            "chunk_index": 750,
+            "preview": " unexpected"
+          },
+          {
+            "chunk_index": 751,
+            "preview": " happens"
+          },
+          {
+            "chunk_index": 752,
+            "preview": ";"
+          },
+          {
+            "chunk_index": 753,
+            "preview": " fail"
+          },
+          {
+            "chunk_index": 754,
+            "preview": " fast"
+          },
+          {
+            "chunk_index": 755,
+            "preview": ".\\"
+          },
+          {
+            "chunk_index": 756,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 757,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 758,
+            "preview": "function"
+          },
+          {
+            "chunk_index": 759,
+            "preview": " must"
+          },
+          {
+            "chunk_index": 760,
+            "preview": "Be"
+          },
+          {
+            "chunk_index": 761,
+            "preview": "Positive"
+          },
+          {
+            "chunk_index": 762,
+            "preview": "(n"
+          },
+          {
+            "chunk_index": 763,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 764,
+            "preview": " {\\"
+          },
+          {
+            "chunk_index": 765,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 766,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 767,
+            "preview": " "
+          },
+          {
+            "chunk_index": 768,
+            "preview": " if"
+          },
+          {
+            "chunk_index": 769,
+            "preview": " ("
+          },
+          {
+            "chunk_index": 770,
+            "preview": "typeof"
+          },
+          {
+            "chunk_index": 771,
+            "preview": " n"
+          },
+          {
+            "chunk_index": 772,
+            "preview": " !=="
+          },
+          {
+            "chunk_index": 773,
+            "preview": " \\\""
+          },
+          {
+            "chunk_index": 774,
+            "preview": "number"
+          },
+          {
+            "chunk_index": 775,
+            "preview": "\\\""
+          },
+          {
+            "chunk_index": 776,
+            "preview": " ||"
+          },
+          {
+            "chunk_index": 777,
+            "preview": " n"
+          },
+          {
+            "chunk_index": 778,
+            "preview": " <="
+          },
+          {
+            "chunk_index": 779,
+            "preview": " "
+          },
+          {
+            "chunk_index": 780,
+            "preview": "0"
+          },
+          {
+            "chunk_index": 781,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 782,
+            "preview": " {\\"
+          },
+          {
+            "chunk_index": 783,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 784,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 785,
+            "preview": "   "
+          },
+          {
+            "chunk_index": 786,
+            "preview": " throw"
+          },
+          {
+            "chunk_index": 787,
+            "preview": " new"
+          },
+          {
+            "chunk_index": 788,
+            "preview": " Error"
+          },
+          {
+            "chunk_index": 789,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 790,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 791,
+            "preview": " must"
+          },
+          {
+            "chunk_index": 792,
+            "preview": " be"
+          },
+          {
+            "chunk_index": 793,
+            "preview": " a"
+          },
+          {
+            "chunk_index": 794,
+            "preview": " positive"
+          },
+          {
+            "chunk_index": 795,
+            "preview": " number"
+          },
+          {
+            "chunk_index": 796,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 797,
+            "preview": "\");"
+          },
+          {
+            "chunk_index": 798,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 799,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 800,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 801,
+            "preview": " "
+          },
+          {
+            "chunk_index": 802,
+            "preview": " }\\"
+          },
+          {
+            "chunk_index": 803,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 804,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 805,
+            "preview": " "
+          },
+          {
+            "chunk_index": 806,
+            "preview": " return"
+          },
+          {
+            "chunk_index": 807,
+            "preview": " Math"
+          },
+          {
+            "chunk_index": 808,
+            "preview": ".sqrt"
+          },
+          {
+            "chunk_index": 809,
+            "preview": "(n"
+          },
+          {
+            "chunk_index": 810,
+            "preview": ");\\"
+          },
+          {
+            "chunk_index": 811,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 812,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 813,
+            "preview": "}\\"
+          },
+          {
+            "chunk_index": 814,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 815,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 816,
+            "preview": "try"
+          },
+          {
+            "chunk_index": 817,
+            "preview": " {\\"
+          },
+          {
+            "chunk_index": 818,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 819,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 820,
+            "preview": " "
+          },
+          {
+            "chunk_index": 821,
+            "preview": " console"
+          },
+          {
+            "chunk_index": 822,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 823,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 824,
+            "preview": "S"
+          },
+          {
+            "chunk_index": 825,
+            "preview": "qrt"
+          },
+          {
+            "chunk_index": 826,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 827,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 828,
+            "preview": " must"
+          },
+          {
+            "chunk_index": 829,
+            "preview": "Be"
+          },
+          {
+            "chunk_index": 830,
+            "preview": "Positive"
+          },
+          {
+            "chunk_index": 831,
+            "preview": "("
+          },
+          {
+            "chunk_index": 832,
+            "preview": "16"
+          },
+          {
+            "chunk_index": 833,
+            "preview": "));"
+          },
+          {
+            "chunk_index": 834,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 835,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 836,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 837,
+            "preview": " "
+          },
+          {
+            "chunk_index": 838,
+            "preview": " console"
+          },
+          {
+            "chunk_index": 839,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 840,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 841,
+            "preview": "S"
+          },
+          {
+            "chunk_index": 842,
+            "preview": "qrt"
+          },
+          {
+            "chunk_index": 843,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 844,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 845,
+            "preview": " must"
+          },
+          {
+            "chunk_index": 846,
+            "preview": "Be"
+          },
+          {
+            "chunk_index": 847,
+            "preview": "Positive"
+          },
+          {
+            "chunk_index": 848,
+            "preview": "(-"
+          },
+          {
+            "chunk_index": 849,
+            "preview": "1"
+          },
+          {
+            "chunk_index": 850,
+            "preview": "));"
+          },
+          {
+            "chunk_index": 851,
+            "preview": " //"
+          },
+          {
+            "chunk_index": 852,
+            "preview": " will"
+          },
+          {
+            "chunk_index": 853,
+            "preview": " throw"
+          },
+          {
+            "chunk_index": 854,
+            "preview": "\\n"
+          },
+          {
+            "chunk_index": 855,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 856,
+            "preview": "}"
+          },
+          {
+            "chunk_index": 857,
+            "preview": " catch"
+          },
+          {
+            "chunk_index": 858,
+            "preview": " ("
+          },
+          {
+            "chunk_index": 859,
+            "preview": "err"
+          },
+          {
+            "chunk_index": 860,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 861,
+            "preview": " {\\"
+          },
+          {
+            "chunk_index": 862,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 863,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 864,
+            "preview": " "
+          },
+          {
+            "chunk_index": 865,
+            "preview": " console"
+          },
+          {
+            "chunk_index": 866,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 867,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 868,
+            "preview": "Caught"
+          },
+          {
+            "chunk_index": 869,
+            "preview": " error"
+          },
+          {
+            "chunk_index": 870,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 871,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 872,
+            "preview": " err"
+          },
+          {
+            "chunk_index": 873,
+            "preview": ".message"
+          },
+          {
+            "chunk_index": 874,
+            "preview": ");\\"
+          },
+          {
+            "chunk_index": 875,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 876,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 877,
+            "preview": "}\\"
+          },
+          {
+            "chunk_index": 878,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 879,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 880,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 881,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 882,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 883,
+            "preview": " "
+          },
+          {
+            "chunk_index": 884,
+            "preview": "8"
+          },
+          {
+            "chunk_index": 885,
+            "preview": ")"
+          },
+          {
+            "chunk_index": 886,
+            "preview": " Des"
+          },
+          {
+            "chunk_index": 887,
+            "preview": "truct"
+          },
+          {
+            "chunk_index": 888,
+            "preview": "uring"
+          },
+          {
+            "chunk_index": 889,
+            "preview": " ("
+          },
+          {
+            "chunk_index": 890,
+            "preview": "nice"
+          },
+          {
+            "chunk_index": 891,
+            "preview": " to"
+          },
+          {
+            "chunk_index": 892,
+            "preview": " have"
+          },
+          {
+            "chunk_index": 893,
+            "preview": ")\\"
+          },
+          {
+            "chunk_index": 894,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 895,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 896,
+            "preview": "//"
+          },
+          {
+            "chunk_index": 897,
+            "preview": " Extract"
+          },
+          {
+            "chunk_index": 898,
+            "preview": " fields"
+          },
+          {
+            "chunk_index": 899,
+            "preview": " from"
+          },
+          {
+            "chunk_index": 900,
+            "preview": " objects"
+          },
+          {
+            "chunk_index": 901,
+            "preview": "/"
+          },
+          {
+            "chunk_index": 902,
+            "preview": "arrays"
+          },
+          {
+            "chunk_index": 903,
+            "preview": " for"
+          },
+          {
+            "chunk_index": 904,
+            "preview": " readability"
+          },
+          {
+            "chunk_index": 905,
+            "preview": ".\\"
+          },
+          {
+            "chunk_index": 906,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 907,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 908,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 909,
+            "preview": " {"
+          },
+          {
+            "chunk_index": 910,
+            "preview": " name"
+          },
+          {
+            "chunk_index": 911,
+            "preview": ":"
+          },
+          {
+            "chunk_index": 912,
+            "preview": " user"
+          },
+          {
+            "chunk_index": 913,
+            "preview": "Name"
+          },
+          {
+            "chunk_index": 914,
+            "preview": ","
+          },
+          {
+            "chunk_index": 915,
+            "preview": " email"
+          },
+          {
+            "chunk_index": 916,
+            "preview": " }"
+          },
+          {
+            "chunk_index": 917,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 918,
+            "preview": " user"
+          },
+          {
+            "chunk_index": 919,
+            "preview": ";\\"
+          },
+          {
+            "chunk_index": 920,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 921,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 922,
+            "preview": "const"
+          },
+          {
+            "chunk_index": 923,
+            "preview": " ["
+          },
+          {
+            "chunk_index": 924,
+            "preview": "first"
+          },
+          {
+            "chunk_index": 925,
+            "preview": ","
+          },
+          {
+            "chunk_index": 926,
+            "preview": " second"
+          },
+          {
+            "chunk_index": 927,
+            "preview": "]"
+          },
+          {
+            "chunk_index": 928,
+            "preview": " ="
+          },
+          {
+            "chunk_index": 929,
+            "preview": " numbers"
+          },
+          {
+            "chunk_index": 930,
+            "preview": ";\\"
+          },
+          {
+            "chunk_index": 931,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 932,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 933,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 934,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 935,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 936,
+            "preview": "Des"
+          },
+          {
+            "chunk_index": 937,
+            "preview": "truct"
+          },
+          {
+            "chunk_index": 938,
+            "preview": "uring"
+          },
+          {
+            "chunk_index": 939,
+            "preview": ":\\"
+          },
+          {
+            "chunk_index": 940,
+            "preview": "\","
+          },
+          {
+            "chunk_index": 941,
+            "preview": " {"
+          },
+          {
+            "chunk_index": 942,
+            "preview": " user"
+          },
+          {
+            "chunk_index": 943,
+            "preview": "Name"
+          },
+          {
+            "chunk_index": 944,
+            "preview": ","
+          },
+          {
+            "chunk_index": 945,
+            "preview": " email"
+          },
+          {
+            "chunk_index": 946,
+            "preview": ","
+          },
+          {
+            "chunk_index": 947,
+            "preview": " first"
+          },
+          {
+            "chunk_index": 948,
+            "preview": ","
+          },
+          {
+            "chunk_index": 949,
+            "preview": " second"
+          },
+          {
+            "chunk_index": 950,
+            "preview": " });"
+          },
+          {
+            "chunk_index": 951,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 952,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 953,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 954,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 955,
+            "preview": "+"
+          },
+          {
+            "chunk_index": 956,
+            "preview": "console"
+          },
+          {
+            "chunk_index": 957,
+            "preview": ".log"
+          },
+          {
+            "chunk_index": 958,
+            "preview": "(\\\""
+          },
+          {
+            "chunk_index": 959,
+            "preview": "\\\\"
+          },
+          {
+            "chunk_index": 960,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 961,
+            "preview": "Done"
+          },
+          {
+            "chunk_index": 962,
+            "preview": "."
+          },
+          {
+            "chunk_index": 963,
+            "preview": " T"
+          },
+          {
+            "chunk_index": 964,
+            "preview": "weak"
+          },
+          {
+            "chunk_index": 965,
+            "preview": " values"
+          },
+          {
+            "chunk_index": 966,
+            "preview": " and"
+          },
+          {
+            "chunk_index": 967,
+            "preview": " re"
+          },
+          {
+            "chunk_index": 968,
+            "preview": "\u2011"
+          },
+          {
+            "chunk_index": 969,
+            "preview": "run"
+          },
+          {
+            "chunk_index": 970,
+            "preview": " to"
+          },
+          {
+            "chunk_index": 971,
+            "preview": " experiment"
+          },
+          {
+            "chunk_index": 972,
+            "preview": ".\\"
+          },
+          {
+            "chunk_index": 973,
+            "preview": "\");"
+          },
+          {
+            "chunk_index": 974,
+            "preview": "\\"
+          },
+          {
+            "chunk_index": 975,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 976,
+            "preview": "+\\"
+          },
+          {
+            "chunk_index": 977,
+            "preview": "n"
+          },
+          {
+            "chunk_index": 978,
+            "preview": "***"
+          },
+          {
+            "chunk_index": 979,
+            "preview": " End"
+          },
+          {
+            "chunk_index": 980,
+            "preview": " Patch"
+          },
+          {
+            "chunk_index": 981,
+            "preview": "\"]"
+          },
+          {
+            "chunk_index": 982,
+            "preview": "}"
+          }
+        ]
+      }
+    ]
+  },
+  "final_message": {
+    "content": "I\u2019m going to add a concise JS basics example file under dev/ for you to capture the tool call.",
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "function": {
+          "arguments": "{\"command\":[\"apply_patch\",\"*** Begin Patch\\n*** Add File: dev/js_basics_intro.js\\n+// JavaScript basics \u2014 quick tour\\n+// Run: node dev/js_basics_intro.js\\n+\\n+console.log(\\\"=== JavaScript Basics: A 5\u2011minute tour ===\\\\n\\\");\\n+\\n+// 1) Variables\\n+// Prefer const by default; use let when the value changes.\\n+const language = \\\"JavaScript\\\";\\n+let counter = 0;\\n+counter += 1;\\n+console.log(\\\"Variables:\\\", { language, counter });\\n+\\n+// 2) Types & operations\\n+// Common primitive types: number, string, boolean, null, undefined, bigint, symbol\\n+const year = 2025; // number\\n+const pi = 3.14; // also number (no separate float/int types)\\n+const isFun = true;\\n+const nothingHere = null;\\n+let notSet; // undefined\\n+console.log(\\\"Types:\\\", { year, pi, isFun, nothingHere, notSet });\\n+\\n+// String building \u2014 prefer template literals for readability\\n+const name = \\\"Ada\\\";\\n+console.log(\\\"Greeting:\\\", `Hello, ${name}! The year is ${year}.`);\\n+\\n+// 3) Functions\\n+// Keep functions small and use early returns for clarity.\\n+function greet(person) {\\n+  if (!person) return \\\"Hello, mystery human\\\";\\n+  return `Hello, ${person}`;\\n+}\\n+console.log(\\\"Function:\\\", greet(name));\\n+console.log(\\\"Function (missing arg):\\\", greet());\\n+\\n+// 4) Objects\\n+// Objects group related data. Use dot or bracket notation for access.\\n+const user = {\\n+  name: \\\"Ada\\\",\\n+  skills: [\\\"math\\\", \\\"logic\\\"],\\n+  active: true,\\n+};\\n+user.email = \\\"ada@example.com\\\"; // add a new field\\n+console.log(\\\"Object:\\\", user);\\n+console.log(\\\"Object field:\\\", user.name, user[\\\"email\\\"]);\\n+\\n+// 5) Arrays & common helpers\\n+const numbers = [1, 2, 3, 4];\\n+const doubled = numbers.map((n) => n * 2); // transform\\n+const evens = numbers.filter((n) => n % 2 === 0); // keep some\\n+const sum = numbers.reduce((acc, n) => acc + n, 0); // fold\\n+console.log(\\\"Arrays:\\\", { numbers, doubled, evens, sum });\\n+\\n+// Looping \u2014 for..of is a simple way to walk arrays\\n+for (const n of numbers) {\\n+  if (n === 3) continue; // skip\\n+  if (n > 3) break; // stop\\n+  process.stdout.write(`${n} `);\\n+}\\n+process.stdout.write(\\\"\\\\n\\\");\\n+\\n+// 6) Equality\\n+// Use === to avoid surprising type coercion from ==\\n+console.log(\\\"Equality:\\\", 0 === false, 0 == false); // false, true\\n+\\n+// 7) Errors\\n+// Throw early when something unexpected happens; fail fast.\\n+function mustBePositive(n) {\\n+  if (typeof n !== \\\"number\\\" || n <= 0) {\\n+    throw new Error(\\\"n must be a positive number\\\");\\n+  }\\n+  return Math.sqrt(n);\\n+}\\n+try {\\n+  console.log(\\\"Sqrt:\\\", mustBePositive(16));\\n+  console.log(\\\"Sqrt:\\\", mustBePositive(-1)); // will throw\\n+} catch (err) {\\n+  console.log(\\\"Caught error:\\\", err.message);\\n+}\\n+\\n+// 8) Destructuring (nice to have)\\n+// Extract fields from objects/arrays for readability.\\n+const { name: userName, email } = user;\\n+const [first, second] = numbers;\\n+console.log(\\\"Destructuring:\\\", { userName, email, first, second });\\n+\\n+console.log(\\\"\\\\nDone. Tweak values and re\u2011run to experiment.\\\");\\n+\\n*** End Patch\"]}",
+          "name": "shell"
+        },
+        "id": "call_fJJK7NyFhaTNUO2jhK519pTw",
+        "type": "function"
+      }
+    ],
+    "function_call": null
+  }
+}

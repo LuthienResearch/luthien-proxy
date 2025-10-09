@@ -106,7 +106,6 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
                 flushed = await self._flush_tool_calls(context)
                 for buffered in flushed:
                     yield buffered
-            await self._emit_stream_summary(context)
 
     def _is_blocked_response(self, chunk: Mapping[str, Any]) -> bool:
         """Check if a chunk is a blocked response."""
