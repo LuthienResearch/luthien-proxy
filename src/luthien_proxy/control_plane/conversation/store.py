@@ -153,8 +153,8 @@ async def _insert_event_row(conn: db.ConnectionProtocol, event: ConversationEven
         choice_index,
         role,
         delta_text,
-        raw_chunk,
-        payload,
+        json.dumps(raw_chunk) if raw_chunk is not None else None,
+        json.dumps(payload),
         event.timestamp,
     )
 
@@ -270,36 +270,14 @@ def _extract_role(payload: JSONObject) -> str | None:
 
 
 def _extract_tool_calls(payload: JSONObject) -> list[Mapping[str, object]]:
-    tool_calls: list[Mapping[str, object]] = []
-    candidates: list[object] = []
-
-    raw_chunk = payload.get("raw_chunk")
-    if isinstance(raw_chunk, Mapping):
-        candidates.append(raw_chunk)
-
-    raw_payload = payload.get("raw_payload")
-    if isinstance(raw_payload, Mapping):
-        response = raw_payload.get("response")
-        if isinstance(response, Mapping):
-            candidates.append(response)
-
-    for candidate in candidates:
-        choices = candidate.get("choices") if isinstance(candidate, Mapping) else None
-        if not isinstance(choices, list):
-            continue
-        for choice in choices:
-            if not isinstance(choice, Mapping):
-                continue
-            delta = choice.get("delta")
-            if not isinstance(delta, Mapping):
-                continue
-            tc_value = delta.get("tool_calls")
-            if not isinstance(tc_value, Iterable):
-                continue
-            for item in tc_value:
-                if isinstance(item, Mapping):
-                    tool_calls.append(item)
-    return tool_calls
+    tool_calls = payload.get("tool_calls")
+    if not isinstance(tool_calls, Iterable):
+        return []
+    normalized: list[Mapping[str, object]] = []
+    for item in tool_calls:
+        if isinstance(item, Mapping):
+            normalized.append(item)
+    return normalized
 
 
 def _extract_tool_call_details(tool_call: Mapping[str, object]) -> tuple[str | None, object | None]:

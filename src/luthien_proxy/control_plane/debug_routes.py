@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from luthien_proxy.control_plane.conversation import load_conversation_turns, load_tool_call_records
+from luthien_proxy.control_plane.judge import load_judge_decisions, load_judge_traces
 from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
@@ -274,86 +275,55 @@ async def get_judge_blocks(
     config: ProjectConfig = Depends(get_project_config),
 ) -> list[JudgeBlockEntry]:
     """Return judge decision records filtered by trace id (and optional call id)."""
-    if config.database_url is None or pool is None:
-        return []
+    records = await load_judge_decisions(
+        trace_id=trace_id,
+        call_id=call_id,
+        limit=limit,
+        pool=pool,
+        config=config,
+    )
 
-    entries = await get_debug_entries(JUDGE_DEBUG_TYPE, limit=limit, pool=pool, config=config)
-    filtered: list[JudgeBlockEntry] = []
-
-    for entry in entries:
-        blob = entry.jsonblob
-        if not isinstance(blob, dict):
-            continue
-        blob_trace = blob.get("trace_id")
-        trace_value = blob_trace if isinstance(blob_trace, str) and blob_trace else None
-        if trace_value != trace_id:
-            continue
-        blob_call = blob.get("call_id")
-        call_value = blob_call if isinstance(blob_call, str) and blob_call else None
-        if call_id and call_value != call_id:
-            continue
-        call_identifier = call_value or (blob_call if isinstance(blob_call, str) and blob_call else "unknown")
-
-        timestamp_raw = blob.get("timestamp")
-        if isinstance(timestamp_raw, str):
-            try:
-                timestamp = datetime.fromisoformat(timestamp_raw)
-            except ValueError:
-                timestamp = entry.time_created
-        else:
-            timestamp = entry.time_created
-
-        tool_call_raw = blob.get("tool_call")
+    results: list[JudgeBlockEntry] = []
+    for record in records:
+        tool_call_raw = record.get("tool_call")
         tool_call = tool_call_raw if isinstance(tool_call_raw, dict) else {}
 
-        judge_prompt_raw = blob.get("judge_prompt")
+        judge_prompt_value = record.get("judge_prompt")
         judge_prompt: list[JSONObject] = []
-        if isinstance(judge_prompt_raw, list):
-            for item in judge_prompt_raw:
+        if isinstance(judge_prompt_value, list):
+            for item in judge_prompt_value:
                 if isinstance(item, dict):
                     judge_prompt.append(item)
 
-        stream_chunks_raw = blob.get("stream_chunks")
+        stream_chunks_value = record.get("stream_chunks")
         stream_chunks: list[JSONObject] | None = None
-        if isinstance(stream_chunks_raw, list):
-            stream_chunks = []
-            for chunk in stream_chunks_raw:
-                if isinstance(chunk, dict):
-                    stream_chunks.append(chunk)
+        if isinstance(stream_chunks_value, list):
+            stream_chunks = [chunk for chunk in stream_chunks_value if isinstance(chunk, dict)]
 
-        original_request_raw = blob.get("original_request")
-        original_request = original_request_raw if isinstance(original_request_raw, dict) else None
+        original_request = record.get("original_request") if isinstance(record.get("original_request"), dict) else None
+        original_response = (
+            record.get("original_response") if isinstance(record.get("original_response"), dict) else None
+        )
+        blocked_response = record.get("blocked_response") if isinstance(record.get("blocked_response"), dict) else {}
+        timing = record.get("timing") if isinstance(record.get("timing"), dict) else None
+        judge_config = record.get("judge_config") if isinstance(record.get("judge_config"), dict) else None
 
-        original_response_raw = blob.get("original_response")
-        original_response = original_response_raw if isinstance(original_response_raw, dict) else None
+        judge_response_text_raw = record.get("judge_response_text")
+        judge_response_text = str(judge_response_text_raw) if judge_response_text_raw is not None else ""
 
-        blocked_response_raw = blob.get("blocked_response")
-        blocked_response = blocked_response_raw if isinstance(blocked_response_raw, dict) else {}
+        probability_value = record.get("probability")
+        probability = float(probability_value) if isinstance(probability_value, (int, float)) else 0.0
 
-        judge_response_raw = blob.get("judge_response_text")
-        if isinstance(judge_response_raw, str):
-            judge_response_text = judge_response_raw
-        elif judge_response_raw is not None:
-            judge_response_text = json.dumps(judge_response_raw)
-        else:
-            judge_response_text = ""
+        explanation_raw = record.get("explanation")
+        explanation = str(explanation_raw) if explanation_raw is not None else ""
 
-        probability_raw = blob.get("probability")
-        explanation_raw = blob.get("explanation")
-
-        timing_raw = blob.get("timing")
-        timing = timing_raw if isinstance(timing_raw, dict) else None
-
-        judge_config_raw = blob.get("judge_config")
-        judge_config = judge_config_raw if isinstance(judge_config_raw, dict) else None
-
-        filtered.append(
+        results.append(
             JudgeBlockEntry(
-                call_id=call_identifier,
-                trace_id=trace_value,
-                timestamp=timestamp,
-                probability=float(probability_raw) if isinstance(probability_raw, (int, float)) else 0.0,
-                explanation=str(explanation_raw) if explanation_raw is not None else "",
+                call_id=require_type(record.get("call_id"), str, "call_id"),
+                trace_id=record.get("trace_id"),
+                timestamp=require_type(record.get("timestamp"), datetime, "timestamp"),
+                probability=probability,
+                explanation=explanation,
                 tool_call=tool_call,
                 judge_prompt=judge_prompt,
                 judge_response_text=judge_response_text,
@@ -366,7 +336,7 @@ async def get_judge_blocks(
             )
         )
 
-    return filtered
+    return results
 
 
 @router.get("/api/policy/judge/traces", response_model=list[JudgeTraceSummary])
@@ -376,69 +346,17 @@ async def get_judge_traces(
     config: ProjectConfig = Depends(get_project_config),
 ) -> list[JudgeTraceSummary]:
     """Return list of traces with judge policy applications, sorted by most recent."""
-    if config.database_url is None or pool is None:
-        return []
-
-    entries = await get_debug_entries(JUDGE_DEBUG_TYPE, limit=limit * 10, pool=pool, config=config)
-    trace_map: dict[str, dict[str, object]] = {}
-
-    for entry in entries:
-        blob = entry.jsonblob
-        if not isinstance(blob, dict):
-            continue
-
-        trace_id_raw = blob.get("trace_id")
-        if not isinstance(trace_id_raw, str) or not trace_id_raw:
-            continue
-
-        timestamp_raw = blob.get("timestamp")
-        if isinstance(timestamp_raw, str):
-            try:
-                timestamp = datetime.fromisoformat(timestamp_raw)
-            except ValueError:
-                timestamp = entry.time_created
-        else:
-            timestamp = entry.time_created
-
-        probability_raw = blob.get("probability")
-        probability = float(probability_raw) if isinstance(probability_raw, (int, float)) else 0.0
-
-        if trace_id_raw not in trace_map:
-            trace_map[trace_id_raw] = {
-                "trace_id": trace_id_raw,
-                "first_seen": timestamp,
-                "last_seen": timestamp,
-                "block_count": 1,
-                "max_probability": probability,
-            }
-        else:
-            trace_data = trace_map[trace_id_raw]
-            first_seen = trace_data["first_seen"]
-            last_seen = trace_data["last_seen"]
-            if isinstance(first_seen, datetime) and timestamp < first_seen:
-                trace_data["first_seen"] = timestamp
-            if isinstance(last_seen, datetime) and timestamp > last_seen:
-                trace_data["last_seen"] = timestamp
-            current_count = trace_data["block_count"]
-            if isinstance(current_count, int):
-                trace_data["block_count"] = current_count + 1
-            max_prob = trace_data["max_probability"]
-            if isinstance(max_prob, (int, float)) and probability > max_prob:
-                trace_data["max_probability"] = probability
-
-    summaries = [
+    records = await load_judge_traces(limit=limit, pool=pool, config=config)
+    return [
         JudgeTraceSummary(
-            trace_id=str(data["trace_id"]),
-            first_seen=data["first_seen"] if isinstance(data["first_seen"], datetime) else datetime.now(),
-            last_seen=data["last_seen"] if isinstance(data["last_seen"], datetime) else datetime.now(),
-            block_count=data["block_count"] if isinstance(data["block_count"], int) else 0,
-            max_probability=data["max_probability"] if isinstance(data["max_probability"], (int, float)) else 0.0,
+            trace_id=require_type(record.get("trace_id"), str, "trace_id"),
+            first_seen=require_type(record.get("first_seen"), datetime, "first_seen"),
+            last_seen=require_type(record.get("last_seen"), datetime, "last_seen"),
+            block_count=require_type(record.get("block_count"), int, "block_count"),
+            max_probability=float(record.get("max_probability") or 0.0),
         )
-        for data in trace_map.values()
+        for record in records
     ]
-
-    summaries.sort(key=lambda s: s.last_seen, reverse=True)
-    return summaries[:limit]
 
 
 @router.get("/api/debug/types", response_model=list[DebugTypeInfo])

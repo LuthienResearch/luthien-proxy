@@ -82,6 +82,8 @@ class ConversationCallSnapshot(BaseModel):
     completed_at: Optional[datetime] = None
     status: Literal["pending", "success", "stream_summary", "failure", "streaming"] = "pending"
     new_messages: list[ConversationMessageDiff] = Field(default_factory=list)
+    request_original_messages: list[dict[str, str]] = Field(default_factory=list)
+    request_final_messages: list[dict[str, str]] = Field(default_factory=list)
     original_response: str = ""
     final_response: str = ""
     chunk_count: int = 0

@@ -18,9 +18,12 @@ def require_type(value: object, expected_type: Type[T], label: str = "value") ->
     if isinstance(value, expected_type):
         return cast(T, value)
     try:
-        return T(value)  # type: ignore
-    except (TypeError, ValueError) as e:
-        raise ValueError(f"{label} could not be cast to {expected_type}: {e}") from e
+        coerced = expected_type(value)  # type: ignore[call-arg]
+    except Exception as exc:
+        raise ValueError(f"{label} could not be cast to {expected_type}: {exc}") from exc
+    if not isinstance(coerced, expected_type):
+        raise ValueError(f"{label} could not be coerced to {expected_type}")
+    return cast(T, coerced)
 
 
 __all__ = ["require_type"]

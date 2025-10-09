@@ -8,6 +8,7 @@ from typing import Iterable, Literal, Optional
 
 from luthien_proxy.types import JSONValue
 
+from ..utils.streaming import extract_tool_call_details
 from .models import ConversationEvent, TraceEntry
 from .utils import (
     delta_from_chunk,
@@ -96,6 +97,9 @@ def build_conversation_events(
         formatted_originals = json_safe(format_messages(originals))
         formatted_finals = json_safe(format_messages(finals))
         reset_stream_indices(call_id)
+        model_name = (
+            original_payload.get("data", {}).get("model") if isinstance(original_payload.get("data"), dict) else None
+        )
         events.append(
             ConversationEvent(
                 call_id=call_id,
@@ -107,8 +111,7 @@ def build_conversation_events(
                 payload={
                     "original_messages": formatted_originals,
                     "final_messages": formatted_finals,
-                    "raw_original": original_payload,
-                    "raw_result": result_payload,
+                    "model": model_name if isinstance(model_name, str) else None,
                 },
             )
         )
@@ -140,8 +143,7 @@ def build_conversation_events(
                         "chunk_index": chunk_index,
                         "delta": original_delta,
                         "choice_index": choice_index,
-                        "raw_chunk": original_chunk,
-                        "raw_payload": original,
+                        "tool_calls": json_safe(_extract_tool_calls(original_chunk)),
                     },
                 )
             )
@@ -149,6 +151,7 @@ def build_conversation_events(
         if final_chunk is not None:
             final_delta = delta_from_chunk(final_chunk)
             chunk_index = next_chunk_index(call_id, "final")
+            tool_calls = _extract_tool_calls(final_chunk)
             events.append(
                 ConversationEvent(
                     call_id=call_id,
@@ -161,8 +164,10 @@ def build_conversation_events(
                         "chunk_index": chunk_index,
                         "delta": final_delta,
                         "choice_index": choice_index,
-                        "raw_chunk": final_chunk,
-                        "raw_payload": result,
+                        "tool_calls": json_safe(tool_calls),
+                        "tool_call_ids": [
+                            tc.get("id") for tc in tool_calls if isinstance(tc, dict) and isinstance(tc.get("id"), str)
+                        ],
                     },
                 )
             )
@@ -203,8 +208,6 @@ def build_conversation_events(
                     "original_response": original_text,
                     "final_response": final_text,
                     "request_messages": request_messages,
-                    "raw_original": original_response,
-                    "raw_result": final_response,
                 },
             )
         )
@@ -230,8 +233,6 @@ def build_conversation_events(
                 payload={
                     "status": "stream_summary",
                     "final_response": final_text,
-                    "raw_original": original,
-                    "raw_result": result,
                 },
             )
         )
@@ -249,8 +250,6 @@ def build_conversation_events(
                 hook=hook,
                 payload={
                     "status": "failure",
-                    "raw_original": original,
-                    "raw_result": result,
                 },
             )
         )
@@ -258,6 +257,16 @@ def build_conversation_events(
         return events
 
     return events
+
+
+def _extract_tool_calls(chunk: JSONValue | None) -> list[dict[str, JSONValue]]:
+    """Normalise tool calls surfaced in a streaming chunk."""
+    if chunk is None:
+        return []
+    try:
+        return extract_tool_call_details(require_dict(chunk, "stream chunk payload"))
+    except Exception:
+        return []
 
 
 def events_from_trace_entry(entry: TraceEntry) -> list[ConversationEvent]:

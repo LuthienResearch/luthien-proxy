@@ -43,11 +43,15 @@ def _make_tool_chunk_event() -> ConversationEvent:
     payload = {
         "chunk_index": 0,
         "choice_index": 0,
-        "raw_chunk": {
-            "choices": [
-                {"delta": {"tool_calls": [{"id": "tool-1", "function": {"name": "write_file", "arguments": "{}"}}]}}
-            ]
-        },
+        "delta": "",
+        "tool_calls": [
+            {
+                "id": "tool-1",
+                "name": "write_file",
+                "arguments": "{}",
+            }
+        ],
+        "tool_call_ids": ["tool-1"],
     }
     return ConversationEvent(
         call_id="call-1",

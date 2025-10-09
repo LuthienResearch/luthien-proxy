@@ -11,6 +11,8 @@
 - **Documentation Inline**: Documented the canonical chunk structure inside `unified_callback.py` so future changes can reference a single source of truth.
 - **Control Plane Migration**: Validated incoming/outgoing WebSocket chunks in `streaming_routes.py`, ensuring only OpenAI-style payloads reach policies, and added regression tests for the canonicaliser.
 - **Unified Response**: Proxy now runs with `unified_callback`; end-to-end sanity checks and LLM-backed applications succeed using the normalized chunk format. Observability, documentation, and CI follow-ups tracked in TODO.md.
+- **Judge Dashboards**: `/api/policy/judge` and `/api/policy/judge/traces` now read from the structured `conversation_judge_decisions` table, retiring the debug-log fallback used previously.
+- **Unified Monitor UI**: Introduced `/ui/conversation/live` with real-time trace streaming, diffed request messages, and inline tool-call visualization backed by the structured conversation APIs.
 
 ## TODO
 

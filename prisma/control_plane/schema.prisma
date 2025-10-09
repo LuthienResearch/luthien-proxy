@@ -81,3 +81,27 @@ model ConversationToolCall {
   @@index([traceId, createdAt], name: "idx_conversation_tool_calls_trace_created")
   @@unique([callId, toolCallId], map: "uq_conversation_tool_calls_call_tool")
 }
+
+model JudgeDecision {
+  id                String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  callId            String   @map("call_id")
+  traceId           String?  @map("trace_id")
+  toolCallId        String?  @map("tool_call_id")
+  probability       Float?
+  explanation       String?
+  toolCall          Json?    @map("tool_call")
+  judgePrompt       Json?    @map("judge_prompt")
+  judgeResponseText String?  @map("judge_response_text")
+  originalRequest   Json?    @map("original_request")
+  originalResponse  Json?    @map("original_response")
+  streamChunks      Json?    @map("stream_chunks")
+  blockedResponse   Json?    @map("blocked_response")
+  timing            Json?
+  judgeConfig       Json?    @map("judge_config")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("conversation_judge_decisions")
+  @@index([traceId, createdAt], name: "idx_judge_decisions_trace_created")
+  @@index([callId, createdAt], name: "idx_judge_decisions_call_created")
+  @@index([createdAt], name: "idx_judge_decisions_created")
+}

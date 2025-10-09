@@ -138,6 +138,8 @@ def build_call_snapshots(events: Iterable[ConversationEvent]) -> list[Conversati
                 completed_at=completed_at,
                 status=status_literal,
                 new_messages=message_diffs,
+                request_original_messages=clone_messages(request_original),
+                request_final_messages=clone_messages(request_final or request_original),
                 original_response=original_response,
                 final_response=final_response,
                 chunk_count=chunk_count,

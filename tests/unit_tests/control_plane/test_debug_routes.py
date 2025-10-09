@@ -10,15 +10,25 @@ from luthien_proxy.control_plane.debug_routes import (
     get_debug_entries,
     get_debug_page,
     get_debug_types,
+    get_judge_blocks,
+    get_judge_traces,
     get_tool_call_logs,
 )
 from luthien_proxy.utils.project_config import ProjectConfig
 
 
 class _FakeDebugConn:
-    def __init__(self, fetch_rows, fetchrow_result=None):
+    def __init__(
+        self,
+        fetch_rows,
+        fetchrow_result=None,
+        judge_rows=None,
+        judge_trace_rows=None,
+    ):
         self._fetch_rows = fetch_rows
         self._fetchrow_result = fetchrow_result
+        self._judge_rows = judge_rows or []
+        self._judge_trace_rows = judge_trace_rows or []
 
     async def fetch(self, query, *params):
         if isinstance(query, str) and "FROM conversation_tool_calls" in query:
@@ -33,6 +43,21 @@ class _FakeDebugConn:
             rows = self._fetch_rows
             if params and isinstance(params[0], str) and "e.call_id =" in query:
                 rows = [row for row in rows if row.get("call_id") == params[0]]
+            rows = sorted(rows, key=lambda r: r.get("created_at"), reverse=True)
+            limit = params[-1] if params else None
+            if isinstance(limit, int):
+                return rows[:limit]
+            return rows
+        if isinstance(query, str) and "FROM conversation_judge_decisions" in query:
+            if "GROUP BY trace_id" in query:
+                return self._judge_trace_rows[: params[0] if params else None]
+            rows = self._judge_rows
+            if params:
+                trace_filter = params[0]
+                rows = [row for row in rows if row.get("trace_id") == trace_filter]
+                if len(params) > 2:
+                    call_filter = params[1]
+                    rows = [row for row in rows if row.get("call_id") == call_filter]
             rows = sorted(rows, key=lambda r: r.get("created_at"), reverse=True)
             limit = params[-1] if params else None
             if isinstance(limit, int):
@@ -308,3 +333,95 @@ async def test_get_tool_call_logs_filters_call_id(project_config: ProjectConfig)
     logs = await get_tool_call_logs(call_id="call-1", pool=pool, config=project_config)
 
     assert logs == []
+
+
+@pytest.mark.asyncio
+async def test_get_judge_blocks_reads_structured_records(project_config: ProjectConfig):
+    now = datetime.now(UTC)
+    judge_rows = [
+        {
+            "call_id": "call-1",
+            "trace_id": "trace-1",
+            "tool_call_id": "tc-1",
+            "probability": 0.92,
+            "explanation": "Blocked due to unsafe content",
+            "tool_call": {"id": "tc-1", "name": "shell"},
+            "judge_prompt": [{"role": "system", "content": "Review this tool call"}],
+            "judge_response_text": "deny",
+            "original_request": {"messages": []},
+            "original_response": {"content": "BLOCKED"},
+            "stream_chunks": [{"delta": {"content": "BLOCKED"}}],
+            "blocked_response": {"role": "assistant", "content": "BLOCKED"},
+            "timing": {"judge_ms": 120.0},
+            "judge_config": {"model": "gemma"},
+            "created_at": now,
+        }
+    ]
+    conn = _FakeDebugConn([], judge_rows=judge_rows)
+    pool = _FakePool(conn)
+
+    records = await get_judge_blocks(
+        "trace-1",
+        call_id=None,
+        limit=10,
+        pool=pool,
+        config=project_config,
+    )
+
+    assert len(records) == 1
+    entry = records[0]
+    assert entry.call_id == "call-1"
+    assert entry.trace_id == "trace-1"
+    assert entry.probability == pytest.approx(0.92)
+    assert entry.tool_call["id"] == "tc-1"
+    assert entry.judge_prompt[0]["role"] == "system"
+    assert entry.blocked_response["content"] == "BLOCKED"
+
+
+@pytest.mark.asyncio
+async def test_get_judge_blocks_filters_by_call_id(project_config: ProjectConfig):
+    now = datetime.now(UTC)
+    judge_rows = [
+        {"call_id": "call-a", "trace_id": "trace-1", "created_at": now},
+        {"call_id": "call-b", "trace_id": "trace-1", "created_at": now + timedelta(seconds=1)},
+    ]
+    conn = _FakeDebugConn([], judge_rows=judge_rows)
+    pool = _FakePool(conn)
+
+    records = await get_judge_blocks(
+        "trace-1",
+        call_id="call-b",
+        limit=10,
+        pool=pool,
+        config=project_config,
+    )
+
+    assert len(records) == 1
+    assert records[0].call_id == "call-b"
+
+
+@pytest.mark.asyncio
+async def test_get_judge_traces_reads_structured_rows(project_config: ProjectConfig):
+    now = datetime.now(UTC)
+    judge_trace_rows = [
+        {
+            "trace_id": "trace-1",
+            "first_seen": now - timedelta(minutes=5),
+            "last_seen": now,
+            "block_count": 3,
+            "max_probability": 0.8,
+        }
+    ]
+    conn = _FakeDebugConn([], judge_trace_rows=judge_trace_rows)
+    pool = _FakePool(conn)
+
+    summaries = await get_judge_traces(
+        limit=5,
+        pool=pool,
+        config=project_config,
+    )
+
+    assert len(summaries) == 1
+    assert summaries[0].trace_id == "trace-1"
+    assert summaries[0].block_count == 3
+    assert summaries[0].max_probability == pytest.approx(0.8)

@@ -311,8 +311,15 @@ def _rows_to_events(rows: Sequence[Mapping[str, object]]) -> list[ConversationEv
         call_id_val = require_type(row.get("call_id"), str, "call_id")
         event_type = require_type(row.get("event_type"), str, "event_type")
         hook = require_type(row.get("hook"), str, "hook")
-        payload = row.get("payload")
-        if not isinstance(payload, Mapping):
+        payload_obj = row.get("payload")
+        if isinstance(payload_obj, str):
+            try:
+                payload_obj = json.loads(payload_obj)
+            except json.JSONDecodeError:
+                payload_obj = {}
+        if isinstance(payload_obj, Mapping):
+            payload = payload_obj
+        else:
             payload = {}
         sequence_raw = row.get("sequence")
         if isinstance(sequence_raw, int):
