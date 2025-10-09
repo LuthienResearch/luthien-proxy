@@ -379,49 +379,52 @@ function handleEvent(event, options = {}) {
   const payload = event.payload || {};
 
   switch (event.event_type) {
-    case "request_started":
+    case "request":
+      // New schema: request event with OpenAI format
       call.startedAt = call.startedAt || timestamp;
       call.completedAt = null;
-      call.status = "streaming";
-      call.requestOriginalMessages = Array.isArray(payload.original_messages) ? payload.original_messages : [];
-      call.requestFinalMessages = Array.isArray(payload.final_messages)
-        ? payload.final_messages
-        : call.requestOriginalMessages;
-      call.requestMessagePairs = computeMessagePairs(call.requestOriginalMessages, call.requestFinalMessages);
-      call.originalChunks = [];
-      call.finalChunks = [];
+      call.status = "pending";
+
+      // Extract messages from OpenAI format
+      const messages = Array.isArray(payload.messages) ? payload.messages : [];
+      call.requestMessages = messages;
+
+      // No more original vs final - just store what we have
+      call.requestOriginalMessages = messages;
+      call.requestFinalMessages = messages;
+      call.requestMessagePairs = computeMessagePairs(messages, messages);
+
+      call.responseMessage = null;
       call.originalResponse = "";
       call.finalResponse = "";
       if (!options.replay) scheduleSnapshotRefresh(call.callId, 200);
       break;
-    case "original_chunk":
-      applyChunk(call, payload, "original");
-      break;
-    case "final_chunk":
-      applyChunk(call, payload, "final");
-      updateToolCallsFromPayload(call, payload, timestamp);
-      break;
-    case "request_completed":
-      if (payload.original_response) {
-        call.originalResponse = payload.original_response;
-        call.originalChunks = [payload.original_response];
-      }
-      if (payload.final_response) {
-        call.finalResponse = payload.final_response;
-        call.finalChunks = [payload.final_response];
-      }
-      if (Array.isArray(payload.request_messages) && payload.request_messages.length) {
-        call.requestFinalMessages = payload.request_messages;
-        if (!call.requestOriginalMessages.length) call.requestOriginalMessages = payload.request_messages;
-        call.requestMessagePairs = computeMessagePairs(call.requestOriginalMessages, call.requestFinalMessages);
-      }
-      call.status = payload.status || call.status || "success";
+
+    case "response":
+      // New schema: response event with OpenAI message format
+      const message = payload.message || {};
+      const status = payload.status || "success";
+      const finishReason = payload.finish_reason;
+
+      call.responseMessage = message;
+      call.status = status;
       call.completedAt = timestamp || call.completedAt;
-      if (Array.isArray(payload.tool_call_ids) && payload.tool_call_ids.length) {
-        scheduleToolCallRefresh(call.callId, 250);
+
+      // Extract text content if available
+      if (typeof message.content === "string") {
+        call.finalResponse = message.content;
+        call.originalResponse = message.content;
+        call.finalChunks = [message.content];
       }
+
+      // Handle tool calls if present
+      if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+        call.toolCalls = message.tool_calls;
+      }
+
       if (!options.replay) scheduleSnapshotRefresh(call.callId, 200);
       break;
+
     default:
       break;
   }
@@ -440,18 +443,12 @@ function renderMessageDiff(diff) {
   const container = el("div", { class: "message-card" });
   const header = el("div", { class: "message-header" });
   header.appendChild(el("span", { class: "message-role", text: diff.role || "unknown" }));
-  header.appendChild(el("span", { text: "Original vs Final" }));
   container.appendChild(header);
 
-  const versions = el("div", { class: "message-versions" });
-  const original = el("div", { class: "message-version original" });
-  original.textContent = diff.original || "";
-  versions.appendChild(original);
-  const modified = (diff.final || "") !== (diff.original || "");
-  const finalNode = el("div", { class: "message-version final" + (modified ? " modified" : "") });
-  finalNode.textContent = diff.final || diff.original || "";
-  versions.appendChild(finalNode);
-  container.appendChild(versions);
+  // New schema: no original vs final tracking, just show the message
+  const content = el("div", { class: "message-content" });
+  content.textContent = diff.final || diff.original || "";
+  container.appendChild(content);
   return container;
 }
 
