@@ -31,6 +31,9 @@ async def record_conversation_events(
 
 async def _ensure_call_row(conn: db.ConnectionProtocol, event: ConversationEvent) -> None:
     """Ensure a row exists for the call id."""
+    # Strip timezone for postgres timestamp without time zone
+    timestamp_naive = event.timestamp.replace(tzinfo=None) if event.timestamp.tzinfo else event.timestamp
+
     await conn.execute(
         """
         INSERT INTO conversation_calls (call_id, created_at)
@@ -38,7 +41,7 @@ async def _ensure_call_row(conn: db.ConnectionProtocol, event: ConversationEvent
         ON CONFLICT (call_id) DO NOTHING
         """,
         event.call_id,
-        event.timestamp,
+        timestamp_naive,
     )
 
 
@@ -46,6 +49,7 @@ async def _apply_request_event(conn: db.ConnectionProtocol, event: ConversationE
     """Update call metadata from request event."""
     payload = event.payload
     model_name = payload.get("model")
+    timestamp_naive = event.timestamp.replace(tzinfo=None) if event.timestamp.tzinfo else event.timestamp
 
     await conn.execute(
         """
@@ -57,7 +61,7 @@ async def _apply_request_event(conn: db.ConnectionProtocol, event: ConversationE
         """,
         event.call_id,
         model_name if isinstance(model_name, str) else None,
-        event.timestamp,
+        timestamp_naive,
     )
 
 
@@ -65,6 +69,7 @@ async def _apply_response_event(conn: db.ConnectionProtocol, event: Conversation
     """Update call metadata from response event."""
     payload = event.payload
     status = str(payload.get("status", "success"))
+    timestamp_naive = event.timestamp.replace(tzinfo=None) if event.timestamp.tzinfo else event.timestamp
 
     await conn.execute(
         """
@@ -75,12 +80,14 @@ async def _apply_response_event(conn: db.ConnectionProtocol, event: Conversation
         """,
         event.call_id,
         status,
-        event.timestamp,
+        timestamp_naive,
     )
 
 
 async def _insert_event_row(conn: db.ConnectionProtocol, event: ConversationEvent) -> None:
     """Insert event row into conversation_events."""
+    timestamp_naive = event.timestamp.replace(tzinfo=None) if event.timestamp.tzinfo else event.timestamp
+
     await conn.execute(
         """
         INSERT INTO conversation_events (
@@ -96,7 +103,7 @@ async def _insert_event_row(conn: db.ConnectionProtocol, event: ConversationEven
         event.event_type,
         int(event.sequence),
         json.dumps(event.payload),
-        event.timestamp,
+        timestamp_naive,
     )
 
 
