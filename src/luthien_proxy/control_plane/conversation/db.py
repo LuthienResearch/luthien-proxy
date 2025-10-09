@@ -131,38 +131,7 @@ def _rows_to_events(rows: Sequence[Mapping[str, object]]) -> list[ConversationEv
     return events
 
 
-# Stub functions for backwards compatibility (TODO: remove or reimplement)
-async def fetch_trace_entries(*args, **kwargs):
-    """Stub - trace functionality removed."""
-    return [], False
-
-
-async def load_events_for_trace(*args, **kwargs):
-    """Stub - trace functionality removed."""
-    return []
-
-
-async def load_recent_traces(*args, **kwargs):
-    """Stub - trace functionality removed."""
-    return []
-
-
 __all__ = [
     "load_events_for_call",
     "load_recent_calls",
-    "fetch_trace_entries",
-    "load_events_for_trace",
-    "load_recent_traces",
-    "load_conversation_turns",
-    "load_tool_call_records",
 ]
-
-
-async def load_conversation_turns(*args, **kwargs):
-    """Stub - use load_events_for_call instead."""
-    return []
-
-
-async def load_tool_call_records(*args, **kwargs):
-    """Stub - tool calls now in response message payload."""
-    return []

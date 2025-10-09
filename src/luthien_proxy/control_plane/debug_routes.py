@@ -10,7 +10,7 @@ from typing import Optional, cast
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from luthien_proxy.control_plane.conversation import load_conversation_turns, load_tool_call_records
+# Legacy conversation functions removed - these endpoints are deprecated
 from luthien_proxy.control_plane.judge import load_judge_decisions, load_judge_traces
 from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
@@ -169,18 +169,8 @@ async def get_conversation_logs(
     pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> list[ConversationLogEntry]:
-    """Return recent conversation turn logs optionally filtered by call id."""
-    records = await load_conversation_turns(limit, pool, config, call_id=call_id)
-    return [
-        ConversationLogEntry(
-            call_id=require_type(record.get("call_id"), str, "call_id"),
-            trace_id=record.get("trace_id"),
-            direction=require_type(record.get("direction"), str, "direction"),
-            timestamp=require_type(record.get("timestamp"), datetime, "timestamp"),
-            payload=record.get("payload", {}),
-        )
-        for record in records
-    ]
+    """Deprecated endpoint - use /api/hooks/conversation instead."""
+    return []
 
 
 @router.get("/api/tool-calls/logs", response_model=list[ToolCallLogEntry])
@@ -190,80 +180,8 @@ async def get_tool_call_logs(
     pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> list[ToolCallLogEntry]:
-    """Return recent tool-call logs optionally filtered by call id."""
-    structured_records = await load_tool_call_records(
-        limit,
-        pool,
-        config,
-        call_id=call_id,
-    )
-    results: list[ToolCallLogEntry] = []
-    if structured_records:
-        for record in structured_records:
-            tool_calls = record.get("tool_calls")
-            entries_list = tool_calls if isinstance(tool_calls, list) else []
-            results.append(
-                ToolCallLogEntry(
-                    call_id=require_type(record.get("call_id"), str, "call_id"),
-                    trace_id=record.get("trace_id"),
-                    timestamp=require_type(record.get("timestamp"), datetime, "timestamp"),
-                    stream_id=record.get("stream_id"),
-                    chunks_buffered=record.get("chunks_buffered"),
-                    tool_calls=entries_list,
-                )
-            )
-        return results
-
-    entries = await get_debug_entries(TOOL_CALL_DEBUG_TYPE, limit=limit, pool=pool, config=config)
-    filtered: list[ToolCallLogEntry] = []
-    call_filter = call_id if isinstance(call_id, str) and call_id else None
-
-    for entry in entries:
-        blob = entry.jsonblob
-        if not isinstance(blob, dict):
-            continue
-        call_identifier = blob.get("call_id")
-        if not isinstance(call_identifier, str) or not call_identifier:
-            continue
-        if call_filter is not None and call_identifier != call_filter:
-            continue
-
-        timestamp_raw = blob.get("timestamp")
-        if isinstance(timestamp_raw, str):
-            try:
-                timestamp = datetime.fromisoformat(timestamp_raw)
-            except ValueError:
-                timestamp = entry.time_created
-        else:
-            timestamp = entry.time_created
-
-        stream_id = blob.get("stream_id")
-        stream_value = stream_id if isinstance(stream_id, str) and stream_id else None
-        chunks_value = blob.get("chunks_buffered")
-        chunks_buffered = chunks_value if isinstance(chunks_value, int) else None
-
-        tool_calls_raw = blob.get("tool_calls")
-        tool_calls: list[JSONObject] = []
-        if isinstance(tool_calls_raw, list):
-            for item in tool_calls_raw:
-                if isinstance(item, dict):
-                    tool_calls.append(item)
-
-        trace_candidate = blob.get("trace_id")
-        trace_value = trace_candidate if isinstance(trace_candidate, str) and trace_candidate else None
-
-        filtered.append(
-            ToolCallLogEntry(
-                call_id=call_identifier,
-                trace_id=trace_value,
-                timestamp=timestamp,
-                stream_id=stream_value,
-                chunks_buffered=chunks_buffered,
-                tool_calls=tool_calls,
-            )
-        )
-
-    return filtered
+    """Deprecated endpoint - tool calls are now tracked in conversation events."""
+    return []
 
 
 @router.get("/api/policy/judge", response_model=list[JudgeBlockEntry])

@@ -47,10 +47,10 @@ async def hooks_trace_ui(request: Request):
     return templates.TemplateResponse(request, "hooks_trace.html")
 
 
-@router.get("/ui/conversation/by_trace", response_class=HTMLResponse)
-async def conversation_by_trace_ui(request: Request):
-    """Render the conversation view grouped by trace id."""
-    return templates.TemplateResponse(request, "conversation_by_trace.html")
+@router.get("/ui/conversation/by_call", response_class=HTMLResponse)
+async def conversation_by_call_ui(request: Request):
+    """Render the conversation view for individual calls."""
+    return templates.TemplateResponse(request, "conversation_by_call.html")
 
 
 @router.get("/ui/conversation", response_class=HTMLResponse)

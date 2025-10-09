@@ -10,41 +10,11 @@ from pydantic import BaseModel, Field
 from luthien_proxy.types import JSONObject
 
 
-class TraceEntry(BaseModel):
-    """A single hook event for a call ID, optionally with nanosecond time."""
-
-    time: datetime
-    post_time_ns: Optional[int] = None
-    hook: Optional[str] = None
-    debug_type: Optional[str] = None
-    payload: JSONObject
-
-
-class TraceResponse(BaseModel):
-    """Ordered list of hook entries belonging to a call ID."""
-
-    call_id: str
-    entries: list[TraceEntry]
-    offset: int
-    limit: int
-    has_more: bool
-    next_offset: Optional[int] = None
-
-
 class CallIdInfo(BaseModel):
     """Summary row for a recent litellm_call_id with counts and latest time."""
 
     call_id: str
     count: int
-    latest: datetime
-
-
-class TraceInfo(BaseModel):
-    """Summary row for a litellm_trace_id with aggregates."""
-
-    trace_id: str
-    call_count: int
-    event_count: int
     latest: datetime
 
 
@@ -95,23 +65,10 @@ class ConversationSnapshot(BaseModel):
     calls: list[ConversationCallSnapshot] = Field(default_factory=list)
 
 
-class TraceConversationSnapshot(BaseModel):
-    """Snapshot of a trace spanning one or more calls."""
-
-    trace_id: str
-    call_ids: list[str] = Field(default_factory=list)
-    events: list[ConversationEvent] = Field(default_factory=list)
-    calls: list[ConversationCallSnapshot] = Field(default_factory=list)
-
-
 __all__ = [
-    "TraceEntry",
-    "TraceResponse",
     "CallIdInfo",
-    "TraceInfo",
     "ConversationEvent",
     "ConversationMessageDiff",
     "ConversationCallSnapshot",
     "ConversationSnapshot",
-    "TraceConversationSnapshot",
 ]

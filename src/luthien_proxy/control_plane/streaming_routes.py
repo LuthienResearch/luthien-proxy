@@ -17,10 +17,7 @@ from luthien_proxy.control_plane.conversation.events import (
     clear_stream_indices,
     reset_stream_indices,
 )
-from luthien_proxy.control_plane.conversation.streams import (
-    publish_conversation_event,
-    publish_trace_conversation_event,
-)
+from luthien_proxy.control_plane.conversation.streams import publish_conversation_event
 from luthien_proxy.control_plane.conversation.utils import json_safe
 from luthien_proxy.control_plane.endpoint_logger import get_endpoint_logger
 from luthien_proxy.control_plane.stream_context import StreamContextStore
@@ -308,7 +305,6 @@ class _StreamEventPublisher:
             )
             for event in events:
                 CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(self._redis, event))
-                CONVERSATION_EVENT_QUEUE.submit(publish_trace_conversation_event(self._redis, event))
 
         self._pending_payload = None
 
@@ -371,7 +367,6 @@ class _StreamEventPublisher:
             )
             for event in events:
                 CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(self._redis, event))
-                CONVERSATION_EVENT_QUEUE.submit(publish_trace_conversation_event(self._redis, event))
 
             clear_stream_indices(self._call_id)
             if self._stream_store is not None:

@@ -18,10 +18,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from luthien_proxy.control_plane.conversation import (
-    ConversationStreamConfig,
-    TraceEntry,
-)
+from luthien_proxy.control_plane.conversation import ConversationStreamConfig
 from luthien_proxy.control_plane.stream_context import StreamContextStore
 from luthien_proxy.control_plane.ui import router as ui_router
 from luthien_proxy.policies.base import LuthienPolicy
@@ -48,11 +45,9 @@ from .dependencies import (
 )
 from .hooks_routes import (
     CallIdInfo,
-    TraceResponse,
     get_hook_counters,
     hook_generic,
     recent_call_ids,
-    trace_by_call_id,
 )
 from .hooks_routes import (
     router as hooks_router,
@@ -208,7 +203,6 @@ __all__ = [
     "get_redis_client",
     "list_endpoints",
     "health_check",
-    "trace_by_call_id",
     "recent_call_ids",
     "get_debug_entries",
     "get_debug_types",
@@ -218,8 +212,6 @@ __all__ = [
     "DebugEntry",
     "DebugTypeInfo",
     "DebugPage",
-    "TraceEntry",
-    "TraceResponse",
     "CallIdInfo",
     "DebugLogWriter",
 ]
