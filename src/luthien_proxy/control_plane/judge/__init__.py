@@ -1,4 +1,4 @@
-"""Judge decision persistence and query helpers."""
+"""Judge decision persistence (now using policy_events)."""
 
 from .db import (
     JUDGE_DECISION_DEBUG_TYPE,
@@ -9,7 +9,7 @@ from .db import (
 
 __all__ = [
     "JUDGE_DECISION_DEBUG_TYPE",
+    "record_judge_decision",
     "load_judge_decisions",
     "load_judge_traces",
-    "record_judge_decision",
 ]
