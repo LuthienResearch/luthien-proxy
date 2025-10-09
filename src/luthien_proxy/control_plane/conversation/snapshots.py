@@ -63,18 +63,27 @@ def build_call_snapshots(events: Iterable[ConversationEvent]) -> list[Conversati
                 status = str(status_raw) if status_raw else "success"
                 completed_at = event.timestamp
 
-        # Build message diffs (no original vs final in new schema - just show what we have)
+        # Build message diffs - only include the last user message as "new"
+        # The rest are conversation context
         new_messages: list[ConversationMessageDiff] = []
-        for msg in request_messages:
-            role = msg.get("role", "unknown")
-            content = str(msg.get("content", ""))
-            new_messages.append(
-                ConversationMessageDiff(
-                    role=role,
-                    original=content,
-                    final=content,  # Same as original - no policy modification tracking
+        if request_messages:
+            # Find the last user message (the actual query for this turn)
+            last_user_idx = -1
+            for i in range(len(request_messages) - 1, -1, -1):
+                if request_messages[i].get("role") == "user":
+                    last_user_idx = i
+                    break
+
+            if last_user_idx >= 0:
+                msg = request_messages[last_user_idx]
+                content = str(msg.get("content", ""))
+                new_messages.append(
+                    ConversationMessageDiff(
+                        role="user",
+                        original=content,
+                        final=content,
+                    )
                 )
-            )
 
         status_literal = normalize_status(status, chunk_count=1 if response_text else 0, completed_at=completed_at)
 
