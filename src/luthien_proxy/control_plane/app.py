@@ -92,11 +92,9 @@ async def list_endpoints() -> EndpointListing:
             "POST /api/hooks/{hook_name}",
         ],
         "ui": [
-            "GET /ui/hooks/trace",
             "GET /ui/conversation",
-            "GET /ui/conversation/by_trace",
-            "GET /ui/conversation/logs",
-            "GET /ui/tool-calls",
+            "GET /ui/conversation/by_call",
+            "GET /ui/conversation/live",
         ],
         "health": "GET /health",
     }

@@ -98,20 +98,7 @@ async def record_judge_decision(conn: db.ConnectionProtocol, payload: JSONObject
     )
 
 
-# Stub functions for backwards compatibility (TODO: migrate to policy_events queries)
-async def load_judge_decisions(*args, **kwargs):
-    """Stub - use load_policy_events instead."""
-    return []
-
-
-async def load_judge_traces(*args, **kwargs):
-    """Stub - use policy_events queries instead."""
-    return []
-
-
 __all__ = [
     "record_judge_decision",
     "JUDGE_DECISION_DEBUG_TYPE",
-    "load_judge_decisions",
-    "load_judge_traces",
 ]

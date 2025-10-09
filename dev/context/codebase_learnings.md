@@ -7,12 +7,12 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
-## Architecture Overview (2025-10-08)
+## Architecture Overview (2025-10-08, updated 2025-11-30)
 
 - **Control Plane** (`src/luthien_proxy/control_plane/`): FastAPI application that makes policy decisions
 - **Proxy** (`src/luthien_proxy/proxy/`): LiteLLM proxy integration with custom logging
 - **Policies** (`src/luthien_proxy/policies/`): Policy implementations that receive callbacks from the proxy
-- **Operational Helpers** (`scripts/`): Utility scripts such as `run_bg_command.sh` (fire-and-poll shell launcher) and `check_ui_endpoints.py` (control-plane UI smoke test).
+- **Operational Helpers** (`scripts/`): Utility scripts such as `run_bg_command.sh` (fire-and-poll shell launcher); UI test harnesses now live in the e2e suite.
 
 Centralized control plane makes policy decisions, proxy stays thin and forwards callbacks.
 

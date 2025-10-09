@@ -10,8 +10,6 @@ from typing import Optional, cast
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-# Legacy conversation functions removed - these endpoints are deprecated
-from luthien_proxy.control_plane.judge import load_judge_decisions, load_judge_traces
 from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
@@ -22,9 +20,6 @@ from .dependencies import get_database_pool, get_project_config
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
-
-TOOL_CALL_DEBUG_TYPE = "conversation:tool-call"
-JUDGE_DEBUG_TYPE = "protection:llm-judge-block"
 
 
 def _parse_debug_jsonblob(raw_blob: object) -> JSONObject:
@@ -71,56 +66,6 @@ class DebugPage(BaseModel):
     total: int
 
 
-class ConversationLogEntry(BaseModel):
-    """Structured view of conversation turn logs stored in debug_logs."""
-
-    call_id: str
-    trace_id: Optional[str]
-    direction: str
-    timestamp: datetime
-    payload: JSONObject
-
-
-class ToolCallLogEntry(BaseModel):
-    """Structured view of tool-call records stored in debug_logs."""
-
-    call_id: str
-    trace_id: Optional[str]
-    timestamp: datetime
-    stream_id: Optional[str]
-    chunks_buffered: Optional[int]
-    tool_calls: list[JSONObject]
-
-
-class JudgeBlockEntry(BaseModel):
-    """Structured view of judge decisions recorded by the protection policy."""
-
-    call_id: str
-    trace_id: Optional[str]
-    timestamp: datetime
-    probability: float
-    explanation: str
-    tool_call: JSONObject
-    judge_prompt: list[JSONObject]
-    judge_response_text: str
-    original_request: Optional[JSONObject]
-    original_response: Optional[JSONObject]
-    stream_chunks: Optional[list[JSONObject]]
-    blocked_response: JSONObject
-    timing: Optional[JSONObject]
-    judge_config: Optional[JSONObject]
-
-
-class JudgeTraceSummary(BaseModel):
-    """Summary of a trace with judge policy applications."""
-
-    trace_id: str
-    first_seen: datetime
-    last_seen: datetime
-    block_count: int
-    max_probability: float
-
-
 @router.get("/api/debug/{debug_type}", response_model=list[DebugEntry])
 async def get_debug_entries(
     debug_type: str,
@@ -160,121 +105,6 @@ async def get_debug_entries(
     except Exception as exc:
         logger.error(f"Error fetching debug logs: {exc}")
     return entries
-
-
-@router.get("/api/conversation/logs", response_model=list[ConversationLogEntry])
-async def get_conversation_logs(
-    call_id: Optional[str] = Query(default=None, min_length=1),
-    limit: int = Query(default=100, ge=1, le=500),
-    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
-    config: ProjectConfig = Depends(get_project_config),
-) -> list[ConversationLogEntry]:
-    """Deprecated endpoint - use /api/hooks/conversation instead."""
-    return []
-
-
-@router.get("/api/tool-calls/logs", response_model=list[ToolCallLogEntry])
-async def get_tool_call_logs(
-    call_id: Optional[str] = Query(default=None, min_length=1),
-    limit: int = Query(default=50, ge=1, le=200),
-    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
-    config: ProjectConfig = Depends(get_project_config),
-) -> list[ToolCallLogEntry]:
-    """Deprecated endpoint - tool calls are now tracked in conversation events."""
-    return []
-
-
-@router.get("/api/policy/judge", response_model=list[JudgeBlockEntry])
-async def get_judge_blocks(
-    trace_id: str = Query(min_length=1),
-    call_id: Optional[str] = Query(default=None, min_length=1),
-    limit: int = Query(default=50, ge=1, le=200),
-    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
-    config: ProjectConfig = Depends(get_project_config),
-) -> list[JudgeBlockEntry]:
-    """Return judge decision records filtered by trace id (and optional call id)."""
-    records = await load_judge_decisions(
-        trace_id=trace_id,
-        call_id=call_id,
-        limit=limit,
-        pool=pool,
-        config=config,
-    )
-
-    results: list[JudgeBlockEntry] = []
-    for record in records:
-        tool_call_raw = record.get("tool_call")
-        tool_call = tool_call_raw if isinstance(tool_call_raw, dict) else {}
-
-        judge_prompt_value = record.get("judge_prompt")
-        judge_prompt: list[JSONObject] = []
-        if isinstance(judge_prompt_value, list):
-            for item in judge_prompt_value:
-                if isinstance(item, dict):
-                    judge_prompt.append(item)
-
-        stream_chunks_value = record.get("stream_chunks")
-        stream_chunks: list[JSONObject] | None = None
-        if isinstance(stream_chunks_value, list):
-            stream_chunks = [chunk for chunk in stream_chunks_value if isinstance(chunk, dict)]
-
-        original_request = record.get("original_request") if isinstance(record.get("original_request"), dict) else None
-        original_response = (
-            record.get("original_response") if isinstance(record.get("original_response"), dict) else None
-        )
-        blocked_response = record.get("blocked_response") if isinstance(record.get("blocked_response"), dict) else {}
-        timing = record.get("timing") if isinstance(record.get("timing"), dict) else None
-        judge_config = record.get("judge_config") if isinstance(record.get("judge_config"), dict) else None
-
-        judge_response_text_raw = record.get("judge_response_text")
-        judge_response_text = str(judge_response_text_raw) if judge_response_text_raw is not None else ""
-
-        probability_value = record.get("probability")
-        probability = float(probability_value) if isinstance(probability_value, (int, float)) else 0.0
-
-        explanation_raw = record.get("explanation")
-        explanation = str(explanation_raw) if explanation_raw is not None else ""
-
-        results.append(
-            JudgeBlockEntry(
-                call_id=require_type(record.get("call_id"), str, "call_id"),
-                trace_id=record.get("trace_id"),
-                timestamp=require_type(record.get("timestamp"), datetime, "timestamp"),
-                probability=probability,
-                explanation=explanation,
-                tool_call=tool_call,
-                judge_prompt=judge_prompt,
-                judge_response_text=judge_response_text,
-                original_request=original_request,
-                original_response=original_response,
-                stream_chunks=stream_chunks,
-                blocked_response=blocked_response,
-                timing=timing,
-                judge_config=judge_config,
-            )
-        )
-
-    return results
-
-
-@router.get("/api/policy/judge/traces", response_model=list[JudgeTraceSummary])
-async def get_judge_traces(
-    limit: int = Query(default=50, ge=1, le=200),
-    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
-    config: ProjectConfig = Depends(get_project_config),
-) -> list[JudgeTraceSummary]:
-    """Return list of traces with judge policy applications, sorted by most recent."""
-    records = await load_judge_traces(limit=limit, pool=pool, config=config)
-    return [
-        JudgeTraceSummary(
-            trace_id=require_type(record.get("trace_id"), str, "trace_id"),
-            first_seen=require_type(record.get("first_seen"), datetime, "first_seen"),
-            last_seen=require_type(record.get("last_seen"), datetime, "last_seen"),
-            block_count=require_type(record.get("block_count"), int, "block_count"),
-            max_probability=float(record.get("max_probability") or 0.0),
-        )
-        for record in records
-    ]
 
 
 @router.get("/api/debug/types", response_model=list[DebugTypeInfo])
@@ -368,13 +198,7 @@ __all__ = [
     "DebugEntry",
     "DebugTypeInfo",
     "DebugPage",
-    "ConversationLogEntry",
-    "ToolCallLogEntry",
     "get_debug_entries",
     "get_debug_types",
     "get_debug_page",
-    "get_conversation_logs",
-    "get_tool_call_logs",
-    "get_judge_blocks",
-    "JudgeBlockEntry",
 ]

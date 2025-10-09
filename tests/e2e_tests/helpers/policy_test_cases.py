@@ -35,7 +35,7 @@ SQL_TOOL = {
 
 NOOP_POLICY_TESTS = [
     PolicyTestCase(
-        policy_config_path="config/luthien_config.yaml",  # default NoOp
+        policy_config_path="config/policies/noop.yaml",
         test_id="noop_harmless_passthrough",
         description="NoOp policy should pass through harmless tool calls unchanged",
         turns=[

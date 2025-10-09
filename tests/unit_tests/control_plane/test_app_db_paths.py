@@ -109,31 +109,6 @@ async def test_get_debug_page():
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Trace functionality removed - schema migration")
-async def test_trace_by_call_id_sorts_by_ns():
-    call_id = "C"
-    rows = [
-        {
-            "time_created": datetime.fromtimestamp(100),
-            "debug_type_identifier": "hook:x",
-            "jsonblob": json.dumps({"payload": {"post_time_ns": 1000}, "hook": "x"}),
-        },
-        {
-            "time_created": datetime.fromtimestamp(50),
-            "debug_type_identifier": "hook:y",
-            "jsonblob": json.dumps({"payload": {"post_time_ns": 500}, "hook": "y"}),
-        },
-    ]
-    conn = FakeConn(rows=rows)
-
-    config = ProjectConfig(env_map={"DATABASE_URL": "postgres://example"})
-    pool = FakePool(conn)
-
-    out = await app_mod.trace_by_call_id(call_id, pool=pool, config=config)
-    assert [e.hook for e in out.entries] == ["y", "x"]
-
-
-@pytest.mark.asyncio
 async def test_recent_call_ids():
     rows = [
         {"call_id": "A", "event_count": 2, "latest": datetime.now(tz=timezone.utc)},

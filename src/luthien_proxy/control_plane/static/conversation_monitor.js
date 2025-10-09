@@ -175,7 +175,6 @@ function ensureCall(callId) {
       toolCalls: new Map(),
       toolCallOrder: [],
       snapshotTimer: null,
-      toolRefreshTimer: null,
     };
     state.calls.set(callId, call);
   }
@@ -250,52 +249,6 @@ async function refreshCallSnapshot(callId) {
     updateActiveCallLabel();
   } catch (err) {
     console.error("Failed to refresh call snapshot", err);
-  }
-}
-
-function scheduleToolCallRefresh(callId, delayMs = 200) {
-  const call = state.calls.get(callId);
-  if (!call) return;
-  if (call.toolRefreshTimer) {
-    clearTimeout(call.toolRefreshTimer);
-  }
-  call.toolRefreshTimer = setTimeout(async () => {
-    call.toolRefreshTimer = null;
-    await refreshToolCalls(callId);
-  }, delayMs);
-}
-
-async function refreshToolCalls(callId) {
-  try {
-    const records = await fetchJSON(`/api/tool-calls/logs?call_id=${encodeURIComponent(callId)}&limit=50`);
-    if (!Array.isArray(records)) return;
-    const call = state.calls.get(callId);
-    if (!call) return;
-    for (const record of records) {
-      const entries = Array.isArray(record.tool_calls) ? record.tool_calls : [];
-      for (const entry of entries) {
-        if (!entry || typeof entry !== "object") continue;
-        const id = typeof entry.id === "string" && entry.id ? entry.id : record.stream_id || null;
-        if (!id) continue;
-        const existing = call.toolCalls.get(id) || {};
-        const responseText = normalizeJSONString(entry.response);
-        call.toolCalls.set(id, {
-          id,
-          name: typeof entry.name === "string" ? entry.name : existing.name || "",
-          argumentsText: normalizeJSONString(entry.arguments != null ? entry.arguments : existing.argumentsText || ""),
-          status: typeof entry.status === "string" && entry.status ? entry.status : existing.status || "pending",
-          responseText: responseText || existing.responseText || "",
-          raw: entry,
-          lastSeen: existing.lastSeen || null,
-        });
-        if (!call.toolCallOrder.includes(id)) {
-          call.toolCallOrder.push(id);
-        }
-      }
-    }
-    renderTimeline();
-  } catch (err) {
-    console.error("Failed to refresh tool call logs", err);
   }
 }
 

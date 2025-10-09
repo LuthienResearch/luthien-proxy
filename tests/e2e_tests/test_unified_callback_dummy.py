@@ -14,9 +14,13 @@ pytestmark = pytest.mark.e2e
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMPOSE_FILE = PROJECT_ROOT / "docker-compose.dummy.yaml"
-PROXY_URL = "http://localhost:4400"
-CONTROL_PLANE_URL = "http://localhost:8083/health"
 MASTER_KEY = "sk-luthien-dev-key"
+DEFAULT_PORTS = {
+    "REDIS_PORT": 46379,
+    "POSTGRES_PORT": 45432,
+    "DUMMY_LITELLM_PORT": 44400,
+    "CONTROL_PLANE_PORT": 48081,
+}
 
 
 def _run_compose(*args: str) -> None:
@@ -39,18 +43,32 @@ def _wait_for_health(url: str, timeout: float = 180.0) -> None:
 
 
 @pytest.fixture(scope="module", autouse=True)
-def dummy_stack() -> Iterator[None]:
+def dummy_stack() -> Iterator[dict[str, int]]:
+    env_overrides = {key: str(DEFAULT_PORTS[key]) for key in DEFAULT_PORTS}
+    os.environ.update(env_overrides)
+
     _run_compose("down", "-v", "--remove-orphans")
     _run_compose("up", "-d", "--build")
-    _wait_for_health(f"{PROXY_URL}/test")
-    _wait_for_health(CONTROL_PLANE_URL)
+
+    proxy_url = f"http://localhost:{DEFAULT_PORTS['DUMMY_LITELLM_PORT']}"
+    control_plane_url = f"http://localhost:{DEFAULT_PORTS['CONTROL_PLANE_PORT']}/health"
+    _wait_for_health(f"{proxy_url}/test")
+    _wait_for_health(control_plane_url)
     try:
-        yield
+        yield {
+            "proxy_port": DEFAULT_PORTS["DUMMY_LITELLM_PORT"],
+            "redis_port": DEFAULT_PORTS["REDIS_PORT"],
+            "postgres_port": DEFAULT_PORTS["POSTGRES_PORT"],
+            "control_plane_port": DEFAULT_PORTS["CONTROL_PLANE_PORT"],
+        }
     finally:
         _run_compose("down", "-v", "--remove-orphans")
+        for key in env_overrides:
+            os.environ.pop(key, None)
 
 
-def test_unified_callback_streaming_chunks_are_openai_format() -> None:
+def test_unified_callback_streaming_chunks_are_openai_format(dummy_stack: dict[str, int]) -> None:
+    proxy_url = f"http://localhost:{dummy_stack['proxy_port']}"
     headers = {"Authorization": f"Bearer {MASTER_KEY}"}
     payload = {
         "model": "dummy-agent",
@@ -62,7 +80,7 @@ def test_unified_callback_streaming_chunks_are_openai_format() -> None:
     }
 
     chunks: list[dict] = []
-    with httpx.stream("POST", f"{PROXY_URL}/v1/chat/completions", headers=headers, json=payload, timeout=30.0) as resp:
+    with httpx.stream("POST", f"{proxy_url}/v1/chat/completions", headers=headers, json=payload, timeout=30.0) as resp:
         resp.raise_for_status()
         for line in resp.iter_lines():
             if not line:

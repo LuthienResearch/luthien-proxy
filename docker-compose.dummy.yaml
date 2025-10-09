@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-litellm}
       POSTGRES_DB: ${POSTGRES_DB:-litellm_db}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "${POSTGRES_PORT:-45432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +18,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "${REDIS_PORT}:6379"
+      - "${REDIS_PORT:-46379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -35,7 +35,7 @@ services:
     volumes:
       - ./scripts:/app/scripts:ro
     ports:
-      - "8083:8081"
+      - "${CONTROL_PLANE_PORT:-48081}:8081"
 
   dummy-provider:
     build:
@@ -63,7 +63,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     ports:
-      - "${DUMMY_LITELLM_PORT:-4400}:4000"
+      - "${DUMMY_LITELLM_PORT:-44400}:4000"
     volumes:
       - ./config:/app/config:ro
       - ./src:/app/src:ro

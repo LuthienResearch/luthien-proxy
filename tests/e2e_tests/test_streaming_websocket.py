@@ -132,9 +132,13 @@ def test_websocket_stream_round_trip(monkeypatch):
                 {
                     "type": "CHUNK",
                     "data": {
+                        "id": "chunk-1",
+                        "object": "chat.completion.chunk",
+                        "model": "dummy-model",
+                        "created": 1,
                         "choices": [
                             {"index": 0, "delta": {"content": "hello"}},
-                        ]
+                        ],
                     },
                 }
             )

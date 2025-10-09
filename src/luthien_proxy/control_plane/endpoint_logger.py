@@ -19,6 +19,7 @@ class StreamingEndpointLogger:
             enabled: Whether logging is enabled (default: True)
         """
         self._enabled = enabled
+        self._stream_call_ids: dict[str, str] = {}
 
     def log_start_message(self, stream_id: str, request_data: dict[str, Any]) -> None:
         """Log the START message received from litellm."""
@@ -28,6 +29,10 @@ class StreamingEndpointLogger:
         call_id = request_data.get("litellm_call_id", "unknown")
         model = request_data.get("model", "unknown")
         stream = request_data.get("stream", False)
+        if isinstance(call_id, str):
+            self._stream_call_ids[stream_id] = call_id
+        else:
+            self._stream_call_ids[stream_id] = "unknown"
 
         logger.info(
             "ENDPOINT START [%s]: call_id=%s, model=%s, stream=%s",
@@ -97,14 +102,16 @@ class StreamingEndpointLogger:
         if not self._enabled:
             return
 
-        logger.info("ENDPOINT END [%s]: stream complete", stream_id)
+        call_id = self._stream_call_ids.pop(stream_id, "unknown")
+        logger.info("ENDPOINT END [%s]: call_id=%s stream complete", stream_id, call_id)
 
     def log_error(self, stream_id: str, error: str) -> None:
         """Log when an error occurs during streaming."""
         if not self._enabled:
             return
 
-        logger.error("ENDPOINT ERROR [%s]: %s", stream_id, error)
+        call_id = self._stream_call_ids.get(stream_id, "unknown")
+        logger.error("ENDPOINT ERROR [%s]: call_id=%s %s", stream_id, call_id, error)
 
 
 # Singleton instance

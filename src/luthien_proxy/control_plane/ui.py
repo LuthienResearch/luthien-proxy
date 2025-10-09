@@ -41,12 +41,6 @@ async def debug_ui(request: Request, debug_type: str):
 # Removed request_logs UI
 
 
-@router.get("/ui/hooks/trace", response_class=HTMLResponse)
-async def hooks_trace_ui(request: Request):
-    """Render the hooks trace UI for a given call ID."""
-    return templates.TemplateResponse(request, "hooks_trace.html")
-
-
 @router.get("/ui/conversation/by_call", response_class=HTMLResponse)
 async def conversation_by_call_ui(request: Request):
     """Render the conversation view for individual calls."""
@@ -59,25 +53,7 @@ async def hooks_conversation_ui(request: Request):
     return templates.TemplateResponse(request, "conversation_view.html")
 
 
-@router.get("/ui/conversation/logs", response_class=HTMLResponse)
-async def conversation_logs_ui(request: Request):
-    """Render a simple view over recorded conversation turns."""
-    return templates.TemplateResponse(request, "conversation_logs.html")
-
-
 @router.get("/ui/conversation/live", response_class=HTMLResponse)
 async def conversation_monitor_ui(request: Request):
     """Render the simplified conversation monitor."""
     return templates.TemplateResponse(request, "conversation_monitor_simple.html")
-
-
-@router.get("/ui/tool-calls", response_class=HTMLResponse)
-async def tool_call_logs_ui(request: Request):
-    """Render a view over recorded tool-call interventions."""
-    return templates.TemplateResponse(request, "tool_call_logs.html")
-
-
-@router.get("/ui/policy/judge", response_class=HTMLResponse)
-async def judge_policy_ui(request: Request):
-    """Render a view of LLM judge policy decisions for a trace."""
-    return templates.TemplateResponse(request, "policy_judge.html")
