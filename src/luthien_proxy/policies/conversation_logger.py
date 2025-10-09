@@ -48,8 +48,19 @@ class ConversationLoggingPolicy(LuthienPolicy):
         cache: Mapping[str, Any] | None = None,
         call_type: str | None = None,
     ) -> None:
-        """Record request metadata and message payload for later analysis."""
-        call_id = self._require_call_id(data)
+        """Record request metadata and message payload for later analysis.
+
+        Note: call_id may not be available for all call types at pre-call time.
+        For text_completion calls, LiteLLM generates the call_id after this hook.
+        We skip recording in those cases - the post-call hook will capture everything.
+        """
+        call_id = self._extract_call_id(data)
+        if not call_id:
+            # Call ID not available yet - skip pre-call recording
+            # The post-call hook will capture the full request/response
+            logger.debug(f"Skipping pre-call recording for call_type={call_type} - no call_id available yet")
+            return
+
         record = {
             "schema": self.schema,
             "call_id": call_id,
@@ -388,7 +399,8 @@ class ConversationLoggingPolicy(LuthienPolicy):
             return "".join(parts)
         raise TypeError("unsupported message content structure")
 
-    def _require_call_id(self, payload: Mapping[str, Any]) -> str:
+    def _extract_call_id(self, payload: Mapping[str, Any]) -> Optional[str]:
+        """Extract call_id from payload, returning None if not found."""
         candidates = (
             payload.get("litellm_call_id"),
             self._metadata_lookup(payload, "litellm_call_id"),
@@ -397,7 +409,14 @@ class ConversationLoggingPolicy(LuthienPolicy):
         for candidate in candidates:
             if isinstance(candidate, str) and candidate:
                 return candidate
-        raise ValueError("payload missing litellm_call_id")
+        return None
+
+    def _require_call_id(self, payload: Mapping[str, Any]) -> str:
+        """Extract call_id from payload, raising error if not found."""
+        call_id = self._extract_call_id(payload)
+        if not call_id:
+            raise ValueError("payload missing litellm_call_id")
+        return call_id
 
     def _extract_trace_id(self, payload: Mapping[str, Any]) -> Optional[str]:
         candidates = (

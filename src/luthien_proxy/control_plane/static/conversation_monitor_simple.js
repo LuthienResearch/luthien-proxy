@@ -102,28 +102,48 @@ function renderConversation(data) {
 
     card.appendChild(header);
 
-    // Request section
+    // Request section - show original vs final
     const requestSection = document.createElement('div');
     requestSection.className = 'section';
 
     const requestTitle = document.createElement('h3');
-    requestTitle.textContent = 'Request';
+    requestTitle.textContent = 'Request Messages';
     requestSection.appendChild(requestTitle);
 
-    if (call.request_final_messages && call.request_final_messages.length > 0) {
-      call.request_final_messages.forEach(msg => {
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `message ${msg.role}`;
+    if (call.request_original_messages && call.request_original_messages.length > 0) {
+      call.request_original_messages.forEach((origMsg, idx) => {
+        const finalMsg = call.request_final_messages && call.request_final_messages[idx];
+        const msgContainer = document.createElement('div');
+        msgContainer.className = 'message-comparison';
 
-        const roleSpan = document.createElement('strong');
-        roleSpan.textContent = msg.role + ': ';
-        msgDiv.appendChild(roleSpan);
+        // Original version
+        const origDiv = document.createElement('div');
+        origDiv.className = `message ${origMsg.role} original`;
+        const origLabel = document.createElement('div');
+        origLabel.className = 'message-label';
+        origLabel.textContent = 'Original';
+        origDiv.appendChild(origLabel);
+        const origContent = document.createElement('div');
+        origContent.innerHTML = `<strong>${origMsg.role}:</strong> ${origMsg.content || ''}`;
+        origDiv.appendChild(origContent);
+        msgContainer.appendChild(origDiv);
 
-        const contentSpan = document.createElement('span');
-        contentSpan.textContent = msg.content;
-        msgDiv.appendChild(contentSpan);
+        // Final version (always show)
+        if (finalMsg) {
+          const finalDiv = document.createElement('div');
+          const isModified = finalMsg.content !== origMsg.content;
+          finalDiv.className = `message ${finalMsg.role} final ${isModified ? 'modified' : ''}`;
+          const finalLabel = document.createElement('div');
+          finalLabel.className = 'message-label';
+          finalLabel.textContent = isModified ? 'Final (Modified by Policy)' : 'Final';
+          finalDiv.appendChild(finalLabel);
+          const finalContent = document.createElement('div');
+          finalContent.innerHTML = `<strong>${finalMsg.role}:</strong> ${finalMsg.content || ''}`;
+          finalDiv.appendChild(finalContent);
+          msgContainer.appendChild(finalDiv);
+        }
 
-        requestSection.appendChild(msgDiv);
+        requestSection.appendChild(msgContainer);
       });
     } else {
       requestSection.appendChild(document.createTextNode('No request messages'));
@@ -131,19 +151,51 @@ function renderConversation(data) {
 
     card.appendChild(requestSection);
 
-    // Response section
+    // Response section - show original vs final
     const responseSection = document.createElement('div');
     responseSection.className = 'section';
 
     const responseTitle = document.createElement('h3');
-    responseTitle.textContent = 'Response';
+    responseTitle.textContent = 'Assistant Response';
     responseSection.appendChild(responseTitle);
 
-    const responseDiv = document.createElement('div');
-    responseDiv.className = 'message assistant';
-    responseDiv.textContent = call.final_response || 'No response';
-    responseSection.appendChild(responseDiv);
+    const responseComparison = document.createElement('div');
+    responseComparison.className = 'message-comparison';
 
+    // Original response
+    if (call.original_response) {
+      const origDiv = document.createElement('div');
+      origDiv.className = 'message assistant original';
+      const origLabel = document.createElement('div');
+      origLabel.className = 'message-label';
+      origLabel.textContent = 'Original';
+      origDiv.appendChild(origLabel);
+      const origContent = document.createElement('div');
+      origContent.textContent = call.original_response;
+      origDiv.appendChild(origContent);
+      responseComparison.appendChild(origDiv);
+    }
+
+    // Final response (always show if present)
+    if (call.final_response) {
+      const finalDiv = document.createElement('div');
+      const isModified = call.final_response !== call.original_response;
+      finalDiv.className = `message assistant final ${isModified ? 'modified' : ''}`;
+      const finalLabel = document.createElement('div');
+      finalLabel.className = 'message-label';
+      finalLabel.textContent = isModified ? 'Final (Modified by Policy)' : 'Final';
+      finalDiv.appendChild(finalLabel);
+      const finalContent = document.createElement('div');
+      finalContent.textContent = call.final_response;
+      finalDiv.appendChild(finalContent);
+      responseComparison.appendChild(finalDiv);
+    }
+
+    if (!call.original_response && !call.final_response) {
+      responseComparison.textContent = 'No response';
+    }
+
+    responseSection.appendChild(responseComparison);
     card.appendChild(responseSection);
     timeline.appendChild(card);
   });
