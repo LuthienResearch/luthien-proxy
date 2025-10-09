@@ -135,8 +135,8 @@ async def test_trace_by_call_id_sorts_by_ns():
 @pytest.mark.asyncio
 async def test_recent_call_ids():
     rows = [
-        {"cid": "A", "cnt": 2, "latest": datetime.now(tz=timezone.utc)},
-        {"cid": "B", "cnt": 1, "latest": datetime.now(tz=timezone.utc)},
+        {"call_id": "A", "event_count": 2, "latest": datetime.now(tz=timezone.utc)},
+        {"call_id": "B", "event_count": 1, "latest": datetime.now(tz=timezone.utc)},
     ]
     conn = FakeConn(rows=rows)
 

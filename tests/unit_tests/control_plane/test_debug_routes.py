@@ -21,7 +21,15 @@ class _FakeDebugConn:
         self._fetch_rows = fetch_rows
         self._fetchrow_result = fetchrow_result
 
-    async def fetch(self, *args, **kwargs):
+    async def fetch(self, query, *params):
+        if isinstance(query, str) and "FROM conversation_tool_calls" in query:
+            rows = self._fetch_rows
+            if len(params) >= 2 and isinstance(params[0], str):
+                rows = [row for row in rows if row.get("call_id") == params[0]]
+            limit = params[-1] if params else None
+            if isinstance(limit, int):
+                return rows[:limit]
+            return rows
         return self._fetch_rows
 
     async def fetchrow(self, *args, **kwargs):
@@ -279,22 +287,18 @@ async def test_get_conversation_logs_handles_invalid_timestamp(project_config: P
 @pytest.mark.asyncio
 async def test_get_tool_call_logs_parses_entries(project_config: ProjectConfig):
     now = datetime.now(UTC)
-    payload = {
-        "schema": "luthien.conversation.tool_call.v1",
-        "call_id": "call-1",
-        "trace_id": "trace-1",
-        "timestamp": now.isoformat(),
-        "stream_id": "stream-1",
-        "chunks_buffered": 3,
-        "tool_calls": [{"id": "tool-1", "type": "function", "name": "shell", "arguments": "{}"}],
-    }
     conn = _FakeDebugConn(
         [
             {
-                "id": 10,
-                "time_created": now,
-                "debug_type_identifier": "conversation:tool-call",
-                "jsonblob": json.dumps(payload),
+                "call_id": "call-1",
+                "trace_id": "trace-1",
+                "tool_call_id": "stream-1",
+                "name": "shell",
+                "arguments": "{}",
+                "status": "emitted",
+                "response": None,
+                "chunks_buffered": 3,
+                "created_at": now,
             }
         ]
     )
@@ -318,10 +322,15 @@ async def test_get_tool_call_logs_filters_call_id(project_config: ProjectConfig)
     conn = _FakeDebugConn(
         [
             {
-                "id": 11,
-                "time_created": now,
-                "debug_type_identifier": "conversation:tool-call",
-                "jsonblob": json.dumps({"call_id": "other", "timestamp": now.isoformat(), "tool_calls": []}),
+                "call_id": "other",
+                "trace_id": "trace-1",
+                "tool_call_id": "stream-1",
+                "name": "shell",
+                "arguments": "{}",
+                "status": "emitted",
+                "response": None,
+                "chunks_buffered": 1,
+                "created_at": now,
             }
         ]
     )

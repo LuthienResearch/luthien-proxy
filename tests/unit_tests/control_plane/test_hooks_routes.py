@@ -1,5 +1,4 @@
 import asyncio
-import json
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 
@@ -218,8 +217,8 @@ async def test_recent_call_ids_returns_summary(project_config: ProjectConfig):
     now = datetime.now(UTC)
     rows = [
         {
-            "cid": "abc123",
-            "cnt": 2,
+            "call_id": "abc123",
+            "event_count": 2,
             "latest": now,
         }
     ]
@@ -243,68 +242,58 @@ async def test_conversation_snapshot_builds_events(project_config: ProjectConfig
 
     pre_payload = {
         "hook": "async_pre_call_hook",
-        "litellm_call_id": "call-1",
-        "litellm_trace_id": "trace-1",
-        "post_time_ns": 1,
-        "original": {
-            "request_data": {
-                "messages": [{"role": "user", "content": "Hello"}],
-                "post_time_ns": 1,
-            }
-        },
-        "result": {
-            "request_data": {
-                "messages": [{"role": "user", "content": "Hello sanitized"}],
-                "post_time_ns": 2,
-            }
-        },
+        "original_messages": [{"role": "user", "content": "Hello"}],
+        "final_messages": [{"role": "user", "content": "Hello sanitized"}],
     }
 
     stream_payload = {
-        "hook": "async_post_call_streaming_iterator_hook",
-        "litellm_call_id": "call-1",
-        "litellm_trace_id": "trace-1",
-        "post_time_ns": 2,
-        "original": {
-            "response": {"choices": [{"index": 0, "delta": {"content": "Hi"}}]},
-            "post_time_ns": 3,
-        },
-        "result": {
-            "response": {"choices": [{"index": 0, "delta": {"content": "Hello!"}}]},
-            "post_time_ns": 4,
-        },
+        "chunk_index": 0,
+        "choice_index": 0,
+        "delta": "Hi",
     }
 
     success_payload = {
-        "hook": "async_post_call_success_hook",
-        "litellm_call_id": "call-1",
-        "litellm_trace_id": "trace-1",
-        "post_time_ns": 3,
-        "original": {
-            "response": {"choices": [{"message": {"content": "Hi"}}]},
-            "post_time_ns": 5,
-        },
-        "result": {
-            "response": {"choices": [{"message": {"content": "Hello friend!"}}]},
-            "post_time_ns": 6,
-        },
+        "status": "success",
+        "original_response": "Hi",
+        "final_response": "Hello friend!",
     }
 
     rows = [
         {
-            "time_created": now + timedelta(milliseconds=3),
-            "debug_type_identifier": "hook_result:async_pre_call_hook",
-            "jsonblob": json.dumps(pre_payload),
+            "call_id": "call-1",
+            "trace_id": "trace-1",
+            "event_type": "request_started",
+            "hook": "async_pre_call_hook",
+            "sequence": 1,
+            "payload": pre_payload,
+            "created_at": now,
         },
         {
-            "time_created": now + timedelta(milliseconds=1),
-            "debug_type_identifier": "hook_result:async_post_call_streaming_iterator_hook",
-            "jsonblob": json.dumps(stream_payload),
+            "call_id": "call-1",
+            "trace_id": "trace-1",
+            "event_type": "original_chunk",
+            "hook": "async_post_call_streaming_iterator_hook",
+            "sequence": 2,
+            "payload": stream_payload,
+            "created_at": now + timedelta(milliseconds=1),
         },
         {
-            "time_created": now + timedelta(milliseconds=2),
-            "debug_type_identifier": "hook_result:async_post_call_success_hook",
-            "jsonblob": json.dumps(success_payload),
+            "call_id": "call-1",
+            "trace_id": "trace-1",
+            "event_type": "final_chunk",
+            "hook": "async_post_call_streaming_iterator_hook",
+            "sequence": 3,
+            "payload": {"chunk_index": 0, "choice_index": 0, "delta": "Hello!"},
+            "created_at": now + timedelta(milliseconds=2),
+        },
+        {
+            "call_id": "call-1",
+            "trace_id": "trace-1",
+            "event_type": "request_completed",
+            "hook": "async_post_call_success_hook",
+            "sequence": 4,
+            "payload": success_payload,
+            "created_at": now + timedelta(milliseconds=3),
         },
     ]
 
@@ -346,44 +335,32 @@ async def test_conversation_snapshot_builds_events(project_config: ProjectConfig
 async def test_conversation_snapshot_by_trace_collects_calls(project_config: ProjectConfig):
     now = datetime.now(UTC)
 
-    call1_payload = {
-        "hook": "async_post_call_success_hook",
-        "litellm_call_id": "call-1",
-        "litellm_trace_id": "trace-1",
-        "original": {
-            "response": {"choices": [{"message": {"content": "Hi"}}]},
-            "post_time_ns": 5,
-        },
-        "result": {
-            "response": {"choices": [{"message": {"content": "Hello"}}]},
-            "post_time_ns": 6,
-        },
-    }
-
-    call2_payload = {
-        "hook": "async_post_call_success_hook",
-        "litellm_call_id": "call-2",
-        "litellm_trace_id": "trace-1",
-        "original": {
-            "response": {"choices": [{"message": {"content": "Howdy"}}]},
-            "post_time_ns": 7,
-        },
-        "result": {
-            "response": {"choices": [{"message": {"content": "Howdy partner"}}]},
-            "post_time_ns": 8,
-        },
-    }
-
     rows = [
         {
-            "time_created": now,
-            "debug_type_identifier": "hook_result:async_post_call_success_hook",
-            "jsonblob": json.dumps(call1_payload),
+            "call_id": "call-1",
+            "trace_id": "trace-1",
+            "event_type": "request_completed",
+            "hook": "async_post_call_success_hook",
+            "sequence": 1,
+            "payload": {
+                "status": "success",
+                "original_response": "Hi",
+                "final_response": "Hello",
+            },
+            "created_at": now,
         },
         {
-            "time_created": now + timedelta(milliseconds=1),
-            "debug_type_identifier": "hook_result:async_post_call_success_hook",
-            "jsonblob": json.dumps(call2_payload),
+            "call_id": "call-2",
+            "trace_id": "trace-1",
+            "event_type": "request_completed",
+            "hook": "async_post_call_success_hook",
+            "sequence": 2,
+            "payload": {
+                "status": "success",
+                "original_response": "Howdy",
+                "final_response": "Howdy partner",
+            },
+            "created_at": now + timedelta(milliseconds=1),
         },
     ]
 

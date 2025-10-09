@@ -16,6 +16,8 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 Centralized control plane makes policy decisions, proxy stays thin and forwards callbacks.
 
-## Key Patterns
+## Key Patterns (2025-10-08)
 
-(Add patterns as discovered during development with timestamps: YYYY-MM-DD)
+- Structured conversation storage: `conversation_calls`, `conversation_events`, and `conversation_tool_calls` tables capture canonical history. APIs now read from these tables instead of replaying `debug_logs`, while Redis still handles live SSE fan-out.
+
+(Add additional patterns as discovered during development with timestamps.)

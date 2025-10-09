@@ -22,6 +22,11 @@ Main Components:
 from .db import (
     fetch_trace_entries,
     fetch_trace_entries_by_trace,
+    load_events_for_call,
+    load_events_for_trace,
+    load_recent_calls,
+    load_recent_traces,
+    load_tool_call_records,
 )
 from .events import build_conversation_events, events_from_trace_entries
 from .models import (
@@ -36,6 +41,7 @@ from .models import (
     TraceResponse,
 )
 from .snapshots import build_call_snapshots
+from .store import record_conversation_events
 from .streams import (
     ConversationStreamConfig,
     conversation_sse_stream,
@@ -63,8 +69,14 @@ __all__ = [
     "conversation_sse_stream",
     "conversation_sse_stream_by_trace",
     "ConversationStreamConfig",
+    "record_conversation_events",
     "fetch_trace_entries",
     "fetch_trace_entries_by_trace",
+    "load_events_for_call",
+    "load_events_for_trace",
+    "load_recent_calls",
+    "load_recent_traces",
+    "load_tool_call_records",
     "json_safe",
     "strip_post_time_ns",
 ]

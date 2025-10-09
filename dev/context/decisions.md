@@ -33,6 +33,12 @@ The architecture (centralized control plane, thin proxy, pluggable policies) sup
 
 This is infrastructure-first: Redwood AI Control is an important use case the platform should support, not the defining architecture.
 
+## Conversation Storage (2025-10-08)
+
+**Decision**: Replace debug-log reconstruction with dedicated `conversation_calls`, `conversation_events`, and `conversation_tool_calls` tables.
+
+**Rationale**: Debug logs were flexible but expensive to replay and impossible to index. Structured tables let the control plane write each event once and power snapshots/trace queries via SQL instead of per-request log parsing. Live SSE still uses Redis, but Postgres is now the canonical history for UI renderings and analytics.
+
 ---
 
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

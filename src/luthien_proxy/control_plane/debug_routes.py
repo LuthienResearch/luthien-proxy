@@ -10,6 +10,7 @@ from typing import Optional, cast
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
+from luthien_proxy.control_plane.conversation import load_tool_call_records
 from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
@@ -214,6 +215,29 @@ async def get_tool_call_logs(
     config: ProjectConfig = Depends(get_project_config),
 ) -> list[ToolCallLogEntry]:
     """Return recent tool-call logs optionally filtered by call id."""
+    structured_records = await load_tool_call_records(
+        limit,
+        pool,
+        config,
+        call_id=call_id,
+    )
+    results: list[ToolCallLogEntry] = []
+    if structured_records:
+        for record in structured_records:
+            tool_calls = record.get("tool_calls")
+            entries_list = tool_calls if isinstance(tool_calls, list) else []
+            results.append(
+                ToolCallLogEntry(
+                    call_id=require_type(record.get("call_id"), str, "call_id"),
+                    trace_id=record.get("trace_id"),
+                    timestamp=require_type(record.get("timestamp"), datetime, "timestamp"),
+                    stream_id=record.get("stream_id"),
+                    chunks_buffered=record.get("chunks_buffered"),
+                    tool_calls=entries_list,
+                )
+            )
+        return results
+
     entries = await get_debug_entries(TOOL_CALL_DEBUG_TYPE, limit=limit, pool=pool, config=config)
     filtered: list[ToolCallLogEntry] = []
     call_filter = call_id if isinstance(call_id, str) and call_id else None
