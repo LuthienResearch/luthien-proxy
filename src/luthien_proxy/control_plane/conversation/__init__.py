@@ -21,7 +21,6 @@ Main Components:
 
 from .db import (
     fetch_trace_entries,
-    fetch_trace_entries_by_trace,
     load_conversation_turns,
     load_events_for_call,
     load_events_for_trace,
@@ -29,7 +28,7 @@ from .db import (
     load_recent_traces,
     load_tool_call_records,
 )
-from .events import build_conversation_events, events_from_trace_entries
+from .events import build_conversation_events, clear_stream_indices, reset_stream_indices
 from .models import (
     CallIdInfo,
     ConversationCallSnapshot,
@@ -63,7 +62,6 @@ __all__ = [
     "TraceInfo",
     "TraceResponse",
     "build_conversation_events",
-    "events_from_trace_entries",
     "build_call_snapshots",
     "publish_conversation_event",
     "publish_trace_conversation_event",
@@ -71,14 +69,15 @@ __all__ = [
     "conversation_sse_stream_by_trace",
     "ConversationStreamConfig",
     "record_conversation_events",
-    "fetch_trace_entries",
-    "fetch_trace_entries_by_trace",
     "load_events_for_call",
-    "load_events_for_trace",
     "load_recent_calls",
+    "fetch_trace_entries",
+    "load_events_for_trace",
     "load_recent_traces",
     "load_conversation_turns",
     "load_tool_call_records",
+    "reset_stream_indices",
+    "clear_stream_indices",
     "json_safe",
     "strip_post_time_ns",
 ]

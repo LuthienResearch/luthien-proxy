@@ -49,19 +49,14 @@ class TraceInfo(BaseModel):
 
 
 class ConversationEvent(BaseModel):
-    """Normalized conversation event derived from debug hooks."""
+    """Normalized conversation event (request or response)."""
 
     call_id: str
-    trace_id: Optional[str] = None
-    event_type: Literal[
-        "request_started",
-        "original_chunk",
-        "final_chunk",
-        "request_completed",
-    ]
+    trace_id: Optional[str] = None  # Deprecated, always None
+    event_type: Literal["request", "response"]
     sequence: int
     timestamp: datetime
-    hook: str
+    hook: str  # Source hook that created this event
     payload: JSONObject = Field(default_factory=dict)
 
 
