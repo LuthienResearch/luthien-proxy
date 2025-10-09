@@ -67,8 +67,8 @@ async def conversation_logs_ui(request: Request):
 
 @router.get("/ui/conversation/live", response_class=HTMLResponse)
 async def conversation_monitor_ui(request: Request):
-    """Render the consolidated live conversation monitor."""
-    return templates.TemplateResponse(request, "conversation_monitor.html")
+    """Render the simplified conversation monitor."""
+    return templates.TemplateResponse(request, "conversation_monitor_simple.html")
 
 
 @router.get("/ui/tool-calls", response_class=HTMLResponse)

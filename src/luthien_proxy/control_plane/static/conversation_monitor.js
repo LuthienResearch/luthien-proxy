@@ -226,6 +226,7 @@ function applySnapshot(snapshot) {
       handleEvent(event, { replay: true });
     }
   }
+  renderTimeline();
 }
 
 function scheduleSnapshotRefresh(callId, delayMs = 200) {
@@ -669,7 +670,13 @@ function initEventHandlers() {
     loadBtn.addEventListener("click", () => {
       const input = document.getElementById("call-input");
       const value = input ? input.value.trim() : "";
-      if (value) loadCall(value);
+      console.log("Load button clicked, value:", value);
+      if (value) {
+        console.log("Calling loadCall with:", value);
+        loadCall(value);
+      } else {
+        console.log("No value to load");
+      }
     });
   }
 
