@@ -22,6 +22,7 @@ Main Components:
 from .db import (
     fetch_trace_entries,
     fetch_trace_entries_by_trace,
+    load_conversation_turns,
     load_events_for_call,
     load_events_for_trace,
     load_recent_calls,
@@ -76,6 +77,7 @@ __all__ = [
     "load_events_for_trace",
     "load_recent_calls",
     "load_recent_traces",
+    "load_conversation_turns",
     "load_tool_call_records",
     "json_safe",
     "strip_post_time_ns",

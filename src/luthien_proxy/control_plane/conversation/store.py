@@ -31,6 +31,7 @@ async def record_conversation_events(
 
             if event.event_type == "final_chunk":
                 await _record_tool_calls(conn, event)
+                await _ensure_completion_for_tool_calls(conn, event)
 
 
 async def _ensure_call_row(conn: db.ConnectionProtocol, event: ConversationEvent) -> None:
@@ -341,3 +342,61 @@ def _as_int(value: object) -> int | None:
     if isinstance(value, float):
         return int(value)
     return None
+
+
+async def _ensure_completion_for_tool_calls(conn: db.ConnectionProtocol, event: ConversationEvent) -> None:
+    """Insert a synthetic completion event for tool-only runs if none exists."""
+    tool_calls = _extract_tool_calls(event.payload)
+    if not tool_calls:
+        return
+
+    existing = await conn.fetchrow(
+        """
+        SELECT 1 FROM conversation_events
+        WHERE call_id = $1 AND event_type = 'request_completed'
+        LIMIT 1
+        """,
+        event.call_id,
+    )
+    if existing:
+        return
+
+    sequence = None
+    if event.sequence is not None:
+        try:
+            sequence = int(event.sequence) + 1
+        except Exception:
+            sequence = None
+    if sequence is None:
+        sequence = int(event.timestamp.timestamp() * 1_000_000_000)
+
+    payload: JSONObject = {
+        "status": "success",
+        "final_response": "",
+        "completion_reason": "tool_calls",
+        "tool_call_ids": [
+            tc.get("id") for tc in tool_calls if isinstance(tc, Mapping) and isinstance(tc.get("id"), str)
+        ],
+    }
+    synthetic_event = ConversationEvent(
+        call_id=event.call_id,
+        trace_id=event.trace_id,
+        event_type="request_completed",
+        sequence=sequence,
+        timestamp=event.timestamp,
+        hook="synthetic_tool_completion",
+        payload=payload,
+    )
+    await _insert_event_row(conn, synthetic_event)
+    await conn.execute(
+        """
+        UPDATE conversation_calls
+        SET status = $2,
+            completed_at = COALESCE($3, completed_at),
+            updated_at = $3
+        WHERE call_id = $1
+        """,
+        event.call_id,
+        "success",
+        event.timestamp,
+    )

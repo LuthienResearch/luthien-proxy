@@ -351,7 +351,7 @@ async def load_tool_call_records(
     if config.database_url is None or pool is None:
         return []
 
-    conditions: list[str] = []
+    conditions: list[str] = ["e.event_type IN ('request_started', 'request_completed')"]
     params: list[object] = []
 
     if call_id:
@@ -411,4 +411,67 @@ async def load_tool_call_records(
         }
         record["tool_calls"] = [tool_entry]
         records.append(record)
+    return records
+
+
+async def load_conversation_turns(
+    limit: int,
+    pool: Optional[db.DatabasePool],
+    config: ProjectConfig,
+    *,
+    call_id: str | None = None,
+) -> list[dict[str, object]]:
+    """Load request/response conversation turns from structured tables."""
+    if config.database_url is None or pool is None:
+        return []
+
+    conditions: list[str] = []
+    params: list[object] = []
+
+    if call_id:
+        conditions.append(f"e.call_id = ${len(params) + 1}")
+        params.append(call_id)
+
+    params.append(limit)
+
+    where_clause = ""
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+
+    query = f"""
+        SELECT e.call_id,
+               c.trace_id,
+               e.event_type,
+               e.payload,
+               e.created_at
+        FROM conversation_events e
+        JOIN conversation_calls c ON c.call_id = e.call_id
+        {where_clause}
+        ORDER BY e.created_at DESC
+        LIMIT ${len(params)}
+        """
+
+    rows: Sequence[Mapping[str, object]]
+    try:
+        async with pool.connection() as conn:
+            rows = await conn.fetch(query, *params)
+    except Exception as exc:
+        logger.error("Failed to load conversation turns: %s", exc)
+        return []
+
+    records: list[dict[str, object]] = []
+    for row in rows:
+        call_identifier = require_type(row.get("call_id"), str, "call_id")
+        direction = "request" if row.get("event_type") == "request_started" else "response"
+        timestamp = require_type(row.get("created_at"), datetime, "created_at")
+        payload = row.get("payload") if isinstance(row.get("payload"), Mapping) else {}
+        records.append(
+            {
+                "call_id": call_identifier,
+                "trace_id": row.get("trace_id"),
+                "direction": direction,
+                "timestamp": timestamp,
+                "payload": payload,
+            }
+        )
     return records

@@ -1,5 +1,4 @@
-import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -26,6 +25,15 @@ class _FakeDebugConn:
             rows = self._fetch_rows
             if len(params) >= 2 and isinstance(params[0], str):
                 rows = [row for row in rows if row.get("call_id") == params[0]]
+            limit = params[-1] if params else None
+            if isinstance(limit, int):
+                return rows[:limit]
+            return rows
+        if isinstance(query, str) and "FROM conversation_events" in query:
+            rows = self._fetch_rows
+            if params and isinstance(params[0], str) and "e.call_id =" in query:
+                rows = [row for row in rows if row.get("call_id") == params[0]]
+            rows = sorted(rows, key=lambda r: r.get("created_at"), reverse=True)
             limit = params[-1] if params else None
             if isinstance(limit, int):
                 return rows[:limit]
@@ -217,71 +225,32 @@ async def test_get_debug_page_logs_and_recovers(project_config: ProjectConfig):
 
 
 @pytest.mark.asyncio
-async def test_get_conversation_logs_filters_call_id(project_config: ProjectConfig):
+async def test_get_conversation_logs_reads_structured_events(project_config: ProjectConfig):
     now = datetime.now(UTC)
-    payload_match = {
-        "call_id": "call-1",
-        "timestamp": now.isoformat(),
-        "direction": "request",
-    }
-    payload_other = {
-        "call_id": "call-2",
-        "timestamp": now.isoformat(),
-        "direction": "response",
-    }
-    conn = _FakeDebugConn(
-        [
-            {
-                "id": 1,
-                "time_created": now,
-                "debug_type_identifier": "conversation:turn",
-                "jsonblob": json.dumps(payload_match),
-            },
-            {
-                "id": 2,
-                "time_created": now,
-                "debug_type_identifier": "conversation:turn",
-                "jsonblob": json.dumps(payload_other),
-            },
-        ]
-    )
+    rows = [
+        {
+            "call_id": "call-1",
+            "trace_id": "trace-1",
+            "event_type": "request_started",
+            "payload": {"messages": [{"role": "user", "content": "hi"}]},
+            "created_at": now,
+        },
+        {
+            "call_id": "call-1",
+            "trace_id": "trace-1",
+            "event_type": "request_completed",
+            "payload": {"status": "success", "final_response": ""},
+            "created_at": now + timedelta(milliseconds=1),
+        },
+    ]
+    conn = _FakeDebugConn(rows)
     pool = _FakePool(conn)
 
     logs = await get_conversation_logs(call_id="call-1", limit=10, pool=pool, config=project_config)
 
-    assert len(logs) == 1
-    entry = logs[0]
-    assert entry.call_id == "call-1"
-    assert entry.direction == "request"
-    assert entry.timestamp == datetime.fromisoformat(payload_match["timestamp"])
-
-
-@pytest.mark.asyncio
-async def test_get_conversation_logs_handles_invalid_timestamp(project_config: ProjectConfig):
-    now = datetime.now(UTC)
-    payload = {
-        "call_id": "call-3",
-        "timestamp": "not-a-timestamp",
-        "direction": "response",
-    }
-    conn = _FakeDebugConn(
-        [
-            {
-                "id": 3,
-                "time_created": now,
-                "debug_type_identifier": "conversation:turn",
-                "jsonblob": json.dumps(payload),
-            }
-        ]
-    )
-    pool = _FakePool(conn)
-
-    logs = await get_conversation_logs(pool=pool, config=project_config)
-
-    assert len(logs) == 1
-    entry = logs[0]
-    assert entry.call_id == "call-3"
-    assert entry.timestamp == now
+    assert [entry.direction for entry in logs] == ["response", "request"]
+    assert {entry.call_id for entry in logs} == {"call-1"}
+    assert logs[0].payload.get("status") == "success"
 
 
 @pytest.mark.asyncio

@@ -10,7 +10,7 @@ from typing import Optional, cast
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from luthien_proxy.control_plane.conversation import load_tool_call_records
+from luthien_proxy.control_plane.conversation import load_conversation_turns, load_tool_call_records
 from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
@@ -169,42 +169,17 @@ async def get_conversation_logs(
     config: ProjectConfig = Depends(get_project_config),
 ) -> list[ConversationLogEntry]:
     """Return recent conversation turn logs optionally filtered by call id."""
-    turns: list[ConversationLogEntry] = []
-    call_filter = call_id if isinstance(call_id, str) and call_id else None
-    entries = await get_debug_entries("conversation:turn", limit=limit, pool=pool, config=config)
-    for entry in entries:
-        blob = entry.jsonblob
-        if not isinstance(blob, dict):
-            continue
-        record_call_id = blob.get("call_id")
-        if not isinstance(record_call_id, str) or not record_call_id:
-            continue
-        if call_filter is not None and record_call_id != call_filter:
-            continue
-        timestamp_value = blob.get("timestamp")
-        timestamp: datetime
-        if isinstance(timestamp_value, str):
-            try:
-                timestamp = datetime.fromisoformat(timestamp_value)
-            except ValueError:
-                timestamp = entry.time_created
-        else:
-            timestamp = entry.time_created
-        direction = blob.get("direction")
-        if not isinstance(direction, str) or not direction:
-            direction = "unknown"
-        trace_candidate = blob.get("trace_id")
-        trace_id: str | None = trace_candidate if isinstance(trace_candidate, str) else None
-        turns.append(
-            ConversationLogEntry(
-                call_id=record_call_id,
-                trace_id=trace_id,
-                direction=direction,
-                timestamp=timestamp,
-                payload=blob,
-            )
+    records = await load_conversation_turns(limit, pool, config, call_id=call_id)
+    return [
+        ConversationLogEntry(
+            call_id=require_type(record.get("call_id"), str, "call_id"),
+            trace_id=record.get("trace_id"),
+            direction=require_type(record.get("direction"), str, "direction"),
+            timestamp=require_type(record.get("timestamp"), datetime, "timestamp"),
+            payload=record.get("payload", {}),
         )
-    return turns
+        for record in records
+    ]
 
 
 @router.get("/api/tool-calls/logs", response_model=list[ToolCallLogEntry])
