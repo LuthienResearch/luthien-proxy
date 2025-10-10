@@ -1,71 +1,16 @@
-"""Conversation event builders."""
+"""Conversation event builders for request/response pairs."""
 
 from __future__ import annotations
 
-import threading
 from datetime import datetime
-from typing import Iterable, Literal, Optional
+from typing import Optional
 
 from luthien_proxy.types import JSONValue
 
-from .models import ConversationEvent, TraceEntry
-from .utils import (
-    delta_from_chunk,
-    derive_sequence_ns,
-    extract_choice_index,
-    extract_response_text,
-    extract_stream_chunk,
-    extract_trace_id,
-    format_messages,
-    json_safe,
-    messages_from_payload,
-    require_dict,
-    unwrap_response,
-)
+from .models import ConversationEvent
+from .utils import derive_sequence_ns, require_dict
 
 
-class _StreamIndexStore:
-    """Track stream chunk counters per call under a re-entrant lock."""
-
-    def __init__(self) -> None:
-        self._indices: dict[str, dict[str, int]] = {}
-        self._lock = threading.RLock()
-
-    def reset(self, call_id: str) -> None:
-        with self._lock:
-            self._indices[call_id] = {"original": 0, "final": 0}
-
-    def next_index(self, call_id: str, stream: Literal["original", "final"]) -> int:
-        with self._lock:
-            state = self._indices.setdefault(call_id, {"original": 0, "final": 0})
-            current = state[stream]
-            state[stream] = current + 1
-            return current
-
-    def clear(self, call_id: str) -> None:
-        with self._lock:
-            self._indices.pop(call_id, None)
-
-
-_stream_indices = _StreamIndexStore()
-
-
-def reset_stream_indices(call_id: str) -> None:
-    """Initialise per-stream chunk indices for a call."""
-    _stream_indices.reset(call_id)
-
-
-def next_chunk_index(call_id: str, stream: Literal["original", "final"]) -> int:
-    """Return and advance the next chunk index for the given stream."""
-    return _stream_indices.next_index(call_id, stream)
-
-
-def clear_stream_indices(call_id: str) -> None:
-    """Forget chunk indices for a completed call."""
-    _stream_indices.clear(call_id)
-
-
-# TODO: refactor this logic, it's a mess
 def build_conversation_events(
     hook: str,
     call_id: Optional[str],
@@ -75,234 +20,277 @@ def build_conversation_events(
     timestamp_ns_fallback: int,
     timestamp: datetime,
 ) -> list[ConversationEvent]:
-    """Translate a hook invocation into one or more conversation events."""
+    """Translate a hook invocation into request/response events."""
     if not isinstance(call_id, str) or not call_id:
         return []
-
-    effective_trace_id = trace_id
-    if effective_trace_id is None and isinstance(original, dict):
-        effective_trace_id = extract_trace_id(original)
-    if effective_trace_id is None and isinstance(result, dict):
-        effective_trace_id = extract_trace_id(result)
 
     sequence_ns = derive_sequence_ns(timestamp_ns_fallback, original, result)
     events: list[ConversationEvent] = []
 
     if hook == "async_pre_call_hook":
+        # Extract request data - both original (pre-policy) and result (post-policy)
         original_payload = require_dict(original, "pre-call original payload")
         result_payload = require_dict(result, "pre-call result payload") if result is not None else original_payload
-        originals = messages_from_payload(original_payload)
-        finals = messages_from_payload(result_payload)
-        formatted_originals = json_safe(format_messages(originals))
-        formatted_finals = json_safe(format_messages(finals))
-        reset_stream_indices(call_id)
+
+        # Extract from original (pre-policy)
+        original_data = original_payload.get("data")
+        if not isinstance(original_data, dict):
+            return events
+
+        original_request = {
+            "messages": original_data.get("messages", []),
+            "model": original_data.get("model"),
+            "temperature": original_data.get("temperature"),
+            "max_tokens": original_data.get("max_tokens"),
+            "tools": original_data.get("tools"),
+            "tool_choice": original_data.get("tool_choice"),
+        }
+        # Remove None values
+        original_request = {k: v for k, v in original_request.items() if v is not None}
+
+        # Extract from result (post-policy)
+        result_data = result_payload.get("data")
+        if not isinstance(result_data, dict):
+            return events
+
+        final_request = {
+            "messages": result_data.get("messages", []),
+            "model": result_data.get("model"),
+            "temperature": result_data.get("temperature"),
+            "max_tokens": result_data.get("max_tokens"),
+            "tools": result_data.get("tools"),
+            "tool_choice": result_data.get("tool_choice"),
+        }
+        # Remove None values
+        final_request = {k: v for k, v in final_request.items() if v is not None}
+
+        # Store both original and final in payload
+        request_event_payload = {
+            "original": original_request,
+            "final": final_request,
+            # For backwards compatibility, top-level fields use final (post-policy) values
+            "messages": final_request.get("messages", []),
+            "model": final_request.get("model"),
+            "temperature": final_request.get("temperature"),
+            "max_tokens": final_request.get("max_tokens"),
+            "tools": final_request.get("tools"),
+            "tool_choice": final_request.get("tool_choice"),
+        }
+
         events.append(
             ConversationEvent(
                 call_id=call_id,
-                trace_id=effective_trace_id,
-                event_type="request_started",
+                trace_id=None,  # trace_id no longer used
+                event_type="request",
                 sequence=sequence_ns,
                 timestamp=timestamp,
                 hook=hook,
-                payload={
-                    "original_messages": formatted_originals,
-                    "final_messages": formatted_finals,
-                    "raw_original": original_payload,
-                    "raw_result": result_payload,
-                },
+                payload=request_event_payload,  # type: ignore[arg-type]
             )
         )
-        return events
-
-    if hook == "async_post_call_streaming_iterator_hook":
-        original_chunk = extract_stream_chunk(original)
-        final_chunk = extract_stream_chunk(result)
-        source_for_index = final_chunk if final_chunk is not None else original_chunk
-        if source_for_index is None:
-            return events
-        try:
-            choice_index = extract_choice_index(source_for_index)
-        except ValueError:
-            choice_index = 0
-
-        if original_chunk is not None:
-            original_delta = delta_from_chunk(original_chunk)
-            chunk_index = next_chunk_index(call_id, "original")
-            events.append(
-                ConversationEvent(
-                    call_id=call_id,
-                    trace_id=effective_trace_id,
-                    event_type="original_chunk",
-                    sequence=sequence_ns,
-                    timestamp=timestamp,
-                    hook=hook,
-                    payload={
-                        "chunk_index": chunk_index,
-                        "delta": original_delta,
-                        "choice_index": choice_index,
-                        "raw_chunk": original_chunk,
-                        "raw_payload": original,
-                    },
-                )
-            )
-
-        if final_chunk is not None:
-            final_delta = delta_from_chunk(final_chunk)
-            chunk_index = next_chunk_index(call_id, "final")
-            events.append(
-                ConversationEvent(
-                    call_id=call_id,
-                    trace_id=effective_trace_id,
-                    event_type="final_chunk",
-                    sequence=sequence_ns + 1,
-                    timestamp=timestamp,
-                    hook=hook,
-                    payload={
-                        "chunk_index": chunk_index,
-                        "delta": final_delta,
-                        "choice_index": choice_index,
-                        "raw_chunk": final_chunk,
-                        "raw_payload": result,
-                    },
-                )
-            )
         return events
 
     if hook == "async_post_call_success_hook":
-        original_response = unwrap_response(original)
-        final_response = unwrap_response(result) if result is not None else None
-        try:
-            original_text = extract_response_text(original_response)
-        except Exception:
-            original_text = ""
-        try:
-            final_text = extract_response_text(final_response) if final_response is not None else ""
-        except Exception:
-            final_text = ""
+        # Extract request data from the 'data' field (may have been missing from pre-call)
+        # This ensures we capture the request even when pre-call hook didn't have a call_id
+        original_data = original.get("data") if isinstance(original, dict) else None
+        if isinstance(original_data, dict):
+            result_data = result.get("data") if isinstance(result, dict) else original_data
+            if not isinstance(result_data, dict):
+                result_data = original_data
 
-        # Extract request messages from the data field (since pre_call_hook doesn't have call_id)
-        request_messages = []
-        try:
-            original_dict = require_dict(original, "success hook original")
-            data_dict = require_dict(original_dict.get("data"), "success hook data")
-            messages = messages_from_payload({"data": data_dict})
-            request_messages = json_safe(format_messages(messages))
-        except Exception:
-            pass
+            # Extract original and final request
+            original_request = {
+                "messages": original_data.get("messages", []),
+                "model": original_data.get("model"),
+                "temperature": original_data.get("temperature"),
+                "max_tokens": original_data.get("max_tokens"),
+                "tools": original_data.get("tools"),
+                "tool_choice": original_data.get("tool_choice"),
+            }
+            original_request = {k: v for k, v in original_request.items() if v is not None}
+
+            final_request = {
+                "messages": result_data.get("messages", []),
+                "model": result_data.get("model"),
+                "temperature": result_data.get("temperature"),
+                "max_tokens": result_data.get("max_tokens"),
+                "tools": result_data.get("tools"),
+                "tool_choice": result_data.get("tool_choice"),
+            }
+            final_request = {k: v for k, v in final_request.items() if v is not None}
+
+            # Create request event with both original and final
+            request_event_payload = {
+                "original": original_request,
+                "final": final_request,
+                # For backwards compatibility, top-level fields use final values
+                "messages": final_request.get("messages", []),
+                "model": final_request.get("model"),
+                "temperature": final_request.get("temperature"),
+                "max_tokens": final_request.get("max_tokens"),
+                "tools": final_request.get("tools"),
+                "tool_choice": final_request.get("tool_choice"),
+            }
+
+            events.append(
+                ConversationEvent(
+                    call_id=call_id,
+                    trace_id=trace_id,
+                    event_type="request",
+                    sequence=sequence_ns - 1,  # Request comes before response
+                    timestamp=timestamp,
+                    hook=hook,
+                    payload=request_event_payload,  # type: ignore[arg-type]
+                )
+            )
+
+        # Extract response from original (pre-policy)
+        original_response = original.get("response") if isinstance(original, dict) else None
+        if not isinstance(original_response, dict):
+            return events
+
+        original_choices = original_response.get("choices", [])
+        if not original_choices:
+            return events
+
+        original_first_choice = original_choices[0] if isinstance(original_choices, list) else {}
+        if not isinstance(original_first_choice, dict):
+            return events
+
+        original_message = original_first_choice.get("message", {})
+        original_finish_reason = original_first_choice.get("finish_reason")
+
+        # Extract response from result (post-policy) - may be same as original
+        result_response = result.get("response") if isinstance(result, dict) else None
+        if not isinstance(result_response, dict):
+            result_response = original_response
+
+        result_choices = result_response.get("choices", [])
+        result_first_choice = result_choices[0] if result_choices and isinstance(result_choices, list) else {}
+        if not isinstance(result_first_choice, dict):
+            result_first_choice = original_first_choice
+
+        final_message = result_first_choice.get("message", {})
+        final_finish_reason = result_first_choice.get("finish_reason")
+
+        # Store both original and final in payload
+        response_event_payload = {
+            "original": {
+                "message": original_message,
+                "finish_reason": original_finish_reason,
+            },
+            "final": {
+                "message": final_message,
+                "finish_reason": final_finish_reason,
+            },
+            # For backwards compatibility, top-level fields use final (post-policy) values
+            "message": final_message,
+            "finish_reason": final_finish_reason,
+            "status": "success",
+        }
 
         events.append(
             ConversationEvent(
                 call_id=call_id,
-                trace_id=effective_trace_id,
-                event_type="request_completed",
+                trace_id=None,
+                event_type="response",
                 sequence=sequence_ns,
                 timestamp=timestamp,
                 hook=hook,
-                payload={
-                    "status": "success",
-                    "original_response": original_text,
-                    "final_response": final_text,
-                    "request_messages": request_messages,
-                    "raw_original": original_response,
-                    "raw_result": final_response,
-                },
+                payload=response_event_payload,  # type: ignore[arg-type]
             )
         )
-        clear_stream_indices(call_id)
         return events
 
     if hook == "async_post_call_streaming_hook":
-        summary_payload: JSONValue | None = result if result is not None else original
-        summary_response = unwrap_response(summary_payload)
-        final_text = ""
-        try:
-            final_text = extract_response_text(summary_response)
-        except Exception:
-            final_text = ""
+        # Extract from original (pre-policy streamed response)
+        original_payload = original if isinstance(original, dict) else {}
+        original_response = original_payload.get("response", {})
+        if not isinstance(original_response, dict):
+            return events
+
+        original_choices = original_response.get("choices", [])
+        if not original_choices:
+            return events
+
+        original_first_choice = original_choices[0] if isinstance(original_choices, list) else {}
+        if not isinstance(original_first_choice, dict):
+            return events
+
+        original_message = original_first_choice.get("message", {})
+        original_finish_reason = original_first_choice.get("finish_reason")
+
+        # Extract from result (post-policy streamed response) - may be same as original
+        result_payload = result if result is not None else original
+        if not isinstance(result_payload, dict):
+            result_payload = original_payload
+
+        result_response = result_payload.get("response", {})
+        if not isinstance(result_response, dict):
+            result_response = original_response
+
+        result_choices = result_response.get("choices", [])
+        result_first_choice = result_choices[0] if result_choices and isinstance(result_choices, list) else {}
+        if not isinstance(result_first_choice, dict):
+            result_first_choice = original_first_choice
+
+        final_message = result_first_choice.get("message", {})
+        final_finish_reason = result_first_choice.get("finish_reason")
+
+        # Store both original and final in payload
+        response_event_payload = {
+            "original": {
+                "message": original_message,
+                "finish_reason": original_finish_reason,
+            },
+            "final": {
+                "message": final_message,
+                "finish_reason": final_finish_reason,
+            },
+            # For backwards compatibility, top-level fields use final (post-policy) values
+            "message": final_message,
+            "finish_reason": final_finish_reason,
+            "status": "success",
+        }
+
         events.append(
             ConversationEvent(
                 call_id=call_id,
-                trace_id=effective_trace_id,
-                event_type="request_completed",
+                trace_id=None,
+                event_type="response",
                 sequence=sequence_ns,
                 timestamp=timestamp,
                 hook=hook,
-                payload={
-                    "status": "stream_summary",
-                    "final_response": final_text,
-                    "raw_original": original,
-                    "raw_result": result,
-                },
+                payload=response_event_payload,  # type: ignore[arg-type]
             )
         )
-        clear_stream_indices(call_id)
         return events
 
     if hook == "async_post_call_failure_hook":
+        response_event_payload = {
+            "message": {},
+            "finish_reason": None,
+            "status": "failure",
+        }
+
         events.append(
             ConversationEvent(
                 call_id=call_id,
-                trace_id=effective_trace_id,
-                event_type="request_completed",
+                trace_id=None,
+                event_type="response",
                 sequence=sequence_ns,
                 timestamp=timestamp,
                 hook=hook,
-                payload={
-                    "status": "failure",
-                    "raw_original": original,
-                    "raw_result": result,
-                },
+                payload=response_event_payload,  # type: ignore[arg-type]
             )
         )
-        clear_stream_indices(call_id)
         return events
 
+    # Ignore streaming chunk hooks - we only store final request/response
     return events
-
-
-def events_from_trace_entry(entry: TraceEntry) -> list[ConversationEvent]:
-    """Reconstruct conversation events from a stored debug log entry."""
-    debug_type = entry.debug_type or ""
-    if not debug_type.startswith("hook_result:"):
-        return []
-
-    hook = debug_type.split(":", 1)[1]
-    payload = require_dict(entry.payload, "trace entry payload")
-    original = payload.get("original")
-    result = payload.get("result")
-    call_id_raw = payload.get("litellm_call_id")
-    call_id = call_id_raw if isinstance(call_id_raw, str) and call_id_raw else None
-    trace_id_raw = payload.get("litellm_trace_id")
-    trace_id = trace_id_raw if isinstance(trace_id_raw, str) and trace_id_raw else None
-    timestamp_ns = entry.post_time_ns if entry.post_time_ns is not None else int(entry.time.timestamp() * 1_000_000_000)
-    timestamp = entry.time
-
-    effective_result = result if result is not None else original
-    return build_conversation_events(
-        hook=hook,
-        call_id=call_id,
-        trace_id=trace_id,
-        original=original,
-        result=effective_result,
-        timestamp_ns_fallback=timestamp_ns,
-        timestamp=timestamp,
-    )
-
-
-def events_from_trace_entries(entries: Iterable[TraceEntry]) -> list[ConversationEvent]:
-    """Flatten and order events derived from a sequence of log entries."""
-    collected: list[ConversationEvent] = []
-    for entry in entries:
-        collected.extend(events_from_trace_entry(entry))
-    collected.sort(key=lambda evt: (evt.sequence, evt.timestamp, evt.event_type))
-    return collected
 
 
 __all__ = [
     "build_conversation_events",
-    "reset_stream_indices",
-    "next_chunk_index",
-    "clear_stream_indices",
-    "events_from_trace_entry",
-    "events_from_trace_entries",
 ]

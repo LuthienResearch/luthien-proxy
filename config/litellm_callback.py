@@ -27,6 +27,8 @@ from luthien_proxy.proxy.stream_orchestrator import (
 class LuthienCallback(CustomLogger):
     """Thin callback that forwards everything to the control plane."""
 
+    _JSON_SAFE_MAX_DEPTH = 20
+
     def __init__(self):
         """Initialize callback with control-plane endpoint and defaults."""
         super().__init__()
@@ -337,7 +339,7 @@ class LuthienCallback(CustomLogger):
                 f"Policy returned invalid data, unable to build ModelResponseStream from {payload}"
             ) from exc
 
-    def _json_safe(self, obj):
+    def _json_safe(self, obj, *, _depth: int = 0, _seen: set[int] | None = None):
         """Recursively convert objects into JSON-serializable structures.
 
         - Dicts/lists/tuples/sets: processed recursively
@@ -345,33 +347,72 @@ class LuthienCallback(CustomLogger):
         - Pydantic models: converted to dict via model_dump() or dict()
         - Other objects: converted to string via repr()
         """
-        try:
-            import json as _json
+        if _seen is None:
+            _seen = set()
 
-            _json.dumps(obj)  # Fast path: already serializable
+        if _depth > self._JSON_SAFE_MAX_DEPTH:
+            return "<max-depth-exceeded>"
+
+        if isinstance(obj, (str, int, float, bool)) or obj is None:
             return obj
-        except Exception:
-            pass
 
         # Try Pydantic model serialization first
         if hasattr(obj, "model_dump"):
             try:
-                return self._json_safe(obj.model_dump())
+                return self._json_safe(obj.model_dump(), _depth=_depth + 1, _seen=_seen)
             except Exception:
                 pass
         if hasattr(obj, "dict"):
             try:
-                return self._json_safe(obj.dict())
+                return self._json_safe(obj.dict(), _depth=_depth + 1, _seen=_seen)
             except Exception:
                 pass
 
         # Recursive conversion
         if isinstance(obj, dict):
-            return {self._json_safe(k): self._json_safe(v) for k, v in obj.items()}
+            obj_id = id(obj)
+            if obj_id in _seen:
+                return "<recursion>"
+            _seen.add(obj_id)
+            try:
+                return {
+                    self._json_safe(k, _depth=_depth + 1, _seen=_seen): self._json_safe(
+                        v, _depth=_depth + 1, _seen=_seen
+                    )
+                    for k, v in obj.items()
+                }
+            finally:
+                _seen.remove(obj_id)
         if isinstance(obj, (list, tuple, set)):
-            return [self._json_safe(v) for v in obj]
-        if isinstance(obj, (str, int, float, bool)) or obj is None:
+            obj_id = id(obj)
+            if obj_id in _seen:
+                return "<recursion>"
+            _seen.add(obj_id)
+            try:
+                return [self._json_safe(v, _depth=_depth + 1, _seen=_seen) for v in obj]
+            finally:
+                _seen.remove(obj_id)
+        if hasattr(obj, "__dict__"):
+            obj_id = id(obj)
+            if obj_id in _seen:
+                return "<recursion>"
+            _seen.add(obj_id)
+            try:
+                return {
+                    self._json_safe(k, _depth=_depth + 1, _seen=_seen): self._json_safe(
+                        v, _depth=_depth + 1, _seen=_seen
+                    )
+                    for k, v in vars(obj).items()
+                }
+            finally:
+                _seen.remove(obj_id)
+        try:
+            import json as _json
+
+            _json.dumps(obj)
             return obj
+        except Exception:
+            pass
         # Fallback to repr for unknown objects
         try:
             return repr(obj)

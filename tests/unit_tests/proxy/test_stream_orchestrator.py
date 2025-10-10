@@ -13,6 +13,7 @@ from luthien_proxy.proxy.stream_orchestrator import (
     StreamProtocolError,
     StreamTimeoutError,
 )
+from luthien_proxy.utils.constants import MIN_STREAM_POLL_INTERVAL_SECONDS
 
 
 class DummyConnection:
@@ -83,7 +84,7 @@ async def test_orchestrator_yields_control_plane_chunks() -> None:
         normalize_chunk=lambda data: ModelResponseStream.model_validate(data),
         timeout=0.5,
         chunk_logger=None,
-        poll_interval=0.01,
+        poll_interval=MIN_STREAM_POLL_INTERVAL_SECONDS,
     )
 
     received = await collect(orchestrator.run())
@@ -106,7 +107,7 @@ async def test_orchestrator_times_out_without_activity() -> None:
         normalize_chunk=lambda data: ModelResponseStream.model_validate(data),
         timeout=0.1,
         chunk_logger=None,
-        poll_interval=0.01,
+        poll_interval=MIN_STREAM_POLL_INTERVAL_SECONDS,
     )
 
     with pytest.raises(StreamTimeoutError):
@@ -139,7 +140,7 @@ async def test_keepalive_extends_deadline() -> None:
         normalize_chunk=lambda data: ModelResponseStream.model_validate(data),
         timeout=0.05,
         chunk_logger=None,
-        poll_interval=0.01,
+        poll_interval=MIN_STREAM_POLL_INTERVAL_SECONDS,
     )
 
     received = await collect(orchestrator.run())
@@ -163,7 +164,7 @@ async def test_control_plane_non_dict_chunk_raises_protocol_error() -> None:
         normalize_chunk=lambda data: ModelResponseStream.model_validate(data),
         timeout=0.1,
         chunk_logger=None,
-        poll_interval=0.01,
+        poll_interval=MIN_STREAM_POLL_INTERVAL_SECONDS,
     )
 
     with pytest.raises(StreamProtocolError):
@@ -189,7 +190,7 @@ async def test_normalize_failure_raises_protocol_error() -> None:
         normalize_chunk=normalize,
         timeout=0.1,
         chunk_logger=None,
-        poll_interval=0.01,
+        poll_interval=MIN_STREAM_POLL_INTERVAL_SECONDS,
     )
 
     with pytest.raises(StreamProtocolError):
@@ -216,7 +217,7 @@ async def test_normalize_must_return_model_response_stream() -> None:
         normalize_chunk=normalize,
         timeout=0.1,
         chunk_logger=None,
-        poll_interval=0.01,
+        poll_interval=MIN_STREAM_POLL_INTERVAL_SECONDS,
     )
 
     with pytest.raises(StreamProtocolError):
@@ -239,7 +240,7 @@ async def test_receive_failure_raises_connection_error() -> None:
         normalize_chunk=lambda data: ModelResponseStream.model_validate(data),
         timeout=0.1,
         chunk_logger=None,
-        poll_interval=0.01,
+        poll_interval=MIN_STREAM_POLL_INTERVAL_SECONDS,
     )
 
     with pytest.raises(StreamConnectionError):
@@ -262,7 +263,7 @@ async def test_upstream_failure_surfaces_as_connection_error() -> None:
         normalize_chunk=lambda data: ModelResponseStream.model_validate(data),
         timeout=0.1,
         chunk_logger=None,
-        poll_interval=0.01,
+        poll_interval=MIN_STREAM_POLL_INTERVAL_SECONDS,
     )
 
     with pytest.raises(StreamConnectionError):

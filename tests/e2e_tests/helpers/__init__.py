@@ -17,11 +17,9 @@ from .infra import (
     E2ESettings,
     dummy_provider_running,
     ensure_services_available,
-    fetch_trace,
     load_e2e_settings,
 )
 from .policy_assertions import (
-    assert_debug_log,
     assert_response_expectations,
     execute_non_streaming_request,
     execute_streaming_request,
@@ -48,7 +46,6 @@ __all__ = [
     "E2ESettings",
     "dummy_provider_running",
     "ensure_services_available",
-    "fetch_trace",
     "load_e2e_settings",
     # Docker logs
     "extract_stream_ids",
@@ -75,7 +72,6 @@ __all__ = [
     "extract_message_content",
     "extract_streaming_content",
     "assert_response_expectations",
-    "assert_debug_log",
     # Callback assertions
     "get_callback_invocations",
     "clear_callback_trace",

@@ -8,6 +8,12 @@ from typing import Iterable, Literal, Mapping, Optional, Tuple, cast
 
 from luthien_proxy.types import JSONArray, JSONObject, JSONValue
 
+_DEFAULT_JSON_SAFE_MAX_DEPTH = 20
+
+
+def _is_primitive(value: object) -> bool:
+    return isinstance(value, (str, int, float, bool)) or value is None
+
 
 def require_dict(value: object, context: str) -> JSONObject:
     """Ensure *value* is a dict, raising a descriptive error otherwise."""
@@ -32,22 +38,56 @@ def require_str(value: object, context: str) -> str:
     return value
 
 
-def json_safe(value: object) -> JSONValue:
-    """Recursively coerce *value* into a JSON-serializable structure."""
-    try:
-        json.dumps(value)
-        return cast(JSONValue, value)
-    except Exception:
-        if isinstance(value, dict):
-            return {str(k): json_safe(v) for k, v in value.items()}
-        if isinstance(value, (list, tuple, set)):
-            return [json_safe(v) for v in value]
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            return value
+def json_safe(value: object, *, max_depth: int = _DEFAULT_JSON_SAFE_MAX_DEPTH) -> JSONValue:
+    """Recursively coerce *value* into a JSON-serializable structure with depth limits."""
+
+    def _inner(current: object, depth: int, seen: set[int]) -> JSONValue:
+        if depth > max_depth:
+            return "<max-depth-exceeded>"
+
+        if _is_primitive(current):
+            return cast(JSONValue, current)
+
+        if isinstance(current, dict):
+            current_id = id(current)
+            if current_id in seen:
+                return "<recursion>"
+            seen.add(current_id)
+            try:
+                return {str(key): _inner(val, depth + 1, seen) for key, val in current.items()}
+            finally:
+                seen.discard(current_id)
+
+        if isinstance(current, (list, tuple, set)):
+            current_id = id(current)
+            if current_id in seen:
+                return "<recursion>"
+            seen.add(current_id)
+            try:
+                return [_inner(item, depth + 1, seen) for item in current]
+            finally:
+                seen.discard(current_id)
+
+        if hasattr(current, "__dict__"):
+            current_id = id(current)
+            if current_id in seen:
+                return "<recursion>"
+            seen.add(current_id)
+            try:
+                return {str(key): _inner(val, depth + 1, seen) for key, val in vars(current).items()}
+            finally:
+                seen.discard(current_id)
+
         try:
-            return repr(value)
+            json.dumps(current)
+            return cast(JSONValue, current)
         except Exception:
-            return "<unserializable>"
+            try:
+                return repr(current)
+            except Exception:
+                return "<unserializable>"
+
+    return cast(JSONValue, _inner(value, 0, set()))
 
 
 def _stringify_arguments(value: object) -> str:

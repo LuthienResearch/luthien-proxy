@@ -20,28 +20,23 @@ Main Components:
 """
 
 from .db import (
-    fetch_trace_entries,
-    fetch_trace_entries_by_trace,
+    load_events_for_call,
+    load_recent_calls,
 )
-from .events import build_conversation_events, events_from_trace_entries
+from .events import build_conversation_events
 from .models import (
     CallIdInfo,
     ConversationCallSnapshot,
     ConversationEvent,
     ConversationMessageDiff,
     ConversationSnapshot,
-    TraceConversationSnapshot,
-    TraceEntry,
-    TraceInfo,
-    TraceResponse,
 )
 from .snapshots import build_call_snapshots
+from .store import record_conversation_events
 from .streams import (
     ConversationStreamConfig,
     conversation_sse_stream,
-    conversation_sse_stream_by_trace,
     publish_conversation_event,
-    publish_trace_conversation_event,
 )
 from .utils import json_safe, strip_post_time_ns
 
@@ -51,20 +46,14 @@ __all__ = [
     "ConversationEvent",
     "ConversationMessageDiff",
     "ConversationSnapshot",
-    "TraceConversationSnapshot",
-    "TraceEntry",
-    "TraceInfo",
-    "TraceResponse",
     "build_conversation_events",
-    "events_from_trace_entries",
     "build_call_snapshots",
     "publish_conversation_event",
-    "publish_trace_conversation_event",
     "conversation_sse_stream",
-    "conversation_sse_stream_by_trace",
     "ConversationStreamConfig",
-    "fetch_trace_entries",
-    "fetch_trace_entries_by_trace",
+    "record_conversation_events",
+    "load_events_for_call",
+    "load_recent_calls",
     "json_safe",
     "strip_post_time_ns",
 ]

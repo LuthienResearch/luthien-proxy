@@ -10,6 +10,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Logs
+logs/
+
 # Secrets
 .env
 
@@ -18,3 +21,7 @@ wheels/
 .last_update
 scratch/
 _scratch/
+
+# Replay callback exports
+dev/replay_logs*.jsonl
+dev/litellm_replay_logs/

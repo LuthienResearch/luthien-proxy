@@ -80,7 +80,6 @@ services:
       retries: 3
     stop_grace_period: 2s
 
-  # Control plane service for policy decisions
   control-plane:
     build:
       context: .
@@ -110,6 +109,7 @@ services:
       timeout: 5s
       retries: 3
     stop_grace_period: 2s
+
 
   # Single-container local LLM gateway (Ollama + LiteLLM)
   local-llm:

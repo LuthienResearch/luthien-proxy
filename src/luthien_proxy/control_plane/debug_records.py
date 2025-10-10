@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
+from luthien_proxy.control_plane.judge import JUDGE_DECISION_DEBUG_TYPE, record_judge_decision
 from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 
@@ -27,6 +28,11 @@ async def record_debug_event(
                 debug_type,
                 json.dumps(payload),
             )
+            if debug_type == JUDGE_DECISION_DEBUG_TYPE:
+                try:
+                    await record_judge_decision(conn, payload)
+                except Exception as judge_exc:  # pragma: no cover - keep debug logging resilient
+                    logger.error("Error recording judge decision: %s", judge_exc)
     except Exception as exc:  # pragma: no cover - avoid masking hook flow
         logger.error("Error inserting debug log: %s", exc)
 

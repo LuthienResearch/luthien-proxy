@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from .infra import E2ESettings, fetch_trace
+from .infra import E2ESettings
 
 try:
     from .policy_test_models import RequestSpec, ResponseAssertion
@@ -94,50 +94,6 @@ async def stream_policy_block(
         if call_id is None:
             raise AssertionError("Streaming response missing call id")
         return call_id, chunks
-
-
-def _normalize_arguments(arguments: Any) -> str:
-    if isinstance(arguments, str):
-        return arguments
-    if arguments is None:
-        return ""
-    return json.dumps(arguments)
-
-
-def assert_block_trace(trace: dict[str, Any], debug_type: str) -> dict[str, Any]:
-    entries = trace.get("entries", [])
-    for entry in entries:
-        if entry.get("debug_type") == debug_type:
-            payload = entry.get("payload", {})
-            if debug_type == "protection:llm-judge-block":
-                probability = payload.get("probability")
-                tool_call = payload.get("tool_call", {})
-                if probability is not None and not isinstance(probability, (int, float)):
-                    raise AssertionError(f"Expected numeric probability; saw {probability!r}")
-                arguments = _normalize_arguments(tool_call.get("arguments"))
-                if "DROP" not in arguments.upper():
-                    raise AssertionError(f"Expected DROP statement in arguments; saw {arguments!r}")
-                return payload
-            if debug_type == "protection:sql-block":
-                tool_call = payload.get("blocked_tool_call", {})
-                arguments = _normalize_arguments(tool_call.get("arguments"))
-                if "DROP" not in arguments.upper():
-                    raise AssertionError(f"Expected DROP statement in arguments; saw {arguments!r}")
-                return payload
-            return payload
-    available = [entry.get("debug_type") for entry in entries]
-    raise AssertionError(f"Expected debug type {debug_type}; saw {available}")
-
-
-async def fetch_block_trace(
-    settings: E2ESettings,
-    call_id: str,
-    debug_type: str,
-) -> dict[str, Any]:
-    trace = await fetch_trace(settings, call_id)
-    if trace.get("call_id") != call_id:
-        raise AssertionError(f"Trace call id mismatch: {trace.get('call_id')} != {call_id}")
-    return assert_block_trace(trace, debug_type)
 
 
 # ==============================================================================
@@ -329,43 +285,9 @@ def assert_response_expectations(
             assert not has_calls, "Expected response to NOT have tool calls"
 
 
-async def assert_debug_log(
-    settings: E2ESettings,
-    call_id: str,
-    assertion: Any,  # ResponseAssertion type
-) -> None:
-    """Validate debug logs against assertions."""
-    if not assertion.debug_type:
-        return
-
-    trace = await fetch_trace(settings, call_id)
-    assert trace.get("call_id") == call_id, f"Trace call id mismatch: {trace.get('call_id')} != {call_id}"
-
-    entries_raw = trace.get("entries", [])
-    entries = entries_raw if isinstance(entries_raw, list) else []
-    matching_entries = [
-        entry for entry in entries if isinstance(entry, dict) and entry.get("debug_type") == assertion.debug_type
-    ]
-
-    assert matching_entries, (
-        f"Expected debug type {assertion.debug_type}, "
-        f"found: {[e.get('debug_type') if isinstance(e, dict) else None for e in entries]}"
-    )
-
-    if assertion.debug_payload_assertions:
-        payload = matching_entries[0].get("payload", {})
-        for key, expected_value in assertion.debug_payload_assertions.items():
-            actual_value = payload.get(key)
-            assert actual_value == expected_value, (
-                f"Debug payload mismatch for {key}: expected {expected_value}, got {actual_value}"
-            )
-
-
 __all__ = [
     "build_policy_payload",
     "stream_policy_block",
-    "assert_block_trace",
-    "fetch_block_trace",
     # Parameterized test helpers
     "build_request_payload",
     "execute_non_streaming_request",
@@ -375,5 +297,4 @@ __all__ = [
     "extract_finish_reason",
     "has_tool_calls",
     "assert_response_expectations",
-    "assert_debug_log",
 ]

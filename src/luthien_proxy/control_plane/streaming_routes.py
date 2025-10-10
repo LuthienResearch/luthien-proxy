@@ -9,16 +9,11 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, Literal
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from litellm.types.utils import ModelResponseStream
+from pydantic import ValidationError
 
-from luthien_proxy.control_plane.conversation.events import (
-    build_conversation_events,
-    clear_stream_indices,
-    reset_stream_indices,
-)
-from luthien_proxy.control_plane.conversation.streams import (
-    publish_conversation_event,
-    publish_trace_conversation_event,
-)
+from luthien_proxy.control_plane.conversation.events import build_conversation_events
+from luthien_proxy.control_plane.conversation.streams import publish_conversation_event
 from luthien_proxy.control_plane.conversation.utils import json_safe
 from luthien_proxy.control_plane.endpoint_logger import get_endpoint_logger
 from luthien_proxy.control_plane.stream_context import StreamContextStore
@@ -62,6 +57,22 @@ def _interpret_stream_message(stream_id: str, message: dict[str, Any]) -> dict[s
     return None
 
 
+def _canonicalize_chunk(stream_id: str, origin: str, chunk: dict[str, Any]) -> dict[str, Any]:
+    """Validate chunk payload conforms to the OpenAI streaming schema."""
+    required_keys = ("choices", "model", "created")
+    missing = [key for key in required_keys if key not in chunk]
+    if missing:
+        logger.error("stream[%s] %s chunk missing keys: %s", stream_id, origin, missing)
+        raise StreamProtocolError(f"{origin} chunk missing keys: {', '.join(missing)}")
+
+    try:
+        validated = ModelResponseStream.model_validate(chunk)
+    except ValidationError as exc:
+        logger.error("stream[%s] invalid %s chunk payload: %s", stream_id, origin, exc)
+        raise StreamProtocolError(f"invalid {origin} chunk payload") from exc
+    return validated.model_dump(mode="python")
+
+
 async def _incoming_stream_from_websocket(
     websocket: WebSocket,
     stream_id: str,
@@ -78,12 +89,13 @@ async def _incoming_stream_from_websocket(
             if outcome == STREAM_END:
                 break
             if outcome is not None:
-                endpoint_logger.log_incoming_chunk(stream_id, outcome, chunk_index)
+                chunk = _canonicalize_chunk(stream_id, "upstream", outcome)
+                endpoint_logger.log_incoming_chunk(stream_id, chunk, chunk_index)
                 chunk_index += 1
 
                 if on_chunk is not None:
-                    await on_chunk(copy.deepcopy(outcome))
-                yield outcome
+                    await on_chunk(copy.deepcopy(chunk))
+                yield chunk
     except WebSocketDisconnect:
         logger.info("stream[%s] client disconnected", stream_id)
 
@@ -141,13 +153,14 @@ async def _forward_policy_output(
     chunk_out_index = 0
     try:
         async for outgoing_chunk in policy.generate_response_stream(context, instrumented_incoming):
-            policy_logger.log_chunk_out(context.stream_id, policy_class_name, outgoing_chunk, chunk_out_index)
-            endpoint_logger.log_outgoing_chunk(context.stream_id, outgoing_chunk, chunk_out_index)
+            chunk = _canonicalize_chunk(context.stream_id, "policy", outgoing_chunk)
+            policy_logger.log_chunk_out(context.stream_id, policy_class_name, chunk, chunk_out_index)
+            endpoint_logger.log_outgoing_chunk(context.stream_id, chunk, chunk_out_index)
             chunk_out_index += 1
 
-            await websocket.send_json({"type": "CHUNK", "data": outgoing_chunk})
+            await websocket.send_json({"type": "CHUNK", "data": chunk})
             if on_chunk is not None:
-                await on_chunk(copy.deepcopy(outgoing_chunk))
+                await on_chunk(copy.deepcopy(chunk))
     finally:
         policy_logger.log_stream_end(context.stream_id, policy_class_name, chunk_out_index)
 
@@ -226,8 +239,7 @@ class _StreamEventPublisher:
         self._pending_payload: dict[str, Any] | None = None
         self._original_text_parts: list[str] = []
         self._final_text_parts: list[str] = []
-        if isinstance(self._call_id, str) and self._call_id:
-            reset_stream_indices(self._call_id)
+        # Stream indices are no longer tracked; the call id is recorded with each event.
 
     async def record_original(self, chunk: dict[str, Any]) -> None:
         if self._hook_counters is not None:
@@ -288,7 +300,6 @@ class _StreamEventPublisher:
             )
             for event in events:
                 CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(self._redis, event))
-                CONVERSATION_EVENT_QUEUE.submit(publish_trace_conversation_event(self._redis, event))
 
         self._pending_payload = None
 
@@ -351,9 +362,7 @@ class _StreamEventPublisher:
             )
             for event in events:
                 CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(self._redis, event))
-                CONVERSATION_EVENT_QUEUE.submit(publish_trace_conversation_event(self._redis, event))
 
-            clear_stream_indices(self._call_id)
             if self._stream_store is not None:
                 await self._stream_store.clear(self._call_id)
 

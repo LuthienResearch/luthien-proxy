@@ -49,7 +49,7 @@ async function fetchJSON(url) {
 }
 
 const state = {
-  traceId: null,
+  callId: null,
   calls: [],
   callMap: new Map(),
   eventSource: null,
@@ -200,7 +200,7 @@ function renderConversation() {
   container.textContent = '';
 
   if (!state.calls.length) {
-    container.appendChild(el('div', { class: 'empty-state', text: 'Select a trace to view the conversation history.' }));
+    container.appendChild(el('div', { class: 'empty-state', text: 'Select a call to view the conversation.' }));
     return;
   }
 
@@ -212,7 +212,6 @@ function renderConversation() {
 function adoptCallSnapshot(snapshotCall) {
   return {
     call_id: snapshotCall.call_id,
-    trace_id: snapshotCall.trace_id || state.traceId,
     started_at: snapshotCall.started_at || null,
     completed_at: snapshotCall.completed_at || null,
     status: snapshotCall.status || 'pending',
@@ -241,14 +240,14 @@ function rebuildCallState(calls) {
   renderConversation();
 }
 
-async function hydrateTrace(traceId, options = {}) {
-  if (!traceId) return;
+async function hydrateCall(callId, options = {}) {
+  if (!callId) return;
   if (!options.preserveStatus) {
     setStatus('Loading…');
   }
   try {
-    const snapshot = await fetchJSON(`/api/hooks/conversation/by_trace?trace_id=${encodeURIComponent(traceId)}`);
-    state.traceId = snapshot.trace_id || traceId;
+    const snapshot = await fetchJSON(`/api/hooks/conversation?call_id=${encodeURIComponent(callId)}`);
+    state.callId = snapshot.call_id || callId;
     const calls = Array.isArray(snapshot.calls) ? snapshot.calls : [];
     rebuildCallState(calls);
     setStatus('Live', true);
@@ -263,7 +262,6 @@ function ensureCall(callId) {
   if (!call) {
     call = {
       call_id: callId,
-      trace_id: state.traceId,
       started_at: null,
       completed_at: null,
       status: 'pending',
@@ -307,9 +305,6 @@ function applyChunk(call, payload, streamKey) {
 
 function handleEvent(evt) {
   if (!evt || !evt.call_id) return;
-  if (evt.trace_id && !state.traceId) {
-    state.traceId = evt.trace_id;
-  }
 
   switch (evt.event_type) {
     case 'request_started': {
@@ -322,7 +317,7 @@ function handleEvent(evt) {
       call.final_response = '';
       call.original_chunks = [];
       call.final_chunks = [];
-      hydrateTrace(state.traceId, { preserveStatus: true });
+      hydrateCall(state.callId, { preserveStatus: true });
       break;
     }
     case 'original_chunk': {
@@ -348,7 +343,7 @@ function handleEvent(evt) {
       }
       call.status = payload.status || 'success';
       call.completed_at = evt.timestamp || call.completed_at;
-      hydrateTrace(state.traceId, { preserveStatus: true });
+      hydrateCall(state.callId, { preserveStatus: true });
       break;
     }
     default:
@@ -358,11 +353,11 @@ function handleEvent(evt) {
   renderConversation();
 }
 
-function openStream(traceId) {
+function openStream(callId) {
   closeStream();
-  if (!traceId) return;
+  if (!callId) return;
   setStatus('Listening…', true);
-  const url = `/api/hooks/conversation/stream_by_trace?trace_id=${encodeURIComponent(traceId)}`;
+  const url = `/api/hooks/conversation/stream?call_id=${encodeURIComponent(callId)}`;
   state.eventSource = new EventSource(url);
   state.eventSource.onmessage = (event) => {
     if (!event.data) return;
@@ -377,71 +372,70 @@ function openStream(traceId) {
   state.eventSource.onerror = () => {
     setStatus('Connection lost, retrying…');
     closeStream();
-    state.reconnectTimer = setTimeout(() => openStream(traceId), 2000);
+    state.reconnectTimer = setTimeout(() => openStream(callId), 2000);
   };
 }
 
-async function loadConversation(traceId) {
-  if (!traceId) return;
-  state.traceId = traceId;
-  const active = document.getElementById('active-trace');
-  if (active) active.value = traceId;
+async function loadConversation(callId) {
+  if (!callId) return;
+  state.callId = callId;
+  const active = document.getElementById('active-call');
+  if (active) active.value = callId;
   closeStream();
-  await hydrateTrace(traceId);
-  openStream(traceId);
+  await hydrateCall(callId);
+  openStream(callId);
 }
 
-async function loadRecentTraces() {
-  const list = document.getElementById('trace-list');
+async function loadRecentCalls() {
+  const list = document.getElementById('call-list');
   if (!list) return;
   list.textContent = 'Loading…';
   try {
-    const items = await fetchJSON('/api/hooks/recent_traces?limit=50');
+    const items = await fetchJSON('/api/hooks/recent_call_ids?limit=50');
     if (!Array.isArray(items) || items.length === 0) {
-      list.textContent = 'No recent trace IDs';
+      list.textContent = 'No recent call IDs';
       return;
     }
     list.textContent = '';
     for (const item of items) {
       const row = el('div', { class: 'cid-item' });
       const inner = el('div');
-      inner.appendChild(el('div', { class: 'cid', text: item.trace_id }));
+      inner.appendChild(el('div', { class: 'cid', text: item.call_id }));
       const metaParts = [];
       if (item.latest) {
         metaParts.push(new Date(item.latest).toLocaleString());
       }
-      metaParts.push(`${item.call_count} call${item.call_count === 1 ? '' : 's'}`);
-      metaParts.push(`${item.event_count} events`);
+      metaParts.push(`${item.count} event${item.count === 1 ? '' : 's'}`);
       inner.appendChild(el('div', { class: 'meta', text: metaParts.join(' • ') }));
       const btn = el('button', { class: 'secondary', text: 'View' });
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        loadConversation(item.trace_id);
+        loadConversation(item.call_id);
       });
       row.appendChild(inner);
       row.appendChild(btn);
-      row.addEventListener('click', () => loadConversation(item.trace_id));
+      row.addEventListener('click', () => loadConversation(item.call_id));
       list.appendChild(row);
     }
   } catch (err) {
-    console.error('Failed to load trace IDs', err);
-    list.textContent = 'Failed to load recent trace IDs';
+    console.error('Failed to load call IDs', err);
+    list.textContent = 'Failed to load recent call IDs';
   }
 }
 
 function init() {
-  const loadBtn = document.getElementById('trace-load');
+  const loadBtn = document.getElementById('call-load');
   if (loadBtn) {
     loadBtn.addEventListener('click', () => {
-      const input = document.getElementById('trace-input');
+      const input = document.getElementById('call-input');
       const value = input ? input.value.trim() : '';
       if (value) loadConversation(value);
     });
   }
 
-  const refreshBtn = document.getElementById('refresh-traces');
+  const refreshBtn = document.getElementById('refresh-calls');
   if (refreshBtn) {
-    refreshBtn.addEventListener('click', () => loadRecentTraces());
+    refreshBtn.addEventListener('click', () => loadRecentCalls());
   }
 
   const disconnectBtn = document.getElementById('disconnect');
@@ -455,11 +449,11 @@ function init() {
   const refreshConvBtn = document.getElementById('refresh-conv');
   if (refreshConvBtn) {
     refreshConvBtn.addEventListener('click', () => {
-      if (state.traceId) hydrateTrace(state.traceId, { preserveStatus: true });
+      if (state.callId) hydrateCall(state.callId, { preserveStatus: true });
     });
   }
 
-  loadRecentTraces();
+  loadRecentCalls();
   renderConversation();
   setStatus('Idle');
 

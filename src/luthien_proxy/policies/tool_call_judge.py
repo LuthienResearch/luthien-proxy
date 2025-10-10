@@ -1,4 +1,4 @@
-"""LLM-judged tool call protection policy."""
+"""ABOUTME: LLM-judged tool call protection policy."""
 
 from __future__ import annotations
 
@@ -8,9 +8,12 @@ import os
 import time
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from litellm import acompletion
+
+from luthien_proxy.utils.conversation_parsing import extract_trace_id, require_call_id
 
 from .tool_call_buffer import ToolCallBufferContext, ToolCallBufferPolicy
 
@@ -85,7 +88,7 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
         try:
             async for chunk in incoming_stream:
                 context.chunk_count += 1
-                self._capture_stream_chunk(context, chunk)
+                context.aggregator.capture_chunk(chunk)
 
                 if self._buffer_tool_chunk(context, chunk):
                     flushed = await self._maybe_flush_tool_calls(context, chunk)
@@ -106,7 +109,6 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
                 flushed = await self._flush_tool_calls(context)
                 for buffered in flushed:
                     yield buffered
-            await self._emit_stream_summary(context)
 
     def _is_blocked_response(self, chunk: Mapping[str, Any]) -> bool:
         """Check if a chunk is a blocked response."""
@@ -155,8 +157,8 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             return None
 
         # Tool call is complete - evaluate it BEFORE flushing
-        logger.info("Tool call complete, evaluating with judge. tool_calls: %d", len(context.tool_calls))
-        for identifier, state in list(context.tool_calls.items()):
+        logger.info("Tool call complete, evaluating with judge. tool_calls: %d", len(context.aggregator.tool_calls))
+        for identifier, state in list(context.aggregator.tool_calls.items()):
             if identifier in context.logged_tool_ids:
                 logger.info("Skipping already-logged tool call: %s", identifier)
                 continue
@@ -182,7 +184,7 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
                 logger.info("Tool call BLOCKED by judge - response: %s", json.dumps(result, default=str)[:500])
                 context.tool_call_active = False
                 context.buffered_chunks.clear()
-                context.tool_calls.clear()
+                context.aggregator.tool_calls.clear()
                 # Return as a list to match parent signature
                 return [result]
             logger.info("Tool call passed judge evaluation")
@@ -225,8 +227,8 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
         if judge.probability < self._config.probability_threshold:
             return None
 
-        call_id = self._require_call_id(payload)
-        trace_id = self._extract_trace_id(payload)
+        call_id = require_call_id(payload)
+        trace_id = extract_trace_id(payload)
         response_payload = original_response or self._response_defaults(payload)
         blocked = self._blocked_response(tool_call, judge.probability, judge.explanation, response_payload)
 
@@ -280,6 +282,7 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
                 kwargs["api_base"] = self._config.api_base
             if self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
+            kwargs.update(self._structured_output_parameters())
             response = await acompletion(**kwargs)
         except Exception as exc:  # pragma: no cover - judge failure should surface fast
             logger.error("LLM judge request failed: %s", exc)
@@ -298,12 +301,11 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             content_raw = getattr(message, "content", None)
         if not isinstance(content_raw, str):
             raise ValueError("Judge response content must be a string")
-        content = content_raw
         try:
-            data = json.loads(content)
-        except json.JSONDecodeError as exc:
-            logger.error("Judge response was not valid JSON: %s", content)
-            raise ValueError("Judge response JSON parsing failed") from exc
+            data, normalized = self._parse_judge_response(content_raw)
+        except ValueError:
+            logger.error("Judge response was not valid JSON: %s", content_raw)
+            raise
         probability = float(data.get("probability", 0.0))
         explanation = str(data.get("explanation", ""))
         probability = max(0.0, min(1.0, probability))
@@ -311,8 +313,38 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             probability=probability,
             explanation=explanation,
             prompt=prompt,
-            response_text=content,
+            response_text=normalized,
         )
+
+    def _parse_judge_response(self, content: str) -> tuple[Mapping[str, Any], str]:
+        """Return JSON-decoded judge output, handling fenced code blocks."""
+        text = content.strip()
+        if text.startswith("```"):
+            text = text.lstrip("`")
+            newline_index = text.find("\n")
+            if newline_index != -1:
+                prefix = text[:newline_index].strip().lower()
+                if prefix in {"json", "```json", ""}:
+                    text = text[newline_index + 1 :]
+            text = text.rstrip("`").strip()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Judge response JSON parsing failed") from exc
+        if not isinstance(data, Mapping):
+            raise ValueError("Judge response JSON parsing failed")
+        return data, text
+
+    def _structured_output_parameters(self) -> Mapping[str, Any]:
+        """Return provider-agnostic structured output hints for JSON replies."""
+        return {
+            "response_format": {
+                "type": "json_object",
+            },
+            "extra_body": {
+                "format": "json",
+            },
+        }
 
     def _build_prompt(self, *, name: str, arguments: str) -> list[dict[str, str]]:
         return [
@@ -390,7 +422,7 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             "call_id": call_id,
             "litellm_call_id": call_id,
             "trace_id": trace_id,
-            "timestamp": self._timestamp(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "tool_call": dict(tool_call),
             "probability": probability,
             "explanation": explanation,

@@ -1,29 +1,36 @@
-"""Policy that buffers tool-call chunks, logs them, then forwards output."""
+"""ABOUTME: Policy that buffers tool-call chunks, logs them, then forwards output."""
 
 from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Mapping
 
+from luthien_proxy.policies.base import LuthienPolicy, StreamPolicyContext
 from luthien_proxy.types import JSONObject
-
-from .conversation_logger import ConversationLoggingPolicy, ConversationLogStreamContext, ToolCallState
+from luthien_proxy.utils.conversation_parsing import (
+    extract_trace_id,
+    parse_tool_calls,
+    require_call_id,
+)
+from luthien_proxy.utils.streaming_aggregation import StreamChunkAggregator, ToolCallState
 
 TOOL_CALL_DEBUG_TYPE = "conversation:tool-call"
 TOOL_CALL_SCHEMA = "luthien.conversation.tool_call.v1"
 
 
 @dataclass
-class ToolCallBufferContext(ConversationLogStreamContext):
-    """Extend conversation stream context with buffering metadata."""
+class ToolCallBufferContext(StreamPolicyContext):
+    """Stream context with buffering metadata and chunk aggregation."""
 
     buffered_chunks: list[dict[str, Any]] = field(default_factory=list)
     tool_call_active: bool = False
     logged_tool_ids: set[str] = field(default_factory=set)
+    aggregator: StreamChunkAggregator = field(default_factory=StreamChunkAggregator)
 
 
-class ToolCallBufferPolicy(ConversationLoggingPolicy):
+class ToolCallBufferPolicy(LuthienPolicy):
     """Intercept streaming tool calls, log them, then replay original chunks."""
 
     def create_stream_context(self, stream_id: str, request_data: dict[str, Any]) -> ToolCallBufferContext:
@@ -39,7 +46,7 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
         try:
             async for chunk in incoming_stream:
                 context.chunk_count += 1
-                self._capture_stream_chunk(context, chunk)
+                context.aggregator.capture_chunk(chunk)
 
                 if self._buffer_tool_chunk(context, chunk):
                     flushed = await self._maybe_flush_tool_calls(context, chunk)
@@ -54,7 +61,6 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
                 flushed = await self._flush_tool_calls(context)
                 for buffered in flushed:
                     yield buffered
-            await self._emit_stream_summary(context)
 
     async def async_post_call_success_hook(
         self,
@@ -62,24 +68,22 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
         user_api_key_dict: Mapping[str, Any] | None,
         response: Mapping[str, Any],
     ) -> Mapping[str, Any]:
-        """Log non-stream tool calls in addition to base conversation logs."""
-        result = await super().async_post_call_success_hook(data, user_api_key_dict, response)
-
+        """Log non-stream tool calls."""
         if bool(data.get("stream")):
-            return result
+            return response
 
         tool_calls = self._extract_message_tool_calls(response)
         if tool_calls:
             record = self._build_log_record(
-                call_id=self._require_call_id(data),
-                trace_id=self._extract_trace_id(data),
+                call_id=require_call_id(data),
+                trace_id=extract_trace_id(data),
                 stream_id=None,
                 chunks_buffered=None,
                 tool_calls=tool_calls,
             )
             await self._record_debug_event(TOOL_CALL_DEBUG_TYPE, record)
 
-        return result
+        return response
 
     # ------------------------------------------------------------------
     # Streaming helpers
@@ -97,9 +101,6 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
             tool_calls = message.get("tool_calls")
             if isinstance(tool_calls, list):
                 self._merge_message_tool_calls(context, tool_calls)
-            legacy = message.get("function_call")
-            if isinstance(legacy, Mapping):
-                self._merge_legacy_function_delta(context, legacy)
 
         contains_tool_data = self._chunk_contains_tool_call(chunk)
         if context.tool_call_active or contains_tool_data:
@@ -133,10 +134,10 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
         return None
 
     async def _flush_tool_calls(self, context: ToolCallBufferContext) -> list[dict[str, Any]]:
-        call_id = self._require_call_id(context.original_request)
+        call_id = require_call_id(context.original_request)
         new_states: list[ToolCallState] = []
-        for identifier in sorted(context.tool_calls.keys()):
-            state = context.tool_calls[identifier]
+        for identifier in sorted(context.aggregator.tool_calls.keys()):
+            state = context.aggregator.tool_calls[identifier]
             if identifier not in context.logged_tool_ids:
                 new_states.append(state)
 
@@ -147,7 +148,7 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
 
         payload = self._build_log_record(
             call_id=call_id,
-            trace_id=self._extract_trace_id(context.original_request),
+            trace_id=extract_trace_id(context.original_request),
             stream_id=context.stream_id,
             chunks_buffered=len(context.buffered_chunks),
             tool_calls=[
@@ -193,7 +194,7 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
             choice["index"] = 0
 
         delta = {
-            "role": context.role or "assistant",
+            "role": context.aggregator.role or "assistant",
             "content": None,
             "tool_calls": [
                 {
@@ -211,19 +212,6 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
         choice["finish_reason"] = "tool_calls"
         return chunk
 
-    def _merge_legacy_function_delta(
-        self,
-        context: ToolCallBufferContext,
-        legacy: Mapping[str, Any],
-    ) -> None:
-        """Normalize legacy LiteLLM `function_call` payloads into tool-call state."""
-        synthetic = {
-            "id": legacy.get("id"),
-            "type": "function",
-            "function": legacy,
-        }
-        self._merge_message_tool_calls(context, [synthetic])
-
     def _chunk_contains_tool_call(self, chunk: Mapping[str, Any]) -> bool:
         choice = self._first_choice(chunk)
         if choice is None:
@@ -233,9 +221,6 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
         if isinstance(delta, Mapping):
             tool_calls = delta.get("tool_calls")
             if isinstance(tool_calls, list) and tool_calls:
-                return True
-            function_call = delta.get("function_call")
-            if isinstance(function_call, Mapping):
                 return True
 
         message = choice.get("message")
@@ -266,13 +251,9 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
         if not isinstance(message, Mapping):
             return []
 
-        calls = self._parse_tool_calls(message.get("tool_calls"), allow_empty=True)
+        calls = parse_tool_calls(message.get("tool_calls"), allow_empty=True)
         if calls:
             return calls
-
-        legacy_function = message.get("function_call")
-        if legacy_function is not None:
-            return [self._parse_legacy_function_call(legacy_function)]
 
         return []
 
@@ -292,7 +273,7 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
             "schema": TOOL_CALL_SCHEMA,
             "call_id": call_id,
             "trace_id": trace_id,
-            "timestamp": self._timestamp(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "tool_calls": tool_calls,
         }
         if stream_id is not None:
@@ -303,10 +284,7 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
 
     def _message_contains_tool_call(self, message: Mapping[str, Any]) -> bool:
         tool_calls = message.get("tool_calls")
-        if isinstance(tool_calls, list) and tool_calls:
-            return True
-        function_call = message.get("function_call")
-        return isinstance(function_call, Mapping)
+        return isinstance(tool_calls, list) and bool(tool_calls)
 
     def _merge_message_tool_calls(
         self,
@@ -316,14 +294,14 @@ class ToolCallBufferPolicy(ConversationLoggingPolicy):
         for index, raw in enumerate(tool_calls):
             if not isinstance(raw, Mapping):
                 continue
-            identifier = self._resolve_tool_call_identifier(context, raw, index)
-            state = context.tool_calls.get(identifier)
+            identifier = context.aggregator._resolve_tool_call_identifier(raw, index)
+            state = context.aggregator.tool_calls.get(identifier)
             if state is None:
                 call_type = raw.get("type")
                 if not isinstance(call_type, str) or not call_type:
                     call_type = "function"
                 state = ToolCallState(identifier=identifier, call_type=call_type)
-                context.tool_calls[identifier] = state
+                context.aggregator.tool_calls[identifier] = state
             else:
                 state.identifier = identifier
             name = raw.get("name")

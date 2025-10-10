@@ -16,6 +16,11 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 - Use `docker compose restart control-plane` or `litellm-proxy` to iterate on changes
 - Check logs with `docker compose logs -f` when debugging
+- Long-running compose or `uv` commands can hang the CLI; launch them via `scripts/run_bg_command.sh` so you can poll logs (`tail -f`) and terminate with the recorded PID if needed.
+
+## Observability Checks (2025-10-08, updated 2025-11-30)
+
+- Rely on the `tests/e2e_tests` helpers (see `policy_assertions.py`) for live integration checks; ad-hoc scripts were removed alongside the legacy trace APIs.
 
 ---
 

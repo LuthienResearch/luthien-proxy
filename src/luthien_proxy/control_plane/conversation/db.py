@@ -1,147 +1,137 @@
-"""Database helpers for conversation tracing."""
+"""Database helpers for conversation queries."""
 
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
-from typing import Mapping, Optional, cast
+from typing import Mapping, Optional, Sequence
 
 from fastapi import HTTPException
 
-from luthien_proxy.types import JSONObject
 from luthien_proxy.utils import db
 from luthien_proxy.utils.project_config import ProjectConfig
 from luthien_proxy.utils.validation import require_type
 
-from .models import TraceEntry
-from .utils import extract_post_time_ns_from_any
+from .models import CallIdInfo, ConversationEvent
+
+logger = logging.getLogger(__name__)
 
 
-def _optional_str(value: object) -> Optional[str]:
-    """Return *value* when it is a non-empty string, else None."""
-    if isinstance(value, str) and value:
-        return value
-    return None
-
-
-def extract_post_ns(jb: JSONObject) -> Optional[int]:
-    """Extract `post_time_ns` from a log payload when present."""
-    ns = extract_post_time_ns_from_any(jb)
-    if ns is not None:
-        return ns
-    return None
-
-
-def _row_to_trace_entry(row: Mapping[str, object]) -> TraceEntry:
-    raw_blob = str(row["jsonblob"])
-    try:
-        parsed_blob = cast(dict, json.loads(raw_blob))
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise TypeError(f"debug_logs.jsonblob is not a valid json string: {raw_blob}") from exc
-    if not isinstance(parsed_blob, dict):
-        raise TypeError(f"debug_logs.jsonblob must decode to a JSON mapping; got {type(parsed_blob)!r}")
-    time_created = require_type(row.get("time_created"), datetime, "time_created")
-    debug_identifier = row.get("debug_type_identifier")
-    debug_type = _optional_str(debug_identifier)
-    return TraceEntry(
-        time=time_created,
-        post_time_ns=extract_post_ns(parsed_blob),
-        hook=parsed_blob.get("hook"),
-        debug_type=debug_type,
-        payload=parsed_blob,
-    )
-
-
-async def fetch_trace_entries(
+async def load_events_for_call(
     call_id: str,
     pool: Optional[db.DatabasePool],
     config: ProjectConfig,
-    *,
-    limit: Optional[int] = None,
-    offset: int = 0,
-) -> tuple[list[TraceEntry], bool]:
-    """Load all debug log entries recorded for a call ID."""
+) -> list[ConversationEvent]:
+    """Load conversation events for a single call."""
     if config.database_url is None or pool is None:
-        raise HTTPException(status_code=500, detail="DATABASE_URL is required for trace lookups")
+        raise HTTPException(status_code=500, detail="DATABASE_URL is required for conversation lookups")
 
-    entries: list[TraceEntry] = []
-    has_more = False
+    events: list[ConversationEvent] = []
     try:
         async with pool.connection() as conn:
-            sql = """
-                SELECT time_created, debug_type_identifier, jsonblob
-                FROM debug_logs
-                WHERE jsonblob->>'litellm_call_id' = $1
-                ORDER BY time_created ASC
+            rows = await conn.fetch(
                 """
-            params: list[object] = [call_id]
-            if limit is not None:
-                sql += " LIMIT $2 OFFSET $3"
-                params.extend([limit + 1, offset])
-            rows = await conn.fetch(sql, *params)
-            for row in rows:
-                entries.append(_row_to_trace_entry(row))
-    except HTTPException:
-        raise
+                SELECT call_id,
+                       event_type,
+                       sequence,
+                       payload,
+                       created_at
+                FROM conversation_events
+                WHERE call_id = $1
+                ORDER BY sequence ASC
+                """,
+                call_id,
+            )
+            events = _rows_to_events(rows)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"trace_error: {exc}")
-
-    if limit is not None and len(entries) > limit:
-        has_more = True
-        entries = entries[:limit]
-
-    entries.sort(
-        key=lambda e: (e.post_time_ns if e.post_time_ns is not None else int(e.time.timestamp() * 1_000_000_000))
-    )
-    return entries, has_more
+        raise HTTPException(status_code=500, detail=f"conversation_events_error: {exc}")
+    return events
 
 
-async def fetch_trace_entries_by_trace(
-    trace_id: str,
+async def load_recent_calls(
+    limit: int,
     pool: Optional[db.DatabasePool],
     config: ProjectConfig,
-    *,
-    limit: Optional[int] = None,
-    offset: int = 0,
-) -> tuple[list[TraceEntry], bool]:
-    """Load all debug log entries recorded for a trace ID."""
+) -> list[CallIdInfo]:
+    """Return recent calls recorded in conversation tables."""
     if config.database_url is None or pool is None:
-        raise HTTPException(status_code=500, detail="DATABASE_URL is required for trace lookups")
+        return []
 
-    entries: list[TraceEntry] = []
-    has_more = False
+    results: list[CallIdInfo] = []
     try:
         async with pool.connection() as conn:
-            sql = """
-                SELECT time_created, debug_type_identifier, jsonblob
-                FROM debug_logs
-                WHERE COALESCE(
-                    jsonblob->>'litellm_trace_id',
-                    jsonblob->'payload'->'request_data'->>'litellm_trace_id',
-                    jsonblob->'payload'->'data'->>'litellm_trace_id'
-                ) = $1
-                ORDER BY time_created ASC
+            rows = await conn.fetch(
                 """
-            params: list[object] = [trace_id]
-            if limit is not None:
-                sql += " LIMIT $2 OFFSET $3"
-                params.extend([limit + 1, offset])
-            rows = await conn.fetch(sql, *params)
+                SELECT c.call_id,
+                       COALESCE(stats.event_count, 0) AS event_count,
+                       COALESCE(c.completed_at, c.created_at) AS latest
+                FROM conversation_calls c
+                LEFT JOIN (
+                    SELECT call_id, COUNT(*) AS event_count
+                    FROM conversation_events
+                    GROUP BY call_id
+                ) stats ON stats.call_id = c.call_id
+                ORDER BY latest DESC NULLS LAST
+                LIMIT $1
+                """,
+                limit,
+            )
             for row in rows:
-                entries.append(_row_to_trace_entry(row))
-    except HTTPException:
-        raise
+                call_id_val = require_type(row.get("call_id"), str, "call_id")
+                count_val = require_type(row.get("event_count"), int, "event_count")
+                latest_val = require_type(row.get("latest"), datetime, "latest")
+                results.append(CallIdInfo(call_id=call_id_val, count=count_val, latest=latest_val))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"trace_error: {exc}")
-
-    if limit is not None and len(entries) > limit:
-        has_more = True
-        entries = entries[:limit]
-
-    entries.sort(
-        key=lambda e: (e.post_time_ns if e.post_time_ns is not None else int(e.time.timestamp() * 1_000_000_000))
-    )
-    return entries, has_more
+        logger.error("Failed to load recent calls: %s", exc)
+        return []
+    return results
 
 
-__all__ = ["fetch_trace_entries", "fetch_trace_entries_by_trace", "extract_post_ns"]
+def _rows_to_events(rows: Sequence[Mapping[str, object]]) -> list[ConversationEvent]:
+    """Convert database rows to ConversationEvent objects."""
+    events: list[ConversationEvent] = []
+    for row in rows:
+        call_id_val = require_type(row.get("call_id"), str, "call_id")
+        event_type = require_type(row.get("event_type"), str, "event_type")
+
+        payload_obj = row.get("payload")
+        if isinstance(payload_obj, str):
+            try:
+                payload_obj = json.loads(payload_obj)
+            except json.JSONDecodeError:
+                payload_obj = {}
+        if isinstance(payload_obj, Mapping):
+            payload = payload_obj
+        else:
+            payload = {}
+
+        sequence_raw = row.get("sequence")
+        if isinstance(sequence_raw, int):
+            sequence_val = sequence_raw
+        elif isinstance(sequence_raw, float):
+            sequence_val = int(sequence_raw)
+        else:
+            created_at = require_type(row.get("created_at"), datetime, "created_at")
+            sequence_val = int(created_at.timestamp() * 1_000_000_000)
+
+        created_at_val = require_type(row.get("created_at"), datetime, "created_at")
+
+        events.append(
+            ConversationEvent(
+                call_id=call_id_val,
+                trace_id=None,  # No longer used
+                event_type=event_type,  # type: ignore[arg-type]
+                sequence=sequence_val,
+                timestamp=created_at_val,
+                hook="",  # Not stored in new schema
+                payload=payload,  # type: ignore[arg-type]
+            )
+        )
+    return events
+
+
+__all__ = [
+    "load_events_for_call",
+    "load_recent_calls",
+]

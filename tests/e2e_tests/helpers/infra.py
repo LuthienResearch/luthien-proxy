@@ -184,6 +184,38 @@ async def ensure_services_available(settings: E2ESettings) -> None:
             pytest.skip(f"Control plane not reachable at {settings.control_plane_url}/health: {exc}")
 
 
+async def fetch_debug_entries(
+    settings: E2ESettings,
+    debug_type: str,
+    *,
+    limit: int = 200,
+) -> list[dict[str, object]]:
+    """Return recent debug entries for a debug type."""
+    async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+        response = await client.get(
+            f"{settings.control_plane_url}/api/debug/{debug_type}",
+            params={"limit": limit},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, list) else []
+
+
+async def wait_for_debug_entry(
+    settings: E2ESettings,
+    debug_type: str,
+    predicate,
+) -> dict[str, object]:
+    """Poll debug logs for an entry that satisfies predicate."""
+    for _ in range(settings.trace_retries):
+        entries = await fetch_debug_entries(settings, debug_type, limit=200)
+        for entry in entries:
+            if isinstance(entry, Mapping) and predicate(entry):
+                return dict(entry)
+        await asyncio.sleep(settings.trace_retry_delay)
+    raise AssertionError(f"Debug entry for type {debug_type} not found after {settings.trace_retries} retries")
+
+
 @contextmanager
 def dummy_provider_running(settings: E2ESettings):
     env = os.environ.copy()
@@ -210,20 +242,6 @@ def dummy_provider_running(settings: E2ESettings):
             _run_docker_compose(settings, ["rm", "-f", "dummy-provider"], env)
         except AssertionError:
             pass
-
-
-async def fetch_trace(settings: E2ESettings, call_id: str) -> dict[str, object]:
-    params = {"call_id": call_id, "limit": 200}
-    async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
-        for _ in range(settings.trace_retries):
-            response = await client.get(f"{settings.control_plane_url}/api/hooks/trace_by_call_id", params=params)
-            if response.status_code == 200:
-                data = response.json()
-                entries = data.get("entries", [])
-                if entries:
-                    return data
-            await asyncio.sleep(settings.trace_retry_delay)
-    raise AssertionError(f"Trace entries for call_id {call_id} not found after {settings.trace_retries} retries")
 
 
 class ControlPlaneManager:
@@ -296,6 +314,7 @@ __all__ = [
     "ControlPlaneManager",
     "dummy_provider_running",
     "ensure_services_available",
-    "fetch_trace",
+    "fetch_debug_entries",
+    "wait_for_debug_entry",
     "load_e2e_settings",
 ]

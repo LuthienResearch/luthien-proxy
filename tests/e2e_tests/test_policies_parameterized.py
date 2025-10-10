@@ -9,7 +9,6 @@ from tests.e2e_tests.helpers import (
     ALL_POLICY_TEST_CASES,
     E2ESettings,
     PolicyTestCase,
-    assert_debug_log,
     assert_response_expectations,
     execute_non_streaming_request,
     execute_streaming_request,
@@ -62,14 +61,13 @@ async def test_policy_non_streaming(
 ) -> None:
     """Test policy behavior in non-streaming mode."""
     for turn_index, turn in enumerate(test_case.turns):
-        response_body, call_id = await execute_non_streaming_request(e2e_settings, turn.request)
+        response_body, _ = await execute_non_streaming_request(e2e_settings, turn.request)
         content = extract_message_content(response_body)
 
         if e2e_settings.verbose:
             print(f"[Turn {turn_index}] Response content: {content}")
 
         assert_response_expectations(response_body, turn.expected_response, content)
-        await assert_debug_log(e2e_settings, call_id, turn.expected_response)
 
 
 @pytest.mark.asyncio
@@ -81,11 +79,10 @@ async def test_policy_streaming(
 ) -> None:
     """Test policy behavior in streaming mode."""
     for turn_index, turn in enumerate(test_case.turns):
-        chunks, call_id = await execute_streaming_request(e2e_settings, turn.request)
+        chunks, _ = await execute_streaming_request(e2e_settings, turn.request)
         content = extract_streaming_content(chunks)
 
         if e2e_settings.verbose:
             print(f"[Turn {turn_index}] Streaming content: {content}")
 
         assert_response_expectations(chunks, turn.expected_response, content)
-        await assert_debug_log(e2e_settings, call_id, turn.expected_response)

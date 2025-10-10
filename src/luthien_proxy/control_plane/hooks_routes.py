@@ -18,19 +18,14 @@ from luthien_proxy.control_plane.conversation import (
     CallIdInfo,
     ConversationMessageDiff,
     ConversationSnapshot,
-    TraceConversationSnapshot,
-    TraceInfo,
-    TraceResponse,
     build_call_snapshots,
     build_conversation_events,
     conversation_sse_stream,
-    conversation_sse_stream_by_trace,
-    events_from_trace_entries,
-    fetch_trace_entries,
-    fetch_trace_entries_by_trace,
     json_safe,
+    load_events_for_call,
+    load_recent_calls,
     publish_conversation_event,
-    publish_trace_conversation_event,
+    record_conversation_events,
     strip_post_time_ns,
 )
 from luthien_proxy.control_plane.conversation.utils import extract_trace_id
@@ -39,7 +34,6 @@ from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.types import JSONObject, JSONValue
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ConversationStreamConfig, ProjectConfig
-from luthien_proxy.utils.validation import require_type
 
 from .dependencies import (
     DebugLogWriter,
@@ -91,6 +85,7 @@ async def hook_generic(
     policy: LuthienPolicy = Depends(get_active_policy),
     counters: Counter[str] = Depends(get_hook_counter_state),
     redis_conn: redis_client.RedisClient = Depends(get_redis_client),
+    pool: db.DatabasePool | None = Depends(get_database_pool),
 ) -> JSONValue:
     """Generic hook endpoint for any CustomLogger hook."""
     try:
@@ -163,9 +158,10 @@ async def hook_generic(
                 timestamp_ns_fallback=time.time_ns(),
                 timestamp=timestamp_dt,
             )
+            if events:
+                CONVERSATION_EVENT_QUEUE.submit(record_conversation_events(pool, events))
             for event in events:
                 CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(redis_conn, event))
-                CONVERSATION_EVENT_QUEUE.submit(publish_trace_conversation_event(redis_conn, event))
 
         result_to_return = strip_post_time_ns(final_result)
         logger.info(f"Hook {hook_name} returning: type={type(result_to_return)}, preview={str(result_to_return)[:200]}")
@@ -177,113 +173,14 @@ async def hook_generic(
         raise HTTPException(status_code=500, detail=f"hook_generic_error in {hook_name}: {exc}")
 
 
-@router.get("/api/hooks/trace_by_call_id", response_model=TraceResponse)
-async def trace_by_call_id(
-    call_id: Annotated[str, Query(min_length=4)],
-    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
-    offset: Annotated[int, Query(ge=0)] = 0,
-    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
-    config: ProjectConfig = Depends(get_project_config),
-) -> TraceResponse:
-    """Return ordered hook entries from debug_logs for a litellm_call_id."""
-    entries, has_more = await fetch_trace_entries(call_id, pool, config, limit=limit, offset=offset)
-    next_offset = offset + len(entries) if has_more else None
-    return TraceResponse(
-        call_id=call_id,
-        entries=entries,
-        offset=offset,
-        limit=limit,
-        has_more=has_more,
-        next_offset=next_offset,
-    )
-
-
 @router.get("/api/hooks/recent_call_ids", response_model=list[CallIdInfo])
 async def recent_call_ids(
     limit: int = Query(default=50, ge=1, le=500),
     pool: Optional[db.DatabasePool] = Depends(get_database_pool),
     config: ProjectConfig = Depends(get_project_config),
 ) -> list[CallIdInfo]:
-    """Return recent call IDs observed in debug logs with usage counts."""
-    out: list[CallIdInfo] = []
-    if config.database_url is None or pool is None:
-        return out
-    try:
-        async with pool.connection() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT jsonblob->>'litellm_call_id' as cid,
-                       COUNT(*) as cnt,
-                       MAX(time_created) as latest
-                FROM debug_logs
-                WHERE jsonblob->>'litellm_call_id' IS NOT NULL
-                GROUP BY cid
-                ORDER BY latest DESC
-                LIMIT $1
-                """,
-                limit,
-            )
-            for row in rows:
-                cid = str(row.get("cid"))
-                count = require_type(row.get("cnt"), int, "cnt")
-                latest = require_type(row.get("latest"), datetime, "latest")
-                out.append(CallIdInfo(call_id=cid, count=count, latest=latest))
-    except Exception as exc:
-        logger.error(f"Error fetching recent call ids: {exc}")
-    return out
-
-
-@router.get("/api/hooks/recent_traces", response_model=list[TraceInfo])
-async def recent_traces(
-    limit: int = Query(default=50, ge=1, le=500),
-    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
-    config: ProjectConfig = Depends(get_project_config),
-) -> list[TraceInfo]:
-    """Return recent trace ids with call/event counts."""
-    out: list[TraceInfo] = []
-    if config.database_url is None or pool is None:
-        return out
-    try:
-        async with pool.connection() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT trace_id,
-                       COUNT(*) AS event_count,
-                       COUNT(DISTINCT call_id) AS call_count,
-                       MAX(time_created) AS latest
-                FROM (
-                    SELECT COALESCE(
-                               jsonblob->>'litellm_trace_id',
-                               jsonblob->'payload'->'request_data'->>'litellm_trace_id',
-                               jsonblob->'payload'->'data'->>'litellm_trace_id'
-                           ) AS trace_id,
-                           jsonblob->>'litellm_call_id' AS call_id,
-                           time_created
-                    FROM debug_logs
-                ) AS traces
-                WHERE trace_id IS NOT NULL
-                GROUP BY trace_id
-                ORDER BY latest DESC
-                LIMIT $1
-                """,
-                limit,
-            )
-            for row in rows:
-                trace_id = require_type(row.get("trace_id"), str, "trace_id")
-                call_count = require_type(row.get("call_count"), int, "call_count")
-                event_count = require_type(row.get("event_count"), int, "event_count")
-                latest = require_type(row.get("latest"), datetime, "latest")
-                out.append(
-                    TraceInfo(
-                        trace_id=trace_id,
-                        call_count=call_count,
-                        event_count=event_count,
-                        latest=latest,
-                    )
-                )
-    except Exception as exc:
-        logger.error(f"Error fetching recent traces: {exc}")
-    return out
+    """Return recent call IDs observed in structured conversation tables."""
+    return await load_recent_calls(limit, pool, config)
 
 
 @router.get("/api/hooks/conversation", response_model=ConversationSnapshot)
@@ -293,11 +190,9 @@ async def conversation_snapshot(
     config: ProjectConfig = Depends(get_project_config),
 ) -> ConversationSnapshot:
     """Return normalized conversation events for a call ID."""
-    entries, _ = await fetch_trace_entries(call_id, pool, config)
-    events = events_from_trace_entries(entries)
-    trace_id = next((evt.trace_id for evt in events if evt.trace_id), None)
+    events = await load_events_for_call(call_id, pool, config)
     calls = build_call_snapshots(events)
-    return ConversationSnapshot(call_id=call_id, trace_id=trace_id, events=events, calls=calls)
+    return ConversationSnapshot(call_id=call_id, trace_id=None, events=events, calls=calls)
 
 
 @router.get("/api/hooks/conversation/stream")
@@ -312,42 +207,12 @@ async def conversation_stream(
     return StreamingResponse(stream, media_type="text/event-stream")
 
 
-@router.get("/api/hooks/conversation/by_trace", response_model=TraceConversationSnapshot)
-async def conversation_snapshot_by_trace(
-    trace_id: Annotated[str, Query(min_length=4)],
-    pool: Optional[db.DatabasePool] = Depends(get_database_pool),
-    config: ProjectConfig = Depends(get_project_config),
-) -> TraceConversationSnapshot:
-    """Return normalized conversation events grouped by trace id."""
-    entries, _ = await fetch_trace_entries_by_trace(trace_id, pool, config)
-    events = events_from_trace_entries(entries)
-    call_ids = sorted({evt.call_id for evt in events if evt.call_id})
-    calls = build_call_snapshots(events)
-    return TraceConversationSnapshot(trace_id=trace_id, call_ids=call_ids, events=events, calls=calls)
-
-
-@router.get("/api/hooks/conversation/stream_by_trace")
-async def conversation_stream_by_trace(
-    trace_id: str = Query(..., min_length=4),
-    redis_conn: redis_client.RedisClient = Depends(get_redis_client),
-    _: None = Depends(enforce_conversation_rate_limit),
-    stream_config: ConversationStreamConfig = Depends(get_conversation_stream_config),
-) -> StreamingResponse:
-    """Stream live conversation deltas for a trace id via SSE."""
-    stream = conversation_sse_stream_by_trace(redis_conn, trace_id, config=stream_config)
-    return StreamingResponse(stream, media_type="text/event-stream")
-
-
 __all__ = [
     "router",
     "get_hook_counters",
     "hook_generic",
-    "trace_by_call_id",
     "recent_call_ids",
-    "recent_traces",
     "conversation_snapshot",
     "conversation_stream",
-    "conversation_snapshot_by_trace",
-    "conversation_stream_by_trace",
     "ConversationMessageDiff",
 ]
