@@ -5,15 +5,27 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from collections.abc import Iterable
 
 
+logger = logging.getLogger(__name__)
+
+_MAX_SSE_PAYLOAD_BYTES = 1_000_000
+_MAX_SSE_EVENTS_PER_PAYLOAD = 1000
+_MAX_TOOL_STATE_ENTRIES = 128
+
+
 def _parse_sse_events(raw: bytes) -> list[tuple[str | None, dict]]:
     """Parse Anthropic SSE payload into `(event, data)` tuples."""
+    if len(raw) > _MAX_SSE_PAYLOAD_BYTES:
+        raise ValueError("SSE payload exceeds maximum allowed size")
     text = raw.decode("utf-8")
     segments = [seg for seg in text.split("\n\n") if seg.strip()]
+    if len(segments) > _MAX_SSE_EVENTS_PER_PAYLOAD:
+        raise ValueError("SSE payload contains too many events")
     events: list[tuple[str | None, dict]] = []
     for segment in segments:
         event_type: str | None = None
@@ -29,7 +41,11 @@ def _parse_sse_events(raw: bytes) -> list[tuple[str | None, dict]]:
         data_str = "\n".join(data_lines)
         try:
             data = json.loads(data_str)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            logger.debug("Skipping malformed SSE payload: %s", exc)
+            continue
+        if not isinstance(data, dict):
+            logger.debug("Skipping SSE payload with non-dict data: %s", type(data).__name__)
             continue
         events.append((event_type, data))
     return events
@@ -101,6 +117,12 @@ class AnthropicToOpenAIAdapter:
                         "id": block.get("id", f"tool_{uuid.uuid4().hex}"),
                         "name": block.get("name", "tool"),
                     }
+                    if len(self.tool_states) >= _MAX_TOOL_STATE_ENTRIES:
+                        oldest_index = next(iter(self.tool_states))
+                        logger.warning(
+                            "tool_states limit exceeded; evicting index %s", oldest_index
+                        )
+                        self.tool_states.pop(oldest_index, None)
                     self.tool_states[index] = tool_state
                     chunks.append(
                         self._chunk(
@@ -131,6 +153,12 @@ class AnthropicToOpenAIAdapter:
                         if tool_state is None:
                             tool_state = {"id": f"tool_{uuid.uuid4().hex}", "name": "tool"}
                             self.tool_states[index] = tool_state
+                        elif len(self.tool_states) >= _MAX_TOOL_STATE_ENTRIES:
+                            oldest_index = next(iter(self.tool_states))
+                            logger.warning(
+                                "tool_states limit exceeded; evicting index %s", oldest_index
+                            )
+                            self.tool_states.pop(oldest_index, None)
                         chunks.append(
                             self._chunk(
                                 {

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from luthien_proxy.proxy.stream_normalization import (
+    _MAX_SSE_EVENTS_PER_PAYLOAD,
+    _MAX_SSE_PAYLOAD_BYTES,
+    _parse_sse_events,
     anthropic_stream_to_openai,
     openai_chunks_to_anthropic,
 )
@@ -118,6 +123,23 @@ def _normalize_events(events: list[str]) -> list[tuple]:
 def _encode_events(events: list[str]) -> list[bytes]:
     """Convert textual fixtures into byte payloads."""
     return [payload.encode("utf-8") for payload in events]
+
+
+def test_parse_sse_events_rejects_large_payload() -> None:
+    oversized = b"x" * (_MAX_SSE_PAYLOAD_BYTES + 1)
+    with pytest.raises(ValueError):
+        _parse_sse_events(oversized)
+
+
+def test_parse_sse_events_rejects_excessive_events() -> None:
+    payload = b"\n\n".join([b"data: {}"] * (_MAX_SSE_EVENTS_PER_PAYLOAD + 1))
+    with pytest.raises(ValueError):
+        _parse_sse_events(payload)
+
+
+def test_parse_sse_events_skips_non_dict_data() -> None:
+    events = _parse_sse_events(b"event: message_start\ndata: \"ignored\"\n\n")
+    assert events == []
 
 
 def test_anthropic_stream_to_openai_text_sample() -> None:

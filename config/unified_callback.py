@@ -53,12 +53,39 @@ from luthien_proxy.proxy.stream_orchestrator import (
 )
 
 
+_ANTHROPIC_PROVIDER_PREFIXES = (
+    "anthropic/",
+    "anthropic.",
+    "bedrock/anthropic.",
+    "vertex_ai/anthropic.",
+)
+_ANTHROPIC_MODEL_PREFIXES = ("claude",)
+
+
 def _is_anthropic_model(model_name: str | None) -> bool:
     """Return ``True`` if *model_name* corresponds to an Anthropic backend."""
     if not model_name:
         return False
-    lowered = model_name.lower()
-    return "anthropic" in lowered or "claude" in lowered
+
+    normalized = model_name.strip().lower()
+    if not normalized:
+        return False
+
+    for prefix in _ANTHROPIC_PROVIDER_PREFIXES:
+        if normalized.startswith(prefix):
+            return True
+
+    provider, sep, remainder = normalized.partition("/")
+    candidate = remainder if sep else normalized
+    if provider == "bedrock" and candidate.startswith("anthropic."):
+        candidate = candidate[len("anthropic.") :]
+    if provider == "vertex_ai" and candidate.startswith("anthropic."):
+        candidate = candidate[len("anthropic.") :]
+    candidate = candidate.split(":", 1)[0]
+    if "/" in candidate:
+        candidate = candidate.rsplit("/", 1)[-1]
+
+    return any(candidate.startswith(prefix) for prefix in _ANTHROPIC_MODEL_PREFIXES)
 
 
 class UnifiedCallback(CustomLogger):
@@ -108,16 +135,18 @@ class UnifiedCallback(CustomLogger):
                     raise httpx.HTTPError(f"Empty response from control plane for {hook} hook")
                 return response.json()
         except httpx.ConnectError as exc:  # pragma: no cover - network failure path
-            verbose_logger.error("Network error posting %s hook: %s", hook, exc)
+            verbose_logger.error("Network error posting %s hook: %s", hook, exc.__class__.__name__)
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code >= 500:
-                verbose_logger.error("Control plane server error (%s hook): %s", hook, exc)
+            status = exc.response.status_code
+            reason = exc.response.reason_phrase or "<no-reason>"
+            if status >= 500:
+                verbose_logger.error("Control plane server error (%s hook): status=%s reason=%s", hook, status, reason)
             else:
-                verbose_logger.error("Client error posting %s hook: %s", hook, exc)
+                verbose_logger.error("Client error posting %s hook: status=%s reason=%s", hook, status, reason)
         except httpx.TimeoutException as exc:
-            verbose_logger.error("Timeout posting %s hook: %s", hook, exc)
+            verbose_logger.error("Timeout posting %s hook: %s", hook, exc.__class__.__name__)
         except Exception as exc:  # pragma: no cover - defensive
-            verbose_logger.error("Unexpected error posting %s hook: %s", hook, exc)
+            verbose_logger.error("Unexpected error posting %s hook: %s", hook, exc.__class__.__name__)
         return None
 
     def _apply_policy_response(self, response: Any, policy_result: Any) -> None:
@@ -350,7 +379,7 @@ class UnifiedCallback(CustomLogger):
         return ModelResponseStream.model_validate(payload)
 
     def _json_safe(self, obj: Any, *, _depth: int = 0, _seen: set[int] | None = None) -> Any:
-        if _depth > self._JSON_SAFE_MAX_DEPTH:
+        if _depth >= self._JSON_SAFE_MAX_DEPTH:
             return "<max-depth-exceeded>"
 
         if _seen is None:
@@ -362,13 +391,13 @@ class UnifiedCallback(CustomLogger):
         if hasattr(obj, "model_dump"):
             try:
                 return self._json_safe(obj.model_dump(), _depth=_depth + 1, _seen=_seen)
-            except Exception:
-                pass
+            except Exception as exc:
+                verbose_logger.debug("model_dump() conversion failed for %s: %s", type(obj).__name__, exc)
         if hasattr(obj, "dict"):
             try:
                 return self._json_safe(obj.dict(), _depth=_depth + 1, _seen=_seen)
-            except Exception:
-                pass
+            except Exception as exc:
+                verbose_logger.debug("dict() conversion failed for %s: %s", type(obj).__name__, exc)
 
         if isinstance(obj, dict):
             obj_id = id(obj)
@@ -412,11 +441,12 @@ class UnifiedCallback(CustomLogger):
 
             _json.dumps(obj)
             return obj
-        except Exception:
-            pass
+        except Exception as exc:
+            verbose_logger.debug("json.dumps() check failed for %s: %s", type(obj).__name__, exc)
         try:
             return repr(obj)
-        except Exception:
+        except Exception as exc:
+            verbose_logger.debug("repr() failed for %s: %s", type(obj).__name__, exc)
             return "<unserializable>"
 
 
