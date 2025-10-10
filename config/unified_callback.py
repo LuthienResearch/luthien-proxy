@@ -54,7 +54,7 @@ from luthien_proxy.proxy.stream_orchestrator import (
 
 
 def _is_sse_chunk(chunk: Any) -> bool:
-    """Return ``True`` if *chunk* appears to be an Anthropic SSE payload.
+    r"""Return ``True`` if *chunk* appears to be an Anthropic SSE payload.
 
     Anthropic streams arrive as bytes or strings containing SSE-formatted data
     (``event: ...\\ndata: ...``). OpenAI streams arrive as dicts that are already
