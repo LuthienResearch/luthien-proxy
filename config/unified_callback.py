@@ -53,12 +53,21 @@ from luthien_proxy.proxy.stream_orchestrator import (
 )
 
 
-def _is_anthropic_model(model_name: str | None) -> bool:
-    """Return ``True`` if *model_name* corresponds to an Anthropic backend."""
-    if not model_name:
-        return False
-    lowered = model_name.lower()
-    return "anthropic" in lowered or "claude" in lowered
+def _is_sse_chunk(chunk: Any) -> bool:
+    r"""Return ``True`` if *chunk* appears to be an Anthropic SSE payload.
+
+    Anthropic streams arrive as bytes or strings containing SSE-formatted data
+    (``event: ...\\ndata: ...``). OpenAI streams arrive as dicts that are already
+    parsed into ``ModelResponseStream`` objects.
+
+    This semantic detection is more reliable than model-name-based heuristics.
+    """
+    if isinstance(chunk, (bytes, str)):
+        # Coerce to string for inspection
+        text = chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
+        # SSE events start with "event:" or "data:" on their own lines
+        return text.strip().startswith(("event:", "data:"))
+    return False
 
 
 class UnifiedCallback(CustomLogger):
@@ -108,16 +117,18 @@ class UnifiedCallback(CustomLogger):
                     raise httpx.HTTPError(f"Empty response from control plane for {hook} hook")
                 return response.json()
         except httpx.ConnectError as exc:  # pragma: no cover - network failure path
-            verbose_logger.error("Network error posting %s hook: %s", hook, exc)
+            verbose_logger.error("Network error posting %s hook: %s", hook, exc.__class__.__name__)
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code >= 500:
-                verbose_logger.error("Control plane server error (%s hook): %s", hook, exc)
+            status = exc.response.status_code
+            reason = exc.response.reason_phrase or "<no-reason>"
+            if status >= 500:
+                verbose_logger.error("Control plane server error (%s hook): status=%s reason=%s", hook, status, reason)
             else:
-                verbose_logger.error("Client error posting %s hook: %s", hook, exc)
+                verbose_logger.error("Client error posting %s hook: status=%s reason=%s", hook, status, reason)
         except httpx.TimeoutException as exc:
-            verbose_logger.error("Timeout posting %s hook: %s", hook, exc)
+            verbose_logger.error("Timeout posting %s hook: %s", hook, exc.__class__.__name__)
         except Exception as exc:  # pragma: no cover - defensive
-            verbose_logger.error("Unexpected error posting %s hook: %s", hook, exc)
+            verbose_logger.error("Unexpected error posting %s hook: %s", hook, exc.__class__.__name__)
         return None
 
     def _apply_policy_response(self, response: Any, policy_result: Any) -> None:
@@ -246,6 +257,35 @@ class UnifiedCallback(CustomLogger):
             with contextlib.suppress(Exception):
                 await close_callable()
 
+    async def _peek_and_replay(
+        self,
+        upstream: AsyncGenerator[Any, None] | AsyncIterator[Any],
+    ) -> tuple[Any | None, AsyncGenerator[Any, None]]:
+        """Peek at the first chunk from *upstream* and return (first_chunk, replayed_stream).
+
+        The replayed stream yields the first chunk followed by all remaining chunks.
+        If the stream is empty, returns (None, empty_generator).
+        """
+        first_chunk: Any | None = None
+        try:
+            first_chunk = await upstream.__anext__()
+        except StopAsyncIteration:
+            # Empty stream
+            async def empty_gen() -> AsyncGenerator[Any, None]:
+                return
+                yield  # unreachable, makes this a generator
+
+            return (None, empty_gen())
+
+        async def replayed() -> AsyncGenerator[Any, None]:
+            # Yield the peeked chunk first
+            yield first_chunk
+            # Then yield all remaining chunks
+            async for chunk in upstream:
+                yield chunk
+
+        return (first_chunk, replayed())
+
     @instrument_callback
     async def async_post_call_streaming_iterator_hook(
         self,
@@ -281,10 +321,20 @@ class UnifiedCallback(CustomLogger):
             await self._close_async_iterator(response)
             return
 
-        upstream = response
-        model_name = request_data.get("model")
-        if _is_anthropic_model(model_name):
-            upstream = self._normalize_anthropic_stream(response)
+        # Peek at the first chunk to detect stream format semantically
+        first_chunk, replayed = await self._peek_and_replay(response)
+        if first_chunk is None:
+            # Empty stream
+            verbose_logger.warning("stream[%s] received empty upstream; closing", stream_id)
+            if connection is not None:
+                with contextlib.suppress(Exception):
+                    await connection.close()
+            return
+
+        # Decide whether to normalize based on chunk structure, not model name
+        upstream = replayed
+        if _is_sse_chunk(first_chunk):
+            upstream = self._normalize_anthropic_stream(replayed)
 
         chunk_logger = get_callback_chunk_logger()
         orchestrator = StreamOrchestrator(
@@ -350,7 +400,7 @@ class UnifiedCallback(CustomLogger):
         return ModelResponseStream.model_validate(payload)
 
     def _json_safe(self, obj: Any, *, _depth: int = 0, _seen: set[int] | None = None) -> Any:
-        if _depth > self._JSON_SAFE_MAX_DEPTH:
+        if _depth >= self._JSON_SAFE_MAX_DEPTH:
             return "<max-depth-exceeded>"
 
         if _seen is None:
@@ -362,13 +412,13 @@ class UnifiedCallback(CustomLogger):
         if hasattr(obj, "model_dump"):
             try:
                 return self._json_safe(obj.model_dump(), _depth=_depth + 1, _seen=_seen)
-            except Exception:
-                pass
+            except Exception as exc:
+                verbose_logger.debug("model_dump() conversion failed for %s: %s", type(obj).__name__, exc)
         if hasattr(obj, "dict"):
             try:
                 return self._json_safe(obj.dict(), _depth=_depth + 1, _seen=_seen)
-            except Exception:
-                pass
+            except Exception as exc:
+                verbose_logger.debug("dict() conversion failed for %s: %s", type(obj).__name__, exc)
 
         if isinstance(obj, dict):
             obj_id = id(obj)
@@ -412,11 +462,12 @@ class UnifiedCallback(CustomLogger):
 
             _json.dumps(obj)
             return obj
-        except Exception:
-            pass
+        except Exception as exc:
+            verbose_logger.debug("json.dumps() check failed for %s: %s", type(obj).__name__, exc)
         try:
             return repr(obj)
-        except Exception:
+        except Exception as exc:
+            verbose_logger.debug("repr() failed for %s: %s", type(obj).__name__, exc)
             return "<unserializable>"
 
 

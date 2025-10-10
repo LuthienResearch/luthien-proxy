@@ -60,12 +60,6 @@ model_list:
       api_key: os.environ/ANTHROPIC_API_KEY
       max_tokens: 200000
 
-  - model_name: claude-3-5-haiku-20241022
-    litellm_params:
-      model: anthropic/claude-3-5-haiku-20241022
-      api_key: os.environ/ANTHROPIC_API_KEY
-      max_tokens: 100000
-
   # Demo dummy provider (for testing AI control with tool calls)
   - model_name: dummy-agent
     litellm_params:
