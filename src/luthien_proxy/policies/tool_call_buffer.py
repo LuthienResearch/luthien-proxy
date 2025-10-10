@@ -11,7 +11,6 @@ from luthien_proxy.policies.base import LuthienPolicy, StreamPolicyContext
 from luthien_proxy.types import JSONObject
 from luthien_proxy.utils.conversation_parsing import (
     extract_trace_id,
-    parse_legacy_function_call,
     parse_tool_calls,
     require_call_id,
 )
@@ -102,9 +101,6 @@ class ToolCallBufferPolicy(LuthienPolicy):
             tool_calls = message.get("tool_calls")
             if isinstance(tool_calls, list):
                 self._merge_message_tool_calls(context, tool_calls)
-            legacy = message.get("function_call")
-            if isinstance(legacy, Mapping):
-                self._merge_legacy_function_delta(context, legacy)
 
         contains_tool_data = self._chunk_contains_tool_call(chunk)
         if context.tool_call_active or contains_tool_data:
@@ -216,19 +212,6 @@ class ToolCallBufferPolicy(LuthienPolicy):
         choice["finish_reason"] = "tool_calls"
         return chunk
 
-    def _merge_legacy_function_delta(
-        self,
-        context: ToolCallBufferContext,
-        legacy: Mapping[str, Any],
-    ) -> None:
-        """Normalize legacy LiteLLM `function_call` payloads into tool-call state."""
-        synthetic = {
-            "id": legacy.get("id"),
-            "type": "function",
-            "function": legacy,
-        }
-        self._merge_message_tool_calls(context, [synthetic])
-
     def _chunk_contains_tool_call(self, chunk: Mapping[str, Any]) -> bool:
         choice = self._first_choice(chunk)
         if choice is None:
@@ -238,9 +221,6 @@ class ToolCallBufferPolicy(LuthienPolicy):
         if isinstance(delta, Mapping):
             tool_calls = delta.get("tool_calls")
             if isinstance(tool_calls, list) and tool_calls:
-                return True
-            function_call = delta.get("function_call")
-            if isinstance(function_call, Mapping):
                 return True
 
         message = choice.get("message")
@@ -271,15 +251,7 @@ class ToolCallBufferPolicy(LuthienPolicy):
         if not isinstance(message, Mapping):
             return []
 
-        calls = parse_tool_calls(message.get("tool_calls"), allow_empty=True)
-        if calls:
-            return calls
-
-        legacy_function = message.get("function_call")
-        if legacy_function is not None:
-            return [parse_legacy_function_call(legacy_function)]
-
-        return []
+        return parse_tool_calls(message.get("tool_calls"), allow_empty=True)
 
     # ------------------------------------------------------------------
     # Shared logging helper
@@ -308,10 +280,7 @@ class ToolCallBufferPolicy(LuthienPolicy):
 
     def _message_contains_tool_call(self, message: Mapping[str, Any]) -> bool:
         tool_calls = message.get("tool_calls")
-        if isinstance(tool_calls, list) and tool_calls:
-            return True
-        function_call = message.get("function_call")
-        return isinstance(function_call, Mapping)
+        return isinstance(tool_calls, list) and bool(tool_calls)
 
     def _merge_message_tool_calls(
         self,

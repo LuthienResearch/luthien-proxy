@@ -6,21 +6,21 @@ def test_extract_call_id_known_hooks():
     assert (
         extract_call_id_for_hook(
             "async_post_call_success_hook",
-            {"data": {"litellm_call_id": "B"}},
+            {"data": {"litellm_metadata": {"model_info": {"id": "B"}}}},
         )
         == "B"
     )
     assert (
         extract_call_id_for_hook(
             "async_post_call_streaming_iterator_hook",
-            {"request_data": {"litellm_call_id": "C"}},
+            {"request_data": {"litellm_metadata": {"model_info": {"id": "C"}}}},
         )
         == "C"
     )
     assert (
         extract_call_id_for_hook(
             "async_post_call_streaming_hook",
-            {"data": {"litellm_call_id": "D"}},
+            {"data": {"litellm_metadata": {"model_info": {"id": "D"}}}},
         )
         == "D"
     )

@@ -42,19 +42,15 @@ def extract_call_id_for_hook(hook: str, payload: JSONObject) -> Optional[str]:
         ],
         "async_post_call_success_hook": [
             ["data", "litellm_metadata", "model_info", "id"],
-            ["data", "litellm_call_id"],  # Fallback/legacy
         ],
         "async_post_call_streaming_iterator_hook": [
             ["request_data", "litellm_metadata", "model_info", "id"],
-            ["request_data", "litellm_call_id"],  # Fallback/legacy
         ],
         "async_post_call_streaming_hook": [
             ["data", "litellm_metadata", "model_info", "id"],
-            ["data", "litellm_call_id"],  # Fallback/legacy
         ],
         "async_post_call_failure_hook": [
             ["request_data", "litellm_metadata", "model_info", "id"],
-            ["request_data", "litellm_call_id"],  # Fallback/legacy
         ],
     }
     paths = hook_to_id_paths.get(hook)

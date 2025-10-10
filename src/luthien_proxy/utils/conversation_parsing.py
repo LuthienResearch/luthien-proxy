@@ -77,26 +77,6 @@ def parse_tool_calls(value: Any, *, allow_empty: bool = False) -> list[dict[str,
     return parsed
 
 
-def parse_legacy_function_call(payload: Any) -> dict[str, str]:
-    """Parse a legacy function_call payload into tool call format."""
-    if not isinstance(payload, Mapping):
-        raise TypeError("function_call payload must be a mapping")
-    name = payload.get("name")
-    if not isinstance(name, str) or not name:
-        raise ValueError("function_call name must be a non-empty string")
-    arguments = payload.get("arguments")
-    if not isinstance(arguments, str):
-        raise TypeError("function_call arguments must be a string")
-    raw_id = payload.get("id")
-    identifier = raw_id if isinstance(raw_id, str) and raw_id else "legacy_function_call"
-    return {
-        "id": identifier,
-        "type": "function",
-        "name": name,
-        "arguments": arguments,
-    }
-
-
 def content_to_text(content: Any) -> str:
     """Convert message content to plain text string."""
     if content is None:
@@ -168,7 +148,6 @@ __all__ = [
     "require_call_id",
     "extract_trace_id",
     "parse_tool_calls",
-    "parse_legacy_function_call",
     "content_to_text",
     "format_messages",
 ]
