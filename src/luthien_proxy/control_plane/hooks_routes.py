@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 import logging
 import time
 from collections import Counter
 from copy import deepcopy
-from datetime import datetime, timezone
 from typing import Annotated, Awaitable, Callable, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -19,13 +17,10 @@ from luthien_proxy.control_plane.conversation import (
     ConversationMessageDiff,
     ConversationSnapshot,
     build_call_snapshots,
-    build_conversation_events,
     conversation_sse_stream,
     json_safe,
     load_events_for_call,
     load_recent_calls,
-    publish_conversation_event,
-    record_conversation_events,
     strip_post_time_ns,
 )
 from luthien_proxy.control_plane.conversation.utils import extract_trace_id
@@ -46,8 +41,9 @@ from .dependencies import (
     get_project_config,
     get_redis_client,
 )
+from .hook_result_handler import log_and_publish_hook_result, prepare_policy_payload
 from .utils.rate_limiter import RateLimiter
-from .utils.task_queue import CONVERSATION_EVENT_QUEUE, DEBUG_LOG_QUEUE
+from .utils.task_queue import DEBUG_LOG_QUEUE
 
 router = APIRouter()
 
@@ -87,8 +83,21 @@ async def hook_generic(
     redis_conn: redis_client.RedisClient = Depends(get_redis_client),
     pool: db.DatabasePool | None = Depends(get_database_pool),
 ) -> JSONValue:
-    """Generic hook endpoint for any CustomLogger hook."""
+    """Generic hook endpoint for any CustomLogger hook.
+
+    DATAFLOW:
+    1. Log original payload → DEBUG_LOG_QUEUE → debug_logs table
+    2. Invoke policy.{hook_name}(**payload) → get transformed result
+    3. Log/persist/publish result:
+       - DEBUG_LOG_QUEUE → debug_logs table
+       - CONVERSATION_EVENT_QUEUE → conversation_events table
+       - CONVERSATION_EVENT_QUEUE → Redis pub/sub (luthien:conversation:{call_id})
+    4. Return result to callback
+
+    See: hook_result_handler.py for logging/publishing implementation
+    """
     try:
+        # === PAYLOAD PREPARATION ===
         record_payload = cast(JSONObject, json_safe(payload))
         stored_payload: JSONObject = deepcopy(record_payload)
         record: JSONObject = {
@@ -114,6 +123,8 @@ async def hook_generic(
         DEBUG_LOG_QUEUE.submit(debug_writer(f"hook:{hook_name}", stored_record))
         name = hook_name.lower()
         counters[name] += 1
+
+        # === POLICY INVOCATION ===
         handler = cast(
             Optional[Callable[..., Awaitable[JSONValue | None]]],
             getattr(policy, name, None),
@@ -122,46 +133,24 @@ async def hook_generic(
         handler_result: JSONValue | None = None
         if handler:
             policy_payload = cast(JSONObject, strip_post_time_ns(payload))
-            signature = inspect.signature(handler)
-            parameters = signature.parameters
-            accepts_var_kw = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values())
-            if accepts_var_kw:
-                filtered_payload = policy_payload
-            else:
-                parameter_names = {name for name in parameters.keys() if name != "self"}
-                filtered_payload = {k: v for k, v in policy_payload.items() if k in parameter_names}
+            filtered_payload = prepare_policy_payload(handler, policy_payload)
             handler_result = await handler(**filtered_payload)
         final_result: JSONValue = handler_result if handler_result is not None else payload
 
-        sanitized_result = json_safe(final_result)
+        # === RESULT LOGGING/PUBLISHING ===
+        sanitized_result = cast(JSONObject, json_safe(final_result))
+        call_id = record.get("litellm_call_id")
 
-        result_record: JSONObject = {
-            "hook": hook_name,
-            "litellm_call_id": record.get("litellm_call_id"),
-            "original": stored_payload,
-            "result": sanitized_result,
-        }
-        result_record["post_time_ns"] = time.time_ns()
-        if trace_id:
-            result_record["litellm_trace_id"] = trace_id
-        DEBUG_LOG_QUEUE.submit(debug_writer(f"hook_result:{hook_name}", result_record))
-
-        call_id = result_record.get("litellm_call_id")
-        if isinstance(call_id, str) and call_id:
-            timestamp_dt = datetime.now(timezone.utc)
-            events = build_conversation_events(
-                hook=hook_name,
-                call_id=call_id,
-                trace_id=trace_id,
-                original=stored_payload,
-                result=result_record["result"],
-                timestamp_ns_fallback=time.time_ns(),
-                timestamp=timestamp_dt,
-            )
-            if events:
-                CONVERSATION_EVENT_QUEUE.submit(record_conversation_events(pool, events))
-            for event in events:
-                CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(redis_conn, event))
+        log_and_publish_hook_result(
+            hook_name=hook_name,
+            call_id=call_id if isinstance(call_id, str) else None,
+            trace_id=trace_id,
+            original_payload=stored_payload,
+            result_payload=sanitized_result,
+            debug_writer=debug_writer,
+            redis_conn=redis_conn,
+            db_pool=pool,
+        )
 
         result_to_return = strip_post_time_ns(final_result)
         logger.info(f"Hook {hook_name} returning: type={type(result_to_return)}, preview={str(result_to_return)[:200]}")

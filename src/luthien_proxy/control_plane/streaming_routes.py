@@ -223,7 +223,18 @@ def _stream_store_from_websocket(websocket: WebSocket) -> StreamContextStore | N
 
 
 class _StreamEventPublisher:
-    """Helper to record debug logs and conversation events for streamed chunks."""
+    """Helper to record debug logs and conversation events for streamed chunks.
+
+    This class provides the same logging/publishing functionality for streaming requests
+    that log_and_publish_hook_result() provides for non-streaming requests:
+    - Logs original and result chunks to debug_logs
+    - Builds and records conversation events
+    - Publishes events to Redis pub/sub
+
+    The key difference is that streaming operates on a per-chunk basis rather than
+    on complete requests. Each chunk flows through record_original() → policy transformation
+    → record_result(), with the same three destinations (debug_logs, conversation_events, Redis).
+    """
 
     hook_name = "async_post_call_streaming_iterator_hook"
 
@@ -372,7 +383,19 @@ async def policy_stream_endpoint(
     websocket: WebSocket,
     stream_id: str,
 ) -> None:
-    """Coordinate streaming requests between proxy and policies."""
+    """Coordinate streaming requests between proxy and policies.
+
+    DATAFLOW (per chunk):
+    1. Receive CHUNK from callback via WebSocket
+    2. Log original → debug_logs
+    3. Yield to policy.generate_response_stream()
+    4. Policy yields transformed chunk(s) [0..N]
+    5. Log transformed → debug_logs
+    6. Publish → Redis pub/sub
+    7. Send CHUNK back to callback via WebSocket
+
+    See: _StreamEventPublisher for logging/publishing implementation
+    """
     await websocket.accept()
 
     policy = _policy_from_websocket(websocket)
