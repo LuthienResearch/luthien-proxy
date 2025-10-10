@@ -53,39 +53,21 @@ from luthien_proxy.proxy.stream_orchestrator import (
 )
 
 
-_ANTHROPIC_PROVIDER_PREFIXES = (
-    "anthropic/",
-    "anthropic.",
-    "bedrock/anthropic.",
-    "vertex_ai/anthropic.",
-)
-_ANTHROPIC_MODEL_PREFIXES = ("claude",)
+def _is_sse_chunk(chunk: Any) -> bool:
+    """Return ``True`` if *chunk* appears to be an Anthropic SSE payload.
 
+    Anthropic streams arrive as bytes or strings containing SSE-formatted data
+    (``event: ...\\ndata: ...``). OpenAI streams arrive as dicts that are already
+    parsed into ``ModelResponseStream`` objects.
 
-def _is_anthropic_model(model_name: str | None) -> bool:
-    """Return ``True`` if *model_name* corresponds to an Anthropic backend."""
-    if not model_name:
-        return False
-
-    normalized = model_name.strip().lower()
-    if not normalized:
-        return False
-
-    for prefix in _ANTHROPIC_PROVIDER_PREFIXES:
-        if normalized.startswith(prefix):
-            return True
-
-    provider, sep, remainder = normalized.partition("/")
-    candidate = remainder if sep else normalized
-    if provider == "bedrock" and candidate.startswith("anthropic."):
-        candidate = candidate[len("anthropic.") :]
-    if provider == "vertex_ai" and candidate.startswith("anthropic."):
-        candidate = candidate[len("anthropic.") :]
-    candidate = candidate.split(":", 1)[0]
-    if "/" in candidate:
-        candidate = candidate.rsplit("/", 1)[-1]
-
-    return any(candidate.startswith(prefix) for prefix in _ANTHROPIC_MODEL_PREFIXES)
+    This semantic detection is more reliable than model-name-based heuristics.
+    """
+    if isinstance(chunk, (bytes, str)):
+        # Coerce to string for inspection
+        text = chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
+        # SSE events start with "event:" or "data:" on their own lines
+        return text.strip().startswith(("event:", "data:"))
+    return False
 
 
 class UnifiedCallback(CustomLogger):
@@ -275,6 +257,35 @@ class UnifiedCallback(CustomLogger):
             with contextlib.suppress(Exception):
                 await close_callable()
 
+    async def _peek_and_replay(
+        self,
+        upstream: AsyncGenerator[Any, None] | AsyncIterator[Any],
+    ) -> tuple[Any | None, AsyncGenerator[Any, None]]:
+        """Peek at the first chunk from *upstream* and return (first_chunk, replayed_stream).
+
+        The replayed stream yields the first chunk followed by all remaining chunks.
+        If the stream is empty, returns (None, empty_generator).
+        """
+        first_chunk: Any | None = None
+        try:
+            first_chunk = await upstream.__anext__()
+        except StopAsyncIteration:
+            # Empty stream
+            async def empty_gen() -> AsyncGenerator[Any, None]:
+                return
+                yield  # unreachable, makes this a generator
+
+            return (None, empty_gen())
+
+        async def replayed() -> AsyncGenerator[Any, None]:
+            # Yield the peeked chunk first
+            yield first_chunk
+            # Then yield all remaining chunks
+            async for chunk in upstream:
+                yield chunk
+
+        return (first_chunk, replayed())
+
     @instrument_callback
     async def async_post_call_streaming_iterator_hook(
         self,
@@ -310,10 +321,20 @@ class UnifiedCallback(CustomLogger):
             await self._close_async_iterator(response)
             return
 
-        upstream = response
-        model_name = request_data.get("model")
-        if _is_anthropic_model(model_name):
-            upstream = self._normalize_anthropic_stream(response)
+        # Peek at the first chunk to detect stream format semantically
+        first_chunk, replayed = await self._peek_and_replay(response)
+        if first_chunk is None:
+            # Empty stream
+            verbose_logger.warning("stream[%s] received empty upstream; closing", stream_id)
+            if connection is not None:
+                with contextlib.suppress(Exception):
+                    await connection.close()
+            return
+
+        # Decide whether to normalize based on chunk structure, not model name
+        upstream = replayed
+        if _is_sse_chunk(first_chunk):
+            upstream = self._normalize_anthropic_stream(replayed)
 
         chunk_logger = get_callback_chunk_logger()
         orchestrator = StreamOrchestrator(
