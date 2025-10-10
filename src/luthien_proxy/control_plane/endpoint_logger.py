@@ -57,8 +57,7 @@ class StreamingEndpointLogger:
             content = delta.get("content", "")
             if content:
                 content_preview = (
-                    content[:CONTENT_PREVIEW_MAX_LENGTH]
-                    + "..."
+                    content[:CONTENT_PREVIEW_MAX_LENGTH] + "..."
                     if len(content) > CONTENT_PREVIEW_MAX_LENGTH
                     else content
                 )
@@ -96,8 +95,7 @@ class StreamingEndpointLogger:
             content = delta.get("content", "")
             if content:
                 content_preview = (
-                    content[:CONTENT_PREVIEW_MAX_LENGTH]
-                    + "..."
+                    content[:CONTENT_PREVIEW_MAX_LENGTH] + "..."
                     if len(content) > CONTENT_PREVIEW_MAX_LENGTH
                     else content
                 )

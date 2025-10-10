@@ -138,7 +138,7 @@ def test_parse_sse_events_rejects_excessive_events() -> None:
 
 
 def test_parse_sse_events_skips_non_dict_data() -> None:
-    events = _parse_sse_events(b"event: message_start\ndata: \"ignored\"\n\n")
+    events = _parse_sse_events(b'event: message_start\ndata: "ignored"\n\n')
     assert events == []
 
 

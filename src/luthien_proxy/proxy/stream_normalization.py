@@ -10,7 +10,6 @@ import time
 import uuid
 from collections.abc import Iterable
 
-
 logger = logging.getLogger(__name__)
 
 _MAX_SSE_PAYLOAD_BYTES = 1_000_000
@@ -119,9 +118,7 @@ class AnthropicToOpenAIAdapter:
                     }
                     if len(self.tool_states) >= _MAX_TOOL_STATE_ENTRIES:
                         oldest_index = next(iter(self.tool_states))
-                        logger.warning(
-                            "tool_states limit exceeded; evicting index %s", oldest_index
-                        )
+                        logger.warning("tool_states limit exceeded; evicting index %s", oldest_index)
                         self.tool_states.pop(oldest_index, None)
                     self.tool_states[index] = tool_state
                     chunks.append(
@@ -155,9 +152,7 @@ class AnthropicToOpenAIAdapter:
                             self.tool_states[index] = tool_state
                         elif len(self.tool_states) >= _MAX_TOOL_STATE_ENTRIES:
                             oldest_index = next(iter(self.tool_states))
-                            logger.warning(
-                                "tool_states limit exceeded; evicting index %s", oldest_index
-                            )
+                            logger.warning("tool_states limit exceeded; evicting index %s", oldest_index)
                             self.tool_states.pop(oldest_index, None)
                         chunks.append(
                             self._chunk(
