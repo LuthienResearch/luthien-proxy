@@ -6,6 +6,8 @@ ABOUTME: Logs chunks received by policy and chunks yielded by policy.
 import logging
 from typing import Any, AsyncIterator
 
+from luthien_proxy.utils.constants import CONTENT_PREVIEW_MAX_LENGTH
+
 logger = logging.getLogger("luthien_proxy.policies.policy_instrumentation")
 
 
@@ -38,7 +40,12 @@ class PolicyStreamLogger:
             delta = choices[0].get("delta", {})
             content = delta.get("content", "")
             if content:
-                content_preview = content[:50] + "..." if len(content) > 50 else content
+                content_preview = (
+                    content[:CONTENT_PREVIEW_MAX_LENGTH]
+                    + "..."
+                    if len(content) > CONTENT_PREVIEW_MAX_LENGTH
+                    else content
+                )
 
         logger.info(
             "POLICY CHUNK IN  [%s] %s #%d: content=%r",
@@ -66,7 +73,12 @@ class PolicyStreamLogger:
             delta = choices[0].get("delta", {})
             content = delta.get("content", "")
             if content:
-                content_preview = content[:50] + "..." if len(content) > 50 else content
+                content_preview = (
+                    content[:CONTENT_PREVIEW_MAX_LENGTH]
+                    + "..."
+                    if len(content) > CONTENT_PREVIEW_MAX_LENGTH
+                    else content
+                )
 
         logger.info(
             "POLICY CHUNK OUT [%s] %s #%d: content=%r",

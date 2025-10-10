@@ -6,6 +6,8 @@ ABOUTME: Provides visibility into WebSocket messages received and policy invocat
 import logging
 from typing import Any
 
+from luthien_proxy.utils.constants import CONTENT_PREVIEW_MAX_LENGTH
+
 logger = logging.getLogger("luthien_proxy.control_plane.endpoint_logger")
 
 
@@ -54,7 +56,12 @@ class StreamingEndpointLogger:
             delta = choices[0].get("delta", {})
             content = delta.get("content", "")
             if content:
-                content_preview = content[:50] + "..." if len(content) > 50 else content
+                content_preview = (
+                    content[:CONTENT_PREVIEW_MAX_LENGTH]
+                    + "..."
+                    if len(content) > CONTENT_PREVIEW_MAX_LENGTH
+                    else content
+                )
 
         logger.info(
             "ENDPOINT CHUNK IN [%s] #%d: content=%r",
@@ -88,7 +95,12 @@ class StreamingEndpointLogger:
             delta = choices[0].get("delta", {})
             content = delta.get("content", "")
             if content:
-                content_preview = content[:50] + "..." if len(content) > 50 else content
+                content_preview = (
+                    content[:CONTENT_PREVIEW_MAX_LENGTH]
+                    + "..."
+                    if len(content) > CONTENT_PREVIEW_MAX_LENGTH
+                    else content
+                )
 
         logger.info(
             "ENDPOINT CHUNK OUT [%s] #%d: content=%r",
