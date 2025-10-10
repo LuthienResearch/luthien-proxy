@@ -41,9 +41,7 @@ def extract_call_id_for_hook(hook: str, payload: JSONObject) -> Optional[str]:
             ["data", "litellm_call_id"],  # Present for call_type=acompletion, absent for text_completion
         ],
         "async_post_call_success_hook": [["data", "litellm_metadata", "model_info", "id"]],
-        "async_post_call_streaming_iterator_hook": [
-            ["request_data", "litellm_metadata", "model_info", "id"]
-        ],
+        "async_post_call_streaming_iterator_hook": [["request_data", "litellm_metadata", "model_info", "id"]],
         "async_post_call_streaming_hook": [["data", "litellm_metadata", "model_info", "id"]],
         "async_post_call_failure_hook": [["request_data", "litellm_metadata", "model_info", "id"]],
     }
