@@ -59,13 +59,6 @@ def build_call_snapshots(events: Iterable[ConversationEvent]) -> list[Conversati
                     if isinstance(messages_raw, list):
                         request_final_messages = clone_messages(messages_raw)
 
-                # Fallback to top-level messages for backwards compatibility
-                if not request_original_messages and not request_final_messages:
-                    messages_raw = payload.get("messages")
-                    if isinstance(messages_raw, list):
-                        request_original_messages = clone_messages(messages_raw)
-                        request_final_messages = clone_messages(messages_raw)
-
             elif event.event_type == "response":
                 # Extract response from OpenAI format response - both original and final
                 payload = event.payload
@@ -86,15 +79,6 @@ def build_call_snapshots(events: Iterable[ConversationEvent]) -> list[Conversati
                     if isinstance(message, dict):
                         content = message.get("content")
                         if isinstance(content, str):
-                            final_response_text = content
-
-                # Fallback to top-level message for backwards compatibility
-                if not original_response_text and not final_response_text:
-                    message = payload.get("message") if isinstance(payload, dict) else {}
-                    if isinstance(message, dict):
-                        content = message.get("content")
-                        if isinstance(content, str):
-                            original_response_text = content
                             final_response_text = content
 
                 # Update status and completion time
