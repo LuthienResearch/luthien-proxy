@@ -31,4 +31,4 @@
 - [ ] Make callback module independent (include connection manager)
 - [ ] Prefer (Type | None) to (Optional\[Type\]) throughout codebase
 - [ ] Minimize :  ignore flags
-- [ ] Extract magic numbers to named constants (chunk preview length=50, poll_interval minimum=0.01) [comment](https://github.com/LuthienResearch/luthien-proxy/pull/28#issuecomment-MULTIPLE)
+- [x] Extract magic numbers to named constants (chunk preview length=50, poll_interval minimum=0.01) [comment](https://github.com/LuthienResearch/luthien-proxy/pull/28#issuecomment-MULTIPLE)

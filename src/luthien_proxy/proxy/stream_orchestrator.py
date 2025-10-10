@@ -46,6 +46,7 @@ from litellm.types.utils import ModelResponseStream
 
 from luthien_proxy.proxy.callback_chunk_logger import CallbackChunkLogger
 from luthien_proxy.proxy.stream_connection_manager import StreamConnection
+from luthien_proxy.utils.constants import MIN_STREAM_POLL_INTERVAL_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ class StreamOrchestrator:
         self._normalize_chunk = normalize_chunk
         self._timeout = timeout
         self._chunk_logger = chunk_logger
-        self._poll_interval = max(0.01, poll_interval)
+        self._poll_interval = max(MIN_STREAM_POLL_INTERVAL_SECONDS, poll_interval)
         self._clock = clock or time.monotonic
 
         now = self._clock()

@@ -8,6 +8,8 @@ from typing import Any
 
 from litellm._logging import verbose_logger as logger
 
+from luthien_proxy.utils.constants import CONTENT_PREVIEW_MAX_LENGTH
+
 logger.setLevel(logging.INFO)
 
 
@@ -59,7 +61,11 @@ class CallbackChunkLogger:
                 delta = choices[0].get("delta", {})
                 content = delta.get("content", "")
                 if content:
-                    content_preview = content[:50] + "..." if len(content) > 50 else content
+                    content_preview = (
+                        content[:CONTENT_PREVIEW_MAX_LENGTH] + "..."
+                        if len(content) > CONTENT_PREVIEW_MAX_LENGTH
+                        else content
+                    )
 
             logger.warning(
                 "CALLBACK NORMALIZED  [%s]: success=True, content=%r",
@@ -90,7 +96,11 @@ class CallbackChunkLogger:
             delta = choices[0].get("delta", {})
             content = delta.get("content", "")
             if content:
-                content_preview = content[:50] + "..." if len(content) > 50 else content
+                content_preview = (
+                    content[:CONTENT_PREVIEW_MAX_LENGTH] + "..."
+                    if len(content) > CONTENT_PREVIEW_MAX_LENGTH
+                    else content
+                )
 
         logger.warning(
             "CALLBACK TO CLIENT   [%s] #%d: content=%r",
