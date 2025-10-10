@@ -12,11 +12,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from litellm.types.utils import ModelResponseStream
 from pydantic import ValidationError
 
-from luthien_proxy.control_plane.conversation.events import (
-    build_conversation_events,
-    clear_stream_indices,
-    reset_stream_indices,
-)
+from luthien_proxy.control_plane.conversation.events import build_conversation_events
 from luthien_proxy.control_plane.conversation.streams import publish_conversation_event
 from luthien_proxy.control_plane.conversation.utils import json_safe
 from luthien_proxy.control_plane.endpoint_logger import get_endpoint_logger
@@ -243,8 +239,7 @@ class _StreamEventPublisher:
         self._pending_payload: dict[str, Any] | None = None
         self._original_text_parts: list[str] = []
         self._final_text_parts: list[str] = []
-        if isinstance(self._call_id, str) and self._call_id:
-            reset_stream_indices(self._call_id)
+        # Stream indices are no longer tracked; the call id is recorded with each event.
 
     async def record_original(self, chunk: dict[str, Any]) -> None:
         if self._hook_counters is not None:
@@ -368,7 +363,6 @@ class _StreamEventPublisher:
             for event in events:
                 CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(self._redis, event))
 
-            clear_stream_indices(self._call_id)
             if self._stream_store is not None:
                 await self._stream_store.clear(self._call_id)
 

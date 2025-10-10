@@ -61,27 +61,6 @@ class LuthienPolicy(ABC, CustomLogger):
             yield chunk
 
     # ------------------------------------------------------------------
-    # Legacy HTTP hook compatibility
-    # ------------------------------------------------------------------
-    async def async_post_call_streaming_iterator_hook(
-        self,
-        user_api_key_dict: Optional[dict],
-        response: dict,
-        request_data: dict,
-    ) -> Optional[dict]:
-        """Fallback path used by the legacy HTTP hook endpoint."""
-        stream_id = str(request_data.get("litellm_call_id") or "fallback-stream")
-        context = self.create_stream_context(stream_id, request_data)
-
-        async def single_chunk_stream() -> AsyncIterator[dict]:
-            yield response
-
-        async for transformed in self.generate_response_stream(context, single_chunk_stream()):
-            return transformed
-
-        return response
-
-    # ------------------------------------------------------------------
     # Debug logging helpers
     # ------------------------------------------------------------------
     def set_debug_log_writer(self, writer: Optional[DebugLogWriter]) -> None:

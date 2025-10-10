@@ -291,25 +291,6 @@ def build_conversation_events(
     return events
 
 
-# Stub functions for backwards compatibility (no-op)
-def reset_stream_indices(call_id: str) -> None:
-    """Stub - streaming chunk indices no longer tracked."""
-    pass
-
-
-def clear_stream_indices(call_id: str) -> None:
-    """Stub - streaming chunk indices no longer tracked."""
-    pass
-
-
-def next_chunk_index(call_id: str, stream: str) -> int:
-    """Stub - streaming chunk indices no longer tracked."""
-    return 0
-
-
 __all__ = [
     "build_conversation_events",
-    "reset_stream_indices",
-    "clear_stream_indices",
-    "next_chunk_index",
 ]

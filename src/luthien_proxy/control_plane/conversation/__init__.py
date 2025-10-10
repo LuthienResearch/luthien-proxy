@@ -23,7 +23,7 @@ from .db import (
     load_events_for_call,
     load_recent_calls,
 )
-from .events import build_conversation_events, clear_stream_indices, reset_stream_indices
+from .events import build_conversation_events
 from .models import (
     CallIdInfo,
     ConversationCallSnapshot,
@@ -54,8 +54,6 @@ __all__ = [
     "record_conversation_events",
     "load_events_for_call",
     "load_recent_calls",
-    "reset_stream_indices",
-    "clear_stream_indices",
     "json_safe",
     "strip_post_time_ns",
 ]
