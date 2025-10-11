@@ -120,7 +120,7 @@ async def test_log_and_publish_hook_result_with_call_id(monkeypatch: pytest.Monk
             "hook_result:post_prompt",
             {
                 "hook": "post_prompt",
-                "litellm_call_id": "call-123",
+                "luthien_call_id": "call-123",
                 "litellm_trace_id": "trace-abc",
                 "original": original_payload,
                 "result": result_payload,
@@ -213,7 +213,7 @@ async def test_log_and_publish_hook_result_without_call_id(monkeypatch: pytest.M
 
     assert debug_writer_calls[0][0] == "hook_result:guardrail"
     assert debug_writer_calls[0][1]["hook"] == "guardrail"
-    assert debug_writer_calls[0][1]["litellm_call_id"] is None
+    assert debug_writer_calls[0][1]["luthien_call_id"] is None
 
 
 def test_prepare_policy_payload_passes_through_for_kwargs() -> None:
