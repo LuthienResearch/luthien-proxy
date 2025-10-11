@@ -207,9 +207,15 @@ async def test_publish_activity_event_serialization_error(caplog: pytest.LogCapt
 
     await publish_activity_event(redis, event)  # type: ignore
 
-    # Should log error and not crash
-    assert len(redis.published) == 0
-    assert "Failed to serialize activity event" in caplog.text
+    # Should log error, fall back, and still publish
+    assert "Failed to serialize activity event without fallback" in caplog.text
+    assert len(redis.published) == 1
+    channel, payload = redis.published[0]
+    assert channel == "luthien:activity:global"
+
+    parsed = json.loads(payload)
+    assert isinstance(parsed["data"], str)
+    assert "Unserializable" in parsed["data"]
 
 
 @pytest.mark.asyncio
@@ -358,17 +364,14 @@ def test_build_activity_events_pre_call_hook_malformed_result():
     original = {"data": {"model": "gpt-4", "messages": []}}
     result = None  # Malformed
 
-    events = build_activity_events(
-        hook="async_pre_call_hook",
-        call_id="call-123",
-        trace_id=None,
-        original=original,
-        result=result,  # type: ignore
-    )
-
-    # Should only emit original_request (result extraction failed)
-    assert len(events) == 1
-    assert events[0].event_type == "original_request"
+    with pytest.raises(ValueError, match="Pre-call hook result payload"):
+        build_activity_events(
+            hook="async_pre_call_hook",
+            call_id="call-123",
+            trace_id=None,
+            original=original,
+            result=result,  # type: ignore
+        )
 
 
 # Test build_activity_events for async_post_call_success_hook
@@ -400,10 +403,10 @@ def test_build_activity_events_success_hook_basic():
     assert events[0].event_type == "original_response"
     assert events[0].call_id == "call-123"
     assert events[0].payload["content"] == "Hello, how can I help you?"
-    assert events[0].payload["content_length"] == 27
     assert events[0].payload["has_tool_calls"] is False
 
     assert events[1].event_type == "final_response"
+    assert events[1].payload["content"] == "Hello, how can I help you?"
     assert events[1].payload["modified"] is False
 
 

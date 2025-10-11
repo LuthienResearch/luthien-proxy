@@ -104,8 +104,8 @@ class ConversationStreamConfig:
 
     heartbeat_seconds: float
     redis_poll_timeout_seconds: float
-    rate_limit_max_requests: int
-    rate_limit_window_seconds: float
+    rate_limit_max_requests: int = 60
+    rate_limit_window_seconds: float = 60.0
 
 
 class ProjectConfig:

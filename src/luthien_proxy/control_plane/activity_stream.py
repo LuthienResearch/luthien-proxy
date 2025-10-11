@@ -65,7 +65,15 @@ async def publish_activity_event(
         if isinstance(event, ActivityEvent):
             payload = event.model_dump_json()
         else:
-            payload = json.dumps(event, ensure_ascii=False, default=str)
+            try:
+                payload = json.dumps(event, ensure_ascii=False)
+            except TypeError as exc:
+                logger.error("Failed to serialize activity event without fallback: %s", exc)
+                try:
+                    payload = json.dumps(event, ensure_ascii=False, default=str)
+                except Exception as fallback_exc:  # pragma: no cover
+                    logger.error("Fallback serialization for activity event failed: %s", fallback_exc)
+                    return
     except Exception as exc:  # pragma: no cover
         logger.error("Failed to serialize activity event: %s", exc)
         return
@@ -161,7 +169,11 @@ def build_activity_events(
     if hook == "async_pre_call_hook":
         # Extract original (pre-policy) and final (post-policy) request data
         original_data = original.get("data") if isinstance(original, dict) else None
-        result_data = result.get("data") if isinstance(result, dict) else original_data
+        if not isinstance(result, dict):
+            raise ValueError("Pre-call hook result payload must be a dict with 'data'.")
+        result_data = result.get("data")
+        if not isinstance(result_data, dict):
+            raise ValueError("Pre-call hook result payload must include a dict 'data' field.")
 
         # Always emit original_request
         if isinstance(original_data, dict):
