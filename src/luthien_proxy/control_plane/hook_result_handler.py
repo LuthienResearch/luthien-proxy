@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
+from luthien_proxy.control_plane.activity_stream import build_activity_events, publish_activity_event
 from luthien_proxy.control_plane.conversation import (
     build_conversation_events,
     publish_conversation_event,
@@ -40,7 +41,7 @@ def log_and_publish_hook_result(
     This encapsulates the standard post-policy workflow:
     1. Write result to debug_logs via debug_writer
     2. Build and record conversation_events (if call_id available)
-    3. Publish events to Redis pub/sub
+    3. Publish events to Redis pub/sub (per-call and global channels)
 
     All operations run in background via task queues and are best-effort.
 
@@ -54,7 +55,7 @@ def log_and_publish_hook_result(
     # Log result to debug_logs
     result_record: JSONObject = {
         "hook": hook_name,
-        "litellm_call_id": call_id,
+        "luthien_call_id": call_id,
         "original": original_payload,
         "result": result_payload,
         "post_time_ns": timestamp_ns,
@@ -63,6 +64,17 @@ def log_and_publish_hook_result(
         result_record["litellm_trace_id"] = trace_id
 
     DEBUG_LOG_QUEUE.submit(debug_writer(f"hook_result:{hook_name}", result_record))
+
+    # Publish to global activity stream (all hooks) - may publish multiple events
+    activity_events = build_activity_events(
+        hook=hook_name,
+        call_id=call_id,
+        trace_id=trace_id,
+        original=original_payload,
+        result=result_payload,
+    )
+    for activity_event in activity_events:
+        CONVERSATION_EVENT_QUEUE.submit(publish_activity_event(redis_conn, activity_event))
 
     # Build and persist conversation events (if we have a call_id)
     if isinstance(call_id, str) and call_id:
@@ -80,7 +92,7 @@ def log_and_publish_hook_result(
             # Submit to database
             CONVERSATION_EVENT_QUEUE.submit(record_conversation_events(db_pool, events))
 
-            # Publish to Redis
+            # Publish to Redis per-call channels
             for event in events:
                 CONVERSATION_EVENT_QUEUE.submit(publish_conversation_event(redis_conn, event))
 

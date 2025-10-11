@@ -95,6 +95,7 @@ async def list_endpoints() -> EndpointListing:
             "GET /ui/conversation",
             "GET /ui/conversation/by_call",
             "GET /ui/conversation/live",
+            "GET /ui/activity/live",
         ],
         "health": "GET /health",
     }
@@ -133,6 +134,8 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             policy = load_policy_from_config(config, control_cfg.policy_config_path)
             if isinstance(policy, LuthienPolicy):
                 policy.set_debug_log_writer(debug_writer)
+                policy.set_database_pool(database_pool)
+                policy.set_redis_client(redis_instance)
 
             stream_config = control_cfg.conversation_stream_config
             rate_limiter = RateLimiter(
@@ -155,6 +158,8 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
         finally:
             if isinstance(policy, LuthienPolicy):
                 policy.set_debug_log_writer(None)
+                policy.set_database_pool(None)
+                policy.set_redis_client(None)
             app.state.active_policy = None
             app.state.stream_store = None
             app.state.debug_log_writer = None

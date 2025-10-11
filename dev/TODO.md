@@ -2,6 +2,7 @@
 
 ## High Priority
 
+- [ ] pw-protected UI w/ config
 - [ ] Demo: DB drop
 - [ ] Make data logging more efficient
 - [ ] Unify response format passed to callbacks *(see dev/unified_callback_migration.md)*

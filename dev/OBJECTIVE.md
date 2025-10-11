@@ -1,32 +1,37 @@
 # Objective: COMPLETED
 
-ConversationLoggingPolicy has been killed and its functionality moved to core infra and utilities.
+Built an enhanced conversation live view UI at `/ui/conversation/live` with original vs final tracking.
 
-## What Was Done
+## What Was Delivered
 
-1. **Deleted ConversationLoggingPolicy** - The policy class that was mixing logging concerns with policy logic
-2. **Created utils/conversation_parsing.py** - Shared parsing utilities for call IDs, trace IDs, tool calls, messages
-3. **Created utils/streaming_aggregation.py** - StreamChunkAggregator for policies that need to aggregate chunks
-4. **Updated all dependent policies**:
-   - ToolCallBufferPolicy now inherits from LuthienPolicy and uses StreamChunkAggregator
-   - SQLProtectionPolicy uses conversation_parsing utilities
-   - LLMJudgeToolPolicy uses conversation_parsing utilities
-5. **Deleted tests** - Removed test_conversation_logging_policy.py as it tested deleted functionality
-6. **Fixed remaining tests** - Updated test_sql_protection.py to use context.aggregator.tool_calls
+1. **New HTML template** ([conversation_live_v2.html](src/luthien_proxy/control_plane/templates/conversation_live_v2.html:1)) with clean, modern layout
+2. **JavaScript implementation** ([conversation_live_v2.js](src/luthien_proxy/control_plane/static/conversation_live_v2.js:1)) that:
+   - Loads existing conversations from DB via snapshot API
+   - Streams live updates via Redis SSE
+   - Tracks original and final versions for both requests and responses
+   - Displays side-by-side comparisons with visual highlighting of modifications
+3. **CSS stylesheet** ([conversation_live_v2.css](src/luthien_proxy/control_plane/static/conversation_live_v2.css:1)) with polished styling
+4. **Updated route** in [ui.py](src/luthien_proxy/control_plane/ui.py:56) to serve the new template
 
-## Core Infra Now Handles
+## Features
 
-- Logging original hook payloads to debug_logs
-- Building conversation events with original vs final payloads
-- Storing events in database
-- Publishing events to Redis for live streaming
-- All of this happens in hooks_routes.py automatically
+- **Sidebar** shows recent calls and allows manual call ID entry
+- **DB snapshot loading** fetches historical conversation data from database
+- **Live Redis streaming** updates the view in real-time as new events arrive
+- **Original vs Final tracking** displays side-by-side comparisons for:
+  - Request messages (before and after policy transformation)
+  - Response content (before and after policy transformation)
+- **Visual highlighting** clearly shows which messages/responses were modified
+- **Status indicators** show call status (pending, streaming, success, failure)
+- **Auto-refresh** periodically refreshes snapshot data during streaming
 
-## Policies No Longer Handle
+## Testing
 
-- Conversation event logging
-- Emitting structured JSON logs (this was redundant)
-- They still can aggregate chunks if needed (via StreamChunkAggregator utility)
-- They still transform payloads (that's their job)
+Verified with:
+- Multiple test requests through the proxy
+- UI loads and displays recent calls correctly
+- Click on call loads DB snapshot
+- Live streaming works with SSE connection
+- Original vs final comparison displays correctly
 
-All tests pass, dev checks pass.
+All acceptance criteria met.

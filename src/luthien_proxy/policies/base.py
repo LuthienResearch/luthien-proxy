@@ -6,11 +6,15 @@ import logging
 import time
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import AsyncIterator, Awaitable, Callable, Optional
+from typing import TYPE_CHECKING, AsyncIterator, Awaitable, Callable, Optional
 
 from litellm.integrations.custom_logger import CustomLogger
 
 from luthien_proxy.types import JSONObject
+
+if TYPE_CHECKING:
+    from luthien_proxy.utils import db
+    from luthien_proxy.utils.redis_client import RedisClient
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +46,8 @@ class LuthienPolicy(ABC, CustomLogger):
         """Initialise policy base class and underlying CustomLogger."""
         super().__init__()
         self._debug_log_writer: Optional[DebugLogWriter] = None
+        self._database_pool: "db.DatabasePool | None" = None
+        self._redis_client: "RedisClient | None" = None
 
     # ------------------------------------------------------------------
     # Streaming API
@@ -61,12 +67,23 @@ class LuthienPolicy(ABC, CustomLogger):
             yield chunk
 
     # ------------------------------------------------------------------
-    # Debug logging helpers
+    # Shared resource injection
     # ------------------------------------------------------------------
     def set_debug_log_writer(self, writer: Optional[DebugLogWriter]) -> None:
         """Configure the async writer used for persisting debug records."""
         self._debug_log_writer = writer
 
+    def set_database_pool(self, pool: "db.DatabasePool | None") -> None:
+        """Inject the database pool used for policy events."""
+        self._database_pool = pool
+
+    def set_redis_client(self, client: "RedisClient | None") -> None:
+        """Inject the Redis client used for activity publishing."""
+        self._redis_client = client
+
+    # ------------------------------------------------------------------
+    # Debug logging helpers
+    # ------------------------------------------------------------------
     async def _record_debug_event(self, debug_type: str, payload: JSONObject) -> None:
         """Persist *payload* best-effort via the configured debug writer."""
         if self._debug_log_writer is None:
