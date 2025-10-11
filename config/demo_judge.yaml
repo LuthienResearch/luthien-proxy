@@ -1,0 +1,12 @@
+# Demo configuration with LLM Judge policy (AI control active)
+# Used to show what happens WITH AI Control
+
+policy:
+  class: "luthien_proxy.policies.tool_call_judge:LLMJudgeToolPolicy"
+  config:
+    model: "openai/judge-scorer"
+    api_base: "http://dummy-provider:8080/v1"
+    api_key: "dummy-key"
+    probability_threshold: 0.6
+    temperature: 0.0
+    max_tokens: 256

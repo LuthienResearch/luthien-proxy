@@ -37,6 +37,7 @@ from .debug_routes import (
 from .debug_routes import (
     router as debug_router,
 )
+from .demo_routes import router as demo_router
 from .dependencies import (
     DebugLogWriter,
     get_database_pool,
@@ -192,6 +193,7 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
     app.include_router(ui_router)
     app.include_router(router)
     app.include_router(debug_router)
+    app.include_router(demo_router)
     app.include_router(hooks_router)
     app.include_router(streaming_router)
 

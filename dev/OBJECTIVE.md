@@ -1,37 +1,29 @@
-# Objective: COMPLETED
+# Objective: Demo Web Interface
 
-Built an enhanced conversation live view UI at `/ui/conversation/live` with original vs final tracking.
+Build a web interface for the AI Control demo that showcases the system preventing harmful SQL operations.
 
-## What Was Delivered
+## Requirements
 
-1. **New HTML template** ([conversation_live_v2.html](src/luthien_proxy/control_plane/templates/conversation_live_v2.html:1)) with clean, modern layout
-2. **JavaScript implementation** ([conversation_live_v2.js](src/luthien_proxy/control_plane/static/conversation_live_v2.js:1)) that:
-   - Loads existing conversations from DB via snapshot API
-   - Streams live updates via Redis SSE
-   - Tracks original and final versions for both requests and responses
-   - Displays side-by-side comparisons with visual highlighting of modifications
-3. **CSS stylesheet** ([conversation_live_v2.css](src/luthien_proxy/control_plane/static/conversation_live_v2.css:1)) with polished styling
-4. **Updated route** in [ui.py](src/luthien_proxy/control_plane/ui.py:56) to serve the new template
+1. **Demo UI Page** at `/ui/demo` that:
+   - Displays a side-by-side comparison of "Without AI Control" vs "With AI Control"
+   - Shows the user's benign prompt ("Show me customer 123")
+   - Displays the AI's response in each scenario (harmful SQL vs blocked)
+   - Has visual indicators for blocked vs allowed operations
+   - Includes live updates when running the demo
 
-## Features
+2. **Integration with existing demo script**:
+   - Leverage the `/api/hooks/conversation` SSE endpoint for live updates
+   - Show conversation flow in real-time as demo runs
+   - Display policy decisions and their reasoning
 
-- **Sidebar** shows recent calls and allows manual call ID entry
-- **DB snapshot loading** fetches historical conversation data from database
-- **Live Redis streaming** updates the view in real-time as new events arrive
-- **Original vs Final tracking** displays side-by-side comparisons for:
-  - Request messages (before and after policy transformation)
-  - Response content (before and after policy transformation)
-- **Visual highlighting** clearly shows which messages/responses were modified
-- **Status indicators** show call status (pending, streaming, success, failure)
-- **Auto-refresh** periodically refreshes snapshot data during streaming
+3. **Clean, demo-ready presentation**:
+   - Clear visual distinction between harmful and protected scenarios
+   - Professional styling suitable for presentations
+   - Responsive layout that works on projector/large screens
 
-## Testing
+## Acceptance Criteria
 
-Verified with:
-- Multiple test requests through the proxy
-- UI loads and displays recent calls correctly
-- Click on call loads DB snapshot
-- Live streaming works with SSE connection
-- Original vs final comparison displays correctly
-
-All acceptance criteria met.
+- [ ] Navigate to `http://localhost:8081/ui/demo` and see the demo interface
+- [ ] Run `uv run python scripts/run_demo.py` and watch live updates in the UI
+- [ ] See clear visual indicators showing blocked vs allowed operations
+- [ ] Interface is polished enough for live demonstrations

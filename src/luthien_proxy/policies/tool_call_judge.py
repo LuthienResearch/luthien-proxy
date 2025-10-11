@@ -13,6 +13,10 @@ from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from litellm import acompletion
 
+from luthien_proxy.control_plane.conversation.policy_events import (
+    publish_policy_event_to_activity_stream,
+    record_policy_event,
+)
 from luthien_proxy.utils.conversation_parsing import extract_trace_id, require_call_id
 
 from .tool_call_buffer import ToolCallBufferContext, ToolCallBufferPolicy
@@ -220,9 +224,43 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
         timing_start = time.time()
         tool_call_complete_ts = timing_start
 
+        tool_call_payload = self._safe_tool_call(tool_call)
+        judge_parameters = self._judge_parameters_metadata()
+        call_id_for_events: Optional[str] = None
+        try:
+            call_id_for_events = require_call_id(payload)
+        except Exception:
+            logger.debug("Call ID missing for judge evaluation; skipping policy event emission.")
+
+        if call_id_for_events:
+            await self._emit_policy_event(
+                call_id=call_id_for_events,
+                event_type="judge_request_sent",
+                metadata={
+                    "action": "judge_request_sent",
+                    "tool_call": tool_call_payload,
+                    "judge_parameters": judge_parameters,
+                },
+            )
+
         judge_query_start = time.time()
         judge = await self._call_judge(tool_call)
         judge_response_ts = time.time()
+
+        if call_id_for_events:
+            await self._emit_policy_event(
+                call_id=call_id_for_events,
+                event_type="judge_response_received",
+                metadata={
+                    "action": "judge_response_received",
+                    "tool_call": tool_call_payload,
+                    "judge_parameters": judge_parameters,
+                    "judge_response": {
+                        "probability": judge.probability,
+                        "explanation": judge.explanation,
+                    },
+                },
+            )
 
         if judge.probability < self._config.probability_threshold:
             return None
@@ -436,6 +474,85 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
             "judge_config": dict(judge_config),
         }
         await self._record_debug_event(JUDGE_DEBUG_TYPE, record)
+
+    def _policy_identifier(self) -> str:
+        return f"{self.__module__}:{self.__class__.__name__}"
+
+    def _policy_config_metadata(self) -> dict[str, Any]:
+        config = {
+            "model": self._config.model,
+            "probability_threshold": self._config.probability_threshold,
+            "temperature": self._config.temperature,
+            "max_tokens": self._config.max_tokens,
+        }
+        if self._config.api_base:
+            config["api_base"] = self._config.api_base
+        return config
+
+    def _judge_parameters_metadata(self) -> dict[str, Any]:
+        params = {
+            "model": self._config.model,
+            "probability_threshold": self._config.probability_threshold,
+            "temperature": self._config.temperature,
+            "max_tokens": self._config.max_tokens,
+        }
+        if self._config.api_base:
+            params["api_base"] = self._config.api_base
+        return params
+
+    def _safe_tool_call(self, tool_call: Mapping[str, Any]) -> dict[str, Any]:
+        value = self._json_safe(tool_call)
+        return value if isinstance(value, dict) else {"value": value}
+
+    def _json_safe(self, value: Any) -> Any:
+        try:
+            return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+        except Exception:
+            return repr(value)
+
+    async def _emit_policy_event(
+        self,
+        *,
+        call_id: str,
+        event_type: str,
+        metadata: Mapping[str, Any],
+    ) -> None:
+        if not call_id:
+            return
+        if self._database_pool is None and self._redis_client is None:
+            return
+
+        raw_metadata = self._json_safe(metadata)
+        safe_metadata = raw_metadata if isinstance(raw_metadata, dict) else {"value": raw_metadata}
+        policy_config = self._policy_config_metadata()
+        policy_class = self._policy_identifier()
+
+        if self._database_pool is not None:
+            try:
+                await record_policy_event(
+                    self._database_pool,
+                    call_id=call_id,
+                    policy_class=policy_class,
+                    event_type=event_type,
+                    policy_config=policy_config,
+                    metadata=safe_metadata,
+                )
+            except Exception:
+                logger.warning("Failed to record policy event %s", event_type, exc_info=True)
+
+        redis_client = self._redis_client
+        if redis_client is not None:
+            try:
+                await publish_policy_event_to_activity_stream(
+                    redis_client,
+                    call_id=call_id,
+                    policy_class=policy_class,
+                    event_type=event_type,
+                    policy_config=policy_config,
+                    metadata=safe_metadata,
+                )
+            except Exception:
+                logger.warning("Failed to publish policy event %s", event_type, exc_info=True)
 
     def _response_defaults(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         request_model = payload.get("model")
