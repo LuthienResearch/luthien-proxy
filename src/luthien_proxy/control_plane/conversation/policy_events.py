@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from luthien_proxy.types import JSONObject
@@ -160,7 +160,7 @@ async def publish_policy_event_to_activity_stream(
     summary = " ".join(summary_parts)
 
     activity_event = ActivityEvent(
-        timestamp=datetime.now(datetime.UTC if hasattr(datetime, "UTC") else None).isoformat(),  # type: ignore
+        timestamp=datetime.now(timezone.utc).isoformat(),
         event_type="policy_action",
         call_id=call_id,
         trace_id=None,
