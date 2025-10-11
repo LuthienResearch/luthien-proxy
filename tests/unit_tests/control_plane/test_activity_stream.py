@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -59,9 +58,7 @@ class FakePubSub:
         """Record unsubscription."""
         self.subscribed = False
 
-    async def get_message(
-        self, ignore_subscribe_messages: bool = False, timeout: float = 1.0
-    ) -> dict[str, Any] | None:
+    async def get_message(self, ignore_subscribe_messages: bool = False, timeout: float = 1.0) -> dict[str, Any] | None:
         """Return pre-configured messages or None."""
         if self.redis.message_index < len(self.redis.messages):
             msg = self.redis.messages[self.redis.message_index]
