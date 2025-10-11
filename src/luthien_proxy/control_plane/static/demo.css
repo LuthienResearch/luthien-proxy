@@ -324,12 +324,46 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
+  gap: 1.5rem;
   padding: 2rem;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.mode-selector {
+  display: flex;
+  gap: 1rem;
+  padding: 0.5rem;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.mode-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.mode-label:hover {
+  background: var(--bg-primary);
+}
+
+.mode-label input[type="radio"] {
+  cursor: pointer;
+}
+
+.mode-label input[type="radio"]:checked + span {
+  color: var(--protected-color);
+  font-weight: 600;
 }
 
 .btn {

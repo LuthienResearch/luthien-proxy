@@ -1,5 +1,5 @@
 // ABOUTME: Demo interface JavaScript for AI Control demonstration
-// ABOUTME: Handles demo execution, live updates, and result visualization
+// ABOUTME: Handles demo execution (both static and live), live updates, and result visualization
 
 const SAFE_ATTR_PATTERN = /^[a-zA-Z_][\w:-]*$/;
 
@@ -47,7 +47,13 @@ const state = {
   protectedCallId: null,
   eventSource: null,
   demoRunning: false,
+  demoMode: "fake",
 };
+
+function getDemoMode() {
+  const selected = document.querySelector('input[name="demo-mode"]:checked');
+  return selected ? selected.value : "fake";
+}
 
 function setDemoStatus(text) {
   const statusEl = document.getElementById("demo-status-text");
@@ -228,72 +234,208 @@ async function runDemo() {
   if (state.demoRunning) return;
 
   state.demoRunning = true;
+  state.demoMode = getDemoMode();
   setRunButtonState(false);
-  setDemoStatus("Loading demo examples...");
 
   // Reset UI
   resetDemo();
 
   try {
-    // Fetch pre-defined examples
-    const examples = await fetchJSON("/demo/examples");
-
-    // Simulate demo progression with delays for effect
-    setDemoStatus("Part 1: Showing scenario WITHOUT AI Control...");
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Display harmful scenario
-    const harmful = examples.harmful_example;
-    if (harmful.ai_response && harmful.ai_response.tool_calls) {
-      const message = {
-        tool_calls: harmful.ai_response.tool_calls
-      };
-      updateHarmfulResponse(message);
+    if (state.demoMode === "fake") {
+      await runFakeDemo();
+    } else if (state.demoMode === "static") {
+      await runStaticDemo();
+    } else {
+      await runLiveDemo();
     }
-
-    const harmfulResultBox = document.getElementById("harmful-result");
-    if (harmfulResultBox) {
-      harmfulResultBox.className = "result-box result-harmful";
-      harmfulResultBox.innerHTML = "";
-      harmfulResultBox.appendChild(el("div", { text: harmful.result }));
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    setDemoStatus("Part 2: Showing scenario WITH AI Control...");
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Display protected scenario
-    const protected = examples.protected_example;
-
-    if (protected.ai_response && protected.ai_response.content) {
-      const message = {
-        content: protected.ai_response.content
-      };
-      updateProtectedResponse(message);
-    }
-
-    if (protected.policy_decision) {
-      updatePolicyDecision(protected.policy_decision);
-    }
-
-    const protectedResultBox = document.getElementById("protected-result");
-    if (protectedResultBox) {
-      protectedResultBox.className = "result-box result-protected";
-      protectedResultBox.innerHTML = "";
-      protectedResultBox.appendChild(el("div", { text: protected.result }));
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    setDemoStatus("Demo complete! (This shows example scenarios - run scripts/run_demo.py for live demo)");
-
   } catch (err) {
     console.error("Demo error:", err);
     setDemoStatus(`Error: ${err.message}`);
   } finally {
     state.demoRunning = false;
     setRunButtonState(true);
+  }
+}
+
+async function runFakeDemo() {
+  setDemoStatus("Loading animated demo...");
+
+  // Fetch pre-defined examples
+  const examples = await fetchJSON("/demo/examples");
+
+  // Simulate demo progression with delays for effect
+  setDemoStatus("Part 1: Showing scenario WITHOUT AI Control...");
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Display harmful scenario
+  const harmful = examples.harmful_example;
+  if (harmful.ai_response && harmful.ai_response.tool_calls) {
+    const message = {
+      tool_calls: harmful.ai_response.tool_calls
+    };
+    updateHarmfulResponse(message);
+  }
+
+  const harmfulResultBox = document.getElementById("harmful-result");
+  if (harmfulResultBox) {
+    harmfulResultBox.className = "result-box result-harmful";
+    harmfulResultBox.innerHTML = "";
+    harmfulResultBox.appendChild(el("div", { text: harmful.result }));
+  }
+
+  await new Promise(resolve => setTimeout(resolve, 1500));
+
+  setDemoStatus("Part 2: Showing scenario WITH AI Control...");
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Display protected scenario
+  const protected = examples.protected_example;
+
+  if (protected.ai_response && protected.ai_response.content) {
+    const message = {
+      content: protected.ai_response.content
+    };
+    updateProtectedResponse(message);
+  }
+
+  if (protected.policy_decision) {
+    updatePolicyDecision(protected.policy_decision);
+  }
+
+  const protectedResultBox = document.getElementById("protected-result");
+  if (protectedResultBox) {
+    protectedResultBox.className = "result-box result-protected";
+    protectedResultBox.innerHTML = "";
+    protectedResultBox.appendChild(el("div", { text: protected.result }));
+  }
+
+  await new Promise(resolve => setTimeout(resolve, 500));
+  setDemoStatus("Demo complete! (Animated demo)");
+}
+
+async function runStaticDemo() {
+  setDemoStatus("Loading static examples...");
+
+  // Fetch pre-defined examples
+  const examples = await fetchJSON("/demo/examples");
+
+  // Display both scenarios immediately without animation
+  const harmful = examples.harmful_example;
+  if (harmful.ai_response && harmful.ai_response.tool_calls) {
+    const message = {
+      tool_calls: harmful.ai_response.tool_calls
+    };
+    updateHarmfulResponse(message);
+  }
+
+  const harmfulResultBox = document.getElementById("harmful-result");
+  if (harmfulResultBox) {
+    harmfulResultBox.className = "result-box result-harmful";
+    harmfulResultBox.innerHTML = "";
+    harmfulResultBox.appendChild(el("div", { text: harmful.result }));
+  }
+
+  const protected = examples.protected_example;
+
+  if (protected.ai_response && protected.ai_response.content) {
+    const message = {
+      content: protected.ai_response.content
+    };
+    updateProtectedResponse(message);
+  }
+
+  if (protected.policy_decision) {
+    updatePolicyDecision(protected.policy_decision);
+  }
+
+  const protectedResultBox = document.getElementById("protected-result");
+  if (protectedResultBox) {
+    protectedResultBox.className = "result-box result-protected";
+    protectedResultBox.innerHTML = "";
+    protectedResultBox.appendChild(el("div", { text: protected.result }));
+  }
+
+  setDemoStatus("Demo loaded! (Static examples)");
+}
+
+async function runLiveDemo() {
+  setDemoStatus("Running LIVE demo - making real requests...");
+
+  const prompt = "Show me customer 123";
+
+  // Make live request
+  setDemoStatus("Sending request through proxy with current policy...");
+
+  const response = await fetchJSON("/demo/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, mode: "live" })
+  });
+
+  state.protectedCallId = response.call_id;
+
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Fetch the actual conversation data
+  if (response.call_id && response.call_id !== "unknown") {
+    setDemoStatus("Loading conversation data...");
+    await monitorCall(response.call_id, true);
+  } else if (response.status === "blocked") {
+    // Show blocked result
+    updatePolicyDecision({
+      verdict: "BLOCKED",
+      reasoning: "Request was blocked by policy",
+      action: "block"
+    });
+
+    const protectedResultBox = document.getElementById("protected-result");
+    if (protectedResultBox) {
+      protectedResultBox.className = "result-box result-protected";
+      protectedResultBox.innerHTML = "";
+      protectedResultBox.appendChild(el("div", { text: "✅ THREAT PREVENTED - Policy blocked the request" }));
+    }
+  }
+
+  setDemoStatus("Live demo complete!");
+}
+
+async function monitorCall(callId, isProtected) {
+  try {
+    const snapshot = await fetchJSON(`/api/hooks/conversation?call_id=${callId}`);
+
+    if (snapshot.response?.choices) {
+      const choices = snapshot.response.choices;
+      if (choices.length > 0 && choices[0].message) {
+        const message = choices[0].message;
+
+        if (isProtected) {
+          updateProtectedResponse(message);
+
+          const toolCalls = message.tool_calls || [];
+          const hasHarmful = toolCalls.some(tc => {
+            try {
+              const args = typeof tc.function.arguments === "string"
+                ? JSON.parse(tc.function.arguments)
+                : tc.function.arguments;
+              return (args.query || "").toUpperCase().includes("DROP");
+            } catch {
+              return false;
+            }
+          });
+
+          updateProtectedResult(!hasHarmful);
+        }
+      }
+    }
+
+    // Check for policy events
+    if (isProtected && snapshot.policy_events && snapshot.policy_events.length > 0) {
+      const latestEvent = snapshot.policy_events[snapshot.policy_events.length - 1];
+      updatePolicyDecision(latestEvent);
+    }
+
+  } catch (err) {
+    console.error(`Error monitoring call ${callId}:`, err);
   }
 }
 
@@ -333,7 +475,8 @@ function resetDemo() {
   state.harmfulCallId = null;
   state.protectedCallId = null;
 
-  setDemoStatus("Ready to run");
+  const mode = getDemoMode();
+  setDemoStatus(`Ready to run (${mode} mode)`);
 }
 
 // Initialize
@@ -348,5 +491,14 @@ document.addEventListener("DOMContentLoaded", () => {
     resetBtn.addEventListener("click", resetDemo);
   }
 
-  setDemoStatus("Ready to run");
+  // Listen for mode changes
+  const modeRadios = document.querySelectorAll('input[name="demo-mode"]');
+  modeRadios.forEach(radio => {
+    radio.addEventListener("change", () => {
+      const mode = getDemoMode();
+      setDemoStatus(`Ready to run (${mode} mode)`);
+    });
+  });
+
+  setDemoStatus("Ready to run (animated demo mode)");
 });

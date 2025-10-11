@@ -106,10 +106,24 @@
       </div>
 
       <div class="demo-controls">
+        <div class="mode-selector">
+          <label class="mode-label">
+            <input type="radio" name="demo-mode" value="fake" checked>
+            <span>🎬 Animated Demo</span>
+          </label>
+          <label class="mode-label">
+            <input type="radio" name="demo-mode" value="static">
+            <span>📋 Static Examples</span>
+          </label>
+          <label class="mode-label">
+            <input type="radio" name="demo-mode" value="live">
+            <span>🔴 Live Demo</span>
+          </label>
+        </div>
         <button id="run-demo" class="btn btn-primary">▶️ Run Demo</button>
         <button id="reset-demo" class="btn btn-secondary">🔄 Reset</button>
         <div class="demo-status">
-          <span id="demo-status-text">Ready to run</span>
+          <span id="demo-status-text">Ready to run (animated demo mode)</span>
         </div>
       </div>
 
