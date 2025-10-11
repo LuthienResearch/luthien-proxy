@@ -77,6 +77,21 @@ This is infrastructure-first: Redwood AI Control is an important use case the pl
 - ✅ All dev_checks passing
 - ✅ Live conversation monitor UI updated (conversation_monitor.js, snapshots.py)
 
+## Documentation Organization (2025-10-10)
+
+**Decision**: Consolidate redundant dataflow documentation into three focused files with clear purposes: ARCHITECTURE.md (architectural decisions), diagrams.md (visual reference), developer-onboarding.md (learning path).
+
+**Rationale**:
+- **Problem**: Had 813 lines across 3 docs with significant duplication - diagrams repeated in reading-guide.md and dataflow-diagrams.md, hook flow descriptions in both text and visual form, unclear separation between "why" vs "what" vs "how to learn"
+- **Solution**: Single source of truth for diagrams, clear doc purposes, preserved all valuable content (JSON examples, policy walkthroughs, architectural rationale)
+- **Benefits**:
+  - Easier to maintain (update diagrams once, not twice)
+  - Clear navigation (new devs → developer-onboarding.md, architects → ARCHITECTURE.md)
+  - No content loss (all examples, decisions, and learning material preserved)
+- **Trade-off**: Slightly larger total size than initially estimated (720 lines vs 813 = 11% reduction, not 35%) because we kept valuable narrative content alongside diagrams rather than replacing it entirely
+
+**Implementation**: Completed 2025-10-10. See `dev/archive/2025-10-10_revised_plan_d_dataflow_docs.md` for detailed plan and Codex review iterations.
+
 ---
 
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

@@ -6,6 +6,7 @@
 - [ ] Make data logging more efficient
 - [ ] Unify response format passed to callbacks *(see dev/unified_callback_migration.md)*
 - [ ] Rebuild policy action dashboard on top of structured `policy_events` data
+- [ ] Implement in-flight request modification in pre-call hook (currently fire-and-forget)
 
 ## Medium Priority
 

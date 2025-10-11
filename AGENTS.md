@@ -112,6 +112,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 ## Tooling
 
 - Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent `debug_logs` rows. Example: `uv run python scripts/query_debug_logs.py --call-id <litellm_call_id> --host localhost --summary`.
+- Quick Claude feedback: run `claude -p "prompt text"` for a fast suggestion without starting an interactive session. Note that subsequent invocations won't persist context - pass in existing context or refer to relevant files to persist some context between calls.
 
 ## Coding Style & Naming Conventions
 

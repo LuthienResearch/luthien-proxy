@@ -73,7 +73,10 @@ Editor setup (VS Code)
 - **Control Plane**: Policy orchestration and decision logic
 - **Policy Engine**: Configuration and threshold management
 - **Debug UI**: `/debug` for recent debug types, `/ui/conversation` for real-time call playback
-- **Dataflows**: See [`docs/dataflows.md`](docs/dataflows.md) for Postgres/Redis interactions, retention, and streaming flows
+- **Documentation**:
+  - New developers: Start with [`docs/developer-onboarding.md`](docs/developer-onboarding.md)
+  - Visual flows: See [`docs/diagrams.md`](docs/diagrams.md)
+  - Architecture decisions: See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ## Endpoints
 
