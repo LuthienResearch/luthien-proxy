@@ -28,10 +28,11 @@ def extract_call_id_for_hook(hook: str, payload: JSONObject) -> Optional[str]:
     3. Payload structure (data vs request_data keys)
 
     Observed patterns:
-    - async_pre_call_hook + call_type=acompletion: data.litellm_call_id ✓
-    - async_pre_call_hook + call_type=text_completion: NO call_id (generated later)
-    - async_post_call_success_hook: data.litellm_metadata.model_info.id ✓
+    - async_pre_call_hook: data.litellm_call_id ✓
+    - async_post_call_success_hook (non-streaming): data.metadata.hidden_params.litellm_call_id ✓
+    - async_post_call_success_hook (streaming): data.litellm_metadata.model_info.id ✓
     - async_post_call_streaming_iterator_hook: request_data.litellm_metadata.model_info.id ✓
+    - async_post_call_failure_hook (non-streaming): data.metadata.hidden_params.litellm_call_id ✓
 
     We check multiple paths as fallbacks to handle all cases.
     """
@@ -40,10 +41,16 @@ def extract_call_id_for_hook(hook: str, payload: JSONObject) -> Optional[str]:
         "async_pre_call_hook": [
             ["data", "litellm_call_id"],  # Present for call_type=acompletion, absent for text_completion
         ],
-        "async_post_call_success_hook": [["data", "litellm_metadata", "model_info", "id"]],
+        "async_post_call_success_hook": [
+            ["data", "metadata", "hidden_params", "litellm_call_id"],  # Non-streaming calls
+            ["data", "litellm_metadata", "model_info", "id"],  # Streaming calls (fallback)
+        ],
         "async_post_call_streaming_iterator_hook": [["request_data", "litellm_metadata", "model_info", "id"]],
         "async_post_call_streaming_hook": [["data", "litellm_metadata", "model_info", "id"]],
-        "async_post_call_failure_hook": [["request_data", "litellm_metadata", "model_info", "id"]],
+        "async_post_call_failure_hook": [
+            ["data", "metadata", "hidden_params", "litellm_call_id"],  # Non-streaming failures
+            ["request_data", "litellm_metadata", "model_info", "id"],  # Streaming failures (fallback)
+        ],
     }
     paths = hook_to_id_paths.get(hook)
     if paths is None:
