@@ -268,7 +268,8 @@ When adding new logging/instrumentation (e.g., Step 4: Policy logging), follow t
 ## Related Documentation
 
 - [Pipeline Instrumentation Plan](../../dev/streaming_pipeline_instrumentation_plan.md) - Overall instrumentation roadmap
-- [Dataflows Documentation](../../docs/dataflows.md#streaming-pipeline-instrumentation) - Usage examples for production debugging
+- [Developer Onboarding](../../docs/developer-onboarding.md) - Hook flows and streaming details
+- [Diagrams](../../docs/diagrams.md) - Visual flow diagrams
 - [Callback Instrumentation](../../src/luthien_proxy/proxy/callback_instrumentation.py) - Callback tracing implementation
 - [WebSocket Logger](../../src/luthien_proxy/proxy/websocket_logger.py) - WebSocket message logging
 - [Endpoint Logger](../../src/luthien_proxy/control_plane/endpoint_logger.py) - Control plane endpoint logging

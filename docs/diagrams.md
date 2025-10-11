@@ -125,6 +125,64 @@ graph TB
 
 ---
 
+## Hook Timeline (Sequence Diagram)
+
+Shows the temporal sequence of hooks coordinating between LiteLLM, control plane, and backend:
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant L as LiteLLM
+    participant CB as Callback
+    participant CP as Control Plane
+    participant P as Policy
+    participant B as Backend
+
+    Note over C,B: Non-Streaming Request
+    C->>L: POST /v1/chat/completions
+    L->>CB: async_pre_call_hook()
+    CB->>CP: POST /api/hooks/async_pre_call_hook
+    CP->>P: policy.async_pre_call_hook()
+    P-->>CP: None (log only)
+    CP-->>CB: None
+    L->>B: Forward request (unchanged)
+    B-->>L: Response
+    L->>CB: async_post_call_success_hook()
+    CB->>CP: POST /api/hooks/async_post_call_success_hook
+    CP->>P: policy.async_post_call_success_hook()
+    P-->>CP: transformed_response
+    CP-->>CB: transformed_response
+    CB-->>L: Apply transformation
+    L-->>C: Modified response
+
+    Note over C,B: Streaming Request
+    C->>L: POST /v1/chat/completions (stream=true)
+    L->>B: Stream request
+    B->>L: chunk1
+    L->>CB: async_post_call_streaming_iterator_hook()
+    CB->>CP: WebSocket START
+    CB->>CP: WebSocket CHUNK
+    CP->>P: policy.generate_response_stream(chunk1)
+    P-->>CP: transformed_chunk1
+    CP->>CB: WebSocket CHUNK
+    CB->>C: transformed_chunk1
+    B->>L: chunk2
+    CB->>CP: WebSocket CHUNK
+    CP->>P: yield chunk2
+    P-->>CP: transformed_chunk2
+    CP->>CB: WebSocket CHUNK
+    CB->>C: transformed_chunk2
+    B->>L: END
+    CB->>CP: WebSocket END
+    CP->>P: stream complete
+    CP->>CB: WebSocket END
+    CB->>C: END
+```
+
+**Key insight**: This timeline view shows call ordering that flowchart diagrams don't capture - particularly useful for understanding pre-call vs post-call hook timing.
+
+---
+
 ## Result Handling Pattern
 
 Non-streaming and streaming use different strategies optimized for their use cases:
@@ -233,6 +291,7 @@ graph LR
 2. **For debugging**: Follow the flow from entry point to identify where data goes
 3. **For development**: Reference when adding new policies or modifying result handling
 4. **For architecture review**: See the complete picture of data movement
+5. **For timeline understanding**: Use sequence diagram to see hook call ordering
 
 All diagrams use [Mermaid](https://mermaid.js.org/) syntax and render natively in:
 - GitHub markdown
