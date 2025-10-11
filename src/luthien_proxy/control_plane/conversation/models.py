@@ -11,7 +11,7 @@ from luthien_proxy.types import JSONObject
 
 
 class CallIdInfo(BaseModel):
-    """Summary row for a recent litellm_call_id with counts and latest time."""
+    """Summary row for a recent luthien_call_id with counts and latest time."""
 
     call_id: str
     count: int

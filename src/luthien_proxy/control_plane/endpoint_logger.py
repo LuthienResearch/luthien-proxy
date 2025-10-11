@@ -28,7 +28,7 @@ class StreamingEndpointLogger:
         if not self._enabled:
             return
 
-        call_id = request_data.get("litellm_call_id", "unknown")
+        call_id = request_data.get("luthien_call_id", "unknown")
         model = request_data.get("model", "unknown")
         stream = request_data.get("stream", False)
         if isinstance(call_id, str):
@@ -74,7 +74,7 @@ class StreamingEndpointLogger:
         if not self._enabled:
             return
 
-        call_id = request_data.get("litellm_call_id", "unknown")
+        call_id = request_data.get("luthien_call_id", "unknown")
         logger.info(
             "ENDPOINT POLICY [%s]: invoking %s for call_id=%s",
             stream_id,

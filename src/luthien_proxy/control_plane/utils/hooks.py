@@ -1,4 +1,4 @@
-"""Helpers to extract a stable litellm_call_id from varied hook payloads."""
+"""Helpers to extract luthien_call_id from hook payloads."""
 
 from __future__ import annotations
 
@@ -18,43 +18,45 @@ def _get_in(d: JSONObject, path: list[str]) -> Optional[JSONValue]:
 
 
 def extract_call_id_for_hook(hook: str, payload: JSONObject) -> Optional[str]:
-    """Return the `litellm_call_id` for a given hook payload.
+    """Return the call_id for a given hook payload.
 
-    Why: LiteLLM emits different payload shapes based on hook type AND call type.
+    We generate our own luthien_call_id in pre_call hooks and inject it into metadata
+    for all providers/call types. Post-call hooks extract it from there.
 
-    Call ID location varies by:
-    1. Hook type (pre_call vs post_call vs streaming)
-    2. Call type (acompletion vs text_completion vs streaming)
-    3. Payload structure (data vs request_data keys)
+    Extraction priority:
+    1. data.metadata.luthien_call_id (our generated ID, always present for new calls)
+    2. data.metadata.hidden_params.litellien_call_id (legacy non-streaming)
+    3. Other LiteLLM paths (legacy fallbacks for old data)
 
-    Observed patterns:
-    - async_pre_call_hook: data.litellm_call_id ✓
-    - async_post_call_success_hook (non-streaming): data.metadata.hidden_params.litellm_call_id ✓
-    - async_post_call_success_hook (streaming): data.litellm_metadata.model_info.id ✓
-    - async_post_call_streaming_iterator_hook: request_data.litellm_metadata.model_info.id ✓
-    - async_post_call_failure_hook (non-streaming): data.metadata.hidden_params.litellm_call_id ✓
-
-    We check multiple paths as fallbacks to handle all cases.
+    Note: async_pre_call_hook doesn't extract - we generate the ID instead.
     """
     hook = hook.lower()
     hook_to_id_paths: dict[str, list[list[str]]] = {
         "async_pre_call_hook": [
-            ["data", "litellm_call_id"],  # Present for call_type=acompletion, absent for text_completion
+            # Pre-call hook doesn't extract - we generate the ID in hooks_routes.py
         ],
         "async_post_call_success_hook": [
-            ["data", "metadata", "hidden_params", "litellm_call_id"],  # Non-streaming calls
-            ["data", "litellm_metadata", "model_info", "id"],  # Streaming calls (fallback)
+            ["data", "metadata", "luthien_call_id"],  # Our generated ID (primary)
+            ["data", "metadata", "hidden_params", "litellm_call_id"],  # Legacy non-streaming
+            ["data", "litellm_metadata", "model_info", "id"],  # Legacy streaming (often wrong)
         ],
-        "async_post_call_streaming_iterator_hook": [["request_data", "litellm_metadata", "model_info", "id"]],
-        "async_post_call_streaming_hook": [["data", "litellm_metadata", "model_info", "id"]],
+        "async_post_call_streaming_iterator_hook": [
+            ["request_data", "metadata", "luthien_call_id"],  # Our generated ID (primary)
+            ["request_data", "litellm_metadata", "model_info", "id"],  # Legacy fallback
+        ],
+        "async_post_call_streaming_hook": [
+            ["data", "metadata", "luthien_call_id"],  # Our generated ID (primary)
+            ["data", "litellm_metadata", "model_info", "id"],  # Legacy fallback
+        ],
         "async_post_call_failure_hook": [
-            ["data", "metadata", "hidden_params", "litellm_call_id"],  # Non-streaming failures
-            ["request_data", "litellm_metadata", "model_info", "id"],  # Streaming failures (fallback)
+            ["data", "metadata", "luthien_call_id"],  # Our generated ID (primary)
+            ["data", "metadata", "hidden_params", "litellm_call_id"],  # Legacy non-streaming
+            ["request_data", "litellm_metadata", "model_info", "id"],  # Legacy streaming
         ],
     }
     paths = hook_to_id_paths.get(hook)
     if paths is None:
-        logging.warning(f"No litellm_call_id path defined for hook '{hook}'")
+        logging.warning(f"No call_id path defined for hook '{hook}'")
         return None
 
     if not paths:
@@ -62,15 +64,15 @@ def extract_call_id_for_hook(hook: str, payload: JSONObject) -> Optional[str]:
         return None
 
     for path in paths:
-        litellm_call_id_value = _get_in(payload, path)
-        if litellm_call_id_value is None:
+        call_id_value = _get_in(payload, path)
+        if call_id_value is None:
             continue
-        if not isinstance(litellm_call_id_value, str):
+        if not isinstance(call_id_value, str):
             logging.error(
-                f"litellm_call_id at path {path} is not a string: {litellm_call_id_value}",
+                f"call_id at path {path} is not a string: {call_id_value}",
             )
             return None
-        return litellm_call_id_value
+        return call_id_value
 
-    logging.warning(f"Could not find litellm_call_id at any known path for hook '{hook}'")
+    logging.warning(f"Could not find call_id at any known path for hook '{hook}'")
     return None

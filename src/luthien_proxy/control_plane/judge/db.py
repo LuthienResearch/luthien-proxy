@@ -34,7 +34,7 @@ async def record_judge_decision(conn: db.ConnectionProtocol, payload: JSONObject
         logger.debug("Skipping judge payload with unexpected type: %s", type(payload).__name__)
         return
 
-    call_id_raw = payload.get("call_id") or payload.get("litellm_call_id")
+    call_id_raw = payload.get("call_id") or payload.get("luthien_call_id")
     if not isinstance(call_id_raw, str) or not call_id_raw:
         logger.debug("Skipping judge payload missing call_id")
         return

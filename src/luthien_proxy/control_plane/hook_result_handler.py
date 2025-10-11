@@ -55,7 +55,7 @@ def log_and_publish_hook_result(
     # Log result to debug_logs
     result_record: JSONObject = {
         "hook": hook_name,
-        "litellm_call_id": call_id,
+        "luthien_call_id": call_id,
         "original": original_payload,
         "result": result_payload,
         "post_time_ns": timestamp_ns,

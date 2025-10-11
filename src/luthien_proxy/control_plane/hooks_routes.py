@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from collections import Counter
 from copy import deepcopy
 from typing import Annotated, Awaitable, Callable, Optional, cast
@@ -106,12 +107,22 @@ async def hook_generic(
             "payload": record_payload,
         }
         logger.debug(f"hook={hook_name} payload={json.dumps(record_payload, ensure_ascii=False)}")
-        try:
-            call_id = extract_call_id_for_hook(hook_name, payload)
-            if isinstance(call_id, str) and call_id:
-                record["litellm_call_id"] = call_id
-        except Exception:
-            pass
+
+        # Always generate our own luthien_call_id for pre_call hooks to ensure consistency
+        # across all providers and call types (streaming, non-streaming, etc.)
+        generated_call_id: Optional[str] = None
+        if hook_name.lower() == "async_pre_call_hook":
+            generated_call_id = str(uuid.uuid4())
+            record["luthien_call_id"] = generated_call_id
+            logger.debug(f"Generated luthien_call_id for call: {generated_call_id}")
+        else:
+            # For post-call hooks, try to extract the call_id
+            try:
+                call_id = extract_call_id_for_hook(hook_name, payload)
+                if isinstance(call_id, str) and call_id:
+                    record["luthien_call_id"] = call_id
+            except Exception:
+                pass
 
         stored_record: JSONObject = {"hook": hook_name, "payload": stored_payload}
         stored_record["post_time_ns"] = time.time_ns()
@@ -119,8 +130,8 @@ async def hook_generic(
         if trace_id:
             record["litellm_trace_id"] = trace_id
             stored_record["litellm_trace_id"] = trace_id
-        if "litellm_call_id" in record:
-            stored_record["litellm_call_id"] = record["litellm_call_id"]
+        if "luthien_call_id" in record:
+            stored_record["luthien_call_id"] = record["luthien_call_id"]
         DEBUG_LOG_QUEUE.submit(debug_writer(f"hook:{hook_name}", stored_record))
         name = hook_name.lower()
         counters[name] += 1
@@ -138,9 +149,32 @@ async def hook_generic(
             handler_result = await handler(**filtered_payload)
         final_result: JSONValue = handler_result if handler_result is not None else payload
 
+        # Inject generated call_id into the result for ALL calls (pre_call hook only)
+        if generated_call_id and isinstance(final_result, dict):
+            # Inject into multiple locations to ensure persistence across LiteLLM hooks
+            final_result_copy = cast(JSONObject, deepcopy(final_result))
+            data = final_result_copy.get("data")
+            if isinstance(data, dict):
+                # Inject into metadata
+                metadata = data.get("metadata")
+                if isinstance(metadata, dict):
+                    metadata["luthien_call_id"] = generated_call_id
+                else:
+                    data["metadata"] = {"luthien_call_id": generated_call_id}
+
+                # Also inject into litellm_logging_obj.litellm_params.metadata for persistence
+                logging_obj = data.get("litellm_logging_obj")
+                if isinstance(logging_obj, dict):
+                    params = logging_obj.get("litellm_params")
+                    if isinstance(params, dict):
+                        params_metadata = params.get("metadata")
+                        if isinstance(params_metadata, dict):
+                            params_metadata["luthien_call_id"] = generated_call_id
+            final_result = final_result_copy
+
         # === RESULT LOGGING/PUBLISHING ===
         sanitized_result = cast(JSONObject, json_safe(final_result))
-        call_id = record.get("litellm_call_id")
+        call_id = record.get("luthien_call_id")
 
         log_and_publish_hook_result(
             hook_name=hook_name,

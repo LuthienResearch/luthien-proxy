@@ -248,7 +248,7 @@ class _StreamEventPublisher:
         self._redis = _redis_from_websocket(websocket)
         self._debug_writer = _debug_writer_from_websocket(websocket)
         self._hook_counters = _hook_counters_from_websocket(websocket)
-        self._call_id = request_data.get("litellm_call_id")
+        self._call_id = request_data.get("luthien_call_id")
         trace_id = request_data.get("litellm_trace_id")
         self._trace_id = trace_id if isinstance(trace_id, str) else None
         self._stream_store = _stream_store_from_websocket(websocket)
@@ -283,7 +283,7 @@ class _StreamEventPublisher:
             if self._trace_id:
                 record["litellm_trace_id"] = self._trace_id
             if isinstance(self._call_id, str):
-                record["litellm_call_id"] = self._call_id
+                record["luthien_call_id"] = self._call_id
             DEBUG_LOG_QUEUE.submit(self._debug_writer(f"hook:{self.hook_name}", record))
 
         for choice in chunk.get("choices", []):
@@ -337,7 +337,7 @@ class _StreamEventPublisher:
         if self._debug_writer is not None:
             record = {
                 "hook": self.hook_name,
-                "litellm_call_id": self._call_id,
+                "luthien_call_id": self._call_id,
                 "original": self._pending_payload,
                 "result": json_safe(result_payload),
             }
@@ -401,7 +401,7 @@ class _StreamEventPublisher:
             if self._debug_writer is not None:
                 record = {
                     "hook": "async_post_call_streaming_hook",
-                    "litellm_call_id": self._call_id,
+                    "luthien_call_id": self._call_id,
                     "original": original_payload,
                     "result": summary_payload,
                 }
