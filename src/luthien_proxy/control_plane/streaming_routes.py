@@ -12,6 +12,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from litellm.types.utils import ModelResponseStream
 from pydantic import ValidationError
 
+from luthien_proxy.control_plane.activity_stream import build_activity_events, publish_activity_event
 from luthien_proxy.control_plane.conversation.events import build_conversation_events
 from luthien_proxy.control_plane.conversation.streams import publish_conversation_event
 from luthien_proxy.control_plane.conversation.utils import json_safe
@@ -256,6 +257,15 @@ class _StreamEventPublisher:
         self._final_text_parts: list[str] = []
         # Stream indices are no longer tracked; the call id is recorded with each event.
 
+        # Progress tracking for periodic activity stream updates
+        self._chunks_since_emit = 0
+        self._last_emit_ts = time.time()
+        self._total_chunks = 0
+        self._stream_start_ts = time.time()
+        self._progress_chunk_threshold = 20  # Emit after N chunks
+        self._progress_time_threshold = 5.0  # Or after T seconds
+        self._final_char_count = 0  # Running character count to avoid O(n²) joins
+
     async def record_original(self, chunk: dict[str, Any]) -> None:
         if self._hook_counters is not None:
             key = self.hook_name.lower()
@@ -281,6 +291,39 @@ class _StreamEventPublisher:
             content = delta.get("content")
             if isinstance(content, str):
                 self._original_text_parts.append(content)
+
+    async def _maybe_publish_progress(self) -> None:
+        """Publish periodic progress update if thresholds exceeded."""
+        now = time.time()
+        elapsed_since_emit = now - self._last_emit_ts
+
+        should_emit = (
+            self._chunks_since_emit >= self._progress_chunk_threshold
+            or elapsed_since_emit >= self._progress_time_threshold
+        )
+
+        if should_emit and isinstance(self._call_id, str):
+            from luthien_proxy.control_plane.activity_stream import ActivityEvent, publish_activity_event
+
+            elapsed_total = now - self._stream_start_ts
+
+            progress_event = ActivityEvent(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                event_type="stream_progress",
+                call_id=self._call_id,
+                trace_id=self._trace_id,
+                hook=self.hook_name,
+                summary=f"Streaming in progress: {self._total_chunks} chunks, {self._final_char_count} chars",
+                payload={
+                    "total_chunks": self._total_chunks,
+                    "elapsed_ms": int(elapsed_total * 1000),
+                    "current_length": self._final_char_count,
+                },
+            )
+
+            CONVERSATION_EVENT_QUEUE.submit(publish_activity_event(self._redis, progress_event))
+            self._chunks_since_emit = 0
+            self._last_emit_ts = now
 
     async def record_result(self, chunk: dict[str, Any]) -> None:
         if self._pending_payload is None:
@@ -324,8 +367,14 @@ class _StreamEventPublisher:
             if not isinstance(content, str):
                 continue
             self._final_text_parts.append(content)
+            self._final_char_count += len(content)  # Track character count incrementally
             if self._stream_store is not None and isinstance(self._call_id, str):
                 await self._stream_store.append_delta(self._call_id, content)
+
+        # Update progress tracking and maybe emit progress event
+        self._total_chunks += 1
+        self._chunks_since_emit += 1
+        await self._maybe_publish_progress()
 
     async def finish(self) -> None:
         if isinstance(self._call_id, str) and self._call_id:
@@ -366,6 +415,18 @@ class _StreamEventPublisher:
                     )
                 )
 
+            # Publish to global activity stream - may publish multiple events
+            activity_events = build_activity_events(
+                hook="async_post_call_streaming_hook",
+                call_id=self._call_id,
+                trace_id=self._trace_id,
+                original=original_payload,
+                result=summary_payload,
+            )
+            for activity_event in activity_events:
+                CONVERSATION_EVENT_QUEUE.submit(publish_activity_event(self._redis, activity_event))
+
+            # Publish to per-call channels
             events = build_conversation_events(
                 hook="async_post_call_streaming_hook",
                 call_id=self._call_id,

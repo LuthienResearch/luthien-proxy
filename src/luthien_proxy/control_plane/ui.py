@@ -57,3 +57,9 @@ async def hooks_conversation_ui(request: Request):
 async def conversation_monitor_ui(request: Request):
     """Render the simplified conversation monitor."""
     return templates.TemplateResponse(request, "conversation_monitor_simple.html")
+
+
+@router.get("/ui/activity/live", response_class=HTMLResponse)
+async def global_activity_monitor_ui(request: Request):
+    """Render the global activity livestream monitor."""
+    return templates.TemplateResponse(request, "activity_monitor.html")

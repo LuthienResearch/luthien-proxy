@@ -12,6 +12,7 @@ from typing import Annotated, Awaitable, Callable, Optional, cast
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
+from luthien_proxy.control_plane.activity_stream import global_activity_sse_stream
 from luthien_proxy.control_plane.conversation import (
     CallIdInfo,
     ConversationMessageDiff,
@@ -196,6 +197,21 @@ async def conversation_stream(
     return StreamingResponse(stream, media_type="text/event-stream")
 
 
+@router.get("/api/activity/stream")
+async def global_activity_stream(
+    redis_conn: redis_client.RedisClient = Depends(get_redis_client),
+    _: None = Depends(enforce_conversation_rate_limit),
+    stream_config: ConversationStreamConfig = Depends(get_conversation_stream_config),
+) -> StreamingResponse:
+    """Stream ALL control plane activity via SSE.
+
+    This endpoint publishes events from all calls to a global channel,
+    allowing you to see all proxy activity without knowing call IDs in advance.
+    """
+    stream = global_activity_sse_stream(redis_conn, config=stream_config)
+    return StreamingResponse(stream, media_type="text/event-stream")
+
+
 __all__ = [
     "router",
     "get_hook_counters",
@@ -203,5 +219,6 @@ __all__ = [
     "recent_call_ids",
     "conversation_snapshot",
     "conversation_stream",
+    "global_activity_stream",
     "ConversationMessageDiff",
 ]

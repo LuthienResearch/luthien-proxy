@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional
 
 from luthien_proxy.types import JSONObject
-from luthien_proxy.utils import db
+from luthien_proxy.utils import db, redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -129,4 +129,52 @@ async def load_policy_events(
         return []
 
 
-__all__ = ["record_policy_event", "load_policy_events"]
+async def publish_policy_event_to_activity_stream(
+    redis: redis_client.RedisClient,
+    *,
+    call_id: str,
+    policy_class: str,
+    event_type: str,
+    policy_config: JSONObject | None = None,
+    metadata: JSONObject | None = None,
+) -> None:
+    """Publish a policy event to the global activity stream.
+
+    This makes policy decisions visible in real-time monitoring.
+    """
+    from luthien_proxy.control_plane.activity_stream import ActivityEvent, publish_activity_event
+    from luthien_proxy.control_plane.utils.task_queue import CONVERSATION_EVENT_QUEUE
+
+    # Extract policy name from class path
+    policy_name = policy_class.split(":")[-1] if ":" in policy_class else policy_class
+
+    # Build human-readable summary
+    summary_parts = [f"Policy '{policy_name}' {event_type}"]
+    if metadata:
+        # Add key metadata to summary
+        if "action" in metadata:
+            summary_parts.append(f"- {metadata['action']}")
+        if "reason" in metadata:
+            summary_parts.append(f"({metadata['reason']})")
+
+    summary = " ".join(summary_parts)
+
+    activity_event = ActivityEvent(
+        timestamp=datetime.now(datetime.UTC if hasattr(datetime, "UTC") else None).isoformat(),  # type: ignore
+        event_type="policy_action",
+        call_id=call_id,
+        trace_id=None,
+        hook=None,
+        summary=summary,
+        payload={
+            "policy_class": policy_class,
+            "policy_event_type": event_type,
+            "policy_config": policy_config,
+            "metadata": metadata,
+        },
+    )
+
+    CONVERSATION_EVENT_QUEUE.submit(publish_activity_event(redis, activity_event))
+
+
+__all__ = ["record_policy_event", "load_policy_events", "publish_policy_event_to_activity_stream"]

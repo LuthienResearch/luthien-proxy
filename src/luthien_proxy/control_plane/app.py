@@ -95,6 +95,7 @@ async def list_endpoints() -> EndpointListing:
             "GET /ui/conversation",
             "GET /ui/conversation/by_call",
             "GET /ui/conversation/live",
+            "GET /ui/activity/live",
         ],
         "health": "GET /health",
     }

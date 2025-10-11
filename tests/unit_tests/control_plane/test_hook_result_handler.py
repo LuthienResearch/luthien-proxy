@@ -66,6 +66,26 @@ async def test_log_and_publish_hook_result_with_call_id(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(hook_result_handler, "publish_conversation_event", fake_publish_conversation_event)
 
+    # Mock activity stream functions
+    activity_event_calls: list[dict[str, Any]] = []
+
+    def fake_build_activity_events(**kwargs: Any) -> list[dict[str, Any]]:
+        activity_event_calls.append(kwargs)
+        # Always returns 2 events (original + final)
+        return [{"activity": "event1"}, {"activity": "event2"}]
+
+    monkeypatch.setattr(hook_result_handler, "build_activity_events", fake_build_activity_events)
+
+    activity_publish_calls: list[tuple[Any, Any]] = []
+
+    def fake_publish_activity_event(redis_conn: Any, event: Any) -> Any:
+        async def _runner() -> None:
+            activity_publish_calls.append((redis_conn, event))
+
+        return _runner()
+
+    monkeypatch.setattr(hook_result_handler, "publish_activity_event", fake_publish_activity_event)
+
     debug_writer_calls: list[tuple[str, Any]] = []
 
     async def fake_debug_writer(key: str, payload: Any) -> None:
@@ -88,7 +108,8 @@ async def test_log_and_publish_hook_result_with_call_id(monkeypatch: pytest.Monk
     )
 
     assert len(debug_queue.submissions) == 1
-    assert len(event_queue.submissions) == 1 + len(events)
+    # event_queue now has: 2 activity events + 1 record_conversation_events + len(events) publish_conversation_event
+    assert len(event_queue.submissions) == 2 + 1 + len(events)
 
     await debug_queue.submissions[0]
     for coro in event_queue.submissions:
@@ -146,6 +167,26 @@ async def test_log_and_publish_hook_result_without_call_id(monkeypatch: pytest.M
 
     monkeypatch.setattr(hook_result_handler, "build_conversation_events", fail_build)
 
+    # Mock activity stream functions (still called even without call_id)
+    activity_event_calls: list[dict[str, Any]] = []
+
+    def fake_build_activity_events(**kwargs: Any) -> list[dict[str, Any]]:
+        activity_event_calls.append(kwargs)
+        # Even without policy changes, we emit 2 events (original + final)
+        return [{"activity": "event1"}, {"activity": "event2"}]
+
+    monkeypatch.setattr(hook_result_handler, "build_activity_events", fake_build_activity_events)
+
+    activity_publish_calls: list[tuple[Any, Any]] = []
+
+    def fake_publish_activity_event(redis_conn: Any, event: Any) -> Any:
+        async def _runner() -> None:
+            activity_publish_calls.append((redis_conn, event))
+
+        return _runner()
+
+    monkeypatch.setattr(hook_result_handler, "publish_activity_event", fake_publish_activity_event)
+
     debug_writer_calls: list[tuple[str, Any]] = []
 
     async def fake_debug_writer(key: str, payload: Any) -> None:
@@ -163,9 +204,12 @@ async def test_log_and_publish_hook_result_without_call_id(monkeypatch: pytest.M
     )
 
     assert len(debug_queue.submissions) == 1
-    assert event_queue.submissions == []
+    # Even without call_id, we still publish to global activity stream (2 events)
+    assert len(event_queue.submissions) == 2
 
     await debug_queue.submissions[0]
+    for coro in event_queue.submissions:
+        await coro
 
     assert debug_writer_calls[0][0] == "hook_result:guardrail"
     assert debug_writer_calls[0][1]["hook"] == "guardrail"
