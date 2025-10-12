@@ -90,7 +90,8 @@ async def run_live_demo(request: DemoRequest) -> DemoResponse:
         return DemoResponse(call_id=None, status="static", mode="static")
 
     # Live mode - actually call the proxy
-    proxy_url = "http://localhost:4000/v1/chat/completions"
+    # Use Docker service name when running in container, localhost otherwise
+    proxy_url = "http://litellm-proxy:4000/v1/chat/completions"
     api_key = "sk-luthien-dev-key"
 
     headers = {
