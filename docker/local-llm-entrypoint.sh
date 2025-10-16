@@ -23,5 +23,6 @@ fi
 echo "[local-llm] Pulling model: ${MODEL_NAME}"
 ollama pull "${MODEL_NAME}" || true
 
-echo "[local-llm] Starting LiteLLM gateway..."
-exec uv run litellm --config /app/config/local_llm_config.yaml --port 4000 --host 0.0.0.0
+echo "[local-llm] Ollama ready with OpenAI-compatible API on port 11434"
+# Keep container running
+wait

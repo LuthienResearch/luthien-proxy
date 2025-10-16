@@ -122,8 +122,8 @@ services:
     volumes:
       - local_llm_models:/root/.ollama
     ports:
-      - "4010:4000"   # OpenAI-compatible API
-      - "11434:11434" # Ollama API (optional external access)
+      - "4010:4000"   # OpenAI-compatible API (LiteLLM)
+      - "11434:11434" # Ollama API with native OpenAI compatibility
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4000/test"]
       interval: 10s

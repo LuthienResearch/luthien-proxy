@@ -61,11 +61,8 @@ def load_policy_from_config(
 
     def _instantiate(cls: type[LuthienPolicy], options: Optional[JSONObject]) -> LuthienPolicy:
         if options is not None:
-            try:
-                ctor = cast(Callable[..., LuthienPolicy], cls)
-                return ctor(options=options)
-            except TypeError:
-                pass
+            ctor = cast(Callable[..., LuthienPolicy], cls)
+            return ctor(options=options)
         return cls()
 
     policy_ref, policy_options = _read(resolved_path)
