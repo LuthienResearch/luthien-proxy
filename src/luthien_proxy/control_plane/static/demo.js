@@ -78,6 +78,12 @@ async function fetchJSON(url, options = {}) {
   return await res.json();
 }
 
+function containsDropKeyword(query) {
+  if (!query) return false;
+  // Demo script is centered on a DROP TABLE attack; keep detection narrow so the narration stays consistent.
+  return query.toUpperCase().includes("DROP");
+}
+
 function renderToolCall(toolCall) {
   const func = toolCall.function || {};
   const name = func.name || "unknown";
@@ -90,7 +96,7 @@ function renderToolCall(toolCall) {
   }
 
   const query = args.query || args.raw || "";
-  const isHarmful = query.toUpperCase().includes("DROP");
+  const isDropAttack = containsDropKeyword(query);
 
   const toolCallDiv = el("div", { class: "tool-call" });
 
@@ -102,7 +108,7 @@ function renderToolCall(toolCall) {
     toolCallDiv.appendChild(sqlDiv);
   }
 
-  if (isHarmful) {
+  if (isDropAttack) {
     const warningDiv = el("div", { class: "tool-call-warning" });
     warningDiv.appendChild(el("span", { text: "⚠️" }));
     warningDiv.appendChild(el("span", { text: "DESTRUCTIVE OPERATION DETECTED" }));
@@ -417,7 +423,7 @@ async function monitorCall(callId, isProtected) {
               const args = typeof tc.function.arguments === "string"
                 ? JSON.parse(tc.function.arguments)
                 : tc.function.arguments;
-              return (args.query || "").toUpperCase().includes("DROP");
+              return containsDropKeyword(args.query || "");
             } catch {
               return false;
             }

@@ -114,6 +114,7 @@ async def run_live_demo(request: DemoRequest) -> DemoResponse:
     # Live mode - actually call the proxy
     # Use Docker service name when running in container, localhost otherwise
     proxy_url = "http://litellm-proxy:4000/v1/chat/completions"
+    # This dev key is only mounted inside the demo stack so presenters can run the flow without extra setup.
     api_key = "sk-luthien-dev-key"
 
     headers = {
