@@ -6,6 +6,7 @@ from luthien_proxy.policies.tool_call_judge import JudgeResult, LLMJudgeToolPoli
 @pytest.fixture
 def policy(monkeypatch):
     recorded = []
+    emitted_events = []
 
     async def fake_judge(_tool_call):
         return JudgeResult(
@@ -18,6 +19,15 @@ def policy(monkeypatch):
     async def fake_record(**kwargs):
         recorded.append(kwargs)
 
+    async def fake_emit_policy_event(*, call_id, event_type, metadata):
+        emitted_events.append(
+            {
+                "call_id": call_id,
+                "event_type": event_type,
+                "metadata": metadata,
+            }
+        )
+
     policy = LLMJudgeToolPolicy(
         options={
             "model": "judge-model",
@@ -28,7 +38,9 @@ def policy(monkeypatch):
     )
     monkeypatch.setattr(policy, "_call_judge", fake_judge)
     monkeypatch.setattr(policy, "_record_judge_block", fake_record)
+    monkeypatch.setattr(policy, "_emit_policy_event", fake_emit_policy_event)
     policy._recorded_blocks = recorded  # type: ignore[attr-defined]
+    policy._emitted_events = emitted_events  # type: ignore[attr-defined]
     return policy
 
 
@@ -86,6 +98,17 @@ async def test_llm_judge_blocks_streaming_call(policy):
     assert policy._recorded_blocks  # type: ignore[attr-defined]
     record = policy._recorded_blocks[-1]  # type: ignore[attr-defined]
     assert record["stream_chunks"] is None or isinstance(record["stream_chunks"], list)
+    events = policy._emitted_events  # type: ignore[attr-defined]
+    assert len(events) == 2
+    assert events[0]["event_type"] == "judge_request_sent"
+    request_metadata = events[0]["metadata"]
+    assert request_metadata["tool_call"]["id"] == "tool-1"
+    assert request_metadata["judge_parameters"]["model"] == "judge-model"
+    assert request_metadata["judge_parameters"]["probability_threshold"] == 0.5
+    assert events[1]["event_type"] == "judge_response_received"
+    response_metadata = events[1]["metadata"]
+    assert response_metadata["tool_call"]["id"] == "tool-1"
+    assert response_metadata["judge_response"]["probability"] == pytest.approx(0.9)
 
 
 @pytest.mark.asyncio

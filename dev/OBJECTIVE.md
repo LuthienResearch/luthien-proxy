@@ -1,37 +1,51 @@
-# Objective: COMPLETED
+# Objective: COMPLETED - Demo Web Interface
 
-Built an enhanced conversation live view UI at `/ui/conversation/live` with original vs final tracking.
+Built a presentation-ready web interface for the AI Control demo.
 
 ## What Was Delivered
 
-1. **New HTML template** ([conversation_live_v2.html](src/luthien_proxy/control_plane/templates/conversation_live_v2.html:1)) with clean, modern layout
-2. **JavaScript implementation** ([conversation_live_v2.js](src/luthien_proxy/control_plane/static/conversation_live_v2.js:1)) that:
-   - Loads existing conversations from DB via snapshot API
-   - Streams live updates via Redis SSE
-   - Tracks original and final versions for both requests and responses
-   - Displays side-by-side comparisons with visual highlighting of modifications
-3. **CSS stylesheet** ([conversation_live_v2.css](src/luthien_proxy/control_plane/static/conversation_live_v2.css:1)) with polished styling
-4. **Updated route** in [ui.py](src/luthien_proxy/control_plane/ui.py:56) to serve the new template
+1. **Demo UI at `/ui/demo`** ([demo.html](src/luthien_proxy/control_plane/templates/demo.html:1))
+   - Side-by-side comparison of "Without AI Control" vs "With AI Control"
+   - Shows user's benign prompt ("Show me customer 123")
+   - Displays AI attempting harmful SQL (`DROP TABLE customers`)
+   - Clear visual indicators for blocked vs allowed operations
 
-## Features
+2. **Modern Styling** ([demo.css](src/luthien_proxy/control_plane/static/demo.css:1))
+   - Dark theme with professional appearance
+   - Responsive layout suitable for presentations
+   - Visual indicators: red for harmful, green for protected
+   - Animated progression through demo stages
 
-- **Sidebar** shows recent calls and allows manual call ID entry
-- **DB snapshot loading** fetches historical conversation data from database
-- **Live Redis streaming** updates the view in real-time as new events arrive
-- **Original vs Final tracking** displays side-by-side comparisons for:
-  - Request messages (before and after policy transformation)
-  - Response content (before and after policy transformation)
-- **Visual highlighting** clearly shows which messages/responses were modified
-- **Status indicators** show call status (pending, streaming, success, failure)
-- **Auto-refresh** periodically refreshes snapshot data during streaming
+3. **Interactive Demo** ([demo.js](src/luthien_proxy/control_plane/static/demo.js:1))
+   - Click "Run Demo" to see animated demonstration
+   - Fetches examples from `/demo/examples` endpoint
+   - Displays policy decisions and reasoning
+   - Reset capability to run demo multiple times
+
+4. **Backend Support** ([demo_routes.py](src/luthien_proxy/control_plane/demo_routes.py:1))
+   - `/demo/examples` endpoint returns pre-defined scenarios
+   - Static examples for reliable presentations
+   - Separates UI demo from live testing (`scripts/run_demo.py`)
+
+5. **Policy Configurations**
+   - [demo_judge.yaml](config/demo_judge.yaml:1) - ToolCallJudgePolicy config
+   - [demo_noop.yaml](config/demo_noop.yaml:1) - NoOpPolicy config
 
 ## Testing
 
-Verified with:
-- Multiple test requests through the proxy
-- UI loads and displays recent calls correctly
-- Click on call loads DB snapshot
-- Live streaming works with SSE connection
-- Original vs final comparison displays correctly
+✅ Navigate to http://localhost:8081/ui/demo - interface loads correctly
+✅ Click "Run Demo" - animated demonstration runs smoothly
+✅ Visual indicators clearly show blocked vs allowed operations
+✅ Interface is polished and presentation-ready
+✅ All dev checks pass
 
-All acceptance criteria met.
+## Acceptance Criteria
+
+- [x] Navigate to `http://localhost:8081/ui/demo` and see the demo interface
+- [x] See clear visual indicators showing blocked vs allowed operations
+- [x] Interface is polished enough for live demonstrations
+- Note: Changed approach from live policy switching to static examples for more reliable demos
+
+## Pull Request
+
+Created PR #39: https://github.com/LuthienResearch/luthien-proxy/pull/39

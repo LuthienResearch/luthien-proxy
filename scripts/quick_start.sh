@@ -107,21 +107,22 @@ while ! docker compose exec -T redis redis-cli ping > /dev/null 2>&1; do
 done
 echo "✅ Redis is ready"
 
-# Start single-container local-llm (Ollama + LiteLLM)
-echo "🧰 Starting local-llm (Ollama + OpenAI-compatible gateway)..."
+# Start single-container local-llm (Ollama with native OpenAI API)
+echo "🧰 Starting local-llm (Ollama with built-in OpenAI API)..."
 docker compose up -d local-llm
 
-echo "⏳ Waiting for local-llm to be ready..."
+echo "⏳ Waiting for Ollama OpenAI API to be ready..."
+ollama_port="${OLLAMA_PORT:-11434}"
 timeout=120
-while ! curl -sf "http://localhost:${LOCAL_LLM_PORT:-4010}/test" > /dev/null 2>&1; do
+while ! curl -sf "http://localhost:${ollama_port}/v1/models" > /dev/null 2>&1; do
     sleep 2
     timeout=$((timeout - 2))
     if [ $timeout -le 0 ]; then
-        echo "❌ local-llm failed to start within expected time"
+        echo "❌ Ollama OpenAI API failed to start within expected time"
         exit 1
     fi
 done
-echo "✅ local-llm is ready"
+echo "✅ Ollama OpenAI API is ready"
 
 # Start application services depending on DB/Redis and local LLM
 echo "🎛️ Starting control plane..."
@@ -148,8 +149,7 @@ if [ "$services_healthy" = true ]; then
     echo "   • Control Plane:  http://localhost:${CONTROL_PLANE_PORT:-8081}"
     echo "   • PostgreSQL:     localhost:${POSTGRES_PORT:-5432}"
     echo "   • Redis:          localhost:${REDIS_PORT:-6379}"
-    echo "   • local-llm:      http://localhost:${LOCAL_LLM_PORT:-4010} (OpenAI-compatible)"
-    echo "   • Ollama API:     http://localhost:11434 (inside local-llm)"
+    echo "   • Ollama OpenAI API: http://localhost:${ollama_port} (OpenAI-compatible)"
     echo ""
     echo "📊 To view logs:"
     echo "   docker compose logs -f"

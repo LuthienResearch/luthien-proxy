@@ -6,11 +6,11 @@ import logging
 import time
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, AsyncIterator, Awaitable, Callable, Optional
+from typing import TYPE_CHECKING, AsyncIterator, Awaitable, Callable, Mapping, Optional
 
 from litellm.integrations.custom_logger import CustomLogger
 
-from luthien_proxy.types import JSONObject
+from luthien_proxy.types import JSONObject, JSONValue
 
 if TYPE_CHECKING:
     from luthien_proxy.utils import db
@@ -42,9 +42,10 @@ DebugLogWriter = Callable[[str, JSONObject], Awaitable[None]]
 class LuthienPolicy(ABC, CustomLogger):
     """Mirror of LiteLLM hook API, executed server-side in the control plane."""
 
-    def __init__(self) -> None:
-        """Initialise policy base class and underlying CustomLogger."""
+    def __init__(self, options: Mapping[str, JSONValue] | None = None) -> None:
+        """Initialise policy base class, storing raw configuration options."""
         super().__init__()
+        self._options: Optional[JSONObject] = dict(options) if options is not None else None
         self._debug_log_writer: Optional[DebugLogWriter] = None
         self._database_pool: "db.DatabasePool | None" = None
         self._redis_client: "RedisClient | None" = None

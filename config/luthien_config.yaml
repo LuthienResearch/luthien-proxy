@@ -4,9 +4,9 @@
 policy:
   class: "luthien_proxy.policies.tool_call_judge:LLMJudgeToolPolicy"
   config:
-    model: "openai/gemma-scorer"
-    api_base: "http://local-llm:4000/v1"
-    api_key: "sk-luthien-dev-key"
+    model: "ollama/gemma2:2b"
+    api_base: "http://local-llm:11434"
+    api_key: "ollama"
     probability_threshold: 0.6
     temperature: 0.0
     max_tokens: 256

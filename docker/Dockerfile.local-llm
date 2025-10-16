@@ -1,5 +1,6 @@
-# ABOUTME: Single-container local LLM gateway
-# - Runs Ollama (Gemma model host) and LiteLLM (OpenAI-compatible API) together
+# ABOUTME: Local LLM container running Ollama with native OpenAI API support
+# - Runs Ollama with Gemma model
+# - Exposes OpenAI-compatible API on port 11434
 
 FROM python:3.13-slim
 
@@ -8,38 +9,20 @@ ARG DEBIAN_FRONTEND=noninteractive
 # System deps
 RUN apt-get update && apt-get install -y \
     curl \
-    ca-certificates \
-    procps \
-    build-essential \
-    pkg-config && \
+    ca-certificates && \
     rm -rf /var/lib/apt/lists/*
-
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # Install Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
-WORKDIR /app
-
-# Copy project metadata and source for dependency resolution
-COPY pyproject.toml uv.lock README.md ./
-COPY src/ ./src/
-COPY config/local_llm_config.yaml ./config/local_llm_config.yaml
-
-# Install Python deps
-RUN uv sync --frozen --no-dev
-
 # Runtime env
-ENV PYTHONPATH="/app/src:$PYTHONPATH"
 ENV OLLAMA_HOST=0.0.0.0
-EXPOSE 4000
 EXPOSE 11434
 
-# Entrypoint to run both services
+# Entrypoint to run Ollama
 COPY docker/local-llm-entrypoint.sh /usr/local/bin/local-llm-entrypoint.sh
 RUN chmod +x /usr/local/bin/local-llm-entrypoint.sh
 
-HEALTHCHECK --interval=10s --timeout=5s --retries=5 CMD curl -f http://localhost:4000/test || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 CMD curl -f http://localhost:11434/api/tags || exit 1
 
 CMD ["/usr/local/bin/local-llm-entrypoint.sh"]

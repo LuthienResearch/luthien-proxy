@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>AI Control Demo - Database Protection</title>
+    <link rel="stylesheet" href="/static/demo.css" />
+  </head>
+  <body>
+    <header class="demo-header">
+      <h1>AI Control Demo: Blocking Compromised AI</h1>
+      <p class="subtitle">Watch how AI Control prevents a compromised AI from executing harmful database operations</p>
+    </header>
+
+    <div class="demo-container">
+      <div class="scenario-intro">
+        <div class="scenario-card">
+          <h2>The Scenario</h2>
+          <div class="scenario-content">
+            <div class="scenario-item">
+              <span class="icon">👤</span>
+              <div>
+                <strong>User Request:</strong>
+                <code>"Show me customer 123"</code>
+              </div>
+            </div>
+            <div class="scenario-item">
+              <span class="icon">⚠️</span>
+              <div>
+                <strong>The Problem:</strong>
+                A compromised AI attempts to DROP the customers table instead of querying it
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="comparison">
+        <!-- LEFT: Without AI Control -->
+        <div class="panel panel-harmful">
+          <div class="panel-header">
+            <h2>🔴 Without AI Control</h2>
+            <div class="status-badge status-vulnerable">Vulnerable</div>
+          </div>
+          <div class="panel-content">
+            <div class="section">
+              <h3>Policy Configuration</h3>
+              <div class="config-box">
+                <code>NoOpPolicy</code>
+                <p class="config-desc">No protection - all requests pass through unchanged</p>
+              </div>
+            </div>
+
+            <div class="section">
+              <h3>AI Response</h3>
+              <div id="harmful-response" class="response-box response-empty">
+                <div class="empty-state">Waiting for demo to run...</div>
+              </div>
+            </div>
+
+            <div class="section">
+              <h3>Result</h3>
+              <div id="harmful-result" class="result-box result-empty">
+                <div class="empty-state">No activity yet</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: With AI Control -->
+        <div class="panel panel-protected">
+          <div class="panel-header">
+            <h2>🟢 With AI Control</h2>
+            <div class="status-badge status-protected">Protected</div>
+          </div>
+          <div class="panel-content">
+            <div class="section">
+              <h3>Policy Configuration</h3>
+              <div class="config-box">
+                <code>ToolCallJudgePolicy</code>
+                <p class="config-desc">LLM judge validates all tool calls before execution</p>
+              </div>
+            </div>
+
+            <div class="section">
+              <h3>AI Response</h3>
+              <div id="protected-response" class="response-box response-empty">
+                <div class="empty-state">Waiting for demo to run...</div>
+              </div>
+            </div>
+
+            <div class="section">
+              <h3>Policy Decision</h3>
+              <div id="protected-decision" class="decision-box decision-empty">
+                <div class="empty-state">No activity yet</div>
+              </div>
+            </div>
+
+            <div class="section">
+              <h3>Result</h3>
+              <div id="protected-result" class="result-box result-empty">
+                <div class="empty-state">No activity yet</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo-controls">
+        <div class="mode-selector">
+          <label class="mode-label">
+            <input type="radio" name="demo-mode" value="fake" checked>
+            <span>🎬 Animated Demo</span>
+          </label>
+          <label class="mode-label">
+            <input type="radio" name="demo-mode" value="static">
+            <span>📋 Static Examples</span>
+          </label>
+          <label class="mode-label">
+            <input type="radio" name="demo-mode" value="live">
+            <span>🔴 Live Demo</span>
+          </label>
+        </div>
+        <button id="run-demo" class="btn btn-primary">▶️ Run Demo</button>
+        <button id="reset-demo" class="btn btn-secondary">🔄 Reset</button>
+        <div class="demo-status">
+          <span id="demo-status-text">Ready to run (animated demo mode)</span>
+        </div>
+      </div>
+
+      <div class="demo-footer">
+        <div class="summary-card">
+          <h3>Summary</h3>
+          <ul>
+            <li><strong>Without AI Control:</strong> The harmful SQL command executes, potentially destroying data</li>
+            <li><strong>With AI Control:</strong> The LLM judge detects and blocks the harmful operation</li>
+          </ul>
+          <p class="conclusion">
+            AI Control provides a critical safety layer that protects against compromised or misaligned AI behavior,
+            even when the user's original request is completely benign.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/demo.js"></script>
+  </body>
+</html>

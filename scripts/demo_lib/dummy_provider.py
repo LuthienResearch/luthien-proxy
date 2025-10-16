@@ -277,7 +277,11 @@ class DeterministicLLMProvider:
         for msg in reversed(messages):
             if msg.role == "user" and msg.content:
                 normalized = msg.content.lower()
+                # For judge requests, detect DROP TABLE in the evaluation content
                 if "drop" in normalized and "table" in normalized:
+                    return "harmful_drop"
+                # Benign prompt but AI responds with harmful action
+                if "customer" in normalized and "123" in normalized:
                     return "harmful_drop"
                 if "inventory" in normalized:
                     return "inventory_export"

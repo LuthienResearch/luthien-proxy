@@ -70,6 +70,7 @@ CONVERSATION_STREAM_RATE_LIMIT_MAX_REQUESTS = ConfigValue[int](
 CONVERSATION_STREAM_RATE_LIMIT_WINDOW_SECONDS = ConfigValue[float](
     "CONVERSATION_STREAM_RATE_LIMIT_WINDOW_SECONDS", 60.0, parser=float
 )
+ENABLE_DEMO_MODE = ConfigValue[bool]("ENABLE_DEMO_MODE", False, parser=_parse_bool)
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ class ControlPlaneConfig:
     policy_config_path: str
     database_url: str
     conversation_stream_config: "ConversationStreamConfig"
+    enable_demo_mode: bool
 
 
 @dataclass(frozen=True)
@@ -212,6 +214,11 @@ class ProjectConfig:
         )
 
     @cached_property
+    def enable_demo_mode(self) -> bool:
+        """Whether demo mode is enabled (default False for security)."""
+        return get_config_value(self._env_map, ENABLE_DEMO_MODE)
+
+    @cached_property
     def control_plane_config(self) -> ControlPlaneConfig:
         """Get the control plane configuration."""
         if self.redis_url is None:
@@ -227,6 +234,7 @@ class ProjectConfig:
             policy_config_path=self.luthien_policy_config,
             database_url=self.database_url,
             conversation_stream_config=self.conversation_stream_config,
+            enable_demo_mode=self.enable_demo_mode,
         )
 
     def with_overrides(self, **changes) -> "ProjectConfig":

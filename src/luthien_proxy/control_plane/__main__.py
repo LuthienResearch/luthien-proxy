@@ -24,6 +24,13 @@ def main() -> None:
     logger.info(f"Starting control plane on {control.host}:{control.port}")
     logger.info(f"Database URL: {db_url}")
     logger.info(f"Redis URL: {control.redis_url}")
+
+    # Log demo mode status
+    if control.enable_demo_mode:
+        logger.warning("Demo mode is ENABLED - demo UI endpoints are accessible at /ui/demo")
+    else:
+        logger.info("Demo mode is disabled (set ENABLE_DEMO_MODE=true to enable)")
+
     logger.info("Changes are being picked up.")
 
     uvicorn.run(

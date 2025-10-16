@@ -91,6 +91,20 @@ Editor setup (VS Code)
   - `GET /api/hooks/recent_call_ids` — recent call IDs
   - `GET /api/hooks/conversation?call_id=...` — normalized request/response history
 
+### Demo Mode (Disabled by Default)
+
+**WARNING**: Demo mode should NEVER be enabled in production systems.
+
+To enable the demo UI for presentations:
+1. Set `ENABLE_DEMO_MODE=true` in your `.env` file
+2. Restart the control plane: `docker compose restart control-plane`
+3. Access the demo at http://localhost:8081/ui/demo
+
+Demo endpoints (only available when `ENABLE_DEMO_MODE=true`):
+  - `GET /ui/demo` — interactive AI Control demonstration
+  - `GET /demo/examples` — static demo scenarios
+  - `POST /demo/run` — live demo execution
+
 ## Control Policies
 
 We keep the policy surface aligned with LiteLLM's hook API, while keeping the proxy thin. Hooks are forwarded “as-is” to the Control Plane; streaming deltas are assembled centrally for policies to consult.
