@@ -5,16 +5,17 @@
 ### Core Architecture (Completed)
 
 1. **Control Plane Interface** (`src/luthien_proxy/v2/control/`)
-   - `interface.py`: Protocol definition for `ControlPlaneService`
-   - `models.py`: Data models (`RequestMetadata`, `PolicyResult`, `StreamingContext`)
-   - `local.py`: In-process implementation (`ControlPlaneLocal`)
+   - `interface.py`: Protocol definition for `ControlPlaneService` (simplified, no PolicyResult wrapper)
+   - `models.py`: Pydantic models (`RequestMetadata`, `PolicyEvent`, `StreamingContext`)
+   - `local.py`: In-process implementation with event collection
    - Clean separation allows future network implementation without changing gateway code
 
 2. **Policy Abstraction** (`src/luthien_proxy/v2/policies/`)
-   - `base.py`: `PolicyHandler` abstract base class with streaming support
-   - `DefaultPolicyHandler`: Example implementation with token limits, content filtering
+   - `base.py`: `PolicyHandler` with event emission support
+   - Policies decide what content to forward AND emit PolicyEvents describing activity
+   - `DefaultPolicyHandler`: Example with token limits, content filtering, event emission
    - `noop.py`: `NoOpPolicy` for testing and baseline
-   - Simple interface: `apply_request_policies`, `apply_response_policy`, `apply_streaming_chunk_policy`
+   - Interface: `apply_request_policies`, `apply_response_policy`, `apply_streaming_chunk_policy`, `emit_event()`
 
 3. **LLM Integration** (`src/luthien_proxy/v2/llm/`)
    - `format_converters.py`: OpenAI ↔ Anthropic format conversion
@@ -30,11 +31,23 @@
    - `dev/v2_architecture_design.md`: Complete architectural design doc
    - `scripts/test_v2_proxy.py`: Test script for manual verification
 
-### Type Safety
+### Type Safety & Data Modeling
 
 - All type checks passing with pyright
+- Pydantic models instead of dataclasses (automatic serialization, no boilerplate)
 - LiteLLM's incomplete type annotations handled with `Any` type aliases
 - Type ignores used strategically for streaming and response handling
+
+### Recent Refactoring (Latest)
+
+**Simplified Policy Interface**:
+- Removed `PolicyResult` wrapper - policies return content directly
+- Added `PolicyEvent` model for structured event emission
+- Policies now have two clear responsibilities:
+  1. Decide what content to forward (transform/filter/validate)
+  2. Emit PolicyEvents describing their activity
+- Control plane collects events via callback, stores in-memory
+- Gateway code simplified (no more unwrapping PolicyResult)
 
 ## What's Next
 
