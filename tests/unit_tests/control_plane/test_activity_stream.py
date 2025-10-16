@@ -296,7 +296,7 @@ def test_build_activity_events_pre_call_hook_modified():
     assert len(events) == 2
     assert events[1].event_type == "final_request"
     assert events[1].payload["modified"] is True
-    assert "[MODIFIED BY POLICY]" in events[1].summary
+    assert events[1].summary == "Final request to gpt-4 (1 messages)"
 
 
 def test_build_activity_events_pre_call_hook_with_tools():
@@ -443,7 +443,7 @@ def test_build_activity_events_success_hook_modified():
     assert events[0].payload["content"] == "Original response"
     assert events[1].payload["content"] == "Modified response"
     assert events[1].payload["modified"] is True
-    assert "[MODIFIED BY POLICY]" in events[1].summary
+    assert events[1].summary == "Final response: Modified response"
 
 
 def test_build_activity_events_success_hook_with_tool_calls():
@@ -644,7 +644,7 @@ def test_build_activity_events_streaming_hook_modified():
 
     assert len(events) == 2
     assert events[1].payload["modified"] is True
-    assert "[MODIFIED BY POLICY]" in events[1].summary
+    assert events[1].summary == "Final streaming response: Modified stream"
 
 
 # Test build_activity_events for async_post_call_failure_hook

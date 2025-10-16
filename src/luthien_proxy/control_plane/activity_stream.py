@@ -207,7 +207,6 @@ def build_activity_events(
 
             # Check if modified
             modified = result_data != original_data
-            summary_suffix = " [MODIFIED BY POLICY]" if modified else ""
 
             events.append(
                 ActivityEvent(
@@ -216,7 +215,7 @@ def build_activity_events(
                     call_id=call_id_str,
                     trace_id=trace_id,
                     hook=hook,
-                    summary=f"Final request to {model} ({msg_count} messages){summary_suffix}",
+                    summary=f"Final request to {model} ({msg_count} messages)",
                     payload={
                         "model": model,
                         "messages": messages,
@@ -263,7 +262,7 @@ def build_activity_events(
 
             # Check if modified
             modified = result_response != original_response
-            summary_suffix = " [MODIFIED BY POLICY]" if modified else ""
+            summary = f"Final response: {preview}..." if len(preview) == 100 else f"Final response: {preview}"
 
             events.append(
                 ActivityEvent(
@@ -272,9 +271,7 @@ def build_activity_events(
                     call_id=call_id_str,
                     trace_id=trace_id,
                     hook=hook,
-                    summary=f"Final response: {preview}...{summary_suffix}"
-                    if len(preview) == 100
-                    else f"Final response: {preview}{summary_suffix}",
+                    summary=summary,
                     payload={
                         "content": content,
                         "content_length": len(content) if content else 0,
@@ -319,7 +316,11 @@ def build_activity_events(
 
             # Check if modified
             modified = result_response != original_response
-            summary_suffix = " [MODIFIED BY POLICY]" if modified else ""
+            summary = (
+                f"Final streaming response: {preview}..."
+                if len(preview) == 100
+                else f"Final streaming response: {preview}"
+            )
 
             events.append(
                 ActivityEvent(
@@ -328,9 +329,7 @@ def build_activity_events(
                     call_id=call_id_str,
                     trace_id=trace_id,
                     hook=hook,
-                    summary=f"Final streaming response: {preview}...{summary_suffix}"
-                    if len(preview) == 100
-                    else f"Final streaming response: {preview}{summary_suffix}",
+                    summary=summary,
                     payload={
                         "content": content,
                         "content_length": len(content) if content else 0,
