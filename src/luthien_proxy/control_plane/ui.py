@@ -63,9 +63,3 @@ async def conversation_monitor_ui(request: Request):
 async def global_activity_monitor_ui(request: Request):
     """Render the global activity livestream monitor."""
     return templates.TemplateResponse(request, "activity_monitor.html")
-
-
-@router.get("/ui/demo", response_class=HTMLResponse)
-async def demo_ui(request: Request):
-    """Render the AI Control demo interface."""
-    return templates.TemplateResponse(request, "demo.html")

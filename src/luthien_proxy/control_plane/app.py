@@ -193,7 +193,12 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
     app.include_router(ui_router)
     app.include_router(router)
     app.include_router(debug_router)
-    app.include_router(demo_router)
+
+    # Demo mode is disabled by default for security
+    # Only enable in demo/presentation environments with ENABLE_DEMO_MODE=true
+    if config.control_plane_config.enable_demo_mode:
+        app.include_router(demo_router)
+
     app.include_router(hooks_router)
     app.include_router(streaming_router)
 

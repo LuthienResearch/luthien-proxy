@@ -1,16 +1,38 @@
 """API routes for the AI Control demo interface.
 
+SECURITY NOTE: These routes are ONLY registered when ENABLE_DEMO_MODE=true.
+This should NEVER be enabled in production systems. Demo mode is designed for
+presentations and demonstrations only.
+
 This provides both static examples and live demo execution capabilities.
 Live demo makes actual requests through the proxy using the dummy provider.
 """
 
 from __future__ import annotations
 
+import os
+
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
 router = APIRouter()
+
+
+@router.get("/ui/demo", response_class=HTMLResponse)
+async def demo_ui(request: Request):
+    """Render the AI Control demo interface.
+
+    NOTE: This endpoint is only registered when ENABLE_DEMO_MODE=true.
+    If you're seeing this, demo mode is active. This should only be used
+    in demo/presentation environments, never in production.
+    """
+    return templates.TemplateResponse(request, "demo.html")
 
 
 class DemoScenario(BaseModel):

@@ -17,6 +17,7 @@ from luthien_proxy.control_plane.conversation.policy_events import (
     publish_policy_event_to_activity_stream,
     record_policy_event,
 )
+from luthien_proxy.types import JSONValue
 from luthien_proxy.utils.conversation_parsing import extract_trace_id, require_call_id
 
 from .tool_call_buffer import ToolCallBufferContext, ToolCallBufferPolicy
@@ -53,24 +54,24 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
     DEFAULT_API_BASE: Optional[str] = "http://dummy-provider:8080/v1"
     DEFAULT_THRESHOLD = 0.6
 
-    def __init__(self, *, options: Mapping[str, Any] | None = None) -> None:
+    def __init__(self, *, options: Mapping[str, JSONValue] | None = None) -> None:
         """Load judge configuration from policy options or environment defaults."""
-        super().__init__()
-        options = options or {}
-        model = str(options.get("model", self.DEFAULT_MODEL))
-        raw_api_base = options.get("api_base")
-        if raw_api_base is None:
-            raw_api_base = os.getenv("LLM_JUDGE_API_BASE") or self.DEFAULT_API_BASE
-        api_base = str(raw_api_base) if raw_api_base is not None else None
-        raw_api_key = options.get("api_key")
-        if raw_api_key is None:
-            raw_api_key = os.getenv("LLM_JUDGE_API_KEY") or os.getenv("LITELLM_MASTER_KEY")
-        api_key = str(raw_api_key) if raw_api_key is not None else None
-        threshold = float(options.get("probability_threshold", self.DEFAULT_THRESHOLD))
+        super().__init__(options=options)
+        resolved_options: dict[str, JSONValue] = dict(options) if options is not None else {}
+        model = self._string_option(resolved_options.get("model"), self.DEFAULT_MODEL)
+        provided_api_base = self._optional_string_option(resolved_options.get("api_base"))
+        api_base = provided_api_base or os.getenv("LLM_JUDGE_API_BASE") or self.DEFAULT_API_BASE
+        provided_api_key = self._optional_string_option(resolved_options.get("api_key"))
+        api_key = provided_api_key or os.getenv("LLM_JUDGE_API_KEY") or os.getenv("LITELLM_MASTER_KEY")
+        threshold = self._float_option(
+            resolved_options.get("probability_threshold"),
+            self.DEFAULT_THRESHOLD,
+            "probability_threshold",
+        )
         if not 0.0 <= threshold <= 1.0:
             raise ValueError("probability_threshold must be between 0 and 1")
-        temperature = float(options.get("temperature", 0.0))
-        max_tokens = int(options.get("max_tokens", 256))
+        temperature = self._float_option(resolved_options.get("temperature"), 0.0, "temperature")
+        max_tokens = self._int_option(resolved_options.get("max_tokens"), 256, "max_tokens")
         self._config = JudgeConfig(
             model=model,
             api_base=api_base,
@@ -113,6 +114,48 @@ class LLMJudgeToolPolicy(ToolCallBufferPolicy):
                 flushed = await self._flush_tool_calls(context)
                 for buffered in flushed:
                     yield buffered
+
+    @staticmethod
+    def _string_option(raw_value: JSONValue | None, default: str) -> str:
+        if raw_value is None:
+            return default
+        if isinstance(raw_value, str):
+            return raw_value
+        raise TypeError("expected string configuration value")
+
+    @staticmethod
+    def _optional_string_option(raw_value: JSONValue | None) -> Optional[str]:
+        if raw_value is None:
+            return None
+        if isinstance(raw_value, str):
+            return raw_value
+        raise TypeError("expected string configuration value")
+
+    @staticmethod
+    def _float_option(raw_value: JSONValue | None, default: float, field_name: str) -> float:
+        if raw_value is None:
+            return default
+        if isinstance(raw_value, bool):
+            raise TypeError(f"{field_name} must be numeric")
+        if isinstance(raw_value, (int, float, str)):
+            try:
+                return float(raw_value)
+            except ValueError as exc:
+                raise ValueError(f"{field_name} must be numeric") from exc
+        raise TypeError(f"{field_name} must be numeric")
+
+    @staticmethod
+    def _int_option(raw_value: JSONValue | None, default: int, field_name: str) -> int:
+        if raw_value is None:
+            return default
+        if isinstance(raw_value, bool):
+            raise TypeError(f"{field_name} must be an integer")
+        if isinstance(raw_value, (int, float, str)):
+            try:
+                return int(raw_value)
+            except ValueError as exc:
+                raise ValueError(f"{field_name} must be an integer") from exc
+        raise TypeError(f"{field_name} must be an integer")
 
     def _is_blocked_response(self, chunk: Mapping[str, Any]) -> bool:
         """Check if a chunk is a blocked response."""
