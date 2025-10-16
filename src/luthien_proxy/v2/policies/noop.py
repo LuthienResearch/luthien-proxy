@@ -1,20 +1,13 @@
 # ABOUTME: No-op policy implementation - passes everything through unchanged
 # ABOUTME: Useful for testing and as a base for development
 
-"""No-op policy that passes all requests and responses through unchanged."""
+"""No-op policy that passes all messages through unchanged."""
 
 from __future__ import annotations
 
-import asyncio
-from typing import TYPE_CHECKING
-
-from luthien_proxy.v2.control.models import StreamAction
-from luthien_proxy.v2.policies.base import PolicyHandler, StreamControl
-
-if TYPE_CHECKING:
-    from typing import Any
-
-    ModelResponse = Any  # LiteLLM's ModelResponse has incomplete type annotations
+from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+from luthien_proxy.v2.policies.base import PolicyHandler
+from luthien_proxy.v2.streaming import ChunkQueue
 
 
 class NoOpPolicy(PolicyHandler):
@@ -30,23 +23,29 @@ class NoOpPolicy(PolicyHandler):
         """Initialize no-op policy."""
         super().__init__()
 
-    async def apply_request_policies(self, data: dict) -> dict:
+    async def process_request(self, request: Request) -> Request:
         """Pass request through unchanged."""
-        return data
+        return request
 
-    async def apply_response_policy(self, response: ModelResponse) -> ModelResponse:
+    async def process_full_response(self, response: FullResponse) -> FullResponse:
         """Pass response through unchanged."""
         return response
 
-    async def apply_streaming_chunk_policy(
+    async def process_streaming_response(
         self,
-        chunk: ModelResponse,
-        outgoing_queue: asyncio.Queue,
-        control: StreamControl,
-    ) -> StreamAction:
-        """Pass streaming chunk through unchanged."""
-        await outgoing_queue.put(chunk)
-        return StreamAction.CONTINUE
+        incoming: ChunkQueue[StreamingResponse],
+        outgoing: ChunkQueue[StreamingResponse],
+    ) -> None:
+        """Pass all streaming chunks through unchanged."""
+        while True:
+            # Get all available chunks
+            batch = await incoming.get_available()
+            if not batch:  # Stream ended
+                break
+
+            # Forward all chunks unchanged
+            for chunk in batch:
+                await outgoing.put(chunk)
 
 
 __all__ = ["NoOpPolicy"]

@@ -6,18 +6,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
-
-
-class StreamAction(Enum):
-    """Actions that can be returned from streaming policies."""
-
-    CONTINUE = "continue"
-    ABORT = "abort"
-    SWITCH_MODEL = "switch_model"
 
 
 class RequestMetadata(BaseModel):
@@ -60,21 +51,16 @@ class PolicyEvent(BaseModel):
 class StreamingContext(BaseModel):
     """Context for streaming operations.
 
-    This is created at the start of a stream and passed to each chunk handler.
-    It maintains state across chunks for a single streaming request.
+    This is created at the start of a stream and tracks state across chunks.
     """
 
     stream_id: str
     call_id: str
-    request_data: dict[str, Any]
-    policy_state: dict[str, Any] = Field(default_factory=dict)
     chunk_count: int = 0
-    should_abort: bool = False
 
 
 __all__ = [
     "RequestMetadata",
     "PolicyEvent",
     "StreamingContext",
-    "StreamAction",
 ]

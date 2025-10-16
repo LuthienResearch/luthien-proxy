@@ -10,21 +10,19 @@ database and Redis.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import uuid
 from collections import defaultdict
 from typing import TYPE_CHECKING, AsyncIterator, Optional
 
-from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata, StreamAction, StreamingContext
+from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata
+from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+from luthien_proxy.v2.streaming import ChunkQueue
 
 if TYPE_CHECKING:
-    from typing import Any
-
     from luthien_proxy.utils import db
     from luthien_proxy.utils.redis_client import RedisClient
     from luthien_proxy.v2.policies.base import PolicyHandler
-
-    ModelResponse = Any  # LiteLLM's ModelResponse has incomplete type annotations
 
 logger = logging.getLogger(__name__)
 
@@ -82,18 +80,18 @@ class ControlPlaneLocal:
         # TODO: Log to database
         # TODO: Publish to Redis for UI
 
-    async def apply_request_policies(
+    async def process_request(
         self,
-        request_data: dict,
+        request: Request,
         metadata: RequestMetadata,
-    ) -> dict:
+    ) -> Request:
         """Apply policies to incoming request before LLM call."""
         # Set call ID for event emission
         self.policy.set_call_id(metadata.call_id)
 
         try:
             # Apply policy transformation
-            transformed = await self.policy.apply_request_policies(request_data)
+            transformed = await self.policy.process_request(request)
             return transformed
 
         except Exception as exc:
@@ -112,18 +110,18 @@ class ControlPlaneLocal:
             # Re-raise to let gateway handle it
             raise
 
-    async def apply_response_policy(
+    async def process_full_response(
         self,
-        response: ModelResponse,
+        response: FullResponse,
         metadata: RequestMetadata,
-    ) -> ModelResponse:
+    ) -> FullResponse:
         """Apply policies to complete response after LLM call."""
         # Set call ID for event emission
         self.policy.set_call_id(metadata.call_id)
 
         try:
             # Apply policy transformation
-            transformed = await self.policy.apply_response_policy(response)
+            transformed = await self.policy.process_full_response(response)
             return transformed
 
         except Exception as exc:
@@ -142,105 +140,105 @@ class ControlPlaneLocal:
             # Return original response (don't block response on policy error)
             return response
 
-    async def create_streaming_context(
+    async def process_streaming_response(
         self,
-        request_data: dict,
+        incoming: AsyncIterator[StreamingResponse],
         metadata: RequestMetadata,
-    ) -> StreamingContext:
-        """Initialize streaming context and return stream ID."""
-        stream_id = str(uuid.uuid4())
+    ) -> AsyncIterator[StreamingResponse]:
+        """Apply policies to streaming responses with queue-based reactive processing.
 
-        context = StreamingContext(
-            stream_id=stream_id,
-            call_id=metadata.call_id,
-            request_data=request_data,
-            policy_state={},
-            chunk_count=0,
-        )
+        This bridges the policy's queue-based interface with the gateway's async iterator:
+        1. Creates incoming/outgoing ChunkQueues
+        2. Launches policy's reactive task as background task
+        3. Feeds chunks from LLM into incoming queue
+        4. Yields chunks from outgoing queue to client
+        """
+        # Set call ID for event emission
+        self.policy.set_call_id(metadata.call_id)
 
-        # Create stream start event
+        # Emit stream start event
         start_event = PolicyEvent(
             event_type="stream_start",
             call_id=metadata.call_id,
-            summary=f"Started stream {stream_id}",
-            details={"stream_id": stream_id, "model": request_data.get("model")},
+            summary="Started processing stream",
+            details={},
             severity="info",
         )
         self._handle_policy_event(start_event)
 
-        return context
+        # Create queues for policy communication
+        incoming_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
+        outgoing_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
 
-    async def process_streaming_chunk(
-        self,
-        chunk: ModelResponse,
-        context: StreamingContext,
-    ) -> AsyncIterator[ModelResponse]:
-        """Process a streaming chunk through policies.
-
-        Note: This is called by the gateway for each incoming chunk.
-        The policy may emit zero, one, or many outgoing chunks per incoming chunk.
-        """
-        import asyncio
-
-        from luthien_proxy.v2.policies.base import StreamControl
-
-        # Set call ID for event emission
-        self.policy.set_call_id(context.call_id)
-
-        # Create queue and control for this chunk
-        outgoing_queue: asyncio.Queue = asyncio.Queue()
-        control = StreamControl()
+        chunk_count = 0
+        policy_task = None
 
         try:
-            # Apply policy (policy puts results in queue)
-            action = await self.policy.apply_streaming_chunk_policy(
-                chunk,
-                outgoing_queue,
-                control,
+            # Launch policy's reactive task in background
+            policy_task = asyncio.create_task(self.policy.process_streaming_response(incoming_queue, outgoing_queue))
+
+            # Feed incoming chunks to policy while yielding outgoing chunks
+            # We need to run both producer (feeding incoming) and consumer (yielding outgoing) concurrently
+
+            async def feed_incoming():
+                """Feed chunks from LLM into incoming queue."""
+                try:
+                    async for chunk in incoming:
+                        await incoming_queue.put(chunk)
+                finally:
+                    await incoming_queue.close()
+
+            # Start feeding task
+            feed_task = asyncio.create_task(feed_incoming())
+
+            # Yield chunks from outgoing queue
+            while True:
+                batch = await outgoing_queue.get_available()
+                if not batch:  # Policy closed the stream
+                    break
+
+                for chunk in batch:
+                    chunk_count += 1
+                    yield chunk
+
+            # Wait for policy task to complete
+            await policy_task
+
+            # Wait for feed task to complete
+            await feed_task
+
+            # Emit stream complete event
+            complete_event = PolicyEvent(
+                event_type="stream_complete",
+                call_id=metadata.call_id,
+                summary=f"Completed stream with {chunk_count} chunks",
+                details={"chunk_count": chunk_count},
+                severity="info",
             )
-
-            context.chunk_count += 1
-
-            # Check for abort
-            if action == StreamAction.ABORT or control.should_abort:
-                context.should_abort = True
-
-                abort_event = PolicyEvent(
-                    event_type="stream_abort",
-                    call_id=context.call_id,
-                    summary=f"Stream aborted after {context.chunk_count} chunks",
-                    details={
-                        "stream_id": context.stream_id,
-                        "chunk_count": context.chunk_count,
-                        "reason": control.metadata.get("abort_reason", "Policy requested abort"),
-                    },
-                    severity="warning",
-                )
-                self._handle_policy_event(abort_event)
-
-            # Yield all chunks from queue
-            while not outgoing_queue.empty():
-                outgoing_chunk = await outgoing_queue.get()
-                yield outgoing_chunk
+            self._handle_policy_event(complete_event)
 
         except Exception as exc:
             logger.error(f"Streaming policy error: {exc}")
 
             error_event = PolicyEvent(
-                event_type="stream_chunk_error",
-                call_id=context.call_id,
-                summary=f"Error processing chunk {context.chunk_count}: {exc}",
-                details={
-                    "stream_id": context.stream_id,
-                    "chunk_count": context.chunk_count,
-                    "error": str(exc),
-                },
+                event_type="stream_error",
+                call_id=metadata.call_id,
+                summary=f"Error during streaming after {chunk_count} chunks: {exc}",
+                details={"chunk_count": chunk_count, "error": str(exc), "error_type": type(exc).__name__},
                 severity="error",
             )
             self._handle_policy_event(error_event)
 
-            # On error, pass through the original chunk
-            yield chunk
+            # Cancel policy task if still running
+            if policy_task and not policy_task.done():
+                policy_task.cancel()
+                try:
+                    await policy_task
+                except asyncio.CancelledError:
+                    pass
+
+            # Re-raise - let gateway handle it
+            raise
 
     async def get_events(self, call_id: str) -> list[PolicyEvent]:
         """Get all events for a specific call."""

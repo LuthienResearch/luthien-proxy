@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -26,6 +25,9 @@ from luthien_proxy.v2.llm.format_converters import (
     openai_chunk_to_anthropic_chunk,
     openai_to_anthropic_response,
 )
+from luthien_proxy.v2.messages import FullResponse
+from luthien_proxy.v2.messages import Request as RequestMessage
+from luthien_proxy.v2.messages import StreamingResponse as StreamingResponseMessage
 from luthien_proxy.v2.policies.base import PolicyHandler
 from luthien_proxy.v2.policies.noop import NoOpPolicy
 
@@ -70,49 +72,34 @@ def hash_api_key(key: str) -> str:
 
 
 # === STREAMING HELPERS ===
-async def stream_with_bidirectional_control(
+async def stream_llm_chunks(data: dict) -> AsyncIterator[StreamingResponseMessage]:
+    """Stream chunks from LLM, wrapped in StreamingResponseMessage."""
+    response = await litellm.acompletion(**data)
+    async for chunk in response:  # type: ignore[attr-defined]
+        yield StreamingResponseMessage.from_model_response(chunk)
+
+
+async def stream_with_policy_control(
     data: dict,
     metadata: RequestMetadata,
     format_converter=None,
 ) -> AsyncIterator[str]:
-    """Bidirectional streaming with full policy control.
+    """Stream with reactive policy control.
 
-    Upstream task reads from LLM and applies policies.
-    Downstream yields to client from queue.
+    This creates an async iterator from LLM, passes it through the control plane's
+    process_streaming_response, and yields formatted chunks to the client.
     """
-    # Create streaming context
-    context = await control_plane.create_streaming_context(data, metadata)
+    try:
+        # Create async iterator of StreamingResponse objects from LLM
+        llm_stream = stream_llm_chunks(data)
 
-    outgoing_queue: asyncio.Queue = asyncio.Queue()
-    upstream_task = None
+        # Process through control plane (applies policy via queue-based reactive processing)
+        policy_stream = control_plane.process_streaming_response(llm_stream, metadata)
 
-    async def consume_upstream_stream(request_data: dict):
-        """Read from upstream LLM and apply policies."""
-        try:
-            response = await litellm.acompletion(**request_data)
-            async for chunk in response:  # type: ignore[attr-defined]
-                # Process through control plane
-                async for outgoing_chunk in control_plane.process_streaming_chunk(chunk, context):
-                    await outgoing_queue.put(outgoing_chunk)
-
-                # Check if we should abort
-                if context.should_abort:
-                    logger.info("Aborting stream per policy decision")
-                    break
-
-        except Exception as exc:
-            logger.error(f"Upstream error: {exc}")
-            # Put error chunk in queue
-            await outgoing_queue.put({"error": str(exc)})
-        finally:
-            await outgoing_queue.put(None)
-
-    async def produce_downstream():
-        """Read from queue and yield to client."""
-        while True:
-            chunk = await outgoing_queue.get()
-            if chunk is None:
-                break
+        # Yield formatted chunks to client
+        async for streaming_response in policy_stream:
+            # Extract the underlying chunk
+            chunk = streaming_response.to_model_response()
 
             # Apply format conversion if needed
             if format_converter:
@@ -126,18 +113,10 @@ async def stream_with_bidirectional_control(
             else:
                 yield f"data: {json.dumps({'error': 'Unknown chunk type'})}\n\n"
 
-    upstream_task = asyncio.create_task(consume_upstream_stream(data))
-
-    try:
-        async for item in produce_downstream():
-            yield item
-    finally:
-        if upstream_task and not upstream_task.done():
-            upstream_task.cancel()
-            try:
-                await upstream_task
-            except asyncio.CancelledError:
-                pass
+    except Exception as exc:
+        logger.error(f"Streaming error: {exc}")
+        error_data = {"error": str(exc), "type": type(exc).__name__}
+        yield f"data: {json.dumps(error_data)}\n\n"
 
 
 # === ENDPOINTS ===
@@ -160,23 +139,31 @@ async def openai_chat_completions(
         user_id=data.get("metadata", {}).get("user_id"),
     )
 
+    # Wrap request data in RequestMessage type
+    request_msg = RequestMessage(**data)
+
     # Apply request policies
-    data = await control_plane.apply_request_policies(data, metadata)
+    request_msg = await control_plane.process_request(request_msg, metadata)
+
+    # Extract back to dict for LiteLLM
+    data = request_msg.model_dump(exclude_none=True)
     is_streaming = data.get("stream", False)
 
     try:
         if is_streaming:
             return StreamingResponse(
-                stream_with_bidirectional_control(data, metadata),
+                stream_with_policy_control(data, metadata),
                 media_type="text/event-stream",
             )
         else:
             response = await litellm.acompletion(**data)  # type: ignore[arg-type]
 
-            # Apply response policy
-            response = await control_plane.apply_response_policy(response, metadata)  # type: ignore[arg-type]
+            # Wrap in FullResponse and apply policy
+            full_response = FullResponse.from_model_response(response)
+            full_response = await control_plane.process_full_response(full_response, metadata)
 
-            return JSONResponse(response.model_dump())
+            # Extract and return
+            return JSONResponse(full_response.to_model_response().model_dump())
     except Exception as exc:
         logger.error(f"Error in chat completion: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -198,14 +185,20 @@ async def anthropic_messages(
         api_key_hash=hash_api_key(token),
     )
 
+    # Wrap request data in RequestMessage type
+    request_msg = RequestMessage(**openai_data)
+
     # Apply request policies
-    openai_data = await control_plane.apply_request_policies(openai_data, metadata)
+    request_msg = await control_plane.process_request(request_msg, metadata)
+
+    # Extract back to dict for LiteLLM
+    openai_data = request_msg.model_dump(exclude_none=True)
     is_streaming = openai_data.get("stream", False)
 
     try:
         if is_streaming:
             return StreamingResponse(
-                stream_with_bidirectional_control(
+                stream_with_policy_control(
                     openai_data,
                     metadata,
                     format_converter=openai_chunk_to_anthropic_chunk,
@@ -215,10 +208,12 @@ async def anthropic_messages(
         else:
             response = await litellm.acompletion(**openai_data)  # type: ignore[arg-type]
 
-            # Apply response policy
-            response = await control_plane.apply_response_policy(response, metadata)  # type: ignore[arg-type]
+            # Wrap in FullResponse and apply policy
+            full_response = FullResponse.from_model_response(response)
+            full_response = await control_plane.process_full_response(full_response, metadata)
 
-            anthropic_response = openai_to_anthropic_response(response)
+            # Convert to Anthropic format
+            anthropic_response = openai_to_anthropic_response(full_response.to_model_response())
             return JSONResponse(anthropic_response)
     except Exception as exc:
         logger.error(f"Error in messages endpoint: {exc}")

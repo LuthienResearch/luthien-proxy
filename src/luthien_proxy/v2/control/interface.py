@@ -12,11 +12,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, AsyncIterator, Protocol
 
 if TYPE_CHECKING:
-    from typing import Any
-
-    from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata, StreamingContext
-
-    ModelResponse = Any  # LiteLLM's ModelResponse has incomplete type annotations
+    from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata
+    from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 
 
 class ControlPlaneService(Protocol):
@@ -32,39 +29,39 @@ class ControlPlaneService(Protocol):
     The gateway code doesn't need to know which implementation is being used.
 
     Simplified interface:
-    - Policies decide what content to forward
+    - Policies process explicit message types (Request, FullResponse, StreamingResponse)
     - Policies emit PolicyEvents describing their activity
     - Control plane collects events for logging/UI
     """
 
-    async def apply_request_policies(
+    async def process_request(
         self,
-        request_data: dict,
+        request: Request,
         metadata: RequestMetadata,
-    ) -> dict:
+    ) -> Request:
         """Apply policies to incoming request before LLM call.
 
         Args:
-            request_data: The request payload (OpenAI format)
+            request: The request to process
             metadata: Request metadata (call_id, user_id, etc.)
 
         Returns:
-            Transformed request data
+            Transformed request
 
         Raises:
             Exception: If policy rejects the request
         """
         ...
 
-    async def apply_response_policy(
+    async def process_full_response(
         self,
-        response: ModelResponse,
+        response: FullResponse,
         metadata: RequestMetadata,
-    ) -> ModelResponse:
+    ) -> FullResponse:
         """Apply policies to complete response after LLM call.
 
         Args:
-            response: The ModelResponse from LiteLLM
+            response: The full response to process
             metadata: Request metadata
 
         Returns:
@@ -75,40 +72,23 @@ class ControlPlaneService(Protocol):
         """
         ...
 
-    async def create_streaming_context(
+    async def process_streaming_response(
         self,
-        request_data: dict,
+        incoming: AsyncIterator[StreamingResponse],
         metadata: RequestMetadata,
-    ) -> StreamingContext:
-        """Initialize streaming context and return stream ID.
+    ) -> AsyncIterator[StreamingResponse]:
+        """Apply policies to streaming responses with reactive processing.
+
+        The control plane bridges the policy's queue-based reactive interface
+        with the gateway's async iterator interface. Policies run as reactive
+        tasks that process incoming chunks and emit outgoing chunks independently.
+
+        No 1:1 mapping required - policies can buffer, filter, split, inject,
+        rewrite, or synthesize chunks based on accumulated context.
 
         Args:
-            request_data: The request payload (OpenAI format)
+            incoming: Async iterator of chunks from LLM
             metadata: Request metadata
-
-        Returns:
-            StreamingContext with stream_id and initial state
-
-        Raises:
-            Exception: If policy initialization fails
-        """
-        ...
-
-    async def process_streaming_chunk(
-        self,
-        chunk: ModelResponse,
-        context: StreamingContext,
-    ) -> AsyncIterator[ModelResponse]:
-        """Process a streaming chunk through policies.
-
-        This is an async generator because policies may:
-        - Emit zero chunks (buffer/filter)
-        - Emit one chunk (passthrough/transform)
-        - Emit many chunks (split/augment)
-
-        Args:
-            chunk: The incoming chunk from LiteLLM
-            context: The streaming context (mutable, updated by policy)
 
         Yields:
             Outgoing chunks for the client
