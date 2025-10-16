@@ -172,6 +172,7 @@ class ControlPlaneLocal:
 
         chunk_count = 0
         policy_task = None
+        feed_task = None
 
         try:
             # Launch policy's reactive task in background
@@ -191,18 +192,47 @@ class ControlPlaneLocal:
             # Start feeding task
             feed_task = asyncio.create_task(feed_incoming())
 
-            # Yield chunks from outgoing queue
+            # Yield chunks from outgoing queue while monitoring policy task
             while True:
-                batch = await outgoing_queue.get_available()
-                if not batch:  # Policy closed the stream
+                # Race between getting chunks and policy task completion
+                get_task = asyncio.create_task(outgoing_queue.get_available())
+                done, pending = await asyncio.wait([get_task, policy_task], return_when=asyncio.FIRST_COMPLETED)
+
+                # Check if policy_task completed (possibly with error)
+                if policy_task in done:
+                    # Policy task finished - check for exceptions
+                    try:
+                        await policy_task
+                    except Exception:
+                        # Cancel the get_task if it's still pending
+                        if get_task in pending:
+                            get_task.cancel()
+                            try:
+                                await get_task
+                            except asyncio.CancelledError:
+                                pass
+                        raise  # Re-raise policy exception
+
+                    # Policy completed successfully - get final batch if any
+                    if get_task in pending:
+                        batch = await get_task
+                    else:
+                        batch = get_task.result()
+
+                    if batch:
+                        for chunk in batch:
+                            chunk_count += 1
+                            yield chunk
+                    break
+
+                # get_task completed first - yield the batch
+                batch = get_task.result()
+                if not batch:  # Stream ended
                     break
 
                 for chunk in batch:
                     chunk_count += 1
                     yield chunk
-
-            # Wait for policy task to complete
-            await policy_task
 
             # Wait for feed task to complete
             await feed_task
@@ -234,6 +264,14 @@ class ControlPlaneLocal:
                 policy_task.cancel()
                 try:
                     await policy_task
+                except asyncio.CancelledError:
+                    pass
+
+            # Cancel feed task if still running (it might be blocked waiting to feed chunks)
+            if feed_task and not feed_task.done():
+                feed_task.cancel()
+                try:
+                    await feed_task
                 except asyncio.CancelledError:
                     pass
 

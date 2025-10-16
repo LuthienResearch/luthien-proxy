@@ -253,40 +253,44 @@ class DefaultPolicyHandler(PolicyHandler):
         outgoing: ChunkQueue[StreamingResponse],
     ) -> None:
         """Process streaming with content filtering."""
-        while True:
-            # Get all currently available chunks
-            batch = await incoming.get_available()
-            if not batch:  # Stream ended
-                break
+        try:
+            while True:
+                # Get all currently available chunks
+                batch = await incoming.get_available()
+                if not batch:  # Stream ended
+                    break
 
-            # Process each chunk in the batch
-            for streaming_response in batch:
-                # Extract content from chunk
-                chunk = streaming_response.to_model_response()
-                content = chunk.choices[0].delta.content or ""
+                # Process each chunk in the batch
+                for streaming_response in batch:
+                    # Extract content from chunk
+                    chunk = streaming_response.to_model_response()
+                    content = chunk.choices[0].delta.content or ""
 
-                # Policy: Content filtering with stream abortion
-                if any(word in content for word in self.forbidden_words):
-                    self.emit_event(
-                        event_type="content_filtered",
-                        summary="Forbidden content detected, aborting stream",
-                        details={"matched_words": [w for w in self.forbidden_words if w in content]},
-                        severity="warning",
-                    )
+                    # Policy: Content filtering with stream abortion
+                    if any(word in content for word in self.forbidden_words):
+                        self.emit_event(
+                            event_type="content_filtered",
+                            summary="Forbidden content detected, aborting stream",
+                            details={"matched_words": [w for w in self.forbidden_words if w in content]},
+                            severity="warning",
+                        )
 
-                    if self.verbose:
-                        print("[POLICY] Forbidden content detected, aborting stream")
+                        if self.verbose:
+                            print("[POLICY] Forbidden content detected, aborting stream")
 
-                    # Create a canned response chunk
-                    canned_chunk = chunk.model_copy(deep=True)
-                    canned_chunk.choices[0].delta.content = "[Content filtered by policy]"
+                        # Create a canned response chunk
+                        canned_chunk = chunk.model_copy(deep=True)
+                        canned_chunk.choices[0].delta.content = "[Content filtered by policy]"
 
-                    # Emit the canned message and stop
-                    await outgoing.put(StreamingResponse.from_model_response(canned_chunk))
-                    return  # Abort the stream
+                        # Emit the canned message and stop
+                        await outgoing.put(StreamingResponse.from_model_response(canned_chunk))
+                        return  # Abort the stream
 
-                # Default: pass through unchanged
-                await outgoing.put(streaming_response)
+                    # Default: pass through unchanged
+                    await outgoing.put(streaming_response)
+        finally:
+            # Always close outgoing queue when done
+            await outgoing.close()
 
 
 __all__ = [

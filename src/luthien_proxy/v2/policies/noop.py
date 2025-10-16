@@ -37,15 +37,19 @@ class NoOpPolicy(PolicyHandler):
         outgoing: ChunkQueue[StreamingResponse],
     ) -> None:
         """Pass all streaming chunks through unchanged."""
-        while True:
-            # Get all available chunks
-            batch = await incoming.get_available()
-            if not batch:  # Stream ended
-                break
+        try:
+            while True:
+                # Get all available chunks
+                batch = await incoming.get_available()
+                if not batch:  # Stream ended
+                    break
 
-            # Forward all chunks unchanged
-            for chunk in batch:
-                await outgoing.put(chunk)
+                # Forward all chunks unchanged
+                for chunk in batch:
+                    await outgoing.put(chunk)
+        finally:
+            # Always close outgoing queue when done
+            await outgoing.close()
 
 
 __all__ = ["NoOpPolicy"]
