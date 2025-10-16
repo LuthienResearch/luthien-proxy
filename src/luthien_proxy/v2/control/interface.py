@@ -14,18 +14,9 @@ from typing import TYPE_CHECKING, AsyncIterator, Protocol
 if TYPE_CHECKING:
     from typing import Any
 
-    from luthien_proxy.types import JSONObject
-    from luthien_proxy.v2.control.models import PolicyResult, RequestMetadata, StreamingContext
+    from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata, StreamingContext
 
     ModelResponse = Any  # LiteLLM's ModelResponse has incomplete type annotations
-
-
-class ActivityEvent(Protocol):
-    """Protocol for activity events published to UI."""
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for serialization."""
-        ...
 
 
 class ControlPlaneService(Protocol):
@@ -39,13 +30,18 @@ class ControlPlaneService(Protocol):
     - Any other RPC mechanism
 
     The gateway code doesn't need to know which implementation is being used.
+
+    Simplified interface:
+    - Policies decide what content to forward
+    - Policies emit PolicyEvents describing their activity
+    - Control plane collects events for logging/UI
     """
 
     async def apply_request_policies(
         self,
         request_data: dict,
         metadata: RequestMetadata,
-    ) -> PolicyResult[dict]:
+    ) -> dict:
         """Apply policies to incoming request before LLM call.
 
         Args:
@@ -53,10 +49,10 @@ class ControlPlaneService(Protocol):
             metadata: Request metadata (call_id, user_id, etc.)
 
         Returns:
-            PolicyResult with transformed request data and allowed/denied status
+            Transformed request data
 
         Raises:
-            PolicyError: If policy execution fails critically
+            Exception: If policy rejects the request
         """
         ...
 
@@ -64,7 +60,7 @@ class ControlPlaneService(Protocol):
         self,
         response: ModelResponse,
         metadata: RequestMetadata,
-    ) -> PolicyResult[ModelResponse]:
+    ) -> ModelResponse:
         """Apply policies to complete response after LLM call.
 
         Args:
@@ -72,10 +68,10 @@ class ControlPlaneService(Protocol):
             metadata: Request metadata
 
         Returns:
-            PolicyResult with potentially transformed response
+            Potentially transformed response
 
         Raises:
-            PolicyError: If policy execution fails critically
+            Exception: If policy rejects the response
         """
         ...
 
@@ -94,7 +90,7 @@ class ControlPlaneService(Protocol):
             StreamingContext with stream_id and initial state
 
         Raises:
-            PolicyError: If policy initialization fails
+            Exception: If policy initialization fails
         """
         ...
 
@@ -102,7 +98,7 @@ class ControlPlaneService(Protocol):
         self,
         chunk: ModelResponse,
         context: StreamingContext,
-    ) -> AsyncIterator[PolicyResult[ModelResponse]]:
+    ) -> AsyncIterator[ModelResponse]:
         """Process a streaming chunk through policies.
 
         This is an async generator because policies may:
@@ -115,42 +111,23 @@ class ControlPlaneService(Protocol):
             context: The streaming context (mutable, updated by policy)
 
         Yields:
-            PolicyResult for each outgoing chunk
+            Outgoing chunks for the client
 
         Raises:
-            PolicyError: If policy execution fails critically
+            Exception: If policy execution fails critically
         """
         ...
 
-    async def publish_activity(
-        self,
-        event: ActivityEvent,
-    ) -> None:
-        """Publish activity event for UI consumption.
+    async def get_events(self, call_id: str) -> list[PolicyEvent]:
+        """Get all events for a specific call.
 
         Args:
-            event: Activity event to publish
+            call_id: The call ID to get events for
 
-        Note:
-            This should not raise exceptions - activity publishing is best-effort
-        """
-        ...
-
-    async def log_debug_event(
-        self,
-        debug_type: str,
-        payload: JSONObject,
-    ) -> None:
-        """Log debug event to database.
-
-        Args:
-            debug_type: Type of debug event (e.g., "request_policy", "response_policy")
-            payload: Event payload
-
-        Note:
-            This should not raise exceptions - debug logging is best-effort
+        Returns:
+            List of PolicyEvents for this call
         """
         ...
 
 
-__all__ = ["ControlPlaneService", "ActivityEvent"]
+__all__ = ["ControlPlaneService"]

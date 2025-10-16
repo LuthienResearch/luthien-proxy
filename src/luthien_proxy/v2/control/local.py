@@ -1,20 +1,21 @@
 # ABOUTME: Local (in-process) implementation of control plane service
-# ABOUTME: Directly calls policy methods and integrates with DB/Redis
+# ABOUTME: Directly calls policy methods, collects events, integrates with DB/Redis
 
 """Local implementation of control plane service.
 
 This implementation runs the control logic in-process with the API gateway.
-It directly calls policy methods and integrates with database and Redis.
+It directly calls policy methods, collects PolicyEvents, and integrates with
+database and Redis.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from collections import defaultdict
 from typing import TYPE_CHECKING, AsyncIterator, Optional
 
-from luthien_proxy.types import JSONObject
-from luthien_proxy.v2.control.models import PolicyResult, RequestMetadata, StreamAction, StreamingContext
+from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata, StreamAction, StreamingContext
 
 if TYPE_CHECKING:
     from typing import Any
@@ -33,6 +34,12 @@ class ControlPlaneLocal:
 
     This is the Phase 1 implementation that runs everything locally.
     In Phase 2, we might add ControlPlaneHTTP that makes network calls instead.
+
+    Responsibilities:
+    - Execute policy methods
+    - Collect PolicyEvents emitted by policies
+    - Log events to database
+    - Publish events to Redis for UI
     """
 
     def __init__(
@@ -52,101 +59,88 @@ class ControlPlaneLocal:
         self.db_pool = db_pool
         self.redis_client = redis_client
 
+        # In-memory event storage (keyed by call_id)
+        self._events: dict[str, list[PolicyEvent]] = defaultdict(list)
+
+        # Set up event handler for the policy
+        self.policy.set_event_handler(self._handle_policy_event)
+
+    def _handle_policy_event(self, event: PolicyEvent) -> None:
+        """Handle a policy event emission.
+
+        This is called by the policy whenever it emits an event.
+        """
+        # Store in memory
+        self._events[event.call_id].append(event)
+
+        # Log to console
+        logger.info(
+            f"[{event.severity.upper()}] {event.event_type}: {event.summary}",
+            extra={"call_id": event.call_id, "details": event.details},
+        )
+
+        # TODO: Log to database
+        # TODO: Publish to Redis for UI
+
     async def apply_request_policies(
         self,
         request_data: dict,
         metadata: RequestMetadata,
-    ) -> PolicyResult[dict]:
+    ) -> dict:
         """Apply policies to incoming request before LLM call."""
+        # Set call ID for event emission
+        self.policy.set_call_id(metadata.call_id)
+
         try:
             # Apply policy transformation
             transformed = await self.policy.apply_request_policies(request_data)
-
-            # Log to database
-            await self.log_debug_event(
-                "request_policy",
-                {
-                    "call_id": metadata.call_id,
-                    "original": request_data,
-                    "transformed": transformed,
-                    "metadata": metadata.to_dict(),
-                },
-            )
-
-            # Publish activity
-            # TODO: Implement activity event publishing
-
-            return PolicyResult(
-                value=transformed,
-                allowed=True,
-                metadata={"call_id": metadata.call_id},
-            )
+            return transformed
 
         except Exception as exc:
-            logger.error("Policy execution failed for request: %s", exc)
-            # Log the error
-            await self.log_debug_event(
-                "request_policy_error",
-                {
-                    "call_id": metadata.call_id,
-                    "error": str(exc),
-                    "metadata": metadata.to_dict(),
-                },
-            )
+            logger.error(f"Policy execution failed for request: {exc}")
 
-            return PolicyResult(
-                value=request_data,
-                allowed=False,
-                reason=str(exc),
-                metadata={"call_id": metadata.call_id},
+            # Create an error event
+            error_event = PolicyEvent(
+                event_type="request_policy_error",
+                call_id=metadata.call_id,
+                summary=f"Policy failed to process request: {exc}",
+                details={"error": str(exc), "error_type": type(exc).__name__},
+                severity="error",
             )
+            self._handle_policy_event(error_event)
+
+            # Re-raise to let gateway handle it
+            raise
 
     async def apply_response_policy(
         self,
         response: ModelResponse,
         metadata: RequestMetadata,
-    ) -> PolicyResult[ModelResponse]:
+    ) -> ModelResponse:
         """Apply policies to complete response after LLM call."""
+        # Set call ID for event emission
+        self.policy.set_call_id(metadata.call_id)
+
         try:
             # Apply policy transformation
             transformed = await self.policy.apply_response_policy(response)
-
-            # Log to database
-            await self.log_debug_event(
-                "response_policy",
-                {
-                    "call_id": metadata.call_id,
-                    "response": response.model_dump() if hasattr(response, "model_dump") else {},
-                    "metadata": metadata.to_dict(),
-                },
-            )
-
-            # Publish activity
-            # TODO: Implement activity event publishing
-
-            return PolicyResult(
-                value=transformed,
-                allowed=True,
-                metadata={"call_id": metadata.call_id},
-            )
+            return transformed
 
         except Exception as exc:
-            logger.error("Policy execution failed for response: %s", exc)
-            await self.log_debug_event(
-                "response_policy_error",
-                {
-                    "call_id": metadata.call_id,
-                    "error": str(exc),
-                    "metadata": metadata.to_dict(),
-                },
-            )
+            logger.error(f"Policy execution failed for response: {exc}")
 
-            return PolicyResult(
-                value=response,
-                allowed=True,  # Don't block response on policy errors
-                reason=str(exc),
-                metadata={"call_id": metadata.call_id},
+            # Create an error event
+            error_event = PolicyEvent(
+                event_type="response_policy_error",
+                call_id=metadata.call_id,
+                summary=f"Policy failed to process response: {exc}",
+                details={"error": str(exc), "error_type": type(exc).__name__},
+                severity="error",
             )
+            self._handle_policy_event(error_event)
+
+            # Return original response (don't block response on policy error)
+            return response
 
     async def create_streaming_context(
         self,
@@ -164,15 +158,15 @@ class ControlPlaneLocal:
             chunk_count=0,
         )
 
-        # Log stream start
-        await self.log_debug_event(
-            "stream_start",
-            {
-                "stream_id": stream_id,
-                "call_id": metadata.call_id,
-                "metadata": metadata.to_dict(),
-            },
+        # Create stream start event
+        start_event = PolicyEvent(
+            event_type="stream_start",
+            call_id=metadata.call_id,
+            summary=f"Started stream {stream_id}",
+            details={"stream_id": stream_id, "model": request_data.get("model")},
+            severity="info",
         )
+        self._handle_policy_event(start_event)
 
         return context
 
@@ -180,7 +174,7 @@ class ControlPlaneLocal:
         self,
         chunk: ModelResponse,
         context: StreamingContext,
-    ) -> AsyncIterator[PolicyResult[ModelResponse]]:
+    ) -> AsyncIterator[ModelResponse]:
         """Process a streaming chunk through policies.
 
         Note: This is called by the gateway for each incoming chunk.
@@ -189,6 +183,9 @@ class ControlPlaneLocal:
         import asyncio
 
         from luthien_proxy.v2.policies.base import StreamControl
+
+        # Set call ID for event emission
+        self.policy.set_call_id(context.call_id)
 
         # Create queue and control for this chunk
         outgoing_queue: asyncio.Queue = asyncio.Queue()
@@ -207,76 +204,47 @@ class ControlPlaneLocal:
             # Check for abort
             if action == StreamAction.ABORT or control.should_abort:
                 context.should_abort = True
-                await self.log_debug_event(
-                    "stream_abort",
-                    {
+
+                abort_event = PolicyEvent(
+                    event_type="stream_abort",
+                    call_id=context.call_id,
+                    summary=f"Stream aborted after {context.chunk_count} chunks",
+                    details={
                         "stream_id": context.stream_id,
-                        "call_id": context.call_id,
                         "chunk_count": context.chunk_count,
                         "reason": control.metadata.get("abort_reason", "Policy requested abort"),
                     },
+                    severity="warning",
                 )
+                self._handle_policy_event(abort_event)
 
             # Yield all chunks from queue
             while not outgoing_queue.empty():
                 outgoing_chunk = await outgoing_queue.get()
-                yield PolicyResult(
-                    value=outgoing_chunk,
-                    allowed=True,
-                    metadata={
-                        "stream_id": context.stream_id,
-                        "chunk_index": context.chunk_count,
-                        "action": action.value,
-                    },
-                )
+                yield outgoing_chunk
 
         except Exception as exc:
-            logger.error("Streaming policy error: %s", exc)
-            await self.log_debug_event(
-                "stream_chunk_error",
-                {
+            logger.error(f"Streaming policy error: {exc}")
+
+            error_event = PolicyEvent(
+                event_type="stream_chunk_error",
+                call_id=context.call_id,
+                summary=f"Error processing chunk {context.chunk_count}: {exc}",
+                details={
                     "stream_id": context.stream_id,
-                    "call_id": context.call_id,
                     "chunk_count": context.chunk_count,
                     "error": str(exc),
                 },
+                severity="error",
             )
+            self._handle_policy_event(error_event)
 
             # On error, pass through the original chunk
-            yield PolicyResult(
-                value=chunk,
-                allowed=True,
-                reason=f"Policy error: {exc}",
-                metadata={"stream_id": context.stream_id},
-            )
+            yield chunk
 
-    async def publish_activity(self, event) -> None:
-        """Publish activity event for UI consumption."""
-        if self.redis_client is None:
-            return
-
-        try:
-            # TODO: Implement actual activity publishing
-            # await redis_client.publish(channel, event.to_dict())
-            pass
-        except Exception as exc:
-            logger.warning("Failed to publish activity event: %s", exc)
-
-    async def log_debug_event(
-        self,
-        debug_type: str,
-        payload: JSONObject,
-    ) -> None:
-        """Log debug event to database."""
-        if self.db_pool is None:
-            return
-
-        try:
-            # TODO: Implement actual database logging
-            # await db_pool.execute("INSERT INTO debug_logs ...")
-            pass
-        except Exception as exc:
-            logger.warning("Failed to log debug event: %s", exc)
+    async def get_events(self, call_id: str) -> list[PolicyEvent]:
+        """Get all events for a specific call."""
+        return self._events.get(call_id, [])
 
 
 __all__ = ["ControlPlaneLocal"]

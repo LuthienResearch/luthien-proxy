@@ -1,24 +1,27 @@
-# ABOUTME: Base class for V2 policies - simplified interface for streaming and non-streaming
-# ABOUTME: User-facing abstraction that developers extend to implement custom policies
+# ABOUTME: Base class for V2 policies - simplified interface with event emission
+# ABOUTME: Policies decide what to forward and emit PolicyEvents describing their activity
 
 """Policy handler base class for V2 architecture.
 
 Extend PolicyHandler to implement custom policies for your proxy.
-All policy methods receive requests/responses in OpenAI format (litellm.ModelResponse).
+Policies:
+1. Decide what content to forward (transform/filter requests and responses)
+2. Emit PolicyEvents to describe their activity (for logging, UI, debugging)
 """
 
 from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from luthien_proxy.v2.control.models import StreamAction
+from luthien_proxy.v2.control.models import PolicyEvent, StreamAction
 
 if TYPE_CHECKING:
-    from typing import Any
+    from typing import Any, Callable
 
     ModelResponse = Any  # LiteLLM's ModelResponse has incomplete type annotations
+    PolicyEventHandler = Callable[[PolicyEvent], None]
 
 
 class StreamControl:
@@ -37,15 +40,63 @@ class StreamControl:
 class PolicyHandler(ABC):
     """Base class for policy handlers.
 
+    Policies have two responsibilities:
+    1. **Content control**: Decide what to forward (transform, filter, validate)
+    2. **Event emission**: Emit PolicyEvents describing their activity
+
     Override these methods to implement custom policies:
-    - apply_request_policies: Modify/validate requests before sending to LLM
-    - apply_response_policy: Modify/validate complete responses
+    - apply_request_policies: Transform/validate requests before sending to LLM
+    - apply_response_policy: Transform/validate complete responses
     - apply_streaming_chunk_policy: Control streaming behavior chunk-by-chunk
     """
+
+    def __init__(self):
+        """Initialize policy handler."""
+        self._event_handler: Optional[PolicyEventHandler] = None
+        self._call_id: Optional[str] = None
+
+    def set_event_handler(self, handler: PolicyEventHandler) -> None:
+        """Set the event handler for emitting policy events.
+
+        The control plane calls this to provide a callback for event emission.
+        """
+        self._event_handler = handler
+
+    def set_call_id(self, call_id: str) -> None:
+        """Set the current call ID for event emission."""
+        self._call_id = call_id
+
+    def emit_event(
+        self,
+        event_type: str,
+        summary: str,
+        details: Optional[dict[str, Any]] = None,
+        severity: str = "info",
+    ) -> None:
+        """Emit a policy event.
+
+        Args:
+            event_type: Type of event (e.g., 'request_modified', 'content_filtered')
+            summary: Human-readable summary of what happened
+            details: Additional structured data about the event
+            severity: Severity level (debug, info, warning, error)
+        """
+        if self._event_handler and self._call_id:
+            event = PolicyEvent(
+                event_type=event_type,
+                call_id=self._call_id,
+                summary=summary,
+                details=details or {},
+                severity=severity,
+            )
+            self._event_handler(event)
 
     @abstractmethod
     async def apply_request_policies(self, data: dict) -> dict:
         """Apply policies to requests before sending to LLM.
+
+        Transform, validate, or enrich the request. Emit events to describe
+        what you did and why.
 
         Args:
             data: Request data in OpenAI format (model, messages, etc.)
@@ -54,7 +105,7 @@ class PolicyHandler(ABC):
             Modified request data
 
         Raises:
-            Exception: If request should be rejected
+            Exception: If request should be rejected (will be caught by control plane)
         """
         pass
 
@@ -62,11 +113,17 @@ class PolicyHandler(ABC):
     async def apply_response_policy(self, response: ModelResponse) -> ModelResponse:
         """Apply policies to complete (non-streaming) responses.
 
+        Transform or validate the response. Emit events to describe
+        what you did and why.
+
         Args:
             response: litellm.ModelResponse object in OpenAI format
 
         Returns:
             Modified response (or same response)
+
+        Raises:
+            Exception: If response should be rejected (will be caught by control plane)
         """
         pass
 
@@ -86,6 +143,7 @@ class PolicyHandler(ABC):
         - Return SWITCH_MODEL to switch to a different model
         - Inject canned responses
         - Buffer chunks and send them in batches
+        - Emit events to describe decisions
 
         Args:
             chunk: Incoming chunk from upstream (litellm.ModelResponse)
@@ -101,7 +159,10 @@ class PolicyHandler(ABC):
 class DefaultPolicyHandler(PolicyHandler):
     """Default policy implementation with common examples.
 
-    Customize by subclassing or modifying these methods.
+    Demonstrates:
+    - Token limit enforcement with event emission
+    - Metadata injection
+    - Content filtering with event emission
     """
 
     def __init__(self, max_tokens: int = 4096, verbose: bool = True):
@@ -111,34 +172,32 @@ class DefaultPolicyHandler(PolicyHandler):
             max_tokens: Maximum tokens to allow per request
             verbose: Whether to print policy decisions
         """
+        super().__init__()
         self.max_tokens = max_tokens
         self.verbose = verbose
         self.forbidden_words = ["FORBIDDEN_WORD", "CENSORED"]  # Example list
 
     async def apply_request_policies(self, data: dict) -> dict:
         """Apply pre-request policies."""
-        if self.verbose:
-            print(f"[POLICY] Request to model: {data.get('model')}")
-            print(f"[POLICY] Message count: {len(data.get('messages', []))}")
-
         # Policy: Enforce token limits
         if data.get("max_tokens", 0) > self.max_tokens:
-            if self.verbose:
-                print(f"[POLICY] Clamping max_tokens from {data['max_tokens']} to {self.max_tokens}")
+            original = data["max_tokens"]
             data["max_tokens"] = self.max_tokens
+
+            self.emit_event(
+                event_type="token_limit_enforced",
+                summary=f"Clamped max_tokens from {original} to {self.max_tokens}",
+                details={"original": original, "clamped": self.max_tokens},
+                severity="info",
+            )
+
+            if self.verbose:
+                print(f"[POLICY] Clamped max_tokens from {original} to {self.max_tokens}")
 
         # Policy: Add metadata for tracking
         if "metadata" not in data:
             data["metadata"] = {}
         data["metadata"]["proxy_version"] = "2.0.0"
-
-        # Policy: Block certain models (example)
-        # if "gpt-4o-mini" in data.get("model", ""):
-        #     raise Exception("gpt-4o-mini is not allowed by policy")
-
-        # Policy: Enforce minimum temperature (example)
-        # if data.get("temperature", 1.0) < 0.3:
-        #     data["temperature"] = 0.3
 
         return data
 
@@ -148,14 +207,6 @@ class DefaultPolicyHandler(PolicyHandler):
             content = response.choices[0].message.content
             tokens_used = response.usage.total_tokens
             print(f"[POLICY] Response length: {len(content)} chars, {tokens_used} tokens")
-
-        # Policy: Log response metadata
-        # Could log to database, metrics system, etc.
-
-        # Policy: Content filtering (example)
-        # content = response.choices[0].message.content
-        # if any(word in content for word in self.forbidden_words):
-        #     response.choices[0].message.content = "[Content filtered]"
 
         return response
 
@@ -170,6 +221,13 @@ class DefaultPolicyHandler(PolicyHandler):
 
         # Policy: Content filtering with stream abortion
         if any(word in content for word in self.forbidden_words):
+            self.emit_event(
+                event_type="content_filtered",
+                summary="Forbidden content detected, aborting stream",
+                details={"matched_words": [w for w in self.forbidden_words if w in content]},
+                severity="warning",
+            )
+
             if self.verbose:
                 print("[POLICY] Forbidden content detected, aborting stream")
 
@@ -181,13 +239,6 @@ class DefaultPolicyHandler(PolicyHandler):
             # Abort the upstream stream
             control.should_abort = True
             return StreamAction.ABORT
-
-        # Policy: Rate limiting (example)
-        # await asyncio.sleep(0.01)  # Artificial delay
-
-        # Policy: Transform content (example)
-        # if content:
-        #     chunk.choices[0].delta.content = content.upper()
 
         # Default: pass through the chunk unchanged
         await outgoing_queue.put(chunk)

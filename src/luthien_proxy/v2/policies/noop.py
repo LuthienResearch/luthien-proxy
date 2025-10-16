@@ -26,6 +26,10 @@ class NoOpPolicy(PolicyHandler):
     - Development and debugging
     """
 
+    def __init__(self):
+        """Initialize no-op policy."""
+        super().__init__()
+
     async def apply_request_policies(self, data: dict) -> dict:
         """Pass request through unchanged."""
         return data

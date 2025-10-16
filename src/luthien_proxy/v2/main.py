@@ -92,9 +92,8 @@ async def stream_with_bidirectional_control(
             response = await litellm.acompletion(**request_data)
             async for chunk in response:  # type: ignore[attr-defined]
                 # Process through control plane
-                async for result in control_plane.process_streaming_chunk(chunk, context):
-                    if result.allowed:
-                        await outgoing_queue.put(result.value)
+                async for outgoing_chunk in control_plane.process_streaming_chunk(chunk, context):
+                    await outgoing_queue.put(outgoing_chunk)
 
                 # Check if we should abort
                 if context.should_abort:
@@ -162,11 +161,7 @@ async def openai_chat_completions(
     )
 
     # Apply request policies
-    policy_result = await control_plane.apply_request_policies(data, metadata)
-    if not policy_result.allowed:
-        raise HTTPException(status_code=403, detail=policy_result.reason or "Request blocked by policy")
-
-    data = policy_result.value
+    data = await control_plane.apply_request_policies(data, metadata)
     is_streaming = data.get("stream", False)
 
     try:
@@ -179,11 +174,9 @@ async def openai_chat_completions(
             response = await litellm.acompletion(**data)  # type: ignore[arg-type]
 
             # Apply response policy
-            policy_result = await control_plane.apply_response_policy(response, metadata)  # type: ignore[arg-type]
-            if not policy_result.allowed:
-                raise HTTPException(status_code=403, detail=policy_result.reason or "Response blocked by policy")
+            response = await control_plane.apply_response_policy(response, metadata)  # type: ignore[arg-type]
 
-            return JSONResponse(policy_result.value.model_dump())
+            return JSONResponse(response.model_dump())
     except Exception as exc:
         logger.error(f"Error in chat completion: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -206,11 +199,7 @@ async def anthropic_messages(
     )
 
     # Apply request policies
-    policy_result = await control_plane.apply_request_policies(openai_data, metadata)
-    if not policy_result.allowed:
-        raise HTTPException(status_code=403, detail=policy_result.reason or "Request blocked by policy")
-
-    openai_data = policy_result.value
+    openai_data = await control_plane.apply_request_policies(openai_data, metadata)
     is_streaming = openai_data.get("stream", False)
 
     try:
@@ -227,11 +216,9 @@ async def anthropic_messages(
             response = await litellm.acompletion(**openai_data)  # type: ignore[arg-type]
 
             # Apply response policy
-            policy_result = await control_plane.apply_response_policy(response, metadata)  # type: ignore[arg-type]
-            if not policy_result.allowed:
-                raise HTTPException(status_code=403, detail=policy_result.reason or "Response blocked by policy")
+            response = await control_plane.apply_response_policy(response, metadata)  # type: ignore[arg-type]
 
-            anthropic_response = openai_to_anthropic_response(policy_result.value)
+            anthropic_response = openai_to_anthropic_response(response)
             return JSONResponse(anthropic_response)
     except Exception as exc:
         logger.error(f"Error in messages endpoint: {exc}")
