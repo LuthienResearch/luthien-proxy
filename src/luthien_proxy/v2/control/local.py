@@ -15,13 +15,15 @@ import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING, AsyncIterator, Optional
 
+from luthien_proxy.v2.activity import ActivityPublisher, PolicyEventEmitted
 from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 from luthien_proxy.v2.streaming import ChunkQueue
 
 if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
     from luthien_proxy.utils import db
-    from luthien_proxy.utils.redis_client import RedisClient
     from luthien_proxy.v2.policies.base import PolicyHandler
 
 logger = logging.getLogger(__name__)
@@ -44,7 +46,7 @@ class ControlPlaneLocal:
         self,
         policy: PolicyHandler,
         db_pool: Optional[db.DatabasePool] = None,
-        redis_client: Optional[RedisClient] = None,
+        redis_client: Optional[Redis] = None,
     ):
         """Initialize local control plane.
 
@@ -56,6 +58,9 @@ class ControlPlaneLocal:
         self.policy = policy
         self.db_pool = db_pool
         self.redis_client = redis_client
+
+        # Activity publisher for real-time events
+        self.activity_publisher = ActivityPublisher(redis_client)
 
         # In-memory event storage (keyed by call_id)
         self._events: dict[str, list[PolicyEvent]] = defaultdict(list)
@@ -77,8 +82,23 @@ class ControlPlaneLocal:
             extra={"call_id": event.call_id, "details": event.details},
         )
 
+        # Publish to activity stream
+        # Note: We create a task but don't await it to avoid blocking the policy
+        asyncio.create_task(
+            self.activity_publisher.publish(
+                PolicyEventEmitted(
+                    call_id=event.call_id,
+                    trace_id=None,  # TODO: Get from metadata
+                    policy_name=event.event_type.split("_")[0],  # Extract from event type
+                    event_name=event.event_type,
+                    description=event.summary,
+                    data=event.details,
+                    phase="request",  # TODO: Track current phase
+                )
+            )
+        )
+
         # TODO: Log to database
-        # TODO: Publish to Redis for UI
 
     async def process_request(
         self,

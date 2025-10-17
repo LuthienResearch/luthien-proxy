@@ -10,14 +10,25 @@ import json
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncIterator
 
 import litellm
 from fastapi import FastAPI, HTTPException, Request, Security
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
+from redis.asyncio import Redis
 
+from luthien_proxy.v2.activity.events import (
+    FinalRequestSent,
+    FinalResponseSent,
+    OriginalRequestReceived,
+    OriginalResponseReceived,
+)
+from luthien_proxy.v2.activity.publisher import ActivityPublisher
+from luthien_proxy.v2.activity.stream import stream_activity_events
 from luthien_proxy.v2.control.local import ControlPlaneLocal
 from luthien_proxy.v2.control.models import RequestMetadata
 from luthien_proxy.v2.llm.format_converters import (
@@ -38,24 +49,62 @@ API_KEY = os.getenv("PROXY_API_KEY", "")
 if not API_KEY:
     raise ValueError("PROXY_API_KEY environment variable required")
 
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+
 # Swap out the policy handler here!
 POLICY_HANDLER: PolicyHandler = NoOpPolicy()
+
+# === REDIS & CONTROL PLANE ===
+redis_client: Redis | None = None
+control_plane: ControlPlaneLocal = None  # type: ignore[assignment]
+activity_publisher: ActivityPublisher = None  # type: ignore[assignment]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan: startup and shutdown."""
+    global redis_client, control_plane, activity_publisher
+
+    # Startup
+    try:
+        redis_client = Redis.from_url(REDIS_URL, decode_responses=False)
+        await redis_client.ping()
+        logger.info(f"Connected to Redis at {REDIS_URL}")
+    except Exception as exc:
+        logger.warning(f"Failed to connect to Redis: {exc}. Activity stream will be disabled.")
+        redis_client = None
+
+    # Initialize activity publisher
+    activity_publisher = ActivityPublisher(redis_client)
+
+    # Initialize control plane with Redis
+    control_plane = ControlPlaneLocal(
+        policy=POLICY_HANDLER,
+        db_pool=None,  # TODO: Initialize database pool
+        redis_client=redis_client,
+    )
+    logger.info("Control plane initialized")
+
+    yield
+
+    # Shutdown
+    if redis_client:
+        await redis_client.close()
+        logger.info("Closed Redis connection")
+
 
 # === APP SETUP ===
 app = FastAPI(
     title="Luthien V2 Proxy Gateway",
     description="Multi-provider LLM proxy with integrated control plane",
     version="2.0.0",
+    lifespan=lifespan,
 )
 security = HTTPBearer()
 
-# === CONTROL PLANE ===
-# In Phase 1, this is local. In Phase 2, could be ControlPlaneHTTP
-control_plane = ControlPlaneLocal(
-    policy=POLICY_HANDLER,
-    db_pool=None,  # TODO: Initialize database pool
-    redis_client=None,  # TODO: Initialize Redis client
-)
+# Mount static files for activity monitor UI
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/v2/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 # === AUTH ===
@@ -139,6 +188,20 @@ async def openai_chat_completions(
         user_id=data.get("metadata", {}).get("user_id"),
     )
 
+    # Publish: original request received
+    await activity_publisher.publish(
+        OriginalRequestReceived(
+            call_id=metadata.call_id,
+            trace_id=metadata.trace_id,
+            endpoint="/v1/chat/completions",
+            model=data.get("model", "unknown"),
+            messages=data.get("messages", []),
+            stream=data.get("stream", False),
+            api_key_hash=metadata.api_key_hash,
+            metadata=data.get("metadata", {}),
+        )
+    )
+
     # Wrap request data in RequestMessage type
     request_msg = RequestMessage(**data)
 
@@ -148,6 +211,18 @@ async def openai_chat_completions(
     # Extract back to dict for LiteLLM
     data = request_msg.model_dump(exclude_none=True)
     is_streaming = data.get("stream", False)
+
+    # Publish: final request being sent to backend
+    await activity_publisher.publish(
+        FinalRequestSent(
+            call_id=metadata.call_id,
+            trace_id=metadata.trace_id,
+            model=data.get("model", "unknown"),
+            messages=data.get("messages", []),
+            stream=is_streaming,
+            modifications=[],  # TODO: Track modifications from policy
+        )
+    )
 
     # Identify any model-specific parameters to forward
     # (litellm will pass these through to the underlying provider)
@@ -165,9 +240,43 @@ async def openai_chat_completions(
         else:
             response = await litellm.acompletion(**data)  # type: ignore[arg-type]
 
+            # Publish: original response received from backend
+            response_dict = response.model_dump() if hasattr(response, "model_dump") else response  # type: ignore[union-attr]
+            choices = response_dict.get("choices", [])  # type: ignore[union-attr]
+            content = choices[0].get("message", {}).get("content", "") if choices else ""
+            usage = response_dict.get("usage")  # type: ignore[union-attr]
+            finish_reason = choices[0].get("finish_reason") if choices else None
+
+            await activity_publisher.publish(
+                OriginalResponseReceived(
+                    call_id=metadata.call_id,
+                    trace_id=metadata.trace_id,
+                    model=str(response_dict.get("model", "unknown")),  # type: ignore[union-attr]
+                    content=str(content),
+                    usage=usage,
+                    finish_reason=str(finish_reason) if finish_reason else None,
+                )
+            )
+
             # Wrap in FullResponse and apply policy
             full_response = FullResponse.from_model_response(response)
             full_response = await control_plane.process_full_response(full_response, metadata)
+
+            # Publish: final response being sent to client
+            final_dict = full_response.to_model_response().model_dump()
+            final_choices = final_dict.get("choices", [])
+            final_content = final_choices[0].get("message", {}).get("content", "") if final_choices else ""
+
+            await activity_publisher.publish(
+                FinalResponseSent(
+                    call_id=metadata.call_id,
+                    trace_id=metadata.trace_id,
+                    content=final_content,
+                    usage=final_dict.get("usage"),
+                    finish_reason=final_choices[0].get("finish_reason") if final_choices else None,
+                    modifications=[],  # TODO: Track modifications from policy
+                )
+            )
 
             # Extract and return
             return JSONResponse(full_response.to_model_response().model_dump())
@@ -250,8 +359,45 @@ async def root():
             "openai": "/v1/chat/completions",
             "anthropic": "/v1/messages",
             "health": "/health",
+            "activity_stream": "/v2/activity/stream",
         },
     }
+
+
+@app.get("/v2/activity/stream")
+async def activity_stream():
+    """Server-Sent Events stream of activity events.
+
+    This endpoint streams all V2 gateway activity in real-time for debugging.
+    Events include: request received, policy events, responses sent, etc.
+
+    Returns:
+        StreamingResponse with Server-Sent Events (text/event-stream)
+    """
+    if not redis_client:
+        raise HTTPException(
+            status_code=503,
+            detail="Activity stream unavailable (Redis not connected)",
+        )
+
+    return StreamingResponse(
+        stream_activity_events(redis_client),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
+
+
+@app.get("/v2/activity/monitor")
+async def activity_monitor():
+    """Activity monitor UI.
+
+    Returns the HTML page for viewing the activity stream in real-time.
+    """
+    return FileResponse(os.path.join(STATIC_DIR, "activity_monitor.html"))
 
 
 if __name__ == "__main__":
