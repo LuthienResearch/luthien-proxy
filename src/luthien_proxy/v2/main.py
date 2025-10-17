@@ -11,7 +11,6 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import AsyncIterator
 
 import litellm
@@ -30,7 +29,6 @@ from luthien_proxy.v2.activity.events import (
 from luthien_proxy.v2.activity.publisher import ActivityPublisher
 from luthien_proxy.v2.activity.stream import stream_activity_events
 from luthien_proxy.v2.control.local import ControlPlaneLocal
-from luthien_proxy.v2.control.models import RequestMetadata
 from luthien_proxy.v2.llm.format_converters import (
     anthropic_to_openai_request,
     openai_chunk_to_anthropic_chunk,
@@ -130,7 +128,7 @@ async def stream_llm_chunks(data: dict) -> AsyncIterator[StreamingResponseMessag
 
 async def stream_with_policy_control(
     data: dict,
-    metadata: RequestMetadata,
+    call_id: str,
     format_converter=None,
 ) -> AsyncIterator[str]:
     """Stream with reactive policy control.
@@ -143,7 +141,7 @@ async def stream_with_policy_control(
         llm_stream = stream_llm_chunks(data)
 
         # Process through control plane (applies policy via queue-based reactive processing)
-        policy_stream = control_plane.process_streaming_response(llm_stream, metadata)
+        policy_stream = control_plane.process_streaming_response(llm_stream, call_id)
 
         # Yield formatted chunks to client
         async for streaming_response in policy_stream:
@@ -179,25 +177,21 @@ async def openai_chat_completions(
     """OpenAI-compatible endpoint."""
     data = await request.json()
 
-    # Create metadata
-    metadata = RequestMetadata(
-        call_id=str(uuid.uuid4()),
-        timestamp=datetime.now(timezone.utc),
-        api_key_hash=hash_api_key(token),
-        trace_id=data.get("metadata", {}).get("trace_id"),
-        user_id=data.get("metadata", {}).get("user_id"),
-    )
+    # Generate call_id
+    call_id = str(uuid.uuid4())
+    trace_id = data.get("metadata", {}).get("trace_id")
+    api_key_hash = hash_api_key(token)
 
     # Publish: original request received
     await activity_publisher.publish(
         OriginalRequestReceived(
-            call_id=metadata.call_id,
-            trace_id=metadata.trace_id,
+            call_id=call_id,
+            trace_id=trace_id,
             endpoint="/v1/chat/completions",
             model=data.get("model", "unknown"),
             messages=data.get("messages", []),
             stream=data.get("stream", False),
-            api_key_hash=metadata.api_key_hash,
+            api_key_hash=api_key_hash,
             metadata=data.get("metadata", {}),
         )
     )
@@ -206,7 +200,7 @@ async def openai_chat_completions(
     request_msg = RequestMessage(**data)
 
     # Apply request policies
-    request_msg = await control_plane.process_request(request_msg, metadata)
+    request_msg = await control_plane.process_request(request_msg, call_id)
 
     # Extract back to dict for LiteLLM
     data = request_msg.model_dump(exclude_none=True)
@@ -215,8 +209,8 @@ async def openai_chat_completions(
     # Publish: final request being sent to backend
     await activity_publisher.publish(
         FinalRequestSent(
-            call_id=metadata.call_id,
-            trace_id=metadata.trace_id,
+            call_id=call_id,
+            trace_id=trace_id,
             model=data.get("model", "unknown"),
             messages=data.get("messages", []),
             stream=is_streaming,
@@ -234,7 +228,7 @@ async def openai_chat_completions(
     try:
         if is_streaming:
             return StreamingResponse(
-                stream_with_policy_control(data, metadata),
+                stream_with_policy_control(data, call_id),
                 media_type="text/event-stream",
             )
         else:
@@ -249,8 +243,8 @@ async def openai_chat_completions(
 
             await activity_publisher.publish(
                 OriginalResponseReceived(
-                    call_id=metadata.call_id,
-                    trace_id=metadata.trace_id,
+                    call_id=call_id,
+                    trace_id=trace_id,
                     model=str(response_dict.get("model", "unknown")),  # type: ignore[union-attr]
                     content=str(content),
                     usage=usage,
@@ -260,7 +254,7 @@ async def openai_chat_completions(
 
             # Wrap in FullResponse and apply policy
             full_response = FullResponse.from_model_response(response)
-            full_response = await control_plane.process_full_response(full_response, metadata)
+            full_response = await control_plane.process_full_response(full_response, call_id)
 
             # Publish: final response being sent to client
             final_dict = full_response.to_model_response().model_dump()
@@ -269,8 +263,8 @@ async def openai_chat_completions(
 
             await activity_publisher.publish(
                 FinalResponseSent(
-                    call_id=metadata.call_id,
-                    trace_id=metadata.trace_id,
+                    call_id=call_id,
+                    trace_id=trace_id,
                     content=final_content,
                     usage=final_dict.get("usage"),
                     finish_reason=final_choices[0].get("finish_reason") if final_choices else None,
@@ -294,18 +288,14 @@ async def anthropic_messages(
     anthropic_data = await request.json()
     openai_data = anthropic_to_openai_request(anthropic_data)
 
-    # Create metadata
-    metadata = RequestMetadata(
-        call_id=str(uuid.uuid4()),
-        timestamp=datetime.now(timezone.utc),
-        api_key_hash=hash_api_key(token),
-    )
+    # Generate call_id
+    call_id = str(uuid.uuid4())
 
     # Wrap request data in RequestMessage type
     request_msg = RequestMessage(**openai_data)
 
     # Apply request policies
-    request_msg = await control_plane.process_request(request_msg, metadata)
+    request_msg = await control_plane.process_request(request_msg, call_id)
 
     # Extract back to dict for LiteLLM
     openai_data = request_msg.model_dump(exclude_none=True)
@@ -323,7 +313,7 @@ async def anthropic_messages(
             return StreamingResponse(
                 stream_with_policy_control(
                     openai_data,
-                    metadata,
+                    call_id,
                     format_converter=openai_chunk_to_anthropic_chunk,
                 ),
                 media_type="text/event-stream",
@@ -333,7 +323,7 @@ async def anthropic_messages(
 
             # Wrap in FullResponse and apply policy
             full_response = FullResponse.from_model_response(response)
-            full_response = await control_plane.process_full_response(full_response, metadata)
+            full_response = await control_plane.process_full_response(full_response, call_id)
 
             # Convert to Anthropic format
             anthropic_response = openai_to_anthropic_response(full_response.to_model_response())

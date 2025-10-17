@@ -3,25 +3,20 @@
 
 """Tests for V2 ControlPlaneLocal."""
 
-from datetime import datetime, timezone
 from unittest.mock import Mock
 
 import pytest
 
 from luthien_proxy.v2.control.local import ControlPlaneLocal
-from luthien_proxy.v2.control.models import RequestMetadata, StreamingError
+from luthien_proxy.v2.control.models import StreamingError
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 from luthien_proxy.v2.policies.noop import NoOpPolicy
 
 
 @pytest.fixture
-def request_metadata():
-    """Create test request metadata."""
-    return RequestMetadata(
-        call_id="test-call-123",
-        timestamp=datetime.now(timezone.utc),
-        api_key_hash="test-hash",
-    )
+def call_id():
+    """Create test call ID."""
+    return "test-call-123"
 
 
 @pytest.fixture
@@ -35,29 +30,29 @@ class TestControlPlaneLocalRequests:
     """Test ControlPlaneLocal request processing."""
 
     @pytest.mark.asyncio
-    async def test_process_request(self, control_plane, request_metadata):
+    async def test_process_request(self, control_plane, call_id):
         """Test processing a request through control plane."""
         request = Request(model="gpt-4", messages=[{"role": "user", "content": "Hi"}])
 
-        result = await control_plane.process_request(request, request_metadata)
+        result = await control_plane.process_request(request, call_id)
 
         assert result.model == "gpt-4"
         assert result.messages == [{"role": "user", "content": "Hi"}]
 
     @pytest.mark.asyncio
-    async def test_process_request_sets_call_id(self, request_metadata):
+    async def test_process_request_sets_call_id(self, call_id):
         """Test that process_request sets call_id on policy."""
         policy = NoOpPolicy()
         control_plane = ControlPlaneLocal(policy=policy)
 
         request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
-        await control_plane.process_request(request, request_metadata)
+        await control_plane.process_request(request, call_id)
 
         # Policy should have the call_id set
         assert policy._call_id == "test-call-123"
 
     @pytest.mark.asyncio
-    async def test_process_request_error_handling(self, request_metadata):
+    async def test_process_request_error_handling(self, call_id):
         """Test that request processing errors are handled."""
         # Create a policy that raises an error
         policy = NoOpPolicy()
@@ -73,7 +68,7 @@ class TestControlPlaneLocalRequests:
 
         # Should re-raise the error
         with pytest.raises(ValueError, match="Policy failed"):
-            await control_plane.process_request(request, request_metadata)
+            await control_plane.process_request(request, call_id)
 
         # Should have created an error event
         events = await control_plane.get_events("test-call-123")
@@ -86,31 +81,31 @@ class TestControlPlaneLocalResponses:
     """Test ControlPlaneLocal response processing."""
 
     @pytest.mark.asyncio
-    async def test_process_full_response(self, control_plane, request_metadata):
+    async def test_process_full_response(self, control_plane, call_id):
         """Test processing a full response."""
         mock_response = Mock()
         mock_response.id = "resp-123"
         full_response = FullResponse(response=mock_response)
 
-        result = await control_plane.process_full_response(full_response, request_metadata)
+        result = await control_plane.process_full_response(full_response, call_id)
 
         assert result.response.id == "resp-123"
 
     @pytest.mark.asyncio
-    async def test_process_full_response_sets_call_id(self, request_metadata):
+    async def test_process_full_response_sets_call_id(self, call_id):
         """Test that process_full_response sets call_id on policy."""
         policy = NoOpPolicy()
         control_plane = ControlPlaneLocal(policy=policy)
 
         mock_response = Mock()
         full_response = FullResponse(response=mock_response)
-        await control_plane.process_full_response(full_response, request_metadata)
+        await control_plane.process_full_response(full_response, call_id)
 
         # Policy should have the call_id set
         assert policy._call_id == "test-call-123"
 
     @pytest.mark.asyncio
-    async def test_process_full_response_error_returns_original(self, request_metadata):
+    async def test_process_full_response_error_returns_original(self, call_id):
         """Test that response processing errors return original response."""
         # Create a policy that raises an error
         policy = NoOpPolicy()
@@ -127,7 +122,7 @@ class TestControlPlaneLocalResponses:
         full_response = FullResponse(response=mock_response)
 
         # Should return original response (not raise)
-        result = await control_plane.process_full_response(full_response, request_metadata)
+        result = await control_plane.process_full_response(full_response, call_id)
         assert result.response.id == "resp-456"
 
         # Should have created an error event
@@ -141,7 +136,7 @@ class TestControlPlaneLocalStreaming:
     """Test ControlPlaneLocal streaming response processing."""
 
     @pytest.mark.asyncio
-    async def test_process_streaming_response(self, control_plane, request_metadata):
+    async def test_process_streaming_response(self, control_plane, call_id):
         """Test processing streaming responses."""
 
         # Create test chunks
@@ -153,9 +148,7 @@ class TestControlPlaneLocalStreaming:
 
         # Process through control plane with short timeout for tests
         output = []
-        async for chunk in control_plane.process_streaming_response(
-            mock_stream(), request_metadata, timeout_seconds=5.0
-        ):
+        async for chunk in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=5.0):
             output.append(chunk)
 
         # Should have all 3 chunks
@@ -165,7 +158,7 @@ class TestControlPlaneLocalStreaming:
         assert output[2].chunk.id == "chunk-2"
 
     @pytest.mark.asyncio
-    async def test_streaming_emits_events(self, control_plane, request_metadata):
+    async def test_streaming_emits_events(self, control_plane, call_id):
         """Test that streaming emits start/complete events."""
 
         async def mock_stream():
@@ -176,9 +169,7 @@ class TestControlPlaneLocalStreaming:
 
         # Process stream
         output = []
-        async for chunk in control_plane.process_streaming_response(
-            mock_stream(), request_metadata, timeout_seconds=5.0
-        ):
+        async for chunk in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=5.0):
             output.append(chunk)
 
         # Check events
@@ -194,7 +185,7 @@ class TestControlPlaneLocalStreaming:
         assert events[1].details["chunk_count"] == 2
 
     @pytest.mark.asyncio
-    async def test_streaming_with_empty_stream(self, control_plane, request_metadata):
+    async def test_streaming_with_empty_stream(self, control_plane, call_id):
         """Test streaming with empty input."""
 
         async def empty_stream():
@@ -203,9 +194,7 @@ class TestControlPlaneLocalStreaming:
 
         # Process empty stream
         output = []
-        async for chunk in control_plane.process_streaming_response(
-            empty_stream(), request_metadata, timeout_seconds=5.0
-        ):
+        async for chunk in control_plane.process_streaming_response(empty_stream(), call_id, timeout_seconds=5.0):
             output.append(chunk)
 
         assert len(output) == 0
@@ -218,7 +207,7 @@ class TestControlPlaneLocalStreaming:
         assert events[1].details["chunk_count"] == 0
 
     @pytest.mark.asyncio
-    async def test_streaming_error_handling(self, request_metadata):
+    async def test_streaming_error_handling(self, call_id):
         """Test that streaming errors are handled."""
         policy = NoOpPolicy()
 
@@ -236,9 +225,7 @@ class TestControlPlaneLocalStreaming:
 
         # Should raise StreamingError wrapping the original error
         with pytest.raises(StreamingError, match="Streaming failed after 0 chunks"):
-            async for _ in control_plane.process_streaming_response(
-                mock_stream(), request_metadata, timeout_seconds=5.0
-            ):
+            async for _ in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=5.0):
                 pass
 
         # Should have error event
@@ -246,7 +233,7 @@ class TestControlPlaneLocalStreaming:
         assert any(e.event_type == "stream_error" for e in events)
 
     @pytest.mark.asyncio
-    async def test_streaming_concurrent_operations(self, control_plane, request_metadata):
+    async def test_streaming_concurrent_operations(self, control_plane, call_id):
         """Test that streaming handles concurrent producer/consumer correctly."""
         import asyncio
 
@@ -260,9 +247,7 @@ class TestControlPlaneLocalStreaming:
 
         # Process stream
         output = []
-        async for chunk in control_plane.process_streaming_response(
-            slow_stream(), request_metadata, timeout_seconds=5.0
-        ):
+        async for chunk in control_plane.process_streaming_response(slow_stream(), call_id, timeout_seconds=5.0):
             output.append(chunk)
 
         # Should have all chunks in order
@@ -271,7 +256,7 @@ class TestControlPlaneLocalStreaming:
             assert chunk.chunk.id == f"chunk-{i}"
 
     @pytest.mark.asyncio
-    async def test_streaming_timeout(self, request_metadata):
+    async def test_streaming_timeout(self, call_id):
         """Test that streaming times out when policy hangs."""
         policy = NoOpPolicy()
 
@@ -292,16 +277,14 @@ class TestControlPlaneLocalStreaming:
 
         # Should timeout after 2 seconds
         with pytest.raises(StreamingError, match="Streaming failed after 0 chunks"):
-            async for _ in control_plane.process_streaming_response(
-                mock_stream(), request_metadata, timeout_seconds=2.0
-            ):
+            async for _ in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=2.0):
                 pass
 
         # Verify it was actually a timeout (check the cause)
         # The __cause__ should be the original timeout error
 
     @pytest.mark.asyncio
-    async def test_streaming_keepalive_prevents_timeout(self, request_metadata):
+    async def test_streaming_keepalive_prevents_timeout(self, call_id):
         """Test that keepalive signals prevent timeout."""
         policy = NoOpPolicy()
 
@@ -337,9 +320,7 @@ class TestControlPlaneLocalStreaming:
 
         # Should NOT timeout because of keepalives (timeout is 2s, but we send keepalive every 1.5s)
         output = []
-        async for chunk in control_plane.process_streaming_response(
-            mock_stream(), request_metadata, timeout_seconds=2.0
-        ):
+        async for chunk in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=2.0):
             output.append(chunk)
 
         assert len(output) == 1
@@ -355,7 +336,7 @@ class TestControlPlaneLocalEvents:
         assert control_plane.policy._event_handler is not None
 
     @pytest.mark.asyncio
-    async def test_get_events_for_call(self, request_metadata):
+    async def test_get_events_for_call(self, call_id):
         """Test retrieving events for a specific call."""
         from luthien_proxy.v2.policies.base import DefaultPolicyHandler
 
@@ -369,7 +350,7 @@ class TestControlPlaneLocalEvents:
         control_plane = ControlPlaneLocal(policy=policy)
 
         request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
-        await control_plane.process_request(request, request_metadata)
+        await control_plane.process_request(request, call_id)
 
         # Get events
         events = await control_plane.get_events("test-call-123")
@@ -391,20 +372,12 @@ class TestControlPlaneLocalEvents:
         control_plane = ControlPlaneLocal(policy=policy)
 
         # Process two different calls
-        metadata1 = RequestMetadata(
-            call_id="call-1",
-            timestamp=datetime.now(timezone.utc),
-            api_key_hash="hash1",
-        )
-        metadata2 = RequestMetadata(
-            call_id="call-2",
-            timestamp=datetime.now(timezone.utc),
-            api_key_hash="hash2",
-        )
+        call_id_1 = "call-1"
+        call_id_2 = "call-2"
 
         request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
-        await control_plane.process_request(request, metadata1)
-        await control_plane.process_request(request, metadata2)
+        await control_plane.process_request(request, call_id_1)
+        await control_plane.process_request(request, call_id_2)
 
         # Each call should have its own events
         events1 = await control_plane.get_events("call-1")

@@ -5,12 +5,11 @@
 
 from .interface import ControlPlaneService
 from .local import ControlPlaneLocal
-from .models import PolicyEvent, RequestMetadata, StreamingContext
+from .models import PolicyEvent, StreamingContext
 
 __all__ = [
     "ControlPlaneService",
     "ControlPlaneLocal",
-    "RequestMetadata",
     "PolicyEvent",
     "StreamingContext",
 ]

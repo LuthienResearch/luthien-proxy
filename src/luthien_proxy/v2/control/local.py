@@ -17,7 +17,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, AsyncIterator, Optional
 
 from luthien_proxy.v2.activity import ActivityPublisher, PolicyEventEmitted
-from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata, StreamingError
+from luthien_proxy.v2.control.models import PolicyEvent, StreamingError
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 from luthien_proxy.v2.streaming import ChunkQueue
 
@@ -93,6 +93,24 @@ class ControlPlaneLocal:
         # Set up event handler for the policy
         self.policy.set_event_handler(self._handle_policy_event)
 
+    def _emit_event(
+        self,
+        event_type: str,
+        call_id: str,
+        summary: str,
+        details: dict | None = None,
+        severity: str = "info",
+    ) -> None:
+        """Helper to create and emit a policy event."""
+        event = PolicyEvent(
+            event_type=event_type,
+            call_id=call_id,
+            summary=summary,
+            details=details or {},
+            severity=severity,
+        )
+        self._handle_policy_event(event)
+
     def _handle_policy_event(self, event: PolicyEvent) -> None:
         """Handle a policy event emission.
 
@@ -128,11 +146,11 @@ class ControlPlaneLocal:
     async def process_request(
         self,
         request: Request,
-        metadata: RequestMetadata,
+        call_id: str,
     ) -> Request:
         """Apply policies to incoming request before LLM call."""
         # Set call ID for event emission
-        self.policy.set_call_id(metadata.call_id)
+        self.policy.set_call_id(call_id)
 
         try:
             # Apply policy transformation
@@ -142,15 +160,14 @@ class ControlPlaneLocal:
         except Exception as exc:
             logger.error(f"Policy execution failed for request: {exc}")
 
-            # Create an error event
-            error_event = PolicyEvent(
+            # Emit error event
+            self._emit_event(
                 event_type="request_policy_error",
-                call_id=metadata.call_id,
+                call_id=call_id,
                 summary=f"Policy failed to process request: {exc}",
                 details={"error": str(exc), "error_type": type(exc).__name__},
                 severity="error",
             )
-            self._handle_policy_event(error_event)
 
             # Re-raise to let gateway handle it
             raise
@@ -158,11 +175,11 @@ class ControlPlaneLocal:
     async def process_full_response(
         self,
         response: FullResponse,
-        metadata: RequestMetadata,
+        call_id: str,
     ) -> FullResponse:
         """Apply policies to complete response after LLM call."""
         # Set call ID for event emission
-        self.policy.set_call_id(metadata.call_id)
+        self.policy.set_call_id(call_id)
 
         try:
             # Apply policy transformation
@@ -172,15 +189,14 @@ class ControlPlaneLocal:
         except Exception as exc:
             logger.error(f"Policy execution failed for response: {exc}")
 
-            # Create an error event
-            error_event = PolicyEvent(
+            # Emit error event
+            self._emit_event(
                 event_type="response_policy_error",
-                call_id=metadata.call_id,
+                call_id=call_id,
                 summary=f"Policy failed to process response: {exc}",
                 details={"error": str(exc), "error_type": type(exc).__name__},
                 severity="error",
             )
-            self._handle_policy_event(error_event)
 
             # Return original response (don't block response on policy error)
             return response
@@ -188,7 +204,7 @@ class ControlPlaneLocal:
     async def process_streaming_response(
         self,
         incoming: AsyncIterator[StreamingResponse],
-        metadata: RequestMetadata,
+        call_id: str,
         timeout_seconds: float = 30.0,
     ) -> AsyncIterator[StreamingResponse]:
         """Apply policies to streaming responses with queue-based reactive processing.
@@ -204,22 +220,14 @@ class ControlPlaneLocal:
 
         Args:
             incoming: Async iterator of streaming responses from LLM
-            metadata: Request metadata including call_id
+            call_id: Unique identifier for this request/response cycle
             timeout_seconds: Maximum seconds without activity before timing out (default: 30)
         """
         # Set call ID for event emission
-        self.policy.set_call_id(metadata.call_id)
+        self.policy.set_call_id(call_id)
 
         # Emit stream start event
-        self._handle_policy_event(
-            PolicyEvent(
-                event_type="stream_start",
-                call_id=metadata.call_id,
-                summary="Started processing stream",
-                details={},
-                severity="info",
-            )
-        )
+        self._emit_event("stream_start", call_id, "Started processing stream")
 
         # Create queues for policy communication
         incoming_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
@@ -259,32 +267,23 @@ class ControlPlaneLocal:
                 # TaskGroup waits for all tasks to complete when exiting this block
 
             # Success - emit completion event
-            self._handle_policy_event(
-                PolicyEvent(
-                    event_type="stream_complete",
-                    call_id=metadata.call_id,
-                    summary=f"Completed stream with {chunk_count} chunks",
-                    details={"chunk_count": chunk_count},
-                    severity="info",
-                )
+            self._emit_event(
+                "stream_complete",
+                call_id,
+                f"Completed stream with {chunk_count} chunks",
+                {"chunk_count": chunk_count},
             )
 
         except BaseException as exc:
             # BaseException catches both regular exceptions and ExceptionGroup from TaskGroup
             logger.error(f"Streaming policy error: {exc}")
 
-            self._handle_policy_event(
-                PolicyEvent(
-                    event_type="stream_error",
-                    call_id=metadata.call_id,
-                    summary=f"Error during streaming after {chunk_count} chunks: {exc}",
-                    details={
-                        "chunk_count": chunk_count,
-                        "error": str(exc),
-                        "error_type": type(exc).__name__,
-                    },
-                    severity="error",
-                )
+            self._emit_event(
+                "stream_error",
+                call_id,
+                f"Error during streaming after {chunk_count} chunks: {exc}",
+                {"chunk_count": chunk_count, "error": str(exc), "error_type": type(exc).__name__},
+                "error",
             )
 
             # TaskGroup automatically cancels all tasks on exception

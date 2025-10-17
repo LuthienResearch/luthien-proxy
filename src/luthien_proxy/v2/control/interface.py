@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, AsyncIterator, Protocol
 
 if TYPE_CHECKING:
-    from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata
+    from luthien_proxy.v2.control.models import PolicyEvent
     from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 
 
@@ -37,13 +37,13 @@ class ControlPlaneService(Protocol):
     async def process_request(
         self,
         request: Request,
-        metadata: RequestMetadata,
+        call_id: str,
     ) -> Request:
         """Apply policies to incoming request before LLM call.
 
         Args:
             request: The request to process
-            metadata: Request metadata (call_id, user_id, etc.)
+            call_id: Unique identifier for this request/response cycle
 
         Returns:
             Transformed request
@@ -56,13 +56,13 @@ class ControlPlaneService(Protocol):
     async def process_full_response(
         self,
         response: FullResponse,
-        metadata: RequestMetadata,
+        call_id: str,
     ) -> FullResponse:
         """Apply policies to complete response after LLM call.
 
         Args:
             response: The full response to process
-            metadata: Request metadata
+            call_id: Unique identifier for this request/response cycle
 
         Returns:
             Potentially transformed response
@@ -75,7 +75,7 @@ class ControlPlaneService(Protocol):
     async def process_streaming_response(
         self,
         incoming: AsyncIterator[StreamingResponse],
-        metadata: RequestMetadata,
+        call_id: str,
     ) -> AsyncIterator[StreamingResponse]:
         """Apply policies to streaming responses with reactive processing.
 
@@ -88,7 +88,7 @@ class ControlPlaneService(Protocol):
 
         Args:
             incoming: Async iterator of chunks from LLM
-            metadata: Request metadata
+            call_id: Unique identifier for this request/response cycle
 
         Yields:
             Outgoing chunks for the client

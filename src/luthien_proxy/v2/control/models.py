@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -18,21 +18,6 @@ class StreamingError(Exception):
     """
 
     pass
-
-
-class RequestMetadata(BaseModel):
-    """Metadata about the request context.
-
-    This is passed alongside the request data to give the control plane
-    context about who is making the request, when, and how to track it.
-    """
-
-    call_id: str
-    timestamp: datetime
-    api_key_hash: str
-    trace_id: Optional[str] = None
-    user_id: Optional[str] = None
-    extra: dict[str, Any] = Field(default_factory=dict)
 
 
 class PolicyEvent(BaseModel):
@@ -70,7 +55,6 @@ class StreamingContext(BaseModel):
 
 __all__ = [
     "StreamingError",
-    "RequestMetadata",
     "PolicyEvent",
     "StreamingContext",
 ]
