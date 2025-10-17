@@ -11,6 +11,15 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
+class StreamingError(Exception):
+    """Error occurred during streaming response processing.
+
+    The original exception(s) are available via __cause__.
+    """
+
+    pass
+
+
 class RequestMetadata(BaseModel):
     """Metadata about the request context.
 
@@ -60,6 +69,7 @@ class StreamingContext(BaseModel):
 
 
 __all__ = [
+    "StreamingError",
     "RequestMetadata",
     "PolicyEvent",
     "StreamingContext",

@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import pytest
 
 from luthien_proxy.v2.control.local import ControlPlaneLocal
-from luthien_proxy.v2.control.models import RequestMetadata
+from luthien_proxy.v2.control.models import RequestMetadata, StreamingError
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 from luthien_proxy.v2.policies.noop import NoOpPolicy
 
@@ -228,8 +228,8 @@ class TestControlPlaneLocalStreaming:
             mock_chunk = Mock()
             yield StreamingResponse(chunk=mock_chunk)
 
-        # Should raise the error
-        with pytest.raises(ValueError, match="Streaming failed"):
+        # Should raise StreamingError wrapping the original error
+        with pytest.raises(StreamingError, match="Streaming failed after 0 chunks"):
             async for _ in control_plane.process_streaming_response(mock_stream(), request_metadata):
                 pass
 

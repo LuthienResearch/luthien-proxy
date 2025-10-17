@@ -16,7 +16,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, AsyncIterator, Optional
 
 from luthien_proxy.v2.activity import ActivityPublisher, PolicyEventEmitted
-from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata
+from luthien_proxy.v2.control.models import PolicyEvent, RequestMetadata, StreamingError
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 from luthien_proxy.v2.streaming import ChunkQueue
 
@@ -169,134 +169,98 @@ class ControlPlaneLocal:
 
         This bridges the policy's queue-based interface with the gateway's async iterator:
         1. Creates incoming/outgoing ChunkQueues
-        2. Launches policy's reactive task as background task
-        3. Feeds chunks from LLM into incoming queue
-        4. Yields chunks from outgoing queue to client
+        2. Launches background tasks to feed incoming queue and run policy
+        3. Yields chunks from outgoing queue to client
+
+        The policy's finally block ensures the outgoing queue is always closed,
+        allowing this method to drain the queue and detect completion naturally.
         """
         # Set call ID for event emission
         self.policy.set_call_id(metadata.call_id)
 
         # Emit stream start event
-        start_event = PolicyEvent(
-            event_type="stream_start",
-            call_id=metadata.call_id,
-            summary="Started processing stream",
-            details={},
-            severity="info",
+        self._handle_policy_event(
+            PolicyEvent(
+                event_type="stream_start",
+                call_id=metadata.call_id,
+                summary="Started processing stream",
+                details={},
+                severity="info",
+            )
         )
-        self._handle_policy_event(start_event)
 
         # Create queues for policy communication
         incoming_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
         outgoing_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
 
         chunk_count = 0
-        policy_task = None
-        feed_task = None
 
         try:
-            # Launch policy's reactive task in background
-            policy_task = asyncio.create_task(self.policy.process_streaming_response(incoming_queue, outgoing_queue))
+            async with asyncio.TaskGroup() as tg:
+                # Launch background tasks
+                tg.create_task(self._feed_incoming_chunks(incoming, incoming_queue))
+                tg.create_task(self.policy.process_streaming_response(incoming_queue, outgoing_queue))
 
-            # Feed incoming chunks to policy while yielding outgoing chunks
-            # We need to run both producer (feeding incoming) and consumer (yielding outgoing) concurrently
+                # Drain outgoing queue until policy closes it
+                while True:
+                    batch = await outgoing_queue.get_available()
+                    if not batch:  # Queue closed by policy's finally block
+                        break
 
-            async def feed_incoming():
-                """Feed chunks from LLM into incoming queue."""
-                try:
-                    async for chunk in incoming:
-                        await incoming_queue.put(chunk)
-                finally:
-                    await incoming_queue.close()
+                    for chunk in batch:
+                        chunk_count += 1
+                        yield chunk
 
-            # Start feeding task
-            feed_task = asyncio.create_task(feed_incoming())
+                # TaskGroup waits for both tasks to complete when exiting this block
 
-            # Yield chunks from outgoing queue while monitoring policy task
-            while True:
-                # Race between getting chunks and policy task completion
-                get_task = asyncio.create_task(outgoing_queue.get_available())
-                done, pending = await asyncio.wait([get_task, policy_task], return_when=asyncio.FIRST_COMPLETED)
-
-                # Check if policy_task completed (possibly with error)
-                if policy_task in done:
-                    # Policy task finished - check for exceptions
-                    try:
-                        await policy_task
-                    except Exception:
-                        # Cancel the get_task if it's still pending
-                        if get_task in pending:
-                            get_task.cancel()
-                            try:
-                                await get_task
-                            except asyncio.CancelledError:
-                                pass
-                        raise  # Re-raise policy exception
-
-                    # Policy completed successfully - get final batch if any
-                    if get_task in pending:
-                        batch = await get_task
-                    else:
-                        batch = get_task.result()
-
-                    if batch:
-                        for chunk in batch:
-                            chunk_count += 1
-                            yield chunk
-                    break
-
-                # get_task completed first - yield the batch
-                batch = get_task.result()
-                if not batch:  # Stream ended
-                    break
-
-                for chunk in batch:
-                    chunk_count += 1
-                    yield chunk
-
-            # Wait for feed task to complete
-            await feed_task
-
-            # Emit stream complete event
-            complete_event = PolicyEvent(
-                event_type="stream_complete",
-                call_id=metadata.call_id,
-                summary=f"Completed stream with {chunk_count} chunks",
-                details={"chunk_count": chunk_count},
-                severity="info",
+            # Success - emit completion event
+            self._handle_policy_event(
+                PolicyEvent(
+                    event_type="stream_complete",
+                    call_id=metadata.call_id,
+                    summary=f"Completed stream with {chunk_count} chunks",
+                    details={"chunk_count": chunk_count},
+                    severity="info",
+                )
             )
-            self._handle_policy_event(complete_event)
 
-        except Exception as exc:
+        except BaseException as exc:
+            # BaseException catches both regular exceptions and ExceptionGroup from TaskGroup
             logger.error(f"Streaming policy error: {exc}")
 
-            error_event = PolicyEvent(
-                event_type="stream_error",
-                call_id=metadata.call_id,
-                summary=f"Error during streaming after {chunk_count} chunks: {exc}",
-                details={"chunk_count": chunk_count, "error": str(exc), "error_type": type(exc).__name__},
-                severity="error",
+            self._handle_policy_event(
+                PolicyEvent(
+                    event_type="stream_error",
+                    call_id=metadata.call_id,
+                    summary=f"Error during streaming after {chunk_count} chunks: {exc}",
+                    details={
+                        "chunk_count": chunk_count,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    },
+                    severity="error",
+                )
             )
-            self._handle_policy_event(error_event)
 
-            # Cancel policy task if still running
-            if policy_task and not policy_task.done():
-                policy_task.cancel()
-                try:
-                    await policy_task
-                except asyncio.CancelledError:
-                    pass
+            # TaskGroup automatically cancels all tasks on exception
+            # Always wrap in StreamingError for consistent interface
+            raise StreamingError(f"Streaming failed after {chunk_count} chunks") from exc
 
-            # Cancel feed task if still running (it might be blocked waiting to feed chunks)
-            if feed_task and not feed_task.done():
-                feed_task.cancel()
-                try:
-                    await feed_task
-                except asyncio.CancelledError:
-                    pass
+    async def _feed_incoming_chunks(
+        self,
+        source: AsyncIterator[StreamingResponse],
+        queue: ChunkQueue[StreamingResponse],
+    ) -> None:
+        """Feed chunks from source iterator into queue, then close it.
 
-            # Re-raise - let gateway handle it
-            raise
+        This runs as a background task, continuously pulling from the source
+        iterator and pushing into the queue until the source is exhausted.
+        """
+        try:
+            async for chunk in source:
+                await queue.put(chunk)
+        finally:
+            await queue.close()
 
     async def get_events(self, call_id: str) -> list[PolicyEvent]:
         """Get all events for a specific call."""
