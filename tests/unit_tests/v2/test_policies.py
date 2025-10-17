@@ -1,5 +1,5 @@
 # ABOUTME: Unit tests for V2 policy handlers
-# ABOUTME: Tests PolicyHandler base class and NoOpPolicy implementation
+# ABOUTME: Tests NoOpPolicy implementation
 
 """Tests for V2 policy handlers."""
 
@@ -7,124 +7,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from luthien_proxy.v2.control.models import PolicyEvent
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
-from luthien_proxy.v2.policies.base import DefaultPolicyHandler
 from luthien_proxy.v2.policies.noop import NoOpPolicy
 from luthien_proxy.v2.streaming import ChunkQueue
-
-
-class TestDefaultPolicyHandler:
-    """Test DefaultPolicyHandler base implementation."""
-
-    @pytest.mark.asyncio
-    async def test_default_process_request_passthrough(self):
-        """Test that default process_request passes through unchanged."""
-        policy = DefaultPolicyHandler()
-        request = Request(model="gpt-4", messages=[{"role": "user", "content": "Hi"}])
-
-        result = await policy.process_request(request)
-
-        assert result == request
-        assert result.model == "gpt-4"
-        assert result.messages == [{"role": "user", "content": "Hi"}]
-
-    @pytest.mark.asyncio
-    async def test_default_process_full_response_passthrough(self):
-        """Test that default process_full_response passes through unchanged."""
-        policy = DefaultPolicyHandler(verbose=False)  # Disable verbose to avoid Mock attribute access
-        mock_response = Mock()
-        mock_response.id = "resp-123"
-        full_response = FullResponse(response=mock_response)
-
-        result = await policy.process_full_response(full_response)
-
-        assert result == full_response
-        assert result.response.id == "resp-123"
-
-    @pytest.mark.asyncio
-    async def test_default_streaming_passthrough(self):
-        """Test that default streaming passes all chunks through."""
-        policy = DefaultPolicyHandler(verbose=False)  # Disable verbose
-        policy.forbidden_words = []  # Disable filtering
-        incoming: ChunkQueue[StreamingResponse] = ChunkQueue()
-        outgoing: ChunkQueue[StreamingResponse] = ChunkQueue()
-
-        # Create some test chunks with proper delta.content structure
-        chunks = []
-        for i in range(3):
-            mock_chunk = Mock()
-            mock_chunk.id = f"chunk-{i}"
-            mock_chunk.choices = [Mock(delta=Mock(content=f"word{i}"))]
-            chunks.append(StreamingResponse(chunk=mock_chunk))
-
-        # Feed chunks and run policy
-        async def feed_chunks():
-            for chunk in chunks:
-                await incoming.put(chunk)
-            await incoming.close()
-
-        # Run policy processor
-        import asyncio
-
-        feed_task = asyncio.create_task(feed_chunks())
-        policy_task = asyncio.create_task(policy.process_streaming_response(incoming, outgoing))
-
-        # Collect output
-        output = []
-        while True:
-            batch = await outgoing.get_available()
-            if not batch:
-                break
-            output.extend(batch)
-
-        await feed_task
-        await policy_task
-
-        # Should have all 3 chunks
-        assert len(output) == 3
-        assert output[0].chunk.id == "chunk-0"
-        assert output[1].chunk.id == "chunk-1"
-        assert output[2].chunk.id == "chunk-2"
-
-    def test_set_event_handler(self):
-        """Test setting event handler."""
-        policy = DefaultPolicyHandler()
-        events = []
-
-        def handler(event: PolicyEvent):
-            events.append(event)
-
-        policy.set_event_handler(handler)
-
-        # Emit an event
-        policy.set_call_id("test-call-123")
-        policy.emit_event("test_event", "Test summary", {"key": "value"})
-
-        assert len(events) == 1
-        assert events[0].event_type == "test_event"
-        assert events[0].call_id == "test-call-123"
-        assert events[0].summary == "Test summary"
-        assert events[0].details["key"] == "value"
-
-    def test_emit_event_without_handler(self):
-        """Test that emit_event works without handler (no-op)."""
-        policy = DefaultPolicyHandler()
-        policy.set_call_id("test-call-456")
-
-        # Should not raise
-        policy.emit_event("test", "Test", {})
-
-    def test_set_call_id(self):
-        """Test setting call ID for event emission."""
-        policy = DefaultPolicyHandler()
-        events = []
-
-        policy.set_event_handler(lambda e: events.append(e))
-        policy.set_call_id("call-789")
-        policy.emit_event("test", "Test", {})
-
-        assert events[0].call_id == "call-789"
 
 
 class TestNoOpPolicy:

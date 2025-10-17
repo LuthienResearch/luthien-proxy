@@ -338,13 +338,27 @@ class TestControlPlaneLocalEvents:
     @pytest.mark.asyncio
     async def test_get_events_for_call(self, call_id):
         """Test retrieving events for a specific call."""
-        from luthien_proxy.v2.policies.base import DefaultPolicyHandler
+        from luthien_proxy.v2.policies.base import PolicyHandler
 
         # Create a policy that emits events
-        class EventEmittingPolicy(DefaultPolicyHandler):
+        class EventEmittingPolicy(PolicyHandler):
             async def process_request(self, request):
                 self.emit_event("custom_event", "Custom event occurred", {"data": "test"})
                 return request
+
+            async def process_full_response(self, response):
+                return response
+
+            async def process_streaming_response(self, incoming, outgoing, keepalive=None):
+                try:
+                    while True:
+                        batch = await incoming.get_available()
+                        if not batch:
+                            break
+                        for chunk in batch:
+                            await outgoing.put(chunk)
+                finally:
+                    await outgoing.close()
 
         policy = EventEmittingPolicy()
         control_plane = ControlPlaneLocal(policy=policy)
@@ -361,12 +375,26 @@ class TestControlPlaneLocalEvents:
     @pytest.mark.asyncio
     async def test_events_for_different_calls(self):
         """Test that events are tracked per call_id."""
-        from luthien_proxy.v2.policies.base import DefaultPolicyHandler
+        from luthien_proxy.v2.policies.base import PolicyHandler
 
-        class EventEmittingPolicy(DefaultPolicyHandler):
+        class EventEmittingPolicy(PolicyHandler):
             async def process_request(self, request):
                 self.emit_event("request_event", "Request processed")
                 return request
+
+            async def process_full_response(self, response):
+                return response
+
+            async def process_streaming_response(self, incoming, outgoing, keepalive=None):
+                try:
+                    while True:
+                        batch = await incoming.get_available()
+                        if not batch:
+                            break
+                        for chunk in batch:
+                            await outgoing.put(chunk)
+                finally:
+                    await outgoing.close()
 
         policy = EventEmittingPolicy()
         control_plane = ControlPlaneLocal(policy=policy)

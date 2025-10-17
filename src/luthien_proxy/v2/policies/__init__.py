@@ -3,11 +3,10 @@
 
 """Policy handlers for V2 architecture."""
 
-from .base import DefaultPolicyHandler, PolicyHandler
+from .base import PolicyHandler
 from .noop import NoOpPolicy
 
 __all__ = [
     "PolicyHandler",
-    "DefaultPolicyHandler",
     "NoOpPolicy",
 ]
