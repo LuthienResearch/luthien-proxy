@@ -98,7 +98,6 @@ class ControlPlaneLocal:
         event_type: str,
         call_id: str,
         summary: str,
-        details: dict | None = None,
         severity: str = "info",
     ) -> None:
         """Helper to create and emit a policy event."""
@@ -106,7 +105,6 @@ class ControlPlaneLocal:
             event_type=event_type,
             call_id=call_id,
             summary=summary,
-            details=details or {},
             severity=severity,
         )
         self._handle_policy_event(event)
@@ -164,8 +162,7 @@ class ControlPlaneLocal:
             self._emit_event(
                 event_type="request_policy_error",
                 call_id=call_id,
-                summary=f"Policy failed to process request: {exc}",
-                details={"error": str(exc), "error_type": type(exc).__name__},
+                summary=f"Policy failed to process request: {exc}; ErrorType: {type(exc).__name__}",
                 severity="error",
             )
 
@@ -193,8 +190,7 @@ class ControlPlaneLocal:
             self._emit_event(
                 event_type="response_policy_error",
                 call_id=call_id,
-                summary=f"Policy failed to process response: {exc}",
-                details={"error": str(exc), "error_type": type(exc).__name__},
+                summary=f"Policy failed to process response: {exc}; ErrorType: {type(exc).__name__}",
                 severity="error",
             )
 
@@ -215,27 +211,19 @@ class ControlPlaneLocal:
         3. Monitors for timeout (no activity for timeout_seconds)
         4. Yields chunks from outgoing queue to client
 
-        The policy's finally block ensures the outgoing queue is always closed,
-        allowing this method to drain the queue and detect completion naturally.
-
         Args:
             incoming: Async iterator of streaming responses from LLM
             call_id: Unique identifier for this request/response cycle
             timeout_seconds: Maximum seconds without activity before timing out (default: 30)
         """
-        # Set call ID for event emission
         self.policy.set_call_id(call_id)
 
-        # Emit stream start event
         self._emit_event("stream_start", call_id, "Started processing stream")
 
-        # Create queues for policy communication
         incoming_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
         outgoing_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
 
-        # Create timeout tracker
         timeout_tracker = TimeoutTracker(timeout_seconds)
-
         chunk_count = 0
 
         try:
@@ -252,7 +240,7 @@ class ControlPlaneLocal:
                 # Drain outgoing queue until policy closes it
                 while True:
                     batch = await outgoing_queue.get_available()
-                    if not batch:  # Queue closed by policy's finally block
+                    if not batch:
                         break
 
                     timeout_tracker.ping()
@@ -261,18 +249,11 @@ class ControlPlaneLocal:
                         chunk_count += 1
                         yield chunk
 
-                # Cancel timeout monitor - streaming completed successfully
+                # Streaming completed successfully
                 monitor_task.cancel()
 
-                # TaskGroup waits for all tasks to complete when exiting this block
-
             # Success - emit completion event
-            self._emit_event(
-                "stream_complete",
-                call_id,
-                f"Completed stream with {chunk_count} chunks",
-                {"chunk_count": chunk_count},
-            )
+            self._emit_event("stream_complete", call_id, f"Completed stream with {chunk_count} chunks")
 
         except BaseException as exc:
             # BaseException catches both regular exceptions and ExceptionGroup from TaskGroup
@@ -281,9 +262,8 @@ class ControlPlaneLocal:
             self._emit_event(
                 "stream_error",
                 call_id,
-                f"Error during streaming after {chunk_count} chunks: {exc}",
-                {"chunk_count": chunk_count, "error": str(exc), "error_type": type(exc).__name__},
-                "error",
+                f"Error during streaming after {chunk_count} chunks: {exc}; ErrorType: {type(exc).__name__}",
+                severity="error",
             )
 
             # TaskGroup automatically cancels all tasks on exception

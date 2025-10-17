@@ -182,7 +182,6 @@ class TestControlPlaneLocalStreaming:
 
         assert events[1].event_type == "stream_complete"
         assert events[1].summary == "Completed stream with 2 chunks"
-        assert events[1].details["chunk_count"] == 2
 
     @pytest.mark.asyncio
     async def test_streaming_with_empty_stream(self, control_plane, call_id):
@@ -204,7 +203,6 @@ class TestControlPlaneLocalStreaming:
         assert len(events) == 2
         assert events[0].event_type == "stream_start"
         assert events[1].event_type == "stream_complete"
-        assert events[1].details["chunk_count"] == 0
 
     @pytest.mark.asyncio
     async def test_streaming_error_handling(self, call_id):
