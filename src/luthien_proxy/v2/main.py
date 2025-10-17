@@ -149,6 +149,13 @@ async def openai_chat_completions(
     data = request_msg.model_dump(exclude_none=True)
     is_streaming = data.get("stream", False)
 
+    # Identify any model-specific parameters to forward
+    # (litellm will pass these through to the underlying provider)
+    known_params = {"verbosity"}  # Add more as needed
+    model_specific_params = [p for p in data.keys() if p in known_params]
+    if model_specific_params:
+        data["allowed_openai_params"] = model_specific_params
+
     try:
         if is_streaming:
             return StreamingResponse(
@@ -194,6 +201,13 @@ async def anthropic_messages(
     # Extract back to dict for LiteLLM
     openai_data = request_msg.model_dump(exclude_none=True)
     is_streaming = openai_data.get("stream", False)
+
+    # Identify any model-specific parameters to forward
+    # (litellm will pass these through to the underlying provider)
+    known_params = {"verbosity"}  # Add more as needed
+    model_specific_params = [p for p in openai_data.keys() if p in known_params]
+    if model_specific_params:
+        openai_data["allowed_openai_params"] = model_specific_params
 
     try:
         if is_streaming:
