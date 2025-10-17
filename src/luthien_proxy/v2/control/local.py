@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import defaultdict
 from typing import TYPE_CHECKING, AsyncIterator, Optional
 
@@ -27,6 +28,30 @@ if TYPE_CHECKING:
     from luthien_proxy.v2.policies.base import PolicyHandler
 
 logger = logging.getLogger(__name__)
+
+
+class TimeoutTracker:
+    """Tracks activity and provides timeout monitoring for streaming operations."""
+
+    def __init__(self, timeout_seconds: float):
+        self.timeout_seconds = timeout_seconds
+        self.last_activity = time.time()
+
+    def ping(self) -> None:
+        """Record activity (resets timeout timer)."""
+        self.last_activity = time.time()
+
+    async def raise_on_timeout(self) -> None:
+        """Monitor task that raises StreamingError if timeout exceeded.
+
+        Runs until cancelled (when streaming completes successfully) or until
+        timeout is exceeded (raises StreamingError).
+        """
+        while True:
+            await asyncio.sleep(1.0)
+            elapsed = time.time() - self.last_activity
+            if elapsed > self.timeout_seconds:
+                raise StreamingError(f"Policy timeout: no activity for {self.timeout_seconds}s")
 
 
 class ControlPlaneLocal:
@@ -164,16 +189,23 @@ class ControlPlaneLocal:
         self,
         incoming: AsyncIterator[StreamingResponse],
         metadata: RequestMetadata,
+        timeout_seconds: float = 30.0,
     ) -> AsyncIterator[StreamingResponse]:
         """Apply policies to streaming responses with queue-based reactive processing.
 
         This bridges the policy's queue-based interface with the gateway's async iterator:
         1. Creates incoming/outgoing ChunkQueues
         2. Launches background tasks to feed incoming queue and run policy
-        3. Yields chunks from outgoing queue to client
+        3. Monitors for timeout (no activity for timeout_seconds)
+        4. Yields chunks from outgoing queue to client
 
         The policy's finally block ensures the outgoing queue is always closed,
         allowing this method to drain the queue and detect completion naturally.
+
+        Args:
+            incoming: Async iterator of streaming responses from LLM
+            metadata: Request metadata including call_id
+            timeout_seconds: Maximum seconds without activity before timing out (default: 30)
         """
         # Set call ID for event emission
         self.policy.set_call_id(metadata.call_id)
@@ -193,13 +225,21 @@ class ControlPlaneLocal:
         incoming_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
         outgoing_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
 
+        # Create timeout tracker
+        timeout_tracker = TimeoutTracker(timeout_seconds)
+
         chunk_count = 0
 
         try:
             async with asyncio.TaskGroup() as tg:
                 # Launch background tasks
                 tg.create_task(self._feed_incoming_chunks(incoming, incoming_queue))
-                tg.create_task(self.policy.process_streaming_response(incoming_queue, outgoing_queue))
+                tg.create_task(
+                    self.policy.process_streaming_response(
+                        incoming_queue, outgoing_queue, keepalive=timeout_tracker.ping
+                    )
+                )
+                monitor_task = tg.create_task(timeout_tracker.raise_on_timeout())
 
                 # Drain outgoing queue until policy closes it
                 while True:
@@ -207,11 +247,16 @@ class ControlPlaneLocal:
                     if not batch:  # Queue closed by policy's finally block
                         break
 
+                    timeout_tracker.ping()
+
                     for chunk in batch:
                         chunk_count += 1
                         yield chunk
 
-                # TaskGroup waits for both tasks to complete when exiting this block
+                # Cancel timeout monitor - streaming completed successfully
+                monitor_task.cancel()
+
+                # TaskGroup waits for all tasks to complete when exiting this block
 
             # Success - emit completion event
             self._handle_policy_event(

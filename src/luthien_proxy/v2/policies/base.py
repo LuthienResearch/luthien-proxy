@@ -30,7 +30,7 @@ Policies also emit PolicyEvents to describe their activity (for logging, UI, deb
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from luthien_proxy.v2.control.models import PolicyEvent
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
@@ -141,6 +141,7 @@ class PolicyHandler(ABC):
         self,
         incoming: ChunkQueue[StreamingResponse],
         outgoing: ChunkQueue[StreamingResponse],
+        keepalive: Optional[Callable[[], None]] = None,
     ) -> None:
         """Reactive streaming task: build output response based on incoming chunks.
 
@@ -173,6 +174,10 @@ class PolicyHandler(ABC):
                 if not new_chunks:  # Stream ended
                     break
 
+                # Signal we're still working (for long-running operations)
+                if keepalive:
+                    keepalive()
+
                 # Update state with new information
                 state.update(new_chunks)
 
@@ -190,6 +195,7 @@ class PolicyHandler(ABC):
         Args:
             incoming: Queue to read chunks from LLM (may be empty, may have many)
             outgoing: Queue to write chunks for client
+            keepalive: Optional callback to signal policy is still working (prevents timeout)
 
         Raises:
             Exception: If processing fails critically
@@ -251,6 +257,7 @@ class DefaultPolicyHandler(PolicyHandler):
         self,
         incoming: ChunkQueue[StreamingResponse],
         outgoing: ChunkQueue[StreamingResponse],
+        keepalive: Optional[Callable[[], None]] = None,
     ) -> None:
         """Process streaming with content filtering."""
         try:

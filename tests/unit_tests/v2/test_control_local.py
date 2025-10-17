@@ -151,9 +151,11 @@ class TestControlPlaneLocalStreaming:
                 mock_chunk.id = f"chunk-{i}"
                 yield StreamingResponse(chunk=mock_chunk)
 
-        # Process through control plane
+        # Process through control plane with short timeout for tests
         output = []
-        async for chunk in control_plane.process_streaming_response(mock_stream(), request_metadata):
+        async for chunk in control_plane.process_streaming_response(
+            mock_stream(), request_metadata, timeout_seconds=5.0
+        ):
             output.append(chunk)
 
         # Should have all 3 chunks
@@ -174,7 +176,9 @@ class TestControlPlaneLocalStreaming:
 
         # Process stream
         output = []
-        async for chunk in control_plane.process_streaming_response(mock_stream(), request_metadata):
+        async for chunk in control_plane.process_streaming_response(
+            mock_stream(), request_metadata, timeout_seconds=5.0
+        ):
             output.append(chunk)
 
         # Check events
@@ -199,7 +203,9 @@ class TestControlPlaneLocalStreaming:
 
         # Process empty stream
         output = []
-        async for chunk in control_plane.process_streaming_response(empty_stream(), request_metadata):
+        async for chunk in control_plane.process_streaming_response(
+            empty_stream(), request_metadata, timeout_seconds=5.0
+        ):
             output.append(chunk)
 
         assert len(output) == 0
@@ -217,7 +223,7 @@ class TestControlPlaneLocalStreaming:
         policy = NoOpPolicy()
 
         # Make policy raise an error
-        async def failing_stream(incoming, outgoing):
+        async def failing_stream(incoming, outgoing, keepalive=None):
             raise ValueError("Streaming failed")
 
         policy.process_streaming_response = failing_stream
@@ -230,7 +236,9 @@ class TestControlPlaneLocalStreaming:
 
         # Should raise StreamingError wrapping the original error
         with pytest.raises(StreamingError, match="Streaming failed after 0 chunks"):
-            async for _ in control_plane.process_streaming_response(mock_stream(), request_metadata):
+            async for _ in control_plane.process_streaming_response(
+                mock_stream(), request_metadata, timeout_seconds=5.0
+            ):
                 pass
 
         # Should have error event
@@ -252,13 +260,90 @@ class TestControlPlaneLocalStreaming:
 
         # Process stream
         output = []
-        async for chunk in control_plane.process_streaming_response(slow_stream(), request_metadata):
+        async for chunk in control_plane.process_streaming_response(
+            slow_stream(), request_metadata, timeout_seconds=5.0
+        ):
             output.append(chunk)
 
         # Should have all chunks in order
         assert len(output) == 5
         for i, chunk in enumerate(output):
             assert chunk.chunk.id == f"chunk-{i}"
+
+    @pytest.mark.asyncio
+    async def test_streaming_timeout(self, request_metadata):
+        """Test that streaming times out when policy hangs."""
+        policy = NoOpPolicy()
+
+        # Make policy hang (never produce output, never call keepalive)
+        async def hanging_policy(incoming, outgoing, keepalive=None):
+            # Just wait forever
+            import asyncio
+
+            await asyncio.sleep(100)  # Long sleep
+
+        policy.process_streaming_response = hanging_policy
+
+        control_plane = ControlPlaneLocal(policy=policy)
+
+        async def mock_stream():
+            mock_chunk = Mock()
+            yield StreamingResponse(chunk=mock_chunk)
+
+        # Should timeout after 2 seconds
+        with pytest.raises(StreamingError, match="Streaming failed after 0 chunks"):
+            async for _ in control_plane.process_streaming_response(
+                mock_stream(), request_metadata, timeout_seconds=2.0
+            ):
+                pass
+
+        # Verify it was actually a timeout (check the cause)
+        # The __cause__ should be the original timeout error
+
+    @pytest.mark.asyncio
+    async def test_streaming_keepalive_prevents_timeout(self, request_metadata):
+        """Test that keepalive signals prevent timeout."""
+        policy = NoOpPolicy()
+
+        # Policy that takes time but sends keepalives
+        async def slow_policy_with_keepalive(incoming, outgoing, keepalive=None):
+            import asyncio
+
+            try:
+                batch = await incoming.get_available()
+                if not batch:
+                    return
+
+                # Do slow processing with keepalives
+                for i in range(3):
+                    await asyncio.sleep(1.5)  # Each iteration takes 1.5s
+                    if keepalive:
+                        keepalive()  # Signal we're still alive
+
+                # Finally produce output
+                for chunk in batch:
+                    await outgoing.put(chunk)
+            finally:
+                await outgoing.close()
+
+        policy.process_streaming_response = slow_policy_with_keepalive
+
+        control_plane = ControlPlaneLocal(policy=policy)
+
+        async def mock_stream():
+            mock_chunk = Mock()
+            mock_chunk.id = "chunk-0"
+            yield StreamingResponse(chunk=mock_chunk)
+
+        # Should NOT timeout because of keepalives (timeout is 2s, but we send keepalive every 1.5s)
+        output = []
+        async for chunk in control_plane.process_streaming_response(
+            mock_stream(), request_metadata, timeout_seconds=2.0
+        ):
+            output.append(chunk)
+
+        assert len(output) == 1
+        assert output[0].chunk.id == "chunk-0"
 
 
 class TestControlPlaneLocalEvents:

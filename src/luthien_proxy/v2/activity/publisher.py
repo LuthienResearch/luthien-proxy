@@ -28,7 +28,6 @@ class ActivityPublisher:
             redis_client: Redis client for publishing. If None, events are logged but not published.
         """
         self.redis = redis_client
-        self._enabled = redis_client is not None
 
     async def publish(self, event: ActivityEvent) -> None:
         """Publish an activity event to Redis.
@@ -36,7 +35,7 @@ class ActivityPublisher:
         Args:
             event: Activity event to publish
         """
-        if not self._enabled:
+        if self.redis is None:
             logger.debug("Activity publisher disabled (no Redis client), event: %s", event.event_type)
             return
 
@@ -69,7 +68,7 @@ class ActivityPublisher:
         Args:
             data: Dictionary to publish as JSON
         """
-        if not self._enabled:
+        if self.redis is None:
             logger.debug("Activity publisher disabled (no Redis client)")
             return
 

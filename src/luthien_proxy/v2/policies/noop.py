@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import Callable, Optional
+
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 from luthien_proxy.v2.policies.base import PolicyHandler
 from luthien_proxy.v2.streaming import ChunkQueue
@@ -35,6 +37,7 @@ class NoOpPolicy(PolicyHandler):
         self,
         incoming: ChunkQueue[StreamingResponse],
         outgoing: ChunkQueue[StreamingResponse],
+        keepalive: Optional[Callable[[], None]] = None,
     ) -> None:
         """Pass all streaming chunks through unchanged."""
         try:
