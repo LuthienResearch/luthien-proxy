@@ -132,36 +132,56 @@ uv run pytest tests/unit_tests/v2/test_policies.py -v
 - NoOpPolicy doesn't change (doesn't call emit())
 - PolicyEvent model still exists (will remove in Phase 8)
 
+### ✅ Phase 5: Update ControlPlaneLocal (DONE)
+
+**Commit:** 502ec3a - "refactor: migrate ControlPlaneLocal to OpenTelemetry"
+
+**What was done:**
+- Updated `src/luthien_proxy/v2/control/local.py`:
+  - **BREAKING:** Changed constructor from `redis_client: Redis | None` to `event_publisher: SimpleEventPublisher | None`
+  - Removed ActivityPublisher dependency
+  - Added OTel span creation for all three methods:
+    - `process_request` → "control_plane.process_request" span
+    - `process_full_response` → "control_plane.process_full_response" span
+    - `process_streaming_response` → "control_plane.process_streaming_response" span
+  - Each span includes luthien.* attributes (call_id, model, stream.enabled, stream.chunk_count, policy.success, etc.)
+  - Errors recorded as span events instead of PolicyEvents
+  - Passes span to PolicyContext instead of emit_event callback
+
+- Updated `tests/unit_tests/v2/test_control_local.py`:
+  - Fixed control_plane fixture to match new signature
+  - Removed entire TestControlPlaneLocalEvents class (91 lines deleted)
+  - Removed all event assertion checks from remaining tests
+  - Tests now verify behavior, not internal event collection
+  - All 12 remaining tests pass
+
+**Verified working:**
+
+```bash
+uv run pytest tests/unit_tests/v2/test_control_local.py -v
+# All 12 tests passed
+```
+
+**Breaking change details:**
+- OLD: `ControlPlaneLocal(policy, redis_client: Redis | None)`
+- NEW: `ControlPlaneLocal(policy, event_publisher: SimpleEventPublisher | None)`
+
 ---
 
 ## Current Phase
 
-### 🔄 Phase 5: Update ControlPlaneLocal (NEXT)
-
-**Breaking changes:**
-- Remove `_events` dict and `get_events()` method
-- Update PolicyContext construction to pass OTel span
-- Add span creation for each control plane method
+### 🔄 Phase 6: Update main.py Gateway (NEXT)
 
 **Next steps:**
-1. Update `src/luthien_proxy/v2/control/local.py`:
-   - Remove event collection (`_events`, `get_events()`)
-   - Create spans for process_request, process_full_response, process_streaming_response
-   - Pass span to PolicyContext instead of emit_event callback
-   - Add OTel attributes (call_id, model, stream status)
-
-2. Update `tests/unit_tests/v2/test_control_local.py`:
-   - Fix fixture to match new ControlPlaneLocal signature
-   - Remove tests that check get_events()
-   - Add span assertion tests (optional)
+1. Initialize telemetry in gateway lifespan
+2. Create SimpleEventPublisher from Redis URL
+3. Pass event_publisher to ControlPlaneLocal
+4. Add gateway-level spans for request/response handling
+5. Update any direct ActivityPublisher usage
 
 ---
 
 ## Upcoming Phases
-
-### Phase 5: Update ControlPlaneLocal
-- Add: OTel span creation for each method
-- Simplify to pure policy execution
 
 ### Phase 6: Update main.py Gateway
 - Initialize telemetry in lifespan
