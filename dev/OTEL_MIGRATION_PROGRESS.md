@@ -2,7 +2,7 @@
 
 **Branch:** `integrated-architecture`
 **Started:** 2025-10-18
-**Status:** IN PROGRESS - Phase 3
+**Status:** IN PROGRESS - Phase 6 (5 of 11 phases complete - 45%)
 
 ---
 
@@ -58,7 +58,7 @@ python -c "import opentelemetry; print('OK')"  # Imports work
 
 ### ✅ Phase 3: Telemetry Module & Event Bridge (DONE)
 
-**Commit:** (pending) - "feat: add OpenTelemetry telemetry module and event bridge"
+**Commit:** 992d35c - "feat: add OpenTelemetry telemetry module and event bridge"
 
 **What was done:**
 - Created `src/luthien_proxy/v2/telemetry.py`:
@@ -107,7 +107,7 @@ ENVIRONMENT=development
 
 ### ✅ Phase 4: Update PolicyContext & NoOpPolicy (DONE)
 
-**Commit:** (pending) - "refactor: migrate PolicyContext to OpenTelemetry spans"
+**Commit:** b63d329 - "refactor: migrate PolicyContext to OpenTelemetry spans"
 
 **What was done:**
 - Updated `src/luthien_proxy/v2/policies/context.py`:
@@ -182,11 +182,6 @@ uv run pytest tests/unit_tests/v2/test_control_local.py -v
 ---
 
 ## Upcoming Phases
-
-### Phase 6: Update main.py Gateway
-- Initialize telemetry in lifespan
-- Remove manual ActivityPublisher calls
-- Add spans for gateway operations & LLM calls
 
 ### Phase 7: Update StreamingOrchestrator
 - Add optional span creation
@@ -305,37 +300,40 @@ export OTEL_ENABLED=false
 
 ```
 On branch: integrated-architecture
-Last commit: 4b41d37 - fix: update observability stack configuration
-Next commit will be: feat: add OpenTelemetry telemetry module
+Last commit: 502ec3a - refactor: migrate ControlPlaneLocal to OpenTelemetry
+Commits ahead of origin: 6
 ```
 
 ---
 
-## Files Modified So Far
+## Files Modified in Migration
 
-```
-observability/README.md                     (new)
-observability/.gitignore                    (new)
-observability/tempo/tempo.yaml              (new)
-observability/loki/loki.yaml                (new, fixed)
-observability/grafana/datasources.yaml      (new)
-observability/grafana/dashboards/           (new)
-scripts/observability.sh                    (new)
-docker-compose.yaml                         (modified)
-.gitignore                                  (modified)
-pyproject.toml                              (modified)
-```
+**New files:**
+
+- `observability/` - Full observability stack config (Tempo, Loki, Grafana)
+- `scripts/observability.sh` - Helper script for stack management
+- `src/luthien_proxy/v2/telemetry.py` - OTel configuration and setup
+- `src/luthien_proxy/v2/observability/__init__.py` - Observability package
+- `src/luthien_proxy/v2/observability/bridge.py` - Redis pub/sub bridge for UI
+- `dev/OTEL_MIGRATION_PROGRESS.md` - This file
+
+**Modified files:**
+
+- `docker-compose.yaml` - Added observability services with profiles
+- `.gitignore` - Added observability/data/
+- `pyproject.toml` - Added OTel dependencies
+- `uv.lock` - Updated with new dependencies
+- `src/luthien_proxy/v2/policies/context.py` - OTel span integration
+- `src/luthien_proxy/v2/control/local.py` - OTel span creation, removed events
+- `tests/unit_tests/v2/test_policies.py` - Updated for new PolicyContext
+- `tests/unit_tests/v2/test_control_local.py` - Removed event tests (91 lines deleted)
+
+**To be deleted (Phase 8):**
+
+- `src/luthien_proxy/v2/activity/events.py`
+- `src/luthien_proxy/v2/activity/publisher.py`
+- PolicyEvent from `src/luthien_proxy/v2/control/models.py`
 
 ---
 
-## Next Actions (Phase 3)
-
-1. Create telemetry.py module
-2. Test imports and basic functionality
-3. Create observability/bridge.py
-4. Test that telemetry setup works
-5. Commit and move to Phase 4
-
----
-
-**Last updated:** 2025-10-18 (during Phase 3)
+**Last updated:** 2025-10-18 (Phase 5 complete, starting Phase 6)
