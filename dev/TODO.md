@@ -1,5 +1,10 @@
 # TODO
 
+## v2
+
+- [ ] Optional -> | None
+- [ ] Refactor ControlPlaneLocal
+
 ## High Priority
 
 - [ ] pw-protected UI w/ config

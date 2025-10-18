@@ -1,0 +1,60 @@
+# ABOUTME: Data models for control plane interface using Pydantic
+# ABOUTME: Protocol-agnostic models that work with both local and networked implementations
+
+"""Data models for control plane interface."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class StreamingError(Exception):
+    """Error occurred during streaming response processing.
+
+    The original exception(s) are available via __cause__.
+    """
+
+    pass
+
+
+class PolicyEvent(BaseModel):
+    """Event emitted by a policy to describe its activity.
+
+    Policies emit these events to:
+    - Log their decisions and reasoning
+    - Provide visibility into policy execution
+    - Enable debugging and auditing
+    - Feed the activity stream UI
+    """
+
+    event_type: str = Field(
+        description="Type of event (e.g., 'request_modified', 'content_filtered', 'stream_aborted')"
+    )
+    call_id: str = Field(description="Call ID this event relates to")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now())
+    summary: str = Field(description="Human-readable summary of what happened")
+    details: dict[str, Any] = Field(default_factory=dict, description="Additional structured data about the event")
+    severity: str = Field(default="info", description="Severity level: debug, info, warning, error")
+
+    model_config = {"extra": "forbid"}
+
+
+class StreamingContext(BaseModel):
+    """Context for streaming operations.
+
+    This is created at the start of a stream and tracks state across chunks.
+    """
+
+    stream_id: str
+    call_id: str
+    chunk_count: int = 0
+
+
+__all__ = [
+    "StreamingError",
+    "PolicyEvent",
+    "StreamingContext",
+]
