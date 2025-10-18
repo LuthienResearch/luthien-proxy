@@ -1,7 +1,7 @@
 # ABOUTME: Main FastAPI application for V2 integrated architecture
-# ABOUTME: Combines API gateway, control plane, and LLM client in single process
+# ABOUTME: Combines API gateway, control plane, and LLM client with OpenTelemetry tracing
 
-"""Luthien V2 - integrated FastAPI + LiteLLM proxy with network-ready control plane."""
+"""Luthien V2 - integrated FastAPI + LiteLLM proxy with OpenTelemetry observability."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Request, Security
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
+from opentelemetry import trace
 from redis.asyncio import Redis
 
 from luthien_proxy.v2.activity.events import (
@@ -37,10 +38,13 @@ from luthien_proxy.v2.llm.format_converters import (
 from luthien_proxy.v2.messages import FullResponse
 from luthien_proxy.v2.messages import Request as RequestMessage
 from luthien_proxy.v2.messages import StreamingResponse as StreamingResponseMessage
+from luthien_proxy.v2.observability import SimpleEventPublisher
 from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.noop import NoOpPolicy
+from luthien_proxy.v2.telemetry import setup_telemetry
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # === CONFIGURATION ===
 API_KEY = os.getenv("PROXY_API_KEY", "")
@@ -56,14 +60,22 @@ POLICY_HANDLER: LuthienPolicy = NoOpPolicy()
 redis_client: Redis | None = None
 control_plane: ControlPlaneLocal = None  # type: ignore[assignment]
 activity_publisher: ActivityPublisher = None  # type: ignore[assignment]
+event_publisher: SimpleEventPublisher | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan: startup and shutdown."""
-    global redis_client, control_plane, activity_publisher
+    global redis_client, control_plane, activity_publisher, event_publisher
 
     # Startup
+    logger.info("Starting Luthien V2 Gateway...")
+
+    # Initialize OpenTelemetry
+    setup_telemetry(app)
+    logger.info("OpenTelemetry initialized")
+
+    # Connect to Redis
     try:
         redis_client = Redis.from_url(REDIS_URL, decode_responses=False)
         await redis_client.ping()
@@ -72,15 +84,23 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to connect to Redis: {exc}. Activity stream will be disabled.")
         redis_client = None
 
-    # Initialize activity publisher
+    # Initialize activity publisher (legacy - for Phase 8 cleanup)
     activity_publisher = ActivityPublisher(redis_client)
 
-    # Initialize control plane with Redis
+    # Initialize event publisher for real-time UI
+    if redis_client:
+        event_publisher = SimpleEventPublisher(redis_client)
+        logger.info("Event publisher initialized for real-time UI")
+    else:
+        event_publisher = None
+        logger.info("Event publisher disabled (no Redis)")
+
+    # Initialize control plane with event publisher
     control_plane = ControlPlaneLocal(
         policy=POLICY_HANDLER,
-        redis_client=redis_client,
+        event_publisher=event_publisher,
     )
-    logger.info("Control plane initialized")
+    logger.info("Control plane initialized with OpenTelemetry tracing")
 
     yield
 
@@ -181,101 +201,113 @@ async def openai_chat_completions(
     trace_id = data.get("metadata", {}).get("trace_id")
     api_key_hash = hash_api_key(token)
 
-    # Publish: original request received
-    await activity_publisher.publish(
-        OriginalRequestReceived(
-            call_id=call_id,
-            trace_id=trace_id,
-            endpoint="/v1/chat/completions",
-            model=data.get("model", "unknown"),
-            messages=data.get("messages", []),
-            stream=data.get("stream", False),
-            api_key_hash=api_key_hash,
-            metadata=data.get("metadata", {}),
+    # Create span for the entire request/response cycle
+    with tracer.start_as_current_span("gateway.chat_completions") as span:
+        # Add span attributes
+        span.set_attribute("luthien.call_id", call_id)
+        span.set_attribute("luthien.endpoint", "/v1/chat/completions")
+        span.set_attribute("luthien.model", data.get("model", "unknown"))
+        span.set_attribute("luthien.stream", data.get("stream", False))
+        if trace_id:
+            span.set_attribute("luthien.trace_id", trace_id)
+
+        # Publish: original request received
+        await activity_publisher.publish(
+            OriginalRequestReceived(
+                call_id=call_id,
+                trace_id=trace_id,
+                endpoint="/v1/chat/completions",
+                model=data.get("model", "unknown"),
+                messages=data.get("messages", []),
+                stream=data.get("stream", False),
+                api_key_hash=api_key_hash,
+                metadata=data.get("metadata", {}),
+            )
         )
-    )
 
-    # Wrap request data in RequestMessage type
-    request_msg = RequestMessage(**data)
+        # Wrap request data in RequestMessage type
+        request_msg = RequestMessage(**data)
 
-    # Apply request policies
-    request_msg = await control_plane.process_request(request_msg, call_id)
+        # Apply request policies
+        request_msg = await control_plane.process_request(request_msg, call_id)
 
-    # Extract back to dict for LiteLLM
-    data = request_msg.model_dump(exclude_none=True)
-    is_streaming = data.get("stream", False)
+        # Extract back to dict for LiteLLM
+        data = request_msg.model_dump(exclude_none=True)
+        is_streaming = data.get("stream", False)
 
-    # Publish: final request being sent to backend
-    await activity_publisher.publish(
-        FinalRequestSent(
-            call_id=call_id,
-            trace_id=trace_id,
-            model=data.get("model", "unknown"),
-            messages=data.get("messages", []),
-            stream=is_streaming,
-            modifications=[],  # TODO: Track modifications from policy
+        # Publish: final request being sent to backend
+        await activity_publisher.publish(
+            FinalRequestSent(
+                call_id=call_id,
+                trace_id=trace_id,
+                model=data.get("model", "unknown"),
+                messages=data.get("messages", []),
+                stream=is_streaming,
+                modifications=[],  # TODO: Track modifications from policy
+            )
         )
-    )
 
-    # Identify any model-specific parameters to forward
-    # (litellm will pass these through to the underlying provider)
-    known_params = {"verbosity"}  # Add more as needed
-    model_specific_params = [p for p in data.keys() if p in known_params]
-    if model_specific_params:
-        data["allowed_openai_params"] = model_specific_params
+        # Identify any model-specific parameters to forward
+        # (litellm will pass these through to the underlying provider)
+        known_params = {"verbosity"}  # Add more as needed
+        model_specific_params = [p for p in data.keys() if p in known_params]
+        if model_specific_params:
+            data["allowed_openai_params"] = model_specific_params
 
-    try:
-        if is_streaming:
-            return StreamingResponse(
-                stream_with_policy_control(data, call_id),
-                media_type="text/event-stream",
-            )
-        else:
-            response = await litellm.acompletion(**data)  # type: ignore[arg-type]
-
-            # Publish: original response received from backend
-            response_dict = response.model_dump() if hasattr(response, "model_dump") else response  # type: ignore[union-attr]
-            choices = response_dict.get("choices", [])  # type: ignore[union-attr]
-            content = choices[0].get("message", {}).get("content", "") if choices else ""
-            usage = response_dict.get("usage")  # type: ignore[union-attr]
-            finish_reason = choices[0].get("finish_reason") if choices else None
-
-            await activity_publisher.publish(
-                OriginalResponseReceived(
-                    call_id=call_id,
-                    trace_id=trace_id,
-                    model=str(response_dict.get("model", "unknown")),  # type: ignore[union-attr]
-                    content=str(content),
-                    usage=usage,
-                    finish_reason=str(finish_reason) if finish_reason else None,
+        try:
+            if is_streaming:
+                return StreamingResponse(
+                    stream_with_policy_control(data, call_id),
+                    media_type="text/event-stream",
                 )
-            )
+            else:
+                response = await litellm.acompletion(**data)  # type: ignore[arg-type]
 
-            # Wrap in FullResponse and apply policy
-            full_response = FullResponse.from_model_response(response)
-            full_response = await control_plane.process_full_response(full_response, call_id)
+                # Publish: original response received from backend
+                response_dict = response.model_dump() if hasattr(response, "model_dump") else response  # type: ignore[union-attr]
+                choices = response_dict.get("choices", [])  # type: ignore[union-attr]
+                content = choices[0].get("message", {}).get("content", "") if choices else ""
+                usage = response_dict.get("usage")  # type: ignore[union-attr]
+                finish_reason = choices[0].get("finish_reason") if choices else None
 
-            # Publish: final response being sent to client
-            final_dict = full_response.to_model_response().model_dump()
-            final_choices = final_dict.get("choices", [])
-            final_content = final_choices[0].get("message", {}).get("content", "") if final_choices else ""
-
-            await activity_publisher.publish(
-                FinalResponseSent(
-                    call_id=call_id,
-                    trace_id=trace_id,
-                    content=final_content,
-                    usage=final_dict.get("usage"),
-                    finish_reason=final_choices[0].get("finish_reason") if final_choices else None,
-                    modifications=[],  # TODO: Track modifications from policy
+                await activity_publisher.publish(
+                    OriginalResponseReceived(
+                        call_id=call_id,
+                        trace_id=trace_id,
+                        model=str(response_dict.get("model", "unknown")),  # type: ignore[union-attr]
+                        content=str(content),
+                        usage=usage,
+                        finish_reason=str(finish_reason) if finish_reason else None,
+                    )
                 )
-            )
 
-            # Extract and return
-            return JSONResponse(full_response.to_model_response().model_dump())
-    except Exception as exc:
-        logger.error(f"Error in chat completion: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc))
+                # Wrap in FullResponse and apply policy
+                full_response = FullResponse.from_model_response(response)
+                full_response = await control_plane.process_full_response(full_response, call_id)
+
+                # Publish: final response being sent to client
+                final_dict = full_response.to_model_response().model_dump()
+                final_choices = final_dict.get("choices", [])
+                final_content = final_choices[0].get("message", {}).get("content", "") if final_choices else ""
+
+                await activity_publisher.publish(
+                    FinalResponseSent(
+                        call_id=call_id,
+                        trace_id=trace_id,
+                        content=final_content,
+                        usage=final_dict.get("usage"),
+                        finish_reason=final_choices[0].get("finish_reason") if final_choices else None,
+                        modifications=[],  # TODO: Track modifications from policy
+                    )
+                )
+
+                # Extract and return
+                return JSONResponse(full_response.to_model_response().model_dump())
+        except Exception as exc:
+            logger.error(f"Error in chat completion: {exc}")
+            span.record_exception(exc)
+            span.set_attribute("luthien.error", True)
+            raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/v1/messages")
