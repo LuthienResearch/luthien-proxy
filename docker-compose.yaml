@@ -186,6 +186,19 @@ services:
     networks:
       - default
 
+  promtail:
+    image: grafana/promtail:latest
+    profiles: ["observability"]
+    command: ["-config.file=/etc/promtail/promtail.yaml"]
+    volumes:
+      - ./observability/promtail/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - default
+    depends_on:
+      - loki
+
   grafana:
     image: grafana/grafana:latest
     profiles: ["observability"]

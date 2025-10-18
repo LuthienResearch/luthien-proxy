@@ -9,6 +9,11 @@ datasources:
     isDefault: false
     editable: true
     jsonData:
+      httpMethod: GET
+      tracesQuery:
+        timeShiftEnabled: false
+        spanStartTimeShift: ""
+        spanEndTimeShift: ""
       # Enable trace to logs correlation
       tracesToLogsV2:
         datasourceUid: loki-uid
