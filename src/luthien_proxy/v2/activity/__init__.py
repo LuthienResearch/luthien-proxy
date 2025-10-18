@@ -1,30 +1,10 @@
-# ABOUTME: V2 activity stream - publishes real-time events to Redis for debugging.
-# ABOUTME: Provides livestream visualization of request/response lifecycle and policy execution.
+# ABOUTME: V2 activity stream - provides real-time event streaming to Redis
+# ABOUTME: Deprecated: Most events now handled via OpenTelemetry; only stream endpoint remains
 
-"""V2 activity stream - event models, publisher, and streaming endpoint."""
+"""V2 activity stream - streaming endpoint for real-time monitoring."""
 
-from .events import (
-    ActivityEvent,
-    FinalRequestSent,
-    FinalResponseChunk,
-    FinalResponseSent,
-    OriginalRequestReceived,
-    OriginalResponseChunk,
-    OriginalResponseReceived,
-    PolicyEventEmitted,
-)
-from .publisher import ActivityPublisher
 from .stream import stream_activity_events
 
 __all__ = [
-    "ActivityEvent",
-    "OriginalRequestReceived",
-    "PolicyEventEmitted",
-    "FinalRequestSent",
-    "OriginalResponseReceived",
-    "OriginalResponseChunk",
-    "FinalResponseSent",
-    "FinalResponseChunk",
-    "ActivityPublisher",
     "stream_activity_events",
 ]

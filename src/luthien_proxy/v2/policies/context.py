@@ -75,7 +75,7 @@ class PolicyContext:
             for key, value in details.items():
                 # OTel attributes must be primitives
                 if isinstance(value, (str, int, float, bool)):
-                    attributes[f"event.{key}"] = value
+                    attributes[f"event.{key}"] = value  # type: ignore[assignment]
                 else:
                     # Convert complex types to string
                     attributes[f"event.{key}"] = str(value)

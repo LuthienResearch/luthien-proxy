@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, AsyncIterator, Protocol
 
 if TYPE_CHECKING:
-    from luthien_proxy.v2.control.models import PolicyEvent
     from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 
 
@@ -30,8 +29,8 @@ class ControlPlaneService(Protocol):
 
     Simplified interface:
     - Policies process explicit message types (Request, FullResponse, StreamingResponse)
-    - Policies emit PolicyEvents describing their activity
-    - Control plane collects events for logging/UI
+    - Observability provided via OpenTelemetry spans
+    - Real-time events via SimpleEventPublisher
     """
 
     async def process_request(
@@ -95,17 +94,6 @@ class ControlPlaneService(Protocol):
 
         Raises:
             Exception: If policy execution fails critically
-        """
-        ...
-
-    async def get_events(self, call_id: str) -> list[PolicyEvent]:
-        """Get all events for a specific call.
-
-        Args:
-            call_id: The call ID to get events for
-
-        Returns:
-            List of PolicyEvents for this call
         """
         ...
 

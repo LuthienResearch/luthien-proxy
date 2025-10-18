@@ -12,7 +12,8 @@ from typing import AsyncGenerator
 
 from redis.asyncio import Redis
 
-from .publisher import V2_ACTIVITY_CHANNEL
+# Redis channel for activity events (matches SimpleEventPublisher channel)
+V2_ACTIVITY_CHANNEL = "luthien:activity"
 
 logger = logging.getLogger(__name__)
 

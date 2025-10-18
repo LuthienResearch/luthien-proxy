@@ -62,14 +62,14 @@ class SimpleEventPublisher:
         """
         from datetime import UTC, datetime
 
-        event = {
+        event: dict[str, Any] = {
             "call_id": call_id,
             "event_type": event_type,
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
         if data:
-            event["data"] = data
+            event["data"] = data  # type: ignore[assignment]
 
         try:
             await self.redis.publish(self.channel, json.dumps(event))
