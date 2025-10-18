@@ -40,28 +40,35 @@ class TestControlPlaneLocalRequests:
         assert result.messages == [{"role": "user", "content": "Hi"}]
 
     @pytest.mark.asyncio
-    async def test_process_request_sets_call_id(self, call_id):
-        """Test that process_request sets call_id on policy."""
+    async def test_process_request_with_call_id(self, call_id):
+        """Test that process_request passes call_id via context."""
         policy = NoOpPolicy()
         control_plane = ControlPlaneLocal(policy=policy)
 
         request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
-        await control_plane.process_request(request, call_id)
+        result = await control_plane.process_request(request, call_id)
 
-        # Policy should have the call_id set
-        assert policy._call_id == "test-call-123"
+        # Should process successfully (policy is stateless)
+        assert result.model == "gpt-4"
 
     @pytest.mark.asyncio
     async def test_process_request_error_handling(self, call_id):
         """Test that request processing errors are handled."""
+        from luthien_proxy.v2.policies.base import LuthienPolicy
+        from luthien_proxy.v2.policies.context import PolicyContext
+
         # Create a policy that raises an error
-        policy = NoOpPolicy()
+        class FailingPolicy(LuthienPolicy):
+            async def process_request(self, req, context: PolicyContext):
+                raise ValueError("Policy failed")
 
-        async def failing_process(req):
-            raise ValueError("Policy failed")
+            async def process_full_response(self, resp, context: PolicyContext):
+                return resp
 
-        policy.process_request = failing_process
+            async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
+                pass
 
+        policy = FailingPolicy()
         control_plane = ControlPlaneLocal(policy=policy)
 
         request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
@@ -92,29 +99,37 @@ class TestControlPlaneLocalResponses:
         assert result.response.id == "resp-123"
 
     @pytest.mark.asyncio
-    async def test_process_full_response_sets_call_id(self, call_id):
-        """Test that process_full_response sets call_id on policy."""
+    async def test_process_full_response_with_call_id(self, call_id):
+        """Test that process_full_response passes call_id via context."""
         policy = NoOpPolicy()
         control_plane = ControlPlaneLocal(policy=policy)
 
         mock_response = Mock()
+        mock_response.id = "resp-789"
         full_response = FullResponse(response=mock_response)
-        await control_plane.process_full_response(full_response, call_id)
+        result = await control_plane.process_full_response(full_response, call_id)
 
-        # Policy should have the call_id set
-        assert policy._call_id == "test-call-123"
+        # Should process successfully (policy is stateless)
+        assert result.response.id == "resp-789"
 
     @pytest.mark.asyncio
     async def test_process_full_response_error_returns_original(self, call_id):
         """Test that response processing errors return original response."""
+        from luthien_proxy.v2.policies.base import LuthienPolicy
+        from luthien_proxy.v2.policies.context import PolicyContext
+
         # Create a policy that raises an error
-        policy = NoOpPolicy()
+        class FailingResponsePolicy(LuthienPolicy):
+            async def process_request(self, req, context: PolicyContext):
+                return req
 
-        async def failing_process(resp):
-            raise ValueError("Policy failed")
+            async def process_full_response(self, resp, context: PolicyContext):
+                raise ValueError("Policy failed")
 
-        policy.process_full_response = failing_process
+            async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
+                pass
 
+        policy = FailingResponsePolicy()
         control_plane = ControlPlaneLocal(policy=policy)
 
         mock_response = Mock()
@@ -207,14 +222,21 @@ class TestControlPlaneLocalStreaming:
     @pytest.mark.asyncio
     async def test_streaming_error_handling(self, call_id):
         """Test that streaming errors are handled."""
-        policy = NoOpPolicy()
+        from luthien_proxy.v2.policies.base import LuthienPolicy
+        from luthien_proxy.v2.policies.context import PolicyContext
 
         # Make policy raise an error
-        async def failing_stream(incoming, outgoing, keepalive=None):
-            raise ValueError("Streaming failed")
+        class FailingStreamPolicy(LuthienPolicy):
+            async def process_request(self, req, context: PolicyContext):
+                return req
 
-        policy.process_streaming_response = failing_stream
+            async def process_full_response(self, resp, context: PolicyContext):
+                return resp
 
+            async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
+                raise ValueError("Streaming failed")
+
+        policy = FailingStreamPolicy()
         control_plane = ControlPlaneLocal(policy=policy)
 
         async def mock_stream():
@@ -256,17 +278,24 @@ class TestControlPlaneLocalStreaming:
     @pytest.mark.asyncio
     async def test_streaming_timeout(self, call_id):
         """Test that streaming times out when policy hangs."""
-        policy = NoOpPolicy()
+        from luthien_proxy.v2.policies.base import LuthienPolicy
+        from luthien_proxy.v2.policies.context import PolicyContext
 
         # Make policy hang (never produce output, never call keepalive)
-        async def hanging_policy(incoming, outgoing, keepalive=None):
-            # Just wait forever
-            import asyncio
+        class HangingPolicy(LuthienPolicy):
+            async def process_request(self, req, context: PolicyContext):
+                return req
 
-            await asyncio.sleep(100)  # Long sleep
+            async def process_full_response(self, resp, context: PolicyContext):
+                return resp
 
-        policy.process_streaming_response = hanging_policy
+            async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
+                # Just wait forever
+                import asyncio
 
+                await asyncio.sleep(100)  # Long sleep
+
+        policy = HangingPolicy()
         control_plane = ControlPlaneLocal(policy=policy)
 
         async def mock_stream():
@@ -284,31 +313,38 @@ class TestControlPlaneLocalStreaming:
     @pytest.mark.asyncio
     async def test_streaming_keepalive_prevents_timeout(self, call_id):
         """Test that keepalive signals prevent timeout."""
-        policy = NoOpPolicy()
+        from luthien_proxy.v2.policies.base import LuthienPolicy
+        from luthien_proxy.v2.policies.context import PolicyContext
 
         # Policy that takes time but sends keepalives
-        async def slow_policy_with_keepalive(incoming, outgoing, keepalive=None):
-            import asyncio
+        class SlowPolicyWithKeepalive(LuthienPolicy):
+            async def process_request(self, req, context: PolicyContext):
+                return req
 
-            try:
-                batch = await incoming.get_available()
-                if not batch:
-                    return
+            async def process_full_response(self, resp, context: PolicyContext):
+                return resp
 
-                # Do slow processing with keepalives
-                for i in range(3):
-                    await asyncio.sleep(1.5)  # Each iteration takes 1.5s
-                    if keepalive:
-                        keepalive()  # Signal we're still alive
+            async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
+                import asyncio
 
-                # Finally produce output
-                for chunk in batch:
-                    await outgoing.put(chunk)
-            finally:
-                await outgoing.close()
+                try:
+                    batch = await incoming.get_available()
+                    if not batch:
+                        return
 
-        policy.process_streaming_response = slow_policy_with_keepalive
+                    # Do slow processing with keepalives
+                    for i in range(3):
+                        await asyncio.sleep(1.5)  # Each iteration takes 1.5s
+                        if keepalive:
+                            keepalive()  # Signal we're still alive
 
+                    # Finally produce output
+                    for chunk in batch:
+                        await outgoing.put(chunk)
+                finally:
+                    await outgoing.close()
+
+        policy = SlowPolicyWithKeepalive()
         control_plane = ControlPlaneLocal(policy=policy)
 
         async def mock_stream():
@@ -328,26 +364,22 @@ class TestControlPlaneLocalStreaming:
 class TestControlPlaneLocalEvents:
     """Test ControlPlaneLocal event handling."""
 
-    def test_event_handler_registration(self, control_plane):
-        """Test that policy event handler is registered."""
-        # Event handler should be set during init
-        assert control_plane.policy._event_handler is not None
-
     @pytest.mark.asyncio
     async def test_get_events_for_call(self, call_id):
         """Test retrieving events for a specific call."""
-        from luthien_proxy.v2.policies.base import PolicyHandler
+        from luthien_proxy.v2.policies.base import LuthienPolicy
+        from luthien_proxy.v2.policies.context import PolicyContext
 
         # Create a policy that emits events
-        class EventEmittingPolicy(PolicyHandler):
-            async def process_request(self, request):
-                self.emit_event("custom_event", "Custom event occurred", {"data": "test"})
+        class EventEmittingPolicy(LuthienPolicy):
+            async def process_request(self, request, context: PolicyContext):
+                context.emit("custom_event", "Custom event occurred", {"data": "test"})
                 return request
 
-            async def process_full_response(self, response):
+            async def process_full_response(self, response, context: PolicyContext):
                 return response
 
-            async def process_streaming_response(self, incoming, outgoing, keepalive=None):
+            async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
                 try:
                     while True:
                         batch = await incoming.get_available()
@@ -373,17 +405,18 @@ class TestControlPlaneLocalEvents:
     @pytest.mark.asyncio
     async def test_events_for_different_calls(self):
         """Test that events are tracked per call_id."""
-        from luthien_proxy.v2.policies.base import PolicyHandler
+        from luthien_proxy.v2.policies.base import LuthienPolicy
+        from luthien_proxy.v2.policies.context import PolicyContext
 
-        class EventEmittingPolicy(PolicyHandler):
-            async def process_request(self, request):
-                self.emit_event("request_event", "Request processed")
+        class EventEmittingPolicy(LuthienPolicy):
+            async def process_request(self, request, context: PolicyContext):
+                context.emit("request_event", "Request processed")
                 return request
 
-            async def process_full_response(self, response):
+            async def process_full_response(self, response, context: PolicyContext):
                 return response
 
-            async def process_streaming_response(self, incoming, outgoing, keepalive=None):
+            async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
                 try:
                     while True:
                         batch = await incoming.get_available()

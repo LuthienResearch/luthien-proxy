@@ -8,8 +8,21 @@ from unittest.mock import Mock
 import pytest
 
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.policies.noop import NoOpPolicy
 from luthien_proxy.v2.streaming import ChunkQueue
+
+
+def make_context(call_id="test-call"):
+    """Helper to create a test PolicyContext."""
+    events = []
+
+    def emit_event(event):
+        events.append(event)
+
+    context = PolicyContext(call_id=call_id, emit_event=emit_event)
+    context._test_events = events  # Attach for testing
+    return context
 
 
 class TestNoOpPolicy:
@@ -19,13 +32,14 @@ class TestNoOpPolicy:
     async def test_noop_process_request(self):
         """Test that NoOpPolicy passes request through unchanged."""
         policy = NoOpPolicy()
+        context = make_context()
         request = Request(
             model="claude-3-opus",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=100,
         )
 
-        result = await policy.process_request(request)
+        result = await policy.process_request(request, context)
 
         assert result == request
         assert result.model == "claude-3-opus"
@@ -35,11 +49,12 @@ class TestNoOpPolicy:
     async def test_noop_process_full_response(self):
         """Test that NoOpPolicy passes response through unchanged."""
         policy = NoOpPolicy()
+        context = make_context()
         mock_response = Mock()
         mock_response.choices = [{"message": {"content": "Hello back"}}]
         full_response = FullResponse(response=mock_response)
 
-        result = await policy.process_full_response(full_response)
+        result = await policy.process_full_response(full_response, context)
 
         assert result == full_response
         assert result.response.choices[0]["message"]["content"] == "Hello back"
@@ -48,6 +63,7 @@ class TestNoOpPolicy:
     async def test_noop_streaming_response(self):
         """Test that NoOpPolicy passes all streaming chunks through."""
         policy = NoOpPolicy()
+        context = make_context()
         incoming: ChunkQueue[StreamingResponse] = ChunkQueue()
         outgoing: ChunkQueue[StreamingResponse] = ChunkQueue()
 
@@ -69,7 +85,7 @@ class TestNoOpPolicy:
         import asyncio
 
         feed_task = asyncio.create_task(feed_chunks())
-        policy_task = asyncio.create_task(policy.process_streaming_response(incoming, outgoing))
+        policy_task = asyncio.create_task(policy.process_streaming_response(incoming, outgoing, context))
 
         # Collect output
         output = []
@@ -92,27 +108,25 @@ class TestNoOpPolicy:
     async def test_noop_emits_no_events(self):
         """Test that NoOpPolicy doesn't emit events by default."""
         policy = NoOpPolicy()
-        events = []
-
-        policy.set_event_handler(lambda e: events.append(e))
-        policy.set_call_id("test-call")
+        context = make_context()
 
         # Process request
         request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
-        await policy.process_request(request)
+        await policy.process_request(request, context)
 
         # Process response
         mock_response = Mock()
         full_response = FullResponse(response=mock_response)
-        await policy.process_full_response(full_response)
+        await policy.process_full_response(full_response, context)
 
         # NoOpPolicy shouldn't emit events
-        assert len(events) == 0
+        assert len(context._test_events) == 0
 
     @pytest.mark.asyncio
     async def test_noop_streaming_with_empty_input(self):
         """Test NoOpPolicy streaming with empty input."""
         policy = NoOpPolicy()
+        context = make_context()
         incoming: ChunkQueue[StreamingResponse] = ChunkQueue()
         outgoing: ChunkQueue[StreamingResponse] = ChunkQueue()
 
@@ -122,7 +136,7 @@ class TestNoOpPolicy:
         # Run policy
         import asyncio
 
-        policy_task = asyncio.create_task(policy.process_streaming_response(incoming, outgoing))
+        policy_task = asyncio.create_task(policy.process_streaming_response(incoming, outgoing, context))
 
         # Collect output
         output = []
@@ -141,6 +155,7 @@ class TestNoOpPolicy:
     async def test_noop_streaming_batching(self):
         """Test that NoOpPolicy correctly handles batched chunks."""
         policy = NoOpPolicy()
+        context = make_context()
         incoming: ChunkQueue[StreamingResponse] = ChunkQueue()
         outgoing: ChunkQueue[StreamingResponse] = ChunkQueue()
 
@@ -160,7 +175,7 @@ class TestNoOpPolicy:
         import asyncio
 
         feed_task = asyncio.create_task(feed_chunks())
-        policy_task = asyncio.create_task(policy.process_streaming_response(incoming, outgoing))
+        policy_task = asyncio.create_task(policy.process_streaming_response(incoming, outgoing, context))
 
         # Collect output
         output = []

@@ -1,57 +1,31 @@
 # ABOUTME: Local (in-process) implementation of control plane service
-# ABOUTME: Directly calls policy methods, collects events, integrates with DB/Redis
+# ABOUTME: Executes policy methods with proper context and error handling
 
 """Local implementation of control plane service.
 
 This implementation runs the control logic in-process with the API gateway.
-It directly calls policy methods, collects PolicyEvents, and integrates with
-database and Redis.
+It executes policy methods, provides PolicyContext, and delegates to:
+- ActivityPublisher for event handling
+- StreamingOrchestrator for streaming coordination
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import time
-from collections import defaultdict
-from typing import TYPE_CHECKING, AsyncIterator, Optional
+from typing import TYPE_CHECKING, AsyncIterator
 
-from luthien_proxy.v2.activity import ActivityPublisher, PolicyEventEmitted
+from luthien_proxy.v2.activity import ActivityPublisher
 from luthien_proxy.v2.control.models import PolicyEvent, StreamingError
+from luthien_proxy.v2.control.streaming import StreamingOrchestrator
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
-from luthien_proxy.v2.streaming import ChunkQueue
+from luthien_proxy.v2.policies.context import PolicyContext
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
-    from luthien_proxy.utils import db
-    from luthien_proxy.v2.policies.base import PolicyHandler
+    from luthien_proxy.v2.policies.base import LuthienPolicy
 
 logger = logging.getLogger(__name__)
-
-
-class TimeoutTracker:
-    """Tracks activity and provides timeout monitoring for streaming operations."""
-
-    def __init__(self, timeout_seconds: float):
-        self.timeout_seconds = timeout_seconds
-        self.last_activity = time.time()
-
-    def ping(self) -> None:
-        """Record activity (resets timeout timer)."""
-        self.last_activity = time.time()
-
-    async def raise_on_timeout(self) -> None:
-        """Monitor task that raises StreamingError if timeout exceeded.
-
-        Runs until cancelled (when streaming completes successfully) or until
-        timeout is exceeded (raises StreamingError).
-        """
-        while True:
-            await asyncio.sleep(1.0)
-            elapsed = time.time() - self.last_activity
-            if elapsed > self.timeout_seconds:
-                raise StreamingError(f"Policy timeout: no activity for {self.timeout_seconds}s")
 
 
 class ControlPlaneLocal:
@@ -61,37 +35,30 @@ class ControlPlaneLocal:
     In Phase 2, we might add ControlPlaneHTTP that makes network calls instead.
 
     Responsibilities:
-    - Execute policy methods
-    - Collect PolicyEvents emitted by policies
-    - Log events to database
-    - Publish events to Redis for UI
+    - Execute policy methods with proper PolicyContext
+    - Handle errors and emit error events
+    - Delegate event handling to ActivityPublisher
+    - Delegate streaming coordination to StreamingOrchestrator
     """
 
     def __init__(
         self,
-        policy: PolicyHandler,
-        db_pool: Optional[db.DatabasePool] = None,
-        redis_client: Optional[Redis] = None,
+        policy: LuthienPolicy,
+        redis_client: Redis | None = None,
     ):
         """Initialize local control plane.
 
         Args:
             policy: The policy handler to execute
-            db_pool: Optional database pool for logging
             redis_client: Optional Redis client for activity publishing
         """
         self.policy = policy
-        self.db_pool = db_pool
-        self.redis_client = redis_client
 
-        # Activity publisher for real-time events
+        # Activity publisher for event handling
         self.activity_publisher = ActivityPublisher(redis_client)
 
-        # In-memory event storage (keyed by call_id)
-        self._events: dict[str, list[PolicyEvent]] = defaultdict(list)
-
-        # Set up event handler for the policy
-        self.policy.set_event_handler(self._handle_policy_event)
+        # Streaming orchestrator for stream processing
+        self.streaming_orchestrator = StreamingOrchestrator()
 
     def _emit_event(
         self,
@@ -107,39 +74,7 @@ class ControlPlaneLocal:
             summary=summary,
             severity=severity,
         )
-        self._handle_policy_event(event)
-
-    def _handle_policy_event(self, event: PolicyEvent) -> None:
-        """Handle a policy event emission.
-
-        This is called by the policy whenever it emits an event.
-        """
-        # Store in memory
-        self._events[event.call_id].append(event)
-
-        # Log to console
-        logger.info(
-            f"[{event.severity.upper()}] {event.event_type}: {event.summary}",
-            extra={"call_id": event.call_id, "details": event.details},
-        )
-
-        # Publish to activity stream
-        # Note: We create a task but don't await it to avoid blocking the policy
-        asyncio.create_task(
-            self.activity_publisher.publish(
-                PolicyEventEmitted(
-                    call_id=event.call_id,
-                    trace_id=None,  # TODO: Get from metadata
-                    policy_name=event.event_type.split("_")[0],  # Extract from event type
-                    event_name=event.event_type,
-                    description=event.summary,
-                    data=event.details,
-                    phase="request",  # TODO: Track current phase
-                )
-            )
-        )
-
-        # TODO: Log to database
+        self.activity_publisher.handle_policy_event(event)
 
     async def process_request(
         self,
@@ -147,12 +82,15 @@ class ControlPlaneLocal:
         call_id: str,
     ) -> Request:
         """Apply policies to incoming request before LLM call."""
-        # Set call ID for event emission
-        self.policy.set_call_id(call_id)
+        # Create context for this request
+        context = PolicyContext(
+            call_id=call_id,
+            emit_event=self.activity_publisher.handle_policy_event,
+        )
 
         try:
             # Apply policy transformation
-            transformed = await self.policy.process_request(request)
+            transformed = await self.policy.process_request(request, context)
             return transformed
 
         except Exception as exc:
@@ -175,12 +113,15 @@ class ControlPlaneLocal:
         call_id: str,
     ) -> FullResponse:
         """Apply policies to complete response after LLM call."""
-        # Set call ID for event emission
-        self.policy.set_call_id(call_id)
+        # Create context for this response
+        context = PolicyContext(
+            call_id=call_id,
+            emit_event=self.activity_publisher.handle_policy_event,
+        )
 
         try:
             # Apply policy transformation
-            transformed = await self.policy.process_full_response(response)
+            transformed = await self.policy.process_full_response(response, context)
             return transformed
 
         except Exception as exc:
@@ -205,52 +146,40 @@ class ControlPlaneLocal:
     ) -> AsyncIterator[StreamingResponse]:
         """Apply policies to streaming responses with queue-based reactive processing.
 
-        This bridges the policy's queue-based interface with the gateway's async iterator:
-        1. Creates incoming/outgoing ChunkQueues
-        2. Launches background tasks to feed incoming queue and run policy
-        3. Monitors for timeout (no activity for timeout_seconds)
-        4. Yields chunks from outgoing queue to client
+        This uses StreamingOrchestrator to bridge the policy's queue-based interface
+        with the gateway's async iterator.
 
         Args:
             incoming: Async iterator of streaming responses from LLM
             call_id: Unique identifier for this request/response cycle
             timeout_seconds: Maximum seconds without activity before timing out (default: 30)
+
+        Yields:
+            Processed streaming responses from the policy
+
+        Raises:
+            StreamingError: If streaming fails or times out
         """
-        self.policy.set_call_id(call_id)
+        # Create context for this stream
+        context = PolicyContext(
+            call_id=call_id,
+            emit_event=self.activity_publisher.handle_policy_event,
+        )
 
         self._emit_event("stream_start", call_id, "Started processing stream")
 
-        incoming_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
-        outgoing_queue: ChunkQueue[StreamingResponse] = ChunkQueue()
-
-        timeout_tracker = TimeoutTracker(timeout_seconds)
         chunk_count = 0
 
         try:
-            async with asyncio.TaskGroup() as tg:
-                # Launch background tasks
-                tg.create_task(self._feed_incoming_chunks(incoming, incoming_queue))
-                tg.create_task(
-                    self.policy.process_streaming_response(
-                        incoming_queue, outgoing_queue, keepalive=timeout_tracker.ping
-                    )
+            # Use orchestrator to handle streaming with timeout monitoring
+            async def policy_processor(incoming_queue, outgoing_queue, keepalive):
+                await self.policy.process_streaming_response(
+                    incoming_queue, outgoing_queue, context, keepalive=keepalive
                 )
-                monitor_task = tg.create_task(timeout_tracker.raise_on_timeout())
 
-                # Drain outgoing queue until policy closes it
-                while True:
-                    batch = await outgoing_queue.get_available()
-                    if not batch:
-                        break
-
-                    timeout_tracker.ping()
-
-                    for chunk in batch:
-                        chunk_count += 1
-                        yield chunk
-
-                # Streaming completed successfully
-                monitor_task.cancel()
+            async for chunk in self.streaming_orchestrator.process(incoming, policy_processor, timeout_seconds):
+                chunk_count += 1
+                yield chunk
 
             # Success - emit completion event
             self._emit_event("stream_complete", call_id, f"Completed stream with {chunk_count} chunks")
@@ -266,29 +195,8 @@ class ControlPlaneLocal:
                 severity="error",
             )
 
-            # TaskGroup automatically cancels all tasks on exception
             # Always wrap in StreamingError for consistent interface
             raise StreamingError(f"Streaming failed after {chunk_count} chunks") from exc
-
-    async def _feed_incoming_chunks(
-        self,
-        source: AsyncIterator[StreamingResponse],
-        queue: ChunkQueue[StreamingResponse],
-    ) -> None:
-        """Feed chunks from source iterator into queue, then close it.
-
-        This runs as a background task, continuously pulling from the source
-        iterator and pushing into the queue until the source is exhausted.
-        """
-        try:
-            async for chunk in source:
-                await queue.put(chunk)
-        finally:
-            await queue.close()
-
-    async def get_events(self, call_id: str) -> list[PolicyEvent]:
-        """Get all events for a specific call."""
-        return self._events.get(call_id, [])
 
 
 __all__ = ["ControlPlaneLocal"]

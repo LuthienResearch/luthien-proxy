@@ -37,7 +37,7 @@ from luthien_proxy.v2.llm.format_converters import (
 from luthien_proxy.v2.messages import FullResponse
 from luthien_proxy.v2.messages import Request as RequestMessage
 from luthien_proxy.v2.messages import StreamingResponse as StreamingResponseMessage
-from luthien_proxy.v2.policies.base import PolicyHandler
+from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.noop import NoOpPolicy
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ if not API_KEY:
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # Swap out the policy handler here!
-POLICY_HANDLER: PolicyHandler = NoOpPolicy()
+POLICY_HANDLER: LuthienPolicy = NoOpPolicy()
 
 # === REDIS & CONTROL PLANE ===
 redis_client: Redis | None = None
@@ -78,7 +78,6 @@ async def lifespan(app: FastAPI):
     # Initialize control plane with Redis
     control_plane = ControlPlaneLocal(
         policy=POLICY_HANDLER,
-        db_pool=None,  # TODO: Initialize database pool
         redis_client=redis_client,
     )
     logger.info("Control plane initialized")

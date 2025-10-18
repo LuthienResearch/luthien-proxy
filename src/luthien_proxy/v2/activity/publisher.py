@@ -4,13 +4,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
 
 from redis.asyncio import Redis
 
-from .events import ActivityEvent
+from luthien_proxy.v2.control.models import PolicyEvent
+
+from .events import ActivityEvent, PolicyEventEmitted
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +22,12 @@ V2_ACTIVITY_CHANNEL = "luthien:v2:activity"
 
 
 class ActivityPublisher:
-    """Publishes activity events to Redis for real-time monitoring."""
+    """Publishes activity events to Redis for real-time monitoring.
+
+    This class handles both:
+    1. Direct ActivityEvent publishing (structured events for UI)
+    2. PolicyEvent handling (converts to PolicyEventEmitted and publishes)
+    """
 
     def __init__(self, redis_client: Redis | None):
         """Initialize publisher with optional Redis client.
@@ -28,6 +36,36 @@ class ActivityPublisher:
             redis_client: Redis client for publishing. If None, events are logged but not published.
         """
         self.redis = redis_client
+
+    def handle_policy_event(self, event: PolicyEvent) -> None:
+        """Handle a policy event emission.
+
+        This is the callback provided to PolicyContext. It:
+        1. Logs the event to console
+        2. Converts to PolicyEventEmitted ActivityEvent
+        3. Publishes to Redis (async, non-blocking)
+
+        Args:
+            event: Policy event to handle
+        """
+        # Log to console
+        logger.info(
+            f"[{event.severity.upper()}] {event.event_type}: {event.summary}",
+            extra={"call_id": event.call_id, "details": event.details},
+        )
+
+        # Convert to ActivityEvent and publish
+        # Note: We create a task but don't await it to avoid blocking the policy
+        activity_event = PolicyEventEmitted(
+            call_id=event.call_id,
+            trace_id=None,  # TODO: Get from context/metadata
+            policy_name=event.event_type.split("_")[0],  # Extract from event type
+            event_name=event.event_type,
+            description=event.summary,
+            data=event.details,
+            phase="request",  # TODO: Track current phase in context
+        )
+        asyncio.create_task(self.publish(activity_event))
 
     async def publish(self, event: ActivityEvent) -> None:
         """Publish an activity event to Redis.
