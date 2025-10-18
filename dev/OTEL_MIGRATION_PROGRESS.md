@@ -103,33 +103,63 @@ ENVIRONMENT=development
 
 ---
 
+## Completed Phases (continued)
+
+### ✅ Phase 4: Update PolicyContext & NoOpPolicy (DONE)
+
+**Commit:** (pending) - "refactor: migrate PolicyContext to OpenTelemetry spans"
+
+**What was done:**
+- Updated `src/luthien_proxy/v2/policies/context.py`:
+  - **BREAKING:** Changed constructor from `emit_event: Callable` to `span: Span` + optional `event_publisher`
+  - `emit()` now adds OTel span events instead of creating PolicyEvent objects
+  - Optionally publishes to Redis via SimpleEventPublisher for real-time UI
+  - Span events include all details as attributes
+  - Fire-and-forget Redis publishing (no blocking)
+
+- Updated `tests/unit_tests/v2/test_policies.py`:
+  - Updated `make_context()` helper to create mock span
+  - All NoOpPolicy tests pass (NoOpPolicy doesn't call emit())
+
+**Verified working:**
+```bash
+uv run pytest tests/unit_tests/v2/test_policies.py -v
+# All 6 tests passed
+```
+
+**Known issues:**
+- tests/unit_tests/v2/test_control_local.py fails (expected - needs Phase 5 updates)
+- NoOpPolicy doesn't change (doesn't call emit())
+- PolicyEvent model still exists (will remove in Phase 8)
+
+---
+
 ## Current Phase
 
-### 🔄 Phase 4: Update PolicyContext & NoOpPolicy (NEXT)
+### 🔄 Phase 5: Update ControlPlaneLocal (NEXT)
 
-**Breaking change:** PolicyContext.emit() will add span events instead of collecting events
+**Breaking changes:**
+- Remove `_events` dict and `get_events()` method
+- Update PolicyContext construction to pass OTel span
+- Add span creation for each control plane method
 
 **Next steps:**
-1. Update `src/luthien_proxy/v2/policies/base.py`:
-   - Remove event collection from PolicyContext
-   - Add span event emission in emit()
-   - Update type hints and docstrings
+1. Update `src/luthien_proxy/v2/control/local.py`:
+   - Remove event collection (`_events`, `get_events()`)
+   - Create spans for process_request, process_full_response, process_streaming_response
+   - Pass span to PolicyContext instead of emit_event callback
+   - Add OTel attributes (call_id, model, stream status)
 
-2. Update `src/luthien_proxy/v2/policies/noop.py`:
-   - Update to use new PolicyContext signature
-   - Test that NoOpPolicy still works
+2. Update `tests/unit_tests/v2/test_control_local.py`:
+   - Fix fixture to match new ControlPlaneLocal signature
+   - Remove tests that check get_events()
+   - Add span assertion tests (optional)
 
 ---
 
 ## Upcoming Phases
 
-### Phase 4: Update PolicyContext & NoOpPolicy (BREAKING)
-- **Breaking change:** New PolicyContext signature
-- Update `emit()` to add OTel span events
-- Only affects NoOpPolicy currently (easy to update)
-
 ### Phase 5: Update ControlPlaneLocal
-- Remove: `_events` dict, `get_events()`, `ActivityPublisher`
 - Add: OTel span creation for each method
 - Simplify to pure policy execution
 

@@ -15,13 +15,12 @@ from luthien_proxy.v2.streaming import ChunkQueue
 
 def make_context(call_id="test-call"):
     """Helper to create a test PolicyContext."""
-    events = []
+    # Create mock span for OpenTelemetry
+    mock_span = Mock()
+    mock_span.add_event = Mock()  # Track span events
 
-    def emit_event(event):
-        events.append(event)
-
-    context = PolicyContext(call_id=call_id, emit_event=emit_event)
-    context._test_events = events  # Attach for testing
+    context = PolicyContext(call_id=call_id, span=mock_span, event_publisher=None)
+    context._test_events = []  # For backward compatibility with tests
     return context
 
 
