@@ -187,7 +187,9 @@ class ControlPlaneLocal:
                         incoming_queue, outgoing_queue, context, keepalive=keepalive
                     )
 
-                async for chunk in self.streaming_orchestrator.process(incoming, policy_processor, timeout_seconds):
+                async for chunk in self.streaming_orchestrator.process(
+                    incoming, policy_processor, timeout_seconds, span=span
+                ):
                     chunk_count += 1
                     yield chunk
 

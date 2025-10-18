@@ -1,13 +1,14 @@
 # ABOUTME: Streaming orchestrator for coordinating async stream processing with timeout monitoring
-# ABOUTME: Generic queue-based streaming coordinator, independent of policy implementation details
+# ABOUTME: Generic queue-based streaming coordinator with optional OpenTelemetry tracing
 
-"""Streaming orchestration with timeout monitoring.
+"""Streaming orchestration with timeout monitoring and optional tracing.
 
 This module provides generic infrastructure for processing async streams with:
 - Queue-based buffering between producer and consumer
 - Timeout monitoring with keepalive signals
 - Background task coordination
 - Clean error handling and cancellation
+- Optional OpenTelemetry span creation
 """
 
 from __future__ import annotations
@@ -15,11 +16,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, AsyncIterator, Callable, Coroutine, TypeVar
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Coroutine, TypeVar
+
+from opentelemetry import trace
 
 from luthien_proxy.v2.streaming import ChunkQueue
 
+if TYPE_CHECKING:
+    from opentelemetry.trace import Span
+
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 T = TypeVar("T")
 
@@ -74,8 +81,9 @@ class StreamingOrchestrator:
             Coroutine[Any, Any, None],
         ],
         timeout_seconds: float = 30.0,
+        span: Span | None = None,
     ) -> AsyncIterator[T]:
-        """Process an async stream with timeout monitoring.
+        """Process an async stream with timeout monitoring and optional tracing.
 
         Args:
             incoming_stream: Async iterator producing chunks to process
@@ -84,6 +92,7 @@ class StreamingOrchestrator:
                 - outgoing: ChunkQueue to write to
                 - keepalive: Callable to signal activity (prevents timeout)
             timeout_seconds: Maximum seconds without activity before timing out
+            span: Optional OpenTelemetry span for tracing stream processing
 
         Yields:
             Processed chunks from the outgoing queue
@@ -97,6 +106,10 @@ class StreamingOrchestrator:
 
         timeout_tracker = TimeoutTracker(timeout_seconds)
         chunk_count = 0
+
+        if span:
+            span.add_event("orchestrator.start")
+            span.set_attribute("orchestrator.timeout_seconds", timeout_seconds)
 
         try:
             async with asyncio.TaskGroup() as tg:
@@ -122,9 +135,28 @@ class StreamingOrchestrator:
 
             logger.debug(f"Streaming completed successfully: {chunk_count} chunks")
 
+            if span:
+                span.add_event("orchestrator.complete", attributes={"chunk_count": chunk_count})
+                span.set_attribute("orchestrator.chunk_count", chunk_count)
+                span.set_attribute("orchestrator.success", True)
+
         except BaseException as exc:
             # BaseException catches both regular exceptions and ExceptionGroup from TaskGroup
             logger.error(f"Streaming error after {chunk_count} chunks: {exc}")
+
+            if span:
+                span.add_event(
+                    "orchestrator.error",
+                    attributes={
+                        "error.type": type(exc).__name__,
+                        "error.message": str(exc),
+                        "chunk_count": chunk_count,
+                    },
+                )
+                span.set_attribute("orchestrator.chunk_count", chunk_count)
+                span.set_attribute("orchestrator.success", False)
+                span.record_exception(exc)
+
             # TaskGroup automatically cancels all tasks on exception
             raise
 
