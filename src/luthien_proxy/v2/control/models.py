@@ -5,10 +5,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
-
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class StreamingError(Exception):
@@ -18,28 +15,6 @@ class StreamingError(Exception):
     """
 
     pass
-
-
-class PolicyEvent(BaseModel):
-    """Event emitted by a policy to describe its activity.
-
-    Policies emit these events to:
-    - Log their decisions and reasoning
-    - Provide visibility into policy execution
-    - Enable debugging and auditing
-    - Feed the activity stream UI
-    """
-
-    event_type: str = Field(
-        description="Type of event (e.g., 'request_modified', 'content_filtered', 'stream_aborted')"
-    )
-    call_id: str = Field(description="Call ID this event relates to")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now())
-    summary: str = Field(description="Human-readable summary of what happened")
-    details: dict[str, Any] = Field(default_factory=dict, description="Additional structured data about the event")
-    severity: str = Field(default="info", description="Severity level: debug, info, warning, error")
-
-    model_config = {"extra": "forbid"}
 
 
 class StreamingContext(BaseModel):
@@ -55,6 +30,5 @@ class StreamingContext(BaseModel):
 
 __all__ = [
     "StreamingError",
-    "PolicyEvent",
     "StreamingContext",
 ]

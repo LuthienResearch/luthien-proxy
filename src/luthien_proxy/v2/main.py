@@ -21,13 +21,6 @@ from fastapi.staticfiles import StaticFiles
 from opentelemetry import trace
 from redis.asyncio import Redis
 
-from luthien_proxy.v2.activity.events import (
-    FinalRequestSent,
-    FinalResponseSent,
-    OriginalRequestReceived,
-    OriginalResponseReceived,
-)
-from luthien_proxy.v2.activity.publisher import ActivityPublisher
 from luthien_proxy.v2.activity.stream import stream_activity_events
 from luthien_proxy.v2.control.local import ControlPlaneLocal
 from luthien_proxy.v2.llm.format_converters import (
@@ -59,14 +52,13 @@ POLICY_HANDLER: LuthienPolicy = NoOpPolicy()
 # === REDIS & CONTROL PLANE ===
 redis_client: Redis | None = None
 control_plane: ControlPlaneLocal = None  # type: ignore[assignment]
-activity_publisher: ActivityPublisher = None  # type: ignore[assignment]
 event_publisher: SimpleEventPublisher | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan: startup and shutdown."""
-    global redis_client, control_plane, activity_publisher, event_publisher
+    global redis_client, control_plane, event_publisher
 
     # Startup
     logger.info("Starting Luthien V2 Gateway...")
@@ -81,11 +73,8 @@ async def lifespan(app: FastAPI):
         await redis_client.ping()
         logger.info(f"Connected to Redis at {REDIS_URL}")
     except Exception as exc:
-        logger.warning(f"Failed to connect to Redis: {exc}. Activity stream will be disabled.")
+        logger.warning(f"Failed to connect to Redis: {exc}. Event publisher will be disabled.")
         redis_client = None
-
-    # Initialize activity publisher (legacy - for Phase 8 cleanup)
-    activity_publisher = ActivityPublisher(redis_client)
 
     # Initialize event publisher for real-time UI
     if redis_client:
@@ -199,7 +188,6 @@ async def openai_chat_completions(
     # Generate call_id
     call_id = str(uuid.uuid4())
     trace_id = data.get("metadata", {}).get("trace_id")
-    api_key_hash = hash_api_key(token)
 
     # Create span for the entire request/response cycle
     with tracer.start_as_current_span("gateway.chat_completions") as span:
@@ -211,19 +199,17 @@ async def openai_chat_completions(
         if trace_id:
             span.set_attribute("luthien.trace_id", trace_id)
 
-        # Publish: original request received
-        await activity_publisher.publish(
-            OriginalRequestReceived(
+        # Publish: original request received (for real-time UI)
+        if event_publisher:
+            await event_publisher.publish_event(
                 call_id=call_id,
-                trace_id=trace_id,
-                endpoint="/v1/chat/completions",
-                model=data.get("model", "unknown"),
-                messages=data.get("messages", []),
-                stream=data.get("stream", False),
-                api_key_hash=api_key_hash,
-                metadata=data.get("metadata", {}),
+                event_type="gateway.request_received",
+                data={
+                    "endpoint": "/v1/chat/completions",
+                    "model": data.get("model", "unknown"),
+                    "stream": data.get("stream", False),
+                },
             )
-        )
 
         # Wrap request data in RequestMessage type
         request_msg = RequestMessage(**data)
@@ -235,17 +221,16 @@ async def openai_chat_completions(
         data = request_msg.model_dump(exclude_none=True)
         is_streaming = data.get("stream", False)
 
-        # Publish: final request being sent to backend
-        await activity_publisher.publish(
-            FinalRequestSent(
+        # Publish: final request being sent to backend (for real-time UI)
+        if event_publisher:
+            await event_publisher.publish_event(
                 call_id=call_id,
-                trace_id=trace_id,
-                model=data.get("model", "unknown"),
-                messages=data.get("messages", []),
-                stream=is_streaming,
-                modifications=[],  # TODO: Track modifications from policy
+                event_type="gateway.request_sent",
+                data={
+                    "model": data.get("model", "unknown"),
+                    "stream": is_streaming,
+                },
             )
-        )
 
         # Identify any model-specific parameters to forward
         # (litellm will pass these through to the underlying provider)
@@ -263,43 +248,39 @@ async def openai_chat_completions(
             else:
                 response = await litellm.acompletion(**data)  # type: ignore[arg-type]
 
-                # Publish: original response received from backend
+                # Extract response details
                 response_dict = response.model_dump() if hasattr(response, "model_dump") else response  # type: ignore[union-attr]
                 choices = response_dict.get("choices", [])  # type: ignore[union-attr]
-                content = choices[0].get("message", {}).get("content", "") if choices else ""
-                usage = response_dict.get("usage")  # type: ignore[union-attr]
                 finish_reason = choices[0].get("finish_reason") if choices else None
 
-                await activity_publisher.publish(
-                    OriginalResponseReceived(
+                # Publish: original response received (for real-time UI)
+                if event_publisher:
+                    await event_publisher.publish_event(
                         call_id=call_id,
-                        trace_id=trace_id,
-                        model=str(response_dict.get("model", "unknown")),  # type: ignore[union-attr]
-                        content=str(content),
-                        usage=usage,
-                        finish_reason=str(finish_reason) if finish_reason else None,
+                        event_type="gateway.response_received",
+                        data={
+                            "model": str(response_dict.get("model", "unknown")),  # type: ignore[union-attr]
+                            "finish_reason": str(finish_reason) if finish_reason else None,
+                        },
                     )
-                )
 
                 # Wrap in FullResponse and apply policy
                 full_response = FullResponse.from_model_response(response)
                 full_response = await control_plane.process_full_response(full_response, call_id)
 
-                # Publish: final response being sent to client
+                # Extract final response details
                 final_dict = full_response.to_model_response().model_dump()
                 final_choices = final_dict.get("choices", [])
-                final_content = final_choices[0].get("message", {}).get("content", "") if final_choices else ""
 
-                await activity_publisher.publish(
-                    FinalResponseSent(
+                # Publish: final response being sent (for real-time UI)
+                if event_publisher:
+                    await event_publisher.publish_event(
                         call_id=call_id,
-                        trace_id=trace_id,
-                        content=final_content,
-                        usage=final_dict.get("usage"),
-                        finish_reason=final_choices[0].get("finish_reason") if final_choices else None,
-                        modifications=[],  # TODO: Track modifications from policy
+                        event_type="gateway.response_sent",
+                        data={
+                            "finish_reason": final_choices[0].get("finish_reason") if final_choices else None,
+                        },
                     )
-                )
 
                 # Extract and return
                 return JSONResponse(full_response.to_model_response().model_dump())
