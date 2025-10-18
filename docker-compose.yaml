@@ -1,3 +1,10 @@
+# For observability (distributed tracing + logs), use:
+#   ./scripts/observability.sh up -d
+# Or:
+#   docker compose --profile observability up -d
+#
+# See observability/README.md for details.
+
 services:
   # PostgreSQL database for persistent state
   db:
@@ -149,6 +156,72 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # === OBSERVABILITY STACK ===
+  # Services: Tempo (traces), Loki (logs), Grafana (visualization)
+  # See: observability/README.md
+
+  tempo:
+    image: grafana/tempo:latest
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - ./observability/data/tempo:/var/tempo
+    ports:
+      - "4317:4317"  # OTLP gRPC (application sends traces here)
+      - "3200:3200"  # Tempo HTTP API
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3200/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  loki:
+    image: grafana/loki:latest
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./observability/loki/loki.yaml:/etc/loki/local-config.yaml:ro
+      - ./observability/data/loki:/loki
+    ports:
+      - "3100:3100"  # Loki HTTP API
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["observability"]
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./observability/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./observability/data/grafana:/var/lib/grafana
+    ports:
+      - "3000:3000"  # Grafana UI
+    networks:
+      - default
+    depends_on:
+      tempo:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   postgres_data:
