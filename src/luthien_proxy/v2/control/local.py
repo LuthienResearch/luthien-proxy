@@ -1,12 +1,11 @@
 # ABOUTME: Local (in-process) implementation of control plane service
-# ABOUTME: Executes policy methods with proper context and error handling
+# ABOUTME: Executes policy methods with OpenTelemetry tracing and proper error handling
 
 """Local implementation of control plane service.
 
 This implementation runs the control logic in-process with the API gateway.
-It executes policy methods, provides PolicyContext, and delegates to:
-- ActivityPublisher for event handling
-- StreamingOrchestrator for streaming coordination
+It executes policy methods with OpenTelemetry spans for distributed tracing,
+and delegates streaming coordination to StreamingOrchestrator.
 """
 
 from __future__ import annotations
@@ -14,67 +13,49 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, AsyncIterator
 
-from luthien_proxy.v2.activity import ActivityPublisher
-from luthien_proxy.v2.control.models import PolicyEvent, StreamingError
+from opentelemetry import trace
+
+from luthien_proxy.v2.control.models import StreamingError
 from luthien_proxy.v2.control.streaming import StreamingOrchestrator
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 from luthien_proxy.v2.policies.context import PolicyContext
 
 if TYPE_CHECKING:
-    from redis.asyncio import Redis
-
+    from luthien_proxy.v2.observability import SimpleEventPublisher
     from luthien_proxy.v2.policies.base import LuthienPolicy
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class ControlPlaneLocal:
     """In-process implementation of control plane service.
 
-    This is the Phase 1 implementation that runs everything locally.
-    In Phase 2, we might add ControlPlaneHTTP that makes network calls instead.
+    This implementation runs the control logic in-process with the API gateway.
+    Uses OpenTelemetry for distributed tracing instead of custom event collection.
 
     Responsibilities:
-    - Execute policy methods with proper PolicyContext
-    - Handle errors and emit error events
-    - Delegate event handling to ActivityPublisher
+    - Execute policy methods with proper PolicyContext (including OTel spans)
+    - Handle errors and record them as span events
     - Delegate streaming coordination to StreamingOrchestrator
     """
 
     def __init__(
         self,
         policy: LuthienPolicy,
-        redis_client: Redis | None = None,
+        event_publisher: SimpleEventPublisher | None = None,
     ):
         """Initialize local control plane.
 
         Args:
             policy: The policy handler to execute
-            redis_client: Optional Redis client for activity publishing
+            event_publisher: Optional publisher for real-time UI events
         """
         self.policy = policy
-
-        # Activity publisher for event handling
-        self.activity_publisher = ActivityPublisher(redis_client)
+        self.event_publisher = event_publisher
 
         # Streaming orchestrator for stream processing
         self.streaming_orchestrator = StreamingOrchestrator()
-
-    def _emit_event(
-        self,
-        event_type: str,
-        call_id: str,
-        summary: str,
-        severity: str = "info",
-    ) -> None:
-        """Helper to create and emit a policy event."""
-        event = PolicyEvent(
-            event_type=event_type,
-            call_id=call_id,
-            summary=summary,
-            severity=severity,
-        )
-        self.activity_publisher.handle_policy_event(event)
 
     async def process_request(
         self,
@@ -82,30 +63,42 @@ class ControlPlaneLocal:
         call_id: str,
     ) -> Request:
         """Apply policies to incoming request before LLM call."""
-        # Create context for this request
-        context = PolicyContext(
-            call_id=call_id,
-            emit_event=self.activity_publisher.handle_policy_event,
-        )
+        with tracer.start_as_current_span("control_plane.process_request") as span:
+            # Add span attributes
+            span.set_attribute("luthien.call_id", call_id)
+            span.set_attribute("luthien.model", request.model)
+            if request.max_tokens:
+                span.set_attribute("luthien.max_tokens", request.max_tokens)
 
-        try:
-            # Apply policy transformation
-            transformed = await self.policy.process_request(request, context)
-            return transformed
-
-        except Exception as exc:
-            logger.error(f"Policy execution failed for request: {exc}")
-
-            # Emit error event
-            self._emit_event(
-                event_type="request_policy_error",
+            # Create context for this request
+            context = PolicyContext(
                 call_id=call_id,
-                summary=f"Policy failed to process request: {exc}; ErrorType: {type(exc).__name__}",
-                severity="error",
+                span=span,
+                event_publisher=self.event_publisher,
             )
 
-            # Re-raise to let gateway handle it
-            raise
+            try:
+                # Apply policy transformation
+                transformed = await self.policy.process_request(request, context)
+                span.set_attribute("luthien.policy.success", True)
+                return transformed
+
+            except Exception as exc:
+                logger.error(f"Policy execution failed for request: {exc}")
+
+                # Record error in span
+                span.set_attribute("luthien.policy.success", False)
+                span.set_attribute("luthien.policy.error_type", type(exc).__name__)
+                span.add_event(
+                    "request_policy_error",
+                    attributes={
+                        "error.type": type(exc).__name__,
+                        "error.message": str(exc),
+                    },
+                )
+
+                # Re-raise to let gateway handle it
+                raise
 
     async def process_full_response(
         self,
@@ -113,30 +106,40 @@ class ControlPlaneLocal:
         call_id: str,
     ) -> FullResponse:
         """Apply policies to complete response after LLM call."""
-        # Create context for this response
-        context = PolicyContext(
-            call_id=call_id,
-            emit_event=self.activity_publisher.handle_policy_event,
-        )
+        with tracer.start_as_current_span("control_plane.process_full_response") as span:
+            # Add span attributes
+            span.set_attribute("luthien.call_id", call_id)
+            span.set_attribute("luthien.stream.enabled", False)
 
-        try:
-            # Apply policy transformation
-            transformed = await self.policy.process_full_response(response, context)
-            return transformed
-
-        except Exception as exc:
-            logger.error(f"Policy execution failed for response: {exc}")
-
-            # Emit error event
-            self._emit_event(
-                event_type="response_policy_error",
+            # Create context for this response
+            context = PolicyContext(
                 call_id=call_id,
-                summary=f"Policy failed to process response: {exc}; ErrorType: {type(exc).__name__}",
-                severity="error",
+                span=span,
+                event_publisher=self.event_publisher,
             )
 
-            # Return original response (don't block response on policy error)
-            return response
+            try:
+                # Apply policy transformation
+                transformed = await self.policy.process_full_response(response, context)
+                span.set_attribute("luthien.policy.success", True)
+                return transformed
+
+            except Exception as exc:
+                logger.error(f"Policy execution failed for response: {exc}")
+
+                # Record error in span
+                span.set_attribute("luthien.policy.success", False)
+                span.set_attribute("luthien.policy.error_type", type(exc).__name__)
+                span.add_event(
+                    "response_policy_error",
+                    attributes={
+                        "error.type": type(exc).__name__,
+                        "error.message": str(exc),
+                    },
+                )
+
+                # Return original response (don't block response on policy error)
+                return response
 
     async def process_streaming_response(
         self,
@@ -160,43 +163,58 @@ class ControlPlaneLocal:
         Raises:
             StreamingError: If streaming fails or times out
         """
-        # Create context for this stream
-        context = PolicyContext(
-            call_id=call_id,
-            emit_event=self.activity_publisher.handle_policy_event,
-        )
+        with tracer.start_as_current_span("control_plane.process_streaming_response") as span:
+            # Add span attributes
+            span.set_attribute("luthien.call_id", call_id)
+            span.set_attribute("luthien.stream.enabled", True)
+            span.set_attribute("luthien.stream.timeout_seconds", timeout_seconds)
 
-        self._emit_event("stream_start", call_id, "Started processing stream")
-
-        chunk_count = 0
-
-        try:
-            # Use orchestrator to handle streaming with timeout monitoring
-            async def policy_processor(incoming_queue, outgoing_queue, keepalive):
-                await self.policy.process_streaming_response(
-                    incoming_queue, outgoing_queue, context, keepalive=keepalive
-                )
-
-            async for chunk in self.streaming_orchestrator.process(incoming, policy_processor, timeout_seconds):
-                chunk_count += 1
-                yield chunk
-
-            # Success - emit completion event
-            self._emit_event("stream_complete", call_id, f"Completed stream with {chunk_count} chunks")
-
-        except BaseException as exc:
-            # BaseException catches both regular exceptions and ExceptionGroup from TaskGroup
-            logger.error(f"Streaming policy error: {exc}")
-
-            self._emit_event(
-                "stream_error",
-                call_id,
-                f"Error during streaming after {chunk_count} chunks: {exc}; ErrorType: {type(exc).__name__}",
-                severity="error",
+            # Create context for this stream
+            context = PolicyContext(
+                call_id=call_id,
+                span=span,
+                event_publisher=self.event_publisher,
             )
 
-            # Always wrap in StreamingError for consistent interface
-            raise StreamingError(f"Streaming failed after {chunk_count} chunks") from exc
+            span.add_event("stream_start")
+
+            chunk_count = 0
+
+            try:
+                # Use orchestrator to handle streaming with timeout monitoring
+                async def policy_processor(incoming_queue, outgoing_queue, keepalive):
+                    await self.policy.process_streaming_response(
+                        incoming_queue, outgoing_queue, context, keepalive=keepalive
+                    )
+
+                async for chunk in self.streaming_orchestrator.process(incoming, policy_processor, timeout_seconds):
+                    chunk_count += 1
+                    yield chunk
+
+                # Success - record completion
+                span.set_attribute("luthien.stream.chunk_count", chunk_count)
+                span.set_attribute("luthien.policy.success", True)
+                span.add_event("stream_complete", attributes={"chunk_count": chunk_count})
+
+            except BaseException as exc:
+                # BaseException catches both regular exceptions and ExceptionGroup from TaskGroup
+                logger.error(f"Streaming policy error: {exc}")
+
+                # Record error in span
+                span.set_attribute("luthien.stream.chunk_count", chunk_count)
+                span.set_attribute("luthien.policy.success", False)
+                span.set_attribute("luthien.policy.error_type", type(exc).__name__)
+                span.add_event(
+                    "stream_error",
+                    attributes={
+                        "error.type": type(exc).__name__,
+                        "error.message": str(exc),
+                        "chunk_count": chunk_count,
+                    },
+                )
+
+                # Always wrap in StreamingError for consistent interface
+                raise StreamingError(f"Streaming failed after {chunk_count} chunks") from exc
 
 
 __all__ = ["ControlPlaneLocal"]

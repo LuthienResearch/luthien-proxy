@@ -23,7 +23,7 @@ def call_id():
 def control_plane():
     """Create control plane with NoOpPolicy."""
     policy = NoOpPolicy()
-    return ControlPlaneLocal(policy=policy, db_pool=None, redis_client=None)
+    return ControlPlaneLocal(policy=policy, event_publisher=None)
 
 
 class TestControlPlaneLocalRequests:
@@ -76,12 +76,6 @@ class TestControlPlaneLocalRequests:
         # Should re-raise the error
         with pytest.raises(ValueError, match="Policy failed"):
             await control_plane.process_request(request, call_id)
-
-        # Should have created an error event
-        events = await control_plane.get_events("test-call-123")
-        assert len(events) == 1
-        assert events[0].event_type == "request_policy_error"
-        assert events[0].severity == "error"
 
 
 class TestControlPlaneLocalResponses:
@@ -140,12 +134,6 @@ class TestControlPlaneLocalResponses:
         result = await control_plane.process_full_response(full_response, call_id)
         assert result.response.id == "resp-456"
 
-        # Should have created an error event
-        events = await control_plane.get_events("test-call-123")
-        assert len(events) == 1
-        assert events[0].event_type == "response_policy_error"
-        assert events[0].severity == "error"
-
 
 class TestControlPlaneLocalStreaming:
     """Test ControlPlaneLocal streaming response processing."""
@@ -173,32 +161,6 @@ class TestControlPlaneLocalStreaming:
         assert output[2].chunk.id == "chunk-2"
 
     @pytest.mark.asyncio
-    async def test_streaming_emits_events(self, control_plane, call_id):
-        """Test that streaming emits start/complete events."""
-
-        async def mock_stream():
-            for i in range(2):
-                mock_chunk = Mock()
-                mock_chunk.id = f"chunk-{i}"
-                yield StreamingResponse(chunk=mock_chunk)
-
-        # Process stream
-        output = []
-        async for chunk in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=5.0):
-            output.append(chunk)
-
-        # Check events
-        events = await control_plane.get_events("test-call-123")
-        assert len(events) == 2
-
-        # Should have start and complete events
-        assert events[0].event_type == "stream_start"
-        assert events[0].severity == "info"
-
-        assert events[1].event_type == "stream_complete"
-        assert events[1].summary == "Completed stream with 2 chunks"
-
-    @pytest.mark.asyncio
     async def test_streaming_with_empty_stream(self, control_plane, call_id):
         """Test streaming with empty input."""
 
@@ -212,12 +174,6 @@ class TestControlPlaneLocalStreaming:
             output.append(chunk)
 
         assert len(output) == 0
-
-        # Should still have start/complete events
-        events = await control_plane.get_events("test-call-123")
-        assert len(events) == 2
-        assert events[0].event_type == "stream_start"
-        assert events[1].event_type == "stream_complete"
 
     @pytest.mark.asyncio
     async def test_streaming_error_handling(self, call_id):
@@ -247,10 +203,6 @@ class TestControlPlaneLocalStreaming:
         with pytest.raises(StreamingError, match="Streaming failed after 0 chunks"):
             async for _ in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=5.0):
                 pass
-
-        # Should have error event
-        events = await control_plane.get_events("test-call-123")
-        assert any(e.event_type == "stream_error" for e in events)
 
     @pytest.mark.asyncio
     async def test_streaming_concurrent_operations(self, control_plane, call_id):
@@ -359,96 +311,3 @@ class TestControlPlaneLocalStreaming:
 
         assert len(output) == 1
         assert output[0].chunk.id == "chunk-0"
-
-
-class TestControlPlaneLocalEvents:
-    """Test ControlPlaneLocal event handling."""
-
-    @pytest.mark.asyncio
-    async def test_get_events_for_call(self, call_id):
-        """Test retrieving events for a specific call."""
-        from luthien_proxy.v2.policies.base import LuthienPolicy
-        from luthien_proxy.v2.policies.context import PolicyContext
-
-        # Create a policy that emits events
-        class EventEmittingPolicy(LuthienPolicy):
-            async def process_request(self, request, context: PolicyContext):
-                context.emit("custom_event", "Custom event occurred", {"data": "test"})
-                return request
-
-            async def process_full_response(self, response, context: PolicyContext):
-                return response
-
-            async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
-                try:
-                    while True:
-                        batch = await incoming.get_available()
-                        if not batch:
-                            break
-                        for chunk in batch:
-                            await outgoing.put(chunk)
-                finally:
-                    await outgoing.close()
-
-        policy = EventEmittingPolicy()
-        control_plane = ControlPlaneLocal(policy=policy)
-
-        request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
-        await control_plane.process_request(request, call_id)
-
-        # Get events
-        events = await control_plane.get_events("test-call-123")
-        assert len(events) == 1
-        assert events[0].event_type == "custom_event"
-        assert events[0].details["data"] == "test"
-
-    @pytest.mark.asyncio
-    async def test_events_for_different_calls(self):
-        """Test that events are tracked per call_id."""
-        from luthien_proxy.v2.policies.base import LuthienPolicy
-        from luthien_proxy.v2.policies.context import PolicyContext
-
-        class EventEmittingPolicy(LuthienPolicy):
-            async def process_request(self, request, context: PolicyContext):
-                context.emit("request_event", "Request processed")
-                return request
-
-            async def process_full_response(self, response, context: PolicyContext):
-                return response
-
-            async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
-                try:
-                    while True:
-                        batch = await incoming.get_available()
-                        if not batch:
-                            break
-                        for chunk in batch:
-                            await outgoing.put(chunk)
-                finally:
-                    await outgoing.close()
-
-        policy = EventEmittingPolicy()
-        control_plane = ControlPlaneLocal(policy=policy)
-
-        # Process two different calls
-        call_id_1 = "call-1"
-        call_id_2 = "call-2"
-
-        request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
-        await control_plane.process_request(request, call_id_1)
-        await control_plane.process_request(request, call_id_2)
-
-        # Each call should have its own events
-        events1 = await control_plane.get_events("call-1")
-        events2 = await control_plane.get_events("call-2")
-
-        assert len(events1) == 1
-        assert len(events2) == 1
-        assert events1[0].call_id == "call-1"
-        assert events2[0].call_id == "call-2"
-
-    @pytest.mark.asyncio
-    async def test_get_events_for_nonexistent_call(self, control_plane):
-        """Test getting events for a call that doesn't exist."""
-        events = await control_plane.get_events("nonexistent-call")
-        assert events == []
