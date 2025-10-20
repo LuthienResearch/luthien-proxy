@@ -1,0 +1,45 @@
+# ABOUTME: Dockerfile for the Luthien V2 gateway (integrated FastAPI + LiteLLM architecture)
+# ABOUTME: Sets up the V2 gateway service with OpenTelemetry instrumentation
+
+FROM python:3.13-slim
+
+# Install system dependencies and build chain for Rust/Python extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    build-essential \
+    pkg-config \
+    rustc \
+    cargo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast Python package management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# Set working directory
+WORKDIR /app
+
+# Copy project files needed to build/install the local package
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ ./src/
+COPY config/ ./config/
+
+# Install dependencies (includes building local package)
+RUN uv sync --frozen --no-dev
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash app && \
+    chown -R app:app /app
+USER app
+
+# Source and config are already present; ensure ownership
+RUN chown -R app:app /app/src /app/config
+
+# Expose port (V2 gateway runs on 8000 by default)
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Start the V2 gateway service
+CMD ["uv", "run", "python", "-m", "luthien_proxy.v2.main"]

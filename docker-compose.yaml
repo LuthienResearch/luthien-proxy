@@ -157,6 +157,40 @@ services:
       timeout: 3s
       retries: 5
 
+  # V2 Gateway (integrated FastAPI + LiteLLM architecture)
+  v2-gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.v2-gateway
+    profiles: ["observability"]
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - PROXY_API_KEY=${PROXY_API_KEY}
+      - V2_GATEWAY_PORT=${V2_GATEWAY_PORT:-8000}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_SERVICE_NAME=luthien-v2-gateway
+    ports:
+      - "${V2_GATEWAY_PORT:-8000}:8000"
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    stop_grace_period: 2s
+
   # === OBSERVABILITY STACK ===
   # Services: Tempo (traces), Loki (logs), Grafana (visualization)
   # See: observability/README.md

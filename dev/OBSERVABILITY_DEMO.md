@@ -4,39 +4,43 @@ This guide walks through testing the UppercaseNthWordPolicy and exploring all V2
 
 ## Prerequisites
 
-1. **Start the observability stack**:
+1. **Set up environment** (if not already done):
+   ```bash
+   cp .env.example .env
+   # Edit .env to add your OPENAI_API_KEY and/or ANTHROPIC_API_KEY
+   ```
+
+2. **Start the full observability stack** (includes V2 gateway):
    ```bash
    ./scripts/observability.sh up -d
    ```
-   This starts Tempo, Loki, Promtail, and Grafana in the background.
+   This starts:
+   - V2 Gateway (with UppercaseNthWordPolicy)
+   - PostgreSQL and Redis
+   - Tempo (traces), Loki (logs), Promtail (log collector), and Grafana
 
-2. **Verify services are running**:
+3. **Verify services are running**:
    ```bash
-   docker compose ps
+   docker compose --profile observability ps
    ```
-   Should show: control-plane, postgres, redis, tempo, loki, promtail, grafana all running.
+   Should show: v2-gateway, db, redis, tempo, loki, promtail, grafana all running and healthy.
 
-3. **Set up environment** (if not already done):
-   ```bash
-   cp .env.example .env
-   # Edit .env to set your API keys if needed
-   ```
+## Part 1: Verify V2 Gateway
 
-## Part 1: Start the V2 Gateway
-
-The V2 gateway is now configured with `UppercaseNthWordPolicy(n=3)` which will uppercase every 3rd word in responses.
+The V2 gateway is now running in Docker with `UppercaseNthWordPolicy(n=3)` which will uppercase every 3rd word in responses.
 
 ```bash
-# Start the V2 gateway (in a separate terminal)
-uv run python -m luthien_proxy.v2.main
+# Check gateway logs
+docker compose logs v2-gateway --tail 20
 ```
 
 You should see logs indicating:
-- `UppercaseNthWordPolicy initialized with n=3`
+- `Connected to database at postgresql://...`
+- `Connected to Redis at redis://...`
 - `Control plane initialized with OpenTelemetry tracing`
 - `Application startup complete`
 
-The gateway is now running at `http://localhost:8000`.
+The gateway is available at `http://localhost:8000`.
 
 ## Part 2: Send Test Requests
 
@@ -45,21 +49,21 @@ The gateway is now running at `http://localhost:8000`.
 ```bash
 curl -s "http://localhost:8000/v1/chat/completions" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Authorization: Bearer sk-luthien-dev-key" \
   -d '{
-    "model": "gpt-3.5-turbo",
-    "messages": [{"role": "user", "content": "Tell me a short story about a cat"}],
-    "max_tokens": 100,
+    "model": "claude-opus-4-1",
+    "messages": [{"role": "user", "content": "Say: the quick brown fox jumps over the lazy dog"}],
+    "max_tokens": 50,
     "stream": false
-  }' | jq
+  }' | jq -r '.choices[0].message.content'
 ```
 
 **Expected**: Every 3rd word in the response should be UPPERCASE.
 
 Example output:
-```
-Original: "Once upon a time there was a cat named Whiskers..."
-Transformed: "Once upon A time there WAS a cat NAMED Whiskers..."
+
+```text
+The quick BROWN fox jumps OVER the lazy DOG.
 ```
 
 ### Option B: Using curl (Streaming)
@@ -67,9 +71,9 @@ Transformed: "Once upon A time there WAS a cat NAMED Whiskers..."
 ```bash
 curl -N "http://localhost:8000/v1/chat/completions" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Authorization: Bearer sk-luthien-dev-key" \
   -d '{
-    "model": "gpt-3.5-turbo",
+    "model": "claude-opus-4-1",
     "messages": [{"role": "user", "content": "Count from one to ten"}],
     "max_tokens": 50,
     "stream": true
@@ -354,10 +358,20 @@ Back to the **Activity Monitor**, filter to show only **Policy Events**:
 - Verify UppercaseNthWordPolicy is configured in main.py
 - Test with non-streaming first (easier to debug)
 
+## Shutting Down
+
+When you're done exploring:
+
+```bash
+./scripts/observability.sh down
+```
+
+This stops all services (V2 gateway, databases, observability stack).
+
 ## Next Steps
 
-- Try changing `n` to a different value (e.g., n=2 for every other word, n=1 for all words)
-- Create your own policy by copying UppercaseNthWordPolicy
+- Try changing `n` to a different value in [main.py:78](../src/luthien_proxy/v2/main.py#L78) (e.g., n=2 for every other word, n=1 for all words)
+- Create your own policy by copying [UppercaseNthWordPolicy](../src/luthien_proxy/v2/policies/uppercase_nth_word.py)
 - Add more complex transformations (e.g., word filtering, content moderation)
 - Set up alerting rules in Grafana for policy failures or high latency
 - Export interesting traces and diffs for documentation

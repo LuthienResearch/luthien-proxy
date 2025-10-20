@@ -94,7 +94,7 @@ class UppercaseNthWordPolicy(LuthienPolicy):
 
     async def process_request(self, request: Request, context: PolicyContext) -> Request:
         """Pass request through unchanged - this policy only affects responses."""
-        await context.emit(
+        context.emit(
             event_type="policy.uppercase_request",
             summary=f"Request passed through (policy only affects responses, n={self.n})",
             severity="info",
@@ -119,7 +119,7 @@ class UppercaseNthWordPolicy(LuthienPolicy):
         transformed_content = self._get_content_preview(transformed_dict)
 
         # Emit event describing the transformation
-        await context.emit(
+        context.emit(
             event_type="policy.uppercase_applied",
             summary=f"Uppercased every {self.n}th word in response",
             severity="info",
@@ -157,7 +157,7 @@ class UppercaseNthWordPolicy(LuthienPolicy):
         chunks_processed = 0
 
         try:
-            await context.emit(
+            context.emit(
                 event_type="policy.uppercase_streaming_started",
                 summary=f"Started streaming transformation (n={self.n})",
                 severity="info",
@@ -209,7 +209,7 @@ class UppercaseNthWordPolicy(LuthienPolicy):
 
                     # Keep partial word in buffer for next iteration
 
-            await context.emit(
+            context.emit(
                 event_type="policy.uppercase_streaming_complete",
                 summary="Completed streaming transformation",
                 severity="info",
