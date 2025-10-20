@@ -1,0 +1,112 @@
+Now let me review the key issues more carefully with what you've told me:
+
+## Analysis
+
+You're right to be concerned. Here are the **blockers** and **viable simplifications**:
+
+### 1. **BLOCKER: Duplicate storage path**
+**Problem**: The proposal creates `request_traces` table duplicating what `conversation_events` already stores (original/final request+response in JSONB payload field at events.py:68-78, 178-191, 242-255).
+
+**Evidence**:
+- `conversation_events.payload` stores `{"original": {...}, "final": {...}}` for both request and response
+- Proposed `request_traces` would store `original_request`, `final_request`, `original_response`, `final_response`
+- This is exact duplication
+
+**Solution**: Use existing `conversation_events` instead of creating new table. Query by `call_id` + `event_type IN ('request', 'response')` to get the before/after pairs.
+
+### 2. **BLOCKER: Synchronous DB writes on hot path**
+**Problem**: Lines 103-107 and 125-129 of proposal show `await store_request_trace()` and `await update_request_trace()` in the request path before returning to user.
+
+**Solution**:
+- **Option A** (simplest): Don't write from v2 gateway at all. Only query the existing conversation_events that are already being populated by the LiteLLM callback hooks
+- **Option B**: Make writes async/fire-and-forget using background tasks, but this adds complexity
+
+### 3. **NOT A BLOCKER but needs clarity: Streaming**
+**Problem**: Proposal line 449-452 acknowledges streaming is unhandled but suggests "reconstruct full response from chunks"
+
+**Reality check**: The existing code already does this! Look at events.py:206-267 - `async_post_call_streaming_hook` reconstructs the final assembled response and stores it in conversation_events.
+
+**Solution**: Just document that streaming is already handled - the final response in conversation_events is already the fully assembled version.
+
+### 4. **Minor: Wrong schema path**
+Line 230 references `prisma/schema.prisma` but should be `prisma/control_plane/schema.prisma`. Easy fix in docs.
+
+### 5. **Medium concern: Grafana API vs Tempo direct**
+Line 150 shows querying Tempo via Grafana API. This works but adds a dependency layer.
+
+**Recommendation**: Start with Grafana API (Option A from line 444-446) as proposed since you already have Grafana running. You can switch to direct Tempo queries later if needed.
+
+---
+
+## Simplified Alternative Architecture
+
+**Core insight**: You already have the storage layer via conversation_events. You just need:
+
+1. **Read layer**: Query conversation_events by call_id to get request/response pairs
+2. **Diff view**: Build the UI that compares `payload['original']` vs `payload['final']`
+3. **Tempo integration**: Link call_id to trace_id for span waterfall
+
+**Revised implementation**:
+
+```python
+# GET /v2/debug/request/<call_id>
+@app.get("/v2/debug/request/{call_id}")
+async def debug_request(call_id: str):
+    # 1. Query existing conversation_events (NO NEW TABLE NEEDED)
+    events = await prisma.conversationevent.find_many(
+        where={
+            "callId": call_id,
+            "eventType": {"in": ["request", "response"]}
+        },
+        order_by={"sequence": "asc"}
+    )
+
+    # Extract request and response
+    request_event = next((e for e in events if e.eventType == "request"), None)
+    response_event = next((e for e in events if e.eventType == "response"), None)
+
+    # 2. Compute diffs from existing payload structure
+    request_diff = compute_diff(
+        request_event.payload["original"],
+        request_event.payload["final"]
+    ) if request_event else None
+
+    response_diff = compute_diff(
+        response_event.payload["original"],
+        response_event.payload["final"]
+    ) if response_event else None
+
+    # 3. Query Tempo for spans (via Grafana API)
+    spans = await tempo_client.query_trace_by_call_id(call_id)
+
+    # 4. Render debug view
+    return templates.TemplateResponse("debug_request.html", {...})
+```
+
+**What this eliminates**:
+- ❌ New `request_traces` table
+- ❌ Synchronous DB writes in hot path
+- ❌ Phase 1 (storage layer) - already exists
+- ❌ Phase 3 (integration) - already integrated via LiteLLM callbacks
+
+**What remains**:
+- ✅ Phase 2: Diff view UI + endpoint (2-3 hours) - THIS IS THE CORE VALUE
+- ✅ Phase 4: Grafana dashboard linking to debug endpoint (2 hours)
+- ✅ Phase 5: Enhance live monitor (1 hour) - optional
+- ✅ Phase 6: Tests/docs (2 hours)
+
+**New time estimate**: 5-8 hours instead of 10-13 hours
+
+---
+
+## Specific Recommendations
+
+1. **Start here**: Build the diff UI endpoint that queries existing conversation_events
+2. **Validate**: Confirm conversation_events has the data you need by querying a recent call_id manually
+3. **Then**: Add Tempo integration for timing waterfall
+4. **Finally**: Polish with Grafana dashboard
+
+Would you like me to:
+1. Write a validation query to check existing conversation_events data?
+2. Draft a simplified implementation plan?
+3. Create a proof-of-concept diff endpoint?
