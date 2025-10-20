@@ -6,9 +6,9 @@ This guide walks through testing the UppercaseNthWordPolicy and exploring all V2
 
 1. **Start the observability stack**:
    ```bash
-   ./scripts/observability.sh start
+   ./scripts/observability.sh up -d
    ```
-   This starts Tempo, Loki, Promtail, and Grafana.
+   This starts Tempo, Loki, Promtail, and Grafana in the background.
 
 2. **Verify services are running**:
    ```bash
