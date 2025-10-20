@@ -1,7 +1,7 @@
 # V2 Observability
 
 **Last Updated:** 2025-10-20
-**Status:** Phases 1-3.2 Complete ✅ (Event emission + Debug endpoints + UI)
+**Status:** Complete ✅ (All phases 1-3 implemented)
 
 ---
 
@@ -199,15 +199,37 @@ Each event contains:
 
 **Actual Time**: ~1 hour
 
-### 🔄 Phase 3.3: Grafana Dashboards (TODO)
+### ✅ Phase 3.3: Grafana Dashboards (COMPLETE)
 
 **Goal**: Create Grafana dashboards for V2 metrics and traces
 
-- [ ] Create dashboard showing V2 request rates by model
-- [ ] Add panel for policy execution latency (from OTel spans)
-- [ ] Link to debug endpoint from Grafana (via call_id)
+- [x] Create dashboard showing V2 request rates by model
+- [x] Add panels for policy execution latency (from OTel spans)
+- [x] Add recent traces panel with call_id (linkable to debug endpoint)
+- [x] Add request count and latency gauges
+- [x] Add latency breakdown panel (gateway, policy, LLM)
+- [x] Add errors & warnings log panel
+- [x] Add links to diff viewer and activity monitor in dashboard
 
-**Estimated Time**: 1-2 hours
+**Files Created**:
+- `observability/grafana/dashboards/v2-metrics.json` - V2 Metrics & Performance dashboard
+
+**Features**:
+- **Request Rate by Model**: Time series showing requests/sec grouped by model (TraceQL rate query)
+- **Policy Execution Latency (p95)**: 95th percentile latency for policy operations
+- **Total Requests & Avg Latency**: Gauge panels for quick stats
+- **Recent Traces Table**: Shows last 20 traces with call_id visible for linking
+- **Errors & Warnings**: Log panel filtered to V2 errors/warnings
+- **Latency Breakdown**: Stacked bars showing gateway, policy, and LLM latency
+- **Quick Links**: Direct links to diff viewer and activity monitor from dashboard
+
+**How to Use**:
+1. Start observability stack: `./scripts/observability.sh start`
+2. Open Grafana: http://localhost:3000
+3. Navigate to "V2 Metrics & Performance" dashboard
+4. Copy call_id from traces table → Open diff viewer → Paste call_id to see policy changes
+
+**Actual Time**: ~1 hour
 
 ---
 
@@ -319,14 +341,23 @@ open http://localhost:3000
 
 ---
 
-## Next Steps
+## Summary
 
-1. **Phase 3.3**: Create Grafana dashboards for V2 metrics
-   - Dashboard showing V2 request rates by model
-   - Panel for policy execution latency from OTel spans
-   - Link to debug endpoint from Grafana via call_id
+**All observability phases complete!** The V2 gateway now has:
 
-**Estimated Total Remaining**: 1-2 hours
+1. ✅ **Event Emission** - Request/response events persisted to PostgreSQL via background queue
+2. ✅ **Debug API** - REST endpoints for querying events and computing diffs
+3. ✅ **Diff Viewer UI** - Side-by-side comparison with JSON highlighting
+4. ✅ **Activity Monitor** - Real-time event stream with filtering
+5. ✅ **Grafana Dashboards** - Metrics, traces, and performance monitoring
+
+**Total Implementation Time**: ~6.5 hours (vs estimated 8-10 hours)
+
+**Next Steps** (future enhancements):
+- Add more sophisticated filtering to activity monitor (regex, time range)
+- Create alerting rules for policy failures or high latency
+- Add Prometheus for more detailed metrics (if needed)
+- Build policy-specific dashboards for custom policy implementations
 
 ---
 
