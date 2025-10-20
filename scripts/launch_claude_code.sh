@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# ABOUTME: Script to launch Claude Code using the local LiteLLM+Luthien proxy
-# ABOUTME: Configures environment to route Claude API calls through local proxy
+# ABOUTME: Script to launch Claude Code using the V2 gateway with policy enforcement
+# ABOUTME: Configures environment to route Claude API calls through V2 gateway
 
 set -e
 
@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🚀 Launching Claude Code with Luthien Proxy${NC}"
+echo -e "${BLUE}🚀 Launching Claude Code with V2 Gateway${NC}"
 
 # Check if .env exists
 if [ ! -f .env ]; then
@@ -25,22 +25,31 @@ set -a
 source .env
 set +a
 
-# Check if proxy is running
-PROXY_PORT="${LITELLM_PORT:-4000}"
-CONTROL_PLANE_PORT="${CONTROL_PLANE_PORT:-8081}"
+# Check if V2 gateway is running
+V2_PORT="${V2_GATEWAY_PORT:-8000}"
 
-echo -e "${YELLOW}🔍 Checking proxy status...${NC}"
+echo -e "${YELLOW}🔍 Checking V2 gateway status...${NC}"
 
-if ! curl -sf "http://localhost:${PROXY_PORT}/health/liveness" > /dev/null 2>&1; then
-    echo -e "${YELLOW}⚠️  Proxy not detected. Starting services...${NC}"
-    ./scripts/quick_start.sh
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}❌ Failed to start services${NC}"
+if ! curl -sf "http://localhost:${V2_PORT}/health" > /dev/null 2>&1; then
+    echo -e "${YELLOW}⚠️  V2 gateway not detected. Starting observability stack...${NC}"
+    ./scripts/observability.sh up -d
+
+    # Wait for gateway to be healthy
+    echo -e "${YELLOW}⏳ Waiting for V2 gateway to be ready...${NC}"
+    for i in {1..30}; do
+        if curl -sf "http://localhost:${V2_PORT}/health" > /dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+
+    if ! curl -sf "http://localhost:${V2_PORT}/health" > /dev/null 2>&1; then
+        echo -e "${RED}❌ V2 gateway failed to start${NC}"
         exit 1
     fi
 fi
 
-echo -e "${GREEN}✅ Proxy is running on port ${PROXY_PORT}${NC}"
+echo -e "${GREEN}✅ V2 gateway is running on port ${V2_PORT}${NC}"
 
 # Check for Anthropic API key
 if [ -z "${ANTHROPIC_API_KEY}" ] || [ "${ANTHROPIC_API_KEY}" == "your_anthropic_api_key_here" ]; then
@@ -49,22 +58,24 @@ if [ -z "${ANTHROPIC_API_KEY}" ] || [ "${ANTHROPIC_API_KEY}" == "your_anthropic_
     exit 1
 fi
 
-# Export proxy configuration for Claude Code
-export ANTHROPIC_BASE_URL="http://localhost:${PROXY_PORT}/"
-export ANTHROPIC_API_KEY="${LITELLM_MASTER_KEY:-sk-luthien-dev-key}"
+# Export V2 gateway configuration for Claude Code
+export ANTHROPIC_BASE_URL="http://localhost:${V2_PORT}/v1/"
+export ANTHROPIC_API_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
 export ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-3-5-haiku"
 export CLAUDE_CODE_SUBAGENT_MODEL="anthropic/claude-sonnet-4-5"
 
 
-echo -e "${BLUE}📋 Proxy Configuration:${NC}"
-echo -e "   • Proxy URL:       ${ANTHROPIC_BASE_URL}"
-echo -e "   • Proxy API Key:   ${ANTHROPIC_API_KEY:0:10}..."
-echo -e "   • Control Plane:   http://localhost:${CONTROL_PLANE_PORT}"
+echo -e "${BLUE}📋 V2 Gateway Configuration:${NC}"
+echo -e "   • Gateway URL:     ${ANTHROPIC_BASE_URL}"
+echo -e "   • API Key:         ${ANTHROPIC_API_KEY:0:10}..."
 echo ""
-echo -e "${GREEN}🎯 Claude Code will now route through the Luthien proxy${NC}"
-echo -e "${YELLOW}📊 Monitor requests at: http://localhost:${CONTROL_PLANE_PORT}/trace${NC}"
+echo -e "${GREEN}🎯 Claude Code will now route through the V2 gateway with policy enforcement${NC}"
+echo -e "${YELLOW}📊 Monitor requests at:${NC}"
+echo -e "   • Activity Monitor:  http://localhost:${V2_PORT}/v2/activity/monitor"
+echo -e "   • Diff Viewer:       http://localhost:${V2_PORT}/v2/debug/diff"
+echo -e "   • Grafana:           http://localhost:3000"
 echo ""
 
 # Launch Claude Code
