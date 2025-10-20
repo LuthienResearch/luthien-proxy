@@ -36,7 +36,7 @@ from luthien_proxy.v2.messages import Request as RequestMessage
 from luthien_proxy.v2.messages import StreamingResponse as StreamingResponseMessage
 from luthien_proxy.v2.observability import SimpleEventPublisher
 from luthien_proxy.v2.policies.base import LuthienPolicy
-from luthien_proxy.v2.policies.noop import NoOpPolicy
+from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
 from luthien_proxy.v2.storage import emit_request_event, emit_response_event
 from luthien_proxy.v2.telemetry import setup_telemetry
 
@@ -54,7 +54,8 @@ if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable required")
 
 # Swap out the policy handler here!
-POLICY_HANDLER: LuthienPolicy = NoOpPolicy()
+# POLICY_HANDLER: LuthienPolicy = NoOpPolicy()
+POLICY_HANDLER: LuthienPolicy = UppercaseNthWordPolicy(n=3)  # Uppercase every 3rd word
 
 # === REDIS & CONTROL PLANE ===
 redis_client: Redis | None = None
