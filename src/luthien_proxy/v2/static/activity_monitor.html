@@ -149,22 +149,27 @@
         }
 
         /* Event type colors */
-        .event.request_received {
+        .event[class*="request_received"],
+        .event[class*="request.received"] {
             border-left-color: #3b82f6;
         }
 
-        .event.request_sent {
+        .event[class*="request_sent"],
+        .event[class*="request.sent"] {
             border-left-color: #8b5cf6;
         }
 
-        .event.response_received {
+        .event[class*="response_received"],
+        .event[class*="response.received"] {
             border-left-color: #10b981;
         }
 
-        .event.response_sent {
+        .event[class*="response_sent"],
+        .event[class*="response.sent"] {
             border-left-color: #14b8a6;
         }
 
+        .event[class*="policy"],
         .event.policy_event {
             border-left-color: #f59e0b;
         }
@@ -188,6 +193,51 @@
             font-size: 11px;
             color: #fbbf24;
         }
+
+        .filters {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .filter-label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input[type="text"],
+        select {
+            padding: 8px 12px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            font-size: 13px;
+            min-width: 180px;
+        }
+
+        input[type="text"]::placeholder {
+            color: #666;
+        }
+
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #60a5fa;
+        }
+
+        .event.filtered {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -206,6 +256,28 @@
             <button id="reconnect-btn">Reconnect</button>
         </div>
 
+        <div class="filters">
+            <div class="filter-group">
+                <label class="filter-label">Call ID</label>
+                <input type="text" id="filter-call-id" placeholder="Filter by call_id..." />
+            </div>
+            <div class="filter-group">
+                <label class="filter-label">Model</label>
+                <input type="text" id="filter-model" placeholder="Filter by model..." />
+            </div>
+            <div class="filter-group">
+                <label class="filter-label">Event Type</label>
+                <select id="filter-event-type">
+                    <option value="">All Events</option>
+                    <option value="gateway.request_received">Request Received</option>
+                    <option value="gateway.request_sent">Request Sent</option>
+                    <option value="gateway.response_received">Response Received</option>
+                    <option value="gateway.response_sent">Response Sent</option>
+                    <option value="policy_event">Policy Events</option>
+                </select>
+            </div>
+        </div>
+
         <div class="event-feed" id="event-feed">
             <div class="empty-state">
                 Waiting for events...
@@ -216,12 +288,16 @@
     <script>
         let eventSource = null;
         let eventCount = 0;
+        let allEvents = [];
 
         const statusEl = document.getElementById('status');
         const statusTextEl = document.getElementById('status-text');
         const eventFeedEl = document.getElementById('event-feed');
         const clearBtn = document.getElementById('clear-btn');
         const reconnectBtn = document.getElementById('reconnect-btn');
+        const filterCallId = document.getElementById('filter-call-id');
+        const filterModel = document.getElementById('filter-model');
+        const filterEventType = document.getElementById('filter-event-type');
 
         function updateStatus(connected) {
             if (connected) {
@@ -244,46 +320,100 @@
             });
         }
 
+        function matchesFilters(event) {
+            // Filter by call_id
+            const callIdFilter = filterCallId.value.trim().toLowerCase();
+            if (callIdFilter && !event.call_id.toLowerCase().includes(callIdFilter)) {
+                return false;
+            }
+
+            // Filter by model (check event.data if exists)
+            const modelFilter = filterModel.value.trim().toLowerCase();
+            if (modelFilter) {
+                const eventModel = (event.data?.model || event.model || '').toLowerCase();
+                if (!eventModel.includes(modelFilter)) {
+                    return false;
+                }
+            }
+
+            // Filter by event type
+            const eventTypeFilter = filterEventType.value;
+            if (eventTypeFilter && event.event_type !== eventTypeFilter) {
+                return false;
+            }
+
+            return true;
+        }
+
+        function applyFilters() {
+            const events = eventFeedEl.querySelectorAll('.event');
+            let visibleCount = 0;
+
+            events.forEach((eventEl, idx) => {
+                const event = allEvents[allEvents.length - 1 - idx]; // Events are prepended, so reverse index
+                if (event && matchesFilters(event)) {
+                    eventEl.classList.remove('filtered');
+                    visibleCount++;
+                } else {
+                    eventEl.classList.add('filtered');
+                }
+            });
+
+            return visibleCount;
+        }
+
         function renderEvent(event) {
             const eventEl = document.createElement('div');
             eventEl.className = `event ${event.event_type}`;
 
+            // Parse event data based on structure
+            const eventData = event.data || {};
+            const endpoint = eventData.endpoint || '';
+            const model = eventData.model || event.model || '';
+            const messages = eventData.messages || [];
+            const stream = eventData.stream || false;
+            const content = eventData.content || '';
+            const usage = eventData.usage || null;
+            const policyName = eventData.policy_name || '';
+            const eventName = eventData.event_name || '';
+            const description = eventData.description || '';
+
             let dataHtml = '';
 
             // Different rendering based on event type
-            if (event.event_type === 'request_received') {
+            if (event.event_type === 'gateway.request_received') {
                 dataHtml = `
                     <div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>
-                    <div><strong>Endpoint:</strong> <code>${event.endpoint}</code></div>
-                    <div><strong>Model:</strong> <code>${event.model}</code></div>
-                    <div><strong>Messages:</strong> ${event.messages.length} messages</div>
-                    <div><strong>Stream:</strong> ${event.stream ? 'Yes' : 'No'}</div>
+                    <div><strong>Endpoint:</strong> <code>${endpoint}</code></div>
+                    <div><strong>Model:</strong> <code>${model}</code></div>
+                    <div><strong>Messages:</strong> ${messages.length} messages</div>
+                    <div><strong>Stream:</strong> ${stream ? 'Yes' : 'No'}</div>
                 `;
-            } else if (event.event_type === 'request_sent') {
+            } else if (event.event_type === 'gateway.request_sent') {
                 dataHtml = `
                     <div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>
-                    <div><strong>Model:</strong> <code>${event.model}</code></div>
-                    <div><strong>Messages:</strong> ${event.messages.length} messages</div>
+                    <div><strong>Model:</strong> <code>${model}</code></div>
+                    <div><strong>Stream:</strong> ${stream ? 'Yes' : 'No'}</div>
                 `;
-            } else if (event.event_type === 'response_received') {
+            } else if (event.event_type === 'gateway.response_received') {
                 dataHtml = `
                     <div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>
-                    <div><strong>Model:</strong> <code>${event.model}</code></div>
-                    <div><strong>Content:</strong> ${event.content.substring(0, 100)}${event.content.length > 100 ? '...' : ''}</div>
-                    ${event.usage ? `<div><strong>Tokens:</strong> ${event.usage.total_tokens || 'N/A'}</div>` : ''}
+                    <div><strong>Model:</strong> <code>${model}</code></div>
+                    ${content ? `<div><strong>Content:</strong> ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}</div>` : ''}
+                    ${usage ? `<div><strong>Tokens:</strong> ${usage.total_tokens || 'N/A'}</div>` : ''}
                 `;
-            } else if (event.event_type === 'response_sent') {
+            } else if (event.event_type === 'gateway.response_sent') {
                 dataHtml = `
                     <div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>
-                    <div><strong>Content:</strong> ${event.content.substring(0, 100)}${event.content.length > 100 ? '...' : ''}</div>
-                    ${event.usage ? `<div><strong>Tokens:</strong> ${event.usage.total_tokens || 'N/A'}</div>` : ''}
+                    ${content ? `<div><strong>Content:</strong> ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}</div>` : ''}
+                    ${usage ? `<div><strong>Tokens:</strong> ${usage.total_tokens || 'N/A'}</div>` : ''}
                 `;
-            } else if (event.event_type === 'policy_event') {
+            } else if (event.event_type === 'policy_event' || event.event_type.startsWith('policy.')) {
                 dataHtml = `
                     <div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>
-                    <div><strong>Policy:</strong> <code>${event.policy_name}</code></div>
-                    <div><strong>Event:</strong> ${event.event_name}</div>
-                    <div><strong>Description:</strong> ${event.description}</div>
+                    ${policyName ? `<div><strong>Policy:</strong> <code>${policyName}</code></div>` : ''}
+                    ${eventName ? `<div><strong>Event:</strong> ${eventName}</div>` : ''}
+                    ${description ? `<div><strong>Description:</strong> ${description}</div>` : ''}
                 `;
             } else {
                 // Generic rendering for other events
@@ -302,6 +432,12 @@
         }
 
         function addEvent(event) {
+            // Store event for filtering
+            allEvents.unshift(event);
+            if (allEvents.length > 100) {
+                allEvents.pop();
+            }
+
             // Remove empty state if present
             const emptyState = eventFeedEl.querySelector('.empty-state');
             if (emptyState) {
@@ -309,6 +445,12 @@
             }
 
             const eventEl = renderEvent(event);
+
+            // Apply filters immediately to new event
+            if (!matchesFilters(event)) {
+                eventEl.classList.add('filtered');
+            }
+
             eventFeedEl.insertBefore(eventEl, eventFeedEl.firstChild);
 
             eventCount++;
@@ -317,6 +459,7 @@
             // Limit to 100 events
             while (eventFeedEl.children.length > 100) {
                 eventFeedEl.removeChild(eventFeedEl.lastChild);
+                allEvents.pop();
             }
         }
 
@@ -363,12 +506,18 @@
         clearBtn.addEventListener('click', () => {
             eventFeedEl.innerHTML = '<div class="empty-state">Events cleared. Waiting for new events...</div>';
             eventCount = 0;
+            allEvents = [];
             updateStatus(eventSource && eventSource.readyState === EventSource.OPEN);
         });
 
         reconnectBtn.addEventListener('click', () => {
             connect();
         });
+
+        // Wire up filter inputs
+        filterCallId.addEventListener('input', applyFilters);
+        filterModel.addEventListener('input', applyFilters);
+        filterEventType.addEventListener('change', applyFilters);
 
         // Auto-connect on load
         connect();
