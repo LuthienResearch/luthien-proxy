@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Coroutine, TypeV
 
 from opentelemetry import trace
 
-from luthien_proxy.v2.streaming import ChunkQueue
+from luthien_proxy.v2.queue_utils import get_available
 
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
@@ -64,7 +64,7 @@ class StreamingOrchestrator:
     """Orchestrates streaming with queue-based processing and timeout monitoring.
 
     This class provides generic streaming infrastructure:
-    1. Creates incoming/outgoing ChunkQueues
+    1. Creates incoming/outgoing asyncio.Queues
     2. Launches background tasks to feed incoming queue and run processor
     3. Monitors for timeout (no activity for timeout_seconds)
     4. Yields chunks from outgoing queue to caller
@@ -77,7 +77,7 @@ class StreamingOrchestrator:
         self,
         incoming_stream: AsyncIterator[T],
         processor: Callable[
-            [ChunkQueue[T], ChunkQueue[T], Callable[[], None]],
+            [asyncio.Queue[T | None], asyncio.Queue[T | None], Callable[[], None]],
             Coroutine[Any, Any, None],
         ],
         timeout_seconds: float = 30.0,
@@ -89,8 +89,8 @@ class StreamingOrchestrator:
         Args:
             incoming_stream: Async iterator producing chunks to process
             processor: Async callable that processes chunks. Receives:
-                - incoming: ChunkQueue to read from
-                - outgoing: ChunkQueue to write to
+                - incoming: asyncio.Queue to read from (None = stream end)
+                - outgoing: asyncio.Queue to write to (put None when done)
                 - keepalive: Callable to signal activity (prevents timeout)
             timeout_seconds: Maximum seconds without activity before timing out
             span: Optional OpenTelemetry span for tracing stream processing
@@ -107,8 +107,8 @@ class StreamingOrchestrator:
             If on_complete is provided, all chunks are buffered in memory.
             This is useful for event emission but adds memory overhead.
         """
-        incoming_queue: ChunkQueue[T] = ChunkQueue()
-        outgoing_queue: ChunkQueue[T] = ChunkQueue()
+        incoming_queue: asyncio.Queue[T | None] = asyncio.Queue()
+        outgoing_queue: asyncio.Queue[T | None] = asyncio.Queue()
 
         timeout_tracker = TimeoutTracker(timeout_seconds)
         chunk_count = 0
@@ -129,7 +129,7 @@ class StreamingOrchestrator:
 
                 # Drain outgoing queue until processor closes it
                 while True:
-                    batch = await outgoing_queue.get_available()
+                    batch = await get_available(outgoing_queue)
                     if not batch:
                         break
 
@@ -183,7 +183,7 @@ class StreamingOrchestrator:
     async def _feed_incoming_chunks(
         self,
         source: AsyncIterator[T],
-        queue: ChunkQueue[T],
+        queue: asyncio.Queue[T | None],
     ) -> None:
         """Feed chunks from source iterator into queue, then close it.
 
@@ -194,7 +194,7 @@ class StreamingOrchestrator:
             async for chunk in source:
                 await queue.put(chunk)
         finally:
-            await queue.close()
+            queue.shutdown()
 
 
 __all__ = ["StreamingOrchestrator", "TimeoutTracker"]

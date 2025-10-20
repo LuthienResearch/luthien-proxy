@@ -39,6 +39,18 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - Common places to check: README.md, tests/e2e_tests/CLAUDE.md, dev planning docs, inline code comments
 - Easy to miss: Links in other markdown files, docstrings pointing to specific sections
 
+## Queue Shutdown for Stream Termination (2025-01-20)
+
+**Gotcha**: Don't use `None` sentinel values in `asyncio.Queue` for stream termination - use `Queue.shutdown()` instead
+
+- **Problem**: The original implementation used `None` as a sentinel value for stream end. When draining with `get_nowait()`, the sentinel would be consumed and lost, causing hangs.
+- **Attempted Fix 1**: Re-inserting `None` back into queue when encountered - works but is an obvious hack
+- **Attempted Fix 2**: Custom `_closed` flag with wrapper class - better but reinvents the wheel
+- **Best Solution**: Use Python 3.11+'s built-in `asyncio.Queue.shutdown()` method! It raises `QueueShutDown` exception when queue is drained, which is exactly what we need.
+- **Location**: [src/luthien_proxy/v2/queue_utils.py](src/luthien_proxy/v2/queue_utils.py:18) - see `get_available()` helper function
+- **Implementation**: Just use regular `asyncio.Queue` and call `queue.shutdown()` to signal end. `get_available()` catches `QueueShutDown` and returns empty list.
+- **Why it matters**: Using the standard library's built-in mechanism is cleaner, more maintainable, and self-documenting compared to custom sentinel patterns or wrapper classes.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

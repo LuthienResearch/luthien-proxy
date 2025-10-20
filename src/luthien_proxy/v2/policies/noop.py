@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Callable, Optional
 
 from litellm.types.utils import ModelResponse
@@ -12,7 +13,7 @@ from litellm.types.utils import ModelResponse
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.context import PolicyContext
-from luthien_proxy.v2.streaming import ChunkQueue
+from luthien_proxy.v2.queue_utils import get_available
 
 
 class NoOpPolicy(LuthienPolicy):
@@ -34,8 +35,8 @@ class NoOpPolicy(LuthienPolicy):
 
     async def process_streaming_response(
         self,
-        incoming: ChunkQueue[ModelResponse],
-        outgoing: ChunkQueue[ModelResponse],
+        incoming: asyncio.Queue[ModelResponse],
+        outgoing: asyncio.Queue[ModelResponse],
         context: PolicyContext,
         keepalive: Optional[Callable[[], None]] = None,
     ) -> None:
@@ -43,7 +44,7 @@ class NoOpPolicy(LuthienPolicy):
         try:
             while True:
                 # Get all available chunks
-                batch = await incoming.get_available()
+                batch = await get_available(incoming)
                 if not batch:  # Stream ended
                     break
 
@@ -51,8 +52,8 @@ class NoOpPolicy(LuthienPolicy):
                 for chunk in batch:
                     await outgoing.put(chunk)
         finally:
-            # Always close outgoing queue when done
-            await outgoing.close()
+            # Always shut down outgoing queue when done
+            outgoing.shutdown()
 
 
 __all__ = ["NoOpPolicy"]

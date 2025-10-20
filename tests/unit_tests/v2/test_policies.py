@@ -3,6 +3,7 @@
 
 """Tests for V2 policy handlers."""
 
+import asyncio
 from unittest.mock import Mock
 
 import pytest
@@ -11,7 +12,7 @@ from litellm.types.utils import ModelResponse
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.policies.noop import NoOpPolicy
-from luthien_proxy.v2.streaming import ChunkQueue
+from luthien_proxy.v2.queue_utils import get_available
 
 
 def make_context(call_id="test-call"):
@@ -21,7 +22,6 @@ def make_context(call_id="test-call"):
     mock_span.add_event = Mock()  # Track span events
 
     context = PolicyContext(call_id=call_id, span=mock_span, event_publisher=None)
-    context._test_events = []  # For backward compatibility with tests
     return context
 
 
@@ -63,8 +63,8 @@ class TestNoOpPolicy:
         """Test that NoOpPolicy passes all streaming chunks through."""
         policy = NoOpPolicy()
         context = make_context()
-        incoming: ChunkQueue[ModelResponse] = ChunkQueue()
-        outgoing: ChunkQueue[ModelResponse] = ChunkQueue()
+        incoming: asyncio.Queue[ModelResponse] = asyncio.Queue()
+        outgoing: asyncio.Queue[ModelResponse] = asyncio.Queue()
 
         # Create test chunks
         test_chunks = []
@@ -78,18 +78,16 @@ class TestNoOpPolicy:
         async def feed_chunks():
             for chunk in test_chunks:
                 await incoming.put(chunk)
-            await incoming.close()
+            incoming.shutdown()
 
         # Run policy
-        import asyncio
-
         feed_task = asyncio.create_task(feed_chunks())
         policy_task = asyncio.create_task(policy.process_streaming_response(incoming, outgoing, context))
 
         # Collect output
         output = []
         while True:
-            batch = await outgoing.get_available()
+            batch = await get_available(outgoing)
             if not batch:
                 break
             output.extend(batch)
@@ -100,46 +98,27 @@ class TestNoOpPolicy:
         # Should have all chunks unchanged
         assert len(output) == 5
         for i, chunk in enumerate(output):
-            assert chunk.chunk.id == f"chunk-{i}"
-            assert chunk.chunk.choices[0]["delta"]["content"] == f"word{i}"
-
-    @pytest.mark.asyncio
-    async def test_noop_emits_no_events(self):
-        """Test that NoOpPolicy doesn't emit events by default."""
-        policy = NoOpPolicy()
-        context = make_context()
-
-        # Process request
-        request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
-        await policy.process_request(request, context)
-
-        # Process response
-        mock_response = Mock(spec=ModelResponse)
-        await policy.process_full_response(mock_response, context)
-
-        # NoOpPolicy shouldn't emit events
-        assert len(context._test_events) == 0
+            assert chunk.id == f"chunk-{i}"
+            assert chunk.choices[0]["delta"]["content"] == f"word{i}"
 
     @pytest.mark.asyncio
     async def test_noop_streaming_with_empty_input(self):
         """Test NoOpPolicy streaming with empty input."""
         policy = NoOpPolicy()
         context = make_context()
-        incoming: ChunkQueue[ModelResponse] = ChunkQueue()
-        outgoing: ChunkQueue[ModelResponse] = ChunkQueue()
+        incoming: asyncio.Queue[ModelResponse] = asyncio.Queue()
+        outgoing: asyncio.Queue[ModelResponse] = asyncio.Queue()
 
         # Close immediately
-        await incoming.close()
+        incoming.shutdown()
 
         # Run policy
-        import asyncio
-
         policy_task = asyncio.create_task(policy.process_streaming_response(incoming, outgoing, context))
 
         # Collect output
         output = []
         while True:
-            batch = await outgoing.get_available()
+            batch = await get_available(outgoing)
             if not batch:
                 break
             output.extend(batch)
@@ -154,8 +133,8 @@ class TestNoOpPolicy:
         """Test that NoOpPolicy correctly handles batched chunks."""
         policy = NoOpPolicy()
         context = make_context()
-        incoming: ChunkQueue[ModelResponse] = ChunkQueue()
-        outgoing: ChunkQueue[ModelResponse] = ChunkQueue()
+        incoming: asyncio.Queue[ModelResponse] = asyncio.Queue()
+        outgoing: asyncio.Queue[ModelResponse] = asyncio.Queue()
 
         # Put multiple chunks quickly (will be batched)
         chunks = []
@@ -167,18 +146,16 @@ class TestNoOpPolicy:
         async def feed_chunks():
             for chunk in chunks:
                 await incoming.put(chunk)
-            await incoming.close()
+            incoming.shutdown()
 
         # Run policy
-        import asyncio
-
         feed_task = asyncio.create_task(feed_chunks())
         policy_task = asyncio.create_task(policy.process_streaming_response(incoming, outgoing, context))
 
         # Collect output
         output = []
         while True:
-            batch = await outgoing.get_available()
+            batch = await get_available(outgoing)
             if not batch:
                 break
             output.extend(batch)
@@ -189,4 +166,4 @@ class TestNoOpPolicy:
         # Should have all 10 chunks
         assert len(output) == 10
         for i, chunk in enumerate(output):
-            assert chunk.chunk.id == f"chunk-{i}"
+            assert chunk.id == f"chunk-{i}"

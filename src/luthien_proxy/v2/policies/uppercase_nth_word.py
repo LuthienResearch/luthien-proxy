@@ -14,6 +14,7 @@ Example with N=3:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Callable, Optional
 
@@ -22,7 +23,7 @@ from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.context import PolicyContext
-from luthien_proxy.v2.streaming import ChunkQueue
+from luthien_proxy.v2.queue_utils import get_available
 
 logger = logging.getLogger(__name__)
 
@@ -139,8 +140,8 @@ class UppercaseNthWordPolicy(LuthienPolicy):
 
     async def process_streaming_response(
         self,
-        incoming: ChunkQueue[ModelResponse],
-        outgoing: ChunkQueue[ModelResponse],
+        incoming: asyncio.Queue[ModelResponse],
+        outgoing: asyncio.Queue[ModelResponse],
         context: PolicyContext,
         keepalive: Optional[Callable[[], None]] = None,
     ) -> None:
@@ -165,7 +166,7 @@ class UppercaseNthWordPolicy(LuthienPolicy):
 
             while True:
                 # Get all available chunks
-                batch = await incoming.get_available()
+                batch = await get_available(incoming)
                 if not batch:  # Stream ended
                     # Emit any remaining buffered content
                     if word_buffer:
@@ -223,8 +224,8 @@ class UppercaseNthWordPolicy(LuthienPolicy):
             )
 
         finally:
-            # Always close outgoing queue
-            await outgoing.close()
+            # Always shut down outgoing queue
+            outgoing.shutdown()
 
     def _extract_chunk_text(self, chunk: ModelResponse) -> str:
         """Extract text content from a streaming chunk.

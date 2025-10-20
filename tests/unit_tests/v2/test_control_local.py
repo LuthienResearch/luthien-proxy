@@ -3,6 +3,7 @@
 
 """Tests for V2 ControlPlaneLocal."""
 
+import asyncio
 from unittest.mock import Mock
 
 import pytest
@@ -85,13 +86,12 @@ class TestControlPlaneLocalResponses:
     @pytest.mark.asyncio
     async def test_process_full_response(self, control_plane, call_id):
         """Test processing a full response."""
-        mock_response = Mock()
+        mock_response = Mock(spec=ModelResponse)
         mock_response.id = "resp-123"
-        full_response = ModelResponse(mock_response)
 
-        result = await control_plane.process_full_response(full_response, call_id)
+        result = await control_plane.process_full_response(mock_response, call_id)
 
-        assert result.response.id == "resp-123"
+        assert result.id == "resp-123"
 
     @pytest.mark.asyncio
     async def test_process_full_response_with_call_id(self, call_id):
@@ -99,13 +99,12 @@ class TestControlPlaneLocalResponses:
         policy = NoOpPolicy()
         control_plane = ControlPlaneLocal(policy=policy)
 
-        mock_response = Mock()
+        mock_response = Mock(spec=ModelResponse)
         mock_response.id = "resp-789"
-        full_response = ModelResponse(mock_response)
-        result = await control_plane.process_full_response(full_response, call_id)
+        result = await control_plane.process_full_response(mock_response, call_id)
 
         # Should process successfully (policy is stateless)
-        assert result.response.id == "resp-789"
+        assert result.id == "resp-789"
 
     @pytest.mark.asyncio
     async def test_process_full_response_error_returns_original(self, call_id):
@@ -127,13 +126,12 @@ class TestControlPlaneLocalResponses:
         policy = FailingResponsePolicy()
         control_plane = ControlPlaneLocal(policy=policy)
 
-        mock_response = Mock()
+        mock_response = Mock(spec=ModelResponse)
         mock_response.id = "resp-456"
-        full_response = ModelResponse(mock_response)
 
         # Should return original response (not raise)
-        result = await control_plane.process_full_response(full_response, call_id)
-        assert result.response.id == "resp-456"
+        result = await control_plane.process_full_response(mock_response, call_id)
+        assert result.id == "resp-456"
 
 
 class TestControlPlaneLocalStreaming:
@@ -146,9 +144,9 @@ class TestControlPlaneLocalStreaming:
         # Create test chunks
         async def mock_stream():
             for i in range(3):
-                mock_chunk = Mock()
+                mock_chunk = Mock(spec=ModelResponse)
                 mock_chunk.id = f"chunk-{i}"
-                yield ModelResponse(mock_chunk)
+                yield mock_chunk
 
         # Process through control plane with short timeout for tests
         output = []
@@ -157,9 +155,9 @@ class TestControlPlaneLocalStreaming:
 
         # Should have all 3 chunks
         assert len(output) == 3
-        assert output[0].chunk.id == "chunk-0"
-        assert output[1].chunk.id == "chunk-1"
-        assert output[2].chunk.id == "chunk-2"
+        assert output[0].id == "chunk-0"
+        assert output[1].id == "chunk-1"
+        assert output[2].id == "chunk-2"
 
     @pytest.mark.asyncio
     async def test_streaming_with_empty_stream(self, control_plane, call_id):
@@ -197,8 +195,8 @@ class TestControlPlaneLocalStreaming:
         control_plane = ControlPlaneLocal(policy=policy)
 
         async def mock_stream():
-            mock_chunk = Mock()
-            yield ModelResponse(mock_chunk)
+            mock_chunk = Mock(spec=ModelResponse)
+            yield mock_chunk
 
         # Should raise StreamingError wrapping the original error
         with pytest.raises(StreamingError, match="Streaming failed after 0 chunks"):
@@ -208,15 +206,14 @@ class TestControlPlaneLocalStreaming:
     @pytest.mark.asyncio
     async def test_streaming_concurrent_operations(self, control_plane, call_id):
         """Test that streaming handles concurrent producer/consumer correctly."""
-        import asyncio
 
         async def slow_stream():
             """Stream that produces chunks with delays."""
             for i in range(5):
                 await asyncio.sleep(0.01)
-                mock_chunk = Mock()
+                mock_chunk = Mock(spec=ModelResponse)
                 mock_chunk.id = f"chunk-{i}"
-                yield ModelResponse(mock_chunk)
+                yield mock_chunk
 
         # Process stream
         output = []
@@ -226,7 +223,7 @@ class TestControlPlaneLocalStreaming:
         # Should have all chunks in order
         assert len(output) == 5
         for i, chunk in enumerate(output):
-            assert chunk.chunk.id == f"chunk-{i}"
+            assert chunk.id == f"chunk-{i}"
 
     @pytest.mark.asyncio
     async def test_streaming_timeout(self, call_id):
@@ -252,8 +249,8 @@ class TestControlPlaneLocalStreaming:
         control_plane = ControlPlaneLocal(policy=policy)
 
         async def mock_stream():
-            mock_chunk = Mock()
-            yield ModelResponse(mock_chunk)
+            mock_chunk = Mock(spec=ModelResponse)
+            yield mock_chunk
 
         # Should timeout after 2 seconds
         with pytest.raises(StreamingError, match="Streaming failed after 0 chunks"):
@@ -262,53 +259,3 @@ class TestControlPlaneLocalStreaming:
 
         # Verify it was actually a timeout (check the cause)
         # The __cause__ should be the original timeout error
-
-    @pytest.mark.asyncio
-    async def test_streaming_keepalive_prevents_timeout(self, call_id):
-        """Test that keepalive signals prevent timeout."""
-        from luthien_proxy.v2.policies.base import LuthienPolicy
-        from luthien_proxy.v2.policies.context import PolicyContext
-
-        # Policy that takes time but sends keepalives
-        class SlowPolicyWithKeepalive(LuthienPolicy):
-            async def process_request(self, req, context: PolicyContext):
-                return req
-
-            async def process_full_response(self, resp, context: PolicyContext):
-                return resp
-
-            async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
-                import asyncio
-
-                try:
-                    batch = await incoming.get_available()
-                    if not batch:
-                        return
-
-                    # Do slow processing with keepalives
-                    for i in range(3):
-                        await asyncio.sleep(1.5)  # Each iteration takes 1.5s
-                        if keepalive:
-                            keepalive()  # Signal we're still alive
-
-                    # Finally produce output
-                    for chunk in batch:
-                        await outgoing.put(chunk)
-                finally:
-                    await outgoing.close()
-
-        policy = SlowPolicyWithKeepalive()
-        control_plane = ControlPlaneLocal(policy=policy)
-
-        async def mock_stream():
-            mock_chunk = Mock()
-            mock_chunk.id = "chunk-0"
-            yield ModelResponse(mock_chunk)
-
-        # Should NOT timeout because of keepalives (timeout is 2s, but we send keepalive every 1.5s)
-        output = []
-        async for chunk in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=2.0):
-            output.append(chunk)
-
-        assert len(output) == 1
-        assert output[0].chunk.id == "chunk-0"

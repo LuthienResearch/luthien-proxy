@@ -14,6 +14,7 @@ Policies emit events via context.emit() to describe their activity.
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -21,7 +22,6 @@ from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
-from luthien_proxy.v2.streaming import ChunkQueue
 
 if TYPE_CHECKING:
     pass
@@ -85,20 +85,21 @@ class LuthienPolicy(ABC):
     @abstractmethod
     async def process_streaming_response(
         self,
-        incoming: ChunkQueue[ModelResponse],
-        outgoing: ChunkQueue[ModelResponse],
+        incoming: asyncio.Queue[ModelResponse],
+        outgoing: asyncio.Queue[ModelResponse],
         context: PolicyContext,
         keepalive: Optional[Callable[[], None]] = None,
     ) -> None:
         """Reactive streaming task: build output response based on incoming chunks.
 
         Read chunks from incoming queue, process them, and write to outgoing queue.
+        Use get_available(incoming) to get batches of chunks.
         Call keepalive() periodically during long-running operations to prevent timeout.
-        Always close outgoing queue in a finally block when done.
+        Always shut down outgoing queue with outgoing.shutdown() in a finally block when done.
 
         Args:
-            incoming: Queue of ModelResponse chunks from LLM
-            outgoing: Queue of ModelResponse chunks to send to client
+            incoming: Queue of ModelResponse chunks from LLM (shut down to signal end)
+            outgoing: Queue of ModelResponse chunks to send to client (shut down when done)
             context: Context for emitting events and accessing call metadata
             keepalive: Optional callback to prevent timeout during slow processing
         """

@@ -3,7 +3,7 @@
 
 """Tests for V2 debug routes."""
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -151,7 +151,7 @@ class TestGetCallEvents:
         mock_conn = AsyncMock()
         mock_conn.fetch.return_value = []
 
-        mock_pool = Mock()
+        mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         with pytest.raises(HTTPException) as exc_info:
@@ -179,7 +179,7 @@ class TestGetCallDiff:
         mock_conn = AsyncMock()
         mock_conn.fetch.return_value = []
 
-        mock_pool = Mock()
+        mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         with pytest.raises(HTTPException) as exc_info:
@@ -208,7 +208,7 @@ class TestListRecentCalls:
         mock_conn = AsyncMock()
         mock_conn.fetch.return_value = []
 
-        mock_pool = Mock()
+        mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         result = await list_recent_calls(limit=10, db_pool=mock_pool)
@@ -235,7 +235,7 @@ class TestListRecentCalls:
         mock_conn = AsyncMock()
         mock_conn.fetch.return_value = [mock_row1, mock_row2]
 
-        mock_pool = Mock()
+        mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         result = await list_recent_calls(limit=10, db_pool=mock_pool)

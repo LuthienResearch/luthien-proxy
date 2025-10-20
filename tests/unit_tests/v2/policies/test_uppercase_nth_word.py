@@ -3,12 +3,14 @@
 
 """Tests for UppercaseNthWordPolicy."""
 
+import asyncio
+
 import pytest
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
-from luthien_proxy.v2.streaming import ChunkQueue
+from luthien_proxy.v2.queue_utils import get_available
 
 
 @pytest.fixture
@@ -135,7 +137,7 @@ class TestProcessFullResponse:
         result = await policy.process_full_response(response, context)
 
         # Extract transformed content
-        result_dict = result.response.model_dump()
+        result_dict = result.model_dump()
         transformed_content = result_dict["choices"][0]["message"]["content"]
 
         # Every 3rd word should be uppercase
@@ -166,7 +168,7 @@ class TestProcessFullResponse:
         result = await policy.process_full_response(response, context)
 
         # Check that metadata is preserved
-        result_dict = result.response.model_dump()
+        result_dict = result.model_dump()
         assert result_dict["model"] == "gpt-4"
         assert result_dict["usage"]["total_tokens"] == 13
         assert result_dict["choices"][0]["finish_reason"] == "stop"
@@ -189,7 +191,7 @@ class TestProcessFullResponse:
         result = await policy.process_full_response(response, context)
 
         # Should handle gracefully
-        result_dict = result.response.model_dump()
+        result_dict = result.model_dump()
         assert result_dict["choices"][0]["message"]["content"] == ""
 
     @pytest.mark.asyncio
@@ -201,7 +203,7 @@ class TestProcessFullResponse:
         result = await policy.process_full_response(response, context)
 
         # Should handle gracefully
-        result_dict = result.response.model_dump()
+        result_dict = result.model_dump()
         assert result_dict["choices"] == []
 
 
@@ -211,8 +213,8 @@ class TestProcessStreamingResponse:
     @pytest.mark.asyncio
     async def test_process_streaming_response_transforms_words(self, policy, context):
         """Test that streaming chunks are transformed correctly."""
-        incoming = ChunkQueue[ModelResponse]()
-        outgoing = ChunkQueue[ModelResponse]()
+        incoming = asyncio.Queue[ModelResponse]()
+        outgoing = asyncio.Queue[ModelResponse]()
 
         # Create chunks with words
         chunks = [
@@ -225,7 +227,7 @@ class TestProcessStreamingResponse:
         # Add chunks to incoming queue
         for chunk in chunks:
             await incoming.put(chunk)
-        await incoming.close()
+        incoming.shutdown()
 
         # Process
         await policy.process_streaming_response(incoming, outgoing, context)
@@ -233,7 +235,7 @@ class TestProcessStreamingResponse:
         # Collect output chunks
         output_text = ""
         while True:
-            batch = await outgoing.get_available()
+            batch = await get_available(outgoing)
             if not batch:
                 break
             for chunk in batch:
@@ -252,8 +254,8 @@ class TestProcessStreamingResponse:
     @pytest.mark.asyncio
     async def test_process_streaming_response_word_boundaries(self, policy, context):
         """Test correct handling of word boundaries across chunks."""
-        incoming = ChunkQueue[ModelResponse]()
-        outgoing = ChunkQueue[ModelResponse]()
+        incoming = asyncio.Queue[ModelResponse]()
+        outgoing = asyncio.Queue[ModelResponse]()
 
         # Split words across chunk boundaries
         chunks = [
@@ -266,14 +268,14 @@ class TestProcessStreamingResponse:
 
         for chunk in chunks:
             await incoming.put(chunk)
-        await incoming.close()
+        incoming.shutdown()
 
         await policy.process_streaming_response(incoming, outgoing, context)
 
         # Collect output
         output_text = ""
         while True:
-            batch = await outgoing.get_available()
+            batch = await get_available(outgoing)
             if not batch:
                 break
             for chunk in batch:
@@ -286,8 +288,8 @@ class TestProcessStreamingResponse:
     @pytest.mark.asyncio
     async def test_process_streaming_response_empty_chunks(self, policy, context):
         """Test handling of empty chunks."""
-        incoming = ChunkQueue[ModelResponse]()
-        outgoing = ChunkQueue[ModelResponse]()
+        incoming = asyncio.Queue[ModelResponse]()
+        outgoing = asyncio.Queue[ModelResponse]()
 
         chunks = [
             _create_chunk("one "),
@@ -298,14 +300,14 @@ class TestProcessStreamingResponse:
 
         for chunk in chunks:
             await incoming.put(chunk)
-        await incoming.close()
+        incoming.shutdown()
 
         await policy.process_streaming_response(incoming, outgoing, context)
 
         # Collect output
         output_text = ""
         while True:
-            batch = await outgoing.get_available()
+            batch = await get_available(outgoing)
             if not batch:
                 break
             for chunk in batch:
@@ -329,7 +331,7 @@ def _create_chunk(text: str) -> ModelResponse:
             }
         ]
     }
-    return ModelResponse(ModelResponse(**chunk_dict))
+    return ModelResponse(**chunk_dict)
 
 
 def _extract_text(chunk: ModelResponse) -> str:
