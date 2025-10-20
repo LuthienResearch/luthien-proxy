@@ -310,6 +310,72 @@ src/luthien_proxy/v2/
 - More flexibility in policy implementation
 - LiteLLM proxy has features we don't need (and complexity we don't want)
 
+## Implementation Status
+
+### Completed
+
+**Core Architecture** (`src/luthien_proxy/v2/control/`, `src/luthien_proxy/v2/policies/`, `src/luthien_proxy/v2/llm/`)
+- ✅ Control Plane Interface with Protocol definition for `ControlPlaneService`
+- ✅ Pydantic models for `RequestMetadata`, `PolicyEvent`, `StreamingContext`
+- ✅ In-process implementation (`ControlPlaneLocal`) with event collection
+- ✅ `PolicyHandler` base class with event emission support
+- ✅ `DefaultPolicyHandler` and `NoOpPolicy` implementations
+- ✅ LLM integration with format converters (OpenAI ↔ Anthropic)
+- ✅ All type checks passing with pyright
+
+**API Gateway** (`src/luthien_proxy/v2/main.py`)
+- ✅ FastAPI application with OpenAI and Anthropic endpoints
+- ✅ Bidirectional streaming with policy control
+- ✅ Authentication with API key
+- ✅ Health check endpoint
+
+**Activity Stream** (`src/luthien_proxy/v2/activity/`)
+- ✅ Event models for request/response lifecycle tracking
+- ✅ Activity publisher with Redis pub/sub integration
+- ✅ SSE stream handler at `/v2/activity/stream`
+- ✅ Activity Monitor UI at `/v2/activity/monitor`
+- ✅ Real-time event delivery with heartbeat support
+
+**OpenTelemetry Integration**
+- ✅ Distributed tracing with Tempo backend
+- ✅ Structured logging with Loki backend
+- ✅ Grafana dashboards for traces, logs, and metrics
+- ✅ Trace/log correlation by trace_id and call_id
+- ✅ Policy-specific span events and attributes
+- ✅ Conventions documented in `dev/context/otel-conventions.md`
+
+**Observability Features**
+- ✅ Before/after diff view (database-backed with `conversation_events`)
+- ✅ Live activity stream (Redis pub/sub)
+- ✅ Full payload inspection (PostgreSQL)
+- ✅ Performance analytics (Tempo + Grafana)
+- ✅ Policy diff viewer UI at `/v2/debug/diff/<call_id>`
+- ✅ Metrics dashboard with policy intervention tracking
+
+**Testing and Documentation**
+- ✅ Docker compose configuration for full observability stack
+- ✅ Demo guide for testing with `UppercaseNthWordPolicy`
+- ✅ Viewing traces guide for Grafana/Tempo/Loki
+- ✅ Test script at `scripts/test_v2_proxy.py`
+
+### Outstanding Work
+
+**Immediate Priorities:**
+- Database logging integration with Prisma/PostgreSQL for all request types
+- Port additional policies from v1 (e.g., `SQLProtectionPolicy`)
+- Add streaming chunk events to activity stream
+- Mirror OpenAI endpoint lifecycle events in Anthropic endpoint
+
+**Medium-term:**
+- Complete UI integration (port remaining v1 UI features)
+- Full policy migration guide
+- Performance benchmarks vs v1
+
+**Long-term (Future Phases):**
+- Network separation with `ControlPlaneHTTP` implementation
+- Standalone control plane service
+- Shared policy state across multiple gateways
+
 ## Next Steps
 
-See [dev/OBJECTIVE.md](OBJECTIVE.md) for the current implementation plan.
+For current development focus, see [dev/TODO.md](TODO.md).
