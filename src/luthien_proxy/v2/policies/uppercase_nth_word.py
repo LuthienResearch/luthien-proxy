@@ -17,9 +17,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Optional
 
-from litellm.files.main import ModelResponse
+from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
-from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.streaming import ChunkQueue
@@ -103,18 +103,18 @@ class UppercaseNthWordPolicy(LuthienPolicy):
         )
         return request
 
-    async def process_full_response(self, response: FullResponse, context: PolicyContext) -> FullResponse:
+    async def process_full_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
         """Transform complete response by uppercasing every Nth word.
 
         Args:
-            response: The response to transform
+            response: The ModelResponse to transform
             context: Policy context for event emission
 
         Returns:
-            Transformed response
+            Transformed ModelResponse
         """
         # Get response as dict and transform
-        response_dict = response.response.model_dump()
+        response_dict = response.model_dump()
         original_content = self._get_content_preview(response_dict)
 
         transformed_dict = self._transform_response_content(response_dict)
@@ -133,15 +133,14 @@ class UppercaseNthWordPolicy(LuthienPolicy):
             },
         )
 
-        # Update the response with transformed content
-
+        # Return transformed ModelResponse
         transformed_response = ModelResponse(**transformed_dict)
-        return FullResponse.from_model_response(transformed_response)
+        return transformed_response
 
     async def process_streaming_response(
         self,
-        incoming: ChunkQueue[StreamingResponse],
-        outgoing: ChunkQueue[StreamingResponse],
+        incoming: ChunkQueue[ModelResponse],
+        outgoing: ChunkQueue[ModelResponse],
         context: PolicyContext,
         keepalive: Optional[Callable[[], None]] = None,
     ) -> None:
@@ -227,17 +226,17 @@ class UppercaseNthWordPolicy(LuthienPolicy):
             # Always close outgoing queue
             await outgoing.close()
 
-    def _extract_chunk_text(self, chunk: StreamingResponse) -> str:
+    def _extract_chunk_text(self, chunk: ModelResponse) -> str:
         """Extract text content from a streaming chunk.
 
         Args:
-            chunk: Streaming response chunk
+            chunk: ModelResponse streaming chunk
 
         Returns:
             Text content or empty string
         """
         try:
-            chunk_dict = chunk.chunk.model_dump() if hasattr(chunk.chunk, "model_dump") else chunk.chunk
+            chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
             choices = chunk_dict.get("choices", [])
             if not choices:
                 return ""
@@ -249,18 +248,15 @@ class UppercaseNthWordPolicy(LuthienPolicy):
             logger.warning(f"Failed to extract chunk text: {e}")
             return ""
 
-    def _create_text_chunk(self, text: str) -> StreamingResponse:
+    def _create_text_chunk(self, text: str) -> ModelResponse:
         """Create a streaming response chunk with text content.
 
         Args:
             text: Text to include in chunk
 
         Returns:
-            StreamingResponse chunk
+            ModelResponse chunk
         """
-        from litellm.files.main import ModelResponse
-        from litellm.types.utils import Delta, StreamingChoices
-
         # Create proper Delta object (not dict)
         delta = Delta(content=text, role="assistant")
 
@@ -273,7 +269,7 @@ class UppercaseNthWordPolicy(LuthienPolicy):
 
         # Create ModelResponse with proper typed choices
         chunk = ModelResponse(choices=[choice])
-        return StreamingResponse(chunk=chunk)
+        return chunk
 
     def _get_content_preview(self, response_dict: dict[str, Any]) -> str:
         """Get a preview of response content for logging.

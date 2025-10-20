@@ -14,11 +14,12 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, AsyncIterator
 
+from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
 from luthien_proxy.v2.control.models import StreamingError
 from luthien_proxy.v2.control.streaming import StreamingOrchestrator
-from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.storage.events import emit_response_event, reconstruct_full_response_from_chunks
 
@@ -105,9 +106,9 @@ class ControlPlaneLocal:
 
     async def process_full_response(
         self,
-        response: FullResponse,
+        response: ModelResponse,
         call_id: str,
-    ) -> FullResponse:
+    ) -> ModelResponse:
         """Apply policies to complete response after LLM call."""
         with tracer.start_as_current_span("control_plane.process_full_response") as span:
             # Add span attributes
@@ -146,12 +147,12 @@ class ControlPlaneLocal:
 
     async def process_streaming_response(
         self,
-        incoming: AsyncIterator[StreamingResponse],
+        incoming: AsyncIterator[ModelResponse],
         call_id: str,
         timeout_seconds: float = 30.0,
         db_pool: db.DatabasePool | None = None,
         redis_conn: redis_client.RedisClient | None = None,
-    ) -> AsyncIterator[StreamingResponse]:
+    ) -> AsyncIterator[ModelResponse]:
         """Apply policies to streaming responses with queue-based reactive processing.
 
         This uses StreamingOrchestrator to bridge the policy's queue-based interface
@@ -187,10 +188,10 @@ class ControlPlaneLocal:
             span.add_event("stream_start")
 
             chunk_count = 0
-            original_chunks: list[StreamingResponse] = []
+            original_chunks: list[ModelResponse] = []
 
             # Wrapper to buffer original chunks as they come in
-            async def buffering_incoming() -> AsyncIterator[StreamingResponse]:
+            async def buffering_incoming() -> AsyncIterator[ModelResponse]:
                 """Buffer incoming chunks while yielding them."""
                 nonlocal chunk_count
                 async for chunk in incoming:
@@ -200,7 +201,7 @@ class ControlPlaneLocal:
                     if self.event_publisher:
                         # Extract text content from chunk for preview
                         try:
-                            chunk_dict = chunk.chunk.model_dump() if hasattr(chunk.chunk, "model_dump") else chunk.chunk
+                            chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
                             choices = chunk_dict.get("choices", [])
                             delta = choices[0].get("delta", {}) if choices else {}
                             content = delta.get("content", "")
@@ -225,7 +226,7 @@ class ControlPlaneLocal:
                     yield chunk
 
             # Callback to emit events after streaming completes
-            async def emit_streaming_events(final_chunks: list[StreamingResponse]) -> None:
+            async def emit_streaming_events(final_chunks: list[ModelResponse]) -> None:
                 """Emit response event with original and final chunks."""
                 # Reconstruct full responses from buffered chunks
                 original_response_dict = reconstruct_full_response_from_chunks(original_chunks)
@@ -309,7 +310,7 @@ class ControlPlaneLocal:
                     # Publish outgoing chunk event (Redis only, no DB persistence - fire and forget)
                     if self.event_publisher:
                         try:
-                            chunk_dict = chunk.chunk.model_dump() if hasattr(chunk.chunk, "model_dump") else chunk.chunk
+                            chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
                             choices = chunk_dict.get("choices", [])
                             delta = choices[0].get("delta", {}) if choices else {}
                             content = delta.get("content", "")

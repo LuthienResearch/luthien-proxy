@@ -3,10 +3,10 @@
 
 """Policy base class for V2 architecture.
 
-Policies process three message types:
+Policies process:
 1. Request - transform/validate requests before sending to LLM
-2. FullResponse - transform/validate complete responses
-3. StreamingResponse - reactive task that builds output based on incoming chunks
+2. ModelResponse - transform/validate complete responses (non-streaming)
+3. ModelResponse chunks - reactive task that builds output based on incoming chunks
 
 Policies are stateless - all per-request state is passed via PolicyContext.
 Policies emit events via context.emit() to describe their activity.
@@ -17,7 +17,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Callable, Optional
 
-from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+from litellm.types.utils import ModelResponse
+
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.streaming import ChunkQueue
 
@@ -66,25 +68,25 @@ class LuthienPolicy(ABC):
     @abstractmethod
     async def process_full_response(
         self,
-        response: FullResponse,
+        response: ModelResponse,
         context: PolicyContext,
-    ) -> FullResponse:
+    ) -> ModelResponse:
         """Process a complete (non-streaming) response.
 
         Args:
-            response: The response to process
+            response: The ModelResponse from LiteLLM to process
             context: Context for emitting events and accessing call metadata
 
         Returns:
-            Transformed response
+            Transformed ModelResponse
         """
         pass
 
     @abstractmethod
     async def process_streaming_response(
         self,
-        incoming: ChunkQueue[StreamingResponse],
-        outgoing: ChunkQueue[StreamingResponse],
+        incoming: ChunkQueue[ModelResponse],
+        outgoing: ChunkQueue[ModelResponse],
         context: PolicyContext,
         keepalive: Optional[Callable[[], None]] = None,
     ) -> None:
@@ -95,8 +97,8 @@ class LuthienPolicy(ABC):
         Always close outgoing queue in a finally block when done.
 
         Args:
-            incoming: Queue of chunks from LLM
-            outgoing: Queue of chunks to send to client
+            incoming: Queue of ModelResponse chunks from LLM
+            outgoing: Queue of ModelResponse chunks to send to client
             context: Context for emitting events and accessing call metadata
             keepalive: Optional callback to prevent timeout during slow processing
         """

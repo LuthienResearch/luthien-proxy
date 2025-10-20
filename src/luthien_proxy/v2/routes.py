@@ -9,12 +9,13 @@ import hashlib
 import json
 import logging
 import uuid
-from typing import TYPE_CHECKING, AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator, cast
 
 import litellm
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
+from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
 from luthien_proxy.v2.llm.format_converters import (
@@ -22,9 +23,7 @@ from luthien_proxy.v2.llm.format_converters import (
     openai_chunk_to_anthropic_chunk,
     openai_to_anthropic_response,
 )
-from luthien_proxy.v2.messages import FullResponse
 from luthien_proxy.v2.messages import Request as RequestMessage
-from luthien_proxy.v2.messages import StreamingResponse as StreamingResponseMessage
 
 if TYPE_CHECKING:
     from luthien_proxy.v2.control.local import ControlPlaneLocal
@@ -37,11 +36,11 @@ router = APIRouter(prefix="/v2", tags=["v2"])
 
 
 # === STREAMING HELPERS ===
-async def stream_llm_chunks(data: dict) -> AsyncIterator[StreamingResponseMessage]:
-    """Stream chunks from LLM, wrapped in StreamingResponseMessage."""
+async def stream_llm_chunks(data: dict) -> AsyncIterator:
+    """Stream chunks from LLM as ModelResponse objects."""
     response = await litellm.acompletion(**data)
     async for chunk in response:  # type: ignore[attr-defined]
-        yield StreamingResponseMessage.from_model_response(chunk)
+        yield chunk
 
 
 async def stream_with_policy_control(
@@ -56,17 +55,14 @@ async def stream_with_policy_control(
     process_streaming_response, and yields formatted chunks to the client.
     """
     try:
-        # Create async iterator of StreamingResponse objects from LLM
+        # Create async iterator of ModelResponse chunks from LLM
         llm_stream = stream_llm_chunks(data)
 
         # Process through control plane (applies policy via queue-based reactive processing)
         policy_stream = control_plane.process_streaming_response(llm_stream, call_id)
 
         # Yield formatted chunks to client
-        async for streaming_response in policy_stream:
-            # Extract the underlying chunk
-            chunk = streaming_response.to_model_response()
-
+        async for chunk in policy_stream:
             # Apply format conversion if needed
             if format_converter:
                 chunk = format_converter(chunk)
@@ -164,11 +160,13 @@ async def openai_chat_completions(
                     media_type="text/event-stream",
                 )
             else:
-                response = await litellm.acompletion(**data)  # type: ignore[arg-type]
+                raw_response = await litellm.acompletion(**data)  # type: ignore[arg-type]
+                # When stream=False, response is always ModelResponse
+                response = cast(ModelResponse, raw_response)
 
                 # Extract response details
-                response_dict = response.model_dump() if hasattr(response, "model_dump") else response  # type: ignore[union-attr]
-                choices = response_dict.get("choices", [])  # type: ignore[union-attr]
+                response_dict = response.model_dump()
+                choices = response_dict.get("choices", [])
                 finish_reason = choices[0].get("finish_reason") if choices else None
 
                 # Publish: original response received (for real-time UI)
@@ -177,17 +175,16 @@ async def openai_chat_completions(
                         call_id=call_id,
                         event_type="gateway.response_received",
                         data={
-                            "model": str(response_dict.get("model", "unknown")),  # type: ignore[union-attr]
+                            "model": str(response_dict.get("model", "unknown")),
                             "finish_reason": str(finish_reason) if finish_reason else None,
                         },
                     )
 
-                # Wrap in FullResponse and apply policy
-                full_response = FullResponse.from_model_response(response)
-                full_response = await control_plane.process_full_response(full_response, call_id)
+                # Apply policy to response
+                final_response = await control_plane.process_full_response(response, call_id)
 
                 # Extract final response details
-                final_dict = full_response.to_model_response().model_dump()
+                final_dict = final_response.model_dump()
                 final_choices = final_dict.get("choices", [])
 
                 # Publish: final response being sent (for real-time UI)
@@ -200,8 +197,8 @@ async def openai_chat_completions(
                         },
                     )
 
-                # Extract and return
-                return JSONResponse(full_response.to_model_response().model_dump())
+                # Return response
+                return JSONResponse(final_response.model_dump())
         except Exception as exc:
             logger.error(f"Error in chat completion: {exc}")
             span.record_exception(exc)
@@ -269,14 +266,15 @@ async def anthropic_messages(
                     media_type="text/event-stream",
                 )
             else:
-                response = await litellm.acompletion(**openai_data)  # type: ignore[arg-type]
+                raw_response = await litellm.acompletion(**openai_data)  # type: ignore[arg-type]
+                # When stream=False, response is always ModelResponse
+                response = cast(ModelResponse, raw_response)
 
-                # Wrap in FullResponse and apply policy
-                full_response = FullResponse.from_model_response(response)
-                full_response = await control_plane.process_full_response(full_response, call_id)
+                # Apply policy to response
+                final_response = await control_plane.process_full_response(response, call_id)
 
                 # Convert to Anthropic format
-                anthropic_response = openai_to_anthropic_response(full_response.to_model_response())
+                anthropic_response = openai_to_anthropic_response(final_response)
 
                 return JSONResponse(anthropic_response)
         except Exception as exc:

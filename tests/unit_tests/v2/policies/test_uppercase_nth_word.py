@@ -4,9 +4,9 @@
 """Tests for UppercaseNthWordPolicy."""
 
 import pytest
-from litellm import ModelResponse
+from litellm.types.utils import ModelResponse
 
-from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
 from luthien_proxy.v2.streaming import ChunkQueue
 
@@ -130,7 +130,7 @@ class TestProcessFullResponse:
             ],
             "model": "gpt-4",
         }
-        response = FullResponse.from_model_response(ModelResponse(**response_dict))
+        response = ModelResponse(**response_dict)
 
         result = await policy.process_full_response(response, context)
 
@@ -161,7 +161,7 @@ class TestProcessFullResponse:
             "model": "gpt-4",
             "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
         }
-        response = FullResponse.from_model_response(ModelResponse(**response_dict))
+        response = ModelResponse(**response_dict)
 
         result = await policy.process_full_response(response, context)
 
@@ -184,7 +184,7 @@ class TestProcessFullResponse:
             ],
             "model": "gpt-4",
         }
-        response = FullResponse.from_model_response(ModelResponse(**response_dict))
+        response = ModelResponse(**response_dict)
 
         result = await policy.process_full_response(response, context)
 
@@ -196,7 +196,7 @@ class TestProcessFullResponse:
     async def test_process_full_response_no_choices(self, policy, context):
         """Test handling of response with no choices."""
         response_dict = {"choices": [], "model": "gpt-4"}
-        response = FullResponse.from_model_response(ModelResponse(**response_dict))
+        response = ModelResponse(**response_dict)
 
         result = await policy.process_full_response(response, context)
 
@@ -211,8 +211,8 @@ class TestProcessStreamingResponse:
     @pytest.mark.asyncio
     async def test_process_streaming_response_transforms_words(self, policy, context):
         """Test that streaming chunks are transformed correctly."""
-        incoming = ChunkQueue[StreamingResponse]()
-        outgoing = ChunkQueue[StreamingResponse]()
+        incoming = ChunkQueue[ModelResponse]()
+        outgoing = ChunkQueue[ModelResponse]()
 
         # Create chunks with words
         chunks = [
@@ -252,8 +252,8 @@ class TestProcessStreamingResponse:
     @pytest.mark.asyncio
     async def test_process_streaming_response_word_boundaries(self, policy, context):
         """Test correct handling of word boundaries across chunks."""
-        incoming = ChunkQueue[StreamingResponse]()
-        outgoing = ChunkQueue[StreamingResponse]()
+        incoming = ChunkQueue[ModelResponse]()
+        outgoing = ChunkQueue[ModelResponse]()
 
         # Split words across chunk boundaries
         chunks = [
@@ -286,8 +286,8 @@ class TestProcessStreamingResponse:
     @pytest.mark.asyncio
     async def test_process_streaming_response_empty_chunks(self, policy, context):
         """Test handling of empty chunks."""
-        incoming = ChunkQueue[StreamingResponse]()
-        outgoing = ChunkQueue[StreamingResponse]()
+        incoming = ChunkQueue[ModelResponse]()
+        outgoing = ChunkQueue[ModelResponse]()
 
         chunks = [
             _create_chunk("one "),
@@ -318,7 +318,7 @@ class TestProcessStreamingResponse:
 # Helper functions
 
 
-def _create_chunk(text: str) -> StreamingResponse:
+def _create_chunk(text: str) -> ModelResponse:
     """Create a streaming response chunk with text."""
     chunk_dict = {
         "choices": [
@@ -329,12 +329,12 @@ def _create_chunk(text: str) -> StreamingResponse:
             }
         ]
     }
-    return StreamingResponse(chunk=ModelResponse(**chunk_dict))
+    return ModelResponse(ModelResponse(**chunk_dict))
 
 
-def _extract_text(chunk: StreamingResponse) -> str:
+def _extract_text(chunk: ModelResponse) -> str:
     """Extract text from a chunk."""
-    chunk_dict = chunk.chunk.model_dump() if hasattr(chunk.chunk, "model_dump") else chunk.chunk
+    chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
     choices = chunk_dict.get("choices", [])
     if not choices:
         return ""

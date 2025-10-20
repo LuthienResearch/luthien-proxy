@@ -6,8 +6,9 @@
 from unittest.mock import Mock
 
 import pytest
+from litellm.types.utils import ModelResponse
 
-from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.policies.noop import NoOpPolicy
 from luthien_proxy.v2.streaming import ChunkQueue
@@ -49,30 +50,29 @@ class TestNoOpPolicy:
         """Test that NoOpPolicy passes response through unchanged."""
         policy = NoOpPolicy()
         context = make_context()
-        mock_response = Mock()
+        mock_response = Mock(spec=ModelResponse)
         mock_response.choices = [{"message": {"content": "Hello back"}}]
-        full_response = FullResponse(response=mock_response)
 
-        result = await policy.process_full_response(full_response, context)
+        result = await policy.process_full_response(mock_response, context)
 
-        assert result == full_response
-        assert result.response.choices[0]["message"]["content"] == "Hello back"
+        assert result == mock_response
+        assert result.choices[0]["message"]["content"] == "Hello back"
 
     @pytest.mark.asyncio
     async def test_noop_streaming_response(self):
         """Test that NoOpPolicy passes all streaming chunks through."""
         policy = NoOpPolicy()
         context = make_context()
-        incoming: ChunkQueue[StreamingResponse] = ChunkQueue()
-        outgoing: ChunkQueue[StreamingResponse] = ChunkQueue()
+        incoming: ChunkQueue[ModelResponse] = ChunkQueue()
+        outgoing: ChunkQueue[ModelResponse] = ChunkQueue()
 
         # Create test chunks
         test_chunks = []
         for i in range(5):
-            mock_chunk = Mock()
+            mock_chunk = Mock(spec=ModelResponse)
             mock_chunk.id = f"chunk-{i}"
             mock_chunk.choices = [{"delta": {"content": f"word{i}"}}]
-            test_chunks.append(StreamingResponse(chunk=mock_chunk))
+            test_chunks.append(mock_chunk)
 
         # Feed chunks
         async def feed_chunks():
@@ -114,9 +114,8 @@ class TestNoOpPolicy:
         await policy.process_request(request, context)
 
         # Process response
-        mock_response = Mock()
-        full_response = FullResponse(response=mock_response)
-        await policy.process_full_response(full_response, context)
+        mock_response = Mock(spec=ModelResponse)
+        await policy.process_full_response(mock_response, context)
 
         # NoOpPolicy shouldn't emit events
         assert len(context._test_events) == 0
@@ -126,8 +125,8 @@ class TestNoOpPolicy:
         """Test NoOpPolicy streaming with empty input."""
         policy = NoOpPolicy()
         context = make_context()
-        incoming: ChunkQueue[StreamingResponse] = ChunkQueue()
-        outgoing: ChunkQueue[StreamingResponse] = ChunkQueue()
+        incoming: ChunkQueue[ModelResponse] = ChunkQueue()
+        outgoing: ChunkQueue[ModelResponse] = ChunkQueue()
 
         # Close immediately
         await incoming.close()
@@ -155,15 +154,15 @@ class TestNoOpPolicy:
         """Test that NoOpPolicy correctly handles batched chunks."""
         policy = NoOpPolicy()
         context = make_context()
-        incoming: ChunkQueue[StreamingResponse] = ChunkQueue()
-        outgoing: ChunkQueue[StreamingResponse] = ChunkQueue()
+        incoming: ChunkQueue[ModelResponse] = ChunkQueue()
+        outgoing: ChunkQueue[ModelResponse] = ChunkQueue()
 
         # Put multiple chunks quickly (will be batched)
         chunks = []
         for i in range(10):
-            mock_chunk = Mock()
+            mock_chunk = Mock(spec=ModelResponse)
             mock_chunk.id = f"chunk-{i}"
-            chunks.append(StreamingResponse(chunk=mock_chunk))
+            chunks.append(mock_chunk)
 
         async def feed_chunks():
             for chunk in chunks:

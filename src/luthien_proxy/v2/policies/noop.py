@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+from litellm.types.utils import ModelResponse
+
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.streaming import ChunkQueue
@@ -26,14 +28,14 @@ class NoOpPolicy(LuthienPolicy):
         """Pass request through unchanged."""
         return request
 
-    async def process_full_response(self, response: FullResponse, context: PolicyContext) -> FullResponse:
+    async def process_full_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
         """Pass response through unchanged."""
         return response
 
     async def process_streaming_response(
         self,
-        incoming: ChunkQueue[StreamingResponse],
-        outgoing: ChunkQueue[StreamingResponse],
+        incoming: ChunkQueue[ModelResponse],
+        outgoing: ChunkQueue[ModelResponse],
         context: PolicyContext,
         keepalive: Optional[Callable[[], None]] = None,
     ) -> None:

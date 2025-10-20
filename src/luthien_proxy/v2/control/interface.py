@@ -12,7 +12,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, AsyncIterator, Protocol
 
 if TYPE_CHECKING:
-    from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+    from litellm.types.utils import ModelResponse
+
+    from luthien_proxy.v2.messages import Request
 
 
 class ControlPlaneService(Protocol):
@@ -28,7 +30,7 @@ class ControlPlaneService(Protocol):
     The gateway code doesn't need to know which implementation is being used.
 
     Simplified interface:
-    - Policies process explicit message types (Request, FullResponse, StreamingResponse)
+    - Policies process Request and ModelResponse types
     - Observability provided via OpenTelemetry spans
     - Real-time events via SimpleEventPublisher
     """
@@ -54,17 +56,17 @@ class ControlPlaneService(Protocol):
 
     async def process_full_response(
         self,
-        response: FullResponse,
+        response: ModelResponse,
         call_id: str,
-    ) -> FullResponse:
+    ) -> ModelResponse:
         """Apply policies to complete response after LLM call.
 
         Args:
-            response: The full response to process
+            response: The ModelResponse from LiteLLM to process
             call_id: Unique identifier for this request/response cycle
 
         Returns:
-            Potentially transformed response
+            Potentially transformed ModelResponse
 
         Raises:
             Exception: If policy rejects the response
@@ -73,9 +75,9 @@ class ControlPlaneService(Protocol):
 
     async def process_streaming_response(
         self,
-        incoming: AsyncIterator[StreamingResponse],
+        incoming: AsyncIterator[ModelResponse],
         call_id: str,
-    ) -> AsyncIterator[StreamingResponse]:
+    ) -> AsyncIterator[ModelResponse]:
         """Apply policies to streaming responses with reactive processing.
 
         The control plane bridges the policy's queue-based reactive interface

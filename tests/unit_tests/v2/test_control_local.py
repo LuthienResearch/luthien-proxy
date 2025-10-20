@@ -6,10 +6,11 @@
 from unittest.mock import Mock
 
 import pytest
+from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.control.local import ControlPlaneLocal
 from luthien_proxy.v2.control.models import StreamingError
-from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.noop import NoOpPolicy
 
 
@@ -86,7 +87,7 @@ class TestControlPlaneLocalResponses:
         """Test processing a full response."""
         mock_response = Mock()
         mock_response.id = "resp-123"
-        full_response = FullResponse(response=mock_response)
+        full_response = ModelResponse(mock_response)
 
         result = await control_plane.process_full_response(full_response, call_id)
 
@@ -100,7 +101,7 @@ class TestControlPlaneLocalResponses:
 
         mock_response = Mock()
         mock_response.id = "resp-789"
-        full_response = FullResponse(response=mock_response)
+        full_response = ModelResponse(mock_response)
         result = await control_plane.process_full_response(full_response, call_id)
 
         # Should process successfully (policy is stateless)
@@ -128,7 +129,7 @@ class TestControlPlaneLocalResponses:
 
         mock_response = Mock()
         mock_response.id = "resp-456"
-        full_response = FullResponse(response=mock_response)
+        full_response = ModelResponse(mock_response)
 
         # Should return original response (not raise)
         result = await control_plane.process_full_response(full_response, call_id)
@@ -147,7 +148,7 @@ class TestControlPlaneLocalStreaming:
             for i in range(3):
                 mock_chunk = Mock()
                 mock_chunk.id = f"chunk-{i}"
-                yield StreamingResponse(chunk=mock_chunk)
+                yield ModelResponse(mock_chunk)
 
         # Process through control plane with short timeout for tests
         output = []
@@ -197,7 +198,7 @@ class TestControlPlaneLocalStreaming:
 
         async def mock_stream():
             mock_chunk = Mock()
-            yield StreamingResponse(chunk=mock_chunk)
+            yield ModelResponse(mock_chunk)
 
         # Should raise StreamingError wrapping the original error
         with pytest.raises(StreamingError, match="Streaming failed after 0 chunks"):
@@ -215,7 +216,7 @@ class TestControlPlaneLocalStreaming:
                 await asyncio.sleep(0.01)
                 mock_chunk = Mock()
                 mock_chunk.id = f"chunk-{i}"
-                yield StreamingResponse(chunk=mock_chunk)
+                yield ModelResponse(mock_chunk)
 
         # Process stream
         output = []
@@ -252,7 +253,7 @@ class TestControlPlaneLocalStreaming:
 
         async def mock_stream():
             mock_chunk = Mock()
-            yield StreamingResponse(chunk=mock_chunk)
+            yield ModelResponse(mock_chunk)
 
         # Should timeout after 2 seconds
         with pytest.raises(StreamingError, match="Streaming failed after 0 chunks"):
@@ -302,7 +303,7 @@ class TestControlPlaneLocalStreaming:
         async def mock_stream():
             mock_chunk = Mock()
             mock_chunk.id = "chunk-0"
-            yield StreamingResponse(chunk=mock_chunk)
+            yield ModelResponse(mock_chunk)
 
         # Should NOT timeout because of keepalives (timeout is 2s, but we send keepalive every 1.5s)
         output = []
