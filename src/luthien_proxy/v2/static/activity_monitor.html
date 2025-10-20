@@ -124,11 +124,34 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .event-header:hover {
+            opacity: 0.8;
         }
 
         .event-type {
             font-weight: 600;
             color: #60a5fa;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .expand-icon {
+            display: inline-block;
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 7px solid currentColor;
+            transition: transform 0.2s;
+        }
+
+        .event-header.collapsed .expand-icon {
+            transform: rotate(-90deg);
         }
 
         .event-time {
@@ -136,9 +159,24 @@
             font-size: 11px;
         }
 
-        .event-data {
+        .event-summary {
             color: #d1d5db;
             line-height: 1.5;
+            margin-bottom: 8px;
+        }
+
+        .event-details {
+            color: #d1d5db;
+            line-height: 1.5;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #333;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .event-details.collapsed {
+            display: none;
         }
 
         .event-data code {
@@ -146,6 +184,16 @@
             padding: 2px 6px;
             border-radius: 3px;
             color: #34d399;
+        }
+
+        .event-details pre {
+            background: #1a1a1a;
+            padding: 12px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 11px;
+            line-height: 1.4;
+            color: #d1d5db;
         }
 
         /* Event type colors */
@@ -167,6 +215,10 @@
         .event[class*="response_sent"],
         .event[class*="response.sent"] {
             border-left-color: #14b8a6;
+        }
+
+        .event[class*="streaming"] {
+            border-left-color: #06b6d4;
         }
 
         .event[class*="policy"],
@@ -269,11 +321,21 @@
                 <label class="filter-label">Event Type</label>
                 <select id="filter-event-type">
                     <option value="">All Events</option>
-                    <option value="gateway.request_received">Request Received</option>
-                    <option value="gateway.request_sent">Request Sent</option>
-                    <option value="gateway.response_received">Response Received</option>
-                    <option value="gateway.response_sent">Response Sent</option>
-                    <option value="policy_event">Policy Events</option>
+                    <optgroup label="Gateway">
+                        <option value="gateway.request_received">Request Received</option>
+                        <option value="gateway.request_sent">Request Sent</option>
+                        <option value="gateway.response_received">Response Received</option>
+                        <option value="gateway.response_sent">Response Sent</option>
+                    </optgroup>
+                    <optgroup label="Streaming">
+                        <option value="streaming.chunk_received">Chunk Received</option>
+                        <option value="streaming.chunk_sent">Chunk Sent</option>
+                        <option value="streaming.original_complete">Original Complete</option>
+                        <option value="streaming.transformed_complete">Transformed Complete</option>
+                    </optgroup>
+                    <optgroup label="Policy">
+                        <option value="policy_event">Policy Events</option>
+                    </optgroup>
                 </select>
             </div>
         </div>
@@ -366,7 +428,7 @@
             const eventEl = document.createElement('div');
             eventEl.className = `event ${event.event_type}`;
 
-            // Parse event data based on structure
+            // Parse event data
             const eventData = event.data || {};
             const endpoint = eventData.endpoint || '';
             const model = eventData.model || event.model || '';
@@ -377,56 +439,81 @@
             const policyName = eventData.policy_name || '';
             const eventName = eventData.event_name || '';
             const description = eventData.description || '';
+            const chunkIndex = eventData.chunk_index;
+            const totalChunks = eventData.total_chunks;
+            const finishReason = eventData.finish_reason || '';
+            const contentPreview = eventData.content_preview || '';
 
-            let dataHtml = '';
+            // Build summary (always visible)
+            let summaryHtml = '';
 
-            // Different rendering based on event type
+            // Add call_id to all events
+            summaryHtml += `<div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>`;
+
+            // Event-specific summary
             if (event.event_type === 'gateway.request_received') {
-                dataHtml = `
-                    <div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>
+                summaryHtml += `
                     <div><strong>Endpoint:</strong> <code>${endpoint}</code></div>
-                    <div><strong>Model:</strong> <code>${model}</code></div>
-                    <div><strong>Messages:</strong> ${messages.length} messages</div>
-                    <div><strong>Stream:</strong> ${stream ? 'Yes' : 'No'}</div>
+                    <div><strong>Model:</strong> <code>${model}</code> | <strong>Stream:</strong> ${stream ? 'Yes' : 'No'} | <strong>Messages:</strong> ${messages.length}</div>
                 `;
             } else if (event.event_type === 'gateway.request_sent') {
-                dataHtml = `
-                    <div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>
-                    <div><strong>Model:</strong> <code>${model}</code></div>
-                    <div><strong>Stream:</strong> ${stream ? 'Yes' : 'No'}</div>
-                `;
-            } else if (event.event_type === 'gateway.response_received') {
-                dataHtml = `
-                    <div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>
-                    <div><strong>Model:</strong> <code>${model}</code></div>
-                    ${content ? `<div><strong>Content:</strong> ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}</div>` : ''}
-                    ${usage ? `<div><strong>Tokens:</strong> ${usage.total_tokens || 'N/A'}</div>` : ''}
-                `;
-            } else if (event.event_type === 'gateway.response_sent') {
-                dataHtml = `
-                    <div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>
-                    ${content ? `<div><strong>Content:</strong> ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}</div>` : ''}
-                    ${usage ? `<div><strong>Tokens:</strong> ${usage.total_tokens || 'N/A'}</div>` : ''}
-                `;
+                summaryHtml += `<div><strong>Model:</strong> <code>${model}</code> | <strong>Stream:</strong> ${stream ? 'Yes' : 'No'}</div>`;
+            } else if (event.event_type === 'gateway.response_received' || event.event_type === 'gateway.response_sent') {
+                const contentSnippet = content ? content.substring(0, 80) : '';
+                summaryHtml += `<div><strong>Model:</strong> <code>${model}</code></div>`;
+                if (contentSnippet) {
+                    summaryHtml += `<div><strong>Content:</strong> ${contentSnippet}${content.length > 80 ? '...' : ''}</div>`;
+                }
+                if (usage) {
+                    summaryHtml += `<div><strong>Tokens:</strong> ${usage.total_tokens || 'N/A'}</div>`;
+                }
+            } else if (event.event_type === 'streaming.chunk_received' || event.event_type === 'streaming.chunk_sent') {
+                summaryHtml += `<div><strong>Chunk:</strong> #${chunkIndex}</div>`;
+                if (contentPreview) {
+                    summaryHtml += `<div><strong>Preview:</strong> ${contentPreview}</div>`;
+                }
+                if (finishReason) {
+                    summaryHtml += `<div><strong>Finish:</strong> ${finishReason}</div>`;
+                }
+            } else if (event.event_type === 'streaming.original_complete' || event.event_type === 'streaming.transformed_complete') {
+                const contentSnippet = content ? content.substring(0, 80) : '';
+                summaryHtml += `<div><strong>Total Chunks:</strong> ${totalChunks || 'N/A'} | <strong>Finish:</strong> ${finishReason || 'N/A'}</div>`;
+                if (contentSnippet) {
+                    summaryHtml += `<div><strong>Content:</strong> ${contentSnippet}${content.length > 80 ? '...' : ''}</div>`;
+                }
             } else if (event.event_type === 'policy_event' || event.event_type.startsWith('policy.')) {
-                dataHtml = `
-                    <div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>
-                    ${policyName ? `<div><strong>Policy:</strong> <code>${policyName}</code></div>` : ''}
-                    ${eventName ? `<div><strong>Event:</strong> ${eventName}</div>` : ''}
-                    ${description ? `<div><strong>Description:</strong> ${description}</div>` : ''}
-                `;
+                if (policyName) summaryHtml += `<div><strong>Policy:</strong> <code>${policyName}</code></div>`;
+                if (eventName) summaryHtml += `<div><strong>Event:</strong> ${eventName}</div>`;
+                if (description) summaryHtml += `<div><strong>Description:</strong> ${description}</div>`;
             } else {
-                // Generic rendering for other events
-                dataHtml = `<pre>${JSON.stringify(event, null, 2)}</pre>`;
+                // Generic summary for unknown events
+                summaryHtml += `<div><em>Click to view full event data</em></div>`;
             }
 
+            // Build full details (collapsible)
+            const detailsHtml = `<pre>${JSON.stringify(event, null, 2)}</pre>`;
+
+            // Build complete HTML
             eventEl.innerHTML = `
-                <div class="event-header">
-                    <span class="event-type">${event.event_type}</span>
+                <div class="event-header collapsed">
+                    <span class="event-type">
+                        <span class="expand-icon"></span>
+                        ${event.event_type}
+                    </span>
                     <span class="event-time">${formatTime(event.timestamp)}</span>
                 </div>
-                <div class="event-data">${dataHtml}</div>
+                <div class="event-summary">${summaryHtml}</div>
+                <div class="event-details collapsed">${detailsHtml}</div>
             `;
+
+            // Add click handler for collapse/expand
+            const header = eventEl.querySelector('.event-header');
+            const details = eventEl.querySelector('.event-details');
+
+            header.addEventListener('click', () => {
+                header.classList.toggle('collapsed');
+                details.classList.toggle('collapsed');
+            });
 
             return eventEl;
         }
