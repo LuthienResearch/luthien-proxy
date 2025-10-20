@@ -10,6 +10,7 @@ and delegates streaming coordination to StreamingOrchestrator.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, AsyncIterator
 
@@ -191,30 +192,100 @@ class ControlPlaneLocal:
             # Wrapper to buffer original chunks as they come in
             async def buffering_incoming() -> AsyncIterator[StreamingResponse]:
                 """Buffer incoming chunks while yielding them."""
+                nonlocal chunk_count
                 async for chunk in incoming:
                     original_chunks.append(chunk)
+
+                    # Publish chunk event (Redis only, no DB persistence - fire and forget)
+                    if self.event_publisher:
+                        # Extract text content from chunk for preview
+                        try:
+                            chunk_dict = chunk.chunk.model_dump() if hasattr(chunk.chunk, "model_dump") else chunk.chunk
+                            choices = chunk_dict.get("choices", [])
+                            delta = choices[0].get("delta", {}) if choices else {}
+                            content = delta.get("content", "")
+                            finish_reason = choices[0].get("finish_reason") if choices else None
+
+                            # Fire and forget - don't await
+                            asyncio.create_task(
+                                self.event_publisher.publish_event(
+                                    call_id=call_id,
+                                    event_type="streaming.chunk_received",
+                                    data={
+                                        "chunk_index": len(original_chunks) - 1,
+                                        "content_preview": content[:100] if content else None,
+                                        "finish_reason": finish_reason,
+                                    },
+                                )
+                            )
+                        except Exception as e:
+                            logger.debug(f"Failed to publish chunk event: {e}")
+
                     yield chunk
 
             # Callback to emit events after streaming completes
             async def emit_streaming_events(final_chunks: list[StreamingResponse]) -> None:
                 """Emit response event with original and final chunks."""
-                if not db_pool:
-                    logger.debug(f"No db_pool, skipping streaming event for call {call_id}")
-                    return
-
                 # Reconstruct full responses from buffered chunks
                 original_response_dict = reconstruct_full_response_from_chunks(original_chunks)
                 final_response_dict = reconstruct_full_response_from_chunks(final_chunks)
 
-                # Emit event (non-blocking)
-                emit_response_event(
-                    call_id=call_id,
-                    original_response=original_response_dict,
-                    final_response=final_response_dict,
-                    db_pool=db_pool,
-                    redis_conn=redis_conn,
-                )
-                logger.debug(f"Emitted streaming response event for call {call_id}")
+                # Publish full original response to Redis (for real-time UI - fire and forget)
+                if self.event_publisher:
+                    try:
+                        original_content = ""
+                        if original_response_dict.get("choices"):
+                            message = original_response_dict["choices"][0].get("message", {})
+                            original_content = message.get("content", "")
+
+                        asyncio.create_task(
+                            self.event_publisher.publish_event(
+                                call_id=call_id,
+                                event_type="streaming.original_complete",
+                                data={
+                                    "content": original_content[:500],  # Preview only
+                                    "total_chunks": len(original_chunks),
+                                    "finish_reason": original_response_dict.get("choices", [{}])[0].get(
+                                        "finish_reason"
+                                    ),
+                                },
+                            )
+                        )
+                    except Exception as e:
+                        logger.debug(f"Failed to publish original complete event: {e}")
+
+                # Publish full transformed response to Redis (for real-time UI - fire and forget)
+                if self.event_publisher:
+                    try:
+                        final_content = ""
+                        if final_response_dict.get("choices"):
+                            message = final_response_dict["choices"][0].get("message", {})
+                            final_content = message.get("content", "")
+
+                        asyncio.create_task(
+                            self.event_publisher.publish_event(
+                                call_id=call_id,
+                                event_type="streaming.transformed_complete",
+                                data={
+                                    "content": final_content[:500],  # Preview only
+                                    "total_chunks": len(final_chunks),
+                                    "finish_reason": final_response_dict.get("choices", [{}])[0].get("finish_reason"),
+                                },
+                            )
+                        )
+                    except Exception as e:
+                        logger.debug(f"Failed to publish transformed complete event: {e}")
+
+                # Emit event to DB (non-blocking, for historical record)
+                if db_pool:
+                    emit_response_event(
+                        call_id=call_id,
+                        original_response=original_response_dict,
+                        final_response=final_response_dict,
+                        db_pool=db_pool,
+                        redis_conn=redis_conn,
+                    )
+                    logger.debug(f"Emitted streaming response event for call {call_id}")
 
             try:
                 # Use orchestrator to handle streaming with timeout monitoring
@@ -228,9 +299,34 @@ class ControlPlaneLocal:
                     policy_processor,
                     timeout_seconds,
                     span=span,
-                    on_complete=emit_streaming_events if db_pool else None,
+                    on_complete=emit_streaming_events,
                 ):
                     chunk_count += 1
+
+                    # Publish outgoing chunk event (Redis only, no DB persistence - fire and forget)
+                    if self.event_publisher:
+                        try:
+                            chunk_dict = chunk.chunk.model_dump() if hasattr(chunk.chunk, "model_dump") else chunk.chunk
+                            choices = chunk_dict.get("choices", [])
+                            delta = choices[0].get("delta", {}) if choices else {}
+                            content = delta.get("content", "")
+                            finish_reason = choices[0].get("finish_reason") if choices else None
+
+                            # Fire and forget - don't await
+                            asyncio.create_task(
+                                self.event_publisher.publish_event(
+                                    call_id=call_id,
+                                    event_type="streaming.chunk_sent",
+                                    data={
+                                        "chunk_index": chunk_count - 1,
+                                        "content_preview": content[:100] if content else None,
+                                        "finish_reason": finish_reason,
+                                    },
+                                )
+                            )
+                        except Exception as e:
+                            logger.debug(f"Failed to publish chunk sent event: {e}")
+
                     yield chunk
 
                 # Success - record completion
