@@ -19,8 +19,10 @@ from luthien_proxy.v2.control.models import StreamingError
 from luthien_proxy.v2.control.streaming import StreamingOrchestrator
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 from luthien_proxy.v2.policies.context import PolicyContext
+from luthien_proxy.v2.storage.events import emit_response_event, reconstruct_full_response_from_chunks
 
 if TYPE_CHECKING:
+    from luthien_proxy.utils import db, redis_client
     from luthien_proxy.v2.observability import SimpleEventPublisher
     from luthien_proxy.v2.policies.base import LuthienPolicy
 
@@ -146,16 +148,21 @@ class ControlPlaneLocal:
         incoming: AsyncIterator[StreamingResponse],
         call_id: str,
         timeout_seconds: float = 30.0,
+        db_pool: db.DatabasePool | None = None,
+        redis_conn: redis_client.RedisClient | None = None,
     ) -> AsyncIterator[StreamingResponse]:
         """Apply policies to streaming responses with queue-based reactive processing.
 
         This uses StreamingOrchestrator to bridge the policy's queue-based interface
-        with the gateway's async iterator.
+        with the gateway's async iterator. It also buffers chunks to emit conversation
+        events after streaming completes.
 
         Args:
             incoming: Async iterator of streaming responses from LLM
             call_id: Unique identifier for this request/response cycle
             timeout_seconds: Maximum seconds without activity before timing out (default: 30)
+            db_pool: Optional database pool for event persistence
+            redis_conn: Optional Redis connection for real-time pub/sub
 
         Yields:
             Processed streaming responses from the policy
@@ -179,6 +186,35 @@ class ControlPlaneLocal:
             span.add_event("stream_start")
 
             chunk_count = 0
+            original_chunks: list[StreamingResponse] = []
+
+            # Wrapper to buffer original chunks as they come in
+            async def buffering_incoming() -> AsyncIterator[StreamingResponse]:
+                """Buffer incoming chunks while yielding them."""
+                async for chunk in incoming:
+                    original_chunks.append(chunk)
+                    yield chunk
+
+            # Callback to emit events after streaming completes
+            async def emit_streaming_events(final_chunks: list[StreamingResponse]) -> None:
+                """Emit response event with original and final chunks."""
+                if not db_pool:
+                    logger.debug(f"No db_pool, skipping streaming event for call {call_id}")
+                    return
+
+                # Reconstruct full responses from buffered chunks
+                original_response_dict = reconstruct_full_response_from_chunks(original_chunks)
+                final_response_dict = reconstruct_full_response_from_chunks(final_chunks)
+
+                # Emit event (non-blocking)
+                emit_response_event(
+                    call_id=call_id,
+                    original_response=original_response_dict,
+                    final_response=final_response_dict,
+                    db_pool=db_pool,
+                    redis_conn=redis_conn,
+                )
+                logger.debug(f"Emitted streaming response event for call {call_id}")
 
             try:
                 # Use orchestrator to handle streaming with timeout monitoring
@@ -188,7 +224,11 @@ class ControlPlaneLocal:
                     )
 
                 async for chunk in self.streaming_orchestrator.process(
-                    incoming, policy_processor, timeout_seconds, span=span
+                    buffering_incoming(),
+                    policy_processor,
+                    timeout_seconds,
+                    span=span,
+                    on_complete=emit_streaming_events if db_pool else None,
                 ):
                     chunk_count += 1
                     yield chunk

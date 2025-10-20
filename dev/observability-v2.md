@@ -1,7 +1,7 @@
 # V2 Observability
 
 **Last Updated:** 2025-10-20
-**Status:** Phase 1 Complete ✅ (Event emission wired for request/response/streaming)
+**Status:** Phases 1-2 Complete ✅ (Event emission + Debug endpoints implemented)
 
 ---
 
@@ -125,22 +125,30 @@ Each event contains:
 - `src/luthien_proxy/v2/main.py` - Passed db_pool/redis_conn to streaming
 - `tests/unit_tests/v2/test_storage_events.py` - Added 5 reconstruction tests
 
-### 🔄 Phase 2: Query & Debug Endpoints (TODO)
+### ✅ Phase 2: Query & Debug Endpoints (COMPLETE)
 
 **Goal**: Build REST API to query conversation events and compute diffs
 
-#### Phase 2.1: Query Endpoints
-- [ ] `GET /v2/debug/calls/{call_id}` - Retrieve all events for a call
-- [ ] `GET /v2/debug/calls/{call_id}/diff` - Compute structured diff of original vs final
-- [ ] `GET /v2/debug/calls` - List recent calls with filters (timestamp, model, etc.)
+#### Phase 2.1: Query Endpoints ✅
+- [x] `GET /v2/debug/calls/{call_id}` - Retrieve all events for a call
+- [x] `GET /v2/debug/calls/{call_id}/diff` - Compute structured diff of original vs final
+- [x] `GET /v2/debug/calls` - List recent calls with filters
 
-#### Phase 2.2: Diff Computation
-- [ ] Implement message-level diff for requests (added/removed/modified messages)
-- [ ] Implement content-level diff for responses (text changes, finish_reason)
-- [ ] Handle streaming response reconstruction for diff view
-- [ ] Return Tempo trace link in response (`luthien.call_id` correlation)
+#### Phase 2.2: Diff Computation ✅
+- [x] Implement message-level diff for requests (added/removed/modified messages)
+- [x] Implement content-level diff for responses (text changes, finish_reason)
+- [x] Handle streaming response reconstruction for diff view (automatic via Phase 1.3)
+- [x] Return Tempo trace link in response (`luthien.call_id` correlation)
 
-**Estimated Time**: 3-4 hours
+**Files Created**:
+- `src/luthien_proxy/v2/debug/__init__.py` - Debug module exports
+- `src/luthien_proxy/v2/debug/routes.py` - Debug REST endpoints (430 lines)
+- `tests/unit_tests/v2/test_debug_routes.py` - Unit tests for debug endpoints (260 lines)
+
+**Files Modified**:
+- `src/luthien_proxy/v2/main.py` - Mounted debug router, wired db_pool
+
+**Actual Time**: ~3 hours
 
 ### 🔄 Phase 3: UI & Dashboards (TODO)
 

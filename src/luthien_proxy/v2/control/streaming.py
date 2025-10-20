@@ -82,6 +82,7 @@ class StreamingOrchestrator:
         ],
         timeout_seconds: float = 30.0,
         span: Span | None = None,
+        on_complete: Callable[[list[T]], Coroutine[Any, Any, None]] | None = None,
     ) -> AsyncIterator[T]:
         """Process an async stream with timeout monitoring and optional tracing.
 
@@ -93,6 +94,7 @@ class StreamingOrchestrator:
                 - keepalive: Callable to signal activity (prevents timeout)
             timeout_seconds: Maximum seconds without activity before timing out
             span: Optional OpenTelemetry span for tracing stream processing
+            on_complete: Optional callback invoked after streaming completes with all buffered chunks
 
         Yields:
             Processed chunks from the outgoing queue
@@ -100,12 +102,19 @@ class StreamingOrchestrator:
         Raises:
             TimeoutError: If no activity for timeout_seconds
             Exception: Any exception from processor or incoming_stream
+
+        Note:
+            If on_complete is provided, all chunks are buffered in memory.
+            This is useful for event emission but adds memory overhead.
         """
         incoming_queue: ChunkQueue[T] = ChunkQueue()
         outgoing_queue: ChunkQueue[T] = ChunkQueue()
 
         timeout_tracker = TimeoutTracker(timeout_seconds)
         chunk_count = 0
+
+        # Buffer chunks if callback is provided
+        buffered_chunks: list[T] = [] if on_complete else []
 
         if span:
             span.add_event("orchestrator.start")
@@ -128,6 +137,9 @@ class StreamingOrchestrator:
 
                     for chunk in batch:
                         chunk_count += 1
+                        # Buffer chunk if callback provided (passive buffering)
+                        if on_complete:
+                            buffered_chunks.append(chunk)
                         yield chunk
 
                 # Streaming completed successfully
@@ -139,6 +151,14 @@ class StreamingOrchestrator:
                 span.add_event("orchestrator.complete", attributes={"chunk_count": chunk_count})
                 span.set_attribute("orchestrator.chunk_count", chunk_count)
                 span.set_attribute("orchestrator.success", True)
+
+            # Invoke callback with buffered chunks (non-blocking event emission)
+            if on_complete and buffered_chunks:
+                try:
+                    await on_complete(buffered_chunks)
+                except Exception as callback_exc:
+                    # Log but don't fail the stream
+                    logger.error(f"on_complete callback failed: {callback_exc}")
 
         except BaseException as exc:
             # BaseException catches both regular exceptions and ExceptionGroup from TaskGroup
