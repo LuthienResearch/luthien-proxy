@@ -1,7 +1,7 @@
 # V2 Observability
 
 **Last Updated:** 2025-10-20
-**Status:** Phases 1-2 Complete ✅ (Event emission + Debug endpoints implemented)
+**Status:** Phases 1-3.2 Complete ✅ (Event emission + Debug endpoints + UI)
 
 ---
 
@@ -150,26 +150,64 @@ Each event contains:
 
 **Actual Time**: ~3 hours
 
-### 🔄 Phase 3: UI & Dashboards (TODO)
+### ✅ Phase 3.1: Diff UI (COMPLETE)
 
-**Goal**: Visualize diffs and traces in user-friendly interfaces
+**Goal**: Build side-by-side diff viewer for policy transformations
 
-#### Phase 3.1: Diff UI
-- [ ] Create HTML template for side-by-side diff view
-- [ ] Add syntax highlighting for JSON payloads
-- [ ] Link to Grafana trace from diff page
+- [x] Create HTML template with side-by-side diff view
+- [x] Add automatic JSON detection and syntax highlighting
+- [x] Link to Grafana trace from diff page
+- [x] Browse recent calls interface
+- [x] Query param support for direct links (`?call_id=...`)
 
-#### Phase 3.2: Live Activity Dashboard
-- [ ] Reuse existing `SimpleEventPublisher` for V2 events
-- [ ] Update activity dashboard to show V2 events
-- [ ] Add filtering by call_id, model, event_type
+**Files Created**:
+- `src/luthien_proxy/v2/static/diff_viewer.html` - Diff viewer UI (680 lines)
+- Route: `/v2/debug/diff` - Serves the diff viewer
 
-#### Phase 3.3: Grafana Dashboards
+**Features**:
+- Side-by-side comparison of original vs final requests/responses
+- Automatic JSON detection, pretty-printing, and syntax highlighting
+- Visual indicators for changed vs unchanged content
+- Metadata diffs (model, max_tokens, finish_reason)
+- Message-level diffs for requests
+- Content diffs for responses
+- Direct link to Grafana Tempo traces
+- Clickable recent calls list for easy navigation
+
+**Actual Time**: ~1.5 hours
+
+### ✅ Phase 3.2: Live Activity Dashboard (COMPLETE)
+
+**Goal**: Integrate V2 events into real-time activity monitor
+
+- [x] V2 events already published via `SimpleEventPublisher` (implemented in main.py)
+- [x] Activity stream already wired to consume from Redis (`luthien:activity` channel)
+- [x] Added filtering by call_id, model, event_type
+- [x] Real-time filtering without interrupting stream
+- [x] Retroactive filtering on stored events
+
+**Files Modified**:
+- `src/luthien_proxy/v2/static/activity_monitor.html` - Added filter UI and logic
+
+**Features**:
+- Filter by call_id (substring match)
+- Filter by model (substring match)
+- Filter by event_type (exact match dropdown)
+- Filters apply in real-time to live stream
+- Stored events (up to 100) can be retroactively filtered
+- Event type color coding for visual distinction
+
+**Actual Time**: ~1 hour
+
+### 🔄 Phase 3.3: Grafana Dashboards (TODO)
+
+**Goal**: Create Grafana dashboards for V2 metrics and traces
+
 - [ ] Create dashboard showing V2 request rates by model
 - [ ] Add panel for policy execution latency (from OTel spans)
 - [ ] Link to debug endpoint from Grafana (via call_id)
 
-**Estimated Time**: 2-3 hours
+**Estimated Time**: 1-2 hours
 
 ---
 
@@ -283,13 +321,12 @@ open http://localhost:3000
 
 ## Next Steps
 
-1. **Phase 2.1**: Implement query endpoints (`/v2/debug/calls/...`)
-2. **Phase 2.2**: Implement diff computation logic
-3. **Phase 3.1**: Build diff UI with side-by-side view
-4. **Phase 3.2**: Wire V2 events into live activity dashboard
-5. **Phase 3.3**: Create Grafana dashboards for V2 metrics
+1. **Phase 3.3**: Create Grafana dashboards for V2 metrics
+   - Dashboard showing V2 request rates by model
+   - Panel for policy execution latency from OTel spans
+   - Link to debug endpoint from Grafana via call_id
 
-**Estimated Total Remaining**: 5-7 hours
+**Estimated Total Remaining**: 1-2 hours
 
 ---
 
