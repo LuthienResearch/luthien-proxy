@@ -80,7 +80,11 @@ See [otel-conventions.md](./otel-conventions.md) for full attribute list.
 
 ## How to Use OpenTelemetry
 
-### In Gateway Code (main.py)
+Note: The V2 architecture runs as a single integrated service in `main.py`. The sections below describe where to add instrumentation in different layers of the codebase, not separate services.
+
+### In API Gateway Layer (main.py)
+
+The gateway layer handles HTTP requests and coordinates the overall request flow.
 
 ```python
 from luthien_proxy.v2.telemetry import tracer
@@ -94,7 +98,9 @@ with tracer.start_as_current_span("gateway.chat_completions") as span:
     span.add_event("gateway.request_received")
 ```
 
-### In Control Plane Code (local.py)
+### In Control Logic Layer (control/local.py)
+
+The control logic layer executes policy methods and orchestrates streaming.
 
 ```python
 from opentelemetry import trace
@@ -111,7 +117,9 @@ with tracer.start_as_current_span("control_plane.process_request") as span:
     result = await policy.process_request(request, ctx)
 ```
 
-### In Policy Code
+### In Policy Implementations (policies/*.py)
+
+Policy implementations contain custom control logic for specific use cases.
 
 ```python
 async def process_request(self, request: Request, ctx: PolicyContext) -> Request:
