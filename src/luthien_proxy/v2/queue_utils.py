@@ -42,6 +42,7 @@ async def get_available(queue: asyncio.Queue[T]) -> list[T]:
             outgoing.shutdown()
     """
     # Block until at least one item is available
+    # NOTE: trying to loop on get_nowait() first can lead to busy-waiting and indefinite blocking
     try:
         first = await queue.get()
     except asyncio.QueueShutDown:

@@ -7,10 +7,16 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
-## Testing (2025-10-08)
+## Testing (2025-10-08, updated 2025-10-20)
 
 - E2E tests (`pytest -m e2e`) are SLOW - use sparingly, prefer unit tests for rapid iteration
 - Always run `./scripts/dev_checks.sh` before committing - formats, lints, type-checks, and tests
+- **Slow tests**: A few tests intentionally use `asyncio.sleep()` to test timeouts/heartbeats:
+  - `test_streaming_timeout`: 2.01s (tests that policy timeout works)
+  - `test_global_activity_sse_stream_heartbeat`: 1.00s (tests SSE heartbeat mechanism)
+  - These are necessary and acceptable - they test real async behavior
+- **OTel warnings in test output**: OpenTelemetry tries to export traces to `tempo:4317` during tests, which doesn't exist. This is harmless noise (traces still work in tests via in-memory span collection). To silence, we'd need to mock/disable the OTel exporter in test fixtures.
+- **Pydantic warnings**: Some tests create `ModelResponse` objects with partial data, causing Pydantic serialization warnings. These are harmless - the tests verify the code works with real-world partial responses.
 
 ## Docker Development (2025-10-08)
 
@@ -39,7 +45,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - Common places to check: README.md, tests/e2e_tests/CLAUDE.md, dev planning docs, inline code comments
 - Easy to miss: Links in other markdown files, docstrings pointing to specific sections
 
-## Queue Shutdown for Stream Termination (2025-01-20)
+## Queue Shutdown for Stream Termination (2025-01-20, updated 2025-10-20)
 
 **Gotcha**: Don't use `None` sentinel values in `asyncio.Queue` for stream termination - use `Queue.shutdown()` instead
 

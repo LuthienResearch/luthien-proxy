@@ -226,7 +226,7 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             app.state.v2_event_publisher = None
             app.state.v2_control_plane = None
             if v2_redis_client:
-                await v2_redis_client.close()
+                await v2_redis_client.aclose()
                 logger.info("V2 Redis client closed")
 
     app = FastAPI(
