@@ -25,7 +25,8 @@ def context():
         def __init__(self):
             self.events = []
 
-        async def emit(self, event_type, summary, severity, details=None):
+        def emit(self, event_type, summary, severity="info", details=None):
+            """Emit is synchronous in the real PolicyContext."""
             self.events.append({"event_type": event_type, "summary": summary, "severity": severity, "details": details})
 
     return MockContext()

@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Optional
 
+from litellm.files.main import ModelResponse
+
 from luthien_proxy.v2.messages import FullResponse, Request, StreamingResponse
 from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.context import PolicyContext
@@ -132,7 +134,6 @@ class UppercaseNthWordPolicy(LuthienPolicy):
         )
 
         # Update the response with transformed content
-        from litellm import ModelResponse
 
         transformed_response = ModelResponse(**transformed_dict)
         return FullResponse.from_model_response(transformed_response)
@@ -191,23 +192,25 @@ class UppercaseNthWordPolicy(LuthienPolicy):
                     word_buffer += text
 
                     # Check if we have complete words (space indicates word boundary)
+                    processed_text = ""
                     while " " in word_buffer:
                         # Extract complete word
                         space_idx = word_buffer.index(" ")
                         word = word_buffer[:space_idx]
-                        word_buffer = word_buffer[space_idx + 1 :]  # Keep the space for next iteration
+                        word_buffer = word_buffer[space_idx + 1 :]
 
                         # Apply uppercase if this is the Nth word
                         if (word_position % self.n) == (self.n - 1):
                             word = word.upper()
 
-                        # Emit word + space
-                        transformed_chunk = self._create_text_chunk(word + " ")
-                        await outgoing.put(transformed_chunk)
-
+                        # Accumulate processed text (emit batch all at once)
+                        processed_text += word + " "
                         word_position += 1
 
-                    # Keep partial word in buffer for next iteration
+                    # Emit all processed words from this chunk as one batch
+                    if processed_text:
+                        transformed_chunk = self._create_text_chunk(processed_text)
+                        await outgoing.put(transformed_chunk)
 
             context.emit(
                 event_type="policy.uppercase_streaming_complete",
