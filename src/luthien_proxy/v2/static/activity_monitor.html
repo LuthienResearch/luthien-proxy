@@ -290,6 +290,120 @@
         .event.filtered {
             display: none;
         }
+
+        /* Multiselect styles */
+        .multiselect-container {
+            position: relative;
+            min-width: 220px;
+        }
+
+        .multiselect-button {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .multiselect-button:hover {
+            background: #333;
+            border-color: #555;
+        }
+
+        .multiselect-button .arrow {
+            width: 0;
+            height: 0;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid currentColor;
+            margin-left: 8px;
+        }
+
+        .multiselect-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 4px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            max-height: 400px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .multiselect-dropdown.open {
+            display: block;
+        }
+
+        .multiselect-category {
+            border-bottom: 1px solid #333;
+        }
+
+        .multiselect-category:last-child {
+            border-bottom: none;
+        }
+
+        .category-header {
+            padding: 10px 12px;
+            background: #1f1f1f;
+            font-weight: 600;
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+
+        .category-header:hover {
+            background: #252525;
+        }
+
+        .category-toggle {
+            font-size: 11px;
+            color: #60a5fa;
+            font-weight: normal;
+            text-transform: none;
+        }
+
+        .multiselect-item {
+            padding: 8px 12px 8px 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .multiselect-item:hover {
+            background: #333;
+        }
+
+        .multiselect-item input[type="checkbox"] {
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .multiselect-item label {
+            cursor: pointer;
+            flex: 1;
+            margin: 0;
+        }
     </style>
 </head>
 <body>
@@ -318,25 +432,69 @@
                 <input type="text" id="filter-model" placeholder="Filter by model..." />
             </div>
             <div class="filter-group">
-                <label class="filter-label">Event Type</label>
-                <select id="filter-event-type">
-                    <option value="">All Events</option>
-                    <optgroup label="Gateway">
-                        <option value="gateway.request_received">Request Received</option>
-                        <option value="gateway.request_sent">Request Sent</option>
-                        <option value="gateway.response_received">Response Received</option>
-                        <option value="gateway.response_sent">Response Sent</option>
-                    </optgroup>
-                    <optgroup label="Streaming">
-                        <option value="streaming.chunk_received">Chunk Received</option>
-                        <option value="streaming.chunk_sent">Chunk Sent</option>
-                        <option value="streaming.original_complete">Original Complete</option>
-                        <option value="streaming.transformed_complete">Transformed Complete</option>
-                    </optgroup>
-                    <optgroup label="Policy">
-                        <option value="policy_event">Policy Events</option>
-                    </optgroup>
-                </select>
+                <label class="filter-label">Event Types</label>
+                <div class="multiselect-container">
+                    <div class="multiselect-button" id="event-type-button">
+                        <span id="event-type-label">All Events</span>
+                        <span class="arrow"></span>
+                    </div>
+                    <div class="multiselect-dropdown" id="event-type-dropdown">
+                        <div class="multiselect-category">
+                            <div class="category-header" data-category="gateway">
+                                <span>Gateway</span>
+                                <span class="category-toggle">All/None</span>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="gateway.request_received" value="gateway.request_received" checked>
+                                <label for="gateway.request_received">Request Received</label>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="gateway.request_sent" value="gateway.request_sent" checked>
+                                <label for="gateway.request_sent">Request Sent</label>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="gateway.response_received" value="gateway.response_received" checked>
+                                <label for="gateway.response_received">Response Received</label>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="gateway.response_sent" value="gateway.response_sent" checked>
+                                <label for="gateway.response_sent">Response Sent</label>
+                            </div>
+                        </div>
+                        <div class="multiselect-category">
+                            <div class="category-header" data-category="streaming">
+                                <span>Streaming</span>
+                                <span class="category-toggle">All/None</span>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="streaming.chunk_received" value="streaming.chunk_received" checked>
+                                <label for="streaming.chunk_received">Chunk Received</label>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="streaming.chunk_sent" value="streaming.chunk_sent" checked>
+                                <label for="streaming.chunk_sent">Chunk Sent</label>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="streaming.original_complete" value="streaming.original_complete" checked>
+                                <label for="streaming.original_complete">Original Complete</label>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="streaming.transformed_complete" value="streaming.transformed_complete" checked>
+                                <label for="streaming.transformed_complete">Transformed Complete</label>
+                            </div>
+                        </div>
+                        <div class="multiselect-category">
+                            <div class="category-header" data-category="policy">
+                                <span>Policy</span>
+                                <span class="category-toggle">All/None</span>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="policy_event" value="policy_event" checked>
+                                <label for="policy_event">Policy Events</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -359,7 +517,22 @@
         const reconnectBtn = document.getElementById('reconnect-btn');
         const filterCallId = document.getElementById('filter-call-id');
         const filterModel = document.getElementById('filter-model');
-        const filterEventType = document.getElementById('filter-event-type');
+        const eventTypeButton = document.getElementById('event-type-button');
+        const eventTypeDropdown = document.getElementById('event-type-dropdown');
+        const eventTypeLabel = document.getElementById('event-type-label');
+
+        // Track selected event types (all selected by default)
+        let selectedEventTypes = new Set([
+            'gateway.request_received',
+            'gateway.request_sent',
+            'gateway.response_received',
+            'gateway.response_sent',
+            'streaming.chunk_received',
+            'streaming.chunk_sent',
+            'streaming.original_complete',
+            'streaming.transformed_complete',
+            'policy_event',
+        ]);
 
         function updateStatus(connected) {
             if (connected) {
@@ -398,13 +571,25 @@
                 }
             }
 
-            // Filter by event type
-            const eventTypeFilter = filterEventType.value;
-            if (eventTypeFilter && event.event_type !== eventTypeFilter) {
+            // Filter by event type (multiselect - check if event type is in selected set)
+            if (!selectedEventTypes.has(event.event_type)) {
                 return false;
             }
 
             return true;
+        }
+
+        function updateEventTypeLabel() {
+            const selectedCount = selectedEventTypes.size;
+            const totalCount = eventTypeDropdown.querySelectorAll('input[type="checkbox"]').length;
+
+            if (selectedCount === 0) {
+                eventTypeLabel.textContent = 'No Events';
+            } else if (selectedCount === totalCount) {
+                eventTypeLabel.textContent = 'All Events';
+            } else {
+                eventTypeLabel.textContent = `${selectedCount} Selected`;
+            }
         }
 
         function applyFilters() {
@@ -604,7 +789,64 @@
         // Wire up filter inputs
         filterCallId.addEventListener('input', applyFilters);
         filterModel.addEventListener('input', applyFilters);
-        filterEventType.addEventListener('change', applyFilters);
+
+        // Multiselect event type filter
+        eventTypeButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            eventTypeDropdown.classList.toggle('open');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!eventTypeDropdown.contains(e.target) && !eventTypeButton.contains(e.target)) {
+                eventTypeDropdown.classList.remove('open');
+            }
+        });
+
+        // Handle category header clicks (toggle all/none in category)
+        eventTypeDropdown.querySelectorAll('.category-header').forEach(header => {
+            header.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const category = header.dataset.category;
+                const categoryDiv = header.closest('.multiselect-category');
+                const checkboxes = categoryDiv.querySelectorAll('input[type="checkbox"]');
+
+                // Check if all are currently checked
+                const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+
+                // Toggle: if all checked, uncheck all; otherwise check all
+                checkboxes.forEach(cb => {
+                    cb.checked = !allChecked;
+                    if (cb.checked) {
+                        selectedEventTypes.add(cb.value);
+                    } else {
+                        selectedEventTypes.delete(cb.value);
+                    }
+                });
+
+                updateEventTypeLabel();
+                applyFilters();
+            });
+        });
+
+        // Handle individual checkbox changes
+        eventTypeDropdown.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                e.stopPropagation();
+                if (checkbox.checked) {
+                    selectedEventTypes.add(checkbox.value);
+                } else {
+                    selectedEventTypes.delete(checkbox.value);
+                }
+                updateEventTypeLabel();
+                applyFilters();
+            });
+        });
+
+        // Prevent dropdown from closing when clicking inside it
+        eventTypeDropdown.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
 
         // Auto-connect on load
         connect();
