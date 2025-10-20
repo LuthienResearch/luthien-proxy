@@ -3,6 +3,8 @@
 **Last Updated:** 2025-10-18
 **Status:** Active - OpenTelemetry migration complete
 
+> **NOTE**: For V2 observability implementation, see [`dev/observability-v2.md`](../observability-v2.md)
+
 ---
 
 ## Overview
