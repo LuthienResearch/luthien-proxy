@@ -258,18 +258,21 @@ class UppercaseNthWordPolicy(LuthienPolicy):
         Returns:
             StreamingResponse chunk
         """
-        from litellm import ModelResponse
+        from litellm.files.main import ModelResponse
+        from litellm.types.utils import Delta, StreamingChoices
 
-        chunk_dict = {
-            "choices": [
-                {
-                    "delta": {"content": text, "role": "assistant"},
-                    "finish_reason": None,
-                    "index": 0,
-                }
-            ]
-        }
-        chunk = ModelResponse(**chunk_dict)
+        # Create proper Delta object (not dict)
+        delta = Delta(content=text, role="assistant")
+
+        # Create StreamingChoices with the Delta object
+        choice = StreamingChoices(
+            delta=delta,
+            finish_reason=None,
+            index=0,
+        )
+
+        # Create ModelResponse with proper typed choices
+        chunk = ModelResponse(choices=[choice])
         return StreamingResponse(chunk=chunk)
 
     def _get_content_preview(self, response_dict: dict[str, Any]) -> str:
