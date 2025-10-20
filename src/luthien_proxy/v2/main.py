@@ -236,6 +236,7 @@ async def openai_chat_completions(
                 call_id=call_id,
                 event_type="gateway.request_received",
                 data={
+                    "call_id": call_id,
                     "endpoint": "/v1/chat/completions",
                     "model": data.get("model", "unknown"),
                     "stream": data.get("stream", False),
@@ -267,6 +268,7 @@ async def openai_chat_completions(
                 call_id=call_id,
                 event_type="gateway.request_sent",
                 data={
+                    "call_id": call_id,
                     "model": data.get("model", "unknown"),
                     "stream": is_streaming,
                 },
@@ -299,6 +301,7 @@ async def openai_chat_completions(
                         call_id=call_id,
                         event_type="gateway.response_received",
                         data={
+                            "call_id": call_id,
                             "model": str(response_dict.get("model", "unknown")),  # type: ignore[union-attr]
                             "finish_reason": str(finish_reason) if finish_reason else None,
                         },
@@ -327,6 +330,7 @@ async def openai_chat_completions(
                         call_id=call_id,
                         event_type="gateway.response_sent",
                         data={
+                            "call_id": call_id,
                             "finish_reason": final_choices[0].get("finish_reason") if final_choices else None,
                         },
                     )

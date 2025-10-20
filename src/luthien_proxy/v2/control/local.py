@@ -212,6 +212,7 @@ class ControlPlaneLocal:
                                     call_id=call_id,
                                     event_type="streaming.chunk_received",
                                     data={
+                                        "call_id": call_id,
                                         "chunk_index": len(original_chunks) - 1,
                                         "content_preview": content[:100] if content else None,
                                         "finish_reason": finish_reason,
@@ -243,7 +244,8 @@ class ControlPlaneLocal:
                                 call_id=call_id,
                                 event_type="streaming.original_complete",
                                 data={
-                                    "content": original_content[:500],  # Preview only
+                                    "call_id": call_id,
+                                    "content": original_content,  # Full content, not preview
                                     "total_chunks": len(original_chunks),
                                     "finish_reason": original_response_dict.get("choices", [{}])[0].get(
                                         "finish_reason"
@@ -267,7 +269,8 @@ class ControlPlaneLocal:
                                 call_id=call_id,
                                 event_type="streaming.transformed_complete",
                                 data={
-                                    "content": final_content[:500],  # Preview only
+                                    "call_id": call_id,
+                                    "content": final_content,  # Full content, not preview
                                     "total_chunks": len(final_chunks),
                                     "finish_reason": final_response_dict.get("choices", [{}])[0].get("finish_reason"),
                                 },
@@ -318,6 +321,7 @@ class ControlPlaneLocal:
                                     call_id=call_id,
                                     event_type="streaming.chunk_sent",
                                     data={
+                                        "call_id": call_id,
                                         "chunk_index": chunk_count - 1,
                                         "content_preview": content[:100] if content else None,
                                         "finish_reason": finish_reason,
