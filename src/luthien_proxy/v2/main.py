@@ -27,7 +27,7 @@ from luthien_proxy.v2.ui import router as ui_router
 logger = logging.getLogger(__name__)
 
 
-def create_v2_app(
+def create_app(
     api_key: str,
     database_url: str,
     redis_url: str,
@@ -148,7 +148,7 @@ def create_v2_app(
     return app
 
 
-__all__ = ["create_v2_app"]
+__all__ = ["create_app"]
 
 
 if __name__ == "__main__":
@@ -167,7 +167,7 @@ if __name__ == "__main__":
     policy_handler: LuthienPolicy = UppercaseNthWordPolicy(n=3)  # Uppercase every 3rd word
 
     # Create app with factory function
-    app = create_v2_app(
+    app = create_app(
         api_key=api_key,
         database_url=database_url,
         redis_url=redis_url,
