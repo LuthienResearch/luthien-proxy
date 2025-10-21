@@ -43,8 +43,8 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 # === CONFIGURATION ===
-API_KEY = os.getenv("PROXY_API_KEY", "")
-if not API_KEY:
+API_KEY = os.getenv("PROXY_API_KEY")
+if API_KEY is None:
     raise ValueError("PROXY_API_KEY environment variable required")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
