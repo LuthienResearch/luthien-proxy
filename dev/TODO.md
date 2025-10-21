@@ -4,6 +4,8 @@
 
 - [ ] Optional -> | None
 - [ ] Refactor ControlPlaneLocal
+- [ ] Sweep code for "defensive coding" anti-patterns and remove
+- [ ] Rename, reorganize, and refactor things for maximum legibility
 
 ## High Priority
 
