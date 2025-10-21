@@ -23,7 +23,6 @@ from opentelemetry import trace
 from redis.asyncio import Redis
 
 from luthien_proxy.utils import db
-from luthien_proxy.v2.activity.stream import stream_activity_events
 from luthien_proxy.v2.control.local import ControlPlaneLocal
 from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.debug import set_db_pool as set_debug_db_pool
@@ -33,7 +32,7 @@ from luthien_proxy.v2.llm.format_converters import (
     openai_to_anthropic_response,
 )
 from luthien_proxy.v2.messages import Request as RequestMessage
-from luthien_proxy.v2.observability import SimpleEventPublisher
+from luthien_proxy.v2.observability import SimpleEventPublisher, stream_activity_events
 from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
 from luthien_proxy.v2.storage import emit_request_event, emit_response_event

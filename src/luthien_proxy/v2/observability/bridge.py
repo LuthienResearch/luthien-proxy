@@ -1,25 +1,30 @@
 # ABOUTME: Redis pub/sub bridge for real-time UI event monitoring
-# ABOUTME: Publishes simplified events to maintain compatibility with /v2/activity/monitor
+# ABOUTME: Publishes and streams events for /v2/activity/monitor compatibility
 
 """Event bridge for real-time UI monitoring.
 
-This module provides a simplified event publisher that maintains compatibility
-with the real-time activity monitor (/v2/activity/monitor) while we migrate to
-OpenTelemetry for distributed tracing.
+This module provides both publishing and streaming of activity events via Redis pub/sub:
+- SimpleEventPublisher: Publishes events to Redis for real-time monitoring
+- stream_activity_events: SSE endpoint that streams events to monitoring UI
 
-The SimpleEventPublisher sends minimal JSON events over Redis pub/sub to keep
-the real-time UI working without the complexity of the old event system.
+This maintains compatibility with the real-time activity monitor while we use
+OpenTelemetry for distributed tracing.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from typing import Any
+import time
+from typing import Any, AsyncGenerator
 
 import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
+
+# Redis channel for activity events (used by both publisher and streamer)
+V2_ACTIVITY_CHANNEL = "luthien:activity"
 
 
 class SimpleEventPublisher:
@@ -45,7 +50,7 @@ class SimpleEventPublisher:
             redis_client: Async Redis client for pub/sub
         """
         self.redis = redis_client
-        self.channel = "luthien:activity"
+        self.channel = V2_ACTIVITY_CHANNEL
 
     async def publish_event(
         self,
@@ -90,3 +95,60 @@ async def create_event_publisher(redis_url: str) -> SimpleEventPublisher:
     """
     redis_client = await redis.from_url(redis_url)
     return SimpleEventPublisher(redis_client)
+
+
+async def stream_activity_events(
+    redis_client: redis.Redis,
+    heartbeat_seconds: float = 15.0,
+    timeout_seconds: float = 1.0,
+) -> AsyncGenerator[str, None]:
+    r"""Stream activity events as Server-Sent Events.
+
+    Args:
+        redis_client: Redis client for pub/sub
+        heartbeat_seconds: How often to send keepalive heartbeats
+        timeout_seconds: Redis pub/sub poll timeout
+
+    Yields:
+        SSE-formatted strings (data: {...}\\n\\n)
+    """
+    async with redis_client.pubsub() as pubsub:
+        await pubsub.subscribe(V2_ACTIVITY_CHANNEL)
+        last_heartbeat = time.monotonic()
+
+        logger.info("Started streaming V2 activity events")
+
+        try:
+            while True:
+                # Check if we need to send a heartbeat
+                now = time.monotonic()
+                if now - last_heartbeat >= heartbeat_seconds:
+                    yield f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
+                    last_heartbeat = now
+
+                # Try to get a message from Redis (with timeout)
+                try:
+                    message = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True, timeout=timeout_seconds),
+                        timeout=timeout_seconds + 0.5,  # Add buffer to async timeout
+                    )
+
+                    if message and message["type"] == "message":
+                        # Got an activity event - forward it to the client
+                        payload = message["data"]
+                        if isinstance(payload, bytes):
+                            payload = payload.decode("utf-8")
+
+                        yield f"data: {payload}\n\n"
+
+                except asyncio.TimeoutError:
+                    # No message within timeout - continue loop (will send heartbeat if needed)
+                    continue
+
+        except asyncio.CancelledError:
+            logger.info("Activity stream cancelled by client")
+            raise
+        except Exception as exc:
+            logger.error(f"Error in activity stream: {exc}")
+            error_data = {"error": str(exc), "type": type(exc).__name__}
+            yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
