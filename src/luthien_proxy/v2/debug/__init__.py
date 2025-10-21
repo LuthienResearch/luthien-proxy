@@ -9,6 +9,6 @@ This module provides REST endpoints for debugging policy decisions:
 - List recent calls with filtering
 """
 
-from luthien_proxy.v2.debug.routes import router, set_db_pool
+from luthien_proxy.v2.debug.routes import router
 
-__all__ = ["router", "set_db_pool"]
+__all__ = ["router"]

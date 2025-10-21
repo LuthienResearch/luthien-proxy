@@ -21,11 +21,27 @@ def _run_v2_gateway(port: int, api_key: str) -> None:
     This function is the target for multiprocessing.Process.
     It configures the environment and starts uvicorn.
     """
-    # Set up environment
-    os.environ["PROXY_API_KEY"] = api_key
-
     # Import here to avoid issues with multiprocessing
-    from luthien_proxy.v2.main import app
+    from luthien_proxy.v2.main import create_v2_app
+    from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
+
+    # Get config from environment
+    database_url = os.environ.get("DATABASE_URL", "")
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable required for e2e tests")
+
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
+
+    # Create policy
+    policy = UppercaseNthWordPolicy(n=3)
+
+    # Create app with factory
+    app = create_v2_app(
+        api_key=api_key,
+        database_url=database_url,
+        redis_url=redis_url,
+        policy=policy,
+    )
 
     # Run uvicorn server
     uvicorn.run(

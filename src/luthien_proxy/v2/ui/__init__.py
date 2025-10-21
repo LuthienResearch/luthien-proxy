@@ -3,4 +3,6 @@
 
 """UI components for V2 proxy."""
 
-__all__ = []
+from luthien_proxy.v2.ui.routes import router
+
+__all__ = ["router"]

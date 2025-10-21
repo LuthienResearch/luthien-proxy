@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
@@ -24,19 +24,24 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v2/debug", tags=["debug"])
 
-# Global db_pool reference (set by main.py during startup)
-_db_pool: db.DatabasePool | None = None
 
+def get_db_pool(request: Request) -> db.DatabasePool | None:
+    """Dependency to get database pool from app state.
 
-def get_db_pool() -> db.DatabasePool | None:
-    """Dependency to get database pool."""
-    return _db_pool
+    The db_pool is set during app startup in main.py's lifespan handler.
 
+    For testing, you can either:
+    1. Pass db_pool directly to endpoint functions (bypassing dependency injection)
+    2. Override this dependency using app.dependency_overrides[get_db_pool]
+    3. Set app.state.db_pool in test setup
 
-def set_db_pool(pool: db.DatabasePool | None) -> None:
-    """Set the global database pool (called from main.py)."""
-    global _db_pool
-    _db_pool = pool
+    Args:
+        request: FastAPI request object containing app state
+
+    Returns:
+        Database pool if configured, None otherwise
+    """
+    return getattr(request.app.state, "db_pool", None)
 
 
 # === Models ===

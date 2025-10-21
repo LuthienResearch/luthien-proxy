@@ -1,14 +1,14 @@
 # ABOUTME: Unit tests for V2 main FastAPI application helper functions
-# ABOUTME: Tests authentication, hashing, and streaming utilities
+# ABOUTME: Tests authentication, hashing, streaming utilities, and app lifespan
 
 """Tests for V2 main FastAPI application."""
 
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
-# Import specific functions to test (avoiding module-level app initialization)
-from luthien_proxy.v2.main import hash_api_key, stream_llm_chunks, stream_with_policy_control
+# Import specific functions to test (now from gateway_routes)
+from luthien_proxy.v2.gateway_routes import hash_api_key, stream_llm_chunks, stream_with_policy_control
 
 
 class TestAuthentication:
@@ -60,7 +60,7 @@ class TestStreamingHelpers:
             # Return object with async iterator protocol
             return chunk_generator()
 
-        with patch("luthien_proxy.v2.main.litellm.acompletion", mock_acompletion):
+        with patch("luthien_proxy.v2.gateway_routes.litellm.acompletion", mock_acompletion):
             chunks = []
             async for chunk in stream_llm_chunks({"model": "gpt-4"}):
                 chunks.append(chunk)
@@ -70,8 +70,6 @@ class TestStreamingHelpers:
     @pytest.mark.asyncio
     async def test_stream_with_policy_control_basic(self):
         """Test policy-controlled streaming without format conversion."""
-        from unittest.mock import MagicMock, patch
-
         # Create mock chunks
         mock_chunk1 = Mock()
         mock_chunk1.model_dump_json.return_value = '{"content":"chunk1"}'
@@ -86,22 +84,23 @@ class TestStreamingHelpers:
         mock_control_plane = MagicMock()
         mock_control_plane.process_streaming_response = mock_policy_stream
 
-        with patch("luthien_proxy.v2.main.control_plane", mock_control_plane):
-            chunks = []
-            async for chunk in stream_with_policy_control(
-                data={"model": "gpt-4"},
-                call_id="test-call-id",
-            ):
-                chunks.append(chunk)
+        chunks = []
+        async for chunk in stream_with_policy_control(
+            data={"model": "gpt-4"},
+            call_id="test-call-id",
+            control_plane=mock_control_plane,
+            db_pool=None,
+            redis_client=None,
+        ):
+            chunks.append(chunk)
 
-            assert len(chunks) == 2
-            assert 'data: {"content":"chunk1"}' in chunks[0]
-            assert 'data: {"content":"chunk2"}' in chunks[1]
+        assert len(chunks) == 2
+        assert 'data: {"content":"chunk1"}' in chunks[0]
+        assert 'data: {"content":"chunk2"}' in chunks[1]
 
     @pytest.mark.asyncio
     async def test_stream_with_policy_control_dict_chunks(self):
         """Test policy streaming with dict chunks."""
-        from unittest.mock import MagicMock, patch
 
         async def mock_policy_stream(*args, **kwargs):
             """Mock policy stream returning dicts."""
@@ -111,22 +110,23 @@ class TestStreamingHelpers:
         mock_control_plane = MagicMock()
         mock_control_plane.process_streaming_response = mock_policy_stream
 
-        with patch("luthien_proxy.v2.main.control_plane", mock_control_plane):
-            chunks = []
-            async for chunk in stream_with_policy_control(
-                data={"model": "gpt-4"},
-                call_id="test-call-id",
-            ):
-                chunks.append(chunk)
+        chunks = []
+        async for chunk in stream_with_policy_control(
+            data={"model": "gpt-4"},
+            call_id="test-call-id",
+            control_plane=mock_control_plane,
+            db_pool=None,
+            redis_client=None,
+        ):
+            chunks.append(chunk)
 
-            assert len(chunks) == 2
-            assert "chunk" in chunks[0]
-            assert "hello" in chunks[0]
+        assert len(chunks) == 2
+        assert "chunk" in chunks[0]
+        assert "hello" in chunks[0]
 
     @pytest.mark.asyncio
     async def test_stream_with_policy_control_format_converter(self):
         """Test policy streaming with format conversion."""
-        from unittest.mock import MagicMock, patch
 
         def format_converter(chunk):
             """Simple test converter."""
@@ -139,23 +139,24 @@ class TestStreamingHelpers:
         mock_control_plane = MagicMock()
         mock_control_plane.process_streaming_response = mock_policy_stream
 
-        with patch("luthien_proxy.v2.main.control_plane", mock_control_plane):
-            chunks = []
-            async for chunk in stream_with_policy_control(
-                data={"model": "gpt-4"},
-                call_id="test-call-id",
-                format_converter=format_converter,
-            ):
-                chunks.append(chunk)
+        chunks = []
+        async for chunk in stream_with_policy_control(
+            data={"model": "gpt-4"},
+            call_id="test-call-id",
+            control_plane=mock_control_plane,
+            db_pool=None,
+            redis_client=None,
+            format_converter=format_converter,
+        ):
+            chunks.append(chunk)
 
-            assert len(chunks) == 1
-            assert "converted" in chunks[0].lower()
-            assert "true" in chunks[0].lower()
+        assert len(chunks) == 1
+        assert "converted" in chunks[0].lower()
+        assert "true" in chunks[0].lower()
 
     @pytest.mark.asyncio
     async def test_stream_with_policy_control_error(self):
         """Test error handling in policy streaming."""
-        from unittest.mock import MagicMock, patch
 
         async def mock_policy_stream(*args, **kwargs):
             """Mock policy stream that raises error."""
@@ -165,15 +166,17 @@ class TestStreamingHelpers:
         mock_control_plane = MagicMock()
         mock_control_plane.process_streaming_response = mock_policy_stream
 
-        with patch("luthien_proxy.v2.main.control_plane", mock_control_plane):
-            chunks = []
-            async for chunk in stream_with_policy_control(
-                data={"model": "gpt-4"},
-                call_id="test-call-id",
-            ):
-                chunks.append(chunk)
+        chunks = []
+        async for chunk in stream_with_policy_control(
+            data={"model": "gpt-4"},
+            call_id="test-call-id",
+            control_plane=mock_control_plane,
+            db_pool=None,
+            redis_client=None,
+        ):
+            chunks.append(chunk)
 
-            # Should get first chunk, then error message
-            assert len(chunks) >= 1
-            # Last chunk should be error
-            assert "error" in chunks[-1].lower()
+        # Should get first chunk, then error message
+        assert len(chunks) >= 1
+        # Last chunk should be error
+        assert "error" in chunks[-1].lower()
