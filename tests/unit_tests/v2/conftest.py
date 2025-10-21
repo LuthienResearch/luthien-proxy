@@ -45,12 +45,11 @@ def create_test_lifespan(
     async def lifespan(app: FastAPI):
         """Test lifespan that injects mocked dependencies into app.state."""
         # Store test dependencies in app state (same as production)
-        # Use v2_ prefix for consistency with both standalone and mounted apps
-        app.state.v2_db_pool = db_pool
-        app.state.v2_redis_client = redis_client
-        app.state.v2_event_publisher = event_publisher
-        app.state.v2_control_plane = control_plane
-        app.state.v2_api_key = api_key
+        app.state.db_pool = db_pool
+        app.state.redis_client = redis_client
+        app.state.event_publisher = event_publisher
+        app.state.control_plane = control_plane
+        app.state.api_key = api_key
 
         yield
 

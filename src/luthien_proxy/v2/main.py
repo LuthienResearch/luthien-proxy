@@ -91,12 +91,11 @@ def create_v2_app(
         logger.info("Control plane initialized with OpenTelemetry tracing")
 
         # Store everything in app state for dependency injection
-        # Use v2_ prefix for consistency with control_plane/app.py mounting
-        app.state.v2_db_pool = _db_pool
-        app.state.v2_redis_client = _redis_client
-        app.state.v2_event_publisher = _event_publisher
-        app.state.v2_control_plane = _control_plane
-        app.state.v2_api_key = api_key
+        app.state.db_pool = _db_pool
+        app.state.redis_client = _redis_client
+        app.state.event_publisher = _event_publisher
+        app.state.control_plane = _control_plane
+        app.state.api_key = api_key
         logger.info("App state initialized")
 
         yield

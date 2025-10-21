@@ -94,9 +94,9 @@ async def openai_chat_completions(
     request: Request,
 ):
     """OpenAI-compatible endpoint with OpenTelemetry tracing."""
-    # Get V2 components from app state
-    control_plane: SynchronousControlPlane = request.app.state.v2_control_plane
-    event_publisher: RedisEventPublisher | None = request.app.state.v2_event_publisher
+    # Get components from app state
+    control_plane: SynchronousControlPlane = request.app.state.control_plane
+    event_publisher: RedisEventPublisher | None = request.app.state.event_publisher
 
     data = await request.json()
 
@@ -212,8 +212,8 @@ async def anthropic_messages(
 ):
     """Anthropic Messages API endpoint with OpenTelemetry tracing."""
     # Get V2 components from app state
-    control_plane: SynchronousControlPlane = request.app.state.v2_control_plane
-    event_publisher: RedisEventPublisher | None = request.app.state.v2_event_publisher
+    control_plane: SynchronousControlPlane = request.app.state.control_plane
+    event_publisher: RedisEventPublisher | None = request.app.state.event_publisher
 
     anthropic_data = await request.json()
     openai_data = anthropic_to_openai_request(anthropic_data)
