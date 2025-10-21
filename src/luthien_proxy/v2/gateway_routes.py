@@ -44,7 +44,7 @@ def verify_token(
     credentials: HTTPAuthorizationCredentials = Security(security),
 ) -> str:
     """Verify API key and return it."""
-    api_key = request.app.state.api_key
+    api_key = request.app.state.v2_api_key
     if credentials.credentials != api_key:
         raise HTTPException(status_code=401, detail="Invalid API key")
     return credentials.credentials
@@ -115,10 +115,10 @@ async def openai_chat_completions(
 ):
     """OpenAI-compatible endpoint."""
     # Get dependencies from app state
-    control_plane: SynchronousControlPlane = request.app.state.control_plane
-    db_pool: Optional[db.DatabasePool] = request.app.state.db_pool
-    event_publisher: Optional[RedisEventPublisher] = request.app.state.event_publisher
-    redis_client: Optional[Redis] = request.app.state.redis_client
+    control_plane: SynchronousControlPlane = request.app.state.v2_control_plane
+    db_pool: Optional[db.DatabasePool] = request.app.state.v2_db_pool
+    event_publisher: Optional[RedisEventPublisher] = request.app.state.v2_event_publisher
+    redis_client: Optional[Redis] = request.app.state.v2_redis_client
 
     data = await request.json()
 
@@ -258,9 +258,9 @@ async def anthropic_messages(
 ):
     """Anthropic Messages API endpoint."""
     # Get dependencies from app state
-    control_plane: SynchronousControlPlane = request.app.state.control_plane
-    db_pool: Optional[db.DatabasePool] = request.app.state.db_pool
-    redis_client: Optional[Redis] = request.app.state.redis_client
+    control_plane: SynchronousControlPlane = request.app.state.v2_control_plane
+    db_pool: Optional[db.DatabasePool] = request.app.state.v2_db_pool
+    redis_client: Optional[Redis] = request.app.state.v2_redis_client
 
     anthropic_data = await request.json()
     openai_data = anthropic_to_openai_request(anthropic_data)

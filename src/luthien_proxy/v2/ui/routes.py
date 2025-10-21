@@ -31,7 +31,7 @@ async def activity_stream(request: Request):
     Returns:
         StreamingResponse with Server-Sent Events (text/event-stream)
     """
-    redis_client: Optional[Redis] = request.app.state.redis_client
+    redis_client: Optional[Redis] = request.app.state.v2_redis_client
     if not redis_client:
         raise HTTPException(
             status_code=503,

@@ -5,6 +5,7 @@ import litellm
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from tests.unit_tests.v2.conftest import create_test_lifespan
 
 from luthien_proxy.v2.routes import router
 
@@ -135,12 +136,25 @@ class FakeStream:
 
 
 def build_test_app() -> tuple[FastAPI, FakeControlPlane, FakeEventPublisher]:
-    app = FastAPI()
+    """Build test app using the same lifespan pattern as production.
+
+    This ensures tests use the same initialization flow as production code,
+    but with mocked dependencies instead of real DB/Redis connections.
+    """
     control_plane = FakeControlPlane()
     event_publisher = FakeEventPublisher()
+
+    # Use the test lifespan factory (same pattern as production)
+    lifespan = create_test_lifespan(
+        control_plane=control_plane,
+        event_publisher=event_publisher,
+        db_pool=None,  # No DB needed for these tests
+        redis_client=None,  # No Redis needed for these tests
+        api_key="test-api-key",
+    )
+
+    app = FastAPI(lifespan=lifespan)
     app.include_router(router)
-    app.state.v2_control_plane = control_plane
-    app.state.v2_event_publisher = event_publisher
     return app, control_plane, event_publisher
 
 
@@ -167,10 +181,12 @@ async def test_openai_chat_completions_returns_policy_response(monkeypatch: pyte
         "metadata": {"trace_id": "trace-123"},
     }
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        response = await client.post("/v2/chat/completions", json=payload)
-    await transport.aclose()
+    # Wrap test in lifespan context to initialize app.state
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            response = await client.post("/v2/chat/completions", json=payload)
+        await transport.aclose()
 
     assert response.status_code == 200
     body = response.json()
@@ -216,15 +232,17 @@ async def test_openai_chat_completions_streaming_emits_sse(monkeypatch: pytest.M
         "verbosity": "verbose",
     }
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        async with client.stream("POST", "/v2/chat/completions", json=payload) as response:
-            assert response.status_code == 200
-            data_lines = []
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    data_lines.append(line)
-    await transport.aclose()
+    # Wrap test in lifespan context to initialize app.state
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            async with client.stream("POST", "/v2/chat/completions", json=payload) as response:
+                assert response.status_code == 200
+                data_lines = []
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_lines.append(line)
+        await transport.aclose()
 
     assert len(data_lines) == 2
     first_payload = json.loads(data_lines[0].split("data: ", 1)[1])
@@ -257,10 +275,12 @@ async def test_anthropic_messages_returns_converted_response(monkeypatch: pytest
         "verbosity": "high",
     }
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        response = await client.post("/v2/messages", json=payload)
-    await transport.aclose()
+    # Wrap test in lifespan context to initialize app.state
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            response = await client.post("/v2/messages", json=payload)
+        await transport.aclose()
 
     assert response.status_code == 200
     body = response.json()
@@ -296,15 +316,17 @@ async def test_anthropic_messages_streaming_converts_chunks(monkeypatch: pytest.
         "stream": True,
     }
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        async with client.stream("POST", "/v2/messages", json=payload) as response:
-            assert response.status_code == 200
-            sse_payloads = []
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    sse_payloads.append(line)
-    await transport.aclose()
+    # Wrap test in lifespan context to initialize app.state
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            async with client.stream("POST", "/v2/messages", json=payload) as response:
+                assert response.status_code == 200
+                sse_payloads = []
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        sse_payloads.append(line)
+        await transport.aclose()
 
     assert len(sse_payloads) == 1
     chunk_payload = json.loads(sse_payloads[0].split("data: ", 1)[1])
