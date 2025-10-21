@@ -115,7 +115,13 @@ class UppercaseNthWordPolicy(LuthienPolicy):
             Transformed ModelResponse
         """
         # Get response as dict and transform
-        response_dict = response.model_dump()
+        # Suppress Pydantic serialization warnings from LiteLLM's Union[Choices, StreamingChoices] type
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic serializer warnings.*")
+            response_dict = response.model_dump()
+
         original_content = self._get_content_preview(response_dict)
 
         transformed_dict = self._transform_response_content(response_dict)
@@ -135,7 +141,11 @@ class UppercaseNthWordPolicy(LuthienPolicy):
         )
 
         # Return transformed ModelResponse
-        transformed_response = ModelResponse(**transformed_dict)
+        # Suppress Pydantic validation warnings when reconstructing from dict
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic serializer warnings.*")
+            transformed_response = ModelResponse(**transformed_dict)
+
         return transformed_response
 
     async def process_streaming_response(
@@ -237,7 +247,13 @@ class UppercaseNthWordPolicy(LuthienPolicy):
             Text content or empty string
         """
         try:
-            chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
+            # Suppress Pydantic serialization warnings from LiteLLM's Union[Choices, StreamingChoices] type
+            import warnings
+
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic serializer warnings.*")
+                chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
+
             choices = chunk_dict.get("choices", [])
             if not choices:
                 return ""

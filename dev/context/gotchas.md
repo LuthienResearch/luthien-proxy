@@ -11,12 +11,8 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 - E2E tests (`pytest -m e2e`) are SLOW - use sparingly, prefer unit tests for rapid iteration
 - Always run `./scripts/dev_checks.sh` before committing - formats, lints, type-checks, and tests
-- **Slow tests**: A few tests intentionally use `asyncio.sleep()` to test timeouts/heartbeats:
-  - `test_streaming_timeout`: 2.01s (tests that policy timeout works)
-  - `test_global_activity_sse_stream_heartbeat`: 1.00s (tests SSE heartbeat mechanism)
-  - These are necessary and acceptable - they test real async behavior
-- **OTel warnings in test output**: OpenTelemetry tries to export traces to `tempo:4317` during tests, which doesn't exist. This is harmless noise (traces still work in tests via in-memory span collection). To silence, we'd need to mock/disable the OTel exporter in test fixtures.
-- **Pydantic warnings**: Some tests create `ModelResponse` objects with partial data, causing Pydantic serialization warnings. These are harmless - the tests verify the code works with real-world partial responses.
+- **OTel disabled in tests**: Set `OTEL_ENABLED=false` in test environment to avoid connection errors to Tempo endpoint. Module-level `tracer = trace.get_tracer()` calls trigger OTel initialization at import time.
+- **LiteLLM type warnings**: When working with `ModelResponse`, use proper typed objects (`Choices`, `StreamingChoices`, `Message`, `Delta`) to avoid Pydantic serialization warnings from LiteLLM's `Union` types. See test fixtures for examples.
 
 ## Docker Development (2025-10-08)
 
@@ -47,15 +43,13 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ## Queue Shutdown for Stream Termination (2025-01-20, updated 2025-10-20)
 
-**Gotcha**: Don't use `None` sentinel values in `asyncio.Queue` for stream termination - use `Queue.shutdown()` instead
+**Gotcha**: Use `asyncio.Queue.shutdown()` for stream termination, not `None` sentinel values
 
-- **Problem**: The original implementation used `None` as a sentinel value for stream end. When draining with `get_nowait()`, the sentinel would be consumed and lost, causing hangs.
-- **Attempted Fix 1**: Re-inserting `None` back into queue when encountered - works but is an obvious hack
-- **Attempted Fix 2**: Custom `_closed` flag with wrapper class - better but reinvents the wheel
-- **Best Solution**: Use Python 3.11+'s built-in `asyncio.Queue.shutdown()` method! It raises `QueueShutDown` exception when queue is drained, which is exactly what we need.
-- **Location**: [src/luthien_proxy/v2/queue_utils.py](src/luthien_proxy/v2/queue_utils.py:18) - see `get_available()` helper function
-- **Implementation**: Just use regular `asyncio.Queue` and call `queue.shutdown()` to signal end. `get_available()` catches `QueueShutDown` and returns empty list.
-- **Why it matters**: Using the standard library's built-in mechanism is cleaner, more maintainable, and self-documenting compared to custom sentinel patterns or wrapper classes.
+- **Why**: Python 3.11+ built-in queue shutdown raises `QueueShutDown` when drained - cleaner than sentinel patterns
+- **Wrong**: Putting `None` (gets consumed/lost during batch draining)
+- **Right**: Call `queue.shutdown()` to signal end; catch `QueueShutDown` exception
+- **Batch processing**: Block with `await queue.get()` for first item (don't busy-wait with `get_nowait()` in loop!)
+- **Why it matters**: Busy-wait consumes 100% CPU; proper blocking is essential for async efficiency
 
 ---
 

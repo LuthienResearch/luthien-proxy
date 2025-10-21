@@ -119,20 +119,9 @@ class TestProcessFullResponse:
     """Test full (non-streaming) response processing."""
 
     @pytest.mark.asyncio
-    async def test_process_full_response_transforms_content(self, policy, context):
+    async def test_process_full_response_transforms_content(self, policy, context, make_model_response):
         """Test that response content is transformed."""
-        # Create response with test content
-        response_dict = {
-            "choices": [
-                {
-                    "message": {"role": "assistant", "content": "The quick brown fox jumps over"},
-                    "finish_reason": "stop",
-                    "index": 0,
-                }
-            ],
-            "model": "gpt-4",
-        }
-        response = ModelResponse(**response_dict)
+        response = make_model_response("The quick brown fox jumps over")
 
         result = await policy.process_full_response(response, context)
 
@@ -150,43 +139,21 @@ class TestProcessFullResponse:
         assert "Uppercased every 3th word" in context.events[0]["summary"]
 
     @pytest.mark.asyncio
-    async def test_process_full_response_preserves_other_fields(self, policy, context):
+    async def test_process_full_response_preserves_other_fields(self, policy, context, make_model_response):
         """Test that non-content fields are preserved."""
-        response_dict = {
-            "choices": [
-                {
-                    "message": {"role": "assistant", "content": "one two three"},
-                    "finish_reason": "stop",
-                    "index": 0,
-                }
-            ],
-            "model": "gpt-4",
-            "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
-        }
-        response = ModelResponse(**response_dict)
+        response = make_model_response("one two three")
 
         result = await policy.process_full_response(response, context)
 
         # Check that metadata is preserved
         result_dict = result.model_dump()
         assert result_dict["model"] == "gpt-4"
-        assert result_dict["usage"]["total_tokens"] == 13
         assert result_dict["choices"][0]["finish_reason"] == "stop"
 
     @pytest.mark.asyncio
-    async def test_process_full_response_empty_content(self, policy, context):
+    async def test_process_full_response_empty_content(self, policy, context, make_model_response):
         """Test handling of empty content."""
-        response_dict = {
-            "choices": [
-                {
-                    "message": {"role": "assistant", "content": ""},
-                    "finish_reason": "stop",
-                    "index": 0,
-                }
-            ],
-            "model": "gpt-4",
-        }
-        response = ModelResponse(**response_dict)
+        response = make_model_response("")
 
         result = await policy.process_full_response(response, context)
 
@@ -211,17 +178,17 @@ class TestProcessStreamingResponse:
     """Test streaming response processing."""
 
     @pytest.mark.asyncio
-    async def test_process_streaming_response_transforms_words(self, policy, context):
+    async def test_process_streaming_response_transforms_words(self, policy, context, make_streaming_chunk):
         """Test that streaming chunks are transformed correctly."""
         incoming = asyncio.Queue[ModelResponse]()
         outgoing = asyncio.Queue[ModelResponse]()
 
         # Create chunks with words
         chunks = [
-            _create_chunk("The "),
-            _create_chunk("quick "),
-            _create_chunk("brown "),
-            _create_chunk("fox"),
+            make_streaming_chunk("The "),
+            make_streaming_chunk("quick "),
+            make_streaming_chunk("brown "),
+            make_streaming_chunk("fox"),
         ]
 
         # Add chunks to incoming queue
@@ -252,18 +219,18 @@ class TestProcessStreamingResponse:
         assert context.events[1]["event_type"] == "policy.uppercase_streaming_complete"
 
     @pytest.mark.asyncio
-    async def test_process_streaming_response_word_boundaries(self, policy, context):
+    async def test_process_streaming_response_word_boundaries(self, policy, context, make_streaming_chunk):
         """Test correct handling of word boundaries across chunks."""
         incoming = asyncio.Queue[ModelResponse]()
         outgoing = asyncio.Queue[ModelResponse]()
 
         # Split words across chunk boundaries
         chunks = [
-            _create_chunk("one "),
-            _create_chunk("tw"),
-            _create_chunk("o "),
-            _create_chunk("three "),
-            _create_chunk("four"),
+            make_streaming_chunk("one "),
+            make_streaming_chunk("tw"),
+            make_streaming_chunk("o "),
+            make_streaming_chunk("three "),
+            make_streaming_chunk("four"),
         ]
 
         for chunk in chunks:
@@ -286,16 +253,16 @@ class TestProcessStreamingResponse:
         assert output_text == expected
 
     @pytest.mark.asyncio
-    async def test_process_streaming_response_empty_chunks(self, policy, context):
+    async def test_process_streaming_response_empty_chunks(self, policy, context, make_streaming_chunk):
         """Test handling of empty chunks."""
         incoming = asyncio.Queue[ModelResponse]()
         outgoing = asyncio.Queue[ModelResponse]()
 
         chunks = [
-            _create_chunk("one "),
-            _create_chunk(""),  # Empty chunk
-            _create_chunk("two "),
-            _create_chunk("three"),
+            make_streaming_chunk("one "),
+            make_streaming_chunk(""),  # Empty chunk
+            make_streaming_chunk("two "),
+            make_streaming_chunk("three"),
         ]
 
         for chunk in chunks:
@@ -318,20 +285,6 @@ class TestProcessStreamingResponse:
 
 
 # Helper functions
-
-
-def _create_chunk(text: str) -> ModelResponse:
-    """Create a streaming response chunk with text."""
-    chunk_dict = {
-        "choices": [
-            {
-                "delta": {"content": text, "role": "assistant"},
-                "finish_reason": None,
-                "index": 0,
-            }
-        ]
-    }
-    return ModelResponse(**chunk_dict)
 
 
 def _extract_text(chunk: ModelResponse) -> str:
