@@ -25,14 +25,14 @@ from luthien_proxy.v2.storage.events import emit_response_event, reconstruct_ful
 
 if TYPE_CHECKING:
     from luthien_proxy.utils import db, redis_client
-    from luthien_proxy.v2.observability import SimpleEventPublisher
+    from luthien_proxy.v2.observability import RedisEventPublisher
     from luthien_proxy.v2.policies.base import LuthienPolicy
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-class ControlPlaneLocal:
+class SynchronousControlPlane:
     """In-process implementation of control plane service.
 
     This implementation runs the control logic in-process with the API gateway.
@@ -47,7 +47,7 @@ class ControlPlaneLocal:
     def __init__(
         self,
         policy: LuthienPolicy,
-        event_publisher: SimpleEventPublisher | None = None,
+        event_publisher: RedisEventPublisher | None = None,
     ):
         """Initialize local control plane.
 
@@ -352,4 +352,4 @@ class ControlPlaneLocal:
                 raise StreamingError(f"Streaming failed after {chunk_count} chunks") from exc
 
 
-__all__ = ["ControlPlaneLocal"]
+__all__ = ["SynchronousControlPlane"]

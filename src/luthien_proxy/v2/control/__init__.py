@@ -3,12 +3,12 @@
 
 """Control plane interface and implementations."""
 
-from .interface import ControlPlaneService
-from .local import ControlPlaneLocal
+from .control_plane_protocol import ControlPlaneProtocol
 from .models import StreamingContext
+from .synchronous_control_plane import SynchronousControlPlane
 
 __all__ = [
-    "ControlPlaneService",
-    "ControlPlaneLocal",
+    "ControlPlaneProtocol",
+    "SynchronousControlPlane",
     "StreamingContext",
 ]

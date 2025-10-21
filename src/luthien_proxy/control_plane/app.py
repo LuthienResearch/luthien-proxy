@@ -25,8 +25,8 @@ from luthien_proxy.control_plane.ui import router as ui_router
 from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ProjectConfig
-from luthien_proxy.v2.control.local import ControlPlaneLocal
-from luthien_proxy.v2.observability import SimpleEventPublisher
+from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
+from luthien_proxy.v2.observability import RedisEventPublisher
 from luthien_proxy.v2.policies.noop import NoOpPolicy as V2NoOpPolicy
 from luthien_proxy.v2.routes import router as v2_router
 from luthien_proxy.v2.telemetry import setup_telemetry
@@ -127,8 +127,8 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
 
         # V2 components
         v2_redis_client: Optional[Redis] = None
-        v2_event_publisher: Optional[SimpleEventPublisher] = None
-        v2_control_plane: Optional[ControlPlaneLocal] = None
+        v2_event_publisher: Optional[RedisEventPublisher] = None
+        v2_control_plane: Optional[SynchronousControlPlane] = None
 
         try:
             # === V1 Control Plane Initialization ===
@@ -184,14 +184,14 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
 
             # Initialize V2 event publisher for real-time UI
             if v2_redis_client:
-                v2_event_publisher = SimpleEventPublisher(v2_redis_client)
+                v2_event_publisher = RedisEventPublisher(v2_redis_client)
                 logger.info("V2 event publisher initialized for real-time UI")
             else:
                 v2_event_publisher = None
 
             # Initialize V2 control plane with NoOp policy (for now)
             v2_policy = V2NoOpPolicy()
-            v2_control_plane = ControlPlaneLocal(
+            v2_control_plane = SynchronousControlPlane(
                 policy=v2_policy,
                 event_publisher=v2_event_publisher,
             )

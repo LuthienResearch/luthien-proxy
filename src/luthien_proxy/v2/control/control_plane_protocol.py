@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from luthien_proxy.v2.messages import Request
 
 
-class ControlPlaneService(Protocol):
+class ControlPlaneProtocol(Protocol):
     """Interface for control plane operations.
 
     This protocol defines the contract between the API gateway and the control logic.
@@ -100,4 +100,4 @@ class ControlPlaneService(Protocol):
         ...
 
 
-__all__ = ["ControlPlaneService"]
+__all__ = ["ControlPlaneProtocol"]

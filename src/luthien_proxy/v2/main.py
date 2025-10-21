@@ -24,7 +24,7 @@ from opentelemetry import trace
 from redis.asyncio import Redis
 
 from luthien_proxy.utils import db
-from luthien_proxy.v2.control.local import ControlPlaneLocal
+from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
 from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.debug import set_db_pool as set_debug_db_pool
 from luthien_proxy.v2.llm.format_converters import (
@@ -33,7 +33,7 @@ from luthien_proxy.v2.llm.format_converters import (
     openai_to_anthropic_response,
 )
 from luthien_proxy.v2.messages import Request as RequestMessage
-from luthien_proxy.v2.observability import SimpleEventPublisher, stream_activity_events
+from luthien_proxy.v2.observability import RedisEventPublisher, stream_activity_events
 from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
 from luthien_proxy.v2.storage import emit_request_event, emit_response_event
@@ -46,8 +46,8 @@ tracer = trace.get_tracer(__name__)
 # === REDIS & CONTROL PLANE ===
 redis_client: Redis | None = None
 db_pool: db.DatabasePool | None = None
-control_plane: ControlPlaneLocal = None  # type: ignore[assignment]
-event_publisher: SimpleEventPublisher | None = None
+control_plane: SynchronousControlPlane = None  # type: ignore[assignment]
+event_publisher: RedisEventPublisher | None = None
 
 
 @asynccontextmanager
@@ -82,14 +82,14 @@ async def lifespan(app: FastAPI):
 
     # Initialize event publisher for real-time UI
     if redis_client:
-        event_publisher = SimpleEventPublisher(redis_client)
+        event_publisher = RedisEventPublisher(redis_client)
         logger.info("Event publisher initialized for real-time UI")
     else:
         event_publisher = None
         logger.info("Event publisher disabled (no Redis)")
 
     # Initialize control plane with event publisher
-    control_plane = ControlPlaneLocal(
+    control_plane = SynchronousControlPlane(
         policy=POLICY_HANDLER,
         event_publisher=event_publisher,
     )

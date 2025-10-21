@@ -9,8 +9,8 @@ from unittest.mock import Mock
 import pytest
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.v2.control.local import ControlPlaneLocal
 from luthien_proxy.v2.control.models import StreamingError
+from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.noop import NoOpPolicy
 
@@ -25,11 +25,11 @@ def call_id():
 def control_plane():
     """Create control plane with NoOpPolicy."""
     policy = NoOpPolicy()
-    return ControlPlaneLocal(policy=policy, event_publisher=None)
+    return SynchronousControlPlane(policy=policy, event_publisher=None)
 
 
-class TestControlPlaneLocalRequests:
-    """Test ControlPlaneLocal request processing."""
+class TestControlPlaneSynchronousRequests:
+    """Test ControlPlaneSynchronous request processing."""
 
     @pytest.mark.asyncio
     async def test_process_request(self, control_plane, call_id):
@@ -45,7 +45,7 @@ class TestControlPlaneLocalRequests:
     async def test_process_request_with_call_id(self, call_id):
         """Test that process_request passes call_id via context."""
         policy = NoOpPolicy()
-        control_plane = ControlPlaneLocal(policy=policy)
+        control_plane = SynchronousControlPlane(policy=policy)
 
         request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
         result = await control_plane.process_request(request, call_id)
@@ -85,7 +85,7 @@ class TestControlPlaneLocalRequests:
                 pass
 
         policy = FailingPolicy()
-        control_plane = ControlPlaneLocal(policy=policy)
+        control_plane = SynchronousControlPlane(policy=policy)
 
         request = Request(model="gpt-4", messages=[{"role": "user", "content": "Test"}])
 
@@ -94,8 +94,8 @@ class TestControlPlaneLocalRequests:
             await control_plane.process_request(request, call_id)
 
 
-class TestControlPlaneLocalResponses:
-    """Test ControlPlaneLocal response processing."""
+class TestSynchronousControlPlaneResponses:
+    """Test SynchronousControlPlane response processing."""
 
     @pytest.mark.asyncio
     async def test_process_full_response(self, control_plane, call_id):
@@ -111,7 +111,7 @@ class TestControlPlaneLocalResponses:
     async def test_process_full_response_with_call_id(self, call_id):
         """Test that process_full_response passes call_id via context."""
         policy = NoOpPolicy()
-        control_plane = ControlPlaneLocal(policy=policy)
+        control_plane = SynchronousControlPlane(policy=policy)
 
         mock_response = Mock(spec=ModelResponse)
         mock_response.id = "resp-789"
@@ -138,7 +138,7 @@ class TestControlPlaneLocalResponses:
                 pass
 
         policy = FailingResponsePolicy()
-        control_plane = ControlPlaneLocal(policy=policy)
+        control_plane = SynchronousControlPlane(policy=policy)
 
         mock_response = Mock(spec=ModelResponse)
         mock_response.id = "resp-456"
@@ -148,8 +148,8 @@ class TestControlPlaneLocalResponses:
         assert result.id == "resp-456"
 
 
-class TestControlPlaneLocalStreaming:
-    """Test ControlPlaneLocal streaming response processing."""
+class TestSynchronousControlPlaneStreaming:
+    """Test SynchronousControlPlane streaming response processing."""
 
     @pytest.mark.asyncio
     async def test_process_streaming_response(self, control_plane, call_id):
@@ -206,7 +206,7 @@ class TestControlPlaneLocalStreaming:
                 raise ValueError("Streaming failed")
 
         policy = FailingStreamPolicy()
-        control_plane = ControlPlaneLocal(policy=policy)
+        control_plane = SynchronousControlPlane(policy=policy)
 
         async def mock_stream():
             mock_chunk = Mock(spec=ModelResponse)
@@ -260,7 +260,7 @@ class TestControlPlaneLocalStreaming:
                 await asyncio.sleep(100)  # Long sleep
 
         policy = HangingPolicy()
-        control_plane = ControlPlaneLocal(policy=policy)
+        control_plane = SynchronousControlPlane(policy=policy)
 
         async def mock_stream():
             mock_chunk = Mock(spec=ModelResponse)
@@ -275,8 +275,8 @@ class TestControlPlaneLocalStreaming:
         # The __cause__ should be the original timeout error
 
 
-class TestControlPlaneLocalEventPublisher:
-    """Test ControlPlaneLocal with event publisher integration."""
+class TestSynchronousControlPlaneEventPublisher:
+    """Test SynchronousControlPlane with event publisher integration."""
 
     @pytest.mark.asyncio
     async def test_streaming_with_event_publisher(self, call_id):
@@ -288,7 +288,7 @@ class TestControlPlaneLocalEventPublisher:
         mock_publisher.publish_event = AsyncMock()
 
         policy = NoOpPolicy()
-        control_plane = ControlPlaneLocal(policy=policy, event_publisher=mock_publisher)
+        control_plane = SynchronousControlPlane(policy=policy, event_publisher=mock_publisher)
 
         # Create test chunks with proper structure
         async def mock_stream():
@@ -332,7 +332,7 @@ class TestControlPlaneLocalEventPublisher:
         mock_db_pool = MagicMock()
 
         policy = NoOpPolicy()
-        control_plane = ControlPlaneLocal(policy=policy, event_publisher=None)
+        control_plane = SynchronousControlPlane(policy=policy, event_publisher=None)
 
         # Create test chunks
         async def mock_stream():
@@ -370,7 +370,7 @@ class TestControlPlaneLocalEventPublisher:
         mock_publisher.publish_event = AsyncMock(side_effect=Exception("Redis down"))
 
         policy = NoOpPolicy()
-        control_plane = ControlPlaneLocal(policy=policy, event_publisher=mock_publisher)
+        control_plane = SynchronousControlPlane(policy=policy, event_publisher=mock_publisher)
 
         # Create test chunks
         async def mock_stream():
@@ -397,7 +397,7 @@ class TestControlPlaneLocalEventPublisher:
         mock_publisher.publish_event = AsyncMock()
 
         policy = NoOpPolicy()
-        control_plane = ControlPlaneLocal(policy=policy, event_publisher=mock_publisher)
+        control_plane = SynchronousControlPlane(policy=policy, event_publisher=mock_publisher)
 
         # Create chunks that will cause errors when extracting content
         async def mock_stream():

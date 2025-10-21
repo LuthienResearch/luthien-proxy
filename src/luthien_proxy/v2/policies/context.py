@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
-    from luthien_proxy.v2.observability import SimpleEventPublisher
+    from luthien_proxy.v2.observability import RedisEventPublisher
 
 
 class PolicyContext:
@@ -32,7 +32,7 @@ class PolicyContext:
         self,
         call_id: str,
         span: Span,
-        event_publisher: SimpleEventPublisher | None = None,
+        event_publisher: RedisEventPublisher | None = None,
     ):
         """Initialize policy context.
 

@@ -26,8 +26,8 @@ from luthien_proxy.v2.llm.format_converters import (
 from luthien_proxy.v2.messages import Request as RequestMessage
 
 if TYPE_CHECKING:
-    from luthien_proxy.v2.control.local import ControlPlaneLocal
-    from luthien_proxy.v2.observability import SimpleEventPublisher
+    from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
+    from luthien_proxy.v2.observability import RedisEventPublisher
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -46,7 +46,7 @@ async def stream_llm_chunks(data: dict) -> AsyncIterator:
 async def stream_with_policy_control(
     data: dict,
     call_id: str,
-    control_plane: ControlPlaneLocal,
+    control_plane: SynchronousControlPlane,
     format_converter=None,
 ) -> AsyncIterator[str]:
     """Stream with reactive policy control.
@@ -95,8 +95,8 @@ async def openai_chat_completions(
 ):
     """OpenAI-compatible endpoint with OpenTelemetry tracing."""
     # Get V2 components from app state
-    control_plane: ControlPlaneLocal = request.app.state.v2_control_plane
-    event_publisher: SimpleEventPublisher | None = request.app.state.v2_event_publisher
+    control_plane: SynchronousControlPlane = request.app.state.v2_control_plane
+    event_publisher: RedisEventPublisher | None = request.app.state.v2_event_publisher
 
     data = await request.json()
 
@@ -212,8 +212,8 @@ async def anthropic_messages(
 ):
     """Anthropic Messages API endpoint with OpenTelemetry tracing."""
     # Get V2 components from app state
-    control_plane: ControlPlaneLocal = request.app.state.v2_control_plane
-    event_publisher: SimpleEventPublisher | None = request.app.state.v2_event_publisher
+    control_plane: SynchronousControlPlane = request.app.state.v2_control_plane
+    event_publisher: RedisEventPublisher | None = request.app.state.v2_event_publisher
 
     anthropic_data = await request.json()
     openai_data = anthropic_to_openai_request(anthropic_data)

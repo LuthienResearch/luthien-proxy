@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 V2_ACTIVITY_CHANNEL = "luthien:activity"
 
 
-class SimpleEventPublisher:
+class RedisEventPublisher:
     """Simplified event publisher for real-time UI via Redis pub/sub.
 
     This publisher sends lightweight JSON events to Redis for consumption by
@@ -84,7 +84,7 @@ class SimpleEventPublisher:
             # Don't raise - event publishing failures shouldn't break requests
 
 
-async def create_event_publisher(redis_url: str) -> SimpleEventPublisher:
+async def create_event_publisher(redis_url: str) -> RedisEventPublisher:
     """Create and return a SimpleEventPublisher instance.
 
     Args:
@@ -94,7 +94,7 @@ async def create_event_publisher(redis_url: str) -> SimpleEventPublisher:
         Configured SimpleEventPublisher
     """
     redis_client = await redis.from_url(redis_url)
-    return SimpleEventPublisher(redis_client)
+    return RedisEventPublisher(redis_client)
 
 
 async def stream_activity_events(

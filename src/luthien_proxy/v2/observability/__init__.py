@@ -9,6 +9,6 @@ This package provides:
 - Integration between OpenTelemetry spans and legacy event system
 """
 
-from .bridge import SimpleEventPublisher, stream_activity_events
+from .redis_event_publisher import RedisEventPublisher, stream_activity_events
 
-__all__ = ["SimpleEventPublisher", "stream_activity_events"]
+__all__ = ["RedisEventPublisher", "stream_activity_events"]
