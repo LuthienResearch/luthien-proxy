@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, cast
 
 import litellm
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Security
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -41,19 +42,6 @@ from luthien_proxy.v2.telemetry import setup_telemetry
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# === CONFIGURATION ===
-API_KEY = os.getenv("PROXY_API_KEY")
-if API_KEY is None:
-    raise ValueError("PROXY_API_KEY environment variable required")
-
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable required")
-
-# Swap out the policy handler here!
-# POLICY_HANDLER: LuthienPolicy = NoOpPolicy()
-POLICY_HANDLER: LuthienPolicy = UppercaseNthWordPolicy(n=3)  # Uppercase every 3rd word
 
 # === REDIS & CONTROL PLANE ===
 redis_client: Redis | None = None
@@ -480,6 +468,18 @@ async def diff_viewer():
 
 
 if __name__ == "__main__":
-    import uvicorn
+    # === CONFIGURATION ===
+    API_KEY = os.getenv("PROXY_API_KEY")
+    if API_KEY is None:
+        raise ValueError("PROXY_API_KEY environment variable required")
+
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL environment variable required")
+
+    # Swap out the policy handler here!
+    # POLICY_HANDLER: LuthienPolicy = NoOpPolicy()
+    POLICY_HANDLER: LuthienPolicy = UppercaseNthWordPolicy(n=3)  # Uppercase every 3rd word
 
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
