@@ -8,9 +8,9 @@ import asyncio
 import pytest
 from litellm.types.utils import ModelResponse
 
+from luthien_proxy.v2.control.queue_utils import get_available
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
-from luthien_proxy.v2.queue_utils import get_available
 
 
 @pytest.fixture

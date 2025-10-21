@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Coroutine, TypeV
 
 from opentelemetry import trace
 
-from luthien_proxy.v2.queue_utils import get_available
+from luthien_proxy.v2.control.queue_utils import get_available
 
 if TYPE_CHECKING:
     from opentelemetry.trace import Span

@@ -18,7 +18,7 @@ from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
 from luthien_proxy.v2.control.models import StreamingError
-from luthien_proxy.v2.control.streaming import StreamingOrchestrator
+from luthien_proxy.v2.control.streaming_orchestrator import StreamingOrchestrator
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.storage.events import emit_response_event, reconstruct_full_response_from_chunks
