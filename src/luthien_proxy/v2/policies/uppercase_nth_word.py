@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
@@ -153,7 +153,7 @@ class UppercaseNthWordPolicy(LuthienPolicy):
         incoming: asyncio.Queue[ModelResponse],
         outgoing: asyncio.Queue[ModelResponse],
         context: PolicyContext,
-        keepalive: Optional[Callable[[], None]] = None,
+        keepalive: Callable[[], None] | None = None,
     ) -> None:
         """Transform streaming response by uppercasing every Nth word.
 

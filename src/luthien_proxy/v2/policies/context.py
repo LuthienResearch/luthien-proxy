@@ -9,7 +9,7 @@ beyond the message itself (call_id, OpenTelemetry span for tracing).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
@@ -32,7 +32,7 @@ class PolicyContext:
         self,
         call_id: str,
         span: Span,
-        event_publisher: Optional[SimpleEventPublisher] = None,
+        event_publisher: SimpleEventPublisher | None = None,
     ):
         """Initialize policy context.
 
@@ -49,7 +49,7 @@ class PolicyContext:
         self,
         event_type: str,
         summary: str,
-        details: Optional[dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
         severity: str = "info",
     ) -> None:
         """Emit a policy event as an OpenTelemetry span event.

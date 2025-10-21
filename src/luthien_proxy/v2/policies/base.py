@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable
 
 from litellm.types.utils import ModelResponse
 
@@ -88,7 +88,7 @@ class LuthienPolicy(ABC):
         incoming: asyncio.Queue[ModelResponse],
         outgoing: asyncio.Queue[ModelResponse],
         context: PolicyContext,
-        keepalive: Optional[Callable[[], None]] = None,
+        keepalive: Callable[[], None] | None = None,
     ) -> None:
         """Reactive streaming task: build output response based on incoming chunks.
 

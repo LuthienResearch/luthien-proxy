@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Callable, Optional
+from typing import Callable
 
 from litellm.types.utils import ModelResponse
 
@@ -38,7 +38,7 @@ class NoOpPolicy(LuthienPolicy):
         incoming: asyncio.Queue[ModelResponse],
         outgoing: asyncio.Queue[ModelResponse],
         context: PolicyContext,
-        keepalive: Optional[Callable[[], None]] = None,
+        keepalive: Callable[[], None] | None = None,
     ) -> None:
         """Pass all streaming chunks through unchanged."""
         try:
