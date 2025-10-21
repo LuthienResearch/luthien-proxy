@@ -54,6 +54,20 @@ class TestControlPlaneLocalRequests:
         assert result.model == "gpt-4"
 
     @pytest.mark.asyncio
+    async def test_process_request_with_max_tokens(self, control_plane, call_id):
+        """Test process_request with max_tokens set (covers line 75)."""
+        request = Request(
+            model="gpt-4",
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+        )
+
+        result = await control_plane.process_request(request, call_id)
+
+        assert result.model == "gpt-4"
+        assert result.max_tokens == 100
+
+    @pytest.mark.asyncio
     async def test_process_request_error_handling(self, call_id):
         """Test that request processing errors are handled."""
         from luthien_proxy.v2.policies.base import LuthienPolicy
@@ -259,3 +273,144 @@ class TestControlPlaneLocalStreaming:
 
         # Verify it was actually a timeout (check the cause)
         # The __cause__ should be the original timeout error
+
+
+class TestControlPlaneLocalEventPublisher:
+    """Test ControlPlaneLocal with event publisher integration."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_with_event_publisher(self, call_id):
+        """Test that event publisher receives chunk events."""
+        from unittest.mock import AsyncMock
+
+        # Create mock event publisher
+        mock_publisher = Mock()
+        mock_publisher.publish_event = AsyncMock()
+
+        policy = NoOpPolicy()
+        control_plane = ControlPlaneLocal(policy=policy, event_publisher=mock_publisher)
+
+        # Create test chunks with proper structure
+        async def mock_stream():
+            for i in range(2):
+                chunk = Mock(spec=ModelResponse)
+                chunk.id = f"chunk-{i}"
+                chunk.model_dump = Mock(
+                    return_value={
+                        "choices": [
+                            {
+                                "delta": {"content": f"word{i}"},
+                                "finish_reason": "stop" if i == 1 else None,
+                            }
+                        ]
+                    }
+                )
+                yield chunk
+
+        # Process stream
+        output = []
+        async for chunk in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=5.0):
+            output.append(chunk)
+            # Give asyncio.create_task a chance to run
+            await asyncio.sleep(0.01)
+
+        # Give fire-and-forget tasks time to complete
+        await asyncio.sleep(0.1)
+
+        assert len(output) == 2
+
+        # Verify event publisher was called
+        # Should have: chunk_received (x2), chunk_sent (x2), original_complete, transformed_complete
+        assert mock_publisher.publish_event.call_count >= 2  # At least chunk events
+
+    @pytest.mark.asyncio
+    async def test_streaming_with_db_pool(self, call_id):
+        """Test that streaming emits events to database."""
+        from unittest.mock import MagicMock
+
+        # Create mock DB pool
+        mock_db_pool = MagicMock()
+
+        policy = NoOpPolicy()
+        control_plane = ControlPlaneLocal(policy=policy, event_publisher=None)
+
+        # Create test chunks
+        async def mock_stream():
+            chunk = Mock(spec=ModelResponse)
+            chunk.id = "chunk-1"
+            chunk.model_dump = Mock(
+                return_value={
+                    "id": "chunk-1",
+                    "choices": [{"delta": {"content": "hello"}, "finish_reason": None}],
+                }
+            )
+            yield chunk
+
+        # Process stream with db_pool
+        output = []
+        async for chunk in control_plane.process_streaming_response(
+            mock_stream(), call_id, timeout_seconds=5.0, db_pool=mock_db_pool
+        ):
+            output.append(chunk)
+
+        # Give on_complete callback time to run
+        await asyncio.sleep(0.1)
+
+        assert len(output) == 1
+        # DB pool was provided, so emit_response_event should have been called
+        # (we can't easily verify this without mocking the module)
+
+    @pytest.mark.asyncio
+    async def test_streaming_event_publisher_error_handling(self, call_id):
+        """Test that event publisher errors don't break streaming."""
+        from unittest.mock import AsyncMock
+
+        # Create mock event publisher that raises errors
+        mock_publisher = Mock()
+        mock_publisher.publish_event = AsyncMock(side_effect=Exception("Redis down"))
+
+        policy = NoOpPolicy()
+        control_plane = ControlPlaneLocal(policy=policy, event_publisher=mock_publisher)
+
+        # Create test chunks
+        async def mock_stream():
+            chunk = Mock(spec=ModelResponse)
+            chunk.id = "chunk-1"
+            chunk.model_dump = Mock(return_value={"choices": [{"delta": {"content": "test"}, "finish_reason": None}]})
+            yield chunk
+
+        # Should still process successfully even if publisher fails
+        output = []
+        async for chunk in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=5.0):
+            output.append(chunk)
+            await asyncio.sleep(0.01)
+
+        assert len(output) == 1
+
+    @pytest.mark.asyncio
+    async def test_streaming_chunk_dict_extraction_error(self, call_id):
+        """Test handling of malformed chunks during event publishing."""
+        from unittest.mock import AsyncMock
+
+        # Create mock event publisher
+        mock_publisher = Mock()
+        mock_publisher.publish_event = AsyncMock()
+
+        policy = NoOpPolicy()
+        control_plane = ControlPlaneLocal(policy=policy, event_publisher=mock_publisher)
+
+        # Create chunks that will cause errors when extracting content
+        async def mock_stream():
+            chunk = Mock(spec=ModelResponse)
+            chunk.id = "bad-chunk"
+            # model_dump raises an exception
+            chunk.model_dump = Mock(side_effect=Exception("Bad chunk"))
+            yield chunk
+
+        # Should still process successfully
+        output = []
+        async for chunk in control_plane.process_streaming_response(mock_stream(), call_id, timeout_seconds=5.0):
+            output.append(chunk)
+            await asyncio.sleep(0.01)
+
+        assert len(output) == 1

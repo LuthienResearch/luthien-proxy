@@ -234,51 +234,43 @@ class ControlPlaneLocal:
 
                 # Publish full original response to Redis (for real-time UI - fire and forget)
                 if self.event_publisher:
-                    try:
-                        original_content = ""
-                        if original_response_dict.get("choices"):
-                            message = original_response_dict["choices"][0].get("message", {})
-                            original_content = message.get("content", "")
+                    original_content = ""
+                    if original_response_dict.get("choices"):
+                        message = original_response_dict["choices"][0].get("message", {})
+                        original_content = message.get("content", "")
 
-                        asyncio.create_task(
-                            self.event_publisher.publish_event(
-                                call_id=call_id,
-                                event_type="streaming.original_complete",
-                                data={
-                                    "call_id": call_id,
-                                    "content": original_content,  # Full content, not preview
-                                    "total_chunks": len(original_chunks),
-                                    "finish_reason": original_response_dict.get("choices", [{}])[0].get(
-                                        "finish_reason"
-                                    ),
-                                },
-                            )
+                    asyncio.create_task(
+                        self.event_publisher.publish_event(
+                            call_id=call_id,
+                            event_type="streaming.original_complete",
+                            data={
+                                "call_id": call_id,
+                                "content": original_content,  # Full content, not preview
+                                "total_chunks": len(original_chunks),
+                                "finish_reason": original_response_dict.get("choices", [{}])[0].get("finish_reason"),
+                            },
                         )
-                    except Exception as e:
-                        logger.debug(f"Failed to publish original complete event: {e}")
+                    )
 
                 # Publish full transformed response to Redis (for real-time UI - fire and forget)
                 if self.event_publisher:
-                    try:
-                        final_content = ""
-                        if final_response_dict.get("choices"):
-                            message = final_response_dict["choices"][0].get("message", {})
-                            final_content = message.get("content", "")
+                    final_content = ""
+                    if final_response_dict.get("choices"):
+                        message = final_response_dict["choices"][0].get("message", {})
+                        final_content = message.get("content", "")
 
-                        asyncio.create_task(
-                            self.event_publisher.publish_event(
-                                call_id=call_id,
-                                event_type="streaming.transformed_complete",
-                                data={
-                                    "call_id": call_id,
-                                    "content": final_content,  # Full content, not preview
-                                    "total_chunks": len(final_chunks),
-                                    "finish_reason": final_response_dict.get("choices", [{}])[0].get("finish_reason"),
-                                },
-                            )
+                    asyncio.create_task(
+                        self.event_publisher.publish_event(
+                            call_id=call_id,
+                            event_type="streaming.transformed_complete",
+                            data={
+                                "call_id": call_id,
+                                "content": final_content,  # Full content, not preview
+                                "total_chunks": len(final_chunks),
+                                "finish_reason": final_response_dict.get("choices", [{}])[0].get("finish_reason"),
+                            },
                         )
-                    except Exception as e:
-                        logger.debug(f"Failed to publish transformed complete event: {e}")
+                    )
 
                 # Emit event to DB (non-blocking, for historical record)
                 if db_pool:
