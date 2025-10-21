@@ -136,11 +136,12 @@ class StreamingOrchestrator:
                     timeout_tracker.ping()
 
                     for chunk in batch:
-                        chunk_count += 1
-                        # Buffer chunk if callback provided (passive buffering)
-                        if on_complete:
-                            buffered_chunks.append(chunk)
-                        yield chunk
+                        if chunk is not None:
+                            chunk_count += 1
+                            # Buffer chunk if callback provided (passive buffering)
+                            if on_complete:
+                                buffered_chunks.append(chunk)
+                            yield chunk
 
                 # Streaming completed successfully
                 monitor_task.cancel()
