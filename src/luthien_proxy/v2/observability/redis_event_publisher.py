@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import UTC, datetime
 from typing import Any, AsyncGenerator
 
 import redis.asyncio as redis
@@ -25,6 +26,36 @@ logger = logging.getLogger(__name__)
 
 # Redis channel for activity events (used by both publisher and streamer)
 V2_ACTIVITY_CHANNEL = "luthien:activity"
+
+
+def build_activity_event(
+    call_id: str,
+    event_type: str,
+    data: dict[str, Any] | None = None,
+    timestamp: datetime | None = None,
+) -> dict[str, Any]:
+    """Build activity event dict for Redis publication.
+
+    This is a pure function that constructs event dictionaries without side effects,
+    making it easily unit testable without requiring Redis infrastructure.
+
+    Args:
+        call_id: Unique request identifier
+        event_type: Event type (e.g., "policy.content_filtered")
+        data: Optional event-specific data
+        timestamp: Optional timestamp (defaults to now)
+
+    Returns:
+        Event dict ready for JSON serialization
+    """
+    event: dict[str, Any] = {
+        "call_id": call_id,
+        "event_type": event_type,
+        "timestamp": (timestamp or datetime.now(UTC)).isoformat(),
+    }
+    if data:
+        event["data"] = data
+    return event
 
 
 class RedisEventPublisher:
@@ -65,16 +96,7 @@ class RedisEventPublisher:
             event_type: Event type (e.g., "policy.content_filtered")
             data: Optional event-specific data
         """
-        from datetime import UTC, datetime
-
-        event: dict[str, Any] = {
-            "call_id": call_id,
-            "event_type": event_type,
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-
-        if data:
-            event["data"] = data  # type: ignore[assignment]
+        event = build_activity_event(call_id, event_type, data)
 
         try:
             await self.redis.publish(self.channel, json.dumps(event))
