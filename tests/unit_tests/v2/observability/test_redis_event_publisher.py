@@ -16,7 +16,9 @@ import pytest
 
 from luthien_proxy.v2.observability.redis_event_publisher import (
     V2_ACTIVITY_CHANNEL,
+    RedisEventPublisher,
     build_activity_event,
+    create_event_publisher,
     stream_activity_events,
 )
 
@@ -494,3 +496,202 @@ class TestStreamActivityEvents:
 
         assert len(message_chunks) >= 1
         assert len(heartbeat_chunks) >= 1
+
+
+class TestRedisEventPublisher:
+    """Test the RedisEventPublisher class."""
+
+    @pytest.mark.asyncio
+    async def test_publish_event_minimal(self) -> None:
+        """Test publishing an event with minimal fields."""
+        from unittest.mock import AsyncMock, Mock
+
+        mock_redis = Mock()
+        mock_redis.publish = AsyncMock()
+
+        publisher = RedisEventPublisher(mock_redis)
+        await publisher.publish_event("call-123", "policy.test")
+
+        # Verify Redis publish was called
+        mock_redis.publish.assert_called_once()
+        call_args = mock_redis.publish.call_args
+        assert call_args[0][0] == V2_ACTIVITY_CHANNEL
+
+        # Verify the published message structure
+        published_data = json.loads(call_args[0][1])
+        assert published_data["call_id"] == "call-123"
+        assert published_data["event_type"] == "policy.test"
+        assert "timestamp" in published_data
+        assert "data" not in published_data
+
+    @pytest.mark.asyncio
+    async def test_publish_event_with_data(self) -> None:
+        """Test publishing an event with data field."""
+        from unittest.mock import AsyncMock, Mock
+
+        mock_redis = Mock()
+        mock_redis.publish = AsyncMock()
+
+        publisher = RedisEventPublisher(mock_redis)
+        event_data = {"key": "value", "count": 42}
+        await publisher.publish_event("call-456", "request.started", data=event_data)
+
+        # Verify Redis publish was called
+        mock_redis.publish.assert_called_once()
+        call_args = mock_redis.publish.call_args
+
+        # Verify the published message includes data
+        published_data = json.loads(call_args[0][1])
+        assert published_data["call_id"] == "call-456"
+        assert published_data["event_type"] == "request.started"
+        assert published_data["data"] == event_data
+
+    @pytest.mark.asyncio
+    async def test_publish_event_handles_redis_failure(self) -> None:
+        """Test that publish_event doesn't raise on Redis failures."""
+        from unittest.mock import AsyncMock, Mock
+
+        mock_redis = Mock()
+        mock_redis.publish = AsyncMock(side_effect=Exception("Redis connection failed"))
+
+        publisher = RedisEventPublisher(mock_redis)
+
+        # Should not raise - failures are logged but not propagated
+        await publisher.publish_event("call-789", "error.test")
+
+        # Verify publish was attempted
+        mock_redis.publish.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_publish_event_uses_correct_channel(self) -> None:
+        """Test that events are published to the correct Redis channel."""
+        from unittest.mock import AsyncMock, Mock
+
+        mock_redis = Mock()
+        mock_redis.publish = AsyncMock()
+
+        publisher = RedisEventPublisher(mock_redis)
+        await publisher.publish_event("call-123", "test.event")
+
+        # Verify channel is correct
+        call_args = mock_redis.publish.call_args
+        assert call_args[0][0] == V2_ACTIVITY_CHANNEL
+        assert call_args[0][0] == "luthien:activity"
+
+    @pytest.mark.asyncio
+    async def test_publish_event_json_serializable(self) -> None:
+        """Test that published events are valid JSON."""
+        from unittest.mock import AsyncMock, Mock
+
+        mock_redis = Mock()
+        mock_redis.publish = AsyncMock()
+
+        publisher = RedisEventPublisher(mock_redis)
+        complex_data = {
+            "nested": {"level": 2, "items": [1, 2, 3]},
+            "list": ["a", "b", "c"],
+            "mixed": {"num": 42, "str": "value", "bool": True, "none": None},
+        }
+        await publisher.publish_event("call-123", "test.event", data=complex_data)
+
+        # Verify the published data is valid JSON
+        call_args = mock_redis.publish.call_args
+        published_json = call_args[0][1]
+        parsed = json.loads(published_json)
+
+        # Verify structure is preserved
+        assert parsed["data"]["nested"]["items"] == [1, 2, 3]
+        assert parsed["data"]["mixed"]["bool"] is True
+        assert parsed["data"]["mixed"]["none"] is None
+
+    @pytest.mark.asyncio
+    async def test_publisher_initialization(self) -> None:
+        """Test that publisher stores the Redis client and channel."""
+        from unittest.mock import Mock
+
+        mock_redis = Mock()
+        publisher = RedisEventPublisher(mock_redis)
+
+        assert publisher.redis is mock_redis
+        assert publisher.channel == V2_ACTIVITY_CHANNEL
+
+    @pytest.mark.asyncio
+    async def test_multiple_publish_events(self) -> None:
+        """Test publishing multiple events in sequence."""
+        from unittest.mock import AsyncMock, Mock
+
+        mock_redis = Mock()
+        mock_redis.publish = AsyncMock()
+
+        publisher = RedisEventPublisher(mock_redis)
+
+        # Publish multiple events
+        await publisher.publish_event("call-1", "event.type1")
+        await publisher.publish_event("call-2", "event.type2")
+        await publisher.publish_event("call-3", "event.type3")
+
+        # Verify all were published
+        assert mock_redis.publish.call_count == 3
+
+        # Verify each call was to the correct channel
+        for call in mock_redis.publish.call_args_list:
+            assert call[0][0] == V2_ACTIVITY_CHANNEL
+
+
+class TestCreateEventPublisher:
+    """Test the create_event_publisher factory function."""
+
+    @pytest.mark.asyncio
+    async def test_create_event_publisher_returns_publisher(self) -> None:
+        """Test that create_event_publisher returns a RedisEventPublisher instance."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_redis_client = AsyncMock()
+
+        with patch("redis.asyncio.from_url", new=AsyncMock(return_value=mock_redis_client)):
+            publisher = await create_event_publisher("redis://localhost:6379")
+
+            assert isinstance(publisher, RedisEventPublisher)
+            assert publisher.redis is mock_redis_client
+
+    @pytest.mark.asyncio
+    async def test_create_event_publisher_connects_to_redis(self) -> None:
+        """Test that create_event_publisher connects to the provided Redis URL."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_redis_client = AsyncMock()
+        mock_from_url = AsyncMock(return_value=mock_redis_client)
+
+        with patch("redis.asyncio.from_url", new=mock_from_url):
+            await create_event_publisher("redis://test-host:1234/0")
+
+            # Verify from_url was called with the correct URL
+            mock_from_url.assert_called_once_with("redis://test-host:1234/0")
+
+    @pytest.mark.asyncio
+    async def test_create_event_publisher_with_auth(self) -> None:
+        """Test create_event_publisher with Redis URL containing auth."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_redis_client = AsyncMock()
+        mock_from_url = AsyncMock(return_value=mock_redis_client)
+
+        with patch("redis.asyncio.from_url", new=mock_from_url):
+            redis_url = "redis://user:password@secure-host:6380/1"
+            publisher = await create_event_publisher(redis_url)
+
+            # Verify connection was attempted with auth URL
+            mock_from_url.assert_called_once_with(redis_url)
+            assert isinstance(publisher, RedisEventPublisher)
+
+    @pytest.mark.asyncio
+    async def test_create_event_publisher_channel_configured(self) -> None:
+        """Test that created publisher has the correct channel configured."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_redis_client = AsyncMock()
+
+        with patch("redis.asyncio.from_url", new=AsyncMock(return_value=mock_redis_client)):
+            publisher = await create_event_publisher("redis://localhost:6379")
+
+            assert publisher.channel == V2_ACTIVITY_CHANNEL

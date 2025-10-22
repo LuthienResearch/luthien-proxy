@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from typing import Any, AsyncGenerator
 
 import redis.asyncio as redis
+from redis.asyncio.client import PubSub
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,38 @@ async def create_event_publisher(redis_url: str) -> RedisEventPublisher:
     return RedisEventPublisher(redis_client)
 
 
+def _should_send_heartbeat(last_heartbeat: float, heartbeat_seconds: float) -> bool:
+    return time.monotonic() - last_heartbeat >= heartbeat_seconds
+
+
+def _heartbeat_event() -> str:
+    return f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
+
+
+def _format_sse_payload(payload: str) -> str:
+    return f"data: {payload}\n\n"
+
+
+def _decode_payload(message: dict[str, Any]) -> str:
+    payload = message.get("data")
+    if isinstance(payload, bytes):
+        return payload.decode("utf-8")
+    elif isinstance(payload, str):
+        return payload
+    else:
+        raise ValueError(f"Unexpected payload type: {type(payload)}")
+
+
+async def _poll_pubsub_message(pubsub: PubSub, timeout_seconds: float) -> dict[str, Any] | None:
+    try:
+        return await asyncio.wait_for(
+            pubsub.get_message(ignore_subscribe_messages=True, timeout=timeout_seconds),
+            timeout=timeout_seconds + 0.5,
+        )
+    except asyncio.TimeoutError:
+        return None
+
+
 async def stream_activity_events(
     redis_client: redis.Redis,
     heartbeat_seconds: float = 15.0,
@@ -142,30 +175,19 @@ async def stream_activity_events(
 
         try:
             while True:
-                # Check if we need to send a heartbeat
-                now = time.monotonic()
-                if now - last_heartbeat >= heartbeat_seconds:
-                    yield f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
-                    last_heartbeat = now
-
-                # Try to get a message from Redis (with timeout)
-                try:
-                    message = await asyncio.wait_for(
-                        pubsub.get_message(ignore_subscribe_messages=True, timeout=timeout_seconds),
-                        timeout=timeout_seconds + 0.5,  # Add buffer to async timeout
-                    )
-
-                    if message and message["type"] == "message":
-                        # Got an activity event - forward it to the client
-                        payload = message["data"]
-                        if isinstance(payload, bytes):
-                            payload = payload.decode("utf-8")
-
-                        yield f"data: {payload}\n\n"
-
-                except asyncio.TimeoutError:
-                    # No message within timeout - continue loop (will send heartbeat if needed)
+                if _should_send_heartbeat(last_heartbeat, heartbeat_seconds):
+                    last_heartbeat = time.monotonic()
+                    yield _heartbeat_event()
                     continue
+
+                message = await _poll_pubsub_message(pubsub, timeout_seconds)
+                if not message or message.get("type") != "message":
+                    # Timeout or subscription bookkeeping event
+                    continue
+
+                payload = _decode_payload(message)
+
+                yield _format_sse_payload(payload)
 
         except asyncio.CancelledError:
             logger.info("Activity stream cancelled by client")
