@@ -339,6 +339,156 @@ class TestStreamingProcessing:
         assert len(output_chunks) == 3
         assert not mock_acompletion.called  # Judge should not be called
 
+    async def test_stream_end_with_incomplete_tool_call_blocks(self, judge_policy, mock_context):
+        """Test that incomplete tool call at stream end is blocked (fail-safe)."""
+        incoming = asyncio.Queue()
+        outgoing = asyncio.Queue()
+
+        # Stream with incomplete tool call (missing name and arguments)
+        chunks = [
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "role": "assistant",
+                            "tool_calls": [{"index": 0, "id": "call_123", "type": "function", "function": {}}],
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            # Stream ends here without completing tool call name/arguments
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        # Process stream
+        await judge_policy.process_streaming_response(incoming, outgoing, mock_context)
+
+        # Should get blocked response
+        output_chunks = []
+        while True:
+            try:
+                output_chunks.append(outgoing.get_nowait())
+            except (asyncio.QueueEmpty, asyncio.QueueShutDown):
+                break
+
+        assert len(output_chunks) == 1
+        blocked_chunk = output_chunks[0]
+        assert blocked_chunk.choices[0].message.content.startswith("⛔ BLOCKED: Incomplete tool call")
+        assert "fail-safe" in blocked_chunk.choices[0].message.content
+
+        # Verify events
+        emit_calls = [call[0][0] for call in mock_context.emit.call_args_list]
+        assert "judge.stream_ended_with_buffer" in emit_calls
+        assert "judge.incomplete_tool_call" in emit_calls
+        assert "judge.blocked_on_stream_end" in emit_calls
+
+    @patch("luthien_proxy.v2.policies.tool_call_judge.acompletion")
+    async def test_stream_end_with_complete_tool_call_evaluates(self, mock_acompletion, judge_policy, mock_context):
+        """Test that complete tool call at stream end is evaluated by judge."""
+        # Mock judge response - allow the tool call
+        mock_acompletion.return_value = ModelResponse(
+            id="judge-response",
+            choices=[
+                Choices(
+                    index=0,
+                    message=Message(role="assistant", content='{"probability": 0.3, "explanation": "Safe tool call"}'),
+                    finish_reason="stop",
+                )
+            ],
+            created=123,
+            model="test-model",
+        )
+
+        incoming = asyncio.Queue()
+        outgoing = asyncio.Queue()
+
+        # Stream with complete tool call
+        chunks = [
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_123",
+                                    "type": "function",
+                                    "function": {"name": "get_weather"},
+                                }
+                            ],
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={"tool_calls": [{"index": 0, "function": {"arguments": '{"location":'}}]},
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={"tool_calls": [{"index": 0, "function": {"arguments": ' "NYC"}'}}]},
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            # Stream ends here - tool call is complete but stream ends without finish_reason
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        # Process stream
+        await judge_policy.process_streaming_response(incoming, outgoing, mock_context)
+
+        # Should evaluate and replay buffered chunks
+        output_chunks = []
+        while True:
+            try:
+                output_chunks.append(outgoing.get_nowait())
+            except (asyncio.QueueEmpty, asyncio.QueueShutDown):
+                break
+
+        # All 3 chunks should be replayed
+        assert len(output_chunks) == 3
+        assert mock_acompletion.called
+
+        # Verify events
+        emit_calls = [call[0][0] for call in mock_context.emit.call_args_list]
+        assert "judge.stream_ended_with_buffer" in emit_calls
+        assert "judge.passed_on_stream_end" in emit_calls
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

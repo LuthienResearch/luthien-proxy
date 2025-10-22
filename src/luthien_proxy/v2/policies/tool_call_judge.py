@@ -178,10 +178,13 @@ class ToolCallJudgePolicy(LuthienPolicy):
     ) -> None:
         """Buffer streaming chunks, evaluate tool calls, then replay or block.
 
-        This method:
-        1. Buffers chunks until tool call is complete
-        2. Evaluates the complete tool call with judge
-        3. Either replays buffered chunks (if allowed) or sends block message
+        Algorithm:
+        1. Eager forward chunks until tool call detected
+        2. Buffer tool call chunks until complete
+        3. Judge tool call:
+           - If approved: replay buffered chunks, return to step 1
+           - If blocked: send rejection message, terminate stream, ignore remaining chunks
+        4. Loop until incoming stream exhausted
 
         Args:
             incoming: Queue of chunks from LLM (shut down when stream ends)
@@ -192,70 +195,79 @@ class ToolCallJudgePolicy(LuthienPolicy):
         try:
             aggregator = StreamChunkAggregator()
             buffered_chunks: list[ModelResponse] = []
-            tool_call_active = False
+            in_tool_call = False
 
             while True:
                 # Get next batch of chunks
                 chunks = await get_available(incoming)
                 if not chunks:
-                    # Stream ended - flush any remaining buffered chunks
+                    # Stream ended - handle any buffered tool call
                     if buffered_chunks:
                         context.emit(
                             "judge.stream_ended_with_buffer",
-                            f"Stream ended with {len(buffered_chunks)} buffered chunks",
+                            f"Stream ended with {len(buffered_chunks)} buffered tool call chunks",
                         )
-                        for chunk in buffered_chunks:
-                            await outgoing.put(chunk)
+
+                        if keepalive:
+                            keepalive()
+
+                        blocked = await self._evaluate_tool_calls(aggregator, context, keepalive)
+                        if blocked:
+                            context.emit("judge.blocked_on_stream_end", "Incomplete tool call blocked at stream end")
+                            await outgoing.put(blocked)
+                        else:
+                            context.emit(
+                                "judge.passed_on_stream_end",
+                                f"Incomplete tool call passed, replaying {len(buffered_chunks)} chunks",
+                            )
+                            for chunk in buffered_chunks:
+                                await outgoing.put(chunk)
                     break
 
                 # Process each chunk
                 for chunk in chunks:
-                    # Update aggregator to track tool call state
                     chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else dict(chunk)  # type: ignore
                     aggregator.capture_chunk(chunk_dict)
 
-                    # Check if this chunk contains tool call data
-                    contains_tool_data = self._chunk_contains_tool_call(chunk_dict)
+                    # Check if this is a tool call chunk
+                    is_tool_call_chunk = self._chunk_contains_tool_call(chunk_dict)
 
-                    if tool_call_active or contains_tool_data:
-                        # Buffer this chunk
-                        tool_call_active = True
+                    if not in_tool_call and not is_tool_call_chunk:
+                        # Eager forward: not in a tool call and this isn't a tool call
+                        await outgoing.put(chunk)
+                    elif is_tool_call_chunk or in_tool_call:
+                        # Buffer this chunk (part of tool call)
                         buffered_chunks.append(chunk)
+                        in_tool_call = True
 
                         # Check if tool call is complete
                         if self._is_tool_call_complete(chunk_dict):
+                            # Tool call complete - evaluate it
                             context.emit(
                                 "judge.tool_call_complete",
-                                f"Tool call complete, evaluating with judge (buffered {len(buffered_chunks)} chunks)",
+                                f"Tool call complete, evaluating ({len(buffered_chunks)} chunks)",
                             )
 
-                            # Call keepalive before potentially slow judge call
                             if keepalive:
                                 keepalive()
 
-                            # Evaluate the complete tool call
                             blocked = await self._evaluate_tool_calls(aggregator, context, keepalive)
 
                             if blocked:
-                                # Send blocked response and stop
-                                context.emit("judge.blocked", "Tool call blocked by judge, stopping stream")
+                                # Blocked - send rejection and terminate
+                                context.emit("judge.blocked", "Tool call blocked, terminating stream")
                                 await outgoing.put(blocked)
                                 return
 
-                            # Tool call passed - replay buffered chunks
-                            context.emit(
-                                "judge.passed",
-                                f"Tool call passed, replaying {len(buffered_chunks)} buffered chunks",
-                            )
+                            # Approved - replay buffered chunks
+                            context.emit("judge.passed", f"Tool call passed, replaying {len(buffered_chunks)} chunks")
                             for buffered in buffered_chunks:
                                 await outgoing.put(buffered)
 
-                            # Reset buffer
+                            # Reset for next tool call
                             buffered_chunks.clear()
-                            tool_call_active = False
-                    else:
-                        # Not a tool call chunk - forward immediately
-                        await outgoing.put(chunk)
+                            in_tool_call = False
+                            aggregator = StreamChunkAggregator()
 
         finally:
             # Always shut down outgoing queue when done
@@ -281,6 +293,10 @@ class ToolCallJudgePolicy(LuthienPolicy):
         Returns:
             Blocked ModelResponse if any tool call blocked, None otherwise
         """
+        # If no tool calls detected, allow (no tool calls to evaluate)
+        if not aggregator.tool_calls:
+            return None
+
         for tool_call_state in aggregator.tool_calls.values():
             tool_call = {
                 "id": tool_call_state.identifier,
@@ -288,6 +304,16 @@ class ToolCallJudgePolicy(LuthienPolicy):
                 "name": tool_call_state.name,
                 "arguments": tool_call_state.arguments,
             }
+
+            # Check if tool call has enough data to evaluate
+            if not tool_call.get("name"):
+                # Incomplete tool call - fail-safe by blocking
+                context.emit(
+                    "judge.incomplete_tool_call",
+                    "Tool call incomplete (missing name) - blocking as fail-safe",
+                    severity="warning",
+                )
+                return self._create_incomplete_blocked_response(tool_call)
 
             blocked = await self._evaluate_and_maybe_block(tool_call, context, keepalive)
             if blocked is not None:
@@ -495,6 +521,40 @@ class ToolCallJudgePolicy(LuthienPolicy):
 
         blocked_response = ModelResponse(
             id=f"blocked-{tool_call.get('id', 'unknown')}",
+            choices=[
+                Choices(
+                    finish_reason="stop",
+                    index=0,
+                    message=Message(content=message, role="assistant"),
+                )
+            ],
+            created=int(time.time()),
+            model=self._config.model,
+            object="chat.completion",
+        )
+
+        return blocked_response
+
+    def _create_incomplete_blocked_response(self, tool_call: dict[str, Any]) -> ModelResponse:
+        """Create a blocked response for incomplete tool calls (fail-safe).
+
+        Args:
+            tool_call: Incomplete tool call that was blocked
+
+        Returns:
+            ModelResponse with blocked message
+        """
+        message = (
+            f"⛔ BLOCKED: Incomplete tool call rejected as fail-safe measure. "
+            f"Tool ID: {tool_call.get('id', 'unknown')}, "
+            f"Name: {tool_call.get('name', '<empty>')}, "
+            f"Type: {tool_call.get('type', 'unknown')}."
+        )
+
+        from litellm.types.utils import Choices, Message
+
+        blocked_response = ModelResponse(
+            id=f"blocked-incomplete-{tool_call.get('id', 'unknown')}",
             choices=[
                 Choices(
                     finish_reason="stop",
