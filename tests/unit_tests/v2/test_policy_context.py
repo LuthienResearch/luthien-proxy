@@ -126,3 +126,15 @@ class TestPolicyContext:
         assert "event.severity" in attributes
         # No extra event.* attributes
         assert len([k for k in attributes if k.startswith("event.")]) == 3
+
+    def test_emit_with_publisher_no_loop(self):
+        """Test emit with event publisher when no event loop exists."""
+        mock_span = Mock()
+        mock_publisher = Mock()
+        context = PolicyContext(call_id="test-call", span=mock_span, event_publisher=mock_publisher)
+
+        # Should not raise exception when no event loop
+        context.emit(event_type="policy.test", summary="Test")
+
+        # Span event should still be added
+        mock_span.add_event.assert_called_once()
