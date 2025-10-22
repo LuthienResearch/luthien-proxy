@@ -59,7 +59,8 @@ if [ -z "${ANTHROPIC_API_KEY}" ] || [ "${ANTHROPIC_API_KEY}" == "your_anthropic_
 fi
 
 # Export V2 gateway configuration for Claude Code
-export ANTHROPIC_BASE_URL="http://localhost:${V2_PORT}/v1/"
+# Note: Don't include /v1 in base URL - Anthropic SDK adds it automatically
+export ANTHROPIC_BASE_URL="http://localhost:${V2_PORT}/"
 export ANTHROPIC_API_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
 export ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5"
@@ -68,8 +69,8 @@ export CLAUDE_CODE_SUBAGENT_MODEL="anthropic/claude-sonnet-4-5"
 
 
 echo -e "${BLUE}📋 V2 Gateway Configuration:${NC}"
-echo -e "   • Gateway URL:     ${ANTHROPIC_BASE_URL}"
-echo -e "   • API Key:         ${ANTHROPIC_API_KEY:0:10}..."
+echo -e "   • Gateway URL:     ${ANTHROPIC_BASE_URL} (SDK will append /v1/messages)"
+echo -e "   • API Key:         ${ANTHROPIC_API_KEY:0:10}... (sent as x-api-key header)"
 echo ""
 echo -e "${GREEN}🎯 Claude Code will now route through the V2 gateway with policy enforcement${NC}"
 echo -e "${YELLOW}📊 Monitor requests at:${NC}"

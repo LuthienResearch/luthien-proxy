@@ -12,7 +12,7 @@ import uuid
 from typing import AsyncIterator, Optional, cast
 
 import litellm
-from fastapi import APIRouter, HTTPException, Request, Security
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -35,19 +35,32 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 router = APIRouter(tags=["gateway"])
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 # === AUTH ===
 def verify_token(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Security(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> str:
-    """Verify API key and return it."""
+    """Verify API key from either Authorization header or x-api-key header.
+
+    Supports both:
+    - Authorization: Bearer <key> (OpenAI-style)
+    - x-api-key: <key> (Anthropic-style)
+    """
     api_key = request.app.state.api_key
-    if credentials.credentials != api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return credentials.credentials
+
+    # Try Authorization: Bearer header first
+    if credentials and credentials.credentials == api_key:
+        return credentials.credentials
+
+    # Try x-api-key header (Anthropic convention)
+    x_api_key = request.headers.get("x-api-key")
+    if x_api_key and x_api_key == api_key:
+        return x_api_key
+
+    raise HTTPException(status_code=401, detail="Invalid API key")
 
 
 def hash_api_key(key: str) -> str:
@@ -259,7 +272,7 @@ async def process_non_streaming_response(
 @router.post("/v1/chat/completions")
 async def openai_chat_completions(
     request: Request,
-    token: str = Security(verify_token),
+    token: str = Depends(verify_token),
 ):
     """OpenAI-compatible endpoint."""
     # Get dependencies from app state
@@ -333,7 +346,7 @@ async def openai_chat_completions(
 @router.post("/v1/messages")
 async def anthropic_messages(
     request: Request,
-    token: str = Security(verify_token),
+    token: str = Depends(verify_token),
 ):
     """Anthropic Messages API endpoint."""
     # Get dependencies from app state

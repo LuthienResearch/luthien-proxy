@@ -47,12 +47,38 @@ class TestAuthentication:
         [
             (HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid-key-123"), True),
             (HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong-key"), False),
+            (None, False),  # No credentials at all
         ],
     )
-    def test_verify_token(self, credentials, should_pass):
-        """Test token verification."""
+    def test_verify_token_with_bearer(self, credentials, should_pass):
+        """Test token verification with Authorization: Bearer header."""
         mock_request = Mock()
         mock_request.app.state.api_key = "valid-key-123"
+        mock_request.headers.get.return_value = None  # No x-api-key header
+
+        if should_pass:
+            assert verify_token(mock_request, credentials) == "valid-key-123"
+        else:
+            with pytest.raises(HTTPException) as exc_info:
+                verify_token(mock_request, credentials)
+            assert exc_info.value.status_code == 401
+
+    @pytest.mark.parametrize(
+        "x_api_key,should_pass",
+        [
+            ("valid-key-123", True),
+            ("wrong-key", False),
+            (None, False),
+        ],
+    )
+    def test_verify_token_with_x_api_key(self, x_api_key, should_pass):
+        """Test token verification with x-api-key header (Anthropic-style)."""
+        mock_request = Mock()
+        mock_request.app.state.api_key = "valid-key-123"
+        mock_request.headers.get.return_value = x_api_key
+
+        # No Bearer credentials
+        credentials = None
 
         if should_pass:
             assert verify_token(mock_request, credentials) == "valid-key-123"
@@ -304,6 +330,30 @@ class TestOpenAIEndpoint:
         )
         assert response.status_code == 401
 
+    def test_auth_with_x_api_key(self, client):  # noqa: F811
+        """Test authentication with x-api-key header (Anthropic-style)."""
+        mock_response = make_mock_response()
+
+        with patch("luthien_proxy.v2.gateway_routes.litellm.acompletion", AsyncMock(return_value=mock_response)):
+            response = client.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-4", "messages": [{"role": "user", "content": "test"}]},
+                headers={"x-api-key": "test-api-key"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["model"] == "gpt-4"
+
+    def test_auth_x_api_key_invalid(self, client):  # noqa: F811
+        """Test invalid x-api-key header."""
+        response = client.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-4", "messages": [{"role": "user", "content": "test"}]},
+            headers={"x-api-key": "wrong-key"},
+        )
+        assert response.status_code == 401
+
     def test_with_trace_id(self, client):  # noqa: F811
         """Test request with trace_id in metadata."""
         with patch("luthien_proxy.v2.gateway_routes.litellm.acompletion", AsyncMock(return_value=make_mock_response())):
@@ -358,6 +408,28 @@ class TestAnthropicEndpoint:
                 headers={"Authorization": "Bearer test-api-key"},
             )
         assert response.status_code == 200
+
+    def test_auth_with_x_api_key(self, client):  # noqa: F811
+        """Test authentication with x-api-key header (native Anthropic format)."""
+        with patch(
+            "luthien_proxy.v2.gateway_routes.litellm.acompletion",
+            AsyncMock(return_value=make_mock_response(model="claude-3")),
+        ):
+            response = client.post(
+                "/v1/messages",
+                json={"model": "claude-3", "messages": [{"role": "user", "content": "test"}]},
+                headers={"x-api-key": "test-api-key"},
+            )
+        assert response.status_code == 200
+
+    def test_auth_x_api_key_invalid(self, client):  # noqa: F811
+        """Test invalid x-api-key header."""
+        response = client.post(
+            "/v1/messages",
+            json={"model": "claude-3", "messages": [{"role": "user", "content": "test"}]},
+            headers={"x-api-key": "wrong-key"},
+        )
+        assert response.status_code == 401
 
     def test_error_handling(self, client):  # noqa: F811
         """Test error handling."""
