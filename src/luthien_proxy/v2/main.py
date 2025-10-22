@@ -15,12 +15,12 @@ from fastapi.staticfiles import StaticFiles
 from redis.asyncio import Redis
 
 from luthien_proxy.utils import db
+from luthien_proxy.v2.config import load_policy_from_yaml
 from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
 from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.gateway_routes import router as gateway_router
 from luthien_proxy.v2.observability import RedisEventPublisher
 from luthien_proxy.v2.policies.base import LuthienPolicy
-from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
 from luthien_proxy.v2.telemetry import setup_telemetry
 from luthien_proxy.v2.ui import router as ui_router
 
@@ -162,9 +162,9 @@ if __name__ == "__main__":
     if not database_url:
         raise ValueError("DATABASE_URL environment variable required")
 
-    # Swap out the policy handler here!
-    # policy_handler: LuthienPolicy = NoOpPolicy()
-    policy_handler: LuthienPolicy = UppercaseNthWordPolicy(n=3)  # Uppercase every 3rd word
+    # Load policy from YAML configuration
+    # Set V2_POLICY_CONFIG env var to override default (config/v2_config.yaml)
+    policy_handler: LuthienPolicy = load_policy_from_yaml()
 
     # Create app with factory function
     app = create_app(

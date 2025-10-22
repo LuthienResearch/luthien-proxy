@@ -1,0 +1,17 @@
+# Luthien V2 Policy Configuration
+#
+# This file specifies the active policy for the V2 integrated architecture.
+# Set the V2_POLICY_CONFIG environment variable to point to this file.
+
+# Active policy configuration
+policy:
+  class: "luthien_proxy.v2.policies.uppercase_nth_word:UppercaseNthWordPolicy"
+  config:
+    n: 3
+
+# Other policy examples:
+
+# No-op policy (pass everything through)
+# policy:
+#   class: "luthien_proxy.v2.policies.noop:NoOpPolicy"
+#   config: {}

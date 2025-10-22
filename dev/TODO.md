@@ -26,6 +26,7 @@
 - [ ] Event logging architecture indexed by call_id, trace_id to replace the current debug logs system
 - [ ] OpenTelemetry/Grafana/Loki for instrumentation/logging/debugging
 - [ ] Document all env vars
+- [ ] factor our env var logic to coherent config system
 - [ ] Integration test for concurrent streams against control plane
 
 ## Low Priority
