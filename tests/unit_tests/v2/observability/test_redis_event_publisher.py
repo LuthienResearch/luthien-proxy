@@ -7,11 +7,18 @@ These tests focus on the pure function build_activity_event(), which can be test
 without Redis infrastructure. Integration tests cover the async Redis operations.
 """
 
+import asyncio
+import json
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
-from luthien_proxy.v2.observability.redis_event_publisher import build_activity_event
+from luthien_proxy.v2.observability.redis_event_publisher import (
+    V2_ACTIVITY_CHANNEL,
+    build_activity_event,
+    stream_activity_events,
+)
 
 
 class TestBuildActivityEvent:
@@ -188,3 +195,302 @@ class TestBuildActivityEvent:
 
         assert event["call_id"] == call_id
         assert event["event_type"] == event_type
+
+
+# Mock classes for testing stream_activity_events
+
+
+class FakeRedis:
+    """Mock Redis client for testing stream_activity_events."""
+
+    def __init__(self) -> None:
+        self.subscribed_channels: list[str] = []
+        self.messages: list[dict[str, Any]] = []
+        self.message_index = 0
+
+    def pubsub(self) -> "FakePubSub":
+        """Return a fake pubsub context manager."""
+        return FakePubSub(self)
+
+
+class FakePubSub:
+    """Mock Redis pubsub for testing stream_activity_events."""
+
+    def __init__(self, redis: FakeRedis) -> None:
+        self.redis = redis
+        self.subscribed = False
+
+    async def __aenter__(self) -> "FakePubSub":
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        pass
+
+    async def subscribe(self, channel: str) -> None:
+        """Record subscription."""
+        self.redis.subscribed_channels.append(channel)
+        self.subscribed = True
+
+    async def get_message(self, ignore_subscribe_messages: bool = False, timeout: float = 1.0) -> dict[str, Any] | None:
+        """Return pre-configured messages or None."""
+        if self.redis.message_index < len(self.redis.messages):
+            msg = self.redis.messages[self.redis.message_index]
+            self.redis.message_index += 1
+            return msg
+        return None
+
+
+class TestStreamActivityEvents:
+    """Test the stream_activity_events async generator."""
+
+    @pytest.mark.asyncio
+    async def test_subscribes_to_correct_channel(self) -> None:
+        """Test that stream subscribes to the V2_ACTIVITY_CHANNEL."""
+        redis = FakeRedis()
+        redis.messages = [{"type": "message", "data": b'{"test": "event"}'}]
+
+        chunks = []
+        async for chunk in stream_activity_events(redis, heartbeat_seconds=60.0, timeout_seconds=0.1):  # type: ignore
+            chunks.append(chunk)
+            if len(chunks) >= 1:
+                break
+
+        assert V2_ACTIVITY_CHANNEL in redis.subscribed_channels
+
+    @pytest.mark.asyncio
+    async def test_yields_sse_formatted_messages(self) -> None:
+        """Test that messages are yielded in SSE format."""
+        redis = FakeRedis()
+        redis.messages = [
+            {"type": "message", "data": b'{"event": "test1"}'},
+            {"type": "message", "data": b'{"event": "test2"}'},
+        ]
+
+        chunks = []
+        async for chunk in stream_activity_events(redis, heartbeat_seconds=60.0, timeout_seconds=0.1):  # type: ignore
+            chunks.append(chunk)
+            if len(chunks) >= 2:
+                break
+
+        assert len(chunks) == 2
+        assert chunks[0] == 'data: {"event": "test1"}\n\n'
+        assert chunks[1] == 'data: {"event": "test2"}\n\n'
+
+    @pytest.mark.asyncio
+    async def test_handles_bytes_data(self) -> None:
+        """Test that bytes data is properly decoded."""
+        redis = FakeRedis()
+        redis.messages = [{"type": "message", "data": b"test message bytes"}]
+
+        chunks = []
+        async for chunk in stream_activity_events(redis, heartbeat_seconds=60.0, timeout_seconds=0.1):  # type: ignore
+            chunks.append(chunk)
+            break
+
+        assert chunks[0] == "data: test message bytes\n\n"
+
+    @pytest.mark.asyncio
+    async def test_handles_string_data(self) -> None:
+        """Test that string data is properly handled."""
+        redis = FakeRedis()
+        redis.messages = [{"type": "message", "data": "test message string"}]
+
+        chunks = []
+        async for chunk in stream_activity_events(redis, heartbeat_seconds=60.0, timeout_seconds=0.1):  # type: ignore
+            chunks.append(chunk)
+            break
+
+        assert chunks[0] == "data: test message string\n\n"
+
+    @pytest.mark.asyncio
+    async def test_sends_heartbeat_when_no_messages(self) -> None:
+        """Test that heartbeat events are sent when no messages arrive."""
+        redis = FakeRedis()
+        redis.messages = []  # No messages
+
+        chunks = []
+
+        async def collect_with_timeout() -> None:
+            async for chunk in stream_activity_events(redis, heartbeat_seconds=0.1, timeout_seconds=0.05):  # type: ignore
+                chunks.append(chunk)
+                if len(chunks) >= 2:  # Collect at least 2 heartbeats
+                    break
+
+        # Run with a timeout to avoid infinite loop
+        try:
+            await asyncio.wait_for(collect_with_timeout(), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+
+        # Should have received at least one heartbeat
+        assert len(chunks) > 0
+        # Heartbeats should be in the correct SSE format
+        heartbeat_chunks = [c for c in chunks if c.startswith("event: heartbeat")]
+        assert len(heartbeat_chunks) > 0
+
+        # Check heartbeat format
+        for heartbeat in heartbeat_chunks:
+            assert heartbeat.startswith("event: heartbeat\ndata: ")
+            assert heartbeat.endswith("\n\n")
+            # Extract and verify JSON data
+            data_part = heartbeat.split("data: ")[1].rstrip("\n")
+            parsed = json.loads(data_part)
+            assert "timestamp" in parsed
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_timing(self) -> None:
+        """Test that heartbeats are sent at the correct interval."""
+        redis = FakeRedis()
+        redis.messages = []
+
+        heartbeat_interval = 0.1
+        chunks = []
+
+        async def collect_heartbeats() -> None:
+            async for chunk in stream_activity_events(
+                redis,
+                heartbeat_seconds=heartbeat_interval,
+                timeout_seconds=0.05,  # type: ignore
+            ):
+                chunks.append((asyncio.get_event_loop().time(), chunk))
+                if len(chunks) >= 3:
+                    break
+
+        try:
+            await asyncio.wait_for(collect_heartbeats(), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+
+        # Filter heartbeat chunks
+        heartbeats = [(t, c) for t, c in chunks if "heartbeat" in c]
+
+        # Should have multiple heartbeats
+        assert len(heartbeats) >= 2
+
+        # Check intervals between heartbeats (with some tolerance)
+        for i in range(1, len(heartbeats)):
+            interval = heartbeats[i][0] - heartbeats[i - 1][0]
+            # Allow 50% tolerance due to async timing variations
+            assert heartbeat_interval * 0.5 <= interval <= heartbeat_interval * 2.0
+
+    @pytest.mark.asyncio
+    async def test_ignores_non_message_types(self) -> None:
+        """Test that non-message type events are ignored."""
+        redis = FakeRedis()
+        redis.messages = [
+            {"type": "subscribe", "data": "subscription confirmed"},
+            {"type": "message", "data": b'{"event": "real_event"}'},
+            {"type": "unsubscribe", "data": "unsubscribed"},
+        ]
+
+        chunks = []
+        async for chunk in stream_activity_events(redis, heartbeat_seconds=60.0, timeout_seconds=0.1):  # type: ignore
+            chunks.append(chunk)
+            if len(chunks) >= 1:
+                break
+
+        # Should only get the actual message, not subscribe/unsubscribe
+        assert len(chunks) == 1
+        assert 'data: {"event": "real_event"}\n\n' in chunks
+
+    @pytest.mark.asyncio
+    async def test_handles_null_message(self) -> None:
+        """Test that None messages are handled gracefully."""
+        redis = FakeRedis()
+        # No messages - get_message will return None
+        redis.messages = []
+
+        chunks = []
+
+        async def collect_with_short_timeout() -> None:
+            async for chunk in stream_activity_events(redis, heartbeat_seconds=0.2, timeout_seconds=0.05):  # type: ignore
+                chunks.append(chunk)
+                if len(chunks) >= 1:  # Just get first heartbeat
+                    break
+
+        try:
+            await asyncio.wait_for(collect_with_short_timeout(), timeout=0.5)
+        except asyncio.TimeoutError:
+            pass
+
+        # Should get heartbeat even when messages are None
+        assert len(chunks) >= 1
+
+    @pytest.mark.asyncio
+    async def test_multiple_messages_in_sequence(self) -> None:
+        """Test streaming multiple messages in sequence."""
+        redis = FakeRedis()
+        redis.messages = [
+            {"type": "message", "data": b'{"id": 1}'},
+            {"type": "message", "data": b'{"id": 2}'},
+            {"type": "message", "data": b'{"id": 3}'},
+            {"type": "message", "data": b'{"id": 4}'},
+            {"type": "message", "data": b'{"id": 5}'},
+        ]
+
+        chunks = []
+        async for chunk in stream_activity_events(redis, heartbeat_seconds=60.0, timeout_seconds=0.1):  # type: ignore
+            chunks.append(chunk)
+            if len(chunks) >= 5:
+                break
+
+        assert len(chunks) == 5
+        for i in range(5):
+            assert f'{{"id": {i + 1}}}' in chunks[i]
+
+    @pytest.mark.asyncio
+    async def test_json_payload_in_message(self) -> None:
+        """Test that JSON payloads are properly forwarded."""
+        redis = FakeRedis()
+        test_payload = {
+            "call_id": "abc123",
+            "event_type": "policy.test",
+            "timestamp": "2024-01-15T10:30:00Z",
+            "data": {"key": "value", "nested": {"count": 42}},
+        }
+        redis.messages = [{"type": "message", "data": json.dumps(test_payload).encode()}]
+
+        chunks = []
+        async for chunk in stream_activity_events(redis, heartbeat_seconds=60.0, timeout_seconds=0.1):  # type: ignore
+            chunks.append(chunk)
+            break
+
+        # Verify the chunk is in SSE format
+        assert chunks[0].startswith("data: ")
+        assert chunks[0].endswith("\n\n")
+
+        # Extract and verify the JSON payload
+        data_part = chunks[0][6:].rstrip("\n")  # Remove "data: " prefix and trailing newlines
+        parsed = json.loads(data_part)
+
+        assert parsed["call_id"] == "abc123"
+        assert parsed["event_type"] == "policy.test"
+        assert parsed["data"]["key"] == "value"
+        assert parsed["data"]["nested"]["count"] == 42
+
+    @pytest.mark.asyncio
+    async def test_interleaved_messages_and_heartbeats(self) -> None:
+        """Test that messages and heartbeats can be interleaved."""
+        redis = FakeRedis()
+        # Add one message, then subsequent get_message calls return None (triggering heartbeats)
+        redis.messages = [{"type": "message", "data": b'{"event": "test"}'}]
+
+        chunks = []
+
+        async def collect_mixed() -> None:
+            async for chunk in stream_activity_events(redis, heartbeat_seconds=0.1, timeout_seconds=0.05):  # type: ignore
+                chunks.append(chunk)
+                if len(chunks) >= 3:  # Get message + some heartbeats
+                    break
+
+        try:
+            await asyncio.wait_for(collect_mixed(), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+
+        # Should have at least one message and one heartbeat
+        message_chunks = [c for c in chunks if "test" in c]
+        heartbeat_chunks = [c for c in chunks if "heartbeat" in c]
+
+        assert len(message_chunks) >= 1
+        assert len(heartbeat_chunks) >= 1
