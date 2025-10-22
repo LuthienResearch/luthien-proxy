@@ -105,6 +105,154 @@ async def stream_with_policy_control(
         yield f"data: {json.dumps(error_data)}\n\n"
 
 
+# === REQUEST PROCESSING HELPERS ===
+
+
+async def process_request_with_policy(
+    request_data: dict,
+    call_id: str,
+    control_plane: SynchronousControlPlane,
+    db_pool: Optional[db.DatabasePool],
+) -> RequestMessage:
+    """Apply policy to request and emit request event.
+
+    Returns the final request after policy processing.
+    """
+    # Wrap request data in RequestMessage type
+    original_request = RequestMessage(**request_data)
+
+    # Apply request policies
+    final_request = await control_plane.process_request(original_request, call_id)
+
+    # Emit request event (non-blocking, queued for background persistence)
+    emit_request_event(
+        call_id=call_id,
+        original_request=original_request.model_dump(exclude_none=True),
+        final_request=final_request.model_dump(exclude_none=True),
+        db_pool=db_pool,
+        redis_conn=None,  # Redis events handled separately via event_publisher
+    )
+
+    return final_request
+
+
+async def publish_request_received_event(
+    event_publisher: Optional[RedisEventPublisher],
+    call_id: str,
+    endpoint: str,
+    model: str,
+    stream: bool,
+) -> None:
+    """Publish request received event for real-time UI."""
+    if event_publisher:
+        await event_publisher.publish_event(
+            call_id=call_id,
+            event_type="gateway.request_received",
+            data={
+                "call_id": call_id,
+                "endpoint": endpoint,
+                "model": model,
+                "stream": stream,
+            },
+        )
+
+
+async def publish_request_sent_event(
+    event_publisher: Optional[RedisEventPublisher],
+    call_id: str,
+    model: str,
+    stream: bool,
+) -> None:
+    """Publish request sent event for real-time UI."""
+    if event_publisher:
+        await event_publisher.publish_event(
+            call_id=call_id,
+            event_type="gateway.request_sent",
+            data={
+                "call_id": call_id,
+                "model": model,
+                "stream": stream,
+            },
+        )
+
+
+def add_model_specific_params(data: dict, known_params: set[str]) -> dict:
+    """Identify and mark model-specific parameters for LiteLLM forwarding.
+
+    Returns the data dict with allowed_openai_params added if needed.
+    """
+    model_specific_params = [p for p in data.keys() if p in known_params]
+    if model_specific_params:
+        data["allowed_openai_params"] = model_specific_params
+    return data
+
+
+# === RESPONSE PROCESSING HELPERS ===
+
+
+async def process_non_streaming_response(
+    data: dict,
+    call_id: str,
+    control_plane: SynchronousControlPlane,
+    db_pool: Optional[db.DatabasePool],
+    event_publisher: Optional[RedisEventPublisher],
+) -> ModelResponse:
+    """Process a non-streaming LLM response through policy control.
+
+    Returns the final response after policy processing.
+    """
+    # Call LiteLLM
+    raw_response = await litellm.acompletion(**data)  # type: ignore[arg-type]
+    # When stream=False, response is always ModelResponse
+    response = cast(ModelResponse, raw_response)
+
+    # Extract response details
+    response_dict = response.model_dump()
+    choices = response_dict.get("choices", [])
+    finish_reason = choices[0].get("finish_reason") if choices else None
+
+    # Publish: original response received (for real-time UI)
+    if event_publisher:
+        await event_publisher.publish_event(
+            call_id=call_id,
+            event_type="gateway.response_received",
+            data={
+                "call_id": call_id,
+                "model": str(response_dict.get("model", "unknown")),
+                "finish_reason": str(finish_reason) if finish_reason else None,
+            },
+        )
+
+    # Apply policy to response
+    final_response = await control_plane.process_full_response(response, call_id)
+
+    # Emit response event (non-blocking, queued for background persistence)
+    emit_response_event(
+        call_id=call_id,
+        original_response=response.model_dump(),
+        final_response=final_response.model_dump(),
+        db_pool=db_pool,
+        redis_conn=None,  # Already using event_publisher for Redis
+    )
+
+    # Extract final response details
+    final_dict = final_response.model_dump()
+    final_choices = final_dict.get("choices", [])
+
+    # Publish: final response being sent (for real-time UI)
+    if event_publisher:
+        await event_publisher.publish_event(
+            call_id=call_id,
+            event_type="gateway.response_sent",
+            data={
+                "call_id": call_id,
+                "finish_reason": final_choices[0].get("finish_reason") if final_choices else None,
+            },
+        )
+
+    return final_response
+
+
 # === ENDPOINTS ===
 
 
@@ -137,55 +285,32 @@ async def openai_chat_completions(
             span.set_attribute("luthien.trace_id", trace_id)
 
         # Publish: original request received (for real-time UI)
-        if event_publisher:
-            await event_publisher.publish_event(
-                call_id=call_id,
-                event_type="gateway.request_received",
-                data={
-                    "call_id": call_id,
-                    "endpoint": "/v1/chat/completions",
-                    "model": data.get("model", "unknown"),
-                    "stream": data.get("stream", False),
-                },
-            )
-
-        # Wrap request data in RequestMessage type
-        original_request = RequestMessage(**data)
-
-        # Apply request policies
-        final_request = await control_plane.process_request(original_request, call_id)
-
-        # Emit request event (non-blocking, queued for background persistence)
-        emit_request_event(
-            call_id=call_id,
-            original_request=original_request.model_dump(exclude_none=True),
-            final_request=final_request.model_dump(exclude_none=True),
-            db_pool=db_pool,
-            redis_conn=None,  # Already using event_publisher for Redis
+        await publish_request_received_event(
+            event_publisher,
+            call_id,
+            "/v1/chat/completions",
+            data.get("model", "unknown"),
+            data.get("stream", False),
         )
+
+        # Apply request policies and emit request event
+        final_request = await process_request_with_policy(data, call_id, control_plane, db_pool)
 
         # Extract back to dict for LiteLLM
         data = final_request.model_dump(exclude_none=True)
         is_streaming = data.get("stream", False)
 
         # Publish: final request being sent to backend (for real-time UI)
-        if event_publisher:
-            await event_publisher.publish_event(
-                call_id=call_id,
-                event_type="gateway.request_sent",
-                data={
-                    "call_id": call_id,
-                    "model": data.get("model", "unknown"),
-                    "stream": is_streaming,
-                },
-            )
+        await publish_request_sent_event(
+            event_publisher,
+            call_id,
+            data.get("model", "unknown"),
+            is_streaming,
+        )
 
         # Identify any model-specific parameters to forward
-        # (litellm will pass these through to the underlying provider)
         known_params = {"verbosity"}  # Add more as needed
-        model_specific_params = [p for p in data.keys() if p in known_params]
-        if model_specific_params:
-            data["allowed_openai_params"] = model_specific_params
+        data = add_model_specific_params(data, known_params)
 
         try:
             if is_streaming:
@@ -194,55 +319,9 @@ async def openai_chat_completions(
                     media_type="text/event-stream",
                 )
             else:
-                raw_response = await litellm.acompletion(**data)  # type: ignore[arg-type]
-                # When stream=False, response is always ModelResponse
-                response = cast(ModelResponse, raw_response)
-
-                # Extract response details
-                response_dict = response.model_dump()
-                choices = response_dict.get("choices", [])
-                finish_reason = choices[0].get("finish_reason") if choices else None
-
-                # Publish: original response received (for real-time UI)
-                if event_publisher:
-                    await event_publisher.publish_event(
-                        call_id=call_id,
-                        event_type="gateway.response_received",
-                        data={
-                            "call_id": call_id,
-                            "model": str(response_dict.get("model", "unknown")),
-                            "finish_reason": str(finish_reason) if finish_reason else None,
-                        },
-                    )
-
-                # Apply policy to response
-                final_response = await control_plane.process_full_response(response, call_id)
-
-                # Emit response event (non-blocking, queued for background persistence)
-                emit_response_event(
-                    call_id=call_id,
-                    original_response=response.model_dump(),
-                    final_response=final_response.model_dump(),
-                    db_pool=db_pool,
-                    redis_conn=None,  # Already using event_publisher for Redis
+                final_response = await process_non_streaming_response(
+                    data, call_id, control_plane, db_pool, event_publisher
                 )
-
-                # Extract final response details
-                final_dict = final_response.model_dump()
-                final_choices = final_dict.get("choices", [])
-
-                # Publish: final response being sent (for real-time UI)
-                if event_publisher:
-                    await event_publisher.publish_event(
-                        call_id=call_id,
-                        event_type="gateway.response_sent",
-                        data={
-                            "call_id": call_id,
-                            "finish_reason": final_choices[0].get("finish_reason") if final_choices else None,
-                        },
-                    )
-
-                # Return response
                 return JSONResponse(final_response.model_dump())
         except Exception as exc:
             logger.error(f"Error in chat completion: {exc}")
@@ -268,31 +347,16 @@ async def anthropic_messages(
     # Generate call_id
     call_id = str(uuid.uuid4())
 
-    # Wrap request data in RequestMessage type
-    original_request = RequestMessage(**openai_data)
-
-    # Apply request policies
-    final_request = await control_plane.process_request(original_request, call_id)
-
-    # Emit request event (non-blocking, queued for background persistence)
-    emit_request_event(
-        call_id=call_id,
-        original_request=original_request.model_dump(exclude_none=True),
-        final_request=final_request.model_dump(exclude_none=True),
-        db_pool=db_pool,
-        redis_conn=None,  # Already using event_publisher for Redis
-    )
+    # Apply request policies and emit request event
+    final_request = await process_request_with_policy(openai_data, call_id, control_plane, db_pool)
 
     # Extract back to dict for LiteLLM
     openai_data = final_request.model_dump(exclude_none=True)
     is_streaming = openai_data.get("stream", False)
 
     # Identify any model-specific parameters to forward
-    # (litellm will pass these through to the underlying provider)
     known_params = {"verbosity"}  # Add more as needed
-    model_specific_params = [p for p in openai_data.keys() if p in known_params]
-    if model_specific_params:
-        openai_data["allowed_openai_params"] = model_specific_params
+    openai_data = add_model_specific_params(openai_data, known_params)
 
     try:
         if is_streaming:
@@ -332,4 +396,15 @@ async def anthropic_messages(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-__all__ = ["router"]
+__all__ = [
+    "router",
+    "hash_api_key",
+    "verify_token",
+    "stream_llm_chunks",
+    "stream_with_policy_control",
+    "process_request_with_policy",
+    "publish_request_received_event",
+    "publish_request_sent_event",
+    "add_model_specific_params",
+    "process_non_streaming_response",
+]
