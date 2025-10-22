@@ -61,14 +61,21 @@ class TestGetAvailable:
     async def test_blocks_until_item_available(self):
         """Test that get_available blocks until item is ready."""
         queue: asyncio.Queue[str] = asyncio.Queue()
+        started = asyncio.Event()
 
-        # Schedule item to be added after short delay
+        # Schedule item to be added after get_available starts waiting
         async def delayed_put():
-            await asyncio.sleep(0.01)
+            await started.wait()  # Wait until get_available is blocked
             await queue.put("delayed_item")
 
         put_task = asyncio.create_task(delayed_put())
-        result = await get_available(queue)
+
+        # Start the get_available call (which will block)
+        async def get_and_signal():
+            started.set()  # Signal that we're about to block
+            return await get_available(queue)
+
+        result = await get_and_signal()
         await put_task
 
         assert result == ["delayed_item"]
@@ -96,15 +103,20 @@ class TestGetAvailable:
     async def test_with_concurrent_producer(self):
         """Test get_available with concurrent producer."""
         queue: asyncio.Queue[int] = asyncio.Queue()
+        items_ready = asyncio.Event()
 
         async def producer():
             for i in range(10):
                 await queue.put(i)
-                await asyncio.sleep(0.001)
+                if i == 0:
+                    items_ready.set()  # Signal that first item is ready
             queue.shutdown()
 
         # Start producer
         producer_task = asyncio.create_task(producer())
+
+        # Wait for first item to be ready before starting consumption
+        await items_ready.wait()
 
         # Consume in batches
         all_items = []

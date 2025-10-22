@@ -46,20 +46,19 @@ class TestNoOpPolicy:
         assert result.max_tokens == 100
 
     @pytest.mark.asyncio
-    async def test_noop_process_full_response(self):
+    async def test_noop_process_full_response(self, make_model_response):
         """Test that NoOpPolicy passes response through unchanged."""
         policy = NoOpPolicy()
         context = make_context()
-        mock_response = Mock(spec=ModelResponse)
-        mock_response.choices = [{"message": {"content": "Hello back"}}]
+        response = make_model_response(content="Hello back")
 
-        result = await policy.process_full_response(mock_response, context)
+        result = await policy.process_full_response(response, context)
 
-        assert result == mock_response
-        assert result.choices[0]["message"]["content"] == "Hello back"
+        assert result == response
+        assert result.choices[0].message.content == "Hello back"
 
     @pytest.mark.asyncio
-    async def test_noop_streaming_response(self):
+    async def test_noop_streaming_response(self, make_streaming_chunk):
         """Test that NoOpPolicy passes all streaming chunks through."""
         policy = NoOpPolicy()
         context = make_context()
@@ -69,10 +68,7 @@ class TestNoOpPolicy:
         # Create test chunks
         test_chunks = []
         for i in range(5):
-            mock_chunk = Mock(spec=ModelResponse)
-            mock_chunk.id = f"chunk-{i}"
-            mock_chunk.choices = [{"delta": {"content": f"word{i}"}}]
-            test_chunks.append(mock_chunk)
+            test_chunks.append(make_streaming_chunk(content=f"word{i}", id=f"chunk-{i}"))
 
         # Feed chunks
         async def feed_chunks():
@@ -99,7 +95,7 @@ class TestNoOpPolicy:
         assert len(output) == 5
         for i, chunk in enumerate(output):
             assert chunk.id == f"chunk-{i}"
-            assert chunk.choices[0]["delta"]["content"] == f"word{i}"
+            assert chunk.choices[0].delta.content == f"word{i}"
 
     @pytest.mark.asyncio
     async def test_noop_streaming_with_empty_input(self):
@@ -129,7 +125,7 @@ class TestNoOpPolicy:
         assert len(output) == 0
 
     @pytest.mark.asyncio
-    async def test_noop_streaming_batching(self):
+    async def test_noop_streaming_batching(self, make_streaming_chunk):
         """Test that NoOpPolicy correctly handles batched chunks."""
         policy = NoOpPolicy()
         context = make_context()
@@ -139,9 +135,7 @@ class TestNoOpPolicy:
         # Put multiple chunks quickly (will be batched)
         chunks = []
         for i in range(10):
-            mock_chunk = Mock(spec=ModelResponse)
-            mock_chunk.id = f"chunk-{i}"
-            chunks.append(mock_chunk)
+            chunks.append(make_streaming_chunk(content=f"word{i}", id=f"chunk-{i}"))
 
         async def feed_chunks():
             for chunk in chunks:

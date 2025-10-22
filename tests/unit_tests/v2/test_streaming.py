@@ -94,3 +94,79 @@ class TestStreamingOrchestrator:
             chunks_seen.append(chunk)
 
         assert chunks_seen == ["chunk-0", "chunk-1", "chunk-2"]
+
+    @pytest.mark.asyncio
+    async def test_timeout_on_producer_hang(self):
+        """Test that timeout fires when incoming stream hangs."""
+        orchestrator = StreamingOrchestrator()
+
+        async def hanging_incoming():
+            """Stream that hangs without producing anything."""
+            await asyncio.sleep(100)  # Never yields
+            yield "never-reached"
+
+        # Should timeout (wrapped in ExceptionGroup by TaskGroup)
+        with pytest.raises(ExceptionGroup) as exc_info:
+            async for _ in orchestrator.process(
+                hanging_incoming(),
+                self._processor,
+                timeout_seconds=0.1,
+            ):
+                pass
+
+        # Verify it contains a TimeoutError
+        assert any(isinstance(e, TimeoutError) for e in exc_info.value.exceptions)
+
+    @pytest.mark.asyncio
+    async def test_timeout_on_processor_hang(self):
+        """Test that timeout fires when processor hangs without calling keepalive."""
+        orchestrator = StreamingOrchestrator()
+
+        async def hanging_processor(incoming, outgoing, keepalive):
+            """Processor that receives data but never outputs or calls keepalive."""
+            await asyncio.sleep(100)  # Never processes
+
+        # Should timeout (wrapped in ExceptionGroup by TaskGroup)
+        with pytest.raises(ExceptionGroup) as exc_info:
+            async for _ in orchestrator.process(
+                self._incoming_stream(),
+                hanging_processor,
+                timeout_seconds=0.1,
+            ):
+                pass
+
+        # Verify it contains a TimeoutError
+        assert any(isinstance(e, TimeoutError) for e in exc_info.value.exceptions)
+
+    @pytest.mark.asyncio
+    async def test_keepalive_prevents_timeout(self):
+        """Test that calling keepalive resets timeout."""
+        orchestrator = StreamingOrchestrator()
+        chunks_seen = []
+
+        async def slow_processor(incoming, outgoing, keepalive):
+            """Processor that calls keepalive while working slowly."""
+            while True:
+                try:
+                    chunk = await incoming.get()
+                    if chunk is None:
+                        break
+                    # Do slow work but call keepalive
+                    await asyncio.sleep(0.05)
+                    keepalive()  # Reset timeout
+                    await asyncio.sleep(0.05)
+                    keepalive()  # Reset timeout again
+                    await outgoing.put(chunk)
+                except asyncio.QueueShutDown:
+                    break
+            outgoing.shutdown()
+
+        # Should complete without timeout despite slow processing
+        async for chunk in orchestrator.process(
+            self._incoming_stream(),
+            slow_processor,
+            timeout_seconds=0.2,  # Would timeout without keepalive calls
+        ):
+            chunks_seen.append(chunk)
+
+        assert chunks_seen == ["chunk-0", "chunk-1", "chunk-2"]
