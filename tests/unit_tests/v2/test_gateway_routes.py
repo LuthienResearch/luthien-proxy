@@ -42,37 +42,52 @@ class TestAuthentication:
         """Test hashing works with various key lengths."""
         assert len(hash_api_key(key)) == 16
 
+    def test_verify_token_with_valid_bearer(self):
+        """Test token verification succeeds with valid Bearer credentials."""
+        mock_request = Mock()
+        mock_request.app.state.api_key = "valid-key-123"
+        mock_request.headers.get.return_value = None  # No x-api-key header
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid-key-123")
+
+        assert verify_token(mock_request, credentials) == "valid-key-123"
+
     @pytest.mark.parametrize(
-        "credentials,should_pass",
+        "credentials",
         [
-            (HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid-key-123"), True),
-            (HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong-key"), False),
-            (None, False),  # No credentials at all
+            HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong-key"),
+            None,  # No credentials at all
         ],
     )
-    def test_verify_token_with_bearer(self, credentials, should_pass):
-        """Test token verification with Authorization: Bearer header."""
+    def test_verify_token_with_invalid_bearer(self, credentials):
+        """Test token verification fails with invalid or missing Bearer credentials."""
         mock_request = Mock()
         mock_request.app.state.api_key = "valid-key-123"
         mock_request.headers.get.return_value = None  # No x-api-key header
 
-        if should_pass:
-            assert verify_token(mock_request, credentials) == "valid-key-123"
-        else:
-            with pytest.raises(HTTPException) as exc_info:
-                verify_token(mock_request, credentials)
-            assert exc_info.value.status_code == 401
+        with pytest.raises(HTTPException) as exc_info:
+            verify_token(mock_request, credentials)
+        assert exc_info.value.status_code == 401
+
+    def test_verify_token_with_valid_x_api_key(self):
+        """Test token verification succeeds with valid x-api-key header (Anthropic-style)."""
+        mock_request = Mock()
+        mock_request.app.state.api_key = "valid-key-123"
+        mock_request.headers.get.return_value = "valid-key-123"
+
+        # No Bearer credentials
+        credentials = None
+
+        assert verify_token(mock_request, credentials) == "valid-key-123"
 
     @pytest.mark.parametrize(
-        "x_api_key,should_pass",
+        "x_api_key",
         [
-            ("valid-key-123", True),
-            ("wrong-key", False),
-            (None, False),
+            "wrong-key",
+            None,
         ],
     )
-    def test_verify_token_with_x_api_key(self, x_api_key, should_pass):
-        """Test token verification with x-api-key header (Anthropic-style)."""
+    def test_verify_token_with_invalid_x_api_key(self, x_api_key):
+        """Test token verification fails with invalid or missing x-api-key header."""
         mock_request = Mock()
         mock_request.app.state.api_key = "valid-key-123"
         mock_request.headers.get.return_value = x_api_key
@@ -80,12 +95,9 @@ class TestAuthentication:
         # No Bearer credentials
         credentials = None
 
-        if should_pass:
-            assert verify_token(mock_request, credentials) == "valid-key-123"
-        else:
-            with pytest.raises(HTTPException) as exc_info:
-                verify_token(mock_request, credentials)
-            assert exc_info.value.status_code == 401
+        with pytest.raises(HTTPException) as exc_info:
+            verify_token(mock_request, credentials)
+        assert exc_info.value.status_code == 401
 
 
 class TestHelperFunctions:

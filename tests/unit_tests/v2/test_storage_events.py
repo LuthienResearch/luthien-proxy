@@ -9,6 +9,13 @@ from luthien_proxy.v2.storage.events import (
 )
 
 
+class StreamingResponseWrapper:
+    """Wrapper that mimics StreamingResponse structure for testing."""
+
+    def __init__(self, chunk):
+        self.chunk = chunk
+
+
 def test_emit_request_event_with_null_call_id(caplog):
     """Test that emit_request_event handles null call_id gracefully."""
     mock_db_pool = Mock()
@@ -91,26 +98,12 @@ def test_reconstruct_empty_chunks():
     assert result["usage"] is None
 
 
-def test_reconstruct_single_chunk_with_content():
+def test_reconstruct_single_chunk_with_content(make_streaming_chunk):
     """Test reconstruction with single chunk containing content."""
-    # Mock chunk structure
-    mock_delta = Mock()
-    mock_delta.content = "Hello"
+    chunk = make_streaming_chunk(content="Hello", id="chatcmpl-123", model="gpt-4")
+    wrapper = StreamingResponseWrapper(chunk)
 
-    mock_choice = Mock()
-    mock_choice.delta = mock_delta
-    mock_choice.finish_reason = None
-
-    mock_chunk = Mock()
-    mock_chunk.id = "chatcmpl-123"
-    mock_chunk.model = "gpt-4"
-    mock_chunk.choices = [mock_choice]
-
-    # Wrap in StreamingResponse-like object
-    mock_wrapper = Mock()
-    mock_wrapper.chunk = mock_chunk
-
-    result = reconstruct_full_response_from_chunks([mock_wrapper])
+    result = reconstruct_full_response_from_chunks([wrapper])
 
     assert result["id"] == "chatcmpl-123"
     assert result["model"] == "gpt-4"
@@ -118,57 +111,13 @@ def test_reconstruct_single_chunk_with_content():
     assert result["choices"][0]["finish_reason"] == "stop"
 
 
-def test_reconstruct_multiple_chunks_accumulate_content():
+def test_reconstruct_multiple_chunks_accumulate_content(make_streaming_chunk):
     """Test that content accumulates from multiple chunks."""
-    chunks = []
+    chunk1 = make_streaming_chunk(content="Hello ", id="chatcmpl-456", model="claude-opus-4-1")
+    chunk2 = make_streaming_chunk(content="world", id="chatcmpl-456", model="claude-opus-4-1")
+    chunk3 = make_streaming_chunk(content="!", id="chatcmpl-456", model="claude-opus-4-1", finish_reason="stop")
 
-    # First chunk with metadata
-    delta1 = Mock()
-    delta1.content = "Hello "
-    choice1 = Mock()
-    choice1.delta = delta1
-    choice1.finish_reason = None
-
-    chunk1 = Mock()
-    chunk1.id = "chatcmpl-456"
-    chunk1.model = "claude-opus-4-1"
-    chunk1.choices = [choice1]
-
-    wrapper1 = Mock()
-    wrapper1.chunk = chunk1
-    chunks.append(wrapper1)
-
-    # Second chunk with more content
-    delta2 = Mock()
-    delta2.content = "world"
-    choice2 = Mock()
-    choice2.delta = delta2
-    choice2.finish_reason = None
-
-    chunk2 = Mock()
-    chunk2.id = "chatcmpl-456"
-    chunk2.model = "claude-opus-4-1"
-    chunk2.choices = [choice2]
-
-    wrapper2 = Mock()
-    wrapper2.chunk = chunk2
-    chunks.append(wrapper2)
-
-    # Final chunk with finish_reason
-    delta3 = Mock()
-    delta3.content = "!"
-    choice3 = Mock()
-    choice3.delta = delta3
-    choice3.finish_reason = "stop"
-
-    chunk3 = Mock()
-    chunk3.id = "chatcmpl-456"
-    chunk3.model = "claude-opus-4-1"
-    chunk3.choices = [choice3]
-
-    wrapper3 = Mock()
-    wrapper3.chunk = chunk3
-    chunks.append(wrapper3)
+    chunks = [StreamingResponseWrapper(chunk1), StreamingResponseWrapper(chunk2), StreamingResponseWrapper(chunk3)]
 
     result = reconstruct_full_response_from_chunks(chunks)
 
@@ -178,73 +127,25 @@ def test_reconstruct_multiple_chunks_accumulate_content():
     assert result["choices"][0]["finish_reason"] == "stop"
 
 
-def test_reconstruct_chunks_without_wrapper():
+def test_reconstruct_chunks_without_wrapper(make_streaming_chunk):
     """Test reconstruction with raw chunks (not wrapped)."""
-    delta = Mock()
-    delta.content = "Direct chunk"
-    choice = Mock()
-    choice.delta = delta
-    choice.finish_reason = "stop"
-
-    # Create chunk object with actual list for choices
-    class MockChunk:
-        def __init__(self):
-            self.id = "test-id"
-            self.model = "test-model"
-            self.choices = [choice]
-
-    mock_chunk = MockChunk()
+    chunk = make_streaming_chunk(content="Direct chunk", id="test-id", model="test-model", finish_reason="stop")
 
     # Pass raw chunk (not wrapped)
-    result = reconstruct_full_response_from_chunks([mock_chunk])
+    result = reconstruct_full_response_from_chunks([chunk])
 
     assert result["id"] == "test-id"
     assert result["model"] == "test-model"
     assert result["choices"][0]["message"]["content"] == "Direct chunk"
 
 
-def test_reconstruct_chunks_with_missing_content():
+def test_reconstruct_chunks_with_missing_content(make_streaming_chunk):
     """Test reconstruction when some chunks have no content."""
-    # Chunk with content
-    delta1 = Mock()
-    delta1.content = "Start"
-    choice1 = Mock()
-    choice1.delta = delta1
-    choice1.finish_reason = None
+    chunk1 = make_streaming_chunk(content="Start", id="id-1", model="model-1")
+    chunk2 = make_streaming_chunk(content=None, id="id-1", model="model-1")  # None content should be skipped
+    chunk3 = make_streaming_chunk(content=" End", id="id-1", model="model-1", finish_reason="stop")
 
-    class MockChunk1:
-        def __init__(self):
-            self.id = "id-1"
-            self.model = "model-1"
-            self.choices = [choice1]
-
-    # Chunk with None content (should be skipped)
-    delta2 = Mock()
-    delta2.content = None
-    choice2 = Mock()
-    choice2.delta = delta2
-    choice2.finish_reason = None
-
-    class MockChunk2:
-        def __init__(self):
-            self.id = "id-1"
-            self.model = "model-1"
-            self.choices = [choice2]
-
-    # Chunk with content
-    delta3 = Mock()
-    delta3.content = " End"
-    choice3 = Mock()
-    choice3.delta = delta3
-    choice3.finish_reason = "stop"
-
-    class MockChunk3:
-        def __init__(self):
-            self.id = "id-1"
-            self.model = "model-1"
-            self.choices = [choice3]
-
-    chunks = [MockChunk1(), MockChunk2(), MockChunk3()]
+    chunks = [chunk1, chunk2, chunk3]
     result = reconstruct_full_response_from_chunks(chunks)
 
     assert result["choices"][0]["message"]["content"] == "Start End"
