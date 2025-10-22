@@ -19,7 +19,7 @@ async def get_available(queue: asyncio.Queue[T]) -> list[T]:
     """Get all currently available items from queue.
 
     Blocks until at least one item is available, then returns all items
-    currently in the queue. Returns empty list if queue is shut down.
+    currently in the queue. Returns empty list if queue is shut down and empty.
 
     This is useful for batch-oriented stream processing where you want to
     process chunks together rather than one at a time.
@@ -28,7 +28,7 @@ async def get_available(queue: asyncio.Queue[T]) -> list[T]:
         queue: Queue to read from (should be shut down to signal end)
 
     Returns:
-        List of available items (empty if queue shut down)
+        List of available items (empty if queue shut down and empty)
 
     Example:
         async def process_stream(incoming: asyncio.Queue, outgoing: asyncio.Queue):
