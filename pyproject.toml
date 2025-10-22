@@ -62,7 +62,7 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra -m 'not e2e' --cov=src/luthien_proxy --cov-report=term-missing"
+addopts = "-q -ra -m 'not e2e' --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
@@ -73,6 +73,7 @@ filterwarnings = [
 markers = [
     "e2e: marks end-to-end tests that require an assembled control plane",
 ]
+timeout_func_only = false
 
 [tool.pyright]
 pythonVersion = "3.13"

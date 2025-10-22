@@ -61,6 +61,36 @@
 - Implementation details, third-party behavior, trivial getters/setters
 - Exact log messages or internal strings (unless functionally critical)
 
+## Performance and Timeouts
+
+**Unit tests must be fast.** Slow tests indicate integration-level testing or inefficient test design.
+
+### Speed Requirements
+
+- **Target: < 0.05 seconds per test** - most unit tests should complete in milliseconds
+- **Hard limit: 3 seconds** - any test exceeding this is considered failed
+- **Strong justification required** for tests > 0.05s - typically indicates:
+  - Excessive mocking setup (refactor to fixtures)
+  - Async timing tests (consider removing or using integration tests)
+  - Real I/O that should be mocked
+  - Unnecessary `sleep()` calls
+
+### Timeout Configuration
+
+- **All unit tests run with 3-second timeout by default** via pytest-timeout
+- **E2E tests are exempt** from this timeout (use `-m e2e` marker)
+- If a test hangs or exceeds timeout:
+  1. Identify the blocking operation
+  2. Mock it or refactor to be non-blocking
+  3. If truly necessary, document why and use `@pytest.mark.timeout(N)` override
+
+### Common Patterns to Avoid
+
+- ❌ `asyncio.sleep()` in unit tests - use mocks with immediate returns
+- ❌ Real network calls - mock HTTP clients
+- ❌ Real database queries - use in-memory fixtures or mocks
+- ❌ Event loop timing dependencies - mock time-based behavior
+
 ## Coverage
 
 - **Aim for comprehensive coverage** of all reasonable functionality
