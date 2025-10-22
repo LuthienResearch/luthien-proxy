@@ -1,182 +1,251 @@
-# ABOUTME: Unit tests for V2 main FastAPI application helper functions
-# ABOUTME: Tests authentication, hashing, streaming utilities, and app lifespan
+# ABOUTME: Unit tests for V2 main FastAPI application factory function
+# ABOUTME: Tests create_app factory, app initialization, lifespan, and endpoint configuration
 
 """Tests for V2 main FastAPI application."""
 
-from unittest.mock import MagicMock, Mock
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
 
-# Import specific functions to test (now from gateway_routes)
-from luthien_proxy.v2.gateway_routes import hash_api_key, stream_llm_chunks, stream_with_policy_control
-
-
-class TestAuthentication:
-    """Test authentication helpers."""
-
-    def test_hash_api_key(self):
-        """Test API key hashing for logging."""
-        key = "my-secret-key"
-        hashed = hash_api_key(key)
-
-        assert isinstance(hashed, str)
-        assert len(hashed) == 16
-        # Same key always produces same hash
-        assert hash_api_key(key) == hashed
-        # Different key produces different hash
-        assert hash_api_key("different-key") != hashed
-
-    def test_hash_api_key_different_lengths(self):
-        """Test hashing works with various key lengths."""
-        short = hash_api_key("abc")
-        medium = hash_api_key("this-is-a-medium-key")
-        long = hash_api_key("x" * 100)
-
-        # All produce 16-character hashes
-        assert len(short) == 16
-        assert len(medium) == 16
-        assert len(long) == 16
-        # All different
-        assert short != medium != long
+from luthien_proxy.v2.main import create_app
+from luthien_proxy.v2.policies.noop import NoOpPolicy
 
 
-class TestStreamingHelpers:
-    """Test streaming helper functions."""
+class TestCreateApp:
+    """Test create_app factory function."""
 
     @pytest.mark.asyncio
-    async def test_stream_llm_chunks(self):
-        """Test streaming chunks from LiteLLM."""
-        from unittest.mock import patch
+    async def test_create_app_basic(self):
+        """Test basic app creation with minimal config."""
+        app = create_app(
+            api_key="test-key",
+            database_url="postgresql://test:test@localhost/test",
+            redis_url="redis://localhost:6379",
+            policy=NoOpPolicy(),
+        )
 
-        mock_chunks = [Mock(), Mock(), Mock()]
-
-        async def mock_acompletion(**kwargs):
-            """Mock async generator for LiteLLM completion."""
-
-            async def chunk_generator():
-                for chunk in mock_chunks:
-                    yield chunk
-
-            # Return object with async iterator protocol
-            return chunk_generator()
-
-        with patch("luthien_proxy.v2.gateway_routes.litellm.acompletion", mock_acompletion):
-            chunks = []
-            async for chunk in stream_llm_chunks({"model": "gpt-4"}):
-                chunks.append(chunk)
-
-            assert chunks == mock_chunks
+        assert app.title == "Luthien V2 Proxy Gateway"
+        assert app.version == "2.0.0"
+        assert app.description == "Multi-provider LLM proxy with integrated control plane"
 
     @pytest.mark.asyncio
-    async def test_stream_with_policy_control_basic(self):
-        """Test policy-controlled streaming without format conversion."""
-        # Create mock chunks
-        mock_chunk1 = Mock()
-        mock_chunk1.model_dump_json.return_value = '{"content":"chunk1"}'
-        mock_chunk2 = Mock()
-        mock_chunk2.model_dump_json.return_value = '{"content":"chunk2"}'
+    async def test_create_app_lifespan_initialization(self):
+        """Test that lifespan properly initializes app.state."""
+        policy = NoOpPolicy()
+        app = create_app(
+            api_key="test-api-key",
+            database_url="postgresql://user:pass@localhost/db",
+            redis_url="redis://localhost:6379",
+            policy=policy,
+        )
 
-        async def mock_policy_stream(*args, **kwargs):
-            """Mock policy stream."""
-            yield mock_chunk1
-            yield mock_chunk2
-
-        mock_control_plane = MagicMock()
-        mock_control_plane.process_streaming_response = mock_policy_stream
-
-        chunks = []
-        async for chunk in stream_with_policy_control(
-            data={"model": "gpt-4"},
-            call_id="test-call-id",
-            control_plane=mock_control_plane,
-            db_pool=None,
-            redis_client=None,
+        # Mock dependencies to avoid real connections
+        with (
+            patch("luthien_proxy.v2.main.db.DatabasePool") as mock_db_pool_class,
+            patch("luthien_proxy.v2.main.Redis") as mock_redis_class,
+            patch("luthien_proxy.v2.main.setup_telemetry") as mock_setup_telemetry,
         ):
-            chunks.append(chunk)
+            # Setup mocks
+            mock_db_instance = AsyncMock()
+            mock_db_instance.get_pool = AsyncMock()
+            mock_db_instance.close = AsyncMock()
+            mock_db_pool_class.return_value = mock_db_instance
 
-        assert len(chunks) == 2
-        assert 'data: {"content":"chunk1"}' in chunks[0]
-        assert 'data: {"content":"chunk2"}' in chunks[1]
+            mock_redis_instance = AsyncMock()
+            mock_redis_instance.ping = AsyncMock()
+            mock_redis_instance.close = AsyncMock()
+            mock_redis_class.from_url.return_value = mock_redis_instance
 
-    @pytest.mark.asyncio
-    async def test_stream_with_policy_control_dict_chunks(self):
-        """Test policy streaming with dict chunks."""
+            # Use TestClient to trigger lifespan
+            with TestClient(app):
+                # Verify telemetry was setup
+                mock_setup_telemetry.assert_called_once_with(app)
 
-        async def mock_policy_stream(*args, **kwargs):
-            """Mock policy stream returning dicts."""
-            yield {"type": "chunk", "text": "hello"}
-            yield {"type": "chunk", "text": "world"}
+                # Verify app state was initialized
+                assert app.state.api_key == "test-api-key"
+                assert app.state.control_plane is not None
+                assert app.state.db_pool == mock_db_instance
+                assert app.state.redis_client == mock_redis_instance
+                assert app.state.event_publisher is not None
 
-        mock_control_plane = MagicMock()
-        mock_control_plane.process_streaming_response = mock_policy_stream
-
-        chunks = []
-        async for chunk in stream_with_policy_control(
-            data={"model": "gpt-4"},
-            call_id="test-call-id",
-            control_plane=mock_control_plane,
-            db_pool=None,
-            redis_client=None,
-        ):
-            chunks.append(chunk)
-
-        assert len(chunks) == 2
-        assert "chunk" in chunks[0]
-        assert "hello" in chunks[0]
+            # Verify cleanup was called
+            mock_db_instance.close.assert_called_once()
+            mock_redis_instance.close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stream_with_policy_control_format_converter(self):
-        """Test policy streaming with format conversion."""
+    async def test_create_app_database_failure_graceful(self):
+        """Test that app handles database connection failure gracefully."""
+        policy = NoOpPolicy()
+        app = create_app(
+            api_key="test-api-key",
+            database_url="postgresql://invalid:invalid@localhost/invalid",
+            redis_url="redis://localhost:6379",
+            policy=policy,
+        )
 
-        def format_converter(chunk):
-            """Simple test converter."""
-            return {"converted": True, "original": chunk}
-
-        async def mock_policy_stream(*args, **kwargs):
-            """Mock policy stream."""
-            yield "chunk1"
-
-        mock_control_plane = MagicMock()
-        mock_control_plane.process_streaming_response = mock_policy_stream
-
-        chunks = []
-        async for chunk in stream_with_policy_control(
-            data={"model": "gpt-4"},
-            call_id="test-call-id",
-            control_plane=mock_control_plane,
-            db_pool=None,
-            redis_client=None,
-            format_converter=format_converter,
+        with (
+            patch("luthien_proxy.v2.main.db.DatabasePool") as mock_db_pool_class,
+            patch("luthien_proxy.v2.main.Redis") as mock_redis_class,
+            patch("luthien_proxy.v2.main.setup_telemetry"),
         ):
-            chunks.append(chunk)
+            # Make DB connection fail
+            mock_db_instance = AsyncMock()
+            mock_db_instance.get_pool = AsyncMock(side_effect=Exception("DB connection failed"))
+            mock_db_pool_class.return_value = mock_db_instance
 
-        assert len(chunks) == 1
-        assert "converted" in chunks[0].lower()
-        assert "true" in chunks[0].lower()
+            # Redis succeeds
+            mock_redis_instance = AsyncMock()
+            mock_redis_instance.ping = AsyncMock()
+            mock_redis_instance.close = AsyncMock()
+            mock_redis_class.from_url.return_value = mock_redis_instance
+
+            with TestClient(app):
+                # App should still start with db_pool = None
+                assert app.state.db_pool is None
+                assert app.state.redis_client == mock_redis_instance
+                assert app.state.control_plane is not None
 
     @pytest.mark.asyncio
-    async def test_stream_with_policy_control_error(self):
-        """Test error handling in policy streaming."""
+    async def test_create_app_redis_failure_graceful(self):
+        """Test that app handles Redis connection failure gracefully."""
+        policy = NoOpPolicy()
+        app = create_app(
+            api_key="test-api-key",
+            database_url="postgresql://user:pass@localhost/db",
+            redis_url="redis://invalid:6379",
+            policy=policy,
+        )
 
-        async def mock_policy_stream(*args, **kwargs):
-            """Mock policy stream that raises error."""
-            yield "chunk1"
-            raise ValueError("Test error")
-
-        mock_control_plane = MagicMock()
-        mock_control_plane.process_streaming_response = mock_policy_stream
-
-        chunks = []
-        async for chunk in stream_with_policy_control(
-            data={"model": "gpt-4"},
-            call_id="test-call-id",
-            control_plane=mock_control_plane,
-            db_pool=None,
-            redis_client=None,
+        with (
+            patch("luthien_proxy.v2.main.db.DatabasePool") as mock_db_pool_class,
+            patch("luthien_proxy.v2.main.Redis") as mock_redis_class,
+            patch("luthien_proxy.v2.main.setup_telemetry"),
         ):
-            chunks.append(chunk)
+            # DB succeeds
+            mock_db_instance = AsyncMock()
+            mock_db_instance.get_pool = AsyncMock()
+            mock_db_instance.close = AsyncMock()
+            mock_db_pool_class.return_value = mock_db_instance
 
-        # Should get first chunk, then error message
-        assert len(chunks) >= 1
-        # Last chunk should be error
-        assert "error" in chunks[-1].lower()
+            # Redis fails
+            mock_redis_instance = AsyncMock()
+            mock_redis_instance.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
+            mock_redis_class.from_url.return_value = mock_redis_instance
+
+            with TestClient(app):
+                # App should still start with redis_client = None
+                assert app.state.db_pool == mock_db_instance
+                assert app.state.redis_client is None
+                assert app.state.event_publisher is None  # No publisher without Redis
+                assert app.state.control_plane is not None
+
+    @pytest.mark.asyncio
+    async def test_create_app_routes_included(self):
+        """Test that all expected routes are included."""
+        app = create_app(
+            api_key="test-key",
+            database_url="postgresql://test:test@localhost/test",
+            redis_url="redis://localhost:6379",
+            policy=NoOpPolicy(),
+        )
+
+        routes = [getattr(route, "path", None) for route in app.routes]
+
+        # Check for key routes
+        assert "/health" in routes
+        assert "/" in routes
+        # Gateway routes (from gateway_router)
+        assert "/v1/chat/completions" in routes or any("/v1/chat/completions" in str(r) for r in routes if r)
+        assert "/v1/messages" in routes or any("/v1/messages" in str(r) for r in routes if r)
+
+    def test_create_app_health_endpoint(self):
+        """Test health endpoint returns correct response."""
+        app = create_app(
+            api_key="test-key",
+            database_url="postgresql://test:test@localhost/test",
+            redis_url="redis://localhost:6379",
+            policy=NoOpPolicy(),
+        )
+
+        with (
+            patch("luthien_proxy.v2.main.db.DatabasePool"),
+            patch("luthien_proxy.v2.main.Redis"),
+            patch("luthien_proxy.v2.main.setup_telemetry"),
+        ):
+            with TestClient(app) as client:
+                response = client.get("/health")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["status"] == "healthy"
+                assert data["version"] == "2.0.0"
+
+    def test_create_app_root_endpoint(self):
+        """Test root endpoint returns API information."""
+        app = create_app(
+            api_key="test-key",
+            database_url="postgresql://test:test@localhost/test",
+            redis_url="redis://localhost:6379",
+            policy=NoOpPolicy(),
+        )
+
+        with (
+            patch("luthien_proxy.v2.main.db.DatabasePool"),
+            patch("luthien_proxy.v2.main.Redis"),
+            patch("luthien_proxy.v2.main.setup_telemetry"),
+        ):
+            with TestClient(app) as client:
+                response = client.get("/")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["name"] == "Luthien V2 Proxy Gateway"
+                assert data["version"] == "2.0.0"
+                assert "endpoints" in data
+                assert data["endpoints"]["openai"] == "/v1/chat/completions"
+                assert data["endpoints"]["anthropic"] == "/v1/messages"
+                assert data["endpoints"]["health"] == "/health"
+
+    @pytest.mark.asyncio
+    async def test_create_app_with_custom_policy(self):
+        """Test app creation with custom policy."""
+        from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
+
+        policy = UppercaseNthWordPolicy(n=3)
+        app = create_app(
+            api_key="test-key",
+            database_url="postgresql://test:test@localhost/test",
+            redis_url="redis://localhost:6379",
+            policy=policy,
+        )
+
+        with (
+            patch("luthien_proxy.v2.main.db.DatabasePool") as mock_db_pool_class,
+            patch("luthien_proxy.v2.main.Redis") as mock_redis_class,
+            patch("luthien_proxy.v2.main.setup_telemetry"),
+        ):
+            mock_db_instance = AsyncMock()
+            mock_db_instance.get_pool = AsyncMock()
+            mock_db_instance.close = AsyncMock()
+            mock_db_pool_class.return_value = mock_db_instance
+
+            mock_redis_instance = AsyncMock()
+            mock_redis_instance.ping = AsyncMock()
+            mock_redis_instance.close = AsyncMock()
+            mock_redis_class.from_url.return_value = mock_redis_instance
+
+            with TestClient(app):
+                # Verify the control plane was initialized with our custom policy
+                assert app.state.control_plane.policy == policy
+
+    def test_create_app_static_files_mounted(self):
+        """Test that static files are properly mounted."""
+        app = create_app(
+            api_key="test-key",
+            database_url="postgresql://test:test@localhost/test",
+            redis_url="redis://localhost:6379",
+            policy=NoOpPolicy(),
+        )
+
+        # Check that /v2/static route exists
+        routes = [getattr(route, "path", None) for route in app.routes]
+        assert "/v2/static" in routes or any("static" in str(r).lower() for r in routes if r)
