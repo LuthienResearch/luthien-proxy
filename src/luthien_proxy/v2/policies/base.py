@@ -15,11 +15,12 @@ Policies emit events via context.emit() to describe their activity.
 from __future__ import annotations
 
 import asyncio
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import TYPE_CHECKING, Callable
 
 from litellm.types.utils import ModelResponse
 
+from luthien_proxy.v2.control.queue_utils import get_available
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
 
@@ -43,15 +44,19 @@ class LuthienPolicy(ABC):
     - process_request: Transform/validate requests before sending to LLM
     - process_full_response: Transform/validate complete responses
     - process_streaming_response: Reactive task that builds output stream
+
+    Default implementations pass data through unchanged, so you only need
+    to override the methods relevant to your policy.
     """
 
-    @abstractmethod
     async def process_request(
         self,
         request: Request,
         context: PolicyContext,
     ) -> Request:
         """Process a request before sending to LLM.
+
+        Default implementation: pass through unchanged.
 
         Args:
             request: The request to process
@@ -63,15 +68,16 @@ class LuthienPolicy(ABC):
         Raises:
             Exception: To reject the request
         """
-        pass
+        return request
 
-    @abstractmethod
     async def process_full_response(
         self,
         response: ModelResponse,
         context: PolicyContext,
     ) -> ModelResponse:
         """Process a complete (non-streaming) response.
+
+        Default implementation: pass through unchanged.
 
         Args:
             response: The ModelResponse from LiteLLM to process
@@ -80,9 +86,8 @@ class LuthienPolicy(ABC):
         Returns:
             Transformed ModelResponse
         """
-        pass
+        return response
 
-    @abstractmethod
     async def process_streaming_response(
         self,
         incoming: asyncio.Queue[ModelResponse],
@@ -91,6 +96,8 @@ class LuthienPolicy(ABC):
         keepalive: Callable[[], None] | None = None,
     ) -> None:
         """Reactive streaming task: build output response based on incoming chunks.
+
+        Default implementation: forward all chunks from incoming to outgoing.
 
         Read chunks from incoming queue, process them, and write to outgoing queue.
         Use get_available(incoming) to get batches of chunks.
@@ -103,7 +110,15 @@ class LuthienPolicy(ABC):
             context: Context for emitting events and accessing call metadata
             keepalive: Optional callback to prevent timeout during slow processing
         """
-        pass
+        try:
+            while True:
+                chunks = await get_available(incoming)
+                if not chunks:
+                    break
+                for chunk in chunks:
+                    await outgoing.put(chunk)
+        finally:
+            outgoing.shutdown()
 
 
 __all__ = ["LuthienPolicy"]

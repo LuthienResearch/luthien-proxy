@@ -14,6 +14,7 @@ from litellm.types.utils import Choices, Message, ModelResponse
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.policies.tool_call_judge import ToolCallJudgePolicy
+from luthien_proxy.v2.policies.utils import chunk_contains_tool_call, is_tool_call_complete
 
 
 @pytest.fixture
@@ -248,43 +249,47 @@ class TestJudgePromptParsing:
 
 
 class TestToolCallDetection:
-    """Test tool call detection in chunks."""
+    """Test tool call detection in chunks.
 
-    def test_chunk_contains_tool_call_in_delta(self, judge_policy):
+    NOTE: These tests now use the utility functions directly.
+    The policy methods have been moved to utils.py.
+    """
+
+    def test_chunk_contains_tool_call_in_delta(self):
         """Test detecting tool call in delta."""
         chunk = {"choices": [{"delta": {"tool_calls": [{"id": "call-123", "function": {"name": "test"}}]}}]}
 
-        assert judge_policy._chunk_contains_tool_call(chunk) is True
+        assert chunk_contains_tool_call(chunk) is True
 
-    def test_chunk_contains_tool_call_in_message(self, judge_policy):
+    def test_chunk_contains_tool_call_in_message(self):
         """Test detecting tool call in message."""
         chunk = {"choices": [{"message": {"tool_calls": [{"id": "call-123", "function": {"name": "test"}}]}}]}
 
-        assert judge_policy._chunk_contains_tool_call(chunk) is True
+        assert chunk_contains_tool_call(chunk) is True
 
-    def test_chunk_without_tool_call(self, judge_policy):
+    def test_chunk_without_tool_call(self):
         """Test chunk without tool calls returns False."""
         chunk = {"choices": [{"delta": {"content": "Hello"}}]}
 
-        assert judge_policy._chunk_contains_tool_call(chunk) is False
+        assert chunk_contains_tool_call(chunk) is False
 
-    def test_is_tool_call_complete_with_finish_reason(self, judge_policy):
+    def test_is_tool_call_complete_with_finish_reason(self):
         """Test detecting complete tool call via finish_reason."""
         chunk = {"choices": [{"finish_reason": "tool_calls"}]}
 
-        assert judge_policy._is_tool_call_complete(chunk) is True
+        assert is_tool_call_complete(chunk) is True
 
-    def test_is_tool_call_complete_with_message(self, judge_policy):
+    def test_is_tool_call_complete_with_message(self):
         """Test detecting complete tool call via message."""
         chunk = {"choices": [{"message": {"tool_calls": [{"id": "call-123", "function": {"name": "test"}}]}}]}
 
-        assert judge_policy._is_tool_call_complete(chunk) is True
+        assert is_tool_call_complete(chunk) is True
 
-    def test_is_tool_call_not_complete(self, judge_policy):
+    def test_is_tool_call_not_complete(self):
         """Test incomplete tool call returns False."""
         chunk = {"choices": [{"delta": {"tool_calls": [{"index": 0}]}}]}
 
-        assert judge_policy._is_tool_call_complete(chunk) is False
+        assert is_tool_call_complete(chunk) is False
 
 
 class TestStreamingProcessing:
@@ -488,6 +493,528 @@ class TestStreamingProcessing:
         emit_calls = [call[0][0] for call in mock_context.emit.call_args_list]
         assert "judge.stream_ended_with_buffer" in emit_calls
         assert "judge.passed_on_stream_end" in emit_calls
+
+    @patch("luthien_proxy.v2.policies.tool_call_judge.acompletion")
+    async def test_content_after_tool_call_is_buffered(self, mock_acompletion, judge_policy, mock_context):
+        """Test that content chunks arriving after tool call start are buffered.
+
+        This is a regression test for a bug where non-tool-call content
+        after a tool call started would not be buffered properly.
+        """
+        # Mock judge response - allow the tool call
+        mock_acompletion.return_value = ModelResponse(
+            id="judge-response",
+            choices=[
+                Choices(
+                    index=0,
+                    message=Message(role="assistant", content='{"probability": 0.2, "explanation": "Safe"}'),
+                    finish_reason="stop",
+                )
+            ],
+            created=123,
+            model="test-model",
+        )
+
+        incoming = asyncio.Queue()
+        outgoing = asyncio.Queue()
+
+        # Stream: tool_call chunk -> content chunk -> finish chunk
+        # All should be buffered until tool call is complete
+        chunks = [
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_123",
+                                    "type": "function",
+                                    "function": {"name": "search", "arguments": '{"q": "test"}'},
+                                }
+                            ],
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={"content": "Here are the results:"}, finish_reason=None)],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason="tool_calls")],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        # Process stream
+        await judge_policy.process_streaming_response(incoming, outgoing, mock_context)
+
+        # Collect output
+        output_chunks = []
+        while True:
+            try:
+                output_chunks.append(outgoing.get_nowait())
+            except (asyncio.QueueEmpty, asyncio.QueueShutDown):
+                break
+
+        # All 3 chunks should be replayed (tool call approved)
+        assert len(output_chunks) == 3
+
+        # Verify the content chunk is present in output
+        has_content_chunk = any(
+            hasattr(chunk.choices[0], "delta") and chunk.choices[0].delta.get("content") == "Here are the results:"
+            for chunk in output_chunks
+        )
+        assert has_content_chunk, "Content chunk after tool call should be buffered and replayed"
+
+        # Judge should have been called
+        assert mock_acompletion.called
+
+    @patch("luthien_proxy.v2.policies.tool_call_judge.acompletion")
+    async def test_buffer_state_machine_simple(self, mock_acompletion, judge_policy, mock_context):
+        """Test the simple buffer state machine: buffer, judge, forward or block.
+
+        Desired behavior (simple state machine):
+        1. Buffer all incoming chunks
+        2. While first item in buffer is not a tool call, forward it
+        3. When a complete tool call is at the front of buffer, judge it
+        4. If approved: forward the tool call chunks, goto 2
+        5. If rejected: send rejection, end stream
+
+        This test verifies that:
+        - Text content is forwarded immediately (not buffered with tool calls)
+        - Each tool call is judged before being forwarded
+        - Approved tool calls are forwarded
+        - Rejected tool calls cause stream termination
+        """
+        judge_call_count = 0
+
+        async def mock_judge(*args, **kwargs):
+            nonlocal judge_call_count
+            judge_call_count += 1
+
+            # First call (tool A) - approve
+            if judge_call_count == 1:
+                probability = 0.2
+                explanation = "Tool A is safe"
+            # Second call (tool B) - BLOCK
+            else:
+                probability = 0.9
+                explanation = "Tool B is dangerous"
+
+            return ModelResponse(
+                id=f"judge-response-{judge_call_count}",
+                choices=[
+                    Choices(
+                        index=0,
+                        message=Message(
+                            role="assistant",
+                            content=f'{{"probability": {probability}, "explanation": "{explanation}"}}',
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                created=123,
+                model="test-model",
+            )
+
+        mock_acompletion.side_effect = mock_judge
+
+        incoming = asyncio.Queue()
+        outgoing = asyncio.Queue()
+
+        # Stream: text -> tool A (approve) -> text -> tool B (block)
+        chunks = [
+            # Initial text content (should forward immediately)
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={"role": "assistant", "content": "Let me help: "}, finish_reason=None)],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            # Tool call A (should buffer, judge, forward)
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "tool_calls": [
+                                {"index": 0, "id": "call_A", "type": "function", "function": {"name": "safe_function"}}
+                            ]
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={"tool_calls": [{"index": 0, "function": {"arguments": '{"param": "value"}'}}]},
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason="tool_calls")],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            # More text content (should forward immediately after tool A approval)
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={"content": "Done. Now: "}, finish_reason=None)],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            # Tool call B (should buffer, judge, BLOCK and terminate)
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "tool_calls": [
+                                {
+                                    "index": 1,
+                                    "id": "call_B",
+                                    "type": "function",
+                                    "function": {"name": "dangerous_function"},
+                                }
+                            ]
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={"tool_calls": [{"index": 1, "function": {"arguments": '{"destructive": true}'}}]},
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason="tool_calls")],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        # Process stream
+        await judge_policy.process_streaming_response(incoming, outgoing, mock_context)
+
+        # Collect output
+        output_chunks = []
+        while True:
+            try:
+                output_chunks.append(outgoing.get_nowait())
+            except (asyncio.QueueEmpty, asyncio.QueueShutDown):
+                break
+
+        # ASSERTIONS:
+        # 1. Judge should be called TWICE (once for A, once for B)
+        assert judge_call_count == 2, f"Expected 2 judge calls, got {judge_call_count}"
+
+        # 2. Output should contain:
+        #    - Initial text "Let me help: "
+        #    - Tool A chunks (3 chunks)
+        #    - Text "Done. Now: "
+        #    - Blocked response for tool B
+        #    Total: 1 + 3 + 1 + 1 = 6 chunks minimum
+
+        # Find the blocked response
+        blocked_chunks = [
+            c
+            for c in output_chunks
+            if hasattr(c.choices[0], "message") and "BLOCKED" in str(c.choices[0].message.content)
+        ]
+        assert len(blocked_chunks) == 1, "Should have exactly one blocked response"
+        assert "dangerous_function" in blocked_chunks[0].choices[0].message.content
+
+        # Verify text chunks are present
+        text_chunks = [
+            c
+            for c in output_chunks
+            if hasattr(c.choices[0], "delta")
+            and c.choices[0].delta.get("content")
+            and "Let me help" in c.choices[0].delta.get("content", "")
+        ]
+        assert len(text_chunks) >= 1, "Initial text should be forwarded immediately"
+
+        # Verify tool A was forwarded
+        tool_a_chunks = [
+            c
+            for c in output_chunks
+            if hasattr(c.choices[0], "delta")
+            and c.choices[0].delta.get("tool_calls")
+            and any(tc.get("id") == "call_A" for tc in c.choices[0].delta.get("tool_calls", []))
+        ]
+        assert len(tool_a_chunks) > 0, "Tool A chunks should be present (it was approved)"
+
+        # Verify tool B chunks are NOT in output (blocked before forwarding)
+        tool_b_chunks = [
+            c
+            for c in output_chunks
+            if hasattr(c.choices[0], "delta")
+            and c.choices[0].delta.get("tool_calls")
+            and any(tc.get("id") == "call_B" for tc in c.choices[0].delta.get("tool_calls", []))
+        ]
+        assert len(tool_b_chunks) == 0, "Tool B chunks should NOT be forwarded (it was blocked)"
+
+    @patch("luthien_proxy.v2.policies.tool_call_judge.acompletion")
+    async def test_interleaved_tool_calls_and_text(self, mock_acompletion, judge_policy, mock_context):
+        """Test pattern: tool call -> text -> tool call -> text -> tool call.
+
+        This tests the state machine handles complex interleaving correctly.
+        Each element should be forwarded in order after approval.
+        """
+        judge_call_count = 0
+
+        async def mock_judge(*args, **kwargs):
+            nonlocal judge_call_count
+            judge_call_count += 1
+            # Approve all tool calls
+            return ModelResponse(
+                id=f"judge-response-{judge_call_count}",
+                choices=[
+                    Choices(
+                        index=0,
+                        message=Message(role="assistant", content='{"probability": 0.1, "explanation": "Safe"}'),
+                        finish_reason="stop",
+                    )
+                ],
+                created=123,
+                model="test-model",
+            )
+
+        mock_acompletion.side_effect = mock_judge
+
+        incoming = asyncio.Queue()
+        outgoing = asyncio.Queue()
+
+        # Pattern: tool1 -> text1 -> tool2 -> text2 -> tool3
+        chunks = [
+            # Tool call 1
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "role": "assistant",
+                            "tool_calls": [
+                                {"index": 0, "id": "call_1", "type": "function", "function": {"name": "func1"}}
+                            ],
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={"tool_calls": [{"index": 0, "function": {"arguments": '{"a": 1}'}}]},
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason="tool_calls")],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            # Text 1
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={"content": "Result 1. "}, finish_reason=None)],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            # Tool call 2
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "tool_calls": [
+                                {"index": 1, "id": "call_2", "type": "function", "function": {"name": "func2"}}
+                            ]
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={"tool_calls": [{"index": 1, "function": {"arguments": '{"b": 2}'}}]},
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason="tool_calls")],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            # Text 2
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={"content": "Result 2. "}, finish_reason=None)],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            # Tool call 3
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "tool_calls": [
+                                {"index": 2, "id": "call_3", "type": "function", "function": {"name": "func3"}}
+                            ]
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={"tool_calls": [{"index": 2, "function": {"arguments": '{"c": 3}'}}]},
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason="tool_calls")],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        # Process stream
+        await judge_policy.process_streaming_response(incoming, outgoing, mock_context)
+
+        # Collect output
+        output_chunks = []
+        while True:
+            try:
+                output_chunks.append(outgoing.get_nowait())
+            except (asyncio.QueueEmpty, asyncio.QueueShutDown):
+                break
+
+        # ASSERTIONS:
+        # 1. Judge should be called 3 times (once per tool call)
+        assert judge_call_count == 3, f"Expected 3 judge calls, got {judge_call_count}"
+
+        # 2. All chunks should be in output (all approved)
+        assert len(output_chunks) == len(chunks), f"Expected {len(chunks)} output chunks, got {len(output_chunks)}"
+
+        # 3. Verify each tool call is present
+        for call_id in ["call_1", "call_2", "call_3"]:
+            tool_chunks = [
+                c
+                for c in output_chunks
+                if hasattr(c.choices[0], "delta")
+                and c.choices[0].delta.get("tool_calls")
+                and any(tc.get("id") == call_id for tc in c.choices[0].delta.get("tool_calls", []))
+            ]
+            assert len(tool_chunks) > 0, f"Tool call {call_id} should be present in output"
+
+        # 4. Verify text chunks are present
+        text_chunks = [
+            c
+            for c in output_chunks
+            if hasattr(c.choices[0], "delta")
+            and c.choices[0].delta.get("content")
+            and "Result" in c.choices[0].delta.get("content", "")
+        ]
+        assert len(text_chunks) == 2, f"Expected 2 text chunks, got {len(text_chunks)}"
 
 
 if __name__ == "__main__":

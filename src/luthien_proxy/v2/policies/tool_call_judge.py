@@ -19,7 +19,7 @@ Example config:
         api_key: null  # Optional API key (defaults to env vars)
         probability_threshold: 0.6  # Block if probability >= 0.6
         temperature: 0.0  # Judge temperature
-        max_tokens: 256  # Max tokens for judge response
+        max_tokens: 256  # Max output tokens for judge response
 """
 
 from __future__ import annotations
@@ -28,8 +28,6 @@ import asyncio
 import json
 import logging
 import os
-import time
-from dataclasses import dataclass
 from typing import Any, Callable
 
 from litellm import acompletion
@@ -40,30 +38,16 @@ from luthien_proxy.v2.control.queue_utils import get_available
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.context import PolicyContext
+from luthien_proxy.v2.policies.utils import (
+    JudgeConfig,
+    JudgeResult,
+    chunk_contains_tool_call,
+    create_text_response,
+    extract_tool_calls_from_response,
+    is_tool_call_complete,
+)
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class JudgeConfig:
-    """Configuration for LLM judge."""
-
-    model: str
-    api_base: str | None
-    api_key: str | None
-    probability_threshold: float
-    temperature: float
-    max_tokens: int
-
-
-@dataclass(frozen=True)
-class JudgeResult:
-    """Result from LLM judge evaluation."""
-
-    probability: float
-    explanation: str
-    prompt: list[dict[str, str]]
-    response_text: str
 
 
 class ToolCallJudgePolicy(LuthienPolicy):
@@ -77,41 +61,38 @@ class ToolCallJudgePolicy(LuthienPolicy):
 
     Args:
         model: LLM model to use for judging (default: "openai/judge-scorer")
-        api_base: Optional API base URL for judge model
+        api_base: Optional API base URL for judge model (default: "http://dummy-provider:8080/v1")
         api_key: Optional API key for judge model (falls back to env vars)
         probability_threshold: Block if probability >= this (default: 0.6)
         temperature: Temperature for judge LLM (default: 0.0)
-        max_tokens: Max tokens for judge response (default: 256)
+        max_tokens: Max output tokens for judge response (default: 256)
     """
-
-    DEFAULT_MODEL = "openai/judge-scorer"
-    DEFAULT_API_BASE: str | None = "http://dummy-provider:8080/v1"
-    DEFAULT_THRESHOLD = 0.6
 
     def __init__(
         self,
-        model: str | None = None,
-        api_base: str | None = None,
+        model: str = "openai/judge-scorer",
+        api_base: str | None = "http://dummy-provider:8080/v1",
         api_key: str | None = None,
-        probability_threshold: float | None = None,
+        probability_threshold: float = 0.6,
         temperature: float = 0.0,
         max_tokens: int = 256,
     ):
         """Initialize judge policy with configuration.
 
         Args:
-            model: LLM model for judging
-            api_base: API base URL (or None to use env var LLM_JUDGE_API_BASE)
+            model: LLM model for judging (default: "openai/judge-scorer")
+            api_base: API base URL (default: "http://dummy-provider:8080/v1", or use env var LLM_JUDGE_API_BASE)
             api_key: API key (or None to use env vars)
-            probability_threshold: Block threshold (must be 0-1)
-            temperature: Judge temperature
-            max_tokens: Max tokens for judge
+            probability_threshold: Block threshold between 0 and 1 (default: 0.6)
+            temperature: Judge temperature (default: 0.0)
+            max_tokens: Maximum tokens the judge LLM can generate in its response (default: 256).
+                This controls the output token budget, not the input token limit.
         """
-        # Resolve configuration from args + env vars
-        resolved_model = model or os.getenv("LLM_JUDGE_MODEL") or self.DEFAULT_MODEL
-        resolved_api_base = api_base or os.getenv("LLM_JUDGE_API_BASE") or self.DEFAULT_API_BASE
+        # Resolve configuration from args + env vars (env vars take precedence over defaults)
+        resolved_model = os.getenv("LLM_JUDGE_MODEL") or model
+        resolved_api_base = os.getenv("LLM_JUDGE_API_BASE") or api_base
         resolved_api_key = api_key or os.getenv("LLM_JUDGE_API_KEY") or os.getenv("LITELLM_MASTER_KEY") or None
-        resolved_threshold = probability_threshold if probability_threshold is not None else self.DEFAULT_THRESHOLD
+        resolved_threshold = probability_threshold
 
         if not 0.0 <= resolved_threshold <= 1.0:
             raise ValueError(f"probability_threshold must be between 0 and 1, got {resolved_threshold}")
@@ -147,7 +128,7 @@ class ToolCallJudgePolicy(LuthienPolicy):
             Original response or blocked response if tool call is harmful
         """
         # Extract tool calls from response
-        tool_calls = self._extract_tool_calls_from_response(response)
+        tool_calls = extract_tool_calls_from_response(response)
         if not tool_calls:
             context.emit("judge.no_tool_calls", "No tool calls found in response")
             return response
@@ -176,15 +157,14 @@ class ToolCallJudgePolicy(LuthienPolicy):
         context: PolicyContext,
         keepalive: Callable[[], None] | None = None,
     ) -> None:
-        """Buffer streaming chunks, evaluate tool calls, then replay or block.
+        """Process streaming chunks using a simple state machine.
 
-        Algorithm:
-        1. Eager forward chunks until tool call detected
-        2. Buffer tool call chunks until complete
-        3. Judge tool call:
-           - If approved: replay buffered chunks, return to step 1
-           - If blocked: send rejection message, terminate stream, ignore remaining chunks
-        4. Loop until incoming stream exhausted
+        State machine:
+        1. Buffer all incoming chunks
+        2. While first chunk in buffer is not a tool call, forward it
+        3. When a complete tool call is at the front of buffer, judge it
+        4. If approved: forward the tool call chunks, goto 2
+        5. If rejected: send rejection, terminate stream
 
         Args:
             incoming: Queue of chunks from LLM (shut down when stream ends)
@@ -193,81 +173,102 @@ class ToolCallJudgePolicy(LuthienPolicy):
             keepalive: Optional callback to prevent timeout during judge call
         """
         try:
-            aggregator = StreamChunkAggregator()
-            buffered_chunks: list[ModelResponse] = []
-            in_tool_call = False
+            buffer: list[ModelResponse] = []
+            stream_ended = False
 
             while True:
-                # Get next batch of chunks
-                chunks = await get_available(incoming)
-                if not chunks:
-                    # Stream ended - handle any buffered tool call
-                    if buffered_chunks:
+                # Step 1: Buffer incoming chunks
+                if not stream_ended:
+                    chunks = await get_available(incoming)
+                    if not chunks:
+                        stream_ended = True
+                    else:
+                        buffer.extend(chunks)
+
+                # If buffer is empty and stream ended, we're done
+                if not buffer and stream_ended:
+                    break
+
+                # Step 2: Forward non-tool-call chunks at front of buffer
+                while buffer:
+                    first_chunk = buffer[0]
+                    first_dict = first_chunk.model_dump() if hasattr(first_chunk, "model_dump") else dict(first_chunk)  # type: ignore
+
+                    if chunk_contains_tool_call(first_dict):
+                        # First chunk is a tool call - stop forwarding
+                        break
+
+                    # Not a tool call - forward it
+                    buffer.pop(0)
+                    await outgoing.put(first_chunk)
+
+                # Step 3: Check if we have a complete tool call at the front
+                if buffer:
+                    # Find the extent of the tool call at the front
+                    tool_call_end = None
+                    for i, chunk in enumerate(buffer):
+                        chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else dict(chunk)  # type: ignore
+                        if is_tool_call_complete(chunk_dict):
+                            tool_call_end = i
+                            break
+
+                    if tool_call_end is not None:
+                        # We have a complete tool call - create aggregator for just this tool call
+                        tool_call_aggregator = StreamChunkAggregator()
+                        for i in range(tool_call_end + 1):
+                            chunk_dict = buffer[i].model_dump() if hasattr(buffer[i], "model_dump") else dict(buffer[i])  # type: ignore
+                            tool_call_aggregator.capture_chunk(chunk_dict)
+
                         context.emit(
-                            "judge.stream_ended_with_buffer",
-                            f"Stream ended with {len(buffered_chunks)} buffered tool call chunks",
+                            "judge.tool_call_complete",
+                            f"Tool call complete, evaluating ({tool_call_end + 1} chunks)",
                         )
 
                         if keepalive:
                             keepalive()
 
-                        blocked = await self._evaluate_tool_calls(aggregator, context, keepalive)
+                        blocked = await self._evaluate_tool_calls(tool_call_aggregator, context, keepalive)
+
                         if blocked:
-                            context.emit("judge.blocked_on_stream_end", "Incomplete tool call blocked at stream end")
+                            # Step 5: Rejected - send rejection and terminate
+                            context.emit("judge.blocked", "Tool call blocked, terminating stream")
+                            await outgoing.put(blocked)
+                            return
+
+                        # Step 4: Approved - forward the tool call chunks
+                        context.emit("judge.passed", f"Tool call passed, forwarding {tool_call_end + 1} chunks")
+                        for i in range(tool_call_end + 1):
+                            await outgoing.put(buffer.pop(0))
+
+                    elif stream_ended:
+                        # Stream ended with incomplete tool call - fail-safe block
+                        context.emit(
+                            "judge.stream_ended_with_buffer",
+                            f"Stream ended with incomplete tool call ({len(buffer)} chunks)",
+                        )
+
+                        if keepalive:
+                            keepalive()
+
+                        # Create aggregator for the incomplete tool call
+                        incomplete_aggregator = StreamChunkAggregator()
+                        for chunk in buffer:
+                            chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else dict(chunk)  # type: ignore
+                            incomplete_aggregator.capture_chunk(chunk_dict)
+
+                        blocked = await self._evaluate_tool_calls(incomplete_aggregator, context, keepalive)
+                        if blocked:
+                            context.emit("judge.blocked_on_stream_end", "Tool call blocked at stream end")
                             await outgoing.put(blocked)
                         else:
+                            # Incomplete but judge approved - forward what we have
                             context.emit(
                                 "judge.passed_on_stream_end",
-                                f"Incomplete tool call passed, replaying {len(buffered_chunks)} chunks",
+                                f"Tool call passed, forwarding {len(buffer)} chunks",
                             )
-                            for chunk in buffered_chunks:
+                            for chunk in buffer:
                                 await outgoing.put(chunk)
-                    break
-
-                # Process each chunk
-                for chunk in chunks:
-                    chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else dict(chunk)  # type: ignore
-                    aggregator.capture_chunk(chunk_dict)
-
-                    # Check if this is a tool call chunk
-                    is_tool_call_chunk = self._chunk_contains_tool_call(chunk_dict)
-
-                    if not in_tool_call and not is_tool_call_chunk:
-                        # Eager forward: not in a tool call and this isn't a tool call
-                        await outgoing.put(chunk)
-                    elif is_tool_call_chunk or in_tool_call:
-                        # Buffer this chunk (part of tool call)
-                        buffered_chunks.append(chunk)
-                        in_tool_call = True
-
-                        # Check if tool call is complete
-                        if self._is_tool_call_complete(chunk_dict):
-                            # Tool call complete - evaluate it
-                            context.emit(
-                                "judge.tool_call_complete",
-                                f"Tool call complete, evaluating ({len(buffered_chunks)} chunks)",
-                            )
-
-                            if keepalive:
-                                keepalive()
-
-                            blocked = await self._evaluate_tool_calls(aggregator, context, keepalive)
-
-                            if blocked:
-                                # Blocked - send rejection and terminate
-                                context.emit("judge.blocked", "Tool call blocked, terminating stream")
-                                await outgoing.put(blocked)
-                                return
-
-                            # Approved - replay buffered chunks
-                            context.emit("judge.passed", f"Tool call passed, replaying {len(buffered_chunks)} chunks")
-                            for buffered in buffered_chunks:
-                                await outgoing.put(buffered)
-
-                            # Reset for next tool call
-                            buffered_chunks.clear()
-                            in_tool_call = False
-                            aggregator = StreamChunkAggregator()
+                        break
 
         finally:
             # Always shut down outgoing queue when done
@@ -514,26 +515,7 @@ class ToolCallJudgePolicy(LuthienPolicy):
             f"Explanation: {judge_result.explanation or 'No explanation provided'}."
         )
 
-        # Create ModelResponse
-        # Note: This is a simplified version - in production you'd want to match
-        # the exact structure of the original response
-        from litellm.types.utils import Choices, Message
-
-        blocked_response = ModelResponse(
-            id=f"blocked-{tool_call.get('id', 'unknown')}",
-            choices=[
-                Choices(
-                    finish_reason="stop",
-                    index=0,
-                    message=Message(content=message, role="assistant"),
-                )
-            ],
-            created=int(time.time()),
-            model=self._config.model,
-            object="chat.completion",
-        )
-
-        return blocked_response
+        return create_text_response(message, model=self._config.model)
 
     def _create_incomplete_blocked_response(self, tool_call: dict[str, Any]) -> ModelResponse:
         """Create a blocked response for incomplete tool calls (fail-safe).
@@ -551,120 +533,7 @@ class ToolCallJudgePolicy(LuthienPolicy):
             f"Type: {tool_call.get('type', 'unknown')}."
         )
 
-        from litellm.types.utils import Choices, Message
-
-        blocked_response = ModelResponse(
-            id=f"blocked-incomplete-{tool_call.get('id', 'unknown')}",
-            choices=[
-                Choices(
-                    finish_reason="stop",
-                    index=0,
-                    message=Message(content=message, role="assistant"),
-                )
-            ],
-            created=int(time.time()),
-            model=self._config.model,
-            object="chat.completion",
-        )
-
-        return blocked_response
-
-    # ------------------------------------------------------------------
-    # Tool call extraction helpers
-    # ------------------------------------------------------------------
-
-    def _extract_tool_calls_from_response(self, response: ModelResponse) -> list[dict[str, Any]]:
-        """Extract tool calls from a complete ModelResponse.
-
-        Args:
-            response: ModelResponse from LLM
-
-        Returns:
-            List of tool call dicts
-        """
-        if not hasattr(response, "choices") or not response.choices:
-            return []
-
-        first_choice = response.choices[0]
-        message = first_choice.message if hasattr(first_choice, "message") else {}
-
-        if not hasattr(message, "tool_calls") or not message.tool_calls:
-            return []
-
-        tool_calls = []
-        for tc in message.tool_calls:
-            # Handle both dict and object representations
-            if isinstance(tc, dict):
-                tool_calls.append(tc)
-            else:
-                # Convert object to dict
-                tool_call = {
-                    "id": getattr(tc, "id", ""),
-                    "type": getattr(tc, "type", "function"),
-                    "name": getattr(getattr(tc, "function", None), "name", ""),
-                    "arguments": getattr(getattr(tc, "function", None), "arguments", ""),
-                }
-                tool_calls.append(tool_call)
-
-        return tool_calls
-
-    def _chunk_contains_tool_call(self, chunk: dict[str, Any]) -> bool:
-        """Check if a chunk contains tool call data.
-
-        Args:
-            chunk: Chunk dict
-
-        Returns:
-            True if chunk has tool call data
-        """
-        choices = chunk.get("choices", [])
-        if not choices:
-            return False
-
-        first_choice = choices[0]
-        if not isinstance(first_choice, dict):
-            return False
-
-        # Check delta for tool call data
-        delta = first_choice.get("delta", {})
-        if isinstance(delta, dict) and delta.get("tool_calls"):
-            return True
-
-        # Check message for tool call data
-        message = first_choice.get("message", {})
-        if isinstance(message, dict) and message.get("tool_calls"):
-            return True
-
-        return False
-
-    def _is_tool_call_complete(self, chunk: dict[str, Any]) -> bool:
-        """Check if a chunk indicates tool call completion.
-
-        Args:
-            chunk: Chunk dict
-
-        Returns:
-            True if tool call is complete
-        """
-        choices = chunk.get("choices", [])
-        if not choices:
-            return False
-
-        first_choice = choices[0]
-        if not isinstance(first_choice, dict):
-            return False
-
-        # Check for finish_reason == "tool_calls"
-        finish_reason = first_choice.get("finish_reason")
-        if finish_reason == "tool_calls":
-            return True
-
-        # Check for complete tool calls in message
-        message = first_choice.get("message", {})
-        if isinstance(message, dict) and message.get("tool_calls"):
-            return True
-
-        return False
+        return create_text_response(message, model=self._config.model)
 
 
-__all__ = ["ToolCallJudgePolicy", "JudgeConfig", "JudgeResult"]
+__all__ = ["ToolCallJudgePolicy"]
