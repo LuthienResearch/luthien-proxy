@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from litellm.types.utils import ModelResponse
 
@@ -68,6 +68,22 @@ class GateDecision:
     terminate: bool = False
 
 
+async def _allow_content(_: str, __: ModelResponse) -> GateDecision:
+    return GateDecision(allow=True)
+
+
+async def _allow_tool_call(_: ToolCall) -> GateDecision:
+    return GateDecision(allow=True)
+
+
+async def _allow_error(_: Exception) -> GateDecision:
+    return GateDecision(allow=True)
+
+
+async def _noop_closed() -> None:
+    return None
+
+
 class ToolCallStreamGate:
     """High-level helper for streaming tool call policies.
 
@@ -87,49 +103,45 @@ class ToolCallStreamGate:
 
     def __init__(
         self,
-        on_content: Callable[[str, ModelResponse], GateDecision | asyncio.Future[GateDecision]] | None = None,
-        on_tool_complete: Callable[[ToolCall], GateDecision | asyncio.Future[GateDecision]] | None = None,
-        on_error: Callable[[Exception], GateDecision | asyncio.Future[GateDecision]] | None = None,
-        on_closed: Callable[[], None] | None = None,
+        on_content: Callable[[str, ModelResponse], Awaitable[GateDecision]] | None = None,
+        on_tool_complete: Callable[[ToolCall], Awaitable[GateDecision]] | None = None,
+        on_error: Callable[[Exception], Awaitable[GateDecision]] | None = None,
+        on_closed: Callable[[], Awaitable[None]] | None = None,
     ):
         """Initialize gate with callbacks.
 
-        Callbacks can be sync or async. Async callbacks should be coroutine functions.
+        Callbacks must be awaitables (async defs or lambdas returning coroutines).
 
         Args:
-            on_content: Called for each content chunk. Receives (text, raw_chunk).
-                Default: allow through. Can be sync or async.
-            on_tool_complete: Called when a complete tool call is ready. Receives ToolCall.
-                Default: allow through. Can be sync or async.
-            on_error: Called when stream error occurs. Receives exception.
-                Default: allow through (no error sent). Can be sync or async.
-            on_closed: Called when stream ends normally (no decision returned).
-                Can be sync or async.
+            on_content: Async handler for each content chunk. Receives (text, raw_chunk).
+                Default: allow through.
+            on_tool_complete: Async handler when a complete tool call is ready. Receives ToolCall.
+                Default: allow through.
+            on_error: Async handler when stream error occurs. Receives exception.
+                Default: allow through (no error sent).
+            on_closed: Async handler when stream ends normally (no decision returned).
         """
-        self._on_content = on_content or (lambda text, chunk: GateDecision(allow=True))
-        self._on_tool_complete = on_tool_complete or (lambda tc: GateDecision(allow=True))
-        self._on_error = on_error or (lambda exc: GateDecision(allow=True))
-        self._on_closed = on_closed or (lambda: None)
+        self._on_content = on_content or _allow_content
+        self._on_tool_complete = on_tool_complete or _allow_tool_call
+        self._on_error = on_error or _allow_error
+        self._on_closed = on_closed or _noop_closed
 
         # Internal state - aggregators per tool call index
         self._aggregators: dict[int, StreamChunkAggregator] = {}
         self._tool_call_buffers: dict[int, list[ModelResponse]] = {}
         self._completed_tool_calls: set[int] = set()
 
-    async def _invoke_callback(self, callback: Callable, *args) -> Any:
-        """Invoke a callback that may be sync or async.
+    async def _invoke_callback(self, callback: Callable[..., Awaitable[Any]], *args: Any) -> Any:
+        """Invoke an async callback.
 
         Args:
-            callback: Callback function (sync or async)
+            callback: Async callback function
             *args: Arguments to pass to callback
 
         Returns:
             Result from callback
         """
-        result = callback(*args)
-        if asyncio.iscoroutine(result):
-            return await result
-        return result
+        return await callback(*args)
 
     async def process(
         self,
