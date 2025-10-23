@@ -11,6 +11,7 @@ For generic streaming transformations, use iter_events() directly.
 For tool-call judging, use ToolCallStreamGate for buffering and evaluation.
 """
 
+from luthien_proxy.v2.streaming.event_driven import EventDrivenPolicy, StreamingContext, TerminateStream
 from luthien_proxy.v2.streaming.events import (
     ContentChunk,
     OtherChunk,
@@ -25,6 +26,10 @@ from luthien_proxy.v2.streaming.events import (
 from luthien_proxy.v2.streaming.tool_call_stream_gate import GateDecision, ToolCall, ToolCallStreamGate
 
 __all__ = [
+    # Event-driven DSL
+    "EventDrivenPolicy",
+    "StreamingContext",
+    "TerminateStream",
     # Events (generic - use these for any streaming policy)
     "StreamEvent",
     "StreamStarted",

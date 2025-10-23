@@ -3,15 +3,37 @@
 # This file specifies the active policy for the V2 integrated architecture.
 # Set the V2_POLICY_CONFIG environment variable to point to this file.
 
-# Active policy configuration
+# Active policy configuration - Event-driven Tool Call Judge
 policy:
-  class: "luthien_proxy.v2.policies.uppercase_nth_word:UppercaseNthWordPolicy"
+  class: "luthien_proxy.v2.policies.event_driven_tool_call_judge:EventDrivenToolCallJudgePolicy"
   config:
-    n: 3
+    model: "ollama/gemma2:2b"
+    api_base: "http://local-llm:11434"
+    api_key: "ollama"
+    probability_threshold: 0.6
+    temperature: 0.0
+    max_tokens: 256
 
 # Other policy examples:
+
+# Uppercase every Nth word
+# policy:
+#   class: "luthien_proxy.v2.policies.uppercase_nth_word:UppercaseNthWordPolicy"
+#   config:
+#     n: 3
 
 # No-op policy (pass everything through)
 # policy:
 #   class: "luthien_proxy.v2.policies.noop:NoOpPolicy"
 #   config: {}
+
+# Event-driven no-op (demonstrates DSL)
+# policy:
+#   class: "luthien_proxy.v2.policies.event_driven_noop:EventDrivenNoOpPolicy"
+#   config: {}
+
+# Event-driven uppercase (demonstrates DSL with buffering)
+# policy:
+#   class: "luthien_proxy.v2.policies.event_driven_uppercase_nth_word:EventDrivenUppercaseNthWordPolicy"
+#   config:
+#     n: 3

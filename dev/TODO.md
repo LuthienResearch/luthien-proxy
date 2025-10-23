@@ -7,6 +7,7 @@
 - [ ] Sweep code for "defensive coding" anti-patterns and remove
 - [ ] Rename, reorganize, and refactor things for maximum legibility
 - [ ] Make sure tests match package file structure
+- [ ] EventDrivenPolicy should inherit from LuthienPolicy
 
 ## High Priority
 
@@ -26,7 +27,7 @@
 - [ ] Event logging architecture indexed by call_id, trace_id to replace the current debug logs system
 - [ ] OpenTelemetry/Grafana/Loki for instrumentation/logging/debugging
 - [ ] Document all env vars
-- [ ] factor our env var logic to coherent config system
+- [ ] factor our env var logic
 - [ ] Integration test for concurrent streams against control plane
 
 ## Low Priority
