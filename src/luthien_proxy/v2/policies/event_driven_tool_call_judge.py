@@ -32,7 +32,7 @@ import json
 import logging
 import os
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from litellm import acompletion
 from litellm.types.utils import ModelResponse
@@ -395,15 +395,14 @@ class EventDrivenToolCallJudgePolicy(EventDrivenPolicy, LuthienPolicy):
                 kwargs["api_key"] = self._config.api_key
 
             response = await acompletion(**kwargs)
+            # We're not streaming, so: response is ModelResponse (not CustomStreamWrapper)
+            response = cast(ModelResponse, response)
 
         except Exception as exc:
             logger.error(f"LLM judge request failed: {exc}")
             raise
 
         # Extract response content
-        if not hasattr(response, "choices") or not response.choices:
-            raise ValueError("Judge response missing choices")
-
         first_choice = response.choices[0]
         message = first_choice.message if hasattr(first_choice, "message") else first_choice.get("message")  # type: ignore
         content = message.content if hasattr(message, "content") else message.get("content")  # type: ignore
