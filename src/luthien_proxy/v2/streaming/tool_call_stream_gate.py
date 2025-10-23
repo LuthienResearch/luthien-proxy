@@ -328,24 +328,5 @@ class ToolCallStreamGate:
 
         return not decision.terminate
 
-    def _is_tool_call_complete(self, agg: StreamChunkAggregator) -> bool:
-        """Check if aggregator has a complete tool call.
-
-        Args:
-            agg: Aggregator to check
-
-        Returns:
-            True if tool call has name (minimum for evaluation)
-        """
-        if not agg.tool_calls:
-            return False
-
-        # Tool call is complete enough if it has a name
-        for state in agg.tool_calls.values():
-            if state.name:
-                return True
-
-        return False
-
 
 __all__ = ["ToolCall", "GateDecision", "ToolCallStreamGate"]
