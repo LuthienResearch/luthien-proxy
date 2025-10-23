@@ -489,9 +489,8 @@ class TestStreamingProcessing:
         assert len(output_chunks) == 3
         assert mock_acompletion.called
 
-        # Verify events
+        # Verify events - stream ended with incomplete tool call, so it was evaluated at stream end
         emit_calls = [call[0][0] for call in mock_context.emit.call_args_list]
-        assert "judge.stream_ended_with_buffer" in emit_calls
         assert "judge.passed_on_stream_end" in emit_calls
 
     @patch("luthien_proxy.v2.policies.tool_call_judge.acompletion")
@@ -1015,6 +1014,363 @@ class TestStreamingProcessing:
             and "Result" in c.choices[0].delta.get("content", "")
         ]
         assert len(text_chunks) == 2, f"Expected 2 text chunks, got {len(text_chunks)}"
+
+    @patch("luthien_proxy.v2.policies.tool_call_judge.acompletion")
+    async def test_parallel_tool_calls_both_approved(self, mock_acompletion, judge_policy, mock_context):
+        """Test parallel tool calls (index 0 and 1) both approved.
+
+        Simplif test: each tool call comes complete in one chunk, then finish_reason.
+        """
+
+        async def mock_judge(*args, **kwargs):
+            # Approve all tool calls
+            return ModelResponse(
+                id="judge-response",
+                choices=[
+                    Choices(
+                        index=0,
+                        message=Message(role="assistant", content='{"probability": 0.1, "explanation": "Safe"}'),
+                        finish_reason="stop",
+                    )
+                ],
+                created=123,
+                model="test-model",
+            )
+
+        mock_acompletion.side_effect = mock_judge
+
+        incoming = asyncio.Queue()
+        outgoing = asyncio.Queue()
+
+        # Parallel tool calls - each complete in one chunk
+        chunks = [
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_0",
+                                    "type": "function",
+                                    "function": {"name": "func_a", "arguments": '{"x": 1}'},
+                                }
+                            ],
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "tool_calls": [
+                                {
+                                    "index": 1,
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {"name": "func_b", "arguments": '{"y": 2}'},
+                                }
+                            ]
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason="tool_calls")],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        # Process stream
+        await judge_policy.process_streaming_response(incoming, outgoing, mock_context)
+
+        # Collect output
+        output_chunks = []
+        while True:
+            try:
+                output_chunks.append(outgoing.get_nowait())
+            except (asyncio.QueueEmpty, asyncio.QueueShutDown):
+                break
+
+        # Both tool calls should be evaluated
+        assert mock_acompletion.call_count == 2, f"Expected 2 judge calls, got {mock_acompletion.call_count}"
+
+        # Verify both tool calls are in output
+        tool_0_chunks = [
+            c
+            for c in output_chunks
+            if hasattr(c.choices[0], "delta")
+            and c.choices[0].delta.get("tool_calls")
+            and any(tc.get("id") == "call_0" for tc in c.choices[0].delta.get("tool_calls", []))
+        ]
+        tool_1_chunks = [
+            c
+            for c in output_chunks
+            if hasattr(c.choices[0], "delta")
+            and c.choices[0].delta.get("tool_calls")
+            and any(tc.get("id") == "call_1" for tc in c.choices[0].delta.get("tool_calls", []))
+        ]
+
+        assert len(tool_0_chunks) > 0, "Tool 0 should be present"
+        assert len(tool_1_chunks) > 0, "Tool 1 should be present"
+
+    @patch("luthien_proxy.v2.policies.tool_call_judge.acompletion")
+    async def test_parallel_tool_calls_first_blocked(self, mock_acompletion, judge_policy, mock_context):
+        """Test parallel tool calls where first one is blocked.
+
+        When the first tool call is blocked, stream terminates.
+        """
+        judge_call_count = 0
+
+        async def mock_judge(*args, **kwargs):
+            nonlocal judge_call_count
+            judge_call_count += 1
+            # First call (tool 0) - BLOCK
+            if judge_call_count == 1:
+                return ModelResponse(
+                    id="judge-1",
+                    choices=[
+                        Choices(
+                            index=0,
+                            message=Message(
+                                role="assistant", content='{"probability": 0.9, "explanation": "Dangerous"}'
+                            ),
+                            finish_reason="stop",
+                        )
+                    ],
+                    created=123,
+                    model="test-model",
+                )
+            # Second call should not happen
+            else:
+                return ModelResponse(
+                    id="judge-2",
+                    choices=[
+                        Choices(
+                            index=0,
+                            message=Message(role="assistant", content='{"probability": 0.1, "explanation": "Safe"}'),
+                            finish_reason="stop",
+                        )
+                    ],
+                    created=123,
+                    model="test-model",
+                )
+
+        mock_acompletion.side_effect = mock_judge
+
+        incoming = asyncio.Queue()
+        outgoing = asyncio.Queue()
+
+        # Parallel tool calls - tool 0 is dangerous, tool 1 is safe
+        chunks = [
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_0",
+                                    "type": "function",
+                                    "function": {"name": "dangerous_func", "arguments": '{"x": 1}'},
+                                }
+                            ],
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "tool_calls": [
+                                {
+                                    "index": 1,
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {"name": "safe_func", "arguments": '{"y": 2}'},
+                                }
+                            ]
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason="tool_calls")],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        # Process stream
+        await judge_policy.process_streaming_response(incoming, outgoing, mock_context)
+
+        # Collect output
+        output_chunks = []
+        while True:
+            try:
+                output_chunks.append(outgoing.get_nowait())
+            except (asyncio.QueueEmpty, asyncio.QueueShutDown):
+                break
+
+        # Only first tool should be evaluated (stream terminates after first block)
+        assert judge_call_count == 1, f"Expected 1 judge call, got {judge_call_count}"
+
+        # Should have blocked response
+        blocked_chunks = [
+            c
+            for c in output_chunks
+            if hasattr(c.choices[0], "message") and "BLOCKED" in str(c.choices[0].message.content)
+        ]
+        assert len(blocked_chunks) == 1, "Should have exactly one blocked response"
+        assert "dangerous_func" in blocked_chunks[0].choices[0].message.content
+
+    @patch("luthien_proxy.v2.policies.tool_call_judge.acompletion")
+    async def test_judge_failure_propagates_error(self, mock_acompletion, judge_policy, mock_context):
+        """Test that judge LLM failures propagate as exceptions."""
+        # Mock judge to raise an exception
+        mock_acompletion.side_effect = Exception("Judge LLM connection failed")
+
+        incoming = asyncio.Queue()
+        outgoing = asyncio.Queue()
+
+        # Simple tool call
+        chunks = [
+            ModelResponse(
+                id="test",
+                choices=[
+                    Choices(
+                        index=0,
+                        delta={
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_123",
+                                    "type": "function",
+                                    "function": {"name": "test_func", "arguments": "{}"},
+                                }
+                            ],
+                        },
+                        finish_reason=None,
+                    )
+                ],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason="tool_calls")],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        # Process should raise exception from judge
+        with pytest.raises(Exception, match="Judge LLM connection failed"):
+            await judge_policy.process_streaming_response(incoming, outgoing, mock_context)
+
+    async def test_empty_chunks_ignored(self, judge_policy, mock_context):
+        """Test that empty/malformed chunks don't crash the policy."""
+        incoming = asyncio.Queue()
+        outgoing = asyncio.Queue()
+
+        # Mix of valid and empty chunks
+        chunks = [
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={"role": "assistant", "content": "Hello"}, finish_reason=None)],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            # Empty delta
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason=None)],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={"content": " world"}, finish_reason=None)],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+            ModelResponse(
+                id="test",
+                choices=[Choices(index=0, delta={}, finish_reason="stop")],
+                created=123,
+                model="gpt-4",
+                object="chat.completion.chunk",
+            ),
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        # Should complete without errors
+        await judge_policy.process_streaming_response(incoming, outgoing, mock_context)
+
+        # Collect output
+        output_chunks = []
+        while True:
+            try:
+                output_chunks.append(outgoing.get_nowait())
+            except (asyncio.QueueEmpty, asyncio.QueueShutDown):
+                break
+
+        # Should have all chunks (empty ones passed through)
+        assert len(output_chunks) == len(chunks)
 
 
 if __name__ == "__main__":

@@ -224,6 +224,9 @@ policy:
         # Clear the env var
         monkeypatch.delenv("V2_POLICY_CONFIG", raising=False)
 
+        # Change to tmp_path so relative path config/v2_config.yaml won't exist
+        monkeypatch.chdir(tmp_path)
+
         # Should try to load config/v2_config.yaml (which won't exist in test)
         # and return NoOpPolicy
         policy = load_policy_from_yaml()
