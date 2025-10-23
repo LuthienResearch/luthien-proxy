@@ -28,7 +28,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from litellm import acompletion
 from litellm.types.utils import ModelResponse
@@ -331,6 +331,7 @@ class ToolCallJudgePolicy(LuthienPolicy):
                 kwargs["api_key"] = self._config.api_key
 
             response = await acompletion(**kwargs)
+            response = cast(ModelResponse, response)
 
         except Exception as exc:
             logger.error(f"LLM judge request failed: {exc}")

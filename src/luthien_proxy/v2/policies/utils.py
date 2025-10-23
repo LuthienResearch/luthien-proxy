@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from litellm.types.utils import Choices, Message, ModelResponse
 
@@ -121,6 +121,7 @@ def extract_tool_calls_from_response(response: ModelResponse) -> list[dict[str, 
         return []
 
     first_choice = response.choices[0]
+    first_choice = cast(Choices, first_choice)
     message = first_choice.message if hasattr(first_choice, "message") else {}
 
     if not hasattr(message, "tool_calls") or not message.tool_calls:
