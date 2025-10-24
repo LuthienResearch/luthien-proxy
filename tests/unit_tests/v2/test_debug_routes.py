@@ -9,6 +9,7 @@ These tests focus on the HTTP layer - ensuring routes properly:
 - Return correct response models
 """
 
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -56,8 +57,6 @@ class TestGetCallEventsRoute:
     @pytest.mark.asyncio
     async def test_successful_response(self):
         """Test successful response returns CallEventsResponse."""
-        from datetime import datetime
-
         mock_row = {
             "call_id": "test-call-id",
             "event_type": "v2_request",
@@ -192,8 +191,6 @@ class TestListRecentCallsRoute:
     @pytest.mark.asyncio
     async def test_successful_response(self):
         """Test successful response with calls."""
-        from datetime import datetime
-
         mock_row1 = {
             "call_id": "call-1",
             "event_count": 2,

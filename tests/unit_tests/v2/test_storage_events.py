@@ -1,5 +1,7 @@
 """Unit tests for V2 event emission helpers."""
 
+import inspect
+import logging
 from unittest.mock import Mock, patch
 
 from luthien_proxy.v2.storage.events import (
@@ -34,8 +36,6 @@ def test_emit_request_event_with_null_call_id(caplog):
 
 def test_emit_request_event_with_null_db_pool(caplog):
     """Test that emit_request_event handles null db_pool gracefully."""
-    import logging
-
     caplog.set_level(logging.DEBUG)
 
     emit_request_event(
@@ -53,8 +53,6 @@ def test_emit_request_event_with_null_db_pool(caplog):
 @patch("luthien_proxy.v2.storage.events.CONVERSATION_EVENT_QUEUE")
 def test_emit_request_event_happy_path(mock_queue, mock_build_events):
     """Test successful request event emission."""
-    import inspect
-
     mock_db_pool = Mock()
     mock_event = {"event_type": "request", "data": "test"}
     mock_build_events.return_value = [mock_event]
@@ -87,8 +85,6 @@ def test_emit_request_event_happy_path(mock_queue, mock_build_events):
 @patch("luthien_proxy.v2.storage.events.CONVERSATION_EVENT_QUEUE")
 def test_emit_request_event_with_redis(mock_queue, mock_build_events):
     """Test request event emission with Redis publishing."""
-    import inspect
-
     mock_db_pool = Mock()
     mock_redis = Mock()
     mock_event1 = {"event_type": "request", "data": "test1"}
@@ -117,8 +113,6 @@ def test_emit_request_event_with_redis(mock_queue, mock_build_events):
 @patch("luthien_proxy.v2.storage.events.build_conversation_events")
 def test_emit_request_event_no_events_generated(mock_build_events, caplog):
     """Test when build_conversation_events returns empty list."""
-    import logging
-
     caplog.set_level(logging.DEBUG)
 
     mock_db_pool = Mock()
@@ -153,8 +147,6 @@ def test_emit_response_event_with_null_call_id(caplog):
 
 def test_emit_response_event_with_null_db_pool(caplog):
     """Test that emit_response_event handles null db_pool gracefully."""
-    import logging
-
     caplog.set_level(logging.DEBUG)
 
     emit_response_event(
@@ -172,8 +164,6 @@ def test_emit_response_event_with_null_db_pool(caplog):
 @patch("luthien_proxy.v2.storage.events.CONVERSATION_EVENT_QUEUE")
 def test_emit_response_event_happy_path(mock_queue, mock_build_events):
     """Test successful response event emission."""
-    import inspect
-
     mock_db_pool = Mock()
     mock_event = {"event_type": "response", "data": "test"}
     mock_build_events.return_value = [mock_event]
@@ -206,8 +196,6 @@ def test_emit_response_event_happy_path(mock_queue, mock_build_events):
 @patch("luthien_proxy.v2.storage.events.CONVERSATION_EVENT_QUEUE")
 def test_emit_response_event_with_redis(mock_queue, mock_build_events):
     """Test response event emission with Redis publishing."""
-    import inspect
-
     mock_db_pool = Mock()
     mock_redis = Mock()
     mock_event1 = {"event_type": "response", "data": "test1"}
@@ -236,8 +224,6 @@ def test_emit_response_event_with_redis(mock_queue, mock_build_events):
 @patch("luthien_proxy.v2.storage.events.build_conversation_events")
 def test_emit_response_event_no_events_generated(mock_build_events, caplog):
     """Test when build_conversation_events returns empty list."""
-    import logging
-
     caplog.set_level(logging.DEBUG)
 
     mock_db_pool = Mock()

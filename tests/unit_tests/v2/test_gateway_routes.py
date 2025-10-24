@@ -19,9 +19,11 @@ from tests.unit_tests.v2.gateway_test_fixtures import (
 from luthien_proxy.v2.gateway_routes import (
     add_model_specific_params,
     hash_api_key,
+    process_non_streaming_response,
     publish_request_received_event,
     publish_request_sent_event,
     stream_llm_chunks,
+    stream_with_policy_control,
     verify_token,
 )
 
@@ -186,8 +188,6 @@ class TestStreamWithPolicyControl:
     @pytest.mark.asyncio
     async def test_dict_chunks(self):
         """Test handling of dict chunks in policy stream."""
-        from luthien_proxy.v2.gateway_routes import stream_with_policy_control
-
         mock_cp = Mock()
 
         async def mock_policy_stream(_stream, _call_id, **_kwargs):
@@ -213,7 +213,6 @@ class TestStreamWithPolicyControl:
     @pytest.mark.asyncio
     async def test_unknown_chunk_type(self):
         """Test handling of unknown chunk types."""
-        from luthien_proxy.v2.gateway_routes import stream_with_policy_control
 
         class UnknownChunk:
             pass
@@ -242,8 +241,6 @@ class TestStreamWithPolicyControl:
     @pytest.mark.asyncio
     async def test_error_handling(self):
         """Test error handling in streaming."""
-        from luthien_proxy.v2.gateway_routes import stream_with_policy_control
-
         mock_cp = Mock()
 
         async def mock_policy_stream(_stream, _call_id, **_kwargs):
@@ -272,8 +269,6 @@ class TestProcessNonStreamingResponse:
     @pytest.mark.asyncio
     async def test_event_publisher_called(self):
         """Test that event publisher is called for both received and sent events."""
-        from luthien_proxy.v2.gateway_routes import process_non_streaming_response
-
         mock_response = make_mock_response()
         mock_cp = Mock()
 

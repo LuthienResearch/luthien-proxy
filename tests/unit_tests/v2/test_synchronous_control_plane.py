@@ -4,7 +4,7 @@
 """Tests for V2 ControlPlaneLocal."""
 
 import asyncio
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -240,8 +240,6 @@ class TestSynchronousControlPlaneStreaming:
 
             async def process_streaming_response(self, incoming, outgoing, context: PolicyContext, keepalive=None):
                 # Just wait forever
-                import asyncio
-
                 await asyncio.sleep(100)  # Long sleep
 
         policy = HangingPolicy()
@@ -265,8 +263,6 @@ class TestSynchronousControlPlaneEventPublisher:
     @pytest.mark.asyncio
     async def test_streaming_with_event_publisher(self, call_id, make_streaming_chunk):
         """Test that event publisher receives chunk events."""
-        from unittest.mock import AsyncMock
-
         # Create mock event publisher with event tracking
         publish_event = asyncio.Event()
         call_count = {"count": 0}
@@ -305,8 +301,6 @@ class TestSynchronousControlPlaneEventPublisher:
     @pytest.mark.asyncio
     async def test_streaming_with_db_pool(self, call_id, make_streaming_chunk):
         """Test that streaming emits events to database."""
-        from unittest.mock import MagicMock, patch
-
         # Create mock DB pool
         mock_db_pool = MagicMock()
 
@@ -336,8 +330,6 @@ class TestSynchronousControlPlaneEventPublisher:
     @pytest.mark.asyncio
     async def test_streaming_event_publisher_error_handling(self, call_id, make_streaming_chunk):
         """Test that event publisher errors don't break streaming."""
-        from unittest.mock import AsyncMock
-
         # Create mock event publisher that raises errors
         mock_publisher = Mock()
         mock_publisher.publish_event = AsyncMock(side_effect=Exception("Redis down"))
@@ -359,8 +351,6 @@ class TestSynchronousControlPlaneEventPublisher:
     @pytest.mark.asyncio
     async def test_streaming_chunk_dict_extraction_error(self, call_id, make_streaming_chunk):
         """Test handling of malformed chunks during event publishing."""
-        from unittest.mock import AsyncMock
-
         # Create mock event publisher
         mock_publisher = Mock()
         mock_publisher.publish_event = AsyncMock()

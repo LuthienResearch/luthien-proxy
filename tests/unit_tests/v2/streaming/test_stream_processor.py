@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.streaming.stream_blocks import (
     ContentStreamBlock,
@@ -58,8 +59,6 @@ def load_chunks(filename: str) -> list[dict]:
 
 async def simulate_stream(chunks: list[dict]):
     """Simulate async stream from chunk list."""
-    from litellm.types.utils import ModelResponse
-
     for chunk_dict in chunks:
         mr = ModelResponse(**chunk_dict)
 

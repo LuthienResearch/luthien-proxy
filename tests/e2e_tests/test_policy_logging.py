@@ -5,6 +5,7 @@ messages for policy processing.
 """
 
 import json
+import re
 import time
 
 import httpx
@@ -194,8 +195,6 @@ async def test_policy_logs_use_same_stream_id():
     assert len(start_logs) > 0, "Should have at least one POLICY STREAM START log"
 
     # Extract stream ID from the most recent START log
-    import re
-
     uuid_pattern = re.compile(r"\[([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]")
     match = uuid_pattern.search(start_logs[-1])
     assert match, "POLICY START log should contain a stream ID"

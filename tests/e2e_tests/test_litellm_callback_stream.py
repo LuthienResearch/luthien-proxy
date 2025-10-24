@@ -3,15 +3,14 @@ import json
 
 import pytest
 import websockets
+from config.litellm_callback import LuthienCallback
+from litellm.types.utils import ModelResponseStream
 
 pytestmark = pytest.mark.e2e
 
 
 @pytest.mark.asyncio
 async def test_callback_emits_end_when_stream_finishes():
-    from config.litellm_callback import LuthienCallback
-    from litellm.types.utils import ModelResponseStream
-
     received: list[dict[str, object]] = []
 
     async def handler(websocket: websockets.WebSocketServerProtocol):

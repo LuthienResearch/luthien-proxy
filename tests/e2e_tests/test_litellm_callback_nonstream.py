@@ -5,6 +5,8 @@ import contextlib
 import json
 
 import pytest
+from config.litellm_callback import LuthienCallback
+from litellm.types.utils import ModelResponse
 
 pytestmark = pytest.mark.e2e
 
@@ -68,9 +70,6 @@ class _HookServer:
 @pytest.mark.asyncio
 async def test_policy_override_mutates_response():
     """Ensure async_post_call_success_hook applies control-plane overrides in-place."""
-    from config.litellm_callback import LuthienCallback
-    from litellm.types.utils import ModelResponse
-
     override = {
         "id": "chatcmpl-overridden",
         "created": 42,

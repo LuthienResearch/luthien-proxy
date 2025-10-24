@@ -2,14 +2,12 @@
 
 import httpx
 import pytest
-from tests.e2e_tests.helpers import E2ESettings
+from tests.e2e_tests.helpers import E2ESettings, ensure_services_available
 
 
 @pytest.fixture(scope="module")
 async def ensure_stack_ready(e2e_settings: E2ESettings):
     """Ensure services are running before tests."""
-    from tests.e2e_tests.helpers import ensure_services_available
-
     await ensure_services_available(e2e_settings)
 
 
