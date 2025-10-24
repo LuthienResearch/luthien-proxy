@@ -162,7 +162,6 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.v2-gateway
-    profiles: ["observability"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -171,7 +170,7 @@ services:
       - V2_POLICY_CONFIG=${V2_POLICY_CONFIG:-/app/config/v2_config.yaml}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_SERVICE_NAME=luthien-v2-gateway
     ports:
       - "${V2_GATEWAY_PORT:-8000}:8000"
@@ -183,8 +182,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      tempo:
-        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

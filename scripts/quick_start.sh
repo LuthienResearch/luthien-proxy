@@ -124,17 +124,14 @@ while ! curl -sf "http://localhost:${ollama_port}/v1/models" > /dev/null 2>&1; d
 done
 echo "✅ Ollama OpenAI API is ready"
 
-# Start application services depending on DB/Redis and local LLM
-echo "🎛️ Starting control plane..."
-docker compose up -d control-plane
-
-echo "🔄 Starting LiteLLM proxy..."
-docker compose up -d litellm-proxy
+# Start V2 gateway (integrated FastAPI + LiteLLM)
+echo "🚀 Starting V2 gateway (integrated proxy)..."
+docker compose up -d v2-gateway
 
 # Wait for services to be healthy
 echo "⏳ Waiting for services to be healthy..."
 services_healthy=true
-for service in control-plane litellm-proxy local-llm; do
+for service in v2-gateway local-llm; do
     if ! wait_for_service "$service" 60; then
         services_healthy=false
     fi
@@ -142,17 +139,16 @@ done
 
 if [ "$services_healthy" = true ]; then
     echo ""
-    echo "🎉 Luthien Control is ready!"
+    echo "🎉 Luthien V2 is ready!"
     echo ""
     echo "📋 Service URLs:"
-    echo "   • LiteLLM Proxy:  http://localhost:${LITELLM_PORT:-4000}"
-    echo "   • Control Plane:  http://localhost:${CONTROL_PLANE_PORT:-8081}"
+    echo "   • V2 Gateway (OpenAI-compatible): http://localhost:${V2_GATEWAY_PORT:-8000}"
     echo "   • PostgreSQL:     localhost:${POSTGRES_PORT:-5432}"
     echo "   • Redis:          localhost:${REDIS_PORT:-6379}"
     echo "   • Ollama OpenAI API: http://localhost:${ollama_port} (OpenAI-compatible)"
     echo ""
     echo "📊 To view logs:"
-    echo "   docker compose logs -f"
+    echo "   docker compose logs -f v2-gateway"
     echo ""
     echo "🛑 To stop all services:"
     echo "   docker compose down"
