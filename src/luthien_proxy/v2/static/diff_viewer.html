@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>V2 Policy Diff Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid #333;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+        }
+
+        .call-id-input {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        input {
+            flex: 1;
+            padding: 10px 16px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            font-size: 14px;
+            font-family: "Monaco", "Menlo", monospace;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #60a5fa;
+        }
+
+        button {
+            padding: 10px 24px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: #333;
+            border-color: #555;
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        button.primary {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: white;
+        }
+
+        button.primary:hover {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+        }
+
+        .error {
+            background: #4d1a1a;
+            color: #f87171;
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+            font-size: 16px;
+        }
+
+        .trace-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: #1e3a5f;
+            border: 1px solid #2563eb;
+            border-radius: 6px;
+            color: #60a5fa;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 24px;
+            transition: all 0.2s;
+        }
+
+        .trace-link:hover {
+            background: #1e40af;
+            color: #93c5fd;
+        }
+
+        .diff-section {
+            margin-bottom: 32px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #333;
+        }
+
+        .no-changes {
+            color: #888;
+            font-style: italic;
+            padding: 12px;
+            background: #222;
+            border-radius: 6px;
+        }
+
+        .metadata-diff {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .metadata-item {
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        .metadata-item.changed {
+            border-color: #f59e0b;
+            background: #2d1f0d;
+        }
+
+        .metadata-label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .metadata-value {
+            font-family: "Monaco", "Menlo", monospace;
+            font-size: 14px;
+        }
+
+        .metadata-change {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .metadata-change .old {
+            color: #f87171;
+            text-decoration: line-through;
+        }
+
+        .metadata-change .arrow {
+            color: #888;
+        }
+
+        .metadata-change .new {
+            color: #4ade80;
+        }
+
+        .side-by-side {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .column {
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .column-header {
+            padding: 12px 16px;
+            background: #2a2a2a;
+            font-weight: 600;
+            font-size: 14px;
+            border-bottom: 1px solid #333;
+        }
+
+        .column-header.original {
+            color: #f87171;
+        }
+
+        .column-header.final {
+            color: #4ade80;
+        }
+
+        .column-content {
+            padding: 16px;
+            font-family: "Monaco", "Menlo", monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .message {
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #2a2a2a;
+            border-radius: 4px;
+            border-left: 3px solid #555;
+        }
+
+        .message.changed {
+            border-left-color: #f59e0b;
+            background: #2d1f0d;
+        }
+
+        .message-role {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #888;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .message-content {
+            color: #d1d5db;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .response-content {
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: #d1d5db;
+            line-height: 1.6;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge.changed {
+            background: #2d1f0d;
+            color: #f59e0b;
+        }
+
+        .badge.unchanged {
+            background: #1a4d1a;
+            color: #4ade80;
+        }
+
+        /* Syntax highlighting for JSON */
+        .json-key {
+            color: #60a5fa;
+        }
+
+        .json-string {
+            color: #34d399;
+        }
+
+        .json-number {
+            color: #f59e0b;
+        }
+
+        .json-boolean {
+            color: #c084fc;
+        }
+
+        .json-null {
+            color: #888;
+        }
+
+        @media (max-width: 1024px) {
+            .side-by-side {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Policy Diff Viewer</h1>
+            <p class="subtitle">Compare original vs policy-transformed requests and responses</p>
+        </header>
+
+        <div class="call-id-input">
+            <input
+                type="text"
+                id="callIdInput"
+                placeholder="Enter call_id to view diff..."
+                autocomplete="off"
+            />
+            <button class="primary" onclick="loadDiff()">Load Diff</button>
+            <button onclick="loadRecentCalls()">Browse Recent</button>
+        </div>
+
+        <div id="errorContainer"></div>
+        <div id="diffContainer"></div>
+    </div>
+
+    <script>
+        // Parse call_id from URL query param if present
+        const urlParams = new URLSearchParams(window.location.search);
+        const callIdFromUrl = urlParams.get('call_id');
+        if (callIdFromUrl) {
+            document.getElementById('callIdInput').value = callIdFromUrl;
+            loadDiff();
+        }
+
+        async function loadDiff() {
+            const callId = document.getElementById('callIdInput').value.trim();
+            const errorContainer = document.getElementById('errorContainer');
+            const diffContainer = document.getElementById('diffContainer');
+
+            errorContainer.innerHTML = '';
+
+            if (!callId) {
+                errorContainer.innerHTML = '<div class="error">Please enter a call_id</div>';
+                return;
+            }
+
+            diffContainer.innerHTML = '<div class="loading">Loading diff...</div>';
+
+            try {
+                const response = await fetch(`/v2/debug/calls/${callId}/diff`);
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                renderDiff(data);
+            } catch (error) {
+                diffContainer.innerHTML = '';
+                errorContainer.innerHTML = `<div class="error">Failed to load diff: ${error.message}</div>`;
+            }
+        }
+
+        function renderDiff(data) {
+            const container = document.getElementById('diffContainer');
+            let html = '';
+
+            // Trace link
+            if (data.tempo_trace_url) {
+                html += `
+                    <a href="${data.tempo_trace_url}" target="_blank" class="trace-link">
+                        📊 View Trace in Grafana
+                    </a>
+                `;
+            }
+
+            // Request diff
+            if (data.request) {
+                html += renderRequestDiff(data.request);
+            } else {
+                html += '<div class="diff-section"><div class="no-changes">No request data available</div></div>';
+            }
+
+            // Response diff
+            if (data.response) {
+                html += renderResponseDiff(data.response);
+            } else {
+                html += '<div class="diff-section"><div class="no-changes">No response data available</div></div>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderRequestDiff(request) {
+            let html = '<div class="diff-section"><h2 class="section-title">Request Diff</h2>';
+
+            // Metadata changes
+            const hasMetadataChanges = request.model_changed || request.max_tokens_changed;
+            if (hasMetadataChanges) {
+                html += '<div class="metadata-diff">';
+
+                if (request.model_changed) {
+                    html += `
+                        <div class="metadata-item changed">
+                            <div class="metadata-label">Model</div>
+                            <div class="metadata-value metadata-change">
+                                <span class="old">${escapeHtml(request.original_model || 'none')}</span>
+                                <span class="arrow">→</span>
+                                <span class="new">${escapeHtml(request.final_model || 'none')}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                if (request.max_tokens_changed) {
+                    html += `
+                        <div class="metadata-item changed">
+                            <div class="metadata-label">Max Tokens</div>
+                            <div class="metadata-value metadata-change">
+                                <span class="old">${request.original_max_tokens || 'none'}</span>
+                                <span class="arrow">→</span>
+                                <span class="new">${request.final_max_tokens || 'none'}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                html += '</div>';
+            }
+
+            // Messages side-by-side
+            const hasChangedMessages = request.messages.some(m => m.changed);
+
+            html += '<div class="side-by-side">';
+
+            // Original column
+            html += `
+                <div class="column">
+                    <div class="column-header original">Original Messages</div>
+                    <div class="column-content">
+            `;
+
+            request.messages.forEach(msg => {
+                const className = msg.changed ? 'message changed' : 'message';
+                html += `
+                    <div class="${className}">
+                        <div class="message-role">${escapeHtml(msg.role)}</div>
+                        <div class="message-content">${formatContent(msg.original_content || '')}</div>
+                    </div>
+                `;
+            });
+
+            html += '</div></div>';
+
+            // Final column
+            html += `
+                <div class="column">
+                    <div class="column-header final">Final Messages</div>
+                    <div class="column-content">
+            `;
+
+            request.messages.forEach(msg => {
+                const className = msg.changed ? 'message changed' : 'message';
+                html += `
+                    <div class="${className}">
+                        <div class="message-role">${escapeHtml(msg.role)}</div>
+                        <div class="message-content">${formatContent(msg.final_content || '')}</div>
+                    </div>
+                `;
+            });
+
+            html += '</div></div>';
+            html += '</div>'; // end side-by-side
+
+            if (!hasMetadataChanges && !hasChangedMessages) {
+                html += '<div class="no-changes">✓ No changes detected</div>';
+            }
+
+            html += '</div>'; // end diff-section
+            return html;
+        }
+
+        function renderResponseDiff(response) {
+            let html = '<div class="diff-section"><h2 class="section-title">Response Diff</h2>';
+
+            // Metadata changes
+            if (response.finish_reason_changed) {
+                html += '<div class="metadata-diff">';
+                html += `
+                    <div class="metadata-item changed">
+                        <div class="metadata-label">Finish Reason</div>
+                        <div class="metadata-value metadata-change">
+                            <span class="old">${escapeHtml(response.original_finish_reason || 'none')}</span>
+                            <span class="arrow">→</span>
+                            <span class="new">${escapeHtml(response.final_finish_reason || 'none')}</span>
+                        </div>
+                    </div>
+                `;
+                html += '</div>';
+            }
+
+            // Content side-by-side
+            html += '<div class="side-by-side">';
+
+            // Original column
+            html += `
+                <div class="column">
+                    <div class="column-header original">
+                        Original Content
+                        ${response.content_changed ? '<span class="badge changed">Changed</span>' : '<span class="badge unchanged">Unchanged</span>'}
+                    </div>
+                    <div class="column-content">
+                        <div class="response-content">${formatContent(response.original_content || '')}</div>
+                    </div>
+                </div>
+            `;
+
+            // Final column
+            html += `
+                <div class="column">
+                    <div class="column-header final">
+                        Final Content
+                        ${response.content_changed ? '<span class="badge changed">Changed</span>' : '<span class="badge unchanged">Unchanged</span>'}
+                    </div>
+                    <div class="column-content">
+                        <div class="response-content">${formatContent(response.final_content || '')}</div>
+                    </div>
+                </div>
+            `;
+
+            html += '</div>'; // end side-by-side
+
+            if (!response.content_changed && !response.finish_reason_changed) {
+                html += '<div class="no-changes">✓ No changes detected</div>';
+            }
+
+            html += '</div>'; // end diff-section
+            return html;
+        }
+
+        async function loadRecentCalls() {
+            const errorContainer = document.getElementById('errorContainer');
+            const diffContainer = document.getElementById('diffContainer');
+
+            errorContainer.innerHTML = '';
+            diffContainer.innerHTML = '<div class="loading">Loading recent calls...</div>';
+
+            try {
+                const response = await fetch('/v2/debug/calls?limit=20');
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                renderRecentCalls(data.calls);
+            } catch (error) {
+                diffContainer.innerHTML = '';
+                errorContainer.innerHTML = `<div class="error">Failed to load recent calls: ${error.message}</div>`;
+            }
+        }
+
+        function renderRecentCalls(calls) {
+            const container = document.getElementById('diffContainer');
+
+            if (calls.length === 0) {
+                container.innerHTML = '<div class="no-changes">No recent calls found</div>';
+                return;
+            }
+
+            let html = '<div class="diff-section"><h2 class="section-title">Recent Calls</h2>';
+
+            calls.forEach(call => {
+                const timestamp = new Date(call.latest_timestamp).toLocaleString();
+                html += `
+                    <div class="message" style="cursor: pointer;" onclick="selectCall('${call.call_id}')">
+                        <div class="message-role">Call ID: ${call.call_id}</div>
+                        <div style="display: flex; justify-content: space-between; color: #888; font-size: 12px;">
+                            <span>${timestamp}</span>
+                            <span>${call.event_count} events</span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function selectCall(callId) {
+            document.getElementById('callIdInput').value = callId;
+            loadDiff();
+        }
+
+        function escapeHtml(text) {
+            if (text === null || text === undefined) {
+                return '';
+            }
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        function formatContent(content) {
+            if (!content) return '';
+
+            // Try to detect and pretty-print JSON
+            const trimmed = content.trim();
+            if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                try {
+                    const parsed = JSON.parse(trimmed);
+                    const formatted = JSON.stringify(parsed, null, 2);
+                    return syntaxHighlightJson(formatted);
+                } catch (e) {
+                    // Not valid JSON, return as-is
+                    return escapeHtml(content);
+                }
+            }
+
+            return escapeHtml(content);
+        }
+
+        function syntaxHighlightJson(json) {
+            if (!json) return '';
+
+            // Escape HTML first
+            json = escapeHtml(json);
+
+            // Apply syntax highlighting with color classes
+            json = json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?)/g, (match) => {
+                let cls = 'json-string';
+                if (/:$/.test(match)) {
+                    cls = 'json-key';
+                    return `<span class="${cls}">${match}</span>`;
+                }
+                return `<span class="${cls}">${match}</span>`;
+            });
+
+            // Highlight numbers
+            json = json.replace(/\b(-?\d+\.?\d*)\b/g, '<span class="json-number">$1</span>');
+
+            // Highlight booleans
+            json = json.replace(/\b(true|false)\b/g, '<span class="json-boolean">$1</span>');
+
+            // Highlight null
+            json = json.replace(/\bnull\b/g, '<span class="json-null">null</span>');
+
+            return json;
+        }
+
+        // Allow Enter key to load diff
+        document.getElementById('callIdInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                loadDiff();
+            }
+        });
+    </script>
+</body>
+</html>

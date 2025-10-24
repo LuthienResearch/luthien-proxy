@@ -43,3 +43,54 @@ Centralized control plane makes policy decisions, proxy stays thin and forwards 
 - Clear separation of concerns: architecture (why) vs diagrams (visual) vs onboarding (how-to-learn)
 
 **Rationale documented in:** `dev/archive/2025-10-10_revised_plan_d_dataflow_docs.md`
+
+## LiteLLM Role in V2 Architecture (2025-10-17)
+
+**Key insight**: LiteLLM should ONLY be used for API format conversion, not parameter validation.
+
+**Problem discovered**: When passing model-specific parameters (e.g., `verbosity: "low"` for GPT-5 reasoning models), litellm's `acompletion()` was rejecting them with "Unknown parameter" errors, even though the underlying provider supports them.
+
+**Solution**: Use litellm's `allowed_openai_params` mechanism to forward unknown parameters:
+- In Python SDK: Pass `allowed_openai_params=["param_name"]` to `acompletion()` calls
+- In proxy config: Add `allowed_openai_params: ["param_name"]` to `litellm_settings`
+- **Note**: Config option only works for the proxy server, not direct SDK calls
+
+**Implementation** ([src/luthien_proxy/v2/main.py:152-157](src/luthien_proxy/v2/main.py#L152-L157)):
+```python
+# Identify any model-specific parameters to forward
+known_params = {"verbosity"}  # Add more as needed
+model_specific_params = [p for p in data.keys() if p in known_params]
+if model_specific_params:
+    data["allowed_openai_params"] = model_specific_params
+```
+
+This allows litellm to pass through parameters it doesn't recognize, letting each provider handle its own model-specific parameters (e.g., `verbosity` for GPT-5, `reasoning_effort` for o1, etc.).
+
+**Key principle**: We want litellm to do format conversion (OpenAI ↔ Anthropic ↔ etc.) but NOT to validate or filter parameters. Each provider knows best what parameters it supports.
+
+## E2E Test Infrastructure (2025-10-17)
+
+**Self-contained test servers**: E2E tests now manage their own server instances without interfering with dev environment.
+
+**V2GatewayManager** ([tests/e2e_tests/helpers/v2_gateway.py](tests/e2e_tests/helpers/v2_gateway.py)):
+- Uses `multiprocessing.Process` to run V2 gateway in isolated subprocess
+- Runs on dedicated test port (8888) separate from dev environment (8000)
+- Handles startup, health checking, and cleanup automatically
+- Configured via pytest fixture with module scope for efficiency
+
+**Key benefits**:
+- Tests can run without manual server setup
+- No port conflicts with dev environment
+- Clean separation between test and dev infrastructure
+- Test-specific configuration (API keys, ports) isolated from production settings
+
+**Usage pattern**:
+```python
+@pytest.fixture(scope="module")
+def v2_gateway(e2e_settings: E2ESettings):
+    manager = V2GatewayManager(port=8888, api_key="sk-test-v2-gateway", verbose=e2e_settings.verbose)
+    with manager.running():
+        yield manager
+```
+
+This pattern follows the existing e2e infrastructure for control plane and dummy provider management.

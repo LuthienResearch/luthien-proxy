@@ -25,3 +25,6 @@ _scratch/
 # Replay callback exports
 dev/replay_logs*.jsonl
 dev/litellm_replay_logs/
+
+# Observability runtime data
+observability/data/

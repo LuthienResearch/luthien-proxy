@@ -7,10 +7,12 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
-## Testing (2025-10-08)
+## Testing (2025-10-08, updated 2025-10-20)
 
 - E2E tests (`pytest -m e2e`) are SLOW - use sparingly, prefer unit tests for rapid iteration
 - Always run `./scripts/dev_checks.sh` before committing - formats, lints, type-checks, and tests
+- **OTel disabled in tests**: Set `OTEL_ENABLED=false` in test environment to avoid connection errors to Tempo endpoint. Module-level `tracer = trace.get_tracer()` calls trigger OTel initialization at import time.
+- **LiteLLM type warnings**: When working with `ModelResponse`, use proper typed objects (`Choices`, `StreamingChoices`, `Message`, `Delta`) to avoid Pydantic serialization warnings from LiteLLM's `Union` types. See test fixtures for examples.
 
 ## Docker Development (2025-10-08)
 
@@ -38,6 +40,16 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - New structure has `ARCHITECTURE.md`, `developer-onboarding.md`, `diagrams.md`
 - Common places to check: README.md, tests/e2e_tests/CLAUDE.md, dev planning docs, inline code comments
 - Easy to miss: Links in other markdown files, docstrings pointing to specific sections
+
+## Queue Shutdown for Stream Termination (2025-01-20, updated 2025-10-20)
+
+**Gotcha**: Use `asyncio.Queue.shutdown()` for stream termination, not `None` sentinel values
+
+- **Why**: Python 3.11+ built-in queue shutdown raises `QueueShutDown` when drained - cleaner than sentinel patterns
+- **Wrong**: Putting `None` (gets consumed/lost during batch draining)
+- **Right**: Call `queue.shutdown()` to signal end; catch `QueueShutDown` exception
+- **Batch processing**: Block with `await queue.get()` for first item (don't busy-wait with `get_nowait()` in loop!)
+- **Why it matters**: Busy-wait consumes 100% CPU; proper blocking is essential for async efficiency
 
 ---
 

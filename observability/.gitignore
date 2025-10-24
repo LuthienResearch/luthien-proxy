@@ -1,0 +1,6 @@
+# Runtime data (auto-generated)
+data/
+
+# Temporary files
+*.tmp
+*.log

@@ -17,6 +17,7 @@ from typing import Optional, TypedDict
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from redis.asyncio import Redis
 
 from luthien_proxy.control_plane.conversation import ConversationStreamConfig
 from luthien_proxy.control_plane.stream_context import StreamContextStore
@@ -24,6 +25,11 @@ from luthien_proxy.control_plane.ui import router as ui_router
 from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.utils import db, redis_client
 from luthien_proxy.utils.project_config import ProjectConfig
+from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
+from luthien_proxy.v2.observability import RedisEventPublisher
+from luthien_proxy.v2.policies.noop import NoOpPolicy as V2NoOpPolicy
+from luthien_proxy.v2.routes import router as v2_router
+from luthien_proxy.v2.telemetry import setup_telemetry
 
 from .debug_records import record_debug_event
 from .debug_routes import (
@@ -119,7 +125,13 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
         rate_limiter: Optional[RateLimiter] = None
         stream_config: Optional[ConversationStreamConfig] = None
 
+        # V2 components
+        v2_redis_client: Optional[Redis] = None
+        v2_event_publisher: Optional[RedisEventPublisher] = None
+        v2_control_plane: Optional[SynchronousControlPlane] = None
+
         try:
+            # === V1 Control Plane Initialization ===
             app.state.conversation_rate_limiter = None
             app.state.conversation_stream_config = None
             database_pool = db.DatabasePool(control_cfg.database_url)
@@ -154,9 +166,45 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             app.state.active_policy = policy
             app.state.stream_store = stream_store
 
-            logger.info("Control plane services initialized successfully")
+            logger.info("V1 Control plane services initialized successfully")
+
+            # === V2 OpenTelemetry Integration ===
+            # Initialize OpenTelemetry
+            setup_telemetry(app)
+            logger.info("OpenTelemetry initialized for V2 endpoints")
+
+            # Connect to Redis for V2 event publisher
+            try:
+                v2_redis_client = Redis.from_url(control_cfg.redis_url, decode_responses=False)
+                await v2_redis_client.ping()
+                logger.info("V2 Redis client connected")
+            except Exception as exc:
+                logger.warning(f"Failed to connect V2 Redis client: {exc}. V2 event publisher disabled.")
+                v2_redis_client = None
+
+            # Initialize V2 event publisher for real-time UI
+            if v2_redis_client:
+                v2_event_publisher = RedisEventPublisher(v2_redis_client)
+                logger.info("V2 event publisher initialized for real-time UI")
+            else:
+                v2_event_publisher = None
+
+            # Initialize V2 control plane with NoOp policy (for now)
+            v2_policy = V2NoOpPolicy()
+            v2_control_plane = SynchronousControlPlane(
+                policy=v2_policy,
+                event_publisher=v2_event_publisher,
+            )
+            logger.info("V2 control plane initialized with OpenTelemetry tracing")
+
+            # Store V2 components in app state
+            app.state.v2_redis_client = v2_redis_client
+            app.state.v2_event_publisher = v2_event_publisher
+            app.state.v2_control_plane = v2_control_plane
+
             yield
         finally:
+            # Cleanup V1
             if isinstance(policy, LuthienPolicy):
                 policy.set_debug_log_writer(None)
                 policy.set_database_pool(None)
@@ -172,6 +220,14 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
             if database_pool is not None:
                 await database_pool.close()
             await redis_manager.close_all()
+
+            # Cleanup V2
+            app.state.v2_redis_client = None
+            app.state.v2_event_publisher = None
+            app.state.v2_control_plane = None
+            if v2_redis_client:
+                await v2_redis_client.aclose()
+                logger.info("V2 Redis client closed")
 
     app = FastAPI(
         title="Luthien Control Plane",
@@ -201,6 +257,10 @@ def create_control_plane_app(config: ProjectConfig) -> FastAPI:
 
     app.include_router(hooks_router)
     app.include_router(streaming_router)
+
+    # Mount V2 routes (OpenTelemetry-instrumented endpoints)
+    app.include_router(v2_router)
+    logger.info("V2 routes mounted at /v2/chat/completions and /v2/messages")
 
     return app
 

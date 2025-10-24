@@ -39,6 +39,10 @@ from .requests import (
     make_nonstreaming_request,
     make_streaming_request,
 )
+from .v2_gateway import (
+    V2GatewayManager,
+    wait_for_v2_gateway,
+)
 
 __all__ = [
     # Infrastructure
@@ -47,6 +51,9 @@ __all__ = [
     "dummy_provider_running",
     "ensure_services_available",
     "load_e2e_settings",
+    # V2 Gateway
+    "V2GatewayManager",
+    "wait_for_v2_gateway",
     # Docker logs
     "extract_stream_ids",
     "filter_logs_by_pattern",

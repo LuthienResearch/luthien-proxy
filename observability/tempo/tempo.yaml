@@ -1,0 +1,37 @@
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal
+
+    # Aggressive retention settings
+    block:
+      version: vParquet4
+      bloom_filter_false_positive: 0.05
+
+    pool:
+      max_workers: 100
+      queue_depth: 10000
+
+# Auto-delete traces older than 24 hours
+compactor:
+  compaction:
+    block_retention: 24h
+
+# Query settings
+query_frontend:
+  search:
+    max_duration: 24h

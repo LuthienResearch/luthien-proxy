@@ -1,0 +1,298 @@
+# ABOUTME: Unit tests for UppercaseNthWordPolicy
+# ABOUTME: Tests word transformation, streaming, and edge cases
+
+"""Tests for UppercaseNthWordPolicy."""
+
+import asyncio
+
+import pytest
+from litellm.types.utils import ModelResponse
+
+from luthien_proxy.v2.control.queue_utils import get_available
+from luthien_proxy.v2.messages import Request
+from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
+
+
+@pytest.fixture
+def policy():
+    """Create policy instance with n=3."""
+    return UppercaseNthWordPolicy(n=3)
+
+
+@pytest.fixture
+def context():
+    """Create a mock policy context."""
+
+    class MockContext:
+        def __init__(self):
+            self.events = []
+
+        def emit(self, event_type, summary, severity="info", details=None):
+            """Emit is synchronous in the real PolicyContext."""
+            self.events.append({"event_type": event_type, "summary": summary, "severity": severity, "details": details})
+
+    return MockContext()
+
+
+class TestUppercaseNthWord:
+    """Test basic word transformation logic."""
+
+    def test_uppercase_nth_word_basic(self, policy):
+        """Test basic transformation with n=3."""
+        text = "The quick brown fox jumps over the lazy dog"
+        result = policy._uppercase_nth_word(text)
+        expected = "The quick BROWN fox jumps OVER the lazy DOG"
+        assert result == expected
+
+    def test_uppercase_nth_word_exact_multiple(self, policy):
+        """Test with exactly n words."""
+        text = "one two three"
+        result = policy._uppercase_nth_word(text)
+        expected = "one two THREE"
+        assert result == expected
+
+    def test_uppercase_nth_word_less_than_n(self, policy):
+        """Test with fewer than n words."""
+        text = "one two"
+        result = policy._uppercase_nth_word(text)
+        expected = "one two"  # No word gets uppercased
+        assert result == expected
+
+    def test_uppercase_nth_word_empty(self, policy):
+        """Test with empty string."""
+        assert policy._uppercase_nth_word("") == ""
+
+    def test_uppercase_nth_word_single_word(self, policy):
+        """Test with single word."""
+        text = "hello"
+        result = policy._uppercase_nth_word(text)
+        assert result == "hello"  # First word is not the 3rd
+
+    def test_uppercase_nth_word_n_equals_1(self):
+        """Test with n=1 (uppercase all words)."""
+        policy = UppercaseNthWordPolicy(n=1)
+        text = "hello world test"
+        result = policy._uppercase_nth_word(text)
+        expected = "HELLO WORLD TEST"
+        assert result == expected
+
+    def test_uppercase_nth_word_n_equals_2(self):
+        """Test with n=2 (uppercase every other word)."""
+        policy = UppercaseNthWordPolicy(n=2)
+        text = "one two three four five"
+        result = policy._uppercase_nth_word(text)
+        expected = "one TWO three FOUR five"
+        assert result == expected
+
+    def test_invalid_n_value(self):
+        """Test that n < 1 raises ValueError."""
+        with pytest.raises(ValueError, match="n must be >= 1"):
+            UppercaseNthWordPolicy(n=0)
+
+        with pytest.raises(ValueError, match="n must be >= 1"):
+            UppercaseNthWordPolicy(n=-1)
+
+
+class TestProcessRequest:
+    """Test request processing."""
+
+    @pytest.mark.asyncio
+    async def test_process_request_passthrough(self, policy, context):
+        """Test that requests pass through unchanged."""
+        request = Request(
+            model="gpt-4",
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+
+        result = await policy.process_request(request, context)
+
+        # Request should be unchanged
+        assert result == request
+
+        # Should emit event
+        assert len(context.events) == 1
+        assert context.events[0]["event_type"] == "policy.uppercase_request"
+        assert "only affects responses" in context.events[0]["summary"]
+
+
+class TestProcessFullResponse:
+    """Test full (non-streaming) response processing."""
+
+    @pytest.mark.asyncio
+    async def test_process_full_response_transforms_content(self, policy, context, make_model_response):
+        """Test that response content is transformed."""
+        response = make_model_response("The quick brown fox jumps over")
+
+        result = await policy.process_full_response(response, context)
+
+        # Extract transformed content
+        result_dict = result.model_dump()
+        transformed_content = result_dict["choices"][0]["message"]["content"]
+
+        # Every 3rd word should be uppercase
+        expected = "The quick BROWN fox jumps OVER"
+        assert transformed_content == expected
+
+        # Should emit event
+        assert len(context.events) == 1
+        assert context.events[0]["event_type"] == "policy.uppercase_applied"
+        assert "Uppercased every 3th word" in context.events[0]["summary"]
+
+    @pytest.mark.asyncio
+    async def test_process_full_response_preserves_other_fields(self, policy, context, make_model_response):
+        """Test that non-content fields are preserved."""
+        response = make_model_response("one two three")
+
+        result = await policy.process_full_response(response, context)
+
+        # Check that metadata is preserved
+        result_dict = result.model_dump()
+        assert result_dict["model"] == "gpt-4"
+        assert result_dict["choices"][0]["finish_reason"] == "stop"
+
+    @pytest.mark.asyncio
+    async def test_process_full_response_empty_content(self, policy, context, make_model_response):
+        """Test handling of empty content."""
+        response = make_model_response("")
+
+        result = await policy.process_full_response(response, context)
+
+        # Should handle gracefully
+        result_dict = result.model_dump()
+        assert result_dict["choices"][0]["message"]["content"] == ""
+
+    @pytest.mark.asyncio
+    async def test_process_full_response_no_choices(self, policy, context):
+        """Test handling of response with no choices."""
+        response_dict = {"choices": [], "model": "gpt-4"}
+        response = ModelResponse(**response_dict)
+
+        result = await policy.process_full_response(response, context)
+
+        # Should handle gracefully
+        result_dict = result.model_dump()
+        assert result_dict["choices"] == []
+
+
+class TestProcessStreamingResponse:
+    """Test streaming response processing."""
+
+    @pytest.mark.asyncio
+    async def test_process_streaming_response_transforms_words(self, policy, context, make_streaming_chunk):
+        """Test that streaming chunks are transformed correctly."""
+        incoming = asyncio.Queue[ModelResponse]()
+        outgoing = asyncio.Queue[ModelResponse]()
+
+        # Create chunks with words
+        chunks = [
+            make_streaming_chunk("The "),
+            make_streaming_chunk("quick "),
+            make_streaming_chunk("brown "),
+            make_streaming_chunk("fox"),
+        ]
+
+        # Add chunks to incoming queue
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        # Process
+        await policy.process_streaming_response(incoming, outgoing, context)
+
+        # Collect output chunks
+        output_text = ""
+        while True:
+            batch = await get_available(outgoing)
+            if not batch:
+                break
+            for chunk in batch:
+                text = _extract_text(chunk)
+                output_text += text
+
+        # Every 3rd word should be uppercase
+        expected = "The quick BROWN fox"
+        assert output_text == expected
+
+        # Should emit events
+        assert len(context.events) == 2
+        assert context.events[0]["event_type"] == "policy.uppercase_streaming_started"
+        assert context.events[1]["event_type"] == "policy.uppercase_streaming_complete"
+
+    @pytest.mark.asyncio
+    async def test_process_streaming_response_word_boundaries(self, policy, context, make_streaming_chunk):
+        """Test correct handling of word boundaries across chunks."""
+        incoming = asyncio.Queue[ModelResponse]()
+        outgoing = asyncio.Queue[ModelResponse]()
+
+        # Split words across chunk boundaries
+        chunks = [
+            make_streaming_chunk("one "),
+            make_streaming_chunk("tw"),
+            make_streaming_chunk("o "),
+            make_streaming_chunk("three "),
+            make_streaming_chunk("four"),
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        await policy.process_streaming_response(incoming, outgoing, context)
+
+        # Collect output
+        output_text = ""
+        while True:
+            batch = await get_available(outgoing)
+            if not batch:
+                break
+            for chunk in batch:
+                output_text += _extract_text(chunk)
+
+        # The 3rd word "three" should be uppercase
+        expected = "one two THREE four"
+        assert output_text == expected
+
+    @pytest.mark.asyncio
+    async def test_process_streaming_response_empty_chunks(self, policy, context, make_streaming_chunk):
+        """Test handling of empty chunks."""
+        incoming = asyncio.Queue[ModelResponse]()
+        outgoing = asyncio.Queue[ModelResponse]()
+
+        chunks = [
+            make_streaming_chunk("one "),
+            make_streaming_chunk(""),  # Empty chunk
+            make_streaming_chunk("two "),
+            make_streaming_chunk("three"),
+        ]
+
+        for chunk in chunks:
+            await incoming.put(chunk)
+        incoming.shutdown()
+
+        await policy.process_streaming_response(incoming, outgoing, context)
+
+        # Collect output
+        output_text = ""
+        while True:
+            batch = await get_available(outgoing)
+            if not batch:
+                break
+            for chunk in batch:
+                output_text += _extract_text(chunk)
+
+        expected = "one two THREE"
+        assert output_text == expected
+
+
+# Helper functions
+
+
+def _extract_text(chunk: ModelResponse) -> str:
+    """Extract text from a chunk."""
+    chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
+    choices = chunk_dict.get("choices", [])
+    if not choices:
+        return ""
+    delta = choices[0].get("delta", {})
+    content = delta.get("content", "")
+    return content if isinstance(content, str) else ""

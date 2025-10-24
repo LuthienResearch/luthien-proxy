@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: 'Luthien Dashboards'
+    orgId: 1
+    folder: 'Luthien'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

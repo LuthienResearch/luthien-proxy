@@ -24,6 +24,11 @@ dependencies = [
     "beartype>=0.21.0",
     "httpx>=0.28.1",
     "litellm[proxy]>=1.77.0",
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
+    "opentelemetry-instrumentation-fastapi>=0.41b0",
+    "opentelemetry-instrumentation-redis>=0.41b0",
     "prisma>=0.15.0",
     "psycopg>=3.2.9",
     "pydantic>=2.11.7",
@@ -57,7 +62,7 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra -m 'not e2e' --cov=src/luthien_proxy --cov-report=term-missing"
+addopts = "-q -ra -m 'not e2e' --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
@@ -68,6 +73,7 @@ filterwarnings = [
 markers = [
     "e2e: marks end-to-end tests that require an assembled control plane",
 ]
+timeout_func_only = false
 
 [tool.pyright]
 pythonVersion = "3.13"

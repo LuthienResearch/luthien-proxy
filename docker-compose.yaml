@@ -1,3 +1,10 @@
+# For observability (distributed tracing + logs), use:
+#   ./scripts/observability.sh up -d
+# Or:
+#   docker compose --profile observability up -d
+#
+# See observability/README.md for details.
+
 services:
   # PostgreSQL database for persistent state
   db:
@@ -149,6 +156,103 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # V2 Gateway (integrated FastAPI + LiteLLM architecture)
+  v2-gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.v2-gateway
+    profiles: ["observability"]
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - PROXY_API_KEY=${PROXY_API_KEY}
+      - V2_GATEWAY_PORT=${V2_GATEWAY_PORT:-8000}
+      - V2_POLICY_CONFIG=${V2_POLICY_CONFIG:-/app/config/v2_config.yaml}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_SERVICE_NAME=luthien-v2-gateway
+    ports:
+      - "${V2_GATEWAY_PORT:-8000}:8000"
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    stop_grace_period: 2s
+
+  # === OBSERVABILITY STACK ===
+  # Services: Tempo (traces), Loki (logs), Grafana (visualization)
+  # See: observability/README.md
+
+  tempo:
+    image: grafana/tempo:latest
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - ./observability/data/tempo:/var/tempo
+    ports:
+      - "4317:4317"  # OTLP gRPC (application sends traces here)
+      - "3200:3200"  # Tempo HTTP API
+    networks:
+      - default
+
+  loki:
+    image: grafana/loki:latest
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./observability/loki/loki.yaml:/etc/loki/local-config.yaml:ro
+      - ./observability/data/loki:/loki
+    ports:
+      - "3100:3100"  # Loki HTTP API
+    networks:
+      - default
+
+  promtail:
+    image: grafana/promtail:latest
+    profiles: ["observability"]
+    command: ["-config.file=/etc/promtail/promtail.yaml"]
+    volumes:
+      - ./observability/promtail/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - default
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["observability"]
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./observability/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./observability/data/grafana:/var/lib/grafana
+    ports:
+      - "3000:3000"  # Grafana UI
+    networks:
+      - default
+    depends_on:
+      - tempo
+      - loki
 
 volumes:
   postgres_data:

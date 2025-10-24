@@ -16,3 +16,20 @@ if str(REPO_ROOT) not in sys.path:
 def pytest_sessionstart(session):
     # Avoid accidental reliance on production defaults during unit tests.
     os.environ.setdefault("LUTHIEN_POLICY_CONFIG", str(REPO_ROOT / "config" / "luthien_config.yaml"))
+
+    # Disable OpenTelemetry export during tests to avoid noisy errors
+    # (OTel tries to export to tempo:4317 which doesn't exist in test environment)
+    os.environ.setdefault("OTEL_ENABLED", "false")
+
+
+def pytest_configure(config):
+    """Configure pytest timeout behavior based on test markers.
+
+    E2E tests are exempt from the default 3-second timeout since they may
+    involve real infrastructure and take longer to complete.
+    """
+    # Check if we're running e2e tests
+    markexpr = config.getoption("-m", default="")
+    if "e2e" in markexpr and "not e2e" not in markexpr:
+        # Disable timeout for e2e tests
+        config.option.timeout = 0

@@ -41,6 +41,58 @@ uv run ruff check --fix
 uv run pyright
 ```
 
+## Observability
+
+Luthien Proxy V2 includes **OpenTelemetry** for distributed tracing and correlation with logs.
+
+### Quick Start
+
+```bash
+# Start observability stack (Tempo, Loki, Grafana)
+./scripts/observability.sh up -d
+
+# Start main application
+./scripts/quick_start.sh
+
+# Access Grafana
+open http://localhost:3000
+# Username: admin, Password: admin
+```
+
+### Features
+
+- **Distributed tracing** with OpenTelemetry → Grafana Tempo
+- **Structured logging** with trace context (trace_id, span_id)
+- **Log-trace correlation** in Grafana
+- **Real-time activity feed** at `/v2/activity/monitor`
+- **Pre-built dashboard** for traces and logs
+
+### Configuration
+
+Enable OpenTelemetry in `.env`:
+
+```bash
+OTEL_ENABLED=true
+OTEL_ENDPOINT=http://tempo:4317
+SERVICE_NAME=luthien-proxy-v2
+SERVICE_VERSION=2.0.0
+ENVIRONMENT=development
+```
+
+### Documentation
+
+- **Usage guide:** [dev/context/observability-guide.md](dev/context/observability-guide.md)
+- **Conventions:** [dev/context/otel-conventions.md](dev/context/otel-conventions.md)
+- **Dashboard:** Import `observability/grafana-dashboards/luthien-traces.json` in Grafana
+
+### Services
+
+When observability is enabled:
+
+- **Grafana** at http://localhost:3000 (dashboards and visualization)
+- **Tempo** at http://localhost:3200 (trace storage and query)
+- **Loki** at http://localhost:3100 (log aggregation)
+
 ## Configuration
 
 Copy `.env.example` to `.env` and add your API keys.

@@ -1,8 +1,11 @@
-# Publishing Policy Events to Activity Stream
+# Publishing Policy Events to Activity Stream (V1)
+
+> **Note**: This guide applies to V1 policies using the LiteLLM proxy + control plane architecture.
+> For V2 policies, see the policy implementation examples in `src/luthien_proxy/v2/policies/`.
 
 ## Overview
 
-Policies can publish events to the global activity stream to make their decisions and actions visible in real-time monitoring at `/ui/activity/live`.
+V1 policies can publish events to the global activity stream to make their decisions and actions visible in real-time monitoring at `/ui/activity/live`.
 
 ## Usage
 
