@@ -38,12 +38,12 @@ from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
+from luthien_proxy.v2.policies.event_based_policy import EventBasedPolicy, StreamingContext
 from luthien_proxy.v2.policies.utils import (
     JudgeConfig,
     JudgeResult,
     extract_tool_calls_from_response,
 )
-from luthien_proxy.v2.streaming.event_based_policy import EventBasedPolicy, StreamingContext
 from luthien_proxy.v2.streaming.stream_blocks import ToolCallStreamBlock
 from luthien_proxy.v2.streaming.utils import build_block_chunk
 

@@ -17,7 +17,7 @@ Default behavior:
 
 from __future__ import annotations
 
-from luthien_proxy.v2.streaming.event_based_policy import EventBasedPolicy
+from luthien_proxy.v2.policies.event_based_policy import EventBasedPolicy
 
 
 class EventBasedNoOpPolicy(EventBasedPolicy):
