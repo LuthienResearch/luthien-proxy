@@ -18,6 +18,7 @@ from unittest.mock import Mock
 import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.policies.event_driven_uppercase_nth_word import EventDrivenUppercaseNthWordPolicy
 
@@ -25,7 +26,8 @@ from luthien_proxy.v2.policies.event_driven_uppercase_nth_word import EventDrive
 def create_test_context(call_id: str = "test") -> PolicyContext:
     """Create a PolicyContext for testing."""
     mock_span = Mock()
-    return PolicyContext(call_id=call_id, span=mock_span)
+    request = Request(model="gpt-4", messages=[])
+    return PolicyContext(call_id=call_id, span=mock_span, request=request)
 
 
 def create_text_chunk(content: str) -> ModelResponse:

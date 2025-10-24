@@ -15,7 +15,7 @@
 #     max_tokens: 256
 
 policy:
-  class: "luthien_proxy.v2.policies.noop:NoOpPolicy"
+  class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
   config: {}
 
 # Other policy examples:

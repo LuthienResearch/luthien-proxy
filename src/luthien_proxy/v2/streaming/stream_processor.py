@@ -6,7 +6,7 @@ ABOUTME: Processes chunks, detects block transitions, and calls policy callbacks
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any, Mapping, cast
+from typing import Any, cast
 
 from litellm.types.utils import ModelResponse, StreamingChoices
 
@@ -96,18 +96,30 @@ class StreamProcessor:
 
         choice = chunk.choices[0]
         choice = cast(StreamingChoices, choice)
-        delta = choice.delta if isinstance(choice.delta, dict) else {}
+        delta = choice.delta
         finish_reason = choice.finish_reason
+
+        # Extract content from delta (handle both dict and Delta object)
+        content = None
+        if isinstance(delta, dict):
+            content = delta.get("content")
+        elif hasattr(delta, "content"):
+            content = delta.content  # type: ignore[union-attr]
 
         # Process content
         # Note: content can be: actual text, empty string "", or null
         # We only process actual text (not null, not empty string)
-        content = delta.get("content")
         if content:  # Truthy check: handles null, empty string, and actual content
             self._process_content_delta(content)
 
+        # Extract tool_calls from delta (handle both dict and Delta object)
+        tool_calls = None
+        if isinstance(delta, dict):
+            tool_calls = delta.get("tool_calls")
+        elif hasattr(delta, "tool_calls"):
+            tool_calls = delta.tool_calls  # type: ignore[union-attr]
+
         # Process tool calls
-        tool_calls = delta.get("tool_calls")
         if tool_calls:
             self._process_tool_call_deltas(tool_calls)
 
@@ -130,16 +142,24 @@ class StreamProcessor:
         if isinstance(self.state.current_block, ContentStreamBlock):
             self.state.current_block.content += content
 
-    def _process_tool_call_deltas(self, tool_calls: list[Mapping[str, Any]]) -> None:
+    def _process_tool_call_deltas(self, tool_calls: Any) -> None:
         """Process tool call deltas, handling block transitions.
 
         Tool calls stream sequentially by index (0, 1, 2...).
         When index changes, previous tool call is complete.
+
+        Args:
+            tool_calls: List of tool call deltas (can be dicts or ChatCompletionDeltaToolCall objects)
         """
         self._in_tool_call_phase = True
 
         for tc_delta in tool_calls:
-            index = tc_delta.get("index")
+            # Extract index (handle both dict and object)
+            if isinstance(tc_delta, dict):
+                index = tc_delta.get("index")
+            else:
+                index = tc_delta.index if hasattr(tc_delta, "index") else None
+
             if index is None:
                 continue
 
@@ -158,7 +178,12 @@ class StreamProcessor:
                     self.state.current_block = None
 
             # Get or create tool call block for this index
-            tc_id = tc_delta.get("id")
+            # Extract id (handle both dict and object)
+            if isinstance(tc_delta, dict):
+                tc_id = tc_delta.get("id")
+            else:
+                tc_id = tc_delta.id if hasattr(tc_delta, "id") else None
+
             if tc_id:
                 # First chunk for this tool call - has id and name
                 self._tool_call_index_to_id[index] = tc_id
@@ -180,13 +205,21 @@ class StreamProcessor:
 
             # Update tool call data
             if isinstance(self.state.current_block, ToolCallStreamBlock):
-                function_delta = tc_delta.get("function", {})
+                # Extract function delta (handle both dict and object)
+                if isinstance(tc_delta, dict):
+                    function_delta = tc_delta.get("function", {})
+                    name = function_delta.get("name") if isinstance(function_delta, dict) else None
+                    arguments = function_delta.get("arguments") if isinstance(function_delta, dict) else None
+                else:
+                    function_delta = tc_delta.function if hasattr(tc_delta, "function") else None
+                    name = function_delta.name if function_delta and hasattr(function_delta, "name") else None
+                    arguments = (
+                        function_delta.arguments if function_delta and hasattr(function_delta, "arguments") else None
+                    )
 
-                name = function_delta.get("name")
                 if name:
                     self.state.current_block.name = name
 
-                arguments = function_delta.get("arguments")
                 if arguments:
                     self.state.current_block.arguments += arguments
 

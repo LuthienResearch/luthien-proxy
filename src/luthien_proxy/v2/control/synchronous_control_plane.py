@@ -61,6 +61,10 @@ class SynchronousControlPlane:
         # Streaming orchestrator for stream processing
         self.streaming_orchestrator = StreamingOrchestrator()
 
+        # Per-call request tracking (call_id -> Request)
+        # V3: Store requests so they're available in response processing
+        self._requests: dict[str, Request] = {}
+
     async def process_request(
         self,
         request: Request,
@@ -74,10 +78,14 @@ class SynchronousControlPlane:
             if request.max_tokens:
                 span.set_attribute("luthien.max_tokens", request.max_tokens)
 
+            # V3: Store request for later use in response processing
+            self._requests[call_id] = request
+
             # Create context for this request
             context = PolicyContext(
                 call_id=call_id,
                 span=span,
+                request=request,
                 event_publisher=self.event_publisher,
             )
 
@@ -85,6 +93,10 @@ class SynchronousControlPlane:
                 # Apply policy transformation
                 transformed = await self.policy.process_request(request, context)
                 span.set_attribute("luthien.policy.success", True)
+
+                # Update stored request with transformed version
+                self._requests[call_id] = transformed
+
                 return transformed
 
             except Exception as exc:
@@ -115,10 +127,17 @@ class SynchronousControlPlane:
             span.set_attribute("luthien.call_id", call_id)
             span.set_attribute("luthien.stream.enabled", False)
 
+            # V3: Retrieve stored request (or create placeholder if missing)
+            request = self._requests.get(call_id)
+            if not request:
+                logger.warning(f"No request found for call_id {call_id}, creating placeholder")
+                request = Request(model="unknown", messages=[])
+
             # Create context for this response
             context = PolicyContext(
                 call_id=call_id,
                 span=span,
+                request=request,
                 event_publisher=self.event_publisher,
             )
 
@@ -144,6 +163,10 @@ class SynchronousControlPlane:
 
                 # Return original response (don't block response on policy error)
                 return response
+
+            finally:
+                # V3: Clean up stored request
+                self._requests.pop(call_id, None)
 
     async def process_streaming_response(
         self,
@@ -178,10 +201,17 @@ class SynchronousControlPlane:
             span.set_attribute("luthien.stream.enabled", True)
             span.set_attribute("luthien.stream.timeout_seconds", timeout_seconds)
 
+            # V3: Retrieve stored request (or create placeholder if missing)
+            request = self._requests.get(call_id)
+            if not request:
+                logger.warning(f"No request found for call_id {call_id}, creating placeholder")
+                request = Request(model="unknown", messages=[])
+
             # Create context for this stream
             context = PolicyContext(
                 call_id=call_id,
                 span=span,
+                request=request,
                 event_publisher=self.event_publisher,
             )
 
@@ -330,6 +360,9 @@ class SynchronousControlPlane:
                 span.set_attribute("luthien.stream.chunk_count", chunk_count)
                 span.set_attribute("luthien.policy.success", True)
                 span.add_event("stream_complete", attributes={"chunk_count": chunk_count})
+
+                # V3: Clean up stored request
+                self._requests.pop(call_id, None)
 
             except BaseException as exc:
                 # BaseException catches both regular exceptions and ExceptionGroup from TaskGroup
