@@ -2,6 +2,8 @@
 
 Why certain approaches were chosen over alternatives.
 
+**⚠️ Note (2025-10-24)**: Entries below document both V1 (archived) and V2 (current) architecture decisions. V1 infrastructure was deleted in October 2024. Many V1 decisions (centralized control plane, LUTHIEN_POLICY_CONFIG, etc.) are superseded by V2's integrated architecture with V2_POLICY_CONFIG.
+
 **Format**: Each entry is a subsection with a title, timestamp (YYYY-MM-DD), and content (decision + rationale).
 If updating existing content significantly, note it: `## Topic (2025-10-08, updated 2025-11-15)`
 

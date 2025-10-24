@@ -2,6 +2,8 @@
 
 Architectural patterns, module relationships, and how subsystems work together.
 
+**⚠️ Note (2025-10-24)**: Entries below document both V1 (archived) and V2 (current) architecture. V1 infrastructure was deleted in October 2024. References to "control-plane", "litellm-proxy", and V1 modules are historical context only.
+
 **Format**: Each entry is a subsection with a title, timestamp (YYYY-MM-DD), and content (bullet points or prose).
 If updating existing content significantly, note it: `## Topic (2025-10-08, updated 2025-11-15)`
 
