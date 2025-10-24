@@ -534,10 +534,8 @@ class EventDrivenToolCallJudgePolicy(EventDrivenPolicy, LuthienPolicy):
         # Evaluate each tool call
         for tool_call in tool_calls:
             # Create minimal streaming context for evaluation
-            from luthien_proxy.v2.messages import Request
 
             streaming_context = StreamingContext(
-                request=Request(messages=[], model="unknown"),
                 policy_context=context,
                 keepalive=None,
             )

@@ -24,9 +24,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
-from litellm.types.utils import ModelResponse
+from litellm.types.utils import ModelResponse, StreamingChoices
 
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.base import LuthienPolicy
@@ -410,7 +410,8 @@ class EventBasedPolicy(LuthienPolicy):
         """Extract content delta from chunk, if present."""
         if not chunk.choices:
             return None
-        delta = chunk.choices[0].delta
+        choice = cast(StreamingChoices, chunk.choices[0])
+        delta = choice.delta
         # Handle both dict and Delta object
         if isinstance(delta, dict):
             return delta.get("content")
