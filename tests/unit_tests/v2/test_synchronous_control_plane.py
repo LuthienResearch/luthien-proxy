@@ -10,7 +10,9 @@ import pytest
 
 from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
 from luthien_proxy.v2.messages import Request
+from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.noop import NoOpPolicy
+from luthien_proxy.v2.policies.policy_context import PolicyContext
 from luthien_proxy.v2.streaming import StreamingError
 
 
@@ -69,8 +71,6 @@ class TestControlPlaneSynchronousRequests:
     @pytest.mark.asyncio
     async def test_process_request_error_handling(self, call_id):
         """Test that request processing errors are handled."""
-        from luthien_proxy.v2.policies.base import LuthienPolicy
-        from luthien_proxy.v2.policies.context import PolicyContext
 
         # Create a policy that raises an error
         class FailingPolicy(LuthienPolicy):
@@ -120,8 +120,6 @@ class TestSynchronousControlPlaneResponses:
     @pytest.mark.asyncio
     async def test_process_full_response_error_returns_original(self, call_id, make_model_response):
         """Test that response processing errors return original response."""
-        from luthien_proxy.v2.policies.base import LuthienPolicy
-        from luthien_proxy.v2.policies.context import PolicyContext
 
         # Create a policy that raises an error
         class FailingResponsePolicy(LuthienPolicy):
@@ -185,8 +183,6 @@ class TestSynchronousControlPlaneStreaming:
     @pytest.mark.asyncio
     async def test_streaming_error_handling(self, call_id, make_streaming_chunk):
         """Test that streaming errors are handled."""
-        from luthien_proxy.v2.policies.base import LuthienPolicy
-        from luthien_proxy.v2.policies.context import PolicyContext
 
         # Make policy raise an error
         class FailingStreamPolicy(LuthienPolicy):
@@ -233,8 +229,6 @@ class TestSynchronousControlPlaneStreaming:
     @pytest.mark.asyncio
     async def test_streaming_timeout(self, call_id, make_streaming_chunk):
         """Test that streaming times out when policy hangs."""
-        from luthien_proxy.v2.policies.base import LuthienPolicy
-        from luthien_proxy.v2.policies.context import PolicyContext
 
         # Make policy hang (never produce output, never call keepalive)
         class HangingPolicy(LuthienPolicy):

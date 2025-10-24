@@ -12,7 +12,7 @@ from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.base import LuthienPolicy
-from luthien_proxy.v2.policies.context import PolicyContext
+from luthien_proxy.v2.policies.policy_context import PolicyContext
 from luthien_proxy.v2.streaming import get_available
 
 

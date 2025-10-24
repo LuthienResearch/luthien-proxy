@@ -18,9 +18,9 @@ from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
 from luthien_proxy.v2.messages import Request
-from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.policies.event_based_noop import EventBasedNoOpPolicy
 from luthien_proxy.v2.policies.event_based_policy import EventBasedPolicy, StreamingContext
+from luthien_proxy.v2.policies.policy_context import PolicyContext
 from luthien_proxy.v2.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 from luthien_proxy.v2.streaming.utils import build_block_chunk, build_text_chunk
 

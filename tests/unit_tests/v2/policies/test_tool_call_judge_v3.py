@@ -13,8 +13,8 @@ from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
 from luthien_proxy.v2.messages import Request
-from luthien_proxy.v2.policies.context import PolicyContext
 from luthien_proxy.v2.policies.event_based_policy import StreamingContext
+from luthien_proxy.v2.policies.policy_context import PolicyContext
 from luthien_proxy.v2.policies.tool_call_judge_v3 import ToolCallJudgeV3Policy
 from luthien_proxy.v2.policies.utils import JudgeResult
 from luthien_proxy.v2.streaming.stream_blocks import ToolCallStreamBlock

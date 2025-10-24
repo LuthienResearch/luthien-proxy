@@ -4,8 +4,8 @@
 """Policy handlers for V2 architecture."""
 
 from .base import LuthienPolicy
-from .context import PolicyContext
 from .noop import NoOpPolicy
+from .policy_context import PolicyContext
 
 __all__ = [
     "LuthienPolicy",

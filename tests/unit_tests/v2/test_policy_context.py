@@ -6,7 +6,7 @@
 from unittest.mock import Mock
 
 from luthien_proxy.v2.messages import Request
-from luthien_proxy.v2.policies.context import PolicyContext
+from luthien_proxy.v2.policies.policy_context import PolicyContext
 
 
 class TestPolicyContext:
