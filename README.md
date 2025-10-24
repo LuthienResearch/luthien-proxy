@@ -9,13 +9,21 @@ Redwood-style AI Control as an LLM proxy for production agentic deployments.
 ./scripts/quick_start.sh
 
 # 2. Test it works
-uv run python scripts/test_proxy.py
+./scripts/test_v2_gateway.sh
 ```
 
 You now have:
-- **LiteLLM Proxy** at http://localhost:4000
-- **Control Plane** at http://localhost:8081
+
+- **V2 Gateway** (OpenAI-compatible) at <http://localhost:8000>
 - **PostgreSQL** and **Redis** fully configured
+- **Local LLM** (Ollama) at <http://localhost:11434>
+
+The V2 gateway provides:
+
+- OpenAI Chat Completions API (`/v1/chat/completions`)
+- Anthropic Messages API (`/v1/messages`)
+- Integrated policy enforcement via control plane
+- Support for streaming and non-streaming requests
 
 ## Prerequisites
 
@@ -26,38 +34,49 @@ You now have:
 ## Development
 
 ```bash
-# After code changes, restart services
-docker compose restart control-plane    # Control plane only
-docker compose restart litellm-proxy    # LiteLLM proxy only
+# After code changes, restart the V2 gateway
+docker compose restart v2-gateway
 
-# Run tests
-uv run pytest
+# Run unit tests
+uv run pytest tests/unit_tests
+
+# Run integration tests
+uv run pytest tests/integration_tests
+
+# Run e2e tests (slow, use sparingly)
+uv run pytest -m e2e
+
+# Test the V2 gateway
+./scripts/test_v2_gateway.sh
 
 # Format and lint
-uv run ruff format
-uv run ruff check --fix
+./scripts/format_all.sh
 
-# Type check
+# Full dev checks (format + lint + tests + type check)
+./scripts/dev_checks.sh
+
+# Type check only
 uv run pyright
 ```
 
-## Observability
+## Observability (Optional)
 
-Luthien Proxy V2 includes **OpenTelemetry** for distributed tracing and correlation with logs.
+The V2 gateway supports **OpenTelemetry** for distributed tracing and log correlation.
 
-### Quick Start
+By default, the V2 gateway runs **without** the observability stack. To enable it:
 
 ```bash
-# Start observability stack (Tempo, Loki, Grafana)
+# Start observability stack (Tempo, Loki, Promtail, Grafana)
 ./scripts/observability.sh up -d
 
-# Start main application
-./scripts/quick_start.sh
+# The V2 gateway will automatically detect and use the observability stack
 
 # Access Grafana
 open http://localhost:3000
 # Username: admin, Password: admin
 ```
+
+The observability stack is completely optional and does not affect core functionality.
 
 ### Features
 
@@ -95,17 +114,43 @@ When observability is enabled:
 
 ## Configuration
 
-Copy `.env.example` to `.env` and add your API keys.
+Copy `.env.example` to `.env` and add your API keys:
 
-- Policies: the control-plane loads the active policy from the YAML file specified by `LUTHIEN_POLICY_CONFIG` (defaults to `config/luthien_config.yaml`).
-  - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
-  - Minimal YAML:
-    ```yaml
-    policy:
-      class: "luthien_proxy.policies.noop:NoOpPolicy"
-      config:
-        policy_specific_arg: 'someval'
-    ```
+```bash
+# Required API keys for upstream providers
+OPENAI_API_KEY=your_openai_api_key_here
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# V2 Gateway configuration
+PROXY_API_KEY=sk-luthien-dev-key  # API key for accessing the gateway
+V2_GATEWAY_PORT=8000               # Gateway port
+V2_POLICY_CONFIG=/app/config/v2_config.yaml  # Policy configuration
+```
+
+### Policy Configuration
+
+The V2 gateway loads policies from `V2_POLICY_CONFIG` (defaults to `config/v2_config.yaml`).
+
+Example policy configuration:
+
+```yaml
+policy:
+  class: "luthien_proxy.v2.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
+  config:
+    model: "ollama/gemma2:2b"
+    api_base: "http://local-llm:11434"
+    api_key: "ollama"
+    probability_threshold: 0.6
+    temperature: 0.0
+    max_tokens: 256
+```
+
+Available policies in `src/luthien_proxy/v2/policies/`:
+
+- `noop.py` - Pass-through (no filtering)
+- `event_based_noop.py` - Event-driven no-op (demonstrates DSL)
+- `uppercase_nth_word.py` - Simple transformation example
+- `tool_call_judge_v3.py` - AI-based tool call safety evaluation
 
 ## Dev Tooling
 
@@ -121,69 +166,149 @@ Editor setup (VS Code)
 
 ## Architecture
 
-- **LiteLLM Proxy**: OpenAI-compatible gateway with custom hooks
-- **Control Plane**: Policy orchestration and decision logic
-- **Policy Engine**: Configuration and threshold management
-- **Debug UI**: `/debug` for recent debug types, `/ui/conversation` for real-time call playback
-- **Documentation**:
-  - New developers: Start with [`docs/developer-onboarding.md`](docs/developer-onboarding.md)
-  - Visual flows: See [`docs/diagrams.md`](docs/diagrams.md)
-  - Architecture decisions: See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+The V2 architecture integrates everything into a single FastAPI application:
+
+- **V2 Gateway** (`src/luthien_proxy/v2/`): Unified FastAPI + LiteLLM integration
+  - OpenAI Chat Completions API compatibility
+  - Anthropic Messages API compatibility
+  - Integrated control plane for policy enforcement
+  - Event-driven policy system with streaming support
+  - OpenTelemetry instrumentation for observability
+
+- **Control Plane** (`src/luthien_proxy/v2/control/`): Synchronous policy orchestration
+  - Processes requests through configured policies
+  - Real-time event publishing for UI updates
+  - Trace context propagation
+
+- **Policy System** (`src/luthien_proxy/v2/policies/`): Event-driven policy framework
+  - Stream-aware policy interface
+  - Buffering and transformation capabilities
+  - Examples: NoOp, ToolCallJudge, UppercaseNthWord
+
+- **UI** (`src/luthien_proxy/v2/ui/`): Real-time monitoring and debugging
+  - `/v2/activity/monitor` - Live activity feed
+  - `/v2/activity/live` - WebSocket activity stream
+  - Debug endpoints for inspection
+
+**Documentation**:
+
+- New developers: Start with [`docs/developer-onboarding.md`](docs/developer-onboarding.md)
+- Visual flows: See [`docs/diagrams.md`](docs/diagrams.md)
+- Architecture decisions: See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ## Endpoints
 
-- Control Plane (http://localhost:8081):
-  - `GET /health` — basic health check
-  - `GET /debug` — debug browser
-  - `GET /debug/{debug_type}` — view entries for a type
-  - `GET /ui/conversation` — live conversation monitor
-  - `GET /api/debug/types` — list debug types with counts
-  - `GET /api/debug/{debug_type}` — recent entries (default limit 50)
-  - `GET /api/debug/{debug_type}/page?page=1&page_size=20` — paginated
-  - `GET /api/hooks/recent_call_ids` — recent call IDs
-  - `GET /api/hooks/conversation?call_id=...` — normalized request/response history
+### V2 Gateway (<http://localhost:8000>)
 
-### Demo Mode (Disabled by Default)
+**API Endpoints:**
 
-**WARNING**: Demo mode should NEVER be enabled in production systems.
+- `POST /v1/chat/completions` — OpenAI Chat Completions API (streaming and non-streaming)
+- `POST /v1/messages` — Anthropic Messages API (streaming and non-streaming)
+- `GET /health` — Health check
 
-To enable the demo UI for presentations:
-1. Set `ENABLE_DEMO_MODE=true` in your `.env` file
-2. Restart the control plane: `docker compose restart control-plane`
-3. Access the demo at http://localhost:8081/ui/demo
+**UI Endpoints:**
 
-Demo endpoints (only available when `ENABLE_DEMO_MODE=true`):
-  - `GET /ui/demo` — interactive AI Control demonstration
-  - `GET /demo/examples` — static demo scenarios
-  - `POST /demo/run` — live demo execution
+- `GET /v2/activity/monitor` — Real-time activity monitor (HTML)
+- `GET /v2/activity/live` — WebSocket activity stream (JSON)
+- `GET /v2/debug` — Debug information viewer
 
-## Control Policies
+**Authentication:**
 
-We keep the policy surface aligned with LiteLLM's hook API, while keeping the proxy thin. Hooks are forwarded “as-is” to the Control Plane; streaming deltas are assembled centrally for policies to consult.
+All API requests require the `Authorization: Bearer <PROXY_API_KEY>` header.
 
-Key files:
-- `config/litellm_callback.py`: minimal LiteLLM callback that forwards hook payloads to the control plane.
-- `src/luthien_proxy/control_plane/app.py`: FastAPI application factory that wires shared state, middleware, and routers.
-- `src/luthien_proxy/control_plane/dependencies.py`: FastAPI dependency helpers for pulling config, policies, and clients off `app.state`.
-- `src/luthien_proxy/control_plane/hooks_routes.py`: LiteLLM hook ingestion endpoints plus tracing utilities.
-- `src/luthien_proxy/control_plane/debug_routes.py`: Debug log query APIs backed by the database.
-- `src/luthien_proxy/control_plane/stream_context.py`: Redis-backed `StreamContextStore` for per-call streaming context.
-- `src/luthien_proxy/policies/base.py`: abstract policy class including streaming helpers.
-- `src/luthien_proxy/policies/noop.py`: default no-op policy.
-- `src/luthien_proxy/policies/all_caps.py`: simple example policy.
+## V2 Policy System
 
-Note: Local LLM service files (e.g., Dockerfile.local-llm and local_llm_config.yaml) are present for future policies but are not used by current example policies.
+The V2 gateway uses an event-driven policy architecture with streaming support.
 
-Notes:
-- Redis is required for streaming context; control-plane startup fails fast if `REDIS_URL` is not set/available.
+### Key Components
 
-### Verify
+- `src/luthien_proxy/v2/policies/base.py` - Abstract policy interface
+- `src/luthien_proxy/v2/control/synchronous_control_plane.py` - Policy orchestration
+- `src/luthien_proxy/v2/gateway_routes.py` - API endpoint handlers with policy integration
+- `config/v2_config.yaml` - Policy configuration
 
-- Start the stack: `./scripts/quick_start.sh`.
-- Run the smoke test: `uv run python scripts/test_proxy.py`.
-- Tail control-plane logs to see policy actions.
+### Creating Custom Policies
+
+Policies implement the event-driven interface:
+
+```python
+from luthien_proxy.v2.policies.base import LuthienPolicy, PolicyEvent, PolicyAction
+
+class MyPolicy(LuthienPolicy):
+    async def handle_event(self, event: PolicyEvent) -> PolicyAction:
+        # Process events (request_start, chunk_received, etc.)
+        # Return actions (pass_through, block, transform, etc.)
+        pass
+```
+
+See `src/luthien_proxy/v2/policies/` for examples:
+
+- `noop.py` - Simple pass-through
+- `uppercase_nth_word.py` - Content transformation
+- `tool_call_judge_v3.py` - AI-based safety evaluation
+
+### Testing
+
+```bash
+# Start the gateway
+./scripts/quick_start.sh
+
+# Run automated tests
+./scripts/test_v2_gateway.sh
+
+# View logs
+docker compose logs -f v2-gateway
+```
 
 ## Troubleshooting
+
+### Gateway not starting
+
+```bash
+# Check service status
+docker compose ps
+
+# View gateway logs
+docker compose logs v2-gateway
+
+# Restart gateway
+docker compose restart v2-gateway
+
+# Full restart
+docker compose down && ./scripts/quick_start.sh
+```
+
+### API requests failing
+
+1. **Check API key**: Ensure `Authorization: Bearer <PROXY_API_KEY>` header is set
+2. **Check upstream credentials**: Verify `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in `.env`
+3. **Check logs**: `docker compose logs -f v2-gateway`
+
+### Tests failing
+
+```bash
+# Ensure services are running
+docker compose ps
+
+# Check service health
+curl http://localhost:8000/health
+
+# View detailed logs
+docker compose logs v2-gateway | tail -50
+```
+
+### Database connection issues
+
+```bash
+# Check database is running
+docker compose ps db
+
+# Restart database
+docker compose restart db
+
+# Re-run migrations
+docker compose run --rm control-plane-migrations
+```
 
 ## License
 
