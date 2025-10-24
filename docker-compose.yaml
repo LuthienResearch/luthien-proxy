@@ -58,7 +58,6 @@ services:
       context: .
       dockerfile: docker/Dockerfile.local-llm
     environment:
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
       - MODEL_NAME=${LOCAL_LLM_MODEL_NAME:-gemma2:2b}
     volumes:
       - local_llm_models:/root/.ollama
@@ -69,25 +68,6 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:4000/test"]
       interval: 10s
       timeout: 5s
-      retries: 5
-
-  # Dummy provider for demo (deterministic tool call responses)
-  dummy-provider:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.control-plane
-    command: ["uv", "run", "python", "scripts/run_dummy_provider.py", "--port", "8080"]
-    environment:
-      - UV_CACHE_DIR=/tmp/uv-cache
-    ports:
-      - "4015:8080"
-    volumes:
-      - ./scripts:/app/scripts:ro
-      - ./src:/app/src:ro
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 5s
-      timeout: 3s
       retries: 5
 
   # V2 Gateway (integrated FastAPI + LiteLLM architecture)

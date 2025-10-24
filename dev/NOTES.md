@@ -73,7 +73,7 @@ All 4 files had 10+ references to deleted V1 modules (unified_callback, hooks_ro
 - Single config: V2_POLICY_CONFIG → config/v2_config.yaml
 - Clean documentation pointing to active V2 features
 
-### Part 4: Scripts Directory Cleanup (Current)
+### Part 4: Scripts Directory Cleanup (Completed)
 
 **Deleted 16 obsolete scripts**:
 - V1-specific: `build_replay_examples.py`, `dummy_control_plane.py`, `export_replay_logs.sh`
@@ -100,7 +100,49 @@ All 4 files had 10+ references to deleted V1 modules (unified_callback, hooks_ro
 - `trace_hooks.py` - Hook tracing
 - `run_dummy_provider.py` - Used by dummy-provider docker service
 
+### Part 5: Final Infrastructure Cleanup (Completed)
+
+**Deleted from docker-compose.yaml**:
+- `dummy-provider` service (only used by archived V1 configs)
+
+**Updated docker-compose.yaml**:
+- Removed unused `LITELLM_MASTER_KEY` env var from local-llm service
+- Kept `control-plane-migrations` service (for Prisma migrations)
+
+**Deleted Dockerfiles**:
+- `docker/Dockerfile.litellm` (unused after V1 removal)
+
+**Kept Dockerfiles**:
+- `docker/Dockerfile.control-plane` (used by control-plane-migrations)
+- `docker/Dockerfile.v2-gateway` (active V2 service)
+- `docker/Dockerfile.local-llm` (active local LLM service)
+
+**Archived V1 config files to config/archive/**:
+- `litellm_config.yaml`, `litellm_config_unified.yaml` (V1 LiteLLM configs)
+- `luthien_demo_config.yaml`, `demo_judge.yaml`, `demo_noop.yaml` (V1 demo configs)
+- `policies/` directory (V1 policy configs that used dummy-provider)
+
+**Remaining active configs**:
+- `v2_config.yaml` - V2 policy configuration
+- `local_llm_config.yaml` - Local LLM configuration
+
+### Final Summary
+
+**Total removed in this session:**
+- 1 config file (luthien_config.yaml)
+- 3 Docker services (litellm-proxy, control-plane, dummy-provider)
+- 1 Dockerfile (Dockerfile.litellm)
+- 16 scripts
+- 8 environment variables
+- 15 docs (11 dev + 4 public)
+- 5 V1 config files + policies directory
+
+**Active V2-only infrastructure:**
+- Services: v2-gateway, local-llm, db, redis
+- Config: v2_config.yaml
+- Scripts: 14 essential only
+- Docs: Clean and V2-focused
+
 ### Outstanding V1 Cleanup (for future PRs):
-- V1 source code still exists in src/luthien_proxy/control_plane/ and src/luthien_proxy/proxy/
-- V1 test files still exist (marked as deleted in the 18K line removal PR)
-- Dockerfile.litellm not used but not harmful to keep
+- V1 source code directories in src/luthien_proxy/ (if any files remain after 18K deletion)
+- V1 test files (marked as deleted in the 18K line removal PR)
