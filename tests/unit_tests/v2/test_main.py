@@ -208,9 +208,8 @@ class TestCreateApp:
     @pytest.mark.asyncio
     async def test_create_app_with_custom_policy(self):
         """Test app creation with custom policy."""
-        from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
 
-        policy = UppercaseNthWordPolicy(n=3)
+        policy = NoOpPolicy()
         app = create_app(
             api_key="test-key",
             database_url="postgresql://test:test@localhost/test",
