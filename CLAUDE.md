@@ -128,25 +128,24 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - Framework: `pytest`
 - Location: under `tests/unit_tests/`, `tests/integration_tests/`, `tests/e2e_tests/`
 - Name files `test_*.py` and mirror package paths within the test-type directory.
-- Prefer fast unit tests for policies; add integration tests against `/api/hooks/*` and `/health`.
+- Prefer fast unit tests for policies; add integration tests against V2 gateway endpoints.
 - Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.
 
 ## Security & Configuration
 
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
 - Copy `.env.example` to `.env`; never commit secrets.
-- Key env vars: `DATABASE_URL`, `REDIS_URL`, `CONTROL_PLANE_URL`, `LITELLM_*`, `LUTHIEN_POLICY_CONFIG`.
-- Update `config/litellm_config.yaml` and `config/luthien_config.yaml` rather than hardcoding.
-- Validate setup with `uv run python scripts/test_proxy.py` and `docker compose logs -f`.
+- Key env vars: `DATABASE_URL`, `REDIS_URL`, `V2_POLICY_CONFIG`, `PROXY_API_KEY`.
+- Update `config/v2_config.yaml` rather than hardcoding.
+- Validate setup with test requests to the V2 gateway at `http://localhost:8000`.
 
 ## Policy Selection
 
-- Policies are loaded from the YAML file pointed to by `LUTHIEN_POLICY_CONFIG` (default `config/luthien_config.yaml`).
+- Policies are loaded from the YAML file pointed to by `V2_POLICY_CONFIG` (default `config/v2_config.yaml`).
 - Minimal YAML:
 
   ```yaml
   policy:
-    class: "luthien_proxy.policies.noop:NoOpPolicy"
-    config:
-      policy_specific_arg: 'someval'
+    class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
+    config: {}
   ```
