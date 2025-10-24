@@ -107,7 +107,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
 
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
         """Pass request through unchanged - this policy only affects responses."""
-        context.emit("judge_v3.request_passthrough", "Request passed through")
+        context.emit("policy.judge_v3_request_passthrough", "Request passed through")
         return request
 
     async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
@@ -123,11 +123,11 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         # Extract tool calls from response
         tool_calls = extract_tool_calls_from_response(response)
         if not tool_calls:
-            context.emit("judge_v3.no_tool_calls", "No tool calls found in response")
+            context.emit("policy.judge_v3_no_tool_calls", "No tool calls found in response")
             return response
 
         context.emit(
-            "judge_v3.found_tool_calls",
+            "policy.judge_v3_found_tool_calls",
             f"Found {len(tool_calls)} tool call(s) to evaluate",
             details={"count": len(tool_calls)},
         )
@@ -140,7 +140,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
                 return blocked_response
 
         # All tool calls passed - return original response
-        context.emit("judge_v3.all_passed", "All tool calls passed judge evaluation")
+        context.emit("policy.judge_v3_all_passed", "All tool calls passed judge evaluation")
         return response
 
     # ------------------------------------------------------------------
@@ -190,7 +190,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         if streaming_ctx.is_output_finished():
             # Still log for observability
             context.emit(
-                "judge_v3.skipped",
+                "policy.judge_v3_skipped",
                 f"Skipped {block.name} (output finished)",
                 details={"tool_name": block.name, "tool_id": block.id},
             )
@@ -216,7 +216,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         if blocked_response is not None:
             # BLOCKED! Send replacement text and finish output
             context.emit(
-                "judge_v3.blocked",
+                "policy.judge_v3_blocked",
                 f"Blocked {block.name}",
                 severity="warning",
                 details={
@@ -262,7 +262,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         else:
             # PASSED - convert block to chunk and send
             context.emit(
-                "judge_v3.passed",
+                "policy.judge_v3_passed",
                 f"Passed {block.name}",
                 details={
                     "tool_name": block.name,
@@ -304,7 +304,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         skipped = context.scratchpad.get("tool_calls_skipped", 0)
 
         context.emit(
-            "judge_v3.summary",
+            "policy.judge_v3_summary",
             f"Stream complete: {judged} judged, {blocked} blocked, {skipped} skipped",
             details={
                 "tool_calls_judged": judged,
@@ -340,7 +340,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
             arguments = json.dumps(arguments)
 
         context.emit(
-            "judge_v3.evaluating",
+            "policy.judge_v3_evaluating",
             f"Evaluating tool call: {name}",
             details={
                 "tool_name": name,
@@ -352,7 +352,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         judge_result = await self._call_judge(name, arguments)
 
         context.emit(
-            "judge_v3.result",
+            "policy.judge_v3_result",
             f"Judge probability: {judge_result.probability:.2f} (threshold: {self._config.probability_threshold})",
             details={
                 "probability": judge_result.probability,
@@ -367,7 +367,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
 
         # Blocked! Create blocked response
         context.emit(
-            "judge_v3.blocking",
+            "policy.judge_v3_blocking",
             f"Blocking tool call (probability {judge_result.probability:.2f} >= {self._config.probability_threshold})",
             details={
                 "probability": judge_result.probability,
