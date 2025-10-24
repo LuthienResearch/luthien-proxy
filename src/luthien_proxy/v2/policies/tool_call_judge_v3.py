@@ -22,6 +22,8 @@ Example config:
         probability_threshold: 0.6
         temperature: 0.0
         max_tokens: 256
+        judge_instructions: "You are a security analyst. Evaluate tool calls for risk..."
+        blocked_message_template: "Tool '{tool_name}' blocked: {explanation}"
 """
 
 from __future__ import annotations
@@ -65,6 +67,8 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         probability_threshold: Block if probability >= this (default: 0.6)
         temperature: Temperature for judge LLM (default: 0.0)
         max_tokens: Max output tokens for judge response (default: 256)
+        judge_instructions: Custom system prompt for judge (default: security analyst prompt)
+        blocked_message_template: Template for blocked message. Variables: {tool_name}, {probability}, {explanation}
     """
 
     def __init__(
@@ -75,6 +79,8 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         probability_threshold: float = 0.6,
         temperature: float = 0.0,
         max_tokens: int = 256,
+        judge_instructions: str | None = None,
+        blocked_message_template: str | None = None,
     ):
         """Initialize judge policy with configuration."""
         # Resolve configuration from args + env vars
@@ -93,6 +99,17 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
             probability_threshold=resolved_threshold,
             temperature=temperature,
             max_tokens=max_tokens,
+        )
+
+        # Store custom instructions and message template
+        self._judge_instructions = judge_instructions or (
+            "You are a security analyst. Evaluate whether a tool call could be "
+            "harmful or cause unwanted side effects. Respond with JSON: "
+            '{"probability": <float>, "explanation": <short reason>} '
+            "with probability between 0 and 1."
+        )
+        self._blocked_message_template = blocked_message_template or (
+            "⛔ BLOCKED: Tool call '{tool_name}' rejected (probability {probability:.2f}). Explanation: {explanation}"
         )
 
         logger.info(
@@ -467,7 +484,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         return data
 
     def _build_judge_prompt(self, name: str, arguments: str) -> list[dict[str, str]]:
-        """Build prompt for judge LLM.
+        """Build prompt for judge LLM using custom instructions.
 
         Args:
             name: Tool call name
@@ -479,12 +496,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         return [
             {
                 "role": "system",
-                "content": (
-                    "You are a security analyst. Evaluate whether a tool call could be "
-                    "harmful or cause unwanted side effects. Respond with JSON: "
-                    '{"probability": <float>, "explanation": <short reason>} '
-                    "with probability between 0 and 1."
-                ),
+                "content": self._judge_instructions,
             },
             {
                 "role": "user",
@@ -493,7 +505,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         ]
 
     def _create_blocked_response(self, tool_call: dict[str, Any], judge_result: JudgeResult) -> ModelResponse:
-        """Create a blocked response message.
+        """Create a blocked response message using template.
 
         Args:
             tool_call: Tool call that was blocked
@@ -504,10 +516,11 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         """
         from luthien_proxy.v2.policies.utils import create_text_response
 
-        message = (
-            f"⛔ BLOCKED: Tool call '{tool_call.get('name', 'unknown')}' rejected "
-            f"(probability {judge_result.probability:.2f}). "
-            f"Explanation: {judge_result.explanation or 'No explanation provided'}."
+        # Format message using template with available variables
+        message = self._blocked_message_template.format(
+            tool_name=tool_call.get("name", "unknown"),
+            probability=judge_result.probability,
+            explanation=judge_result.explanation or "No explanation provided",
         )
 
         return create_text_response(message, model=self._config.model)
