@@ -73,8 +73,34 @@ All 4 files had 10+ references to deleted V1 modules (unified_callback, hooks_ro
 - Single config: V2_POLICY_CONFIG → config/v2_config.yaml
 - Clean documentation pointing to active V2 features
 
+### Part 4: Scripts Directory Cleanup (Current)
+
+**Deleted 16 obsolete scripts**:
+- V1-specific: `build_replay_examples.py`, `dummy_control_plane.py`, `export_replay_logs.sh`
+- Demo artifacts: `demo_check_integrity.py`, `demo_seed_db.py`, `run_demo.py`, `run_demo_manual.sh`
+- One-off spikes: `capture_chunks.py`, `test_anthropic_streaming.py`, `test_judge_streaming.py`, `test_response_structures.py`
+- Low-value tools: `generate_test_requests.py`, `test_v2_proxy.py`, `hook_trace_db.py`, `list_hooks.py`, `run_bg_command.sh`
+
+**Kept 14 essential scripts**:
+
+*Infrastructure (7)*:
+- `quick_start.sh` - Main deployment
+- `launch_claude_code.sh`, `launch_codex.sh` - Developer tools
+- `dev_checks.sh` - CI checks
+- `format_all.sh` - Code formatting
+- `observability.sh` - Observability stack
+- `start_v2_gateway.sh` - V2 service management
+
+*Testing & debugging (7)*:
+- `test_v2_gateway.sh` - V2 integration testing
+- `test_proxy.py` - Generic proxy testing
+- `sanity_hooks.py` - Sanity checks
+- `query_debug_logs.py` - Database inspection
+- `psql.py` - Database access
+- `trace_hooks.py` - Hook tracing
+- `run_dummy_provider.py` - Used by dummy-provider docker service
+
 ### Outstanding V1 Cleanup (for future PRs):
 - V1 source code still exists in src/luthien_proxy/control_plane/ and src/luthien_proxy/proxy/
 - V1 test files still exist (marked as deleted in the 18K line removal PR)
-- Some scripts may still reference port 4000/8081
 - Dockerfile.litellm not used but not harmful to keep
