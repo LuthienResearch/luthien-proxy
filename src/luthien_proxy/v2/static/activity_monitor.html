@@ -571,8 +571,23 @@
                 }
             }
 
-            // Filter by event type (multiselect - check if event type is in selected set)
-            if (!selectedEventTypes.has(event.event_type)) {
+            // Filter by event type (multiselect - check if event type matches selected categories)
+            // Special handling for "policy_event" - matches anything starting with "policy."
+            let typeMatches = false;
+            for (const selectedType of selectedEventTypes) {
+                if (selectedType === 'policy_event') {
+                    // Match any event starting with "policy."
+                    if (event.event_type === 'policy_event' || event.event_type.startsWith('policy.')) {
+                        typeMatches = true;
+                        break;
+                    }
+                } else if (event.event_type === selectedType) {
+                    // Exact match for specific event types
+                    typeMatches = true;
+                    break;
+                }
+            }
+            if (!typeMatches) {
                 return false;
             }
 
