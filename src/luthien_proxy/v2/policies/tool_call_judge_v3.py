@@ -23,7 +23,7 @@ Example config:
         temperature: 0.0
         max_tokens: 256
         judge_instructions: "You are a security analyst. Evaluate tool calls for risk..."
-        blocked_message_template: "Tool '{tool_name}' blocked: {explanation}"
+        blocked_message_template: "Tool '{tool_name}' with args {tool_arguments} blocked: {explanation}"
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         temperature: Temperature for judge LLM (default: 0.0)
         max_tokens: Max output tokens for judge response (default: 256)
         judge_instructions: Custom system prompt for judge (default: security analyst prompt)
-        blocked_message_template: Template for blocked message. Variables: {tool_name}, {probability}, {explanation}
+        blocked_message_template: Template for blocked message. Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}
     """
 
     def __init__(
@@ -109,7 +109,8 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
             "with probability between 0 and 1."
         )
         self._blocked_message_template = blocked_message_template or (
-            "⛔ BLOCKED: Tool call '{tool_name}' rejected (probability {probability:.2f}). Explanation: {explanation}"
+            "⛔ BLOCKED: Tool call '{tool_name}' with arguments {tool_arguments} rejected "
+            "(probability {probability:.2f}). Explanation: {explanation}"
         )
 
         logger.info(
@@ -517,8 +518,13 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
         from luthien_proxy.v2.policies.utils import create_text_response
 
         # Format message using template with available variables
+        tool_arguments = tool_call.get("arguments", "")
+        if not isinstance(tool_arguments, str):
+            tool_arguments = json.dumps(tool_arguments)
+
         message = self._blocked_message_template.format(
             tool_name=tool_call.get("name", "unknown"),
+            tool_arguments=tool_arguments,
             probability=judge_result.probability,
             explanation=judge_result.explanation or "No explanation provided",
         )

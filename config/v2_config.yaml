@@ -16,8 +16,8 @@ policy:
     # Optional: Customize judge system prompt
     # judge_instructions: "You are a security analyst. Evaluate tool calls for risk..."
     # Optional: Customize blocked message template
-    # Variables: {tool_name}, {probability}, {explanation}
-    # blocked_message_template: "⛔ Tool '{tool_name}' blocked: {explanation}"
+    # Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}
+    # blocked_message_template: "⛔ Tool '{tool_name}' with args {tool_arguments} blocked: {explanation}"
 
 # No-op for testing
 # policy:
