@@ -6,16 +6,28 @@ import asyncio
 import json
 import logging
 import time
+from dataclasses import dataclass
 from typing import AsyncGenerator, Optional
 
 from luthien_proxy.utils import redis_client
-from luthien_proxy.utils.project_config import ConversationStreamConfig
 
 from .models import ConversationEvent
 
 logger = logging.getLogger(__name__)
 
 _CONVERSATION_CHANNEL_PREFIX = "luthien:conversation:"
+
+
+@dataclass(frozen=True)
+class ConversationStreamConfig:
+    """Configuration for SSE conversation streaming."""
+
+    heartbeat_seconds: float
+    redis_poll_timeout_seconds: float
+    rate_limit_max_requests: int = 60
+    rate_limit_window_seconds: float = 60.0
+
+
 _DEFAULT_STREAM_CONFIG = ConversationStreamConfig(
     heartbeat_seconds=15.0,
     redis_poll_timeout_seconds=1.0,

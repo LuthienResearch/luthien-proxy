@@ -10,7 +10,6 @@ from typing import Mapping, Optional, Sequence
 from fastapi import HTTPException
 
 from luthien_proxy.utils import db
-from luthien_proxy.utils.project_config import ProjectConfig
 from luthien_proxy.utils.validation import require_type
 
 from .models import CallIdInfo, ConversationEvent
@@ -21,10 +20,10 @@ logger = logging.getLogger(__name__)
 async def load_events_for_call(
     call_id: str,
     pool: Optional[db.DatabasePool],
-    config: ProjectConfig,
+    database_url: Optional[str] = None,
 ) -> list[ConversationEvent]:
     """Load conversation events for a single call."""
-    if config.database_url is None or pool is None:
+    if database_url is None or pool is None:
         raise HTTPException(status_code=500, detail="DATABASE_URL is required for conversation lookups")
 
     events: list[ConversationEvent] = []
@@ -52,10 +51,10 @@ async def load_events_for_call(
 async def load_recent_calls(
     limit: int,
     pool: Optional[db.DatabasePool],
-    config: ProjectConfig,
+    database_url: Optional[str] = None,
 ) -> list[CallIdInfo]:
     """Return recent calls recorded in conversation tables."""
-    if config.database_url is None or pool is None:
+    if database_url is None or pool is None:
         return []
 
     results: list[CallIdInfo] = []
