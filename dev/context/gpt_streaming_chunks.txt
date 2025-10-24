@@ -1,0 +1,1101 @@
+
+
+### TEST 1: Simple text response ###
+
+================================================================================
+REQUEST: [
+  {
+    "role": "user",
+    "content": "Say hello in exactly 3 words"
+  }
+]
+================================================================================
+
+
+--- CHUNK 1 ---
+{
+  "id": "chatcmpl-CTz6xq6d9LgawrHvdz6Hsc4mWZuva",
+  "created": 1761262459,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": "Hello",
+        "role": "assistant",
+        "function_call": null,
+        "tool_calls": null,
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null,
+  "citations": null,
+  "service_tier": "default",
+  "obfuscation": "ZqoXV0"
+}
+  → ROLE: assistant
+  → CONTENT: 'Hello'
+
+--- CHUNK 2 ---
+{
+  "id": "chatcmpl-CTz6xq6d9LgawrHvdz6Hsc4mWZuva",
+  "created": 1761262459,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": " there",
+        "role": null,
+        "function_call": null,
+        "tool_calls": null,
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null,
+  "citations": null,
+  "service_tier": "default",
+  "obfuscation": "beaWb"
+}
+  → CONTENT: ' there'
+
+--- CHUNK 3 ---
+{
+  "id": "chatcmpl-CTz6xq6d9LgawrHvdz6Hsc4mWZuva",
+  "created": 1761262459,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": ",",
+        "role": null,
+        "function_call": null,
+        "tool_calls": null,
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null,
+  "citations": null,
+  "service_tier": "default",
+  "obfuscation": "gW7vgicSQN"
+}
+  → CONTENT: ','
+
+--- CHUNK 4 ---
+{
+  "id": "chatcmpl-CTz6xq6d9LgawrHvdz6Hsc4mWZuva",
+  "created": 1761262459,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": " friend",
+        "role": null,
+        "function_call": null,
+        "tool_calls": null,
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null,
+  "citations": null,
+  "service_tier": "default",
+  "obfuscation": "7cgy"
+}
+  → CONTENT: ' friend'
+
+--- CHUNK 5 ---
+{
+  "id": "chatcmpl-CTz6xq6d9LgawrHvdz6Hsc4mWZuva",
+  "created": 1761262459,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": "!",
+        "role": null,
+        "function_call": null,
+        "tool_calls": null,
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null,
+  "citations": null,
+  "service_tier": "default",
+  "obfuscation": "cmEZLl7nED"
+}
+  → CONTENT: '!'
+
+--- CHUNK 6 ---
+{
+  "id": "chatcmpl-CTz6xq6d9LgawrHvdz6Hsc4mWZuva",
+  "created": 1761262459,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": null,
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → FINISH_REASON: stop
+
+================================================================================
+Total chunks: 6
+================================================================================
+
+
+
+### TEST 2: Single tool call ###
+
+================================================================================
+REQUEST: [
+  {
+    "role": "user",
+    "content": "What's the weather in San Francisco?"
+  }
+]
+TOOLS: [
+  {
+    "type": "function",
+    "function": {
+      "name": "get_weather",
+      "description": "Get weather for a location",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  }
+]
+================================================================================
+
+
+--- CHUNK 1 ---
+{
+  "id": "chatcmpl-CTz6yWI1ObQEl8ebvHDaGWs4xAn7W",
+  "created": 1761262461,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": "assistant",
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": "call_fq1eGm2wiWa4mdmDSof6DDul",
+            "function": {
+              "arguments": "",
+              "name": "get_weather"
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → ROLE: assistant
+  → TOOL_CALLS: [{'id': 'call_fq1eGm2wiWa4mdmDSof6DDul', 'function': {'arguments': '', 'name': 'get_weather'}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 2 ---
+{
+  "id": "chatcmpl-CTz6yWI1ObQEl8ebvHDaGWs4xAn7W",
+  "created": 1761262461,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "{\"",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': '{"', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 3 ---
+{
+  "id": "chatcmpl-CTz6yWI1ObQEl8ebvHDaGWs4xAn7W",
+  "created": 1761262461,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "location",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'location', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 4 ---
+{
+  "id": "chatcmpl-CTz6yWI1ObQEl8ebvHDaGWs4xAn7W",
+  "created": 1761262461,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "\":\"",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': '":"', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 5 ---
+{
+  "id": "chatcmpl-CTz6yWI1ObQEl8ebvHDaGWs4xAn7W",
+  "created": 1761262461,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "San",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'San', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 6 ---
+{
+  "id": "chatcmpl-CTz6yWI1ObQEl8ebvHDaGWs4xAn7W",
+  "created": 1761262461,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": " Francisco",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': ' Francisco', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 7 ---
+{
+  "id": "chatcmpl-CTz6yWI1ObQEl8ebvHDaGWs4xAn7W",
+  "created": 1761262461,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "\"}",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': '"}', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 8 ---
+{
+  "id": "chatcmpl-CTz6yWI1ObQEl8ebvHDaGWs4xAn7W",
+  "created": 1761262461,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": null,
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → FINISH_REASON: tool_calls
+
+================================================================================
+Total chunks: 8
+================================================================================
+
+
+
+### TEST 3: Multiple tool calls ###
+
+================================================================================
+REQUEST: [
+  {
+    "role": "user",
+    "content": "Get weather for SF and NYC"
+  }
+]
+TOOLS: [
+  {
+    "type": "function",
+    "function": {
+      "name": "get_weather",
+      "description": "Get weather for a location",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  }
+]
+================================================================================
+
+
+--- CHUNK 1 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": "assistant",
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": "call_APck6nmMhJ3LuNbMTNqLglos",
+            "function": {
+              "arguments": "",
+              "name": "get_weather"
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → ROLE: assistant
+  → TOOL_CALLS: [{'id': 'call_APck6nmMhJ3LuNbMTNqLglos', 'function': {'arguments': '', 'name': 'get_weather'}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 2 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "{\"lo",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': '{"lo', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 3 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "catio",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'catio', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 4 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "n\": \"S",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'n": "S', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 5 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "an F",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'an F', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 6 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "ranci",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'ranci', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 7 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "sco\"}",
+              "name": null
+            },
+            "type": "function",
+            "index": 0
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'sco"}', 'name': None}, 'type': 'function', 'index': 0}]
+
+--- CHUNK 8 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": "call_ttdfnF6YSHibIZgmMIYdfcnY",
+            "function": {
+              "arguments": "",
+              "name": "get_weather"
+            },
+            "type": "function",
+            "index": 1
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': 'call_ttdfnF6YSHibIZgmMIYdfcnY', 'function': {'arguments': '', 'name': 'get_weather'}, 'type': 'function', 'index': 1}]
+
+--- CHUNK 9 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "{\"lo",
+              "name": null
+            },
+            "type": "function",
+            "index": 1
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': '{"lo', 'name': None}, 'type': 'function', 'index': 1}]
+
+--- CHUNK 10 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "catio",
+              "name": null
+            },
+            "type": "function",
+            "index": 1
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'catio', 'name': None}, 'type': 'function', 'index': 1}]
+
+--- CHUNK 11 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "n\": \"N",
+              "name": null
+            },
+            "type": "function",
+            "index": 1
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'n": "N', 'name': None}, 'type': 'function', 'index': 1}]
+
+--- CHUNK 12 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "ew Y",
+              "name": null
+            },
+            "type": "function",
+            "index": 1
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'ew Y', 'name': None}, 'type': 'function', 'index': 1}]
+
+--- CHUNK 13 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "ork C",
+              "name": null
+            },
+            "type": "function",
+            "index": 1
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'ork C', 'name': None}, 'type': 'function', 'index': 1}]
+
+--- CHUNK 14 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": null,
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "refusal": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": null,
+            "function": {
+              "arguments": "ity\"}",
+              "name": null
+            },
+            "type": "function",
+            "index": 1
+          }
+        ],
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → TOOL_CALLS: [{'id': None, 'function': {'arguments': 'ity"}', 'name': None}, 'type': 'function', 'index': 1}]
+
+--- CHUNK 15 ---
+{
+  "id": "chatcmpl-CTz6zGr2sjxVco1aJAHxxWkYdp1kA",
+  "created": 1761262463,
+  "model": "gpt-4o-mini",
+  "object": "chat.completion.chunk",
+  "system_fingerprint": "fp_560af6e559",
+  "choices": [
+    {
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "delta": {
+        "provider_specific_fields": null,
+        "content": null,
+        "role": null,
+        "function_call": null,
+        "tool_calls": null,
+        "audio": null
+      },
+      "logprobs": null
+    }
+  ],
+  "provider_specific_fields": null
+}
+  → FINISH_REASON: tool_calls
+
+================================================================================
+Total chunks: 15
+================================================================================
