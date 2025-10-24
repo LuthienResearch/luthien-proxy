@@ -13,6 +13,11 @@ policy:
     probability_threshold: 0.6
     temperature: 0.0
     max_tokens: 256
+    # Optional: Customize judge system prompt
+    # judge_instructions: "You are a security analyst. Evaluate tool calls for risk..."
+    # Optional: Customize blocked message template
+    # Variables: {tool_name}, {probability}, {explanation}
+    # blocked_message_template: "⛔ Tool '{tool_name}' blocked: {explanation}"
 
 # No-op for testing
 # policy:
