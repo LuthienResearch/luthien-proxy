@@ -4,6 +4,7 @@ ABOUTME: Provides request execution, response validation, and trace assertion ut
 
 from __future__ import annotations
 
+import importlib
 import json
 import uuid
 from typing import Any
@@ -13,11 +14,14 @@ import httpx
 from .infra import E2ESettings
 
 try:
-    from .policy_test_models import RequestSpec, ResponseAssertion
+    _policy_models = importlib.import_module(".policy_test_models", package=__package__)
 except ImportError:
     # For backward compatibility with existing tests
     RequestSpec = None  # type: ignore
     ResponseAssertion = None  # type: ignore
+else:
+    RequestSpec = getattr(_policy_models, "RequestSpec", None)
+    ResponseAssertion = getattr(_policy_models, "ResponseAssertion", None)
 
 
 def build_policy_payload(settings: E2ESettings, *, stream: bool) -> dict[str, Any]:

@@ -14,6 +14,10 @@ from typing import Optional
 import httpx
 import uvicorn
 
+from luthien_proxy.v2.main import create_app
+from luthien_proxy.v2.policies.base import LuthienPolicy
+from luthien_proxy.v2.policies.noop import NoOpPolicy
+
 
 def _run_v2_gateway(port: int, api_key: str) -> None:
     """Run V2 gateway in a subprocess.
@@ -21,10 +25,6 @@ def _run_v2_gateway(port: int, api_key: str) -> None:
     This function is the target for multiprocessing.Process.
     It configures the environment and starts uvicorn.
     """
-    # Import here to avoid issues with multiprocessing
-    from luthien_proxy.v2.main import create_v2_app
-    from luthien_proxy.v2.policies.uppercase_nth_word import UppercaseNthWordPolicy
-
     # Get config from environment
     database_url = os.environ.get("DATABASE_URL", "")
     if not database_url:
@@ -33,10 +33,9 @@ def _run_v2_gateway(port: int, api_key: str) -> None:
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
 
     # Create policy
-    policy = UppercaseNthWordPolicy(n=3)
-
+    policy: LuthienPolicy = NoOpPolicy()
     # Create app with factory
-    app = create_v2_app(
+    app = create_app(
         api_key=api_key,
         database_url=database_url,
         redis_url=redis_url,

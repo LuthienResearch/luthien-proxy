@@ -5,13 +5,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from config.litellm_callback import LuthienCallback
+from litellm.types.utils import ModelResponse, ModelResponseStream
+
+from luthien_proxy.proxy.stream_connection_manager import StreamConnection
 
 
 @pytest.fixture
 def callback():
     """Create a LuthienCallback instance for testing."""
-    from config.litellm_callback import LuthienCallback
-
     return LuthienCallback()
 
 
@@ -145,8 +147,6 @@ async def test_apost_hook_raises_on_invalid_json(callback):
 
 def test_normalize_stream_chunk_with_model_response_edit(callback):
     """Fail when policy returns a ModelResponseStream instead of JSON."""
-    from litellm.types.utils import ModelResponseStream
-
     edited = ModelResponseStream.model_validate(
         {
             "id": "test",
@@ -163,8 +163,6 @@ def test_normalize_stream_chunk_with_model_response_edit(callback):
 
 def test_normalize_stream_chunk_with_dict_edit(callback):
     """Test normalization when edit is a dictionary."""
-    from litellm.types.utils import ModelResponseStream
-
     edited = {
         "id": "test",
         "choices": [{"index": 0, "delta": {"content": "edited"}}],
@@ -201,8 +199,6 @@ def test_normalize_stream_chunk_with_partial_dict(callback):
 @pytest.mark.asyncio
 async def test_post_call_success_hook_mutates_response_in_place(callback):
     """Ensure non-stream responses are mutated rather than replaced."""
-    from litellm.types.utils import ModelResponse
-
     response = ModelResponse(
         model="gpt-initial",
         choices=[
@@ -266,8 +262,6 @@ def test_normalize_stream_chunk_none(callback):
 
 @pytest.mark.asyncio
 async def test_streaming_hook_without_stream_id_returns_empty(callback):
-    from litellm.types.utils import ModelResponseStream
-
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -290,10 +284,6 @@ async def test_streaming_hook_without_stream_id_returns_empty(callback):
 
 @pytest.mark.asyncio
 async def test_streaming_hook_returns_empty_on_connection_error(callback):
-    from litellm.types.utils import ModelResponseStream
-
-    from luthien_proxy.proxy.stream_connection_manager import StreamConnection
-
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -326,10 +316,6 @@ async def test_streaming_hook_returns_empty_on_connection_error(callback):
 
 @pytest.mark.asyncio
 async def test_streaming_hook_returns_transformed_chunk(callback):
-    from litellm.types.utils import ModelResponseStream
-
-    from luthien_proxy.proxy.stream_connection_manager import StreamConnection
-
     original = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -409,10 +395,6 @@ class _StreamingConnection:
 
 @pytest.mark.asyncio
 async def test_streaming_hook_cleans_up_after_control_end(callback):
-    from litellm.types.utils import ModelResponseStream
-
-    from luthien_proxy.proxy.stream_connection_manager import StreamConnection
-
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -443,10 +425,6 @@ async def test_streaming_hook_cleans_up_after_control_end(callback):
 
 @pytest.mark.asyncio
 async def test_streaming_hook_skips_end_when_control_plane_signals_close(callback):
-    from litellm.types.utils import ModelResponseStream
-
-    from luthien_proxy.proxy.stream_connection_manager import StreamConnection
-
     chunk = ModelResponseStream.model_validate(
         {
             "id": "stream",
@@ -477,10 +455,6 @@ async def test_streaming_hook_skips_end_when_control_plane_signals_close(callbac
 
 @pytest.mark.asyncio
 async def test_streaming_hook_waits_for_control_plane_chunk(callback):
-    from litellm.types.utils import ModelResponseStream
-
-    from luthien_proxy.proxy.stream_connection_manager import StreamConnection
-
     original = ModelResponseStream.model_validate(
         {
             "id": "stream",

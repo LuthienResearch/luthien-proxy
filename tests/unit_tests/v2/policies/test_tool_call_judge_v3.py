@@ -9,7 +9,15 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from litellm.types.utils import ModelResponse
+from litellm.types.utils import (
+    ChatCompletionMessageToolCall,
+    Choices,
+    Delta,
+    Function,
+    Message,
+    ModelResponse,
+    StreamingChoices,
+)
 from opentelemetry import trace
 
 from luthien_proxy.v2.messages import Request
@@ -39,8 +47,6 @@ def create_tool_call_chunk(tool_index: int, tool_id: str, name: str = "", argume
     if arguments:
         delta_dict["tool_calls"][0]["function"]["arguments"] = arguments
 
-    from litellm.types.utils import Delta, StreamingChoices
-
     return ModelResponse(
         id="test",
         choices=[StreamingChoices(index=0, delta=Delta(**delta_dict), finish_reason=None)],
@@ -52,8 +58,6 @@ def create_tool_call_chunk(tool_index: int, tool_id: str, name: str = "", argume
 
 def create_finish_chunk(finish_reason: str = "tool_calls") -> ModelResponse:
     """Helper to create finish reason chunk."""
-    from litellm.types.utils import Delta, StreamingChoices
-
     return ModelResponse(
         id="test",
         choices=[StreamingChoices(index=0, delta=Delta(), finish_reason=finish_reason)],
@@ -140,8 +144,6 @@ class TestToolCallJudgeV3Policy:
     @pytest.mark.asyncio
     async def test_on_response_no_tool_calls(self, policy, context):
         """Test response without tool calls passes through."""
-        from litellm.types.utils import Choices, Message
-
         response = ModelResponse(
             id="test",
             choices=[
@@ -162,8 +164,6 @@ class TestToolCallJudgeV3Policy:
     @pytest.mark.asyncio
     async def test_on_response_tool_call_passes_judge(self, policy, context):
         """Test response with tool call that passes judge."""
-        from litellm.types.utils import ChatCompletionMessageToolCall, Choices, Function, Message
-
         response = ModelResponse(
             id="test",
             choices=[
@@ -204,8 +204,6 @@ class TestToolCallJudgeV3Policy:
     @pytest.mark.asyncio
     async def test_on_response_tool_call_blocked(self, policy, context):
         """Test response with tool call that is blocked."""
-        from litellm.types.utils import ChatCompletionMessageToolCall, Choices, Function, Message
-
         response = ModelResponse(
             id="test",
             choices=[

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.streaming.stream_blocks import (
     ContentStreamBlock,
@@ -12,6 +13,8 @@ from luthien_proxy.v2.streaming.stream_blocks import (
 )
 from luthien_proxy.v2.streaming.stream_processor import StreamProcessor
 from luthien_proxy.v2.streaming.stream_state import StreamState
+
+FIXTURE_DIR = Path(__file__).parent / "chunk_fixtures"
 
 
 class ChunkRecorder:
@@ -51,15 +54,13 @@ class ChunkRecorder:
 
 def load_chunks(filename: str) -> list[dict]:
     """Load chunk data from JSON file."""
-    path = Path(f"/tmp/{filename}")
+    path = FIXTURE_DIR / filename
     with path.open() as f:
         return json.load(f)
 
 
 async def simulate_stream(chunks: list[dict]):
     """Simulate async stream from chunk list."""
-    from litellm.types.utils import ModelResponse
-
     for chunk_dict in chunks:
         mr = ModelResponse(**chunk_dict)
 

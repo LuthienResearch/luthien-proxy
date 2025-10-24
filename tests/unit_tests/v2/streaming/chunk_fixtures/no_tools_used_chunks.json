@@ -1,0 +1,1793 @@
+[
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "Here",
+          "role": "assistant",
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " are the major cities in Japan:",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "\n\n1. **Tokyo** - The",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " capital an",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "d largest city",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "\n2. **Yokohama**",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " - Part",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " of the",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Greater",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Tokyo Area\n3. **Osaka",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "** - Major",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " commercial",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " and cultural",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " center in",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " western",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Japan\n4. **Nag",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "oya** - Important industrial city in central",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Japan\n5. **S",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "apporo** - Largest",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " city on",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Hokkaido island\n6.",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " **Fuk",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "uoka** - Major city",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " on",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Kyushu island\n7.",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " **K",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "obe** - Port",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " city near",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Osaka\n8. **Kyoto",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "** - Former",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " capital",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": ",",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " famous",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " for",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " temples and culture",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "\n9. **Kaw",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "as",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "aki** - Industrial",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " city between",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Tokyo and Yok",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "ohama\n10. **S",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "aitama** - Part",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " of the",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Greater Tokyo Area\n11. **",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "Hir",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "oshima** - Important city in western",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Honshu\n12. **",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "Sen",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "dai** -",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Largest city in the",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Tohoku region\n13. **",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "Chiba** - Part",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " of the Greater Tokyo Area\n14.",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " **Kit",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "akyushu** - Industrial",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " city in northern",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Kyushu\n15. **",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "Sa",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "kai** - City in Osaka Prefecture",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "\n\nThese cities represent",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " the",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " most",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " populous",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " and economically significant",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " urban",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " centers across",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Japan's",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " main islands.",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-72d16811-2ecc-4b44-9788-0a1ef85cba3a",
+    "created": 1761263653,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "content": null,
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  }
+]

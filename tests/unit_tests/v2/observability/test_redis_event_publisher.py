@@ -11,6 +11,7 @@ import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -504,8 +505,6 @@ class TestRedisEventPublisher:
     @pytest.mark.asyncio
     async def test_publish_event_minimal(self) -> None:
         """Test publishing an event with minimal fields."""
-        from unittest.mock import AsyncMock, Mock
-
         mock_redis = Mock()
         mock_redis.publish = AsyncMock()
 
@@ -527,8 +526,6 @@ class TestRedisEventPublisher:
     @pytest.mark.asyncio
     async def test_publish_event_with_data(self) -> None:
         """Test publishing an event with data field."""
-        from unittest.mock import AsyncMock, Mock
-
         mock_redis = Mock()
         mock_redis.publish = AsyncMock()
 
@@ -549,8 +546,6 @@ class TestRedisEventPublisher:
     @pytest.mark.asyncio
     async def test_publish_event_handles_redis_failure(self) -> None:
         """Test that publish_event doesn't raise on Redis failures."""
-        from unittest.mock import AsyncMock, Mock
-
         mock_redis = Mock()
         mock_redis.publish = AsyncMock(side_effect=Exception("Redis connection failed"))
 
@@ -565,8 +560,6 @@ class TestRedisEventPublisher:
     @pytest.mark.asyncio
     async def test_publish_event_uses_correct_channel(self) -> None:
         """Test that events are published to the correct Redis channel."""
-        from unittest.mock import AsyncMock, Mock
-
         mock_redis = Mock()
         mock_redis.publish = AsyncMock()
 
@@ -581,8 +574,6 @@ class TestRedisEventPublisher:
     @pytest.mark.asyncio
     async def test_publish_event_json_serializable(self) -> None:
         """Test that published events are valid JSON."""
-        from unittest.mock import AsyncMock, Mock
-
         mock_redis = Mock()
         mock_redis.publish = AsyncMock()
 
@@ -607,8 +598,6 @@ class TestRedisEventPublisher:
     @pytest.mark.asyncio
     async def test_publisher_initialization(self) -> None:
         """Test that publisher stores the Redis client and channel."""
-        from unittest.mock import Mock
-
         mock_redis = Mock()
         publisher = RedisEventPublisher(mock_redis)
 
@@ -618,8 +607,6 @@ class TestRedisEventPublisher:
     @pytest.mark.asyncio
     async def test_multiple_publish_events(self) -> None:
         """Test publishing multiple events in sequence."""
-        from unittest.mock import AsyncMock, Mock
-
         mock_redis = Mock()
         mock_redis.publish = AsyncMock()
 
@@ -644,8 +631,6 @@ class TestCreateEventPublisher:
     @pytest.mark.asyncio
     async def test_create_event_publisher_returns_publisher(self) -> None:
         """Test that create_event_publisher returns a RedisEventPublisher instance."""
-        from unittest.mock import AsyncMock, patch
-
         mock_redis_client = AsyncMock()
 
         with patch("redis.asyncio.from_url", new=AsyncMock(return_value=mock_redis_client)):
@@ -657,8 +642,6 @@ class TestCreateEventPublisher:
     @pytest.mark.asyncio
     async def test_create_event_publisher_connects_to_redis(self) -> None:
         """Test that create_event_publisher connects to the provided Redis URL."""
-        from unittest.mock import AsyncMock, patch
-
         mock_redis_client = AsyncMock()
         mock_from_url = AsyncMock(return_value=mock_redis_client)
 
@@ -671,8 +654,6 @@ class TestCreateEventPublisher:
     @pytest.mark.asyncio
     async def test_create_event_publisher_with_auth(self) -> None:
         """Test create_event_publisher with Redis URL containing auth."""
-        from unittest.mock import AsyncMock, patch
-
         mock_redis_client = AsyncMock()
         mock_from_url = AsyncMock(return_value=mock_redis_client)
 
@@ -687,8 +668,6 @@ class TestCreateEventPublisher:
     @pytest.mark.asyncio
     async def test_create_event_publisher_channel_configured(self) -> None:
         """Test that created publisher has the correct channel configured."""
-        from unittest.mock import AsyncMock, patch
-
         mock_redis_client = AsyncMock()
 
         with patch("redis.asyncio.from_url", new=AsyncMock(return_value=mock_redis_client)):

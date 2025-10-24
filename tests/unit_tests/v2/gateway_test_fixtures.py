@@ -9,6 +9,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from luthien_proxy.v2.gateway_routes import router
+
 
 @pytest.fixture
 def mock_control_plane():
@@ -41,8 +43,6 @@ def app(mock_control_plane):
     - event_publisher=None: publish_event calls are skipped
     - redis_client=None: no Redis operations occur
     """
-    from luthien_proxy.v2.gateway_routes import router
-
     app = FastAPI()
     app.include_router(router)
 

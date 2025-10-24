@@ -1,6 +1,7 @@
 """E2E tests for WebSocket message logging in streaming pipeline."""
 
 import json
+import re
 import time
 
 import httpx
@@ -157,8 +158,6 @@ async def test_websocket_logs_include_stream_id():
     assert len(websocket_logs) > 0, "Should have at least one WebSocket log"
 
     # Verify that WebSocket logs contain stream IDs in [uuid] format
-    import re
-
     uuid_pattern = re.compile(r"\[[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\]")
     logs_with_stream_ids = [line for line in websocket_logs if uuid_pattern.search(line)]
     assert len(logs_with_stream_ids) > 0, (
