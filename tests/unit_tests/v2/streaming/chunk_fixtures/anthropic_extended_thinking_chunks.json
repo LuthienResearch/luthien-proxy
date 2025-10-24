@@ -1,0 +1,3015 @@
+[
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "I'll help you plan a trip to",
+          "role": "assistant",
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Japan in spring!",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Let me first explain my reasoning for",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " the",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " best",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " cities to visit, then check the current",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " weather for my",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " top recommendations",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": ".\n\n##",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Best",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Japanese",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Cities for",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Spring Travel\n\n**My",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " top",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " recommendations",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " for spring in",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Japan:**\n\n1. **Tokyo",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "** - The capital offers",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " an",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " incredible mix of traditional an",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "d modern experiences",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": ". In",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " spring, you",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " can enjoy",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " cherry blossoms at iconic",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " spots",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " like Ueno Park,",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Sh",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "injuku Gyoen, and along",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " the Sumida River. The city",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " has",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " excellent infrastructure",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": ",",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " diverse neighborhoods to",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " explore, and countless",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " cultural attractions.\n\n2. **",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "Kyoto** - The",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " former",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " imperial",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " capital is",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " absolutely",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " magical in spring.",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " With",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " over",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " 2",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": ",000 temples and shrines,",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " traditional",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " gardens, and the famous Philosopher",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "'s Path line",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "d with cherry trees, Kyoto offers",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " the",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " quint",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "essential Japanese spring",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " experience.",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " The",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Arashiyama bamb",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "oo grove and Fushimi",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Inari shrine are also",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " must-sees.\n\n**",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "Other",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " excellent spring destinations:**\n- **",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "Osaka",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "** - Great",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " foo",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "d scene an",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "d cherry",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " bl",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "ossoms at",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Osaka Castle\n- **N",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "ara** - Historic",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " temples and deer",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " park with",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " beautiful sak",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "ura",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "\n- **Hakone** - Mount",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " Fuji views and hot springs with",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " spring",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " blo",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "oms",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "\n\nSpring",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " (",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "March-May) is ideal",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " because",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " of",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " the",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " famous",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " cherry blossom season (",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "sak",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "ura),",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " mil",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "d temperatures",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": ", and generally",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " pleasant weather for",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " s",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "ightseeing.",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "\n\nNow",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " let me check the current weather for my",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": " top 2 recommendations:",
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null,
+    "citations": null,
+    "service_tier": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": "toolu_01JSFuJVx7T3ogp88g1NNEYk",
+              "function": {
+                "arguments": "",
+                "name": "get_weather"
+              },
+              "type": "function",
+              "index": 0
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": "",
+                "name": null
+              },
+              "type": "function",
+              "index": 0
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": "{\"loca",
+                "name": null
+              },
+              "type": "function",
+              "index": 0
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": "tion",
+                "name": null
+              },
+              "type": "function",
+              "index": 0
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": "\": \"",
+                "name": null
+              },
+              "type": "function",
+              "index": 0
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": "Tokyo, Japa",
+                "name": null
+              },
+              "type": "function",
+              "index": 0
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": "n\"}",
+                "name": null
+              },
+              "type": "function",
+              "index": 0
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": "toolu_01PB6djWqLxwVByoiBnoLS2t",
+              "function": {
+                "arguments": "",
+                "name": "get_weather"
+              },
+              "type": "function",
+              "index": 1
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": "",
+                "name": null
+              },
+              "type": "function",
+              "index": 1
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": "{\"loc",
+                "name": null
+              },
+              "type": "function",
+              "index": 1
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": "ation\": \"Ky",
+                "name": null
+              },
+              "type": "function",
+              "index": 1
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": "oto,",
+                "name": null
+              },
+              "type": "function",
+              "index": 1
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": null,
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "refusal": null,
+          "content": "",
+          "role": null,
+          "function_call": null,
+          "tool_calls": [
+            {
+              "id": null,
+              "function": {
+                "arguments": " Japan\"}",
+                "name": null
+              },
+              "type": "function",
+              "index": 1
+            }
+          ],
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  },
+  {
+    "id": "chatcmpl-721913e9-dbf5-4e8e-9fd0-0407dfcd0045",
+    "created": 1761263645,
+    "model": "claude-sonnet-4",
+    "object": "chat.completion.chunk",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "delta": {
+          "provider_specific_fields": null,
+          "content": null,
+          "role": null,
+          "function_call": null,
+          "tool_calls": null,
+          "audio": null
+        },
+        "logprobs": null
+      }
+    ],
+    "provider_specific_fields": null
+  }
+]

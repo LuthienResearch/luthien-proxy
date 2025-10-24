@@ -14,6 +14,8 @@ from luthien_proxy.v2.streaming.stream_blocks import (
 from luthien_proxy.v2.streaming.stream_processor import StreamProcessor
 from luthien_proxy.v2.streaming.stream_state import StreamState
 
+FIXTURE_DIR = Path(__file__).parent / "chunk_fixtures"
+
 
 class ChunkRecorder:
     """Records chunk callbacks for testing."""
@@ -52,7 +54,7 @@ class ChunkRecorder:
 
 def load_chunks(filename: str) -> list[dict]:
     """Load chunk data from JSON file."""
-    path = Path(f"/tmp/{filename}")
+    path = FIXTURE_DIR / filename
     with path.open() as f:
         return json.load(f)
 
