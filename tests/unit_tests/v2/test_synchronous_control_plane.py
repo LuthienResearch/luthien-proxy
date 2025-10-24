@@ -8,10 +8,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from luthien_proxy.v2.control.models import StreamingError
 from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.noop import NoOpPolicy
+from luthien_proxy.v2.streaming import StreamingError
 
 
 @pytest.fixture

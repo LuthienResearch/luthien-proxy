@@ -3,7 +3,7 @@
 
 """Tests for V2 control plane models."""
 
-from luthien_proxy.v2.control.models import StreamingContext, StreamingError
+from luthien_proxy.v2.streaming import StreamingContext, StreamingError
 
 
 class TestStreamingError:

@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from luthien_proxy.v2.control.queue_utils import get_available
+from luthien_proxy.v2.streaming import get_available
 
 
 class TestGetAvailable:

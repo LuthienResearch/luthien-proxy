@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from luthien_proxy.v2.control.streaming_orchestrator import StreamingOrchestrator
+from luthien_proxy.v2.streaming import StreamingOrchestrator
 
 
 class TestStreamingOrchestrator:
