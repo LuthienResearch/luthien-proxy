@@ -9,6 +9,8 @@
 - [ ] Make sure tests match package file structure
 - [ ] EventDrivenPolicy should inherit from LuthienPolicy
 - [ ] ControlPlane should initialize PolicyContext and persist throughout request lifecycle
+- [ ] Cleanup defunct v1 stuff
+- [ ] Cleanup a lot of things
 
 ## High Priority
 
