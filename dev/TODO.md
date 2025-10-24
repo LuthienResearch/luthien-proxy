@@ -8,6 +8,7 @@
 - [ ] Rename, reorganize, and refactor things for maximum legibility
 - [ ] Make sure tests match package file structure
 - [ ] EventDrivenPolicy should inherit from LuthienPolicy
+- [ ] ControlPlane should initialize PolicyContext and persist throughout request lifecycle
 
 ## High Priority
 

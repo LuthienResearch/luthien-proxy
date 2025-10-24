@@ -21,7 +21,8 @@ def make_context(call_id="test-call"):
     mock_span = Mock()
     mock_span.add_event = Mock()  # Track span events
 
-    context = PolicyContext(call_id=call_id, span=mock_span, event_publisher=None)
+    request = Request(model="gpt-4", messages=[])
+    context = PolicyContext(call_id=call_id, span=mock_span, request=request, event_publisher=None)
     return context
 
 

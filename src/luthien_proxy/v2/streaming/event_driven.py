@@ -33,7 +33,6 @@ from typing import Any, Callable
 
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
 
 logger = logging.getLogger(__name__)
@@ -57,46 +56,77 @@ class TerminateStream(Exception):
 
 @dataclass
 class StreamingContext:
-    """Per-request context passed to all hooks.
+    """Per-request context for streaming policy hooks.
 
-    This context provides safe, controlled access to stream operations.
-    Hooks can send chunks, emit events, and request termination, but cannot
-    directly access queues or break lifecycle guarantees.
+    Provides safe, controlled access to stream operations.
+    Hooks can send chunks but cannot directly access queues.
+
+    Policies continue processing the incoming stream even after finishing
+    output. This allows observability, metrics, and cleanup to occur
+    for the entire stream lifecycle.
 
     Attributes:
-        request: Original Request object (messages, model, parameters)
-        policy_context: PolicyContext for event emission (logging, metrics, debug info)
+        policy_context: PolicyContext with request, scratchpad, emit(), etc.
         keepalive: Optional callback to invoke during long operations (e.g., judge calls)
                    to prevent upstream timeout. Call periodically if hook blocks >1s.
     """
 
-    request: Request
     policy_context: PolicyContext
     keepalive: Callable[[], None] | None = None
     _outgoing: asyncio.Queue[ModelResponse] | None = None  # Set by base class
+    _output_finished: bool = False  # V3: Flag indicating output stream is complete
     _terminate_flag: bool = False  # Internal flag set by terminate()
 
     async def send(self, chunk: ModelResponse) -> None:
-        """Enqueue a chunk for the pump to deliver.
-
-        This is the ONLY way hooks can write to the output stream.
-        The outgoing queue itself is not exposed; the pump validates
-        invariants (post-terminate guard, instrumentation) before
-        forwarding to the queue.
-
-        Args:
-            chunk: ModelResponse chunk to send to client
+        """Send a raw chunk to client.
 
         Raises:
-            RuntimeError: If called after terminate() or if queue not initialized
+            RuntimeError: If called after output stream is finished or queue not initialized
         """
-        if self._terminate_flag:
-            raise RuntimeError("Cannot send chunks after terminate() has been called")
+        if self._output_finished:
+            raise RuntimeError("Cannot send chunks after output stream is finished")
 
         if self._outgoing is None:
             raise RuntimeError("StreamingContext not properly initialized - no outgoing queue")
 
         await self._outgoing.put(chunk)
+
+    async def send_text(self, text: str, finish: bool = False) -> None:
+        """Convenience: send text as a chunk.
+
+        Args:
+            text: Text content to send
+            finish: If True, mark output stream as finished
+
+        Raises:
+            RuntimeError: If model not available in context or if output already finished
+        """
+        from luthien_proxy.v2.streaming.utils import build_text_chunk
+
+        chunk = build_text_chunk(
+            text,
+            model=self.policy_context.request.model,
+            finish_reason="stop" if finish else None,
+        )
+        await self.send(chunk)
+        if finish:
+            self._output_finished = True
+
+    def mark_output_finished(self) -> None:
+        """Mark output stream as finished (no more sends allowed).
+
+        Use this when you've sent a final chunk and want to prevent
+        further output, but continue processing input for observability.
+        """
+        self._output_finished = True
+
+    def is_output_finished(self) -> bool:
+        """Check if output stream is finished.
+
+        Returns:
+            True if output stream has been marked finished
+        """
+        return self._output_finished
 
     def emit(self, event_type: str, summary: str, **kwargs: Any) -> None:
         """Emit a policy event for logging/metrics.
@@ -113,8 +143,10 @@ class StreamingContext:
 
         Sets internal flag; the base class stops processing after the
         current hook completes, skips downstream hooks, and shuts down.
+        Also marks output as finished to prevent further sends.
         """
         self._terminate_flag = True
+        self._output_finished = True
 
 
 class EventDrivenPolicy(ABC):
@@ -317,17 +349,12 @@ class EventDrivenPolicy(ABC):
         # Create per-request state
         state = self.create_state()
 
-        # Create streaming context with request metadata
-        # Note: We need to extract request from context, but PolicyContext
-        # doesn't expose it directly. For now, create a minimal request.
-        # TODO: Update PolicyContext to include request or pass request separately
-        from luthien_proxy.v2.messages import Request
-
+        # V3: Create streaming context with PolicyContext (includes request)
         streaming_context = StreamingContext(
-            request=Request(messages=[], model="unknown"),  # Placeholder
             policy_context=context,
             keepalive=keepalive,
             _outgoing=outgoing,
+            _output_finished=False,
         )
 
         # Track if any chunks were emitted

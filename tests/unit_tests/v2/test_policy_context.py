@@ -5,6 +5,7 @@
 
 from unittest.mock import Mock
 
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.context import PolicyContext
 
 
@@ -14,7 +15,8 @@ class TestPolicyContext:
     def test_create_context(self):
         """Test creating a basic PolicyContext."""
         mock_span = Mock()
-        context = PolicyContext(call_id="test-call-123", span=mock_span)
+        request = Request(model="gpt-4", messages=[])
+        context = PolicyContext(call_id="test-call-123", span=mock_span, request=request)
 
         assert context.call_id == "test-call-123"
         assert context.span == mock_span
@@ -23,14 +25,16 @@ class TestPolicyContext:
         """Test creating context with event publisher."""
         mock_span = Mock()
         mock_publisher = Mock()
-        context = PolicyContext(call_id="test-call", span=mock_span, event_publisher=mock_publisher)
+        request = Request(model="gpt-4", messages=[])
+        context = PolicyContext(call_id="test-call", span=mock_span, request=request, event_publisher=mock_publisher)
 
         assert context._event_publisher == mock_publisher
 
     def test_emit_basic_event(self):
         """Test emitting basic event adds to span."""
         mock_span = Mock()
-        context = PolicyContext(call_id="test-call", span=mock_span)
+        request = Request(model="gpt-4", messages=[])
+        context = PolicyContext(call_id="test-call", span=mock_span, request=request)
 
         context.emit(event_type="policy.test", summary="Test event")
 
@@ -44,7 +48,8 @@ class TestPolicyContext:
     def test_emit_event_with_details(self):
         """Test emitting event with structured details."""
         mock_span = Mock()
-        context = PolicyContext(call_id="test-call", span=mock_span)
+        request = Request(model="gpt-4", messages=[])
+        context = PolicyContext(call_id="test-call", span=mock_span, request=request)
 
         context.emit(
             event_type="policy.modified",
@@ -60,7 +65,8 @@ class TestPolicyContext:
     def test_emit_event_with_severity(self):
         """Test emitting event with custom severity."""
         mock_span = Mock()
-        context = PolicyContext(call_id="test-call", span=mock_span)
+        request = Request(model="gpt-4", messages=[])
+        context = PolicyContext(call_id="test-call", span=mock_span, request=request)
 
         context.emit(
             event_type="policy.warning",
@@ -74,7 +80,8 @@ class TestPolicyContext:
     def test_emit_converts_complex_types_to_string(self):
         """Test that complex types in details are converted to strings."""
         mock_span = Mock()
-        context = PolicyContext(call_id="test-call", span=mock_span)
+        request = Request(model="gpt-4", messages=[])
+        context = PolicyContext(call_id="test-call", span=mock_span, request=request)
 
         context.emit(
             event_type="policy.test",
@@ -91,7 +98,8 @@ class TestPolicyContext:
     def test_emit_preserves_primitive_types(self):
         """Test that primitive types in details are preserved."""
         mock_span = Mock()
-        context = PolicyContext(call_id="test-call", span=mock_span)
+        request = Request(model="gpt-4", messages=[])
+        context = PolicyContext(call_id="test-call", span=mock_span, request=request)
 
         context.emit(
             event_type="policy.test",
@@ -114,7 +122,8 @@ class TestPolicyContext:
     def test_emit_without_details(self):
         """Test emitting event without details dict."""
         mock_span = Mock()
-        context = PolicyContext(call_id="test-call", span=mock_span)
+        request = Request(model="gpt-4", messages=[])
+        context = PolicyContext(call_id="test-call", span=mock_span, request=request)
 
         context.emit(event_type="policy.simple", summary="Simple event")
 
@@ -131,7 +140,8 @@ class TestPolicyContext:
         """Test emit with event publisher when no event loop exists."""
         mock_span = Mock()
         mock_publisher = Mock()
-        context = PolicyContext(call_id="test-call", span=mock_span, event_publisher=mock_publisher)
+        request = Request(model="gpt-4", messages=[])
+        context = PolicyContext(call_id="test-call", span=mock_span, request=request, event_publisher=mock_publisher)
 
         # Should not raise exception when no event loop
         context.emit(event_type="policy.test", summary="Test")

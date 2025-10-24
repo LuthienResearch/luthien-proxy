@@ -3,9 +3,9 @@
 # This file specifies the active policy for the V2 integrated architecture.
 # Set the V2_POLICY_CONFIG environment variable to point to this file.
 
-# Active policy configuration - Event-driven Tool Call Judge
+# Active policy configuration - V3 Tool Call Judge for e2e testing
 policy:
-  class: "luthien_proxy.v2.policies.event_driven_tool_call_judge:EventDrivenToolCallJudgePolicy"
+  class: "luthien_proxy.v2.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
   config:
     model: "ollama/gemma2:2b"
     api_base: "http://local-llm:11434"
@@ -13,6 +13,16 @@ policy:
     probability_threshold: 0.6
     temperature: 0.0
     max_tokens: 256
+    # Optional: Customize judge system prompt
+    # judge_instructions: "You are a security analyst. Evaluate tool calls for risk..."
+    # Optional: Customize blocked message template
+    # Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}
+    # blocked_message_template: "⛔ Tool '{tool_name}' with args {tool_arguments} blocked: {explanation}"
+
+# No-op for testing
+# policy:
+#   class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
+#   config: {}
 
 # Other policy examples:
 
