@@ -192,9 +192,10 @@ The V2 architecture integrates everything into a single FastAPI application:
 
 **Documentation**:
 
-- New developers: Start with [`docs/developer-onboarding.md`](docs/developer-onboarding.md)
-- Visual flows: See [`docs/diagrams.md`](docs/diagrams.md)
-- Architecture decisions: See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Architecture principles: [`dev/ARCHITECTURE.md`](dev/ARCHITECTURE.md)
+- Event-driven policies: [`dev/event_driven_policy_guide.md`](dev/event_driven_policy_guide.md)
+- Observability: [`dev/observability-v2.md`](dev/observability-v2.md)
+- Viewing traces: [`dev/VIEWING_TRACES_GUIDE.md`](dev/VIEWING_TRACES_GUIDE.md)
 
 ## Endpoints
 
@@ -229,16 +230,15 @@ The V2 gateway uses an event-driven policy architecture with streaming support.
 
 ### Creating Custom Policies
 
-Policies implement the event-driven interface:
+Policies implement the `LuthienPolicy` interface or use the event-driven DSL:
 
 ```python
-from luthien_proxy.v2.policies.base import LuthienPolicy, PolicyEvent, PolicyAction
+from luthien_proxy.v2.streaming import EventDrivenPolicy, StreamingContext
 
-class MyPolicy(LuthienPolicy):
-    async def handle_event(self, event: PolicyEvent) -> PolicyAction:
-        # Process events (request_start, chunk_received, etc.)
-        # Return actions (pass_through, block, transform, etc.)
-        pass
+class MyPolicy(EventDrivenPolicy):
+    async def on_content_chunk(self, content: str, raw_chunk, state, context: StreamingContext):
+        # Process content chunks
+        await context.send(raw_chunk)  # Forward or transform
 ```
 
 See `src/luthien_proxy/v2/policies/` for examples:

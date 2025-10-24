@@ -43,7 +43,38 @@ Updated VIEWING_TRACES_GUIDE.md and TODO.md for V2.
 - `local-llm` service for policy judging
 - `V2_POLICY_CONFIG` pointing to `config/v2_config.yaml`
 
-### Outstanding Work:
-- Delete V1-specific Docker files (Dockerfile.litellm, Dockerfile.control-plane if unused)
-- Update scripts that reference port 4000/8081 or old services
-- Clean up V1-specific source code in src/luthien_proxy/control_plane/ and src/luthien_proxy/proxy/
+### Part 3: Public Documentation Cleanup (Completed)
+
+**Archived V1 docs to docs/archive/**:
+- v1-reading-guide.md (248 lines - extensive V1 flow diagrams)
+- v1-developer-onboarding.md (294 lines - V1 onboarding guide)
+- v1-diagrams.md (300 lines - V1 Mermaid diagrams)
+- v1-ARCHITECTURE.md (126 lines - V1 architecture overview)
+
+All 4 files had 10+ references to deleted V1 modules (unified_callback, hooks_routes, streaming_routes, etc.)
+
+**Updated README.md**:
+- Fixed documentation links to point to dev/ docs instead of archived docs/
+- Updated custom policy example to use EventDrivenPolicy DSL
+
+### Summary
+
+**Total cleanup:**
+- Deleted: 1 config file (luthien_config.yaml)
+- Removed: 2 Docker services (litellm-proxy, control-plane)
+- Removed: 8 environment variables (V1-specific)
+- Archived: 11 planning docs (dev/archive/)
+- Archived: 4 public docs (docs/archive/)
+- Updated: 10 files (env, compose, tests, project docs)
+- Created: 1 new doc (dev/ARCHITECTURE.md)
+
+**V2-only codebase:**
+- Single service: v2-gateway at port 8000
+- Single config: V2_POLICY_CONFIG → config/v2_config.yaml
+- Clean documentation pointing to active V2 features
+
+### Outstanding V1 Cleanup (for future PRs):
+- V1 source code still exists in src/luthien_proxy/control_plane/ and src/luthien_proxy/proxy/
+- V1 test files still exist (marked as deleted in the 18K line removal PR)
+- Some scripts may still reference port 4000/8081
+- Dockerfile.litellm not used but not harmful to keep
