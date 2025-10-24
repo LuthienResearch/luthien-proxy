@@ -3,16 +3,20 @@
 # This file specifies the active policy for the V2 integrated architecture.
 # Set the V2_POLICY_CONFIG environment variable to point to this file.
 
-# Active policy configuration - Event-driven Tool Call Judge
+# Active policy configuration - No-op for testing
+# policy:
+#   class: "luthien_proxy.v2.policies.event_driven_tool_call_judge:EventDrivenToolCallJudgePolicy"
+#   config:
+#     model: "ollama/gemma2:2b"
+#     api_base: "http://local-llm:11434"
+#     api_key: "ollama"
+#     probability_threshold: 0.6
+#     temperature: 0.0
+#     max_tokens: 256
+
 policy:
-  class: "luthien_proxy.v2.policies.event_driven_tool_call_judge:EventDrivenToolCallJudgePolicy"
-  config:
-    model: "ollama/gemma2:2b"
-    api_base: "http://local-llm:11434"
-    api_key: "ollama"
-    probability_threshold: 0.6
-    temperature: 0.0
-    max_tokens: 256
+  class: "luthien_proxy.v2.policies.noop:NoOpPolicy"
+  config: {}
 
 # Other policy examples:
 
