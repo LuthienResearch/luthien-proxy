@@ -19,18 +19,19 @@ Main Components:
 - Streaming: SSE endpoints for real-time conversation monitoring
 """
 
-from .db import (
+from luthien_proxy.control_plane.conversation.db import (
     load_events_for_call,
     load_recent_calls,
 )
-from .events import build_conversation_events
-from .models import (
+from luthien_proxy.control_plane.conversation.models import (
     CallIdInfo,
     ConversationCallSnapshot,
     ConversationEvent,
     ConversationMessageDiff,
     ConversationSnapshot,
 )
+
+from .events import build_conversation_events
 from .snapshots import build_call_snapshots
 from .store import record_conversation_events
 from .streams import (

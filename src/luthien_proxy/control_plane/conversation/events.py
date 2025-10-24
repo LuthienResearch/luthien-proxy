@@ -5,10 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
+from luthien_proxy.control_plane.conversation.models import ConversationEvent
+from luthien_proxy.control_plane.conversation.utils import derive_sequence_ns, require_dict
 from luthien_proxy.types import JSONValue
-
-from .models import ConversationEvent
-from .utils import derive_sequence_ns, require_dict
 
 
 def build_conversation_events(

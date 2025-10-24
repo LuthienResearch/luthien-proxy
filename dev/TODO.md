@@ -11,6 +11,7 @@
 - [ ] ControlPlane should initialize PolicyContext and persist throughout request lifecycle
 - [ ] Cleanup defunct v1 stuff
 - [ ] Cleanup a lot of things
+- [ ] Migrate build_conversation_events to v2
 
 ## High Priority
 

@@ -1,9 +1,5 @@
 """Helper utilities for end-to-end tests."""
 
-from .callback_assertions import (
-    clear_callback_trace,
-    get_callback_invocations,
-)
 from .docker_logs import (
     extract_stream_ids,
     filter_logs_by_pattern,
@@ -79,7 +75,4 @@ __all__ = [
     "extract_message_content",
     "extract_streaming_content",
     "assert_response_expectations",
-    # Callback assertions
-    "get_callback_invocations",
-    "clear_callback_trace",
 ]

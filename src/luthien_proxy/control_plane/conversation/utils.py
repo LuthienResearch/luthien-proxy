@@ -204,18 +204,6 @@ def extract_choice_index(chunk: object) -> int:
     return idx
 
 
-def delta_from_chunk(chunk: JSONValue | str | None) -> str:
-    """Pull the textual delta from a streaming chunk payload."""
-    if chunk is None:
-        return ""
-    if isinstance(chunk, str):
-        return chunk
-    chunk_dict = require_dict(chunk, "stream chunk payload")
-    from luthien_proxy.control_plane.utils.streaming import extract_delta_text
-
-    return extract_delta_text(chunk_dict)
-
-
 def extract_stream_chunk(payload: object) -> JSONValue | None:
     """Peel off envelope wrappers to access the chunk payload."""
     if payload is None:
@@ -418,7 +406,6 @@ __all__ = [
     "format_tool_call_delta",
     "format_tool_calls_summary",
     "extract_choice_index",
-    "delta_from_chunk",
     "extract_stream_chunk",
     "extract_trace_id",
     "unwrap_response",
