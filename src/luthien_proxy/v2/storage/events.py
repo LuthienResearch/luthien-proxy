@@ -1,5 +1,5 @@
 # ABOUTME: Event emission helpers for V2 gateway to persist conversation events
-# ABOUTME: Non-blocking queue-based persistence using existing conversation_events infrastructure
+# ABOUTME: Non-blocking queue-based persistence for conversation events
 
 """V2 Event Emission - Background persistence of conversation events.
 
@@ -17,12 +17,12 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from luthien_proxy.control_plane.conversation import (
+from luthien_proxy.v2.storage.persistence import (
+    CONVERSATION_EVENT_QUEUE,
     build_conversation_events,
     publish_conversation_event,
     record_conversation_events,
 )
-from luthien_proxy.control_plane.utils.task_queue import CONVERSATION_EVENT_QUEUE
 
 if TYPE_CHECKING:
     from luthien_proxy.utils import db, redis_client

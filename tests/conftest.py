@@ -8,14 +8,14 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-# Also add repo root for config/ imports (used by litellm_callback tests)
+# Also add repo root for config/ imports
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
 def pytest_sessionstart(session):
     # Avoid accidental reliance on production defaults during unit tests.
-    os.environ.setdefault("LUTHIEN_POLICY_CONFIG", str(REPO_ROOT / "config" / "luthien_config.yaml"))
+    os.environ.setdefault("V2_POLICY_CONFIG", str(REPO_ROOT / "config" / "v2_config.yaml"))
 
     # Disable OpenTelemetry export during tests to avoid noisy errors
     # (OTel tries to export to tempo:4317 which doesn't exist in test environment)

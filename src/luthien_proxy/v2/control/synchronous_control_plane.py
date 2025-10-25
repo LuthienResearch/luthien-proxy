@@ -112,6 +112,9 @@ class SynchronousControlPlane:
                     },
                 )
 
+                # Clean up stored request to prevent memory leak
+                self._requests.pop(call_id, None)
+
                 # Re-raise to let gateway handle it
                 raise
 

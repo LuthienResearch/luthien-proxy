@@ -22,12 +22,13 @@ All services should show "Up" status.
 
 ## Step 1: Make Test Requests
 
-Generate some trace data by making requests to the **V2 endpoints** at port 8081:
+Generate some trace data by making requests to the **V2 gateway** at port 8000:
 
 ```bash
-# Simple non-streaming request to V2
-curl -s "http://localhost:8081/v2/chat/completions" \
+# Simple non-streaming request
+curl -s "http://localhost:8000/v1/chat/completions" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-luthien-dev-key" \
   -d '{
     "model": "claude-opus-4-1",
     "messages": [{"role": "user", "content": "Say hello"}],
@@ -35,9 +36,10 @@ curl -s "http://localhost:8081/v2/chat/completions" \
     "stream": false
   }' | jq '.choices[0].message.content'
 
-# Streaming request to V2
-curl -s "http://localhost:8081/v2/chat/completions" \
+# Streaming request
+curl -s "http://localhost:8000/v1/chat/completions" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-luthien-dev-key" \
   -d '{
     "model": "claude-opus-4-1",
     "messages": [{"role": "user", "content": "Count to 5"}],
@@ -46,7 +48,7 @@ curl -s "http://localhost:8081/v2/chat/completions" \
   }'
 ```
 
-**Note:** V2 endpoints are at the **control plane** (port 8081), not the LiteLLM proxy (port 4000). The V1 proxy doesn't have OpenTelemetry yet.
+**Note:** The V2 gateway (port 8000) provides an integrated LiteLLM proxy with OpenTelemetry instrumentation built-in.
 
 ---
 
@@ -173,15 +175,13 @@ If you have a specific `call_id` from your application:
 
 ---
 
-## Step 6: Real-Time Activity Monitor (V2 Only)
-
-**Note:** The V2 endpoints have OpenTelemetry integration. The V1 proxy doesn't send traces yet.
+## Step 6: Real-Time Activity Monitor
 
 For V2 activity:
 
 ```bash
 # Access the real-time monitor
-open http://localhost:8081/v2/activity/monitor
+open http://localhost:8000/v2/activity/monitor
 ```
 
 This shows live events from Redis pub/sub (separate from traces).
@@ -192,32 +192,28 @@ This shows live events from Redis pub/sub (separate from traces).
 
 ### "No traces found"
 
-**Check 1:** Are you making requests to V2 endpoints?
+**Check 1:** Are you making requests to the V2 gateway?
 
-V2 endpoints with OpenTelemetry are at **port 8081** (control plane):
-- `POST /v2/chat/completions` (OpenAI format)
-- `POST /v2/messages` (Anthropic format)
-
-The V1 proxy at port 4000 does NOT have OpenTelemetry.
+The V2 gateway with OpenTelemetry is at **port 8000**:
+- `POST /v1/chat/completions` (OpenAI format)
+- `POST /v1/messages` (Anthropic format)
 
 ```bash
-# Test V2 OpenAI endpoint (CORRECT - will create traces)
-curl -s "http://localhost:8081/v2/chat/completions" \
+# Test V2 gateway endpoint (CORRECT - will create traces)
+curl -s "http://localhost:8000/v1/chat/completions" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-luthien-dev-key" \
   -d '{
     "model": "claude-opus-4-1",
     "messages": [{"role": "user", "content": "Hello"}],
     "max_tokens": 20,
     "stream": false
   }'
-
-# V1 endpoint (WRONG - no traces)
-curl -s "http://localhost:4000/chat/completions" ...  # ❌ No OTel here
 ```
 
 **Check 2:** Is OTEL_ENABLED set?
 
-OpenTelemetry is always enabled for V2 endpoints. No configuration needed!
+OpenTelemetry is always enabled for the V2 gateway. No configuration needed!
 
 **Check 3:** Is Tempo receiving data?
 
@@ -226,10 +222,10 @@ OpenTelemetry is always enabled for V2 endpoints. No configuration needed!
 docker compose logs tempo --tail 50 | grep -i "spans"
 ```
 
-**Check 4:** Can the control plane reach Tempo?
+**Check 4:** Can the V2 gateway reach Tempo?
 
 ```bash
-docker compose exec control-plane curl -v http://tempo:4317
+docker compose exec v2-gateway curl -v http://tempo:4317
 # Should connect (even if it returns an error, connection works)
 ```
 
@@ -248,7 +244,7 @@ The datasources should auto-configure. If not:
 Check that telemetry is initialized:
 
 ```bash
-docker compose logs control-plane | grep -i "opentelemetry initialized"
+docker compose logs v2-gateway | grep -i "opentelemetry initialized"
 # Should see: "OpenTelemetry initialized"
 ```
 
@@ -287,11 +283,11 @@ Filter logs:
 
 ```bash
 # 1. Make a request and capture call_id
-RESPONSE=$(curl -s "http://localhost:8081/v2/chat/completions" \
+RESPONSE=$(curl -s "http://localhost:8000/v1/chat/completions" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer test-key" \
+  -H "Authorization: Bearer sk-luthien-dev-key" \
   -d '{
-    "model": "claude-opus-4",
+    "model": "claude-opus-4-1",
     "messages": [{"role": "user", "content": "Test"}],
     "stream": false
   }')
@@ -299,8 +295,8 @@ RESPONSE=$(curl -s "http://localhost:8081/v2/chat/completions" \
 # 2. Extract the response
 echo "$RESPONSE" | jq '.'
 
-# 3. Check control plane logs for trace_id
-docker compose logs control-plane --tail 20 | grep -i trace_id
+# 3. Check V2 gateway logs for trace_id
+docker compose logs v2-gateway --tail 20 | grep -i trace_id
 
 # 4. Open Grafana and search for traces in last 5 minutes
 open "http://localhost:3000/explore?orgId=1&left=%7B%22datasource%22%3A%22tempo%22%7D"

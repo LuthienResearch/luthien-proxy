@@ -13,7 +13,7 @@ import json
 
 import httpx
 import pytest
-from tests.e2e_tests.helpers import E2ESettings, V2GatewayManager
+from tests.e2e_tests.helpers import V2GatewayManager
 
 pytestmark = pytest.mark.e2e
 
@@ -216,7 +216,6 @@ async def test_v2_api_compatibility(
     backend_model: str,
     stream: bool,
     v2_gateway: V2GatewayManager,
-    e2e_settings: E2ESettings,
 ) -> None:
     """Test V2 architecture with all permutations of client API, backend model, and streaming mode.
 
@@ -259,12 +258,6 @@ async def test_v2_api_compatibility(
         f"Expected greeting in response, got: {content!r}"
     )
 
-    if e2e_settings.verbose:
-        print(
-            f"\n[{client_api.upper()} → {backend_model} {'streaming' if stream else 'non-streaming'}] "
-            f"Response: {content!r}"
-        )
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client_api", CLIENT_APIS)
@@ -273,7 +266,6 @@ async def test_v2_error_handling(
     client_api: str,
     backend_model: str,
     v2_gateway: V2GatewayManager,
-    e2e_settings: E2ESettings,
 ) -> None:
     """Test that V2 architecture handles errors correctly.
 
@@ -310,6 +302,3 @@ async def test_v2_error_handling(
 
     # Should return an error status code
     assert response.status_code >= 400, f"Expected error status code, got {response.status_code}"
-
-    if e2e_settings.verbose:
-        print(f"\n[{client_api.upper()} → {backend_model}] Error response: {response.status_code}")

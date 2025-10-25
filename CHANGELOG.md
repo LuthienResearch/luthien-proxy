@@ -2,36 +2,150 @@
 
 ## DEVELOPMENT | TBA
 
-- development framework
-- litellm integration
-- in-depth hook logging
-- request/response inspection UX
-- shared redis/db client provisioning and pooling
-- refactored app.py into smaller, more focused modules
-- unit test coverage >80%
-- [stream-view](stream-view): Delivered live conversation trace and trace-by-call UIs with real-time SSE updates
-- [stream-view](stream-view): Added configurable chunk history limits to prevent runaway memory use during long streams
-- [stream-view](stream-view): Hardened streaming reliability with cleanup on disconnects and exponential backoff for reconnects
-- [conversations] Switched to websockets architecture for two-way streaming between litellm and control plane, enabling arbitrary policy intervention
-- [control-plane-prisma](control-plane-prisma): Migrated the control-plane database to Prisma-managed migrations with automated deploy steps in docker-compose and `scripts/quick_start.sh`
-- [control-plane-prisma](control-plane-prisma): Removed unused legacy tables from the control-plane schema and unified LiteLLM Prisma assets under `prisma/litellm/`
-- [dataflows-doc](dataflows-doc): Added comprehensive documentation covering Postgres and Redis dataflows, retention, and operational nuances
-- [ci-prisma-validations](ci-prisma-validations): CI runs Prisma migration deploy/push against an ephemeral Postgres service to catch schema drift early
-- llm-monitor: Added an LLM-backed tool-call judge that blocks risky tools in streaming and non-streaming flows (src/luthien_proxy/policies/tool_call_judge.py:1).
-- llm-monitor: Replaced the proxy streaming loop with a resilient orchestrator and layered callback/control-plane instrumentation so we can trace every chunk end to end (src/luthien_proxy/proxy/stream_orchestrator.py:1, src/luthien_proxy/proxy/callback_instrumentation.py:1, src/luthien_proxy/control_plane/debug_routes.py:1).
-- llm-monitor: Introduced an SQL tool-call protection policy, expanded the dummy provider to drive blocking scenarios, and added full e2e coverage for policy behavior (src/luthien_proxy/policies/sql_protection.py:1, scripts/demo_lib/dummy_provider.py:1, tests/e2e_tests/test_tool_call_judge_e2e.py:1).
-- [unify_formats](unify_formats): Normalized streaming responses from different LLM providers into unified OpenAI-compatible format, eliminating provider-specific logic in control plane and simplifying policy implementation (src/luthien_proxy/proxy/stream_normalization.py:1, config/unified_callback.py:1).
-- [conv-live-v2](conv-live-v2): Enhanced conversation live view UI with side-by-side original vs final tracking for both request messages and responses, loads DB snapshots and streams Redis updates (src/luthien_proxy/control_plane/templates/conversation_live_v2.html:1, src/luthien_proxy/control_plane/static/conversation_live_v2.js:1).
-- [demo-web-ui](demo-web-ui): Demo mode + UI for demonstrating SQL case visually
+### V2 Architecture Migration ([#46](https://github.com/LuthienResearch/luthien-proxy/pull/46))
 
-## 0.0.0 | 2025-11-22
+**Massive cleanup**: Deleted ~9,735 lines of V1 code, tests, and documentation (48% reduction) while building out V2 architecture.
 
-- This is an example entry in an example release section (0.0.0)
-- 0.0.0 designates the version number
-- Update this section as objectives are completed
-- Typically multiple objectives will be included in a given release
-- Releases are listed in descending chronological order
-- The most recent release is always at the top of the file; this should be the only entry that changes
-- In development, the in-progress entry will typically be labeled as version `DEVELOPMENT` with release date `TBA`
-- The in-development release section will be updated to a proper version number with release date when it's time to release a new version (this is a human decision)
-- Each bullet in a release section should link back to the objective handle (e.g., `[policy-engine cleanup](policy-engine-cleanup)`) so we can trace work quickly
+**Major architectural redesign** from separate LiteLLM proxy + control plane to integrated FastAPI + LiteLLM architecture with event-driven policies and comprehensive observability.
+
+#### Core Architecture ([b04d6cd](../../commit/b04d6cd))
+
+- Integrated V2 gateway combining API gateway, control logic, and LLM integration in single process
+- `ControlPlaneService` protocol supporting both local and future networked implementations
+- `PolicyHandler` abstraction with event-driven interface for user policies
+- Bidirectional streaming with policy control over request/response transformation
+- Format converters for OpenAI ↔ Anthropic API compatibility
+- Support for both streaming and non-streaming responses
+
+#### Event-Driven Policy System
+
+- New `EventDrivenPolicy` DSL with lifecycle hooks:
+  - `on_chunk_started`, `on_content_chunk`, `on_tool_call_chunk`, `on_chunk_completed`
+  - `on_request_started`, `on_request_completed`
+  - `on_response_started`, `on_response_completed`
+- `PolicyContext` for per-request state management and event emission
+- `StreamingOrchestrator` for managing streaming response pipelines with timeout handling
+- Reference implementations:
+  - `NoOpPolicy` / `EventBasedNoOpPolicy` - Pass-through for testing
+  - `UppercaseNthWordPolicy` - Text transformation demo
+  - `ToolCallJudgeV3Policy` - LLM-based tool call security analysis
+
+#### Observability Infrastructure ([8480e06](../../commit/8480e06), [5882493](../../commit/5882493))
+
+- **OpenTelemetry Integration**:
+  - Distributed tracing with Grafana Tempo
+  - Automatic span creation for all gateway, control plane, and streaming operations
+  - Custom `luthien.*` span attributes (call_id, model, stream status, chunk counts, policy decisions)
+  - Trace context propagation through entire request pipeline
+  - Log correlation via trace_id/span_id injection
+  - OTLP gRPC exporter to Tempo
+
+- **Real-Time Monitoring**:
+  - Activity stream via Server-Sent Events (SSE) at `/v2/activity/stream`
+  - Live activity monitor web UI at `/v2/activity/monitor` with filtering by call_id/model/event_type
+  - Redis pub/sub for real-time event distribution
+  - Automatic event publishing for gateway, streaming, and policy lifecycle
+
+- **Debug & Analysis Tools**:
+  - Debug API at `/v2/debug/`:
+    - `/calls` - List recent calls
+    - `/calls/{call_id}` - Get call details
+    - `/calls/{call_id}/diff` - Compare original vs transformed content
+  - Diff viewer UI at `/v2/debug/diff` with side-by-side JSON comparison
+  - Links to Grafana Tempo traces from all UIs
+
+- **Grafana Dashboards**:
+  - Live activity dashboard with auto-refresh (control plane logs, V2 API requests, policy activity, errors)
+  - Metrics dashboard (request rate by model, p95 latency, latency breakdown, recent traces)
+  - Pre-provisioned dashboards auto-loaded on Grafana startup
+
+- **Log Collection**:
+  - Grafana Loki for centralized logging
+  - Promtail for Docker container log collection
+  - 24-hour retention with aggressive compaction
+  - Automatic trace ↔ log correlation
+
+#### V1 Cleanup ([slash-and-burn](../../tree/slash-and-burn))
+
+- **Deleted ~18,000 lines of V1 code**:
+  - V1 control plane implementation (separate FastAPI service)
+  - V1 proxy integration (separate LiteLLM process)
+  - Old callback-based streaming system
+  - Legacy policy interfaces and event models
+
+- **Removed Docker services**:
+  - `litellm-proxy` (port 4000) - replaced by integrated V2 gateway
+  - `control-plane` (port 8081) - merged into V2 gateway
+  - `dummy-provider` (port 4015) - test fixture no longer needed
+
+- **Archived documentation** (15 files):
+  - `dev/archive/`: 7 completed planning documents
+  - `docs/archive/`: 4 V1 architecture guides (v1-reading-guide, v1-developer-onboarding, v1-diagrams, v1-ARCHITECTURE)
+  - `config/archive/`: 5 V1 config files + policies directory
+
+- **Deleted 16 obsolete scripts**:
+  - V1-specific: `build_replay_examples.py`, `dummy_control_plane.py`, `export_replay_logs.sh`
+  - Demo artifacts: `demo_*.py`, `run_demo*.sh`
+  - One-off spikes: `test_anthropic_streaming.py`, `test_judge_streaming.py`, etc.
+
+- **Removed infrastructure**:
+  - `docker/Dockerfile.litellm` - V1 LiteLLM proxy image
+  - 8 environment variables (LITELLM_MASTER_KEY, CONTROL_PLANE_URL, LUTHIEN_POLICY_CONFIG, etc.)
+  - Replaced `LUTHIEN_POLICY_CONFIG` → `V2_POLICY_CONFIG`
+
+- **Updated documentation**:
+  - Migrated policy configuration examples to EventDrivenPolicy DSL
+  - Updated port references (8081 → 8000, removed 4000)
+  - Fixed service name references (control-plane → v2-gateway)
+  - Created `dev/ARCHITECTURE.md` with V2 core principles
+
+#### Testing & Quality
+
+- Comprehensive unit test coverage for policies, control plane, streaming orchestration
+- Integration tests for V2 gateway endpoints
+- End-to-end tests with real LLM providers (OpenAI, Anthropic, local Ollama)
+- Docker-based testing with `./scripts/test_v2_gateway.sh`
+- Type safety with Pyright across all V2 modules
+
+#### Developer Experience
+
+- Single-command setup: `./scripts/quick_start.sh`
+- Simplified service architecture: v2-gateway, local-llm, db, redis
+- Observability stack: `./scripts/observability.sh up -d`
+- Live development with hot reload
+- Launch scripts for Claude Code and Codex routing through V2 gateway
+- Comprehensive documentation:
+  - `dev/event_driven_policy_guide.md` - Policy development guide
+  - `dev/observability-v2.md` - Observability features
+  - `dev/VIEWING_TRACES_GUIDE.md` - Trace analysis walkthrough
+  - `dev/OBSERVABILITY_DEMO.md` - Step-by-step demonstration
+
+#### Configuration
+
+- Single V2 config file: `config/v2_config.yaml`
+- Policy selection via class path + config dict
+- Environment variables consolidated in `.env.example`
+- Docker Compose profiles for optional services (observability)
+
+#### Performance & Reliability
+
+- Streaming pipeline with configurable timeouts
+- Redis for ephemeral state and pub/sub
+- PostgreSQL with Prisma for persistent state
+- Graceful error handling with span error recording
+- Health checks for all services
+- Connection pooling and async I/O throughout
+
+---
+
+## 0.0.1 | 2025-10-10
+
+**Initial V1 implementation** (archived)
+
+- Basic LiteLLM proxy integration with separate control plane
+- Callback-based streaming system
+- Initial policy engine with tool call judging
+- Database persistence with debug logs
+- Redis for caching and ephemeral state
+- Demo UI for trace visualization
+- Hook-based extensibility system

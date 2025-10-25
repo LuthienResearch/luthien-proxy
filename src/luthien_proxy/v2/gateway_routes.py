@@ -360,53 +360,63 @@ async def anthropic_messages(
     # Generate call_id
     call_id = str(uuid.uuid4())
 
-    # Apply request policies and emit request event
-    final_request = await process_request_with_policy(openai_data, call_id, control_plane, db_pool)
+    # Create span for the entire request/response cycle
+    with tracer.start_as_current_span("gateway.anthropic_messages") as span:
+        # Add span attributes
+        span.set_attribute("luthien.call_id", call_id)
+        span.set_attribute("luthien.endpoint", "/v1/messages")
+        span.set_attribute("luthien.model", openai_data.get("model", "unknown"))
+        span.set_attribute("luthien.stream", openai_data.get("stream", False))
 
-    # Extract back to dict for LiteLLM
-    openai_data = final_request.model_dump(exclude_none=True)
-    is_streaming = openai_data.get("stream", False)
+        # Apply request policies and emit request event
+        final_request = await process_request_with_policy(openai_data, call_id, control_plane, db_pool)
 
-    # Identify any model-specific parameters to forward
-    known_params = {"verbosity"}  # Add more as needed
-    openai_data = add_model_specific_params(openai_data, known_params)
+        # Extract back to dict for LiteLLM
+        openai_data = final_request.model_dump(exclude_none=True)
+        is_streaming = openai_data.get("stream", False)
 
-    try:
-        if is_streaming:
-            return FastAPIStreamingResponse(
-                stream_with_policy_control(
-                    openai_data,
-                    call_id,
-                    control_plane,
-                    db_pool,
-                    redis_client,
-                    format_converter=openai_chunk_to_anthropic_chunk,
-                ),
-                media_type="text/event-stream",
-            )
-        else:
-            raw_response = await litellm.acompletion(**openai_data)  # type: ignore[arg-type]
-            # When stream=False, response is always ModelResponse
-            response = cast(ModelResponse, raw_response)
+        # Identify any model-specific parameters to forward
+        known_params = {"verbosity"}  # Add more as needed
+        openai_data = add_model_specific_params(openai_data, known_params)
 
-            # Apply policy to response
-            final_response = await control_plane.process_full_response(response, call_id)
+        try:
+            if is_streaming:
+                return FastAPIStreamingResponse(
+                    stream_with_policy_control(
+                        openai_data,
+                        call_id,
+                        control_plane,
+                        db_pool,
+                        redis_client,
+                        format_converter=openai_chunk_to_anthropic_chunk,
+                    ),
+                    media_type="text/event-stream",
+                )
+            else:
+                raw_response = await litellm.acompletion(**openai_data)  # type: ignore[arg-type]
+                # When stream=False, response is always ModelResponse
+                response = cast(ModelResponse, raw_response)
 
-            # Emit response event (non-blocking, queued for background persistence)
-            emit_response_event(
-                call_id=call_id,
-                original_response=response.model_dump(),
-                final_response=final_response.model_dump(),
-                db_pool=db_pool,
-                redis_conn=None,  # Already using event_publisher for Redis
-            )
+                # Apply policy to response
+                final_response = await control_plane.process_full_response(response, call_id)
 
-            # Convert to Anthropic format
-            anthropic_response = openai_to_anthropic_response(final_response)
-            return JSONResponse(anthropic_response)
-    except Exception as exc:
-        logger.error(f"Error in messages endpoint: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc))
+                # Emit response event (non-blocking, queued for background persistence)
+                emit_response_event(
+                    call_id=call_id,
+                    original_response=response.model_dump(),
+                    final_response=final_response.model_dump(),
+                    db_pool=db_pool,
+                    redis_conn=None,  # Already using event_publisher for Redis
+                )
+
+                # Convert to Anthropic format
+                anthropic_response = openai_to_anthropic_response(final_response)
+                return JSONResponse(anthropic_response)
+        except Exception as exc:
+            logger.error(f"Error in messages endpoint: {exc}")
+            span.record_exception(exc)
+            span.set_attribute("luthien.error", True)
+            raise HTTPException(status_code=500, detail=str(exc))
 
 
 __all__ = [

@@ -35,11 +35,11 @@ services:
       timeout: 3s
       retries: 5
 
-  # Control-plane migrations (runs once before services start)
-  control-plane-migrations:
+  # DB migrations (runs once before services start)
+  db-migrations:
     build:
       context: .
-      dockerfile: docker/Dockerfile.control-plane
+      dockerfile: docker/Dockerfile.v2-gateway
     command: ["uv", "run", "prisma", "migrate", "deploy", "--schema", "prisma/control_plane/schema.prisma"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -52,80 +52,12 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # LiteLLM proxy with custom logger
-  litellm-proxy:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.litellm
-    environment:
-      - LITELLM_DATABASE_URL=${LITELLM_DATABASE_URL}
-      - DATABASE_URL=${LITELLM_DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - CONTROL_PLANE_URL=${CONTROL_PLANE_URL}
-      - LITELLM_CONFIG_PATH=/app/config/litellm_config.yaml
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
-      - LITELLM_LOG=DEBUG
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-    ports:
-      - "${LITELLM_PORT}:4000"
-    volumes:
-      - ./config:/app/config:ro
-      - ./src:/app/src:ro
-      - ./prisma:/app/prisma:ro
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      control-plane:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/test"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    stop_grace_period: 2s
-
-  control-plane:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.control-plane
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - LOG_LEVEL=${LOG_LEVEL}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - LUTHIEN_POLICY_CONFIG=${LUTHIEN_POLICY_CONFIG}
-      - ENABLE_DEMO_MODE=${ENABLE_DEMO_MODE:-false}
-    ports:
-      - "${CONTROL_PLANE_PORT}:8081"
-    volumes:
-      - ./src:/app/src:ro
-      - ./config:/app/config:ro
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      control-plane-migrations:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    stop_grace_period: 2s
-
-
   # Single-container local LLM gateway (Ollama + LiteLLM)
   local-llm:
     build:
       context: .
       dockerfile: docker/Dockerfile.local-llm
     environment:
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
       - MODEL_NAME=${LOCAL_LLM_MODEL_NAME:-gemma2:2b}
     volumes:
       - local_llm_models:/root/.ollama
@@ -136,25 +68,6 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:4000/test"]
       interval: 10s
       timeout: 5s
-      retries: 5
-
-  # Dummy provider for demo (deterministic tool call responses)
-  dummy-provider:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.control-plane
-    command: ["uv", "run", "python", "scripts/run_dummy_provider.py", "--port", "8080"]
-    environment:
-      - UV_CACHE_DIR=/tmp/uv-cache
-    ports:
-      - "4015:8080"
-    volumes:
-      - ./scripts:/app/scripts:ro
-      - ./src:/app/src:ro
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 5s
-      timeout: 3s
       retries: 5
 
   # V2 Gateway (integrated FastAPI + LiteLLM architecture)

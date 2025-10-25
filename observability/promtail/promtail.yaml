@@ -28,8 +28,3 @@ scrape_configs:
         regex: 'control-plane'
         target_label: 'service_name'
         replacement: 'luthien-proxy-v2'
-
-      # Keep only control-plane and other relevant services
-      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
-        regex: '(control-plane|litellm-proxy|dummy-provider)'
-        action: keep
