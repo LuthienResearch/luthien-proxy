@@ -2,7 +2,9 @@
 
 ## DEVELOPMENT | TBA
 
-### V2 Architecture Migration
+### V2 Architecture Migration ([#46](https://github.com/LuthienResearch/luthien-proxy/pull/46))
+
+**Massive cleanup**: Deleted ~9,735 lines of V1 code, tests, and documentation (48% reduction) while building out V2 architecture.
 
 **Major architectural redesign** from separate LiteLLM proxy + control plane to integrated FastAPI + LiteLLM architecture with event-driven policies and comprehensive observability.
 
