@@ -132,7 +132,7 @@ echo "✅ PostgreSQL is ready"
 
 # Apply Prisma migrations for the control plane schema
 echo "🗂️  Applying control-plane Prisma migrations..."
-docker compose run --rm control-plane-migrations >/dev/null
+docker compose run --rm db-migrations >/dev/null
 echo "✅ Prisma migrations applied"
 
 # Wait for Redis

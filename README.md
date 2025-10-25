@@ -307,7 +307,7 @@ docker compose ps db
 docker compose restart db
 
 # Re-run migrations
-docker compose run --rm control-plane-migrations
+docker compose run --rm db-migrations
 ```
 
 ## License
