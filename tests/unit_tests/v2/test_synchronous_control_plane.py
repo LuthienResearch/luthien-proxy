@@ -92,6 +92,9 @@ class TestControlPlaneSynchronousRequests:
         with pytest.raises(ValueError, match="Policy failed"):
             await control_plane.process_request(request, call_id)
 
+        # Verify request was cleaned up (no memory leak)
+        assert call_id not in control_plane._requests
+
 
 class TestSynchronousControlPlaneResponses:
     """Test SynchronousControlPlane response processing."""
