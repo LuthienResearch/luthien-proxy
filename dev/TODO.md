@@ -2,12 +2,6 @@
 
 Items sourced from PR #46 reviews link back to originating comments for context.
 
-## Critical (Before Merge)
-
-- [x] Fix request cleanup bug in synchronous_control_plane.py:81 (memory leak on request failure) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [x] Add OpenTelemetry span to Anthropic endpoint (/v1/messages) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [x] Add production security warnings to .env.example (dev credentials must be changed) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-
 ## High Priority
 
 - [ ] Add security documentation for dynamic policy loading mechanism (V2_POLICY_CONFIG) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
