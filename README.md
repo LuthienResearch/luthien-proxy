@@ -100,7 +100,7 @@ ENVIRONMENT=development
 
 ### Documentation
 
-- **Usage guide:** [dev/context/observability-guide.md](dev/context/observability-guide.md)
+- **Usage guide:** [dev/observability-v2.md](dev/observability-v2.md)
 - **Conventions:** [dev/context/otel-conventions.md](dev/context/otel-conventions.md)
 - **Dashboard:** Import `observability/grafana-dashboards/luthien-traces.json` in Grafana
 
