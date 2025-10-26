@@ -140,7 +140,7 @@ class TestOpenAIToAnthropicResponse:
         assert result["stop_reason"] == "end_turn"
 
     def test_non_stop_finish_reason(self):
-        """Test non-stop finish reasons pass through."""
+        """Test finish reasons are properly mapped to Anthropic format."""
         openai_response = ModelResponse(
             id="test-id",
             created=1234567890,
@@ -158,7 +158,8 @@ class TestOpenAIToAnthropicResponse:
 
         result = openai_to_anthropic_response(openai_response)
 
-        assert result["stop_reason"] == "length"
+        # OpenAI's "length" should map to Anthropic's "max_tokens"
+        assert result["stop_reason"] == "max_tokens"
 
 
 class TestOpenAIChunkToAnthropicChunk:

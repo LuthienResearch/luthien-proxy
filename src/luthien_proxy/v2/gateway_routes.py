@@ -98,19 +98,106 @@ async def stream_with_policy_control(
             llm_stream, call_id, db_pool=db_pool, redis_conn=redis_client
         )
 
+        # For Anthropic format, track if we've sent message_start
+        message_started = False
+        model_name = data.get("model", "unknown")
+
+        # Debug logging
+        logger.info(f"[{call_id}] Starting stream with format_converter={format_converter is not None}")
+
         # Yield formatted chunks to client
         async for chunk in policy_stream:
+            # Log raw chunk before conversion
+            logger.info(f"[{call_id}] Raw chunk from policy: {chunk}")
+
             # Apply format conversion if needed
             if format_converter:
+                # Send message_start before first chunk (for Anthropic format)
+                if not message_started:
+                    message_started = True
+                    message_start = {
+                        "type": "message_start",
+                        "message": {
+                            "id": f"msg_{call_id}",
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [],
+                            "model": model_name,
+                            "stop_reason": None,
+                            "stop_sequence": None,
+                            "usage": {
+                                "input_tokens": 0,
+                                "output_tokens": 0,
+                            },
+                        },
+                    }
+                    sse_line = f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
+                    logger.info(f"[{call_id}] Sending message_start: {sse_line.strip()}")
+                    yield sse_line
+
                 chunk = format_converter(chunk)
+                logger.info(f"[{call_id}] Converted chunk: {chunk}")
 
             # Serialize to SSE format
             if isinstance(chunk, dict):
-                yield f"data: {json.dumps(chunk)}\n\n"
+                # Handle complete tool call (buffered by policy)
+                if chunk.get("_complete_tool_call"):
+                    logger.info(f"[{call_id}] Handling complete tool call")
+                    # Emit start event
+                    index = chunk.get("index", 0)
+                    start_chunk = {
+                        "type": chunk["type"],
+                        "index": index,
+                        "content_block": chunk["content_block"],
+                    }
+                    sse_line = f"event: {start_chunk['type']}\ndata: {json.dumps(start_chunk)}\n\n"
+                    logger.info(f"[{call_id}] Sending tool start: {sse_line.strip()}")
+                    yield sse_line
+
+                    # Emit delta event with full arguments
+                    delta_chunk = {
+                        "type": "content_block_delta",
+                        "index": index,
+                        "delta": {
+                            "type": "input_json_delta",
+                            "partial_json": chunk["_arguments"],
+                        },
+                    }
+                    sse_line = f"event: content_block_delta\ndata: {json.dumps(delta_chunk)}\n\n"
+                    logger.info(f"[{call_id}] Sending tool delta: {sse_line.strip()}")
+                    yield sse_line
+
+                    # Emit stop event
+                    stop_chunk = {
+                        "type": "content_block_stop",
+                        "index": index,
+                    }
+                    sse_line = f"event: content_block_stop\ndata: {json.dumps(stop_chunk)}\n\n"
+                    logger.info(f"[{call_id}] Sending tool stop: {sse_line.strip()}")
+                    yield sse_line
+                else:
+                    # Regular chunk - include event type in SSE
+                    event_type = chunk.get("type", "content_block_delta")
+                    sse_line = f"event: {event_type}\ndata: {json.dumps(chunk)}\n\n"
+                    logger.info(f"[{call_id}] Sending regular chunk: {sse_line.strip()}")
+                    yield sse_line
             elif hasattr(chunk, "model_dump_json"):
-                yield f"data: {chunk.model_dump_json()}\n\n"
+                sse_line = f"data: {chunk.model_dump_json()}\n\n"
+                logger.info(f"[{call_id}] Sending ModelResponse chunk: {sse_line.strip()}")
+                yield sse_line
             else:
-                yield f"data: {json.dumps({'error': 'Unknown chunk type'})}\n\n"
+                sse_line = f"data: {json.dumps({'error': 'Unknown chunk type'})}\n\n"
+                logger.error(f"[{call_id}] Unknown chunk type: {type(chunk)}")
+                yield sse_line
+
+        # Send message_stop at the end (for Anthropic format)
+        if format_converter:
+            message_stop = {"type": "message_stop"}
+            sse_line = f"event: message_stop\ndata: {json.dumps(message_stop)}\n\n"
+            logger.info(f"[{call_id}] Sending message_stop: {sse_line.strip()}")
+            yield sse_line
+
+        logger.info(f"[{call_id}] Stream complete")
 
     except Exception as exc:
         logger.error(f"Streaming error: {exc}")
@@ -355,6 +442,9 @@ async def anthropic_messages(
     redis_client: Optional[Redis] = request.app.state.redis_client
 
     anthropic_data = await request.json()
+
+    # Debug: log the incoming request
+    logger.info(f"[/v1/messages] Incoming request: {json.dumps(anthropic_data, indent=2)}")
     openai_data = anthropic_to_openai_request(anthropic_data)
 
     # Generate call_id

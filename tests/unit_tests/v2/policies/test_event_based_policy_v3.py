@@ -263,7 +263,7 @@ class TestEventBasedNoOpPolicy:
             # The default policy forwards:
             # 1. First content delta ("Hello ")
             # 2. Second content delta ("world")
-            # 3. Finish reason chunk (empty with finish_reason="stop")
+            # 3. Finish reason chunk (empty content with finish_reason="stop")
             out1 = await outgoing.get()
             out2 = await outgoing.get()
             out3 = await outgoing.get()
@@ -271,7 +271,8 @@ class TestEventBasedNoOpPolicy:
             # Should have forwarded content
             assert out1.choices[0].delta.get("content") == "Hello "  # type: ignore[union-attr]
             assert out2.choices[0].delta.get("content") == "world"  # type: ignore[union-attr]
-            # Last chunk is the finish reason
+            # Third chunk is finish-only (no content field when text is empty)
+            assert out3.choices[0].delta.get("content") is None  # type: ignore[union-attr]
             assert out3.choices[0].finish_reason == "stop"
 
 

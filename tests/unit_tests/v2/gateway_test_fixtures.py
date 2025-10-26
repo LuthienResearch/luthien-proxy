@@ -75,6 +75,7 @@ def make_mock_response(model="gpt-4", content="Hello", finish_reason="stop"):
     mock_choice = Mock()
     mock_message = Mock()
     mock_message.content = content
+    mock_message.tool_calls = None  # Explicitly set to None to avoid Mock iteration issues
     mock_choice.message = mock_message
     mock_choice.finish_reason = finish_reason
     mock_response.choices = [mock_choice]

@@ -313,7 +313,15 @@ class ToolCallJudgeV3Policy(EventBasedPolicy):
             streaming_ctx: Streaming context
         """
         if not streaming_ctx.is_output_finished():
-            await streaming_ctx.send_text("", finish=True)
+            # Send finish chunk with actual finish_reason (not hardcoded "stop")
+            from luthien_proxy.v2.streaming.utils import build_text_chunk
+
+            chunk = build_text_chunk(
+                "",
+                model=context.request.model,
+                finish_reason=finish_reason,  # Preserve actual finish_reason
+            )
+            await streaming_ctx.send(chunk)
 
     async def on_stream_complete(self, context: PolicyContext) -> None:
         """Always called for cleanup/metrics - emit summary."""
