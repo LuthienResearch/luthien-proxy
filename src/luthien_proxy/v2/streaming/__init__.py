@@ -4,13 +4,12 @@
 """Streaming infrastructure for async stream processing."""
 
 from .queue_utils import get_available
-from .streaming_models import StreamingContext, StreamingError
+from .streaming_models import StreamingError
 from .streaming_orchestrator import StreamingOrchestrator, TimeoutTracker
 
 __all__ = [
     "StreamingOrchestrator",
     "TimeoutTracker",
     "get_available",
-    "StreamingContext",
     "StreamingError",
 ]
