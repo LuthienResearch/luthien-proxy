@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
-
 
 class StreamingError(Exception):
     """Error occurred during streaming response processing.
@@ -17,18 +15,6 @@ class StreamingError(Exception):
     pass
 
 
-class StreamingContext(BaseModel):
-    """Context for streaming operations.
-
-    This is created at the start of a stream and tracks state across chunks.
-    """
-
-    stream_id: str
-    call_id: str
-    chunk_count: int = 0
-
-
 __all__ = [
     "StreamingError",
-    "StreamingContext",
 ]

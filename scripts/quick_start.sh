@@ -64,6 +64,47 @@ if [ -f .env ]; then
     set +a
 fi
 
+# Check for insecure default credentials
+echo "🔒 Checking for insecure default credentials..."
+insecure_defaults=false
+
+if [ -f .env ] && [ -f .env.example ]; then
+    # Check POSTGRES_PASSWORD
+    env_postgres_pw=$(grep "^POSTGRES_PASSWORD=" .env 2>/dev/null | cut -d'=' -f2)
+    example_postgres_pw=$(grep "^POSTGRES_PASSWORD=" .env.example 2>/dev/null | cut -d'=' -f2)
+    if [ -n "$env_postgres_pw" ] && [ "$env_postgres_pw" = "$example_postgres_pw" ]; then
+        echo "⚠️  WARNING: POSTGRES_PASSWORD is using the default dev value!"
+        echo "   This is INSECURE for production. Change it in .env"
+        insecure_defaults=true
+    fi
+
+    # Check PROXY_API_KEY
+    env_api_key=$(grep "^PROXY_API_KEY=" .env 2>/dev/null | cut -d'=' -f2)
+    example_api_key=$(grep "^PROXY_API_KEY=" .env.example 2>/dev/null | cut -d'=' -f2)
+    if [ -n "$env_api_key" ] && [ "$env_api_key" = "$example_api_key" ]; then
+        echo "⚠️  WARNING: PROXY_API_KEY is using the default dev value!"
+        echo "   This is INSECURE for production. Change it in .env"
+        insecure_defaults=true
+    fi
+
+    # Check if real API keys are missing (empty or placeholder)
+    if [ -z "$OPENAI_API_KEY" ] || [ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]; then
+        echo "ℹ️  INFO: OPENAI_API_KEY not set (only local models will work)"
+    fi
+
+    if [ -z "$ANTHROPIC_API_KEY" ] || [ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]; then
+        echo "ℹ️  INFO: ANTHROPIC_API_KEY not set (only local models will work)"
+    fi
+fi
+
+if [ "$insecure_defaults" = true ]; then
+    echo ""
+    echo "⚠️  SECURITY WARNING: You are using default development credentials!"
+    echo "   This is OK for local development, but NEVER use these in production."
+    echo "   Update .env with secure values before deploying."
+    echo ""
+fi
+
 # Install Python dependencies
 echo "📦 Installing Python dependencies..."
 uv sync --dev
@@ -91,7 +132,7 @@ echo "✅ PostgreSQL is ready"
 
 # Apply Prisma migrations for the control plane schema
 echo "🗂️  Applying control-plane Prisma migrations..."
-docker compose run --rm control-plane-migrations >/dev/null
+docker compose run --rm db-migrations >/dev/null
 echo "✅ Prisma migrations applied"
 
 # Wait for Redis

@@ -37,6 +37,7 @@ dependencies = [
     "pyyaml>=6.0.2",
     "redis>=6.4.0",
     "vulture>=2.14",
+    "anthropic>=0.71.0",
 ]
 
 [tool.hatch.build.targets.wheel]

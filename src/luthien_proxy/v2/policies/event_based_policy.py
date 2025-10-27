@@ -291,14 +291,29 @@ class EventBasedPolicy(LuthienPolicy):
     ) -> None:
         """Called when finish_reason is received.
 
-        Default: send empty chunk with finish_reason.
+        Default: forward finish reason chunk.
+
+        Since on_content_delta only forwards content (not finish_reason),
+        we need to send a finish chunk here.
+
+        Override this if you need custom finish handling, e.g.:
+        - Policies that buffer content should send finish chunk differently
+        - Policies that block output should prevent finish chunk here
 
         Args:
             finish_reason: "stop", "tool_calls", "length", etc.
             context: Per-request context
             streaming_ctx: Streaming context
         """
-        await streaming_ctx.send_text("", finish=True)
+        # Send a finish-only chunk
+        from luthien_proxy.v2.streaming.utils import build_text_chunk
+
+        finish_chunk = build_text_chunk(
+            "",  # No content, just finish_reason
+            model=context.request.model,
+            finish_reason=finish_reason,
+        )
+        await streaming_ctx.send(finish_chunk)
 
     async def on_stream_complete(
         self,

@@ -2,11 +2,11 @@
 
 ## Purpose & Scope
 
-- Core goal: implement AI Control for LLMs on top of the LiteLLM proxy.
-- Architecture: centralized control plane making policy decisions; the proxy stays thin.
-- Configure models in `config/litellm_config.yaml`.
-- Select a policy via `LUTHIEN_POLICY_CONFIG` that points to a YAML file (defaults to `config/luthien_config.yaml`).
-  - Example: `export LUTHIEN_POLICY_CONFIG=./config/luthien_config.yaml`
+- Core goal: implement AI Control for LLMs with integrated V2 gateway architecture.
+- Architecture: FastAPI gateway with integrated control plane and LiteLLM, using event-driven policies.
+- Configure upstream LLM models in `config/local_llm_config.yaml`.
+- Select a policy via `V2_POLICY_CONFIG` that points to a YAML file (defaults to `config/v2_config.yaml`).
+  - Example: `export V2_POLICY_CONFIG=./config/v2_config.yaml`
 
 ## Development Workflow
 
@@ -87,15 +87,19 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
     - `gotchas.md`: Non-obvious behaviors, edge cases, things that are easy to get wrong
 - `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
 - `src/luthien_proxy/`: core package
-  - `control_plane/`: FastAPI app and `__main__` launcher
-  - `proxy/`: LiteLLM proxy integration and custom logger
-  - `policies/`: policy interfaces and defaults (`noop.py`)
-  - `control_plane/templates` + `static`: debug and trace UIs
-- `config/`: `litellm_config.yaml`, `luthien_config.yaml`
-- `scripts/`: developer helpers (`quick_start.sh`, `test_proxy.py`)
-- `docker/` + `docker-compose.yaml`: local stack (db, redis, control-plane, proxy)
+  - `v2/`: V2 gateway with integrated control plane and policy system
+    - `control/`: Control plane for policy orchestration
+    - `policies/`: Event-driven policy implementations
+    - `streaming/`: Streaming pipeline and orchestration
+    - `storage/`: Conversation event persistence
+    - `ui/`: Real-time monitoring interfaces
+    - `debug/`: Debug and inspection endpoints
+  - `utils/`: Shared utilities (db, redis, validation)
+- `config/`: `v2_config.yaml`, `local_llm_config.yaml`
+- `scripts/`: developer helpers (`quick_start.sh`, `test_v2_gateway.sh`)
+- `docker/` + `docker-compose.yaml`: local stack (db, redis, v2-gateway, local-llm)
 - `migrations/`, `prisma/`: database setup
-- `tests/`: put unit/integration tests here
+- `tests/`: unit/integration tests
 
 ## Build, Test, and Development Commands
 
@@ -103,15 +107,12 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - Start full stack: `./scripts/quick_start.sh`
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
 - Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
-- Lint/format: `uv run ruff format` then `uv run ruff check --fix`; `./scripts/dev_checks.sh` wraps both plus pytest and pyright.
 - Type check: `uv run pyright`
-- Run control plane locally: `uv run python -m luthien_proxy.control_plane`
-- Run proxy locally: `uv run python -m luthien_proxy.proxy`
-- Docker iterate: `docker compose restart control-plane` or `litellm-proxy`
+- Docker iterate: `docker compose restart v2-gateway`
 
 ## Tooling
 
-- Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent `debug_logs` rows. Example: `uv run python scripts/query_debug_logs.py --call-id <litellm_call_id> --host localhost --summary`.
+- Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent conversation events and debug logs.
 - Quick Codex feedback: run `codex e "question or idea"` for a fast suggestion without starting an interactive session. Note that subsequent invocations won't persist context - pass in existing context or refer to relevant files to persist some context between calls.
 
 ## Coding Style & Naming Conventions
@@ -128,25 +129,24 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - Framework: `pytest`
 - Location: under `tests/unit_tests/`, `tests/integration_tests/`, `tests/e2e_tests/`
 - Name files `test_*.py` and mirror package paths within the test-type directory.
-- Prefer fast unit tests for policies; add integration tests against `/api/hooks/*` and `/health`.
+- Prefer fast unit tests for policies; add integration tests against V2 gateway endpoints.
 - Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.
 
 ## Security & Configuration
 
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
 - Copy `.env.example` to `.env`; never commit secrets.
-- Key env vars: `DATABASE_URL`, `REDIS_URL`, `CONTROL_PLANE_URL`, `LITELLM_*`, `LUTHIEN_POLICY_CONFIG`.
-- Update `config/litellm_config.yaml` and `config/luthien_config.yaml` rather than hardcoding.
-- Validate setup with `uv run python scripts/test_proxy.py` and `docker compose logs -f`.
+- Key env vars: `DATABASE_URL`, `REDIS_URL`, `V2_POLICY_CONFIG`, `PROXY_API_KEY`.
+- Update `config/v2_config.yaml` rather than hardcoding.
+- Validate setup with test requests to the V2 gateway at `http://localhost:8000`.
 
 ## Policy Selection
 
-- Policies are loaded from the YAML file pointed to by `LUTHIEN_POLICY_CONFIG` (default `config/luthien_config.yaml`).
+- Policies are loaded from the YAML file pointed to by `V2_POLICY_CONFIG` (default `config/v2_config.yaml`).
 - Minimal YAML:
 
   ```yaml
   policy:
-    class: "luthien_proxy.policies.noop:NoOpPolicy"
-    config:
-      policy_specific_arg: 'someval'
+    class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
+    config: {}
   ```
