@@ -14,6 +14,7 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 ## Medium Priority
 
 - [ ] Revisit ignored pyright issues
+- [ ] Make filtering on the activity monitor easier and more intuitive
 - [ ] Add rate limiting middleware (slowapi or custom FastAPI middleware) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Implement circuit breaker for upstream calls ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add Prometheus metrics endpoint ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
