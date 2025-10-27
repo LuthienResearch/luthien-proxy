@@ -3,7 +3,26 @@
 # This file specifies the active policy for the V2 integrated architecture.
 # Set the V2_POLICY_CONFIG environment variable to point to this file.
 
-# Active policy configuration - V3 Tool Call Judge for e2e testing
+
+# Default Noop Policy
+policy:
+  class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
+  config: {}
+
+# Simple string replacement policy example
+# policy:
+#   class: "luthien_proxy.v2.policies.simple_string_replacement:SimpleStringReplacementPolicy"
+#   config:
+#     replacements:
+#       "foo": "bar"
+#       "hello": "hi"
+#     apply_to_tool_calls: true
+
+
+
+# Other policy examples:
+
+# Tool call judge policy using LLM
 # policy:
 #   class: "luthien_proxy.v2.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
 #   config:
@@ -18,13 +37,6 @@
 #     # Optional: Customize blocked message template
 #     # Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}
 #     # blocked_message_template: "⛔ Tool '{tool_name}' with args {tool_arguments} blocked: {explanation}"
-
-# No-op for testing
-policy:
-  class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
-  config: {}
-
-# Other policy examples:
 
 # Uppercase every Nth word
 # policy:

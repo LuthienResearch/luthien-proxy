@@ -2,6 +2,10 @@
 
 ## DEVELOPMENT | TBA
 
+- Add `SimpleEventBasedPolicy` for beginner-friendly policy authoring (buffers streaming into complete blocks)
+  - Example policies: `SimpleUppercasePolicy`, `SimpleToolFilterPolicy`, `SimpleStringReplacementPolicy`
+  - Comprehensive unit and e2e test coverage
+
 ### V2 Architecture Migration ([#46](https://github.com/LuthienResearch/luthien-proxy/pull/46))
 
 **Massive cleanup**: Deleted ~9,735 lines of V1 code, tests, and documentation (48% reduction) while building out V2 architecture.
