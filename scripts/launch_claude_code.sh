@@ -20,10 +20,12 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# Source environment variables
-set -a
-source .env
-set +a
+# Source only the variables we need from .env
+if [ -f .env ]; then
+    export PROXY_API_KEY=$(grep -E '^PROXY_API_KEY=' .env | cut -d '=' -f2-)
+    export V2_GATEWAY_PORT=$(grep -E '^V2_GATEWAY_PORT=' .env | cut -d '=' -f2-)
+    export V2_GATEWAY_HOST=$(grep -E '^V2_GATEWAY_HOST=' .env | cut -d '=' -f2-)
+fi
 
 # Check if V2 gateway is running
 V2_PORT="${V2_GATEWAY_PORT:-8000}"
@@ -51,26 +53,15 @@ fi
 
 echo -e "${GREEN}✅ V2 gateway is running on port ${V2_PORT}${NC}"
 
-# Check for Anthropic API key
-if [ -z "${ANTHROPIC_API_KEY}" ] || [ "${ANTHROPIC_API_KEY}" == "your_anthropic_api_key_here" ]; then
-    echo -e "${RED}❌ ANTHROPIC_API_KEY not configured in .env${NC}"
-    echo -e "${YELLOW}Please add your Anthropic API key to the .env file${NC}"
-    exit 1
-fi
-
-# Export V2 gateway configuration for Claude Code
+# Prepare V2 gateway configuration for Claude Code
 # Note: Don't include /v1 in base URL - Anthropic SDK adds it automatically
-export ANTHROPIC_BASE_URL="http://localhost:${V2_PORT}/"
-export ANTHROPIC_API_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
-export ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5"
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-3-5-haiku"
-export CLAUDE_CODE_SUBAGENT_MODEL="anthropic/claude-sonnet-4-5"
-
+# Claude Code requires these to be set inline when launching to skip onboarding
+PROXY_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
+GATEWAY_URL="http://localhost:${V2_PORT}/"
 
 echo -e "${BLUE}📋 V2 Gateway Configuration:${NC}"
-echo -e "   • Gateway URL:     ${ANTHROPIC_BASE_URL} (SDK will append /v1/messages)"
-echo -e "   • API Key:         ${ANTHROPIC_API_KEY:0:10}... (sent as x-api-key header)"
+echo -e "   • Gateway URL:     ${GATEWAY_URL} (SDK will append /v1/messages)"
+echo -e "   • API Key:         ${PROXY_KEY:0:10}... (sent as x-api-key header)"
 echo ""
 echo -e "${GREEN}🎯 Claude Code will now route through the V2 gateway with policy enforcement${NC}"
 echo -e "${YELLOW}📊 Monitor requests at:${NC}"
@@ -91,4 +82,14 @@ if ! command -v claude &> /dev/null; then
 fi
 
 # Launch Claude Code with proxy configuration
-claude "$@"
+# Setting env vars inline ensures Claude Code picks them up at startup and skips onboarding
+env \
+  ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
+  ANTHROPIC_AUTH_TOKEN="${PROXY_KEY}" \
+  claude "$@"
+  # You can add these arguments to modify the default models used
+  # See https://docs.claude.com/en/docs/claude-code/settings#environment-variables
+  # ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5" \
+  # ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5" \
+  # ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-3-5-haiku" \
+  # CLAUDE_CODE_SUBAGENT_MODEL="anthropic/claude-sonnet-4-5" \
