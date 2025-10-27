@@ -348,3 +348,133 @@ async def test_tool_call_block_has_complete_data():
     for block in policy.inspected_blocks:
         assert isinstance(block, ToolCallStreamBlock)
         assert block.is_complete
+
+
+@pytest.mark.asyncio
+async def test_tool_call_replaced_with_content():
+    """Test that tool calls can be replaced with text content."""
+
+    class ReplaceToolWithTextPolicy(SimpleEventBasedPolicy):
+        async def on_response_tool_call(self, tool_call, context, streaming_ctx):
+            # Replace get_weather tool calls with explanatory text
+            if tool_call.name == "get_weather":
+                return "I cannot check the weather right now. Please try again later."
+            # Let other tool calls through
+            return tool_call
+
+    chunks = load_chunks("anthropic_multiple_tools_chunks.json")
+    policy = ReplaceToolWithTextPolicy()
+    output = await run_policy_on_stream(policy, chunks)
+
+    # Extract content chunks
+    content_chunks = [c for c in output if c.choices and c.choices[0].delta.content]
+
+    # Should have content from replacement
+    content = "".join(c.choices[0].delta.content for c in content_chunks)
+    assert "I cannot check the weather right now" in content
+
+    # Extract tool calls
+    tool_chunks = [
+        c for c in output if c.choices and hasattr(c.choices[0].delta, "tool_calls") and c.choices[0].delta.tool_calls
+    ]
+
+    # Should only have get_time tool calls (get_weather was replaced with text)
+    tool_names = [c.choices[0].delta.tool_calls[0]["function"]["name"] for c in tool_chunks]
+    assert "get_time" in tool_names
+    assert "get_weather" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_all_tool_calls_replaced_with_content():
+    """Test that all tool calls can be replaced with content."""
+
+    class ReplaceAllToolsPolicy(SimpleEventBasedPolicy):
+        async def on_response_tool_call(self, tool_call, context, streaming_ctx):
+            # Replace all tool calls with text
+            return f"Tool '{tool_call.name}' is not available."
+
+    chunks = load_chunks("gpt_multiple_tools_chunks.json")
+    policy = ReplaceAllToolsPolicy()
+    output = await run_policy_on_stream(policy, chunks)
+
+    # Extract content chunks
+    content_chunks = [c for c in output if c.choices and c.choices[0].delta.content]
+    content = "".join(c.choices[0].delta.content for c in content_chunks)
+
+    # Should have replacement text for tools
+    assert "Tool 'get_weather' is not available" in content
+    assert "Tool 'get_time' is not available" in content
+
+    # Should have no tool calls
+    tool_chunks = [
+        c for c in output if c.choices and hasattr(c.choices[0].delta, "tool_calls") and c.choices[0].delta.tool_calls
+    ]
+    assert len(tool_chunks) == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_call_string_replacement_non_streaming():
+    """Test tool call replacement with string in non-streaming response."""
+    from litellm.types.utils import ChatCompletionMessageToolCall, Choices, Function, Message, ModelResponse
+
+    # Create a non-streaming response with tool calls
+    response = ModelResponse(
+        id="test-id",
+        object="chat.completion",
+        created=123456,
+        model="test-model",
+        choices=[
+            Choices(
+                index=0,
+                message=Message(
+                    role="assistant",
+                    content="Here's the weather:",
+                    tool_calls=[
+                        ChatCompletionMessageToolCall(
+                            id="call_1",
+                            type="function",
+                            function=Function(
+                                name="get_weather",
+                                arguments='{"location":"Tokyo"}',
+                            ),
+                        ),
+                    ],
+                ),
+                finish_reason="tool_calls",
+            )
+        ],
+    )
+
+    # Create policy that replaces tool call with content
+    class ReplaceToolPolicy(SimpleEventBasedPolicy):
+        async def on_response_tool_call(self, tool_call, context, streaming_ctx):
+            return "Weather tool is unavailable."
+
+    policy = ReplaceToolPolicy()
+
+    # Create mock context
+    from unittest.mock import Mock
+
+    mock_span = Mock()
+    mock_span.add_event = Mock()
+
+    request = Request(
+        model="test-model",
+        messages=[{"role": "user", "content": "test"}],
+    )
+
+    context = PolicyContext(
+        call_id="test-call-id",
+        span=mock_span,
+        request=request,
+    )
+
+    # Process through policy
+    result = await policy.process_full_response(response, context)
+
+    # Tool call should be removed
+    assert result.choices[0].message.tool_calls is None or len(result.choices[0].message.tool_calls) == 0
+
+    # Content should have replacement text appended
+    assert "Here's the weather:" in result.choices[0].message.content
+    assert "Weather tool is unavailable." in result.choices[0].message.content

@@ -4,10 +4,18 @@
 # Set the V2_POLICY_CONFIG environment variable to point to this file.
 
 
-# Default Noop Policy
 policy:
-  class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
-  config: {}
+  class: "luthien_proxy.v2.policies.simple_blocked_content:SimpleBlockedContentPolicy"
+  config:
+    blocked_patterns:
+      - "[aA]pple"
+    replacement_message: "[Forebidden Fruit!]"
+    block_tool_calls: true
+
+# Default Noop Policy
+# policy:
+#   class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
+#   config: {}
 
 # Simple string replacement policy example
 # policy:
@@ -17,6 +25,18 @@ policy:
 #       "foo": "bar"
 #       "hello": "hi"
 #     apply_to_tool_calls: true
+
+# Simple blocked content policy using regex patterns
+# policy:
+#   class: "luthien_proxy.v2.policies.simple_blocked_content:SimpleBlockedContentPolicy"
+#   config:
+#     blocked_patterns:
+#       - "\\b\\d{3}-\\d{2}-\\d{4}\\b"  # SSN pattern
+#       - "\\b\\d{16}\\b"  # Credit card pattern
+#       - "password"
+#       - "execute_code"
+#     replacement_message: "[BLOCKED: Sensitive content detected]"
+#     block_tool_calls: true
 
 
 

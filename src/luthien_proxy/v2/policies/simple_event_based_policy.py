@@ -119,12 +119,13 @@ class SimpleEventBasedPolicy(EventBasedPolicy):
         tool_call: ToolCallStreamBlock,
         context: PolicyContext,
         streaming_ctx: StreamingContext,
-    ) -> ToolCallStreamBlock | None:
+    ) -> ToolCallStreamBlock | str | None:
         """Process complete tool call from response.
 
         This is called once a complete tool call has been received and buffered.
         You can:
         - Return modified tool call block to send to client
+        - Return a string to replace the tool call with text content
         - Return None to block/filter this tool call
         - Raise exception to reject the entire response
 
@@ -136,7 +137,7 @@ class SimpleEventBasedPolicy(EventBasedPolicy):
             streaming_ctx: Streaming context for sending output
 
         Returns:
-            Modified tool call block, or None to block this tool call
+            Modified tool call block, string content to replace tool call, or None to block
         """
         return tool_call
 
@@ -225,8 +226,19 @@ class SimpleEventBasedPolicy(EventBasedPolicy):
                     fake_streaming_ctx,  # type: ignore
                 )
 
-                # If not blocked, add to modified list
-                if result is not None:
+                # Handle different return types
+                if result is None:
+                    # Tool call was blocked - don't add to list
+                    pass
+                elif isinstance(result, str):
+                    # Tool call was replaced with content - append to message content
+                    if hasattr(message, "content"):
+                        if message.content:
+                            message.content = message.content + "\n\n" + result
+                        else:
+                            message.content = result
+                else:
+                    # Tool call was returned (possibly modified)
                     # Convert back to ChatCompletionMessageToolCall
                     modified_tc = ChatCompletionMessageToolCall(
                         id=result.id,
@@ -334,14 +346,15 @@ class SimpleEventBasedPolicy(EventBasedPolicy):
         )
 
         # Call simplified hook with complete tool call
-        modified_block = await self.on_response_tool_call(
+        result = await self.on_response_tool_call(
             block,
             context,
             streaming_ctx,
         )
 
-        # Check if tool call was blocked
-        if modified_block is None:
+        # Handle different return types
+        if result is None:
+            # Tool call was blocked
             context.emit(
                 event_type="simple_policy.tool_call_blocked",
                 summary=f"Tool call blocked by policy: {block.name}",
@@ -352,23 +365,37 @@ class SimpleEventBasedPolicy(EventBasedPolicy):
                 },
                 severity="warning",
             )
-        # Check if tool call was modified
-        elif modified_block.name != block.name or modified_block.arguments != block.arguments:
+        elif isinstance(result, str):
+            # Tool call was replaced with content
             context.emit(
-                event_type="simple_policy.tool_call_modified",
-                summary=f"Tool call modified by policy: {block.name}",
+                event_type="simple_policy.tool_call_replaced_with_content",
+                summary=f"Tool call replaced with content: {block.name}",
                 details={
-                    "original_name": block.name,
-                    "modified_name": modified_block.name,
-                    "name_changed": modified_block.name != block.name,
-                    "args_changed": modified_block.arguments != block.arguments,
+                    "tool_name": block.name,
+                    "tool_id": block.id,
+                    "content_length": len(result),
                     "policy_class": self.__class__.__name__,
                 },
+                severity="info",
             )
-
-        # Send the tool call if not blocked (None means block/filter)
-        if modified_block is not None:
-            chunk = build_block_chunk(modified_block, model=context.request.model)
+            # Send as text content instead of tool call
+            await streaming_ctx.send_text(result)
+        else:
+            # Tool call was returned (possibly modified)
+            if result.name != block.name or result.arguments != block.arguments:
+                context.emit(
+                    event_type="simple_policy.tool_call_modified",
+                    summary=f"Tool call modified by policy: {block.name}",
+                    details={
+                        "original_name": block.name,
+                        "modified_name": result.name,
+                        "name_changed": result.name != block.name,
+                        "args_changed": result.arguments != block.arguments,
+                        "policy_class": self.__class__.__name__,
+                    },
+                )
+            # Send the tool call
+            chunk = build_block_chunk(result, model=context.request.model)
             await streaming_ctx.send(chunk)
 
 

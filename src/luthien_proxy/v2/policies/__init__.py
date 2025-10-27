@@ -7,6 +7,7 @@ from .base import LuthienPolicy
 from .event_based_policy import EventBasedPolicy, StreamingContext
 from .noop import NoOpPolicy
 from .policy_context import PolicyContext
+from .simple_blocked_content import SimpleBlockedContentPolicy
 from .simple_event_based_policy import SimpleEventBasedPolicy
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "EventBasedPolicy",
     "StreamingContext",
     "SimpleEventBasedPolicy",
+    "SimpleBlockedContentPolicy",
 ]
