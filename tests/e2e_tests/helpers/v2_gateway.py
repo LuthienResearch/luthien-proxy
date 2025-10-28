@@ -9,7 +9,6 @@ import multiprocessing
 import os
 import time
 from contextlib import contextmanager
-from typing import Optional
 
 import httpx
 import uvicorn
@@ -71,7 +70,7 @@ class V2GatewayManager:
         self.startup_timeout = startup_timeout
         self.verbose = verbose
         self.base_url = f"http://127.0.0.1:{port}"
-        self._process: Optional[multiprocessing.Process] = None
+        self._process: multiprocessing.Process | None = None
 
     def start(self) -> None:
         """Start the V2 gateway subprocess."""
@@ -91,7 +90,7 @@ class V2GatewayManager:
 
         # Wait for gateway to be ready
         deadline = time.monotonic() + self.startup_timeout
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         while time.monotonic() < deadline:
             try:
@@ -153,7 +152,7 @@ async def wait_for_v2_gateway(
         verbose: Whether to print progress messages
     """
     deadline = time.monotonic() + timeout
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
 
     async with httpx.AsyncClient(timeout=1.0) as client:
         while time.monotonic() < deadline:

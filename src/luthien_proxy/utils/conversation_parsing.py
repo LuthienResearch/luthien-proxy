@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Iterable, Mapping
 
 
-def extract_call_id(payload: Mapping[str, Any]) -> Optional[str]:
+def extract_call_id(payload: Mapping[str, Any]) -> str | None:
     """Extract call_id from payload, returning None if not found."""
     candidates = (
         payload.get("litellm_call_id"),
@@ -26,7 +26,7 @@ def require_call_id(payload: Mapping[str, Any]) -> str:
     return call_id
 
 
-def extract_trace_id(payload: Mapping[str, Any]) -> Optional[str]:
+def extract_trace_id(payload: Mapping[str, Any]) -> str | None:
     """Extract trace_id from payload, returning None if not found."""
     candidates = (
         payload.get("litellm_trace_id"),

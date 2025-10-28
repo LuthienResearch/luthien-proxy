@@ -9,7 +9,6 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 - [ ] Add max buffer size for chunk storage (synchronous_control_plane.py:220 - unbounded growth) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Review and test graceful shutdown behavior (ensure event publisher tasks complete) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add input validation: max request size and message count limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Optional -> | None (type annotations cleanup - only 21 Optional[] remaining, 61 already using | None)
 
 ## Medium Priority
 

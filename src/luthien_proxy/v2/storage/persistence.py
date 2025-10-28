@@ -21,7 +21,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Awaitable, Literal, Optional, Sequence, cast
+from typing import Awaitable, Literal, Sequence, cast
 
 from pydantic import BaseModel, Field
 
@@ -39,7 +39,7 @@ class ConversationEvent(BaseModel):
     """Normalized conversation event (request or response)."""
 
     call_id: str
-    trace_id: Optional[str] = None  # Deprecated, always None
+    trace_id: str | None = None  # Deprecated, always None
     event_type: Literal["request", "response"]
     sequence: int
     timestamp: datetime
@@ -102,7 +102,7 @@ def require_dict(value: object, context: str) -> JSONObject:
     return cast(JSONObject, value)
 
 
-def extract_post_time_ns_from_any(value: object) -> Optional[int]:
+def extract_post_time_ns_from_any(value: object) -> int | None:
     """Search arbitrarily nested data for a `post_time_ns` integer."""
     if isinstance(value, dict):
         candidate = value.get("post_time_ns")
@@ -142,8 +142,8 @@ def derive_sequence_ns(fallback_ns: int, *candidates: object) -> int:
 
 def build_conversation_events(
     hook: str,
-    call_id: Optional[str],
-    trace_id: Optional[str],
+    call_id: str | None,
+    trace_id: str | None,
     original: JSONValue | None,
     result: JSONValue | None,
     timestamp_ns_fallback: int,

@@ -5,7 +5,7 @@
 
 import warnings
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -14,9 +14,9 @@ from litellm.types.utils import Choices, Delta, Message, ModelResponse, Streamin
 
 def create_test_lifespan(
     control_plane: Any,
-    db_pool: Optional[Any] = None,
-    redis_client: Optional[Any] = None,
-    event_publisher: Optional[Any] = None,
+    db_pool: Any | None = None,
+    redis_client: Any | None = None,
+    event_publisher: Any | None = None,
     api_key: str = "test-api-key",
 ):
     """Create a test lifespan context manager with mocked dependencies.

@@ -9,7 +9,7 @@ import hashlib
 import json
 import logging
 import uuid
-from typing import AsyncIterator, Optional, cast
+from typing import AsyncIterator, cast
 
 import litellm
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -41,7 +41,7 @@ security = HTTPBearer(auto_error=False)
 # === AUTH ===
 def verify_token(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> str:
     """Verify API key from either Authorization header or x-api-key header.
 
@@ -80,8 +80,8 @@ async def stream_with_policy_control(
     data: dict,
     call_id: str,
     control_plane: SynchronousControlPlane,
-    db_pool: Optional[db.DatabasePool],
-    redis_client: Optional[Redis],
+    db_pool: db.DatabasePool | None,
+    redis_client: Redis | None,
     format_converter=None,
 ) -> AsyncIterator[str]:
     """Stream with reactive policy control.
@@ -212,7 +212,7 @@ async def process_request_with_policy(
     request_data: dict,
     call_id: str,
     control_plane: SynchronousControlPlane,
-    db_pool: Optional[db.DatabasePool],
+    db_pool: db.DatabasePool | None,
 ) -> RequestMessage:
     """Apply policy to request and emit request event.
 
@@ -237,7 +237,7 @@ async def process_request_with_policy(
 
 
 async def publish_request_received_event(
-    event_publisher: Optional[RedisEventPublisher],
+    event_publisher: RedisEventPublisher | None,
     call_id: str,
     endpoint: str,
     model: str,
@@ -258,7 +258,7 @@ async def publish_request_received_event(
 
 
 async def publish_request_sent_event(
-    event_publisher: Optional[RedisEventPublisher],
+    event_publisher: RedisEventPublisher | None,
     call_id: str,
     model: str,
     stream: bool,
@@ -294,8 +294,8 @@ async def process_non_streaming_response(
     data: dict,
     call_id: str,
     control_plane: SynchronousControlPlane,
-    db_pool: Optional[db.DatabasePool],
-    event_publisher: Optional[RedisEventPublisher],
+    db_pool: db.DatabasePool | None,
+    event_publisher: RedisEventPublisher | None,
 ) -> ModelResponse:
     """Process a non-streaming LLM response through policy control.
 
@@ -364,9 +364,9 @@ async def openai_chat_completions(
     """OpenAI-compatible endpoint."""
     # Get dependencies from app state
     control_plane: SynchronousControlPlane = request.app.state.control_plane
-    db_pool: Optional[db.DatabasePool] = request.app.state.db_pool
-    event_publisher: Optional[RedisEventPublisher] = request.app.state.event_publisher
-    redis_client: Optional[Redis] = request.app.state.redis_client
+    db_pool: db.DatabasePool | None = request.app.state.db_pool
+    event_publisher: RedisEventPublisher | None = request.app.state.event_publisher
+    redis_client: Redis | None = request.app.state.redis_client
 
     data = await request.json()
 
@@ -438,8 +438,8 @@ async def anthropic_messages(
     """Anthropic Messages API endpoint."""
     # Get dependencies from app state
     control_plane: SynchronousControlPlane = request.app.state.control_plane
-    db_pool: Optional[db.DatabasePool] = request.app.state.db_pool
-    redis_client: Optional[Redis] = request.app.state.redis_client
+    db_pool: db.DatabasePool | None = request.app.state.db_pool
+    redis_client: Redis | None = request.app.state.redis_client
 
     anthropic_data = await request.json()
 

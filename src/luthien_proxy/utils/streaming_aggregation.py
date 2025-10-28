@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping
 
 
 @dataclass
@@ -26,8 +26,8 @@ class StreamChunkAggregator:
     content_parts: list[str]
     tool_calls: dict[str, ToolCallState]
     tool_call_indexes: dict[int, str]
-    finish_reason: Optional[str] = None
-    role: Optional[str] = None
+    finish_reason: str | None = None
+    role: str | None = None
 
     def __init__(self):
         """Initialize aggregator with empty state."""

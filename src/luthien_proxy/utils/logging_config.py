@@ -7,10 +7,9 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Optional
 
 
-def configure_logging(level: Optional[str] = None) -> None:
+def configure_logging(level: str | None = None) -> None:
     """Configure root logging to stdout so Docker captures .info logs.
 
     - Respects LOG_LEVEL env if level not provided.

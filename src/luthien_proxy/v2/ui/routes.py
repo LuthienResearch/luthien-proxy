@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -31,7 +30,7 @@ async def activity_stream(request: Request):
     Returns:
         StreamingResponse with Server-Sent Events (text/event-stream)
     """
-    redis_client: Optional[Redis] = request.app.state.redis_client
+    redis_client: Redis | None = request.app.state.redis_client
     if not redis_client:
         raise HTTPException(
             status_code=503,
