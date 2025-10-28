@@ -359,26 +359,30 @@ async def process_non_streaming_response(
 @router.post("/v1/chat/completions")
 async def openai_chat_completions(
     request: Request,
-    token: str = Depends(verify_token),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ):
     """OpenAI-compatible endpoint."""
-    # Get dependencies from app state
-    control_plane: SynchronousControlPlane = request.app.state.control_plane
-    db_pool: db.DatabasePool | None = request.app.state.db_pool
-    event_publisher: RedisEventPublisher | None = request.app.state.event_publisher
-    redis_client: Redis | None = request.app.state.redis_client
-
-    data = await request.json()
-
-    # Generate call_id
+    # Generate call_id and create span BEFORE any other processing (including auth)
     call_id = str(uuid.uuid4())
-    trace_id = data.get("metadata", {}).get("trace_id")
 
-    # Create span for the entire request/response cycle
     with tracer.start_as_current_span("gateway.chat_completions") as span:
-        # Add span attributes
+        # Set call_id on span immediately
         span.set_attribute("luthien.call_id", call_id)
         span.set_attribute("luthien.endpoint", "/v1/chat/completions")
+
+        # Verify auth (inside span)
+        _token = verify_token(request, credentials)
+
+        # Get dependencies from app state
+        control_plane: SynchronousControlPlane = request.app.state.control_plane
+        db_pool: db.DatabasePool | None = request.app.state.db_pool
+        event_publisher: RedisEventPublisher | None = request.app.state.event_publisher
+        redis_client: Redis | None = request.app.state.redis_client
+
+        data = await request.json()
+        trace_id = data.get("metadata", {}).get("trace_id")
+
+        # Add additional span attributes after parsing request
         span.set_attribute("luthien.model", data.get("model", "unknown"))
         span.set_attribute("luthien.stream", data.get("stream", False))
         if trace_id:
@@ -433,28 +437,32 @@ async def openai_chat_completions(
 @router.post("/v1/messages")
 async def anthropic_messages(
     request: Request,
-    token: str = Depends(verify_token),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ):
     """Anthropic Messages API endpoint."""
-    # Get dependencies from app state
-    control_plane: SynchronousControlPlane = request.app.state.control_plane
-    db_pool: db.DatabasePool | None = request.app.state.db_pool
-    redis_client: Redis | None = request.app.state.redis_client
-
-    anthropic_data = await request.json()
-
-    # Debug: log the incoming request
-    logger.info(f"[/v1/messages] Incoming request: {json.dumps(anthropic_data, indent=2)}")
-    openai_data = anthropic_to_openai_request(anthropic_data)
-
-    # Generate call_id
+    # Generate call_id and create span BEFORE any other processing (including auth)
     call_id = str(uuid.uuid4())
 
-    # Create span for the entire request/response cycle
     with tracer.start_as_current_span("gateway.anthropic_messages") as span:
-        # Add span attributes
+        # Set call_id on span immediately
         span.set_attribute("luthien.call_id", call_id)
         span.set_attribute("luthien.endpoint", "/v1/messages")
+
+        # Verify auth (inside span)
+        _token = verify_token(request, credentials)
+
+        # Get dependencies from app state
+        control_plane: SynchronousControlPlane = request.app.state.control_plane
+        db_pool: db.DatabasePool | None = request.app.state.db_pool
+        redis_client: Redis | None = request.app.state.redis_client
+
+        anthropic_data = await request.json()
+
+        # Debug: log the incoming request
+        logger.info(f"[/v1/messages] Incoming request: {json.dumps(anthropic_data, indent=2)}")
+        openai_data = anthropic_to_openai_request(anthropic_data)
+
+        # Add additional span attributes after parsing request
         span.set_attribute("luthien.model", openai_data.get("model", "unknown"))
         span.set_attribute("luthien.stream", openai_data.get("stream", False))
 

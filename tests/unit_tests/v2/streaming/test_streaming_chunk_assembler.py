@@ -1,4 +1,4 @@
-"""ABOUTME: Unit tests for StreamProcessor using real streaming chunks.
+"""ABOUTME: Unit tests for StreamingChunkAssembler using real streaming chunks.
 ABOUTME: Tests block detection, transitions, and completion using saved chunk data."""
 
 import json
@@ -11,8 +11,8 @@ from luthien_proxy.v2.streaming.stream_blocks import (
     ContentStreamBlock,
     ToolCallStreamBlock,
 )
-from luthien_proxy.v2.streaming.stream_processor import StreamProcessor
 from luthien_proxy.v2.streaming.stream_state import StreamState
+from luthien_proxy.v2.streaming.streaming_chunk_assembler import StreamingChunkAssembler
 
 FIXTURE_DIR = Path(__file__).parent / "chunk_fixtures"
 
@@ -79,7 +79,7 @@ async def test_content_only_response():
     """Test response with only content, no tool calls."""
     chunks = load_chunks("no_tools_used_chunks.json")
     recorder = ChunkRecorder()
-    processor = StreamProcessor(on_chunk_callback=recorder.on_chunk)
+    processor = StreamingChunkAssembler(on_chunk_callback=recorder.on_chunk)
 
     await processor.process(simulate_stream(chunks), context=None)
 
@@ -104,7 +104,7 @@ async def test_anthropic_multiple_tool_calls():
     """Test Anthropic response with content then multiple tool calls."""
     chunks = load_chunks("anthropic_multiple_tools_chunks.json")
     recorder = ChunkRecorder()
-    processor = StreamProcessor(on_chunk_callback=recorder.on_chunk)
+    processor = StreamingChunkAssembler(on_chunk_callback=recorder.on_chunk)
 
     await processor.process(simulate_stream(chunks), context=None)
 
@@ -151,7 +151,7 @@ async def test_gpt_multiple_tool_calls():
     """Test GPT response with multiple tool calls (no content)."""
     chunks = load_chunks("gpt_multiple_tools_chunks.json")
     recorder = ChunkRecorder()
-    processor = StreamProcessor(on_chunk_callback=recorder.on_chunk)
+    processor = StreamingChunkAssembler(on_chunk_callback=recorder.on_chunk)
 
     await processor.process(simulate_stream(chunks), context=None)
 
@@ -187,7 +187,7 @@ async def test_anthropic_extended_thinking():
     """Test Anthropic response with long content then tool calls."""
     chunks = load_chunks("anthropic_extended_thinking_chunks.json")
     recorder = ChunkRecorder()
-    processor = StreamProcessor(on_chunk_callback=recorder.on_chunk)
+    processor = StreamingChunkAssembler(on_chunk_callback=recorder.on_chunk)
 
     await processor.process(simulate_stream(chunks), context=None)
 
@@ -234,7 +234,7 @@ async def test_empty_content_stripped():
             has_tool_calls = "tool_calls" in delta and delta["tool_calls"]
             chunks_received.append({"has_content": "content" in delta, "has_tool_calls": has_tool_calls})
 
-    processor = StreamProcessor(on_chunk_callback=track_chunks)
+    processor = StreamingChunkAssembler(on_chunk_callback=track_chunks)
     await processor.process(simulate_stream(chunks), context=None)
 
     # During tool call phase, chunks should NOT have content field
@@ -252,7 +252,7 @@ async def test_block_completion_ordering():
     """Test that blocks complete in correct order."""
     chunks = load_chunks("anthropic_multiple_tools_chunks.json")
     recorder = ChunkRecorder()
-    processor = StreamProcessor(on_chunk_callback=recorder.on_chunk)
+    processor = StreamingChunkAssembler(on_chunk_callback=recorder.on_chunk)
 
     await processor.process(simulate_stream(chunks), context=None)
 
@@ -276,7 +276,7 @@ async def test_current_block_tracking():
     """Test that current_block is correctly maintained."""
     chunks = load_chunks("anthropic_multiple_tools_chunks.json")
     recorder = ChunkRecorder()
-    processor = StreamProcessor(on_chunk_callback=recorder.on_chunk)
+    processor = StreamingChunkAssembler(on_chunk_callback=recorder.on_chunk)
 
     await processor.process(simulate_stream(chunks), context=None)
 

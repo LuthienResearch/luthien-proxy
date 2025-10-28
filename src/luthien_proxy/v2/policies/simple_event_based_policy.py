@@ -11,7 +11,7 @@ and provides a beginner-friendly interface. Policies override:
 3. on_tool_call_simple(tool_call_block) -> modified_tool_call_block | str | None
 
 The base class suppresses delta forwarding, so your hooks receive complete
-blocks that have already been buffered by StreamProcessor. You just transform
+blocks that have already been buffered by StreamingChunkAssembler. You just transform
 and return the result.
 
 Example:
@@ -53,7 +53,7 @@ class SimpleEventBasedPolicy(EventBasedPolicy):
     """Simplified policy that works with complete blocks instead of streaming deltas.
 
     Suppresses delta forwarding and calls simplified hooks with complete data.
-    StreamProcessor already buffers deltas into blocks - this just waits for
+    StreamingChunkAssembler already buffers deltas into blocks - this just waits for
     completion signals and calls your hooks.
 
     Subclasses implement:
@@ -94,7 +94,7 @@ class SimpleEventBasedPolicy(EventBasedPolicy):
     ) -> str:
         """Process complete content text from response.
 
-        This is called once the content block is complete (StreamProcessor
+        This is called once the content block is complete (StreamingChunkAssembler
         already buffered all the deltas). Transform the content and return
         the modified version.
 
@@ -120,7 +120,7 @@ class SimpleEventBasedPolicy(EventBasedPolicy):
     ) -> ToolCallStreamBlock | str | None:
         """Process complete tool call from response.
 
-        This is called once the tool call block is complete (StreamProcessor
+        This is called once the tool call block is complete (StreamingChunkAssembler
         already buffered all the deltas). You can:
         - Return modified tool call block to send to client
         - Return a string to replace the tool call with text content
@@ -164,7 +164,7 @@ class SimpleEventBasedPolicy(EventBasedPolicy):
     ) -> None:
         """Process complete content block and send result.
 
-        Block is already complete (buffered by StreamProcessor).
+        Block is already complete (buffered by StreamingChunkAssembler).
         Call simplified hook and send result.
         """
         # Call simplified hook with complete content
@@ -199,7 +199,7 @@ class SimpleEventBasedPolicy(EventBasedPolicy):
     ) -> None:
         """Process complete tool call block and send result.
 
-        Block is already complete (buffered by StreamProcessor).
+        Block is already complete (buffered by StreamingChunkAssembler).
         Call simplified hook and handle result.
         """
         # Call simplified hook with complete tool call

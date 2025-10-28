@@ -1,5 +1,5 @@
 # ABOUTME: V3 Event-based policy base class with block-level hooks
-# ABOUTME: Provides high-level streaming policy DSL using StreamProcessor
+# ABOUTME: Provides high-level streaming policy DSL using StreamingChunkAssembler
 
 """Event-based policy DSL for V3 architecture.
 
@@ -35,8 +35,8 @@ from luthien_proxy.v2.streaming.stream_blocks import (
     ContentStreamBlock,
     ToolCallStreamBlock,
 )
-from luthien_proxy.v2.streaming.stream_processor import StreamProcessor
 from luthien_proxy.v2.streaming.stream_state import StreamState
+from luthien_proxy.v2.streaming.streaming_chunk_assembler import StreamingChunkAssembler
 
 logger = logging.getLogger(__name__)
 
@@ -355,9 +355,9 @@ class EventBasedPolicy(LuthienPolicy):
         context: PolicyContext,
         keepalive: Callable[[], None] | None = None,
     ) -> None:
-        """Process streaming response using StreamProcessor and hooks.
+        """Process streaming response using StreamingChunkAssembler and hooks.
 
-        Creates StreamProcessor with callback that dispatches to hooks.
+        Creates StreamingChunkAssembler with callback that dispatches to hooks.
         Manages StreamingContext and lifecycle.
 
         This is called by StreamingOrchestrator via SynchronousControlPlane.
@@ -379,7 +379,7 @@ class EventBasedPolicy(LuthienPolicy):
                 state: StreamState,
                 ctx: Any,  # This is streaming_ctx passed to processor.process()
             ) -> None:
-                """Dispatcher from StreamProcessor to policy hooks."""
+                """Dispatcher from StreamingChunkAssembler to policy hooks."""
                 # Content delta?
                 if state.current_block and isinstance(state.current_block, ContentStreamBlock):
                     delta = self._extract_content_delta(chunk)
@@ -403,7 +403,7 @@ class EventBasedPolicy(LuthienPolicy):
                     await self.on_finish_reason(state.finish_reason, context, streaming_ctx)
 
             # Create processor and run
-            processor = StreamProcessor(on_chunk_callback=on_chunk_callback)
+            processor = StreamingChunkAssembler(on_chunk_callback=on_chunk_callback)
 
             # Convert queue to async iterator
             async def queue_to_iter() -> AsyncIterator[ModelResponse]:

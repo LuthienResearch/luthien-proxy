@@ -1,6 +1,6 @@
-"""ABOUTME: StreamProcessor for managing streaming response aggregation.
+"""ABOUTME: StreamingChunkAssembler for assembling streaming chunks into blocks.
 
-ABOUTME: Processes chunks, detects block transitions, and calls policy callbacks.
+ABOUTME: Parses chunks, detects block transitions, and calls policy callbacks.
 """
 
 from __future__ import annotations
@@ -17,19 +17,19 @@ from luthien_proxy.v2.streaming.stream_blocks import (
 from luthien_proxy.v2.streaming.stream_state import StreamState
 
 
-class StreamProcessor:
-    """Processes streaming chunks and manages block-level aggregation.
+class StreamingChunkAssembler:
+    """Assembles streaming chunks into blocks with state tracking.
 
     Responsibilities:
-    - Detect block boundaries (content → tool calls, tool_call_0 → tool_call_1)
-    - Aggregate data within each block
-    - Track completion state
+    - Parse streaming chunks and detect block boundaries
+    - Aggregate deltas within each block (content → tool calls)
+    - Track completion state in StreamState
     - Call policy callback with updated state on each chunk
     - Strip Anthropic's empty content fields during tool call phase
 
     Usage:
-        processor = StreamProcessor(on_chunk_callback=policy_handler)
-        await processor.process(incoming_chunks, streaming_context)
+        assembler = StreamingChunkAssembler(on_chunk_callback=policy_handler)
+        await assembler.process(incoming_chunks, streaming_context)
     """
 
     def __init__(
@@ -250,4 +250,4 @@ class StreamProcessor:
         return chunk
 
 
-__all__ = ["StreamProcessor"]
+__all__ = ["StreamingChunkAssembler"]
