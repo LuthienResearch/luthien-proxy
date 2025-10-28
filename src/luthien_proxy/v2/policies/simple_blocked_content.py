@@ -121,7 +121,7 @@ class SimpleBlockedContentPolicy(SimpleEventBasedPolicy):
                 return True, pattern
         return False, None
 
-    async def on_response_content(
+    async def on_content_simple(
         self,
         content: str,
         context: PolicyContext,
@@ -171,7 +171,7 @@ class SimpleBlockedContentPolicy(SimpleEventBasedPolicy):
 
         return content
 
-    async def on_response_tool_call(
+    async def on_tool_call_simple(
         self,
         tool_call: ToolCallStreamBlock,
         context: PolicyContext,

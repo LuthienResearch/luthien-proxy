@@ -99,21 +99,21 @@ async def run_policy_on_stream(
 class UppercaseContentPolicy(SimpleEventBasedPolicy):
     """Test policy that uppercases content."""
 
-    async def on_response_content(self, content, context, streaming_ctx):
+    async def on_content_simple(self, content, context, streaming_ctx):
         return content.upper()
 
 
 class BlockToolCallsPolicy(SimpleEventBasedPolicy):
     """Test policy that blocks all tool calls."""
 
-    async def on_response_tool_call(self, tool_call, context, streaming_ctx):
+    async def on_tool_call_simple(self, tool_call, context, streaming_ctx):
         return None  # Block all tool calls
 
 
 class RenameToolPolicy(SimpleEventBasedPolicy):
     """Test policy that renames tool calls."""
 
-    async def on_response_tool_call(self, tool_call, context, streaming_ctx):
+    async def on_tool_call_simple(self, tool_call, context, streaming_ctx):
         # Rename get_weather to check_weather
         if tool_call.name == "get_weather":
             tool_call.name = "check_weather"
@@ -127,11 +127,11 @@ class RecordingPolicy(SimpleEventBasedPolicy):
         super().__init__()
         self.calls = []
 
-    async def on_response_content(self, content, context, streaming_ctx):
+    async def on_content_simple(self, content, context, streaming_ctx):
         self.calls.append(("content", content))
         return content
 
-    async def on_response_tool_call(self, tool_call, context, streaming_ctx):
+    async def on_tool_call_simple(self, tool_call, context, streaming_ctx):
         self.calls.append(("tool_call", tool_call.name, tool_call.arguments))
         return tool_call
 
@@ -306,7 +306,7 @@ async def test_empty_content_not_sent():
     """Test that empty content is not sent to client."""
 
     class EmptyContentPolicy(SimpleEventBasedPolicy):
-        async def on_response_content(self, content, context, streaming_ctx):
+        async def on_content_simple(self, content, context, streaming_ctx):
             return ""  # Return empty content
 
     chunks = load_chunks("no_tools_used_chunks.json")
@@ -327,7 +327,7 @@ async def test_tool_call_block_has_complete_data():
             super().__init__()
             self.inspected_blocks = []
 
-        async def on_response_tool_call(self, tool_call, context, streaming_ctx):
+        async def on_tool_call_simple(self, tool_call, context, streaming_ctx):
             # Verify block has complete data
             assert tool_call.name != ""
             assert tool_call.arguments != ""
@@ -355,7 +355,7 @@ async def test_tool_call_replaced_with_content():
     """Test that tool calls can be replaced with text content."""
 
     class ReplaceToolWithTextPolicy(SimpleEventBasedPolicy):
-        async def on_response_tool_call(self, tool_call, context, streaming_ctx):
+        async def on_tool_call_simple(self, tool_call, context, streaming_ctx):
             # Replace get_weather tool calls with explanatory text
             if tool_call.name == "get_weather":
                 return "I cannot check the weather right now. Please try again later."
@@ -389,7 +389,7 @@ async def test_all_tool_calls_replaced_with_content():
     """Test that all tool calls can be replaced with content."""
 
     class ReplaceAllToolsPolicy(SimpleEventBasedPolicy):
-        async def on_response_tool_call(self, tool_call, context, streaming_ctx):
+        async def on_tool_call_simple(self, tool_call, context, streaming_ctx):
             # Replace all tool calls with text
             return f"Tool '{tool_call.name}' is not available."
 
@@ -447,7 +447,7 @@ async def test_tool_call_string_replacement_non_streaming():
 
     # Create policy that replaces tool call with content
     class ReplaceToolPolicy(SimpleEventBasedPolicy):
-        async def on_response_tool_call(self, tool_call, context, streaming_ctx):
+        async def on_tool_call_simple(self, tool_call, context, streaming_ctx):
             return "Weather tool is unavailable."
 
     policy = ReplaceToolPolicy()

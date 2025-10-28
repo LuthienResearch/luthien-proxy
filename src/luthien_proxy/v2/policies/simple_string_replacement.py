@@ -83,7 +83,7 @@ class SimpleStringReplacementPolicy(SimpleEventBasedPolicy):
                 f"(apply_to_tool_calls={apply_to_tool_calls}): {list(self.replacements.keys())}"
             )
 
-    async def on_response_content(
+    async def on_content_simple(
         self,
         content: str,
         context: PolicyContext,
@@ -146,7 +146,7 @@ class SimpleStringReplacementPolicy(SimpleEventBasedPolicy):
 
         return modified
 
-    async def on_response_tool_call(
+    async def on_tool_call_simple(
         self,
         tool_call: ToolCallStreamBlock,
         context: PolicyContext,

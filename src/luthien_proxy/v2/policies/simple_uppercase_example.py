@@ -31,14 +31,14 @@ class SimpleUppercasePolicy(SimpleEventBasedPolicy):
     """Example policy that uppercases all response content.
 
     This demonstrates the simplest possible SimpleEventBasedPolicy implementation:
-    - Override one hook (on_response_content)
+    - Override one hook (on_content_simple)
     - Transform the complete content text
     - Tool calls pass through unchanged (default behavior)
 
     Perfect for learning the SimpleEventBasedPolicy interface.
     """
 
-    async def on_response_content(
+    async def on_content_simple(
         self,
         content: str,
         context: PolicyContext,
@@ -59,7 +59,7 @@ class SimpleUppercasePolicy(SimpleEventBasedPolicy):
 
     # No need to override:
     # - on_request: passes through unchanged (default)
-    # - on_response_tool_call: passes through unchanged (default)
+    # - on_tool_call_simple: passes through unchanged (default)
 
 
 __all__ = ["SimpleUppercasePolicy"]

@@ -61,7 +61,7 @@ class SimpleToolFilterPolicy(SimpleEventBasedPolicy):
         self.blocked_tools = set(blocked_tools or ["execute_code"])
         logger.info(f"Initialized SimpleToolFilterPolicy with blocked tools: {self.blocked_tools}")
 
-    async def on_response_tool_call(
+    async def on_tool_call_simple(
         self,
         tool_call: ToolCallStreamBlock,
         context: PolicyContext,
