@@ -107,11 +107,29 @@
 - Phase 6: E2E tests with real LiteLLM calls
 - Phase 7: Integration tests with existing gateway
 
+### Phase 6: E2E Tests ✅
+- [x] Streaming OpenAI test (with uppercase + passthrough)
+- [x] Streaming Anthropic test (with uppercase + passthrough)
+- [x] Non-streaming OpenAI test (with uppercase + passthrough)
+- [x] Non-streaming Anthropic test (with uppercase + passthrough)
+- [x] Tool calls OpenAI test (streaming + non-streaming)
+- [x] Tool calls Anthropic test (streaming + non-streaming)
+- [x] Verified one streaming test passes with real LiteLLM
+
+**Files Created:**
+- `tests/e2e_tests/v2/__init__.py`
+- `tests/e2e_tests/v2/test_streaming_openai.py` (2 tests)
+- `tests/e2e_tests/v2/test_streaming_anthropic.py` (2 tests)
+- `tests/e2e_tests/v2/test_non_streaming_openai.py` (2 tests)
+- `tests/e2e_tests/v2/test_non_streaming_anthropic.py` (2 tests)
+- `tests/e2e_tests/v2/test_tool_calls_openai.py` (2 tests)
+- `tests/e2e_tests/v2/test_tool_calls_anthropic.py` (2 tests)
+- `src/luthien_proxy/v2/llm/litellm_client.py` (was missing from Phase 5)
+
 ### Next Steps
-1. Create E2E tests for each model provider (Phase 6)
-2. Update `gateway_routes.py` to use PolicyOrchestrator (Phase 7)
-3. Run full integration test suite
-4. Update existing policies to use new SimplePolicy base class (optional, future work)
+1. Update `gateway_routes.py` to use PolicyOrchestrator (Phase 7)
+2. Run full integration test suite
+3. Update existing policies to use new SimplePolicy base class (optional, future work)
 
 ## Deviations from Plan
 - None - implementation matches spec exactly
