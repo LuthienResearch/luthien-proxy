@@ -226,6 +226,10 @@
             border-left-color: #f59e0b;
         }
 
+        .event[class*="transaction"] {
+            border-left-color: #a78bfa;
+        }
+
         .event.error {
             border-left-color: #ef4444;
         }
@@ -491,6 +495,24 @@
                             <div class="multiselect-item">
                                 <input type="checkbox" id="policy_event" value="policy_event" checked>
                                 <label for="policy_event">Policy Events</label>
+                            </div>
+                        </div>
+                        <div class="multiselect-category">
+                            <div class="category-header" data-category="transaction">
+                                <span>Transaction (V4)</span>
+                                <span class="category-toggle">All/None</span>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="transaction.request_recorded" value="transaction.request_recorded" checked>
+                                <label for="transaction.request_recorded">Request Recorded</label>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="transaction.streaming_response_recorded" value="transaction.streaming_response_recorded" checked>
+                                <label for="transaction.streaming_response_recorded">Streaming Response</label>
+                            </div>
+                            <div class="multiselect-item">
+                                <input type="checkbox" id="transaction.non_streaming_response_recorded" value="transaction.non_streaming_response_recorded" checked>
+                                <label for="transaction.non_streaming_response_recorded">Non-Streaming Response</label>
                             </div>
                         </div>
                     </div>

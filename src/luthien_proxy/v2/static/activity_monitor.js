@@ -27,6 +27,9 @@ let selectedEventTypes = new Set([
     'streaming.original_complete',
     'streaming.transformed_complete',
     'policy_event',
+    'transaction.request_recorded',
+    'transaction.streaming_response_recorded',
+    'transaction.non_streaming_response_recorded',
 ]);
 
 function updateStatus(connected) {
