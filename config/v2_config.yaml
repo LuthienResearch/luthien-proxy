@@ -4,70 +4,28 @@
 # Set the V2_POLICY_CONFIG environment variable to point to this file.
 
 
-# Default Noop Policy
+# Default Simple Policy (pass-through)
+# policy:
+#   class: "luthien_proxy.v2.policies.simple_policy:SimplePolicy"
+#   config: {}
+
+# All Caps Policy - converts all response content to uppercase
+# policy:
+#   class: "luthien_proxy.v2.policies.all_caps_policy:AllCapsPolicy"
+#   config: {}
+
+# Tool Call Judge Policy - evaluates tool calls with a judge LLM
 policy:
-  class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
-  config: {}
-
-# Simple string replacement policy example
-# policy:
-#   class: "luthien_proxy.v2.policies.simple_string_replacement:SimpleStringReplacementPolicy"
-#   config:
-#     replacements:
-#       "foo": "bar"
-#       "hello": "hi"
-#     apply_to_tool_calls: true
-
-# Simple blocked content policy using regex patterns
-# policy:
-#   class: "luthien_proxy.v2.policies.simple_blocked_content:SimpleBlockedContentPolicy"
-#   config:
-#     blocked_patterns:
-#       - "\\b\\d{3}-\\d{2}-\\d{4}\\b"  # SSN pattern
-#       - "\\b\\d{16}\\b"  # Credit card pattern
-#       - "password"
-#       - "execute_code"
-#     replacement_message: "[BLOCKED: Sensitive content detected]"
-#     block_tool_calls: true
-
-
-
-# Other policy examples:
-
-# Tool call judge policy using LLM
-# policy:
-#   class: "luthien_proxy.v2.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
-#   config:
-#     model: "ollama/gemma2:2b"
-#     api_base: "http://local-llm:11434"
-#     api_key: "ollama"
-#     probability_threshold: 0.6
-#     temperature: 0.0
-#     max_tokens: 256
+  class: "luthien_proxy.v2.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  config:
+    model: "openai/gpt-4o-mini"  # Use gpt-4o-mini for JSON mode support (gpt-4 base doesn't support it)
+    api_base: null  # Uses default OpenAI API
+    api_key: null  # Falls back to OPENAI_API_KEY env var
+    probability_threshold: 0.01
+    temperature: 0.0
+    max_tokens: 256
+    blocked_message_template: "⛔ Tool '{tool_name}' with args {tool_arguments} blocked: {explanation}"
 #     # Optional: Customize judge system prompt
 #     # judge_instructions: "You are a security analyst. Evaluate tool calls for risk..."
 #     # Optional: Customize blocked message template
 #     # Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}
-#     # blocked_message_template: "⛔ Tool '{tool_name}' with args {tool_arguments} blocked: {explanation}"
-
-# Uppercase every Nth word
-# policy:
-#   class: "luthien_proxy.v2.policies.uppercase_nth_word:UppercaseNthWordPolicy"
-#   config:
-#     n: 3
-
-# No-op policy (pass everything through)
-# policy:
-#   class: "luthien_proxy.v2.policies.noop:NoOpPolicy"
-#   config: {}
-
-# Event-driven no-op (demonstrates DSL)
-# policy:
-#   class: "luthien_proxy.v2.policies.event_driven_noop:EventDrivenNoOpPolicy"
-#   config: {}
-
-# Event-driven uppercase (demonstrates DSL with buffering)
-# policy:
-#   class: "luthien_proxy.v2.policies.event_driven_uppercase_nth_word:EventDrivenUppercaseNthWordPolicy"
-#   config:
-#     n: 3

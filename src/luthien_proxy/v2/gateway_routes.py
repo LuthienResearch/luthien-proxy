@@ -178,9 +178,7 @@ async def chat_completions(
     # Get dependencies from app state
     db_pool: db.DatabasePool | None = getattr(request.app.state, "db_pool", None)
     event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
-
-    # Use passthrough policy for now (TODO: load from config)
-    policy = SimplePolicy()
+    policy = getattr(request.app.state, "policy", SimplePolicy())
 
     # Create LLM client and orchestrator
     llm_client = LiteLLMClient()
@@ -242,13 +240,11 @@ async def anthropic_messages(
     # Get dependencies from app state
     db_pool: db.DatabasePool | None = getattr(request.app.state, "db_pool", None)
     event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
+    policy = getattr(request.app.state, "policy", SimplePolicy())
 
     # Convert Anthropic request to OpenAI format
     logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
     openai_body = anthropic_to_openai_request(anthropic_body)
-
-    # Use passthrough policy for now (TODO: load from config)
-    policy = SimplePolicy()
 
     # Create LLM client and orchestrator
     llm_client = LiteLLMClient()

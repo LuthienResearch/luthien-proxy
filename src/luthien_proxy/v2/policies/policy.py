@@ -13,22 +13,51 @@ if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
     from luthien_proxy.v2.messages import Request
+    from luthien_proxy.v2.observability.context import ObservabilityContext
     from luthien_proxy.v2.streaming.streaming_response_context import (
         StreamingResponseContext,
     )
 
 
 class PolicyContext:
-    """Context for non-streaming policy operations."""
+    """Context for non-streaming policy operations.
 
-    def __init__(self, call_id: str, span: Span, request: Request):  # noqa: D107
+    Provides access to:
+    - call_id: Unique identifier for this request/response
+    - span: OpenTelemetry span for tracing
+    - request: The request being processed
+    - observability: For emitting events that show up in activity monitor and traces
+    """
+
+    def __init__(self, call_id: str, span: Span, request: Request, observability: ObservabilityContext | None = None):  # noqa: D107
         self.call_id = call_id
         self.span = span
         self.request = request
+        self.observability = observability
 
 
 class Policy(ABC):
-    """Base policy class with full streaming control."""
+    """Base policy class with full streaming control.
+
+    Subclasses can override __init__ to accept configuration parameters,
+    which will be passed from the YAML config file. For example:
+
+    ```python
+    class MyPolicy(Policy):
+        def __init__(self, threshold: float = 0.5, enabled: bool = True):
+            self.threshold = threshold
+            self.enabled = enabled
+    ```
+
+    The corresponding YAML config would be:
+    ```yaml
+    policy:
+      class: "module.path:MyPolicy"
+      config:
+        threshold: 0.7
+        enabled: true
+    ```
+    """
 
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
         """Process request before sending to LLM."""

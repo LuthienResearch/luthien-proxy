@@ -1,5 +1,5 @@
 # ABOUTME: Tests for V2 policy configuration loading from YAML
-# ABOUTME: Covers successful loading, error handling, and fallback to NoOpPolicy
+# ABOUTME: Covers successful loading, error handling, and fallback to SimplePolicy
 
 """Tests for v2.config module - policy loading from YAML."""
 
@@ -8,46 +8,62 @@ from __future__ import annotations
 from pathlib import Path
 
 from luthien_proxy.v2.config import load_policy_from_yaml
-from luthien_proxy.v2.policies.noop import NoOpPolicy
+from luthien_proxy.v2.policies.all_caps_policy import AllCapsPolicy
+from luthien_proxy.v2.policies.simple_policy import SimplePolicy
 
 
 class TestLoadPolicyFromYaml:
     """Test suite for load_policy_from_yaml function."""
 
-    def test_load_noop_policy(self, tmp_path: Path):
-        """Test loading NoOpPolicy from YAML config."""
+    def test_load_simple_policy(self, tmp_path: Path):
+        """Test loading SimplePolicy from YAML config."""
         config_path = tmp_path / "test_config.yaml"
         config_path.write_text(
             """
 policy:
-  class: "luthien_proxy.v2.policies.noop:NoOpPolicy"
+  class: "luthien_proxy.v2.policies.simple_policy:SimplePolicy"
   config: {}
 """
         )
 
         policy = load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, NoOpPolicy)
+        assert isinstance(policy, SimplePolicy)
 
-    def test_missing_config_file_returns_noop(self, tmp_path: Path):
-        """Test that missing config file returns NoOpPolicy with warning."""
+    def test_load_all_caps_policy(self, tmp_path: Path):
+        """Test loading AllCapsPolicy."""
+        config_path = tmp_path / "test_config.yaml"
+        config_path.write_text(
+            """
+policy:
+  class: "luthien_proxy.v2.policies.all_caps_policy:AllCapsPolicy"
+  config: {}
+"""
+        )
+
+        policy = load_policy_from_yaml(str(config_path))
+
+        assert isinstance(policy, AllCapsPolicy)
+
+    def test_missing_config_file_returns_simple_policy(self, tmp_path: Path):
+        """Test that missing config file returns SimplePolicy with warning."""
         nonexistent_path = tmp_path / "nonexistent.yaml"
 
         policy = load_policy_from_yaml(str(nonexistent_path))
 
-        assert isinstance(policy, NoOpPolicy)
+        assert isinstance(policy, SimplePolicy)
 
-    def test_invalid_yaml_returns_noop(self, tmp_path: Path):
-        """Test that invalid YAML returns NoOpPolicy."""
+    def test_invalid_yaml_returns_simple_policy(self, tmp_path: Path):
+        """Test that invalid YAML returns SimplePolicy."""
         config_path = tmp_path / "invalid.yaml"
         config_path.write_text("this is not: valid: yaml: content")
 
         policy = load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, NoOpPolicy)
+        assert isinstance(policy, SimplePolicy)
 
-    def test_missing_policy_section_returns_noop(self, tmp_path: Path):
-        """Test that YAML without 'policy' section returns NoOpPolicy."""
+    def test_missing_policy_section_returns_simple_policy(self, tmp_path: Path):
+        """Test that YAML without 'policy' section returns SimplePolicy."""
         config_path = tmp_path / "no_policy.yaml"
         config_path.write_text(
             """
@@ -58,10 +74,10 @@ other_config:
 
         policy = load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, NoOpPolicy)
+        assert isinstance(policy, SimplePolicy)
 
-    def test_missing_class_returns_noop(self, tmp_path: Path):
-        """Test that policy section without 'class' returns NoOpPolicy."""
+    def test_missing_class_returns_simple_policy(self, tmp_path: Path):
+        """Test that policy section without 'class' returns SimplePolicy."""
         config_path = tmp_path / "no_class.yaml"
         config_path.write_text(
             """
@@ -73,10 +89,10 @@ policy:
 
         policy = load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, NoOpPolicy)
+        assert isinstance(policy, SimplePolicy)
 
-    def test_invalid_class_reference_returns_noop(self, tmp_path: Path):
-        """Test that invalid class reference returns NoOpPolicy."""
+    def test_invalid_class_reference_returns_simple_policy(self, tmp_path: Path):
+        """Test that invalid class reference returns SimplePolicy."""
         config_path = tmp_path / "invalid_class.yaml"
         config_path.write_text(
             """
@@ -88,10 +104,10 @@ policy:
 
         policy = load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, NoOpPolicy)
+        assert isinstance(policy, SimplePolicy)
 
-    def test_malformed_class_reference_returns_noop(self, tmp_path: Path):
-        """Test that malformed class reference (no colon) returns NoOpPolicy."""
+    def test_malformed_class_reference_returns_simple_policy(self, tmp_path: Path):
+        """Test that malformed class reference (no colon) returns SimplePolicy."""
         config_path = tmp_path / "malformed.yaml"
         config_path.write_text(
             """
@@ -103,10 +119,10 @@ policy:
 
         policy = load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, NoOpPolicy)
+        assert isinstance(policy, SimplePolicy)
 
-    def test_non_policy_class_returns_noop(self, tmp_path: Path):
-        """Test that class not inheriting from LuthienPolicy returns NoOpPolicy."""
+    def test_non_policy_class_returns_simple_policy(self, tmp_path: Path):
+        """Test that class not inheriting from Policy returns SimplePolicy."""
         config_path = tmp_path / "non_policy.yaml"
         config_path.write_text(
             """
@@ -118,7 +134,7 @@ policy:
 
         policy = load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, NoOpPolicy)
+        assert isinstance(policy, SimplePolicy)
 
     def test_uses_v2_policy_config_env_var(self, tmp_path: Path, monkeypatch):
         """Test that function respects V2_POLICY_CONFIG environment variable."""
@@ -126,7 +142,7 @@ policy:
         config_path.write_text(
             """
 policy:
-  class: "luthien_proxy.v2.policies.noop:NoOpPolicy"
+  class: "luthien_proxy.v2.policies.simple_policy:SimplePolicy"
   config: {}
 """
         )
@@ -136,7 +152,7 @@ policy:
         # Call without explicit path - should use env var
         policy = load_policy_from_yaml()
 
-        assert isinstance(policy, NoOpPolicy)
+        assert isinstance(policy, SimplePolicy)
 
     def test_default_path_when_no_env_var(self, tmp_path: Path, monkeypatch):
         """Test that default path is used when no env var or explicit path."""
@@ -147,7 +163,7 @@ policy:
         monkeypatch.chdir(tmp_path)
 
         # Should try to load config/v2_config.yaml (which won't exist in test)
-        # and return NoOpPolicy
+        # and return SimplePolicy
         policy = load_policy_from_yaml()
 
-        assert isinstance(policy, NoOpPolicy)
+        assert isinstance(policy, SimplePolicy)

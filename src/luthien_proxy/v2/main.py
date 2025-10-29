@@ -21,6 +21,7 @@ from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.gateway_routes import router as gateway_router
 from luthien_proxy.v2.observability import RedisEventPublisher
 from luthien_proxy.v2.policies.base import LuthienPolicy
+from luthien_proxy.v2.policies.policy import Policy
 from luthien_proxy.v2.telemetry import setup_telemetry
 from luthien_proxy.v2.ui import router as ui_router
 
@@ -31,7 +32,7 @@ def create_app(
     api_key: str,
     database_url: str,
     redis_url: str,
-    policy: LuthienPolicy,
+    policy: Policy | LuthienPolicy,
 ) -> FastAPI:
     """Create V2 FastAPI application with dependency injection.
 
@@ -95,6 +96,7 @@ def create_app(
         app.state.redis_client = _redis_client
         app.state.event_publisher = _event_publisher
         app.state.control_plane = _control_plane
+        app.state.policy = policy
         app.state.api_key = api_key
         logger.info("App state initialized")
 
@@ -164,7 +166,7 @@ if __name__ == "__main__":
 
     # Load policy from YAML configuration
     # Set V2_POLICY_CONFIG env var to override default (config/v2_config.yaml)
-    policy_handler: LuthienPolicy = load_policy_from_yaml()
+    policy_handler = load_policy_from_yaml()
 
     # Create app with factory function
     app = create_app(

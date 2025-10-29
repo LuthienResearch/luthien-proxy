@@ -7,7 +7,7 @@ Loads policy configuration from YAML files with the format:
 
 ```yaml
 policy:
-  class: "luthien_proxy.v2.policies.noop:NoOpPolicy"
+  class: "luthien_proxy.v2.policies.simple_policy:SimplePolicy"
   config: {}
 ```
 
@@ -15,9 +15,9 @@ Or with config parameters:
 
 ```yaml
 policy:
-  class: "luthien_proxy.v2.policies.uppercase_nth_word:UppercaseNthWordPolicy"
+  class: "luthien_proxy.v2.policies.all_caps:AllCapsPolicy"
   config:
-    n: 3
+    enabled: true
 ```
 """
 
@@ -29,13 +29,13 @@ from typing import Any, cast
 
 import yaml
 
-from luthien_proxy.v2.policies.base import LuthienPolicy
-from luthien_proxy.v2.policies.noop import NoOpPolicy
+from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.simple_policy import SimplePolicy
 
 logger = logging.getLogger(__name__)
 
 
-def load_policy_from_yaml(config_path: str | None = None) -> LuthienPolicy:
+def load_policy_from_yaml(config_path: str | None = None) -> Policy:
     """Load a policy from YAML configuration file.
 
     Args:
@@ -43,10 +43,7 @@ def load_policy_from_yaml(config_path: str | None = None) -> LuthienPolicy:
                     Defaults to config/v2_config.yaml if env var not set.
 
     Returns:
-        Instantiated policy object
-
-    Raises:
-        RuntimeError: If config file cannot be read or policy cannot be loaded
+        Instantiated policy object (defaults to SimplePolicy if config missing or invalid)
     """
     # Determine config path
     if config_path is None:
@@ -54,40 +51,40 @@ def load_policy_from_yaml(config_path: str | None = None) -> LuthienPolicy:
 
     # Read YAML file
     if not os.path.exists(config_path):
-        logger.warning(f"Policy config not found at {config_path}; using NoOpPolicy")
-        return NoOpPolicy()
+        logger.warning(f"Policy config not found at {config_path}; using SimplePolicy")
+        return SimplePolicy()
 
     try:
         with open(config_path, "r", encoding="utf-8") as file:
             cfg = yaml.safe_load(file) or {}
     except Exception as exc:
         logger.error(f"Failed to read policy config {config_path}: {exc}")
-        return NoOpPolicy()
+        return SimplePolicy()
 
     # Extract policy section
     policy_section = cfg.get("policy")
     if not isinstance(policy_section, dict):
-        logger.warning(f"No valid 'policy' section in {config_path}; using NoOpPolicy")
-        return NoOpPolicy()
+        logger.warning(f"No valid 'policy' section in {config_path}; using SimplePolicy")
+        return SimplePolicy()
 
     policy_class_ref = policy_section.get("class")
     policy_config = policy_section.get("config", {})
 
     if not policy_class_ref:
-        logger.warning(f"No 'class' specified in policy section of {config_path}; using NoOpPolicy")
-        return NoOpPolicy()
+        logger.warning(f"No 'class' specified in policy section of {config_path}; using SimplePolicy")
+        return SimplePolicy()
 
     # Import policy class
     try:
         policy_class = _import_policy_class(policy_class_ref)
     except Exception as exc:
         logger.error(f"Failed to import policy '{policy_class_ref}': {exc}")
-        return NoOpPolicy()
+        return SimplePolicy()
 
-    # Validate it's a LuthienPolicy subclass
-    if not issubclass(policy_class, LuthienPolicy):
-        logger.warning(f"Policy class {policy_class_ref} does not subclass LuthienPolicy; using NoOpPolicy")
-        return NoOpPolicy()
+    # Validate it's a Policy subclass
+    if not issubclass(policy_class, Policy):
+        logger.warning(f"Policy class {policy_class_ref} does not subclass Policy; using SimplePolicy")
+        return SimplePolicy()
 
     # Instantiate policy
     try:
@@ -96,10 +93,10 @@ def load_policy_from_yaml(config_path: str | None = None) -> LuthienPolicy:
         return policy
     except Exception as exc:
         logger.error(f"Failed to instantiate policy {policy_class_ref} with config {policy_config}: {exc}")
-        return NoOpPolicy()
+        return SimplePolicy()
 
 
-def _import_policy_class(class_ref: str) -> type[LuthienPolicy]:
+def _import_policy_class(class_ref: str) -> type[Policy]:
     """Import a policy class from a module:class reference.
 
     Args:
@@ -129,10 +126,10 @@ def _import_policy_class(class_ref: str) -> type[LuthienPolicy]:
     if not isinstance(cls, type):
         raise TypeError(f"{class_name} is not a class")
 
-    return cast(type[LuthienPolicy], cls)
+    return cast(type[Policy], cls)
 
 
-def _instantiate_policy(policy_class: type[LuthienPolicy], config: dict[str, Any]) -> LuthienPolicy:
+def _instantiate_policy(policy_class: type[Policy], config: dict[str, Any]) -> Policy:
     """Instantiate a policy with the given config.
 
     Args:

@@ -55,7 +55,7 @@ class PolicyOrchestrator:
         observability = self.observability_factory(transaction_id, span)
         recorder = self.recorder_factory(observability)
 
-        context = PolicyContext(call_id=transaction_id, span=span, request=request)
+        context = PolicyContext(call_id=transaction_id, span=span, request=request, observability=observability)
         final_request = await self.policy.on_request(request, context)
         await recorder.record_request(request, final_request)
 
@@ -178,7 +178,7 @@ class PolicyOrchestrator:
 
         original_response = await self.llm_client.complete(request)
 
-        context = PolicyContext(call_id=transaction_id, span=span, request=request)
+        context = PolicyContext(call_id=transaction_id, span=span, request=request, observability=observability)
         final_response = await self.policy.process_full_response(original_response, context)
 
         await recorder.finalize_non_streaming(original_response, final_response)
