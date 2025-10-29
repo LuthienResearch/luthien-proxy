@@ -227,8 +227,52 @@ def reconstruct_full_response_from_chunks(chunks: list) -> dict:
     }
 
 
+async def emit_custom_event(
+    call_id: str,
+    event_type: str,
+    data: dict,
+    db_pool: db.DatabasePool | None,
+) -> None:
+    """Emit custom event for observability.
+
+    Args:
+        call_id: Unique identifier for the transaction
+        event_type: Type of event being emitted
+        data: Event data (already enriched with call_id, trace_id, etc.)
+        db_pool: Database connection pool for persistence
+    """
+    if not call_id:
+        logger.error("emit_custom_event called with empty call_id, skipping")
+        return
+
+    if db_pool is None:
+        logger.debug(f"No db_pool provided for call {call_id}, skipping persistence")
+        return
+
+    # Build conversation events using existing logic
+    events = build_conversation_events(
+        hook=event_type,
+        call_id=call_id,
+        trace_id=data.get("trace_id"),
+        original={"data": data},
+        result={"data": data},
+        timestamp_ns_fallback=time.time_ns(),
+        timestamp=datetime.now(UTC),
+    )
+
+    if not events:
+        logger.debug(f"No events generated for call {call_id} custom event {event_type}")
+        return
+
+    # Submit to background queue (non-blocking)
+    CONVERSATION_EVENT_QUEUE.submit(record_conversation_events(db_pool, events))
+
+    logger.debug(f"Emitted custom event {event_type} for call {call_id}")
+
+
 __all__ = [
     "emit_request_event",
     "emit_response_event",
+    "emit_custom_event",
     "reconstruct_full_response_from_chunks",
 ]

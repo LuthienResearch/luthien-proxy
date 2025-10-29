@@ -59,6 +59,9 @@ class StreamingChunkAssembler:
             context: Streaming context passed to policy callback
         """
         async for chunk in incoming:
+            # Store raw chunk for recording
+            self.state.raw_chunks.append(chunk)
+
             # Update aggregation state and detect transitions
             self._update_state(chunk)
 

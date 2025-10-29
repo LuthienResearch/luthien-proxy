@@ -44,5 +44,11 @@ class StreamState:
     None while streaming is in progress.
     """
 
+    raw_chunks: list = field(default_factory=list)
+    """All raw chunks received from LLM (for recording/replay)."""
+
+    last_emission_index: int = 0
+    """Index of last chunk emitted to client (for passthrough optimization)."""
+
 
 __all__ = ["StreamState"]
