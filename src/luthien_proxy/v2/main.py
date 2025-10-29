@@ -19,7 +19,6 @@ from luthien_proxy.v2.config import load_policy_from_yaml
 from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
 from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.gateway_routes import router as gateway_router
-from luthien_proxy.v2.gateway_routes_v4 import router as gateway_router_v4
 from luthien_proxy.v2.observability import RedisEventPublisher
 from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.telemetry import setup_telemetry
@@ -122,8 +121,7 @@ def create_app(
     app.mount("/v2/static", StaticFiles(directory=static_dir), name="static")
 
     # Include routers
-    app.include_router(gateway_router)  # /v1/chat/completions, /v1/messages
-    app.include_router(gateway_router_v4)  # /v4/chat/completions (new pipeline)
+    app.include_router(gateway_router)  # /v1/chat/completions, /v1/messages (PolicyOrchestrator)
     app.include_router(debug_router)  # /v2/debug/*
     app.include_router(ui_router)  # /v2/activity/*, /v2/debug/diff
 
@@ -141,7 +139,6 @@ def create_app(
             "version": "2.0.0",
             "endpoints": {
                 "openai": "/v1/chat/completions",
-                "openai_v4": "/v4/chat/completions",
                 "anthropic": "/v1/messages",
                 "health": "/health",
                 "activity_stream": "/v2/activity/stream",
