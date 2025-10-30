@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
     from luthien_proxy.v2.messages import Request
-    from luthien_proxy.v2.observability.context import ObservabilityContext
+    from luthien_proxy.v2.observability.context import NoOpObservabilityContext, ObservabilityContext
     from luthien_proxy.v2.streaming.streaming_response_context import (
         StreamingResponseContext,
     )
@@ -29,11 +29,13 @@ class PolicyContext:
     - observability: For emitting events that show up in activity monitor and traces
     """
 
-    def __init__(self, call_id: str, span: Span, request: Request, observability: ObservabilityContext | None = None):  # noqa: D107
+    def __init__(self, call_id: str, span: Span, request: Request, observability: ObservabilityContext | None = None):
+        """Initialize PolicyContext."""
+        # TODO: call_id -> transaction_id
         self.call_id = call_id
         self.span = span
         self.request = request
-        self.observability = observability
+        self.observability: ObservabilityContext = observability or NoOpObservabilityContext(call_id)
 
 
 class Policy(ABC):

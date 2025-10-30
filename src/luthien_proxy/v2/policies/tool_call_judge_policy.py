@@ -298,25 +298,10 @@ class ToolCallJudgePolicy(Policy):
         logger.debug("All tool calls passed judge evaluation in non-streaming response")
         return response
 
-    # TODO: this should probably be in the base Policy class
-    @staticmethod
-    async def _emit_maybe(
-        observability_ctx: ObservabilityContext | None, event_name: str, data: dict[str, Any]
-    ) -> None:
-        """Helper to emit observability events if context is available.
-
-        Args:
-            observability_ctx: Observability context or None
-            event_name: Name of the event to emit
-            data: Event data dictionary
-        """
-        if observability_ctx:
-            await observability_ctx.emit_event(event_name, data)
-
     async def _evaluate_and_maybe_block(
         self,
         tool_call: dict[str, Any],
-        observability_ctx: ObservabilityContext | None,
+        observability_ctx: ObservabilityContext,
     ) -> ModelResponse | None:
         """Evaluate a tool call and return blocked response if harmful.
 
@@ -337,9 +322,7 @@ class ToolCallJudgePolicy(Policy):
 
         logger.debug(f"Evaluating tool call: {name}")
 
-        # Emit event: starting evaluation (shows in activity monitor)
-        await self._emit_maybe(
-            observability_ctx,
+        observability_ctx.emit_event_nonblocking(
             "policy.judge.evaluation_started",
             {
                 "summary": f"Evaluating tool call: {name}",
@@ -360,8 +343,7 @@ class ToolCallJudgePolicy(Policy):
             )
 
             # Emit event: evaluation failed (with warning severity)
-            await self._emit_maybe(
-                observability_ctx,
+            observability_ctx.emit_event_nonblocking(
                 "policy.judge.evaluation_failed",
                 {
                     "summary": f"⚠️ Judge evaluation failed for '{name}' - BLOCKED (fail-secure)",
@@ -387,8 +369,7 @@ class ToolCallJudgePolicy(Policy):
         )
 
         # Emit event: evaluation complete with result
-        await self._emit_maybe(
-            observability_ctx,
+        observability_ctx.emit_event_nonblocking(
             "policy.judge.evaluation_complete",
             {
                 "summary": f"Judge evaluated '{name}': probability={judge_result.probability:.2f}",
@@ -401,8 +382,7 @@ class ToolCallJudgePolicy(Policy):
 
         # Check threshold
         if judge_result.probability < self._config.probability_threshold:
-            await self._emit_maybe(
-                observability_ctx,
+            observability_ctx.emit_event_nonblocking(
                 "policy.judge.tool_call_allowed",
                 {
                     "summary": f"Tool call '{name}' allowed (probability {judge_result.probability:.2f} < {self._config.probability_threshold})",
@@ -418,8 +398,7 @@ class ToolCallJudgePolicy(Policy):
         )
 
         # Emit event: tool call blocked (shows in activity monitor with warning severity)
-        await self._emit_maybe(
-            observability_ctx,
+        observability_ctx.emit_event_nonblocking(
             "policy.judge.tool_call_blocked",
             {
                 "summary": f"BLOCKED: Tool call '{name}' rejected (probability {judge_result.probability:.2f} >= {self._config.probability_threshold})",

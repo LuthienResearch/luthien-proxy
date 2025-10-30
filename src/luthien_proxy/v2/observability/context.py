@@ -3,10 +3,14 @@
 
 """Observability context for unified event/metric/trace emission."""
 
+import asyncio
+import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry.trace import Span
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from luthien_proxy.utils.db import DatabasePool
@@ -24,6 +28,21 @@ class ObservabilityContext(ABC):
     @abstractmethod
     async def emit_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Emit event with automatic context enrichment."""
+
+    def emit_event_nonblocking(self, event_type: str, data: dict[str, Any]) -> None:  # noqa: ARG002
+        """Emit event without blocking (fire-and-forget).
+
+        This schedules the emit_event coroutine as a background task. Use this when
+        you don't want to block on event emission (e.g., in hot paths where observability
+        shouldn't impact performance).
+
+        Default implementation is a no-op. Override in subclasses that need actual emission.
+
+        Args:
+            event_type: Type of event to emit
+            data: Event data dictionary
+        """
+        pass
 
     @abstractmethod
     def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
@@ -106,6 +125,25 @@ class DefaultObservabilityContext(ObservabilityContext):
             await self.event_publisher.publish_event(call_id=self._transaction_id, event_type=event_type, data=data)
 
         self.add_span_event(event_type, data)
+
+    def emit_event_nonblocking(self, event_type: str, data: dict[str, Any]) -> None:
+        """Emit event without blocking (fire-and-forget).
+
+        This schedules the emit_event coroutine as a background task. Use this when
+        you don't want to block on event emission (e.g., in hot paths where observability
+        shouldn't impact performance).
+        """
+
+        async def _emit_with_error_handling() -> None:
+            try:
+                await self.emit_event(event_type, data)
+            except Exception as exc:
+                logger.warning(
+                    f"Nonblocking emit_event failed for event_type='{event_type}': {exc}",
+                    exc_info=True,
+                )
+
+        asyncio.create_task(_emit_with_error_handling())
 
     def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
         """Record metric with automatic labels."""
