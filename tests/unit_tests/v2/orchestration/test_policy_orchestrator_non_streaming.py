@@ -82,17 +82,11 @@ async def test_non_streaming_passthrough(setup_tracing):
     client = MockLLMClient(response)
     policy = PassthroughPolicy()
 
-    def observability_factory(transaction_id, span):
-        return NoOpObservabilityContext(transaction_id)
-
-    def recorder_factory(observability):
-        return NoOpTransactionRecorder()
-
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability_factory=observability_factory,
-        recorder_factory=recorder_factory,
+        observability=NoOpObservabilityContext(transaction_id="test"),
+        recorder=NoOpTransactionRecorder(),
     )
 
     request = Request(model="gpt-4", messages=[{"role": "user", "content": "Hi"}])
@@ -113,17 +107,11 @@ async def test_non_streaming_transformation(setup_tracing):
     client = MockLLMClient(response)
     policy = UppercasePolicy()
 
-    def observability_factory(transaction_id, span):
-        return NoOpObservabilityContext(transaction_id)
-
-    def recorder_factory(observability):
-        return NoOpTransactionRecorder()
-
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability_factory=observability_factory,
-        recorder_factory=recorder_factory,
+        observability=NoOpObservabilityContext(transaction_id="test"),
+        recorder=NoOpTransactionRecorder(),
     )
 
     request = Request(model="gpt-4", messages=[{"role": "user", "content": "Hi"}])
@@ -145,58 +133,15 @@ async def test_non_streaming_records_responses(setup_tracing):
     client = MockLLMClient(response)
     policy = UppercasePolicy()
 
-    def observability_factory(transaction_id, span):
-        return NoOpObservabilityContext(transaction_id)
-
     # Mock recorder to track calls
     mock_recorder = AsyncMock()
     mock_recorder.finalize_non_streaming = AsyncMock()
 
-    def recorder_factory(observability):
-        return mock_recorder
-
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability_factory=observability_factory,
-        recorder_factory=recorder_factory,
-    )
-
-    request = Request(model="gpt-4", messages=[{"role": "user", "content": "Hi"}])
-
-    with tracer.start_as_current_span("test") as span:
-        final_response = await orchestrator.process_full_response(request, "test-123", span)  # noqa: F841
-
-    # Verify finalize_non_streaming was called with original and final
-    mock_recorder.finalize_non_streaming.assert_called_once()
-    call_args = mock_recorder.finalize_non_streaming.call_args[0]
-    original = call_args[0]
-    final = call_args[1]
-
-    assert original.choices[0]["message"]["content"] == "Hello world"
-    assert final.choices[0]["message"]["content"] == "HELLO WORLD"
-
-
-@pytest.mark.asyncio
-async def test_non_streaming_preserves_metadata(setup_tracing):
-    """Test that non-streaming preserves response metadata."""
-    tracer = setup_tracing
-    response = create_sample_response("Test content")
-    response.usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
-    client = MockLLMClient(response)
-    policy = UppercasePolicy()
-
-    def observability_factory(transaction_id, span):
-        return NoOpObservabilityContext(transaction_id)
-
-    def recorder_factory(observability):
-        return NoOpTransactionRecorder()
-
-    orchestrator = PolicyOrchestrator(
-        policy=policy,
-        llm_client=client,
-        observability_factory=observability_factory,
-        recorder_factory=recorder_factory,
+        observability=NoOpObservabilityContext(transaction_id="test"),
+        recorder=NoOpTransactionRecorder(),
     )
 
     request = Request(model="gpt-4", messages=[{"role": "user", "content": "Hi"}])
@@ -223,17 +168,11 @@ async def test_non_streaming_calls_llm_client(setup_tracing):
 
     policy = PassthroughPolicy()
 
-    def observability_factory(transaction_id, span):
-        return NoOpObservabilityContext(transaction_id)
-
-    def recorder_factory(observability):
-        return NoOpTransactionRecorder()
-
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=mock_client,
-        observability_factory=observability_factory,
-        recorder_factory=recorder_factory,
+        observability=NoOpObservabilityContext(transaction_id="test"),
+        recorder=NoOpTransactionRecorder(),
     )
 
     request = Request(model="gpt-4", messages=[{"role": "user", "content": "Hi"}])

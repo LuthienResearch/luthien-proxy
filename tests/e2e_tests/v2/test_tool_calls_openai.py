@@ -8,7 +8,9 @@ from opentelemetry import trace
 
 from luthien_proxy.v2.llm.litellm_client import LiteLLMClient
 from luthien_proxy.v2.messages import Request
-from luthien_proxy.v2.orchestration.factory import create_default_orchestrator
+from luthien_proxy.v2.observability.context import NoOpObservabilityContext
+from luthien_proxy.v2.observability.transaction_recorder import NoOpTransactionRecorder
+from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.v2.policies.simple_policy import SimplePolicy
 
 tracer = trace.get_tracer(__name__)
@@ -27,11 +29,11 @@ async def test_tool_calls_openai_streaming():
     policy = PassthroughPolicy()
     llm_client = LiteLLMClient()
 
-    orchestrator = create_default_orchestrator(
+    orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=llm_client,
-        db_pool=None,
-        event_publisher=None,
+        observability=NoOpObservabilityContext(transaction_id="test-e2e"),
+        recorder=NoOpTransactionRecorder(),
     )
 
     # Define a simple tool
@@ -102,11 +104,11 @@ async def test_tool_calls_openai_non_streaming():
     policy = PassthroughPolicy()
     llm_client = LiteLLMClient()
 
-    orchestrator = create_default_orchestrator(
+    orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=llm_client,
-        db_pool=None,
-        event_publisher=None,
+        observability=NoOpObservabilityContext(transaction_id="test-e2e"),
+        recorder=NoOpTransactionRecorder(),
     )
 
     # Define a simple tool

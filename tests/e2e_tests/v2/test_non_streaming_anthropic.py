@@ -9,7 +9,9 @@ from opentelemetry import trace
 
 from luthien_proxy.v2.llm.litellm_client import LiteLLMClient
 from luthien_proxy.v2.messages import Request
-from luthien_proxy.v2.orchestration.factory import create_default_orchestrator
+from luthien_proxy.v2.observability.context import NoOpObservabilityContext
+from luthien_proxy.v2.observability.transaction_recorder import NoOpTransactionRecorder
+from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.v2.policies.policy import Policy, PolicyContext
 
 tracer = trace.get_tracer(__name__)
@@ -39,15 +41,15 @@ async def test_non_streaming_anthropic_with_uppercase_policy():
     policy = UppercaseNonStreamingPolicy()
     llm_client = LiteLLMClient()
 
-    orchestrator = create_default_orchestrator(
+    orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=llm_client,
-        db_pool=None,
-        event_publisher=None,
+        observability=NoOpObservabilityContext(transaction_id="test-e2e"),
+        recorder=NoOpTransactionRecorder(),
     )
 
     request = Request(
-        model="claude-3-5-sonnet-20241022",
+        model="claude-haiku-4-5",
         messages=[{"role": "user", "content": "Say hello in 3 words"}],
         max_tokens=20,
         stream=False,
@@ -58,7 +60,7 @@ async def test_non_streaming_anthropic_with_uppercase_policy():
         final_request = await orchestrator.process_request(request, "test-txn-non-streaming-anthropic", span)
 
         # Verify request passed through unchanged
-        assert final_request.model == "claude-3-5-sonnet-20241022"
+        assert final_request.model == "claude-haiku-4-5"
         assert final_request.stream is False
 
         # Process full response
@@ -87,15 +89,15 @@ async def test_non_streaming_anthropic_passthrough():
     policy = PassthroughPolicy()
     llm_client = LiteLLMClient()
 
-    orchestrator = create_default_orchestrator(
+    orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=llm_client,
-        db_pool=None,
-        event_publisher=None,
+        observability=NoOpObservabilityContext(transaction_id="test-e2e"),
+        recorder=NoOpTransactionRecorder(),
     )
 
     request = Request(
-        model="claude-3-5-sonnet-20241022",
+        model="claude-haiku-4-5",
         messages=[{"role": "user", "content": "Say hello"}],
         max_tokens=20,
         stream=False,

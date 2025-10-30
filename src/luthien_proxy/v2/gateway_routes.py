@@ -25,8 +25,12 @@ from luthien_proxy.v2.llm.format_converters import (
 )
 from luthien_proxy.v2.llm.litellm_client import LiteLLMClient
 from luthien_proxy.v2.messages import Request as RequestMessage
+from luthien_proxy.v2.observability.context import DefaultObservabilityContext
 from luthien_proxy.v2.observability.redis_event_publisher import RedisEventPublisher
-from luthien_proxy.v2.orchestration.factory import create_default_orchestrator
+from luthien_proxy.v2.observability.transaction_recorder import (
+    DefaultTransactionRecorder,
+)
+from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.v2.policies.simple_policy import SimplePolicy
 
 logger = logging.getLogger(__name__)
@@ -180,15 +184,6 @@ async def chat_completions(
     event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
     policy = getattr(request.app.state, "policy", SimplePolicy())
 
-    # Create LLM client and orchestrator
-    llm_client = LiteLLMClient()
-    orchestrator = create_default_orchestrator(
-        policy=policy,
-        llm_client=llm_client,
-        db_pool=db_pool,
-        event_publisher=event_publisher,
-    )
-
     # Create request message
     request_message = RequestMessage(**body)
     is_streaming = request_message.stream
@@ -205,6 +200,23 @@ async def chat_completions(
             "luthien.stream": is_streaming,
         },
     ) as span:
+        # Create observability and recorder once per request
+        observability = DefaultObservabilityContext(
+            transaction_id=call_id,
+            span=span,
+            db_pool=db_pool,
+            event_publisher=event_publisher,
+        )
+        recorder = DefaultTransactionRecorder(observability=observability)
+
+        # Create LLM client and orchestrator
+        llm_client = LiteLLMClient()
+        orchestrator = PolicyOrchestrator(
+            policy=policy,
+            llm_client=llm_client,
+            observability=observability,
+            recorder=recorder,
+        )
         # Process request through policy
         final_request = await orchestrator.process_request(request_message, call_id, span)
 
@@ -246,15 +258,6 @@ async def anthropic_messages(
     logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
     openai_body = anthropic_to_openai_request(anthropic_body)
 
-    # Create LLM client and orchestrator
-    llm_client = LiteLLMClient()
-    orchestrator = create_default_orchestrator(
-        policy=policy,
-        llm_client=llm_client,
-        db_pool=db_pool,
-        event_publisher=event_publisher,
-    )
-
     # Create request message
     request_message = RequestMessage(**openai_body)
     is_streaming = request_message.stream
@@ -274,6 +277,23 @@ async def anthropic_messages(
             "luthien.stream": is_streaming,
         },
     ) as span:
+        # Create observability and recorder once per request
+        observability = DefaultObservabilityContext(
+            transaction_id=call_id,
+            span=span,
+            db_pool=db_pool,
+            event_publisher=event_publisher,
+        )
+        recorder = DefaultTransactionRecorder(observability=observability)
+
+        # Create LLM client and orchestrator
+        llm_client = LiteLLMClient()
+        orchestrator = PolicyOrchestrator(
+            policy=policy,
+            llm_client=llm_client,
+            observability=observability,
+            recorder=recorder,
+        )
         # Process request through policy
         final_request = await orchestrator.process_request(request_message, call_id, span)
 

@@ -20,6 +20,20 @@ if TYPE_CHECKING:
 class ObservabilityContext(ABC):
     """Unified interface for observability operations."""
 
+    @abstractmethod
+    def __init__(
+        self,
+        transaction_id: str,
+        span: Span | None = None,
+        db_pool: "DatabasePool | None" = None,
+        event_publisher: "RedisEventPublisher | None" = None,
+    ):
+        """Initialize observability context.
+
+        All subclasses must accept these parameters to ensure compatibility
+        with PolicyOrchestrator's class-based instantiation.
+        """
+
     @property
     @abstractmethod
     def transaction_id(self) -> str:
@@ -60,8 +74,15 @@ class ObservabilityContext(ABC):
 class NoOpObservabilityContext(ObservabilityContext):
     """No-op implementation for testing."""
 
-    def __init__(self, transaction_id: str):  # noqa: D107
+    def __init__(  # noqa: D107
+        self,
+        transaction_id: str,
+        span: Span | None = None,  # noqa: ARG002
+        db_pool: "DatabasePool | None" = None,  # noqa: ARG002
+        event_publisher: "RedisEventPublisher | None" = None,  # noqa: ARG002
+    ):
         self._transaction_id = transaction_id
+        # Span, db_pool, and event_publisher are accepted for signature compatibility but unused
 
     @property
     def transaction_id(self) -> str:  # noqa: D102

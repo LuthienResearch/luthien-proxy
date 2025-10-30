@@ -15,6 +15,14 @@ class TransactionRecorder(ABC):
     """Abstract interface for recording transactions."""
 
     @abstractmethod
+    def __init__(self, observability: ObservabilityContext | None = None):
+        """Initialize transaction recorder.
+
+        All subclasses must accept this parameter to ensure compatibility
+        with PolicyOrchestrator's class-based instantiation.
+        """
+
+    @abstractmethod
     async def record_request(self, original: Request, final: Request) -> None:
         """Record original and final request."""
 
@@ -37,6 +45,10 @@ class TransactionRecorder(ABC):
 
 class NoOpTransactionRecorder(TransactionRecorder):
     """No-op recorder for testing."""
+
+    def __init__(self, observability: ObservabilityContext | None = None):  # noqa: D107, ARG002
+        # Observability is accepted for signature compatibility but unused
+        pass
 
     async def record_request(self, original: Request, final: Request) -> None:  # noqa: D102
         pass

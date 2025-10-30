@@ -40,24 +40,21 @@ class PolicyOrchestrator:
         self,
         policy: Policy,
         llm_client: LLMClient,
-        observability_factory: Callable[[str, Span], ObservabilityContext],
-        recorder_factory: Callable[[ObservabilityContext], TransactionRecorder],
+        observability: ObservabilityContext,
+        recorder: TransactionRecorder,
         streaming_orchestrator: StreamingOrchestrator | None = None,
     ):
         self.policy = policy
         self.llm_client = llm_client
-        self.observability_factory = observability_factory
-        self.recorder_factory = recorder_factory
+        self.observability = observability
+        self.recorder = recorder
         self.streaming_orchestrator = streaming_orchestrator or StreamingOrchestrator()
 
     async def process_request(self, request: Request, transaction_id: str, span: Span) -> Request:
         """Apply policy to request, record original + final."""
-        observability = self.observability_factory(transaction_id, span)
-        recorder = self.recorder_factory(observability)
-
-        context = PolicyContext(call_id=transaction_id, span=span, request=request, observability=observability)
+        context = PolicyContext(call_id=transaction_id, span=span, request=request, observability=self.observability)
         final_request = await self.policy.on_request(request, context)
-        await recorder.record_request(request, final_request)
+        await self.recorder.record_request(request, final_request)
 
         return final_request
 
@@ -65,9 +62,6 @@ class PolicyOrchestrator:
         self, request: Request, transaction_id: str, span: Span
     ) -> AsyncIterator[ModelResponse]:
         """Process streaming response through policy."""
-        observability = self.observability_factory(transaction_id, span)
-        recorder = self.recorder_factory(observability)
-
         llm_stream: AsyncIterator[ModelResponse] = await self.llm_client.stream(request)
         egress_queue: asyncio.Queue[ModelResponse] = asyncio.Queue()
 
@@ -77,7 +71,7 @@ class PolicyOrchestrator:
             ingress_assembler=None,
             egress_queue=egress_queue,
             scratchpad={},
-            observability=observability,
+            observability=self.observability,
         )
 
         feed_complete = asyncio.Event()
@@ -100,7 +94,7 @@ class PolicyOrchestrator:
             async def policy_callback(chunk: ModelResponse, state: StreamState, context):
                 """Called by assembler on each chunk."""
                 keepalive()
-                recorder.add_ingress_chunk(chunk)
+                self.recorder.add_ingress_chunk(chunk)
                 await self.policy.on_chunk_received(ctx)
 
                 if state.current_block:
@@ -126,8 +120,6 @@ class PolicyOrchestrator:
                     while True:
                         try:
                             chunk = await incoming_queue.get()
-                            if chunk is None:
-                                break
                             yield chunk
                         except asyncio.QueueShutDown:
                             break
@@ -143,7 +135,7 @@ class PolicyOrchestrator:
                 while True:
                     try:
                         chunk = await asyncio.wait_for(egress_queue.get(), timeout=0.1)
-                        recorder.add_egress_chunk(chunk)
+                        self.recorder.add_egress_chunk(chunk)
                         await outgoing_queue.put(chunk)
                         keepalive()
                     except asyncio.TimeoutError:
@@ -151,7 +143,7 @@ class PolicyOrchestrator:
                             while not egress_queue.empty():
                                 try:
                                     chunk = egress_queue.get_nowait()
-                                    recorder.add_egress_chunk(chunk)
+                                    self.recorder.add_egress_chunk(chunk)
                                     await outgoing_queue.put(chunk)
                                     keepalive()
                                 except asyncio.QueueEmpty:
@@ -169,19 +161,16 @@ class PolicyOrchestrator:
             ):
                 yield chunk
         finally:
-            await recorder.finalize_streaming()
+            await self.recorder.finalize_streaming()
 
     async def process_full_response(self, request: Request, transaction_id: str, span: Span) -> ModelResponse:
         """Process non-streaming response through policy."""
-        observability = self.observability_factory(transaction_id, span)
-        recorder = self.recorder_factory(observability)
-
         original_response = await self.llm_client.complete(request)
 
-        context = PolicyContext(call_id=transaction_id, span=span, request=request, observability=observability)
+        context = PolicyContext(call_id=transaction_id, span=span, request=request, observability=self.observability)
         final_response = await self.policy.process_full_response(original_response, context)
 
-        await recorder.finalize_non_streaming(original_response, final_response)
+        await self.recorder.finalize_non_streaming(original_response, final_response)
 
         return final_response
 
