@@ -10,6 +10,9 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 - [ ] Review and test graceful shutdown behavior (ensure event publisher tasks complete) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add input validation: max request size and message count limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Move "v2" code out of v2/
+- [ ] Add unit tests for all new pipeline code
+- [ ] Consolidate/organize utility/helper functions (see policies/utils.py)
+- [ ] move `litellm.drop_params = True` somewhere sensible
 
 ## Medium Priority
 

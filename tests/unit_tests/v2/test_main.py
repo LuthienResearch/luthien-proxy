@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from luthien_proxy.v2.main import create_app
-from luthien_proxy.v2.policies.noop import NoOpPolicy
+from luthien_proxy.v2.policies.noop_policy import NoOpPolicy
 
 
 class TestCreateApp:

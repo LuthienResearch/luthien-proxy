@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import litellm
 from litellm import acompletion
-from litellm.types.utils import Choices, ModelResponse
+from litellm.types.utils import Choices, ModelResponse, StreamingChoices
 
 if TYPE_CHECKING:
     from luthien_proxy.v2.observability.context import ObservabilityContext
@@ -52,6 +52,8 @@ from luthien_proxy.v2.policies.utils import (
 logger = logging.getLogger(__name__)
 
 # Enable dropping unsupported parameters to avoid errors with different models
+# TODO: MOVE THIS SOMEWHERE ELSE!
+# IT SHOULDN'T BE SET GLOBALLY IN A POLICY FILE. WTF.
 litellm.drop_params = True
 
 
@@ -154,6 +156,7 @@ class ToolCallJudgePolicy(Policy):
             return
 
         choice = current_chunk.choices[0]
+        choice = cast(StreamingChoices, choice)
         delta = choice.delta
 
         # Check if there's tool call data in the delta

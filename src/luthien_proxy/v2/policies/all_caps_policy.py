@@ -21,7 +21,7 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ModelResponse
+    from litellm.types.utils import ModelResponse, StreamingChoices
 
     from luthien_proxy.v2.policies.policy import PolicyContext
     from luthien_proxy.v2.streaming.streaming_response_context import StreamingResponseContext
@@ -59,6 +59,7 @@ class AllCapsPolicy(Policy):
             return
 
         choice = current_chunk.choices[0]
+        choice = cast(StreamingChoices, choice)
         delta = choice.delta
 
         # Check if there's text content in the delta
