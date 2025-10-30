@@ -1,19 +1,12 @@
 """Unit tests for LiteLLMClient."""
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
-import aiohttp
 import pytest
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.llm.litellm_client import LiteLLMClient
 from luthien_proxy.v2.messages import Request
-
-
-@pytest.fixture
-def mock_session():
-    """Create a mock aiohttp.ClientSession."""
-    return Mock(spec=aiohttp.ClientSession)
 
 
 @pytest.fixture
@@ -91,9 +84,9 @@ def sample_chunks():
 
 
 @pytest.mark.asyncio
-async def test_complete_success(mock_session, sample_request, sample_response):
+async def test_complete_success(sample_request, sample_response):
     """Test successful non-streaming completion."""
-    client = LiteLLMClient(shared_session=mock_session)
+    client = LiteLLMClient()
 
     with patch("litellm.acompletion", new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = sample_response
@@ -109,9 +102,9 @@ async def test_complete_success(mock_session, sample_request, sample_response):
 
 
 @pytest.mark.asyncio
-async def test_stream_success(mock_session, sample_request, sample_chunks):
+async def test_stream_success(sample_request, sample_chunks):
     """Test successful streaming."""
-    client = LiteLLMClient(shared_session=mock_session)
+    client = LiteLLMClient()
 
     async def mock_stream():
         for chunk in sample_chunks:
@@ -136,9 +129,9 @@ async def test_stream_success(mock_session, sample_request, sample_chunks):
 
 
 @pytest.mark.asyncio
-async def test_complete_excludes_none_values(mock_session, sample_request, sample_response):
+async def test_complete_excludes_none_values(sample_request, sample_response):
     """Test that complete excludes None values from request."""
-    client = LiteLLMClient(shared_session=mock_session)
+    client = LiteLLMClient()
     request_with_none = Request(
         model="gpt-4",
         messages=[{"role": "user", "content": "Hello"}],
@@ -156,9 +149,9 @@ async def test_complete_excludes_none_values(mock_session, sample_request, sampl
 
 
 @pytest.mark.asyncio
-async def test_stream_excludes_none_values(mock_session, sample_request, sample_chunks):
+async def test_stream_excludes_none_values(sample_request, sample_chunks):
     """Test that stream excludes None values from request."""
-    client = LiteLLMClient(shared_session=mock_session)
+    client = LiteLLMClient()
     request_with_none = Request(
         model="gpt-4",
         messages=[{"role": "user", "content": "Hello"}],
@@ -180,15 +173,3 @@ async def test_stream_excludes_none_values(mock_session, sample_request, sample_
         call_kwargs = mock_completion.call_args.kwargs
         assert "max_tokens" not in call_kwargs
         assert call_kwargs["temperature"] == 0.7
-
-
-def test_requires_session():
-    """Test that LiteLLMClient requires a valid aiohttp.ClientSession."""
-    with pytest.raises(TypeError):
-        LiteLLMClient(shared_session=None)
-
-    with pytest.raises(TypeError):
-        LiteLLMClient(shared_session="not a session")
-
-    with pytest.raises(TypeError):
-        LiteLLMClient(shared_session=42)

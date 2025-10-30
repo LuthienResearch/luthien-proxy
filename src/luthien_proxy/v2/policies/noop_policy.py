@@ -30,6 +30,6 @@ class NoOpPolicy(Policy):
         """Called on every chunk."""
         ctx.egress_queue.put_nowait(ctx.ingress_state.raw_chunks[-1])
 
-    def process_full_response(self, response, context) -> ModelResponse:
+    async def process_full_response(self, response, context) -> ModelResponse:
         """Process full response after receiving from LLM."""
         return response

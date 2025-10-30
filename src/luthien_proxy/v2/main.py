@@ -9,7 +9,6 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-import aiohttp
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -55,13 +54,6 @@ def create_app(
         setup_telemetry(app)
         logger.info("OpenTelemetry initialized")
 
-        # Create shared HTTP session for LiteLLM
-        _http_session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=180),
-            connector=aiohttp.TCPConnector(limit=300, limit_per_host=75),
-        )
-        logger.info("Created shared HTTP session for LLM requests")
-
         # Connect to database
         _db_pool: db.DatabasePool | None = None
         try:
@@ -91,7 +83,6 @@ def create_app(
             logger.info("Event publisher disabled (no Redis)")
 
         # Store everything in app state for dependency injection
-        app.state.http_session = _http_session
         app.state.db_pool = _db_pool
         app.state.redis_client = _redis_client
         app.state.event_publisher = _event_publisher
@@ -102,8 +93,6 @@ def create_app(
         yield
 
         # Shutdown
-        await _http_session.close()
-        logger.info("Closed shared HTTP session")
         if _db_pool:
             await _db_pool.close()
             logger.info("Closed database connection")
