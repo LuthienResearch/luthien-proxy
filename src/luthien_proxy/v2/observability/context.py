@@ -24,7 +24,7 @@ class ObservabilityContext(ABC):
     def __init__(
         self,
         transaction_id: str,
-        span: Span | None = None,
+        span: Span,
         db_pool: "DatabasePool | None" = None,
         event_publisher: "RedisEventPublisher | None" = None,
     ):
@@ -77,7 +77,7 @@ class NoOpObservabilityContext(ObservabilityContext):
     def __init__(  # noqa: D107
         self,
         transaction_id: str,
-        span: Span | None = None,  # noqa: ARG002
+        span: Span,  # noqa: ARG002
         db_pool: "DatabasePool | None" = None,  # noqa: ARG002
         event_publisher: "RedisEventPublisher | None" = None,  # noqa: ARG002
     ):

@@ -1,11 +1,12 @@
 """Unit tests for PolicyOrchestrator streaming response processing."""
 
 import asyncio
+from unittest.mock import Mock
 
 import pytest
 from litellm.types.utils import ModelResponse
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.trace import set_tracer_provider
+from opentelemetry.trace import Span, set_tracer_provider
 
 from luthien_proxy.v2.llm.client import LLMClient
 from luthien_proxy.v2.messages import Request
@@ -100,11 +101,12 @@ async def test_streaming_calls_llm_client(setup_tracing):
     chunks = create_content_chunks()
     client = MockLLMClient(chunks)
     policy = PassthroughPolicy()
+    mock_span = Mock(spec=Span)
 
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=mock_span),
         recorder=NoOpTransactionRecorder(),
     )
 
@@ -125,11 +127,12 @@ async def test_streaming_yields_chunks(setup_tracing):
     chunks = create_content_chunks()
     client = MockLLMClient(chunks)
     policy = PassthroughPolicy()
+    mock_span = Mock(spec=Span)
 
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=mock_span),
         recorder=NoOpTransactionRecorder(),
     )
 
@@ -151,11 +154,12 @@ async def test_streaming_calls_policy_hooks(setup_tracing):
     chunks = create_content_chunks()
     client = MockLLMClient(chunks)
     policy = PassthroughPolicy()
+    mock_span = Mock(spec=Span)
 
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=mock_span),
         recorder=NoOpTransactionRecorder(),
     )
 
@@ -290,11 +294,12 @@ async def test_streaming_with_different_chunk_types(setup_tracing, chunk_factory
     chunks = chunk_factory()
     client = MockLLMClient(chunks)
     policy = HookTrackingPolicy()
+    mock_span = Mock(spec=Span)
 
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=mock_span),
         recorder=NoOpTransactionRecorder(),
     )
 
@@ -317,11 +322,12 @@ async def test_streaming_handles_empty_stream(setup_tracing):
     tracer = setup_tracing
     client = MockLLMClient([])  # Empty stream
     policy = PassthroughPolicy()
+    mock_span = Mock(spec=Span)
 
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=mock_span),
         recorder=NoOpTransactionRecorder(),
     )
 
@@ -368,11 +374,12 @@ async def test_streaming_handles_queue_shutdown(setup_tracing):
     chunks = create_content_chunks()
     client = ExceptionRaisingClient(chunks, exception_after=2)
     policy = PassthroughPolicy()
+    mock_span = Mock(spec=Span)
 
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=mock_span),
         recorder=NoOpTransactionRecorder(),
     )
 

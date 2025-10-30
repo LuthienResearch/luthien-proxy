@@ -1,8 +1,10 @@
 """Unit tests for PolicyOrchestrator request processing."""
 
+from unittest.mock import Mock
+
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.trace import set_tracer_provider
+from opentelemetry.trace import Span, set_tracer_provider
 
 from luthien_proxy.v2.llm.client import LLMClient
 from luthien_proxy.v2.messages import Request
@@ -54,11 +56,12 @@ def orchestrator(setup_tracing):
     """Create orchestrator with mock policy."""
     policy = MockPolicy()
     client = MockLLMClient()
+    span = Mock(spec=Span)
 
     return PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=span),
         recorder=NoOpTransactionRecorder(),
     ), policy
 

@@ -1,11 +1,11 @@
 """Unit tests for PolicyOrchestrator non-streaming response processing."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from litellm.types.utils import ModelResponse
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.trace import set_tracer_provider
+from opentelemetry.trace import Span, set_tracer_provider
 
 from luthien_proxy.v2.llm.client import LLMClient
 from luthien_proxy.v2.messages import Request
@@ -81,11 +81,12 @@ async def test_non_streaming_passthrough(setup_tracing):
     response = create_sample_response("Hello world")
     client = MockLLMClient(response)
     policy = PassthroughPolicy()
+    mock_span = Mock(spec=Span)
 
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=mock_span),
         recorder=NoOpTransactionRecorder(),
     )
 
@@ -106,11 +107,12 @@ async def test_non_streaming_transformation(setup_tracing):
     response = create_sample_response("Hello world")
     client = MockLLMClient(response)
     policy = UppercasePolicy()
+    mock_span = Mock(spec=Span)
 
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=mock_span),
         recorder=NoOpTransactionRecorder(),
     )
 
@@ -136,11 +138,12 @@ async def test_non_streaming_records_responses(setup_tracing):
     # Mock recorder to track calls
     mock_recorder = AsyncMock()
     mock_recorder.finalize_non_streaming = AsyncMock()
+    mock_span = Mock(spec=Span)
 
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=mock_span),
         recorder=NoOpTransactionRecorder(),
     )
 
@@ -167,11 +170,12 @@ async def test_non_streaming_calls_llm_client(setup_tracing):
     mock_client.complete = AsyncMock(return_value=response)
 
     policy = PassthroughPolicy()
+    mock_span = Mock(spec=Span)
 
     orchestrator = PolicyOrchestrator(
         policy=policy,
         llm_client=mock_client,
-        observability=NoOpObservabilityContext(transaction_id="test"),
+        observability=NoOpObservabilityContext(transaction_id="test", span=mock_span),
         recorder=NoOpTransactionRecorder(),
     )
 

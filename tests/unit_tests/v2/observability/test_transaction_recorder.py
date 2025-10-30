@@ -1,10 +1,10 @@
 # ABOUTME: Unit tests for TransactionRecorder implementations
 # ABOUTME: Tests NoOpTransactionRecorder and DefaultTransactionRecorder behavior
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
-from litellm.types.utils import Choices, Message, ModelResponse
+from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
 
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import ObservabilityContext
@@ -119,38 +119,59 @@ class TestDefaultTransactionRecorder:
         observability.emit_event = AsyncMock()
         recorder = DefaultTransactionRecorder(observability)
 
-        # Add some chunks
-        chunk1 = Mock(spec=ModelResponse)
-        chunk2 = Mock(spec=ModelResponse)
-        recorder.add_ingress_chunk(chunk1)
-        recorder.add_egress_chunk(chunk2)
+        # Add some realistic streaming chunks using proper types
+        ingress_chunk = ModelResponse(
+            id="ingress-id",
+            object="chat.completion.chunk",
+            created=1234567890,
+            model="gpt-4",
+            choices=[
+                StreamingChoices(
+                    index=0,
+                    delta=Delta(role="assistant", content="Hello"),
+                    finish_reason=None,
+                )
+            ],
+        )
+        egress_chunk = ModelResponse(
+            id="egress-id",
+            object="chat.completion.chunk",
+            created=1234567891,
+            model="gpt-4-turbo",
+            choices=[
+                StreamingChoices(
+                    index=0,
+                    delta=Delta(content="Hi"),
+                    finish_reason="stop",
+                )
+            ],
+        )
+        recorder.add_ingress_chunk(ingress_chunk)
+        recorder.add_egress_chunk(egress_chunk)
 
-        with patch("luthien_proxy.v2.storage.events.reconstruct_full_response_from_chunks") as mock_reconstruct:
-            mock_reconstruct.side_effect = [
-                {"id": "orig", "model": "gpt-4", "choices": []},
-                {"id": "final", "model": "gpt-4-turbo", "choices": []},
-            ]
+        await recorder.finalize_streaming()
 
-            await recorder.finalize_streaming()
+        # Verify event emitted with reconstructed responses
+        observability.emit_event.assert_called_once()
+        call_args = observability.emit_event.call_args
+        assert call_args[1]["event_type"] == "transaction.streaming_response_recorded"
+        assert call_args[1]["data"]["ingress_chunks"] == 1
+        assert call_args[1]["data"]["egress_chunks"] == 1
 
-            # Verify reconstruct called twice (once for ingress, once for egress)
-            assert mock_reconstruct.call_count == 2
-            mock_reconstruct.assert_any_call([chunk1])
-            mock_reconstruct.assert_any_call([chunk2])
+        # Verify reconstructed responses contain expected data
+        original_response = call_args[1]["data"]["original_response"]
+        final_response = call_args[1]["data"]["final_response"]
+        assert original_response["id"] == "ingress-id"
+        assert original_response["model"] == "gpt-4"
+        assert "Hello" in original_response["choices"][0]["message"]["content"]
+        assert final_response["id"] == "egress-id"
+        assert final_response["model"] == "gpt-4-turbo"
+        assert "Hi" in final_response["choices"][0]["message"]["content"]
 
-            # Verify event emitted
-            observability.emit_event.assert_called_once()
-            call_args = observability.emit_event.call_args
-            assert call_args[1]["event_type"] == "transaction.streaming_response_recorded"
-            assert call_args[1]["data"]["ingress_chunks"] == 1
-            assert call_args[1]["data"]["egress_chunks"] == 1
-            assert call_args[1]["data"]["original_response"]["id"] == "orig"
-            assert call_args[1]["data"]["final_response"]["id"] == "final"
-
-            # Verify metrics recorded
-            assert observability.record_metric.call_count == 2
-            observability.record_metric.assert_any_call("response.chunks.ingress", 1)
-            observability.record_metric.assert_any_call("response.chunks.egress", 1)
+        # Verify metrics recorded
+        assert observability.record_metric.call_count == 2
+        observability.record_metric.assert_any_call("response.chunks.ingress", 1)
+        observability.record_metric.assert_any_call("response.chunks.egress", 1)
 
     @pytest.mark.asyncio
     async def test_finalize_non_streaming_emits_responses(self):

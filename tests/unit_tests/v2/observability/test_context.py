@@ -17,31 +17,36 @@ class TestNoOpObservabilityContext:
 
     def test_transaction_id(self):
         """Transaction ID property returns the provided ID."""
-        ctx = NoOpObservabilityContext("test-txn-123")
+        span = Mock(spec=Span)
+        ctx = NoOpObservabilityContext("test-txn-123", span)
         assert ctx.transaction_id == "test-txn-123"
 
     @pytest.mark.asyncio
     async def test_emit_event_does_nothing(self):
         """emit_event does nothing and doesn't raise."""
-        ctx = NoOpObservabilityContext("test-txn-123")
+        span = Mock(spec=Span)
+        ctx = NoOpObservabilityContext("test-txn-123", span)
         await ctx.emit_event("test.event", {"key": "value"})
         # No assertion - just verify it doesn't raise
 
     def test_record_metric_does_nothing(self):
         """record_metric does nothing and doesn't raise."""
-        ctx = NoOpObservabilityContext("test-txn-123")
+        span = Mock(spec=Span)
+        ctx = NoOpObservabilityContext("test-txn-123", span)
         ctx.record_metric("test.metric", 42.0, {"label": "value"})
         # No assertion - just verify it doesn't raise
 
     def test_add_span_attribute_does_nothing(self):
         """add_span_attribute does nothing and doesn't raise."""
-        ctx = NoOpObservabilityContext("test-txn-123")
+        span = Mock(spec=Span)
+        ctx = NoOpObservabilityContext("test-txn-123", span)
         ctx.add_span_attribute("key", "value")
         # No assertion - just verify it doesn't raise
 
     def test_add_span_event_does_nothing(self):
         """add_span_event does nothing and doesn't raise."""
-        ctx = NoOpObservabilityContext("test-txn-123")
+        span = Mock(spec=Span)
+        ctx = NoOpObservabilityContext("test-txn-123", span)
         ctx.add_span_event("test.event", {"attr": "value"})
         # No assertion - just verify it doesn't raise
 

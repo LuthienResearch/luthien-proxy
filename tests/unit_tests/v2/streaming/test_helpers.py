@@ -1,9 +1,11 @@
 """Unit tests for streaming helper functions."""
 
 import asyncio
+from unittest.mock import Mock
 
 import pytest
 from litellm.types.utils import ChatCompletionMessageToolCall, ModelResponse
+from opentelemetry.trace import Span
 
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import NoOpObservabilityContext
@@ -43,6 +45,7 @@ def streaming_context():
         pass
 
     assembler = StreamingChunkAssembler(on_chunk_callback=dummy_callback)
+    mock_span = Mock(spec=Span)
 
     ctx = StreamingResponseContext(
         transaction_id="test-123",
@@ -50,7 +53,7 @@ def streaming_context():
         ingress_assembler=assembler,
         egress_queue=asyncio.Queue(),
         scratchpad={},
-        observability=NoOpObservabilityContext("test-123"),
+        observability=NoOpObservabilityContext("test-123", mock_span),
     )
     return ctx
 

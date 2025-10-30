@@ -9,6 +9,7 @@ from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.v2.storage.events import reconstruct_full_response_from_chunks
 
 
 class TransactionRecorder(ABC):
@@ -99,10 +100,6 @@ class DefaultTransactionRecorder(TransactionRecorder):
 
     async def finalize_streaming(self) -> None:
         """Reconstruct full responses from chunks and emit."""
-        from luthien_proxy.v2.storage.events import (
-            reconstruct_full_response_from_chunks,
-        )
-
         original_response_dict = reconstruct_full_response_from_chunks(self.ingress_chunks)
         final_response_dict = reconstruct_full_response_from_chunks(self.egress_chunks)
 
