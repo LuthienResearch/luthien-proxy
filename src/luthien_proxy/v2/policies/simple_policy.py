@@ -7,7 +7,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from litellm.types.utils import StreamingChoices
+
 from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.streaming.helpers import (
+    get_last_ingress_chunk,
+    passthrough_last_chunk,
+    send_chunk,
+    send_text,
+    send_tool_call,
+)
+from luthien_proxy.v2.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
 if TYPE_CHECKING:
     from litellm.types.utils import ChatCompletionMessageToolCall, ModelResponse
@@ -17,8 +27,6 @@ if TYPE_CHECKING:
     from luthien_proxy.v2.streaming.streaming_response_context import (
         StreamingResponseContext,
     )
-
-from litellm.types.utils import StreamingChoices
 
 
 class SimplePolicy(Policy):
@@ -50,10 +58,7 @@ class SimplePolicy(Policy):
         return await self.on_request_simple(request)
 
     async def on_content_complete(self, ctx: StreamingResponseContext) -> None:
-        """Transform content and emit."""
-        from luthien_proxy.v2.streaming.helpers import passthrough_accumulated_chunks, send_text
-        from luthien_proxy.v2.streaming.stream_blocks import ContentStreamBlock
-
+        """Transform content and emit (only if transformation needed)."""
         # Get the completed content block
         if not ctx.ingress_state.just_completed:
             return
@@ -65,16 +70,12 @@ class SimplePolicy(Policy):
         content = block.content
         transformed = await self.on_response_content(content, ctx.final_request)
 
+        # Only send if transformed (chunks already passed through in on_content_delta)
         if transformed != content:
             await send_text(ctx, transformed)
-        else:
-            await passthrough_accumulated_chunks(ctx)
 
     async def on_tool_call_complete(self, ctx: StreamingResponseContext) -> None:
-        """Transform tool call and emit."""
-        from luthien_proxy.v2.streaming.helpers import passthrough_accumulated_chunks, send_tool_call
-        from luthien_proxy.v2.streaming.stream_blocks import ToolCallStreamBlock
-
+        """Transform tool call and emit (only if transformation needed)."""
         if not ctx.ingress_state.just_completed:
             return
 
@@ -85,23 +86,22 @@ class SimplePolicy(Policy):
         tool_call = block.tool_call
         transformed = await self.on_response_tool_call(tool_call, ctx.final_request)
 
+        # Only send if transformed (chunks already passed through in on_tool_call_delta)
         if transformed != tool_call:
             await send_tool_call(ctx, transformed)
-        else:
-            await passthrough_accumulated_chunks(ctx)
 
     async def on_content_delta(self, ctx: StreamingResponseContext) -> None:
-        """Buffer deltas, don't emit yet."""
-        pass  # Assembler buffers
+        """Stream content deltas through immediately for true concurrent streaming."""
+        # Pass through the chunk immediately to enable concurrent streaming
+        await passthrough_last_chunk(ctx)
 
     async def on_tool_call_delta(self, ctx: StreamingResponseContext) -> None:
-        """Buffer tool call deltas, don't emit yet."""
-        pass  # Assembler buffers
+        """Stream tool call deltas through immediately for true concurrent streaming."""
+        # Pass through the chunk immediately to enable concurrent streaming
+        await passthrough_last_chunk(ctx)
 
     async def on_chunk_received(self, ctx: StreamingResponseContext) -> None:
         """Pass through metadata chunks immediately."""
-        from luthien_proxy.v2.streaming.helpers import get_last_ingress_chunk, send_chunk
-
         chunk = get_last_ingress_chunk(ctx)
         if chunk and not self._has_content_or_tool_delta(chunk):
             await send_chunk(ctx, chunk)
