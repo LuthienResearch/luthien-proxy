@@ -8,12 +8,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from litellm.types.utils import ChatCompletionMessageToolCall as ToolCall
     from litellm.types.utils import ModelResponse
 
     from luthien_proxy.v2.streaming.streaming_response_context import (
         StreamingResponseContext,
     )
-    from luthien_proxy.v2.types import ToolCall
 
 
 async def send_text(ctx: StreamingResponseContext, text: str) -> None:

@@ -4,9 +4,13 @@
 """Observability context for unified event/metric/trace emission."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from opentelemetry.trace import Span
+
+if TYPE_CHECKING:
+    from luthien_proxy.utils.db import DatabasePool
+    from luthien_proxy.v2.observability.redis_event_publisher import RedisEventPublisher
 
 
 class ObservabilityContext(ABC):
@@ -64,8 +68,8 @@ class DefaultObservabilityContext(ObservabilityContext):
         self,
         transaction_id: str,
         span: Span,
-        db_pool: "DatabasePool | None" = None,  # noqa: F821
-        event_publisher: "RedisEventPublisher | None" = None,  # noqa: F821
+        db_pool: "DatabasePool | None" = None,
+        event_publisher: "RedisEventPublisher | None" = None,
     ):
         self._transaction_id = transaction_id
         self.span = span

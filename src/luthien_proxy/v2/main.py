@@ -16,11 +16,9 @@ from redis.asyncio import Redis
 
 from luthien_proxy.utils import db
 from luthien_proxy.v2.config import load_policy_from_yaml
-from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
 from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.gateway_routes import router as gateway_router
 from luthien_proxy.v2.observability import RedisEventPublisher
-from luthien_proxy.v2.policies.base import LuthienPolicy
 from luthien_proxy.v2.policies.policy import Policy
 from luthien_proxy.v2.telemetry import setup_telemetry
 from luthien_proxy.v2.ui import router as ui_router
@@ -32,7 +30,7 @@ def create_app(
     api_key: str,
     database_url: str,
     redis_url: str,
-    policy: Policy | LuthienPolicy,
+    policy: Policy,
 ) -> FastAPI:
     """Create V2 FastAPI application with dependency injection.
 
@@ -84,18 +82,10 @@ def create_app(
         else:
             logger.info("Event publisher disabled (no Redis)")
 
-        # Initialize control plane with event publisher
-        _control_plane = SynchronousControlPlane(
-            policy=policy,
-            event_publisher=_event_publisher,
-        )
-        logger.info("Control plane initialized with OpenTelemetry tracing")
-
         # Store everything in app state for dependency injection
         app.state.db_pool = _db_pool
         app.state.redis_client = _redis_client
         app.state.event_publisher = _event_publisher
-        app.state.control_plane = _control_plane
         app.state.policy = policy
         app.state.api_key = api_key
         logger.info("App state initialized")

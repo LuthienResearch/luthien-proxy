@@ -18,13 +18,15 @@ Example config:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse
 
     from luthien_proxy.v2.policies.policy import PolicyContext
     from luthien_proxy.v2.streaming.streaming_response_context import StreamingResponseContext
+
+from litellm.types.utils import Choices
 
 from luthien_proxy.v2.policies.policy import Policy
 
@@ -49,11 +51,14 @@ class AllCapsPolicy(Policy):
         Args:
             ctx: Streaming response context with current chunk
         """
-        # Get current content delta
-        if not ctx.current_chunk or not ctx.current_chunk.choices:
+        # Get current content delta from most recent chunk
+        if not ctx.ingress_state.raw_chunks:
+            return
+        current_chunk = ctx.ingress_state.raw_chunks[-1]
+        if not current_chunk.choices:
             return
 
-        choice = ctx.current_chunk.choices[0]
+        choice = current_chunk.choices[0]
         delta = choice.delta
 
         # Check if there's text content in the delta
@@ -98,6 +103,8 @@ class AllCapsPolicy(Policy):
         modified_count = 0
 
         for choice in response.choices:
+            # Cast to Choices (non-streaming) since this is process_full_response
+            choice = cast(Choices, choice)
             message = choice.message
             if hasattr(message, "content") and message.content:
                 original = message.content

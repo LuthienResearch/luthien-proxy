@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
 from typing import AsyncIterator, Callable
 
 from litellm.types.utils import ModelResponse
@@ -68,7 +69,7 @@ class PolicyOrchestrator:
         observability = self.observability_factory(transaction_id, span)
         recorder = self.recorder_factory(observability)
 
-        llm_stream = self.llm_client.stream(request)
+        llm_stream: AsyncGenerator[ModelResponse, None] = await self.llm_client.stream(request)
         egress_queue: asyncio.Queue[ModelResponse] = asyncio.Queue()
 
         ctx = StreamingResponseContext(

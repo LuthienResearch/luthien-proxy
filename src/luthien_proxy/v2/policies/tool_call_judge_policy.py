@@ -33,9 +33,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 import litellm
 from litellm import acompletion
-from litellm.types.utils import ModelResponse
+from litellm.types.utils import Choices, ModelResponse
 
 if TYPE_CHECKING:
+    from luthien_proxy.v2.observability.context import ObservabilityContext
     from luthien_proxy.v2.policies.policy import PolicyContext
     from luthien_proxy.v2.streaming.streaming_response_context import StreamingResponseContext
 
@@ -146,10 +147,13 @@ class ToolCallJudgePolicy(Policy):
         Args:
             ctx: Streaming response context with current chunk
         """
-        if not ctx.current_chunk or not ctx.current_chunk.choices:
+        if not ctx.ingress_state.raw_chunks:
+            return
+        current_chunk = ctx.ingress_state.raw_chunks[-1]
+        if not current_chunk.choices:
             return
 
-        choice = ctx.current_chunk.choices[0]
+        choice = current_chunk.choices[0]
         delta = choice.delta
 
         # Check if there's tool call data in the delta
@@ -157,7 +161,7 @@ class ToolCallJudgePolicy(Policy):
             return
 
         # Buffer the tool call delta
-        call_id = ctx.call_id
+        call_id = ctx.transaction_id
         for tc_delta in delta.tool_calls:
             # Get tool call index
             tc_index = tc_delta.index if hasattr(tc_delta, "index") else 0
@@ -195,7 +199,7 @@ class ToolCallJudgePolicy(Policy):
         Args:
             ctx: Streaming response context
         """
-        call_id = ctx.call_id
+        call_id = ctx.transaction_id
 
         # Check if this call has already been blocked
         if call_id in self._blocked_calls:
@@ -219,7 +223,7 @@ class ToolCallJudgePolicy(Policy):
                 continue
 
             # Judge the tool call
-            blocked_response = await self._evaluate_and_maybe_block(tool_call, ctx.context)
+            blocked_response = await self._evaluate_and_maybe_block(tool_call, ctx.observability)
 
             if blocked_response is not None:
                 # BLOCKED! Mark this call as blocked and inject blocked message
@@ -227,15 +231,16 @@ class ToolCallJudgePolicy(Policy):
 
                 # Extract blocked message from response
                 if blocked_response.choices:
-                    first_choice = blocked_response.choices[0]
+                    # Cast to Choices (non-streaming) since this is from judge LLM response
+                    first_choice = cast(Choices, blocked_response.choices[0])
                     message = first_choice.message
                     blocked_text = message.content if hasattr(message, "content") else ""
 
                     if blocked_text:
                         # Inject blocked text as content chunk
                         blocked_chunk = create_text_chunk(str(blocked_text), finish_reason="stop")
-                        # Replace current chunk with blocked chunk
-                        ctx.current_chunk = blocked_chunk
+                        # Send blocked chunk to egress
+                        await ctx.egress_queue.put(blocked_chunk)
                         logger.info(f"Blocked tool call '{tool_call['name']}' for call {call_id}")
                 else:
                     # Fallback
@@ -243,7 +248,7 @@ class ToolCallJudgePolicy(Policy):
                         f"⛔ BLOCKED: Tool call '{tool_call['name']}' rejected by policy",
                         finish_reason="stop",
                     )
-                    ctx.current_chunk = blocked_chunk
+                    await ctx.egress_queue.put(blocked_chunk)
 
                 # Clean up buffered data for this call
                 for k in keys_to_judge:
@@ -280,7 +285,7 @@ class ToolCallJudgePolicy(Policy):
 
         # Evaluate each tool call
         for tool_call in tool_calls:
-            blocked_response = await self._evaluate_and_maybe_block(tool_call, context)
+            blocked_response = await self._evaluate_and_maybe_block(tool_call, context.observability)
             if blocked_response is not None:
                 # Tool call was blocked - return blocked response
                 logger.info(f"Blocked tool call '{tool_call.get('name')}' in non-streaming response")
@@ -290,16 +295,32 @@ class ToolCallJudgePolicy(Policy):
         logger.debug("All tool calls passed judge evaluation in non-streaming response")
         return response
 
+    # TODO: this should probably be in the base Policy class
+    @staticmethod
+    async def _emit_maybe(
+        observability_ctx: ObservabilityContext | None, event_name: str, data: dict[str, Any]
+    ) -> None:
+        """Helper to emit observability events if context is available.
+
+        Args:
+            observability_ctx: Observability context or None
+            event_name: Name of the event to emit
+            data: Event data dictionary
+        """
+        if observability_ctx:
+            await observability_ctx.emit_event(event_name, data)
+
     async def _evaluate_and_maybe_block(
         self,
         tool_call: dict[str, Any],
-        context: PolicyContext,
+        observability_ctx: ObservabilityContext | None,
     ) -> ModelResponse | None:
         """Evaluate a tool call and return blocked response if harmful.
 
         Args:
             tool_call: Tool call dict with id, type, name, arguments
             context: Policy context
+            observability_ctx: Observability context or None for emitting events
 
         Returns:
             Blocked ModelResponse if tool call blocked, None if allowed
@@ -314,15 +335,15 @@ class ToolCallJudgePolicy(Policy):
         logger.debug(f"Evaluating tool call: {name}")
 
         # Emit event: starting evaluation (shows in activity monitor)
-        if context.observability:
-            await context.observability.emit_event(
-                "policy.judge.evaluation_started",
-                {
-                    "summary": f"Evaluating tool call: {name}",
-                    "tool_name": name,
-                    "tool_id": tool_call.get("id", ""),
-                },
-            )
+        await self._emit_maybe(
+            observability_ctx,
+            "policy.judge.evaluation_started",
+            {
+                "summary": f"Evaluating tool call: {name}",
+                "tool_name": name,
+                "tool_arguments": arguments[:200],  # Truncate for safety
+            },
+        )
 
         # Call judge
         try:
@@ -336,18 +357,18 @@ class ToolCallJudgePolicy(Policy):
             )
 
             # Emit event: evaluation failed (with warning severity)
-            if context.observability:
-                await context.observability.emit_event(
-                    "policy.judge.evaluation_failed",
-                    {
-                        "summary": f"⚠️ Judge evaluation failed for '{name}' - BLOCKED (fail-secure)",
-                        "tool_name": name,
-                        "tool_arguments": arguments[:200],  # Truncate for safety
-                        "error": str(exc),
-                        "severity": "error",
-                        "action_taken": "blocked",
-                    },
-                )
+            await self._emit_maybe(
+                observability_ctx,
+                "policy.judge.evaluation_failed",
+                {
+                    "summary": f"⚠️ Judge evaluation failed for '{name}' - BLOCKED (fail-secure)",
+                    "tool_name": name,
+                    "tool_arguments": arguments[:200],  # Truncate for safety
+                    "error": str(exc),
+                    "severity": "error",
+                    "action_taken": "blocked",
+                },
+            )
 
             # FAIL-SECURE: Block on judge failure to prevent potentially harmful tool calls
             blocked_message = (
@@ -363,31 +384,29 @@ class ToolCallJudgePolicy(Policy):
         )
 
         # Emit event: evaluation complete with result
-        if context.observability:
-            await context.observability.emit_event(
-                "policy.judge.evaluation_complete",
-                {
-                    "summary": f"Judge evaluated '{name}': probability={judge_result.probability:.2f}",
-                    "tool_name": name,
-                    "probability": judge_result.probability,
-                    "threshold": self._config.probability_threshold,
-                    "explanation": judge_result.explanation,
-                },
-            )
+        await self._emit_maybe(
+            observability_ctx,
+            "policy.judge.evaluation_complete",
+            {
+                "summary": f"Judge evaluated '{name}': probability={judge_result.probability:.2f}",
+                "tool_name": name,
+                "probability": judge_result.probability,
+                "threshold": self._config.probability_threshold,
+                "explanation": judge_result.explanation,
+            },
+        )
 
         # Check threshold
         if judge_result.probability < self._config.probability_threshold:
-            # Emit event: tool call allowed
-            if context.observability:
-                await context.observability.emit_event(
-                    "policy.judge.tool_call_allowed",
-                    {
-                        "summary": f"Tool call '{name}' allowed (probability {judge_result.probability:.2f} < {self._config.probability_threshold})",
-                        "tool_name": name,
-                        "probability": judge_result.probability,
-                    },
-                )
-            return None
+            await self._emit_maybe(
+                observability_ctx,
+                "policy.judge.tool_call_allowed",
+                {
+                    "summary": f"Tool call '{name}' allowed (probability {judge_result.probability:.2f} < {self._config.probability_threshold})",
+                    "tool_name": name,
+                    "probability": judge_result.probability,
+                },
+            )
 
         # Blocked! Create blocked response
         logger.warning(
@@ -396,17 +415,17 @@ class ToolCallJudgePolicy(Policy):
         )
 
         # Emit event: tool call blocked (shows in activity monitor with warning severity)
-        if context.observability:
-            await context.observability.emit_event(
-                "policy.judge.tool_call_blocked",
-                {
-                    "summary": f"BLOCKED: Tool call '{name}' rejected (probability {judge_result.probability:.2f} >= {self._config.probability_threshold})",
-                    "severity": "warning",
-                    "tool_name": name,
-                    "probability": judge_result.probability,
-                    "explanation": judge_result.explanation,
-                },
-            )
+        await self._emit_maybe(
+            observability_ctx,
+            "policy.judge.tool_call_blocked",
+            {
+                "summary": f"BLOCKED: Tool call '{name}' rejected (probability {judge_result.probability:.2f} >= {self._config.probability_threshold})",
+                "severity": "warning",
+                "tool_name": name,
+                "probability": judge_result.probability,
+                "explanation": judge_result.explanation,
+            },
+        )
 
         return self._create_blocked_response(tool_call, judge_result)
 

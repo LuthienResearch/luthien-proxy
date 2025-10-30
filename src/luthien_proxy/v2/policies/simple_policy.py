@@ -5,17 +5,20 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from luthien_proxy.v2.policies.policy import Policy
 
 if TYPE_CHECKING:
+    from litellm.types.utils import ChatCompletionMessageToolCall, ModelResponse
+
     from luthien_proxy.v2.messages import Request
     from luthien_proxy.v2.policies.policy import PolicyContext
     from luthien_proxy.v2.streaming.streaming_response_context import (
         StreamingResponseContext,
     )
-    from luthien_proxy.v2.types import ToolCall
+
+from litellm.types.utils import StreamingChoices
 
 
 class SimplePolicy(Policy):
@@ -34,7 +37,9 @@ class SimplePolicy(Policy):
         """Transform complete response content."""
         return content
 
-    async def on_response_tool_call(self, tool_call: ToolCall, request: Request) -> ToolCall:
+    async def on_response_tool_call(
+        self, tool_call: ChatCompletionMessageToolCall, request: Request
+    ) -> ChatCompletionMessageToolCall:
         """Transform/validate a complete tool call."""
         return tool_call
 
@@ -105,7 +110,9 @@ class SimplePolicy(Policy):
         """Check if chunk contains content or tool call delta."""
         if not chunk.choices:
             return False
-        delta = chunk.choices[0].delta
+        # Cast to StreamingChoices since this is checking streaming chunks
+        streaming_choice = cast(StreamingChoices, chunk.choices[0])
+        delta = streaming_choice.delta
         if not delta:
             return False
         return bool(delta.get("content") or delta.get("tool_calls"))
