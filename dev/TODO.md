@@ -16,6 +16,7 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 
 ## Medium Priority
 
+- [ ] call_id -> transaction_id
 - [ ] Revisit ignored pyright issues
 - [ ] Sort out PolicyContext/StreamingResponseContext
 - [ ] Make filtering on the activity monitor easier and more intuitive
