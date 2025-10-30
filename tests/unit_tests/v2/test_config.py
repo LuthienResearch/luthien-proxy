@@ -1,11 +1,13 @@
 # ABOUTME: Tests for V2 policy configuration loading from YAML
-# ABOUTME: Covers successful loading, error handling, and fallback to SimplePolicy
+# ABOUTME: Covers successful loading and error handling (exceptions on invalid config)
 
 """Tests for v2.config module - policy loading from YAML."""
 
 from __future__ import annotations
 
 from pathlib import Path
+
+import pytest
 
 from luthien_proxy.v2.config import load_policy_from_yaml
 from luthien_proxy.v2.policies.all_caps_policy import AllCapsPolicy
@@ -45,25 +47,23 @@ policy:
 
         assert isinstance(policy, AllCapsPolicy)
 
-    def test_missing_config_file_returns_simple_policy(self, tmp_path: Path):
-        """Test that missing config file returns SimplePolicy with warning."""
+    def test_missing_config_file_raises_exception(self, tmp_path: Path):
+        """Test that missing config file raises FileNotFoundError."""
         nonexistent_path = tmp_path / "nonexistent.yaml"
 
-        policy = load_policy_from_yaml(str(nonexistent_path))
+        with pytest.raises(FileNotFoundError):
+            load_policy_from_yaml(str(nonexistent_path))
 
-        assert isinstance(policy, SimplePolicy)
-
-    def test_invalid_yaml_returns_simple_policy(self, tmp_path: Path):
-        """Test that invalid YAML returns SimplePolicy."""
+    def test_invalid_yaml_raises_exception(self, tmp_path: Path):
+        """Test that invalid YAML raises exception."""
         config_path = tmp_path / "invalid.yaml"
         config_path.write_text("this is not: valid: yaml: content")
 
-        policy = load_policy_from_yaml(str(config_path))
+        with pytest.raises(Exception):  # yaml.YAMLError or similar
+            load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, SimplePolicy)
-
-    def test_missing_policy_section_returns_simple_policy(self, tmp_path: Path):
-        """Test that YAML without 'policy' section returns SimplePolicy."""
+    def test_missing_policy_section_raises_exception(self, tmp_path: Path):
+        """Test that YAML without 'policy' section raises ValueError."""
         config_path = tmp_path / "no_policy.yaml"
         config_path.write_text(
             """
@@ -72,12 +72,11 @@ other_config:
 """
         )
 
-        policy = load_policy_from_yaml(str(config_path))
+        with pytest.raises(ValueError):
+            load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, SimplePolicy)
-
-    def test_missing_class_returns_simple_policy(self, tmp_path: Path):
-        """Test that policy section without 'class' returns SimplePolicy."""
+    def test_missing_class_raises_exception(self, tmp_path: Path):
+        """Test that policy section without 'class' raises ValueError."""
         config_path = tmp_path / "no_class.yaml"
         config_path.write_text(
             """
@@ -87,12 +86,11 @@ policy:
 """
         )
 
-        policy = load_policy_from_yaml(str(config_path))
+        with pytest.raises(ValueError):
+            load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, SimplePolicy)
-
-    def test_invalid_class_reference_returns_simple_policy(self, tmp_path: Path):
-        """Test that invalid class reference returns SimplePolicy."""
+    def test_invalid_class_reference_raises_exception(self, tmp_path: Path):
+        """Test that invalid class reference raises exception."""
         config_path = tmp_path / "invalid_class.yaml"
         config_path.write_text(
             """
@@ -102,12 +100,11 @@ policy:
 """
         )
 
-        policy = load_policy_from_yaml(str(config_path))
+        with pytest.raises((ModuleNotFoundError, ImportError)):
+            load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, SimplePolicy)
-
-    def test_malformed_class_reference_returns_simple_policy(self, tmp_path: Path):
-        """Test that malformed class reference (no colon) returns SimplePolicy."""
+    def test_malformed_class_reference_raises_exception(self, tmp_path: Path):
+        """Test that malformed class reference (no colon) raises exception."""
         config_path = tmp_path / "malformed.yaml"
         config_path.write_text(
             """
@@ -117,12 +114,11 @@ policy:
 """
         )
 
-        policy = load_policy_from_yaml(str(config_path))
+        with pytest.raises(ValueError):
+            load_policy_from_yaml(str(config_path))
 
-        assert isinstance(policy, SimplePolicy)
-
-    def test_non_policy_class_returns_simple_policy(self, tmp_path: Path):
-        """Test that class not inheriting from Policy returns SimplePolicy."""
+    def test_non_policy_class_raises_exception(self, tmp_path: Path):
+        """Test that class not inheriting from Policy raises TypeError."""
         config_path = tmp_path / "non_policy.yaml"
         config_path.write_text(
             """
@@ -132,9 +128,8 @@ policy:
 """
         )
 
-        policy = load_policy_from_yaml(str(config_path))
-
-        assert isinstance(policy, SimplePolicy)
+        with pytest.raises(TypeError):
+            load_policy_from_yaml(str(config_path))
 
     def test_uses_v2_policy_config_env_var(self, tmp_path: Path, monkeypatch):
         """Test that function respects V2_POLICY_CONFIG environment variable."""
@@ -163,7 +158,6 @@ policy:
         monkeypatch.chdir(tmp_path)
 
         # Should try to load config/v2_config.yaml (which won't exist in test)
-        # and return SimplePolicy
-        policy = load_policy_from_yaml()
-
-        assert isinstance(policy, SimplePolicy)
+        # and raise FileNotFoundError
+        with pytest.raises(FileNotFoundError):
+            load_policy_from_yaml()
