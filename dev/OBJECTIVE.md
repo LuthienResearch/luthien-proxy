@@ -1,5 +1,6 @@
 # Objective
 
-_No active objective. This file will be updated when starting a new development objective._
+- Implement a reproducible demo that triggers `ToolCallJudgeV3Policy` to block a risky tool call.
+- Provide clear replication steps and captured output showing the policy enforcement.
 
 ---
