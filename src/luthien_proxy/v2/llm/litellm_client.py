@@ -3,8 +3,8 @@
 
 """LiteLLM client implementation."""
 
-from collections.abc import AsyncGenerator
-from typing import AsyncIterator, cast
+from collections.abc import AsyncIterator
+from typing import cast
 
 import litellm
 from litellm.types.utils import ModelResponse
@@ -16,15 +16,13 @@ from luthien_proxy.v2.messages import Request
 class LiteLLMClient(LLMClient):
     """LLM client using litellm library."""
 
-    async def stream(self, request: Request) -> AsyncGenerator[ModelResponse, None]:
+    async def stream(self, request: Request) -> AsyncIterator[ModelResponse]:
         """Stream response from LLM."""
         data = request.model_dump(exclude_none=True)
         data["stream"] = True
         response_stream = await litellm.acompletion(**data)
         # litellm returns AsyncIterator when stream=True
-        response_stream = cast(AsyncIterator[ModelResponse], response_stream)
-        async for chunk in response_stream:
-            yield chunk
+        return cast(AsyncIterator[ModelResponse], response_stream)
 
     async def complete(self, request: Request) -> ModelResponse:
         """Get complete response from LLM."""

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ class LLMClient(ABC):
     """Abstract interface for LLM backend communication."""
 
     @abstractmethod
-    async def stream(self, request: Request) -> AsyncGenerator[ModelResponse, None]:
+    async def stream(self, request: Request) -> AsyncIterator[ModelResponse]:
         """Stream response from LLM backend (OpenAI format)."""
 
     @abstractmethod
