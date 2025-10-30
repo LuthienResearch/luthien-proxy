@@ -16,6 +16,7 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 
 ## Medium Priority
 
+- [ ] remove unnecessary string-matching test conditions (e.g. matching exception messages)
 - [ ] call_id -> transaction_id
 - [ ] Revisit ignored pyright issues
 - [ ] Sort out PolicyContext/StreamingResponseContext

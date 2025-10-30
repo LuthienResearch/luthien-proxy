@@ -183,6 +183,7 @@ async def chat_completions(
     db_pool: db.DatabasePool | None = getattr(request.app.state, "db_pool", None)
     event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
     policy = getattr(request.app.state, "policy", SimplePolicy())
+    http_session = request.app.state.http_session
 
     # Create request message
     request_message = RequestMessage(**body)
@@ -210,7 +211,7 @@ async def chat_completions(
         recorder = DefaultTransactionRecorder(observability=observability)
 
         # Create LLM client and orchestrator
-        llm_client = LiteLLMClient()
+        llm_client = LiteLLMClient(shared_session=http_session)
         orchestrator = PolicyOrchestrator(
             policy=policy,
             llm_client=llm_client,
@@ -253,6 +254,7 @@ async def anthropic_messages(
     db_pool: db.DatabasePool | None = getattr(request.app.state, "db_pool", None)
     event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
     policy = getattr(request.app.state, "policy", SimplePolicy())
+    http_session = request.app.state.http_session
 
     # Convert Anthropic request to OpenAI format
     logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
@@ -287,7 +289,7 @@ async def anthropic_messages(
         recorder = DefaultTransactionRecorder(observability=observability)
 
         # Create LLM client and orchestrator
-        llm_client = LiteLLMClient()
+        llm_client = LiteLLMClient(shared_session=http_session)
         orchestrator = PolicyOrchestrator(
             policy=policy,
             llm_client=llm_client,
