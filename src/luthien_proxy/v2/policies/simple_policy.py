@@ -1,7 +1,7 @@
-# ABOUTME: SimplePolicy base class for content-level transformations  # noqa: D100
+# ABOUTME: SimplePolicy base class. SimplePolicy sacrifices streaming support for simpler policy authoring.
 # ABOUTME: Buffers streaming content and applies transformations when blocks complete
 
-"""Module docstring."""
+"""SimplePolicy base class. SimplePolicy sacrifices streaming support for simpler policy authoring."""
 
 from __future__ import annotations
 
