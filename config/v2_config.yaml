@@ -4,10 +4,13 @@
 # Set the V2_POLICY_CONFIG environment variable to point to this file.
 
 
-# Default Simple Policy (pass-through)
+# Default Policy (pass-through)
 policy:
-  class: "luthien_proxy.v2.policies.simple_policy:SimplePolicy"
+  class: "luthien_proxy.v2.policies.noop_policy:NoOpPolicy"
   config: {}
+# policy:
+#   class: "luthien_proxy.v2.policies.simple_policy:SimplePolicy"
+#   config: {}
 
 # All Caps Policy - converts all response content to uppercase
 # policy:
