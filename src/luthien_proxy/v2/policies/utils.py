@@ -206,11 +206,51 @@ def is_tool_call_complete(chunk: dict[str, Any]) -> bool:
     return False
 
 
+def create_tool_call_chunk(tool_call: Any, model: str = "luthien-policy") -> ModelResponse:
+    """Create a streaming chunk with a complete tool call.
+
+    Args:
+        tool_call: ChatCompletionMessageToolCall object from litellm
+        model: Model name to include in chunk (default: "luthien-policy")
+
+    Returns:
+        A ModelResponse chunk with the tool call
+    """
+    import random
+
+    unique_id = f"policy-tool-{int(time.time() * 1000)}-{random.randint(1000, 9999)}"
+
+    # Convert tool call to dict format expected in delta
+    tool_call_dict = {
+        "id": tool_call.id if hasattr(tool_call, "id") else "",
+        "type": "function",
+        "function": {
+            "name": tool_call.function.name if hasattr(tool_call, "function") else "",
+            "arguments": tool_call.function.arguments if hasattr(tool_call, "function") else "",
+        },
+    }
+
+    return ModelResponse(
+        id=unique_id,
+        choices=[
+            Choices(
+                index=0,
+                delta={"tool_calls": [tool_call_dict]},
+                finish_reason="tool_calls",
+            )
+        ],
+        created=int(time.time()),
+        model=model,
+        object="chat.completion.chunk",
+    )
+
+
 __all__ = [
     "JudgeConfig",
     "JudgeResult",
     "create_text_response",
     "create_text_chunk",
+    "create_tool_call_chunk",
     "extract_tool_calls_from_response",
     "chunk_contains_tool_call",
     "is_tool_call_complete",

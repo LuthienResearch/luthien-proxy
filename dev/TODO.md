@@ -9,10 +9,18 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 - [ ] Add max buffer size for chunk storage (synchronous_control_plane.py:220 - unbounded growth) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Review and test graceful shutdown behavior (ensure event publisher tasks complete) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add input validation: max request size and message count limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
+- [ ] Move "v2" code out of v2/
+- [ ] Add unit tests for all new pipeline code
+- [ ] Consolidate/organize utility/helper functions (see policies/utils.py)
+- [ ] move `litellm.drop_params = True` somewhere sensible
+- [ ] thinking and verbosity model flags not respected
 
 ## Medium Priority
 
+- [ ] remove unnecessary string-matching test conditions (e.g. matching exception messages)
+- [ ] call_id -> transaction_id
 - [ ] Revisit ignored pyright issues
+- [ ] Sort out PolicyContext/StreamingResponseContext
 - [ ] Make filtering on the activity monitor easier and more intuitive
 - [ ] Add rate limiting middleware (slowapi or custom FastAPI middleware) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Implement circuit breaker for upstream calls ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))

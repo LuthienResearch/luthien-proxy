@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from litellm.types.utils import ModelResponse
+
 from luthien_proxy.v2.streaming.stream_blocks import StreamBlock
 
 
@@ -43,6 +45,12 @@ class StreamState:
     Values: "stop" (normal), "tool_calls" (ended with tools), "length" (max tokens).
     None while streaming is in progress.
     """
+
+    raw_chunks: list[ModelResponse] = field(default_factory=list)
+    """All raw chunks received from LLM (for recording/replay)."""
+
+    last_emission_index: int = 0
+    """Index of last chunk emitted to client (for passthrough optimization)."""
 
 
 __all__ = ["StreamState"]

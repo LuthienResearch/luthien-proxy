@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from luthien_proxy.v2.main import create_app
-from luthien_proxy.v2.policies.noop import NoOpPolicy
+from luthien_proxy.v2.policies.noop_policy import NoOpPolicy
 
 
 class TestCreateApp:
@@ -64,7 +64,7 @@ class TestCreateApp:
 
                 # Verify app state was initialized
                 assert app.state.api_key == "test-api-key"
-                assert app.state.control_plane is not None
+                assert app.state.policy == policy
                 assert app.state.db_pool == mock_db_instance
                 assert app.state.redis_client == mock_redis_instance
                 assert app.state.event_publisher is not None
@@ -104,7 +104,7 @@ class TestCreateApp:
                 # App should still start with db_pool = None
                 assert app.state.db_pool is None
                 assert app.state.redis_client == mock_redis_instance
-                assert app.state.control_plane is not None
+                assert app.state.policy is not None
 
     @pytest.mark.asyncio
     async def test_create_app_redis_failure_graceful(self):
@@ -138,7 +138,7 @@ class TestCreateApp:
                 assert app.state.db_pool == mock_db_instance
                 assert app.state.redis_client is None
                 assert app.state.event_publisher is None  # No publisher without Redis
-                assert app.state.control_plane is not None
+                assert app.state.policy is not None
 
     @pytest.mark.asyncio
     async def test_create_app_routes_included(self):
@@ -234,7 +234,7 @@ class TestCreateApp:
 
             with TestClient(app):
                 # Verify the control plane was initialized with our custom policy
-                assert app.state.control_plane.policy == policy
+                assert app.state.policy == policy
 
     def test_create_app_static_files_mounted(self):
         """Test that static files are properly mounted."""
