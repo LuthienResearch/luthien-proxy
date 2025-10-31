@@ -53,4 +53,5 @@ codex \
   -c model_providers.litellm.env_key=LITELLM_MASTER_KEY \
   -c model_providers.litellm.wire_api=chat \
   -c model_provider=litellm \
-  -c model="gpt-5"
+  -c model="gpt-5" \
+  -c show_raw_agent_reasoning=true
