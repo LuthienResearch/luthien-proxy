@@ -18,12 +18,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from opentelemetry import trace
 
 from luthien_proxy.utils import db
-from luthien_proxy.v2.llm.format_converters import (
+from luthien_proxy.v2.llm.anthropic_sse_assembler import AnthropicSSEAssembler
+from luthien_proxy.v2.llm.litellm_client import LiteLLMClient
+from luthien_proxy.v2.llm.llm_format_utils import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
 )
-from luthien_proxy.v2.llm.litellm_client import LiteLLMClient
-from luthien_proxy.v2.llm.streaming_converters import AnthropicStreamStateTracker
 from luthien_proxy.v2.messages import Request as RequestMessage
 from luthien_proxy.v2.observability.context import DefaultObservabilityContext
 from luthien_proxy.v2.observability.redis_event_publisher import RedisEventPublisher
@@ -98,7 +98,7 @@ async def stream_anthropic_sse(
 ) -> AsyncIterator[str]:
     """Stream chunks in Anthropic SSE format."""
     message_started = False
-    tracker = AnthropicStreamStateTracker()
+    tracker = AnthropicSSEAssembler()
 
     try:
         async for chunk in orchestrator.process_streaming_response(request, call_id, span):

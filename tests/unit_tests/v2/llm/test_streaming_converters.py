@@ -1,6 +1,6 @@
-"""Unit tests for streaming converters.
+"""Unit tests for Anthropic SSE assembler.
 
-These tests validate the AnthropicStreamStateTracker by feeding it sequences of
+These tests validate the AnthropicSSEAssembler by feeding it sequences of
 ModelResponse objects and checking the output events. No mocking - just real objects.
 """
 
@@ -9,15 +9,15 @@ from unittest.mock import patch
 import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
-from luthien_proxy.v2.llm.streaming_converters import AnthropicStreamStateTracker
+from luthien_proxy.v2.llm.anthropic_sse_assembler import AnthropicSSEAssembler
 
 
-class TestAnthropicStreamStateTracker:
-    """Test the stateful Anthropic stream converter."""
+class TestAnthropicSSEAssembler:
+    """Test the Anthropic SSE event assembler."""
 
     def test_simple_text_response(self):
         """Test a simple text-only streaming response."""
-        tracker = AnthropicStreamStateTracker()
+        tracker = AnthropicSSEAssembler()
 
         # First chunk with text content
         chunk1 = ModelResponse(
@@ -46,7 +46,7 @@ class TestAnthropicStreamStateTracker:
 
     def test_text_continuation(self):
         """Test that subsequent text chunks only emit deltas."""
-        tracker = AnthropicStreamStateTracker()
+        tracker = AnthropicSSEAssembler()
 
         # First chunk starts the block
         chunk1 = ModelResponse(
@@ -72,7 +72,7 @@ class TestAnthropicStreamStateTracker:
 
     def test_finish_with_message_delta(self):
         """Test that finish_reason emits message_delta and closes the block."""
-        tracker = AnthropicStreamStateTracker()
+        tracker = AnthropicSSEAssembler()
 
         # Start with text
         chunk1 = ModelResponse(
@@ -104,7 +104,7 @@ class TestAnthropicStreamStateTracker:
 
     def test_tool_use_with_progressive_args(self):
         """Test tool call with progressive argument streaming."""
-        tracker = AnthropicStreamStateTracker()
+        tracker = AnthropicSSEAssembler()
 
         # Text content first
         chunk1 = ModelResponse(
@@ -212,7 +212,7 @@ class TestAnthropicStreamStateTracker:
 
     def test_complete_tool_call_buffered(self):
         """Test complete tool call in one chunk (from buffered policy)."""
-        tracker = AnthropicStreamStateTracker()
+        tracker = AnthropicSSEAssembler()
 
         # Text first
         chunk1 = ModelResponse(
@@ -265,7 +265,7 @@ class TestAnthropicStreamStateTracker:
 
     def test_multiple_content_blocks(self):
         """Test that indices increment correctly for multiple blocks."""
-        tracker = AnthropicStreamStateTracker()
+        tracker = AnthropicSSEAssembler()
 
         # Block 0: text
         chunk1 = ModelResponse(
@@ -307,7 +307,7 @@ class TestAnthropicStreamStateTracker:
 
     def test_finish_reason_tool_use(self):
         """Test that finish_reason='tool_calls' maps to stop_reason='tool_use'."""
-        tracker = AnthropicStreamStateTracker()
+        tracker = AnthropicSSEAssembler()
 
         # Start with text
         chunk1 = ModelResponse(
@@ -332,7 +332,7 @@ class TestAnthropicStreamStateTracker:
 
     def test_empty_chunk_with_no_data(self):
         """Test that chunks with no meaningful data are handled gracefully."""
-        tracker = AnthropicStreamStateTracker()
+        tracker = AnthropicSSEAssembler()
 
         # Start a block
         chunk1 = ModelResponse(
@@ -359,7 +359,7 @@ class TestAnthropicStreamStateTracker:
 
     def test_unexpected_event_type_raises(self):
         """Test that unexpected event types from converter raise ValueError."""
-        tracker = AnthropicStreamStateTracker()
+        tracker = AnthropicSSEAssembler()
 
         chunk = ModelResponse(
             id="msg_123",
@@ -368,9 +368,10 @@ class TestAnthropicStreamStateTracker:
         )
 
         # Mock the converter to return an unexpected event type
-        # Patch it where it's imported in streaming_converters
-        with patch(
-            "luthien_proxy.v2.llm.streaming_converters.openai_chunk_to_anthropic_chunk",
+        # Patch the static method on the assembler class
+        with patch.object(
+            AnthropicSSEAssembler,
+            "convert_chunk_to_event",
             return_value={"type": "unexpected_event_type", "data": "something"},
         ):
             with pytest.raises(ValueError, match="Unexpected event type from converter: unexpected_event_type"):
@@ -422,7 +423,7 @@ class TestAnthropicStreamStateTracker:
 )
 def test_event_sequences(chunks, expected_event_types):
     """Parameterized test for various chunk sequences."""
-    tracker = AnthropicStreamStateTracker()
+    tracker = AnthropicSSEAssembler()
 
     for i, chunk in enumerate(chunks):
         # Add usage to finish chunks if needed
@@ -433,3 +434,255 @@ def test_event_sequences(chunks, expected_event_types):
         actual_types = [e["type"] for e in events]
 
         assert actual_types == expected_event_types[i], f"Chunk {i} event types don't match"
+
+
+class TestConvertChunkToEvent:
+    """Dedicated tests for the chunk conversion logic.
+
+    This tests the stateless OpenAI → Anthropic event conversion thoroughly,
+    independent of the state management in process_chunk().
+    """
+
+    def test_text_content_chunk(self):
+        """Test converting a chunk with text content."""
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[StreamingChoices(index=0, delta=Delta(content="Hello world", role="assistant"))],
+            model="claude",
+        )
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        assert event["type"] == "content_block_delta"
+        assert event["delta"]["type"] == "text_delta"
+        assert event["delta"]["text"] == "Hello world"
+
+    def test_empty_text_content(self):
+        """Test chunk with empty string content."""
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[StreamingChoices(index=0, delta=Delta(content=""))],
+            model="claude",
+        )
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        assert event["type"] == "content_block_delta"
+        assert event["delta"]["type"] == "text_delta"
+        assert event["delta"]["text"] == ""
+
+    def test_none_content(self):
+        """Test chunk with None content falls through to default."""
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[StreamingChoices(index=0, delta=Delta(content=None))],
+            model="claude",
+        )
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        # Should return default empty text delta
+        assert event["type"] == "content_block_delta"
+        assert event["delta"]["type"] == "text_delta"
+        assert event["delta"]["text"] == ""
+
+    def test_tool_call_with_id_and_args(self):
+        """Test complete tool call in one chunk (buffered case)."""
+        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
+
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[
+                StreamingChoices(
+                    index=0,
+                    delta=Delta(
+                        tool_calls=[
+                            ChatCompletionDeltaToolCall(
+                                id="toolu_123",
+                                function=Function(name="search", arguments='{"query":"test"}'),
+                                type="function",
+                                index=0,
+                            )
+                        ]
+                    ),
+                )
+            ],
+            model="claude",
+        )
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        assert event["type"] == "content_block_start"
+        assert event["content_block"]["type"] == "tool_use"
+        assert event["content_block"]["id"] == "toolu_123"
+        assert event["content_block"]["name"] == "search"
+        assert event["content_block"]["input"] == {}
+        assert event["_complete_tool_call"] is True
+        assert event["_arguments"] == '{"query":"test"}'
+
+    def test_tool_call_start_only_id(self):
+        """Test tool call start with just ID (progressive streaming)."""
+        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
+
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[
+                StreamingChoices(
+                    index=0,
+                    delta=Delta(
+                        tool_calls=[
+                            ChatCompletionDeltaToolCall(
+                                id="toolu_456",
+                                function=Function(name="get_weather", arguments=""),
+                                type="function",
+                                index=0,
+                            )
+                        ]
+                    ),
+                )
+            ],
+            model="claude",
+        )
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        assert event["type"] == "content_block_start"
+        assert event["content_block"]["type"] == "tool_use"
+        assert event["content_block"]["id"] == "toolu_456"
+        assert event["content_block"]["name"] == "get_weather"
+        assert "_complete_tool_call" not in event
+
+    def test_tool_call_arguments_only(self):
+        """Test tool call arguments delta (no id)."""
+        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
+
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[
+                StreamingChoices(
+                    index=0,
+                    delta=Delta(
+                        tool_calls=[
+                            ChatCompletionDeltaToolCall(
+                                id=None,
+                                function=Function(name=None, arguments='{"location"'),
+                                type="function",
+                                index=0,
+                            )
+                        ]
+                    ),
+                )
+            ],
+            model="claude",
+        )
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        assert event["type"] == "content_block_delta"
+        assert event["delta"]["type"] == "input_json_delta"
+        assert event["delta"]["partial_json"] == '{"location"'
+
+    def test_tool_call_empty_arguments(self):
+        """Test tool call with empty arguments (placeholder chunk)."""
+        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
+
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[
+                StreamingChoices(
+                    index=0,
+                    delta=Delta(
+                        tool_calls=[
+                            ChatCompletionDeltaToolCall(
+                                id=None,
+                                function=Function(name=None, arguments=""),
+                                type="function",
+                                index=0,
+                            )
+                        ]
+                    ),
+                )
+            ],
+            model="claude",
+        )
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        assert event["type"] == "content_block_delta"
+        assert event["delta"]["type"] == "input_json_delta"
+        assert event["delta"]["partial_json"] == ""
+
+    def test_finish_reason_stop(self):
+        """Test chunk with finish_reason='stop'."""
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="stop")],
+            model="claude",
+        )
+        chunk._hidden_params = {"usage": type("Usage", (), {"prompt_tokens": 10, "completion_tokens": 20})()}
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        assert event["type"] == "message_delta"
+        assert event["delta"]["stop_reason"] == "end_turn"
+        assert event["delta"]["stop_sequence"] is None
+        assert event["usage"]["input_tokens"] == 10
+        assert event["usage"]["output_tokens"] == 20
+
+    def test_finish_reason_tool_calls(self):
+        """Test chunk with finish_reason='tool_calls'."""
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="tool_calls")],
+            model="claude",
+        )
+        chunk._hidden_params = {"usage": type("Usage", (), {"prompt_tokens": 5, "completion_tokens": 15})()}
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        assert event["type"] == "message_delta"
+        assert event["delta"]["stop_reason"] == "tool_use"
+        assert event["usage"]["input_tokens"] == 5
+        assert event["usage"]["output_tokens"] == 15
+
+    def test_finish_reason_length(self):
+        """Test chunk with finish_reason='length'."""
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="length")],
+            model="claude",
+        )
+        chunk._hidden_params = {"usage": type("Usage", (), {"prompt_tokens": 100, "completion_tokens": 4096})()}
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        assert event["type"] == "message_delta"
+        assert event["delta"]["stop_reason"] == "max_tokens"
+
+    def test_finish_reason_without_usage(self):
+        """Test finish chunk without usage info in hidden_params."""
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="stop")],
+            model="claude",
+        )
+        # No _hidden_params set
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        assert event["type"] == "message_delta"
+        assert event["usage"]["output_tokens"] == 0
+
+    def test_unknown_finish_reason(self):
+        """Test chunk with unmapped finish_reason falls through."""
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="content_filter")],
+            model="claude",
+        )
+        chunk._hidden_params = {"usage": type("Usage", (), {"prompt_tokens": 1, "completion_tokens": 1})()}
+
+        event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
+
+        # Should pass through unmapped reason as-is
+        assert event["delta"]["stop_reason"] == "content_filter"

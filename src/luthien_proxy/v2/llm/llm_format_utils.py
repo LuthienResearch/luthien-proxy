@@ -1,7 +1,12 @@
-# ABOUTME: Format conversion between OpenAI and Anthropic API formats
-# ABOUTME: Handles request/response/streaming transformations
+# ABOUTME: General-purpose format conversion between OpenAI and Anthropic API formats
+# ABOUTME: Handles request and non-streaming response transformations
 
-"""Format converters for different LLM API formats."""
+"""Format conversion utilities for LLM API formats.
+
+This module provides general-purpose format conversion between OpenAI and Anthropic
+API formats for requests and non-streaming responses. For streaming-specific conversion,
+see anthropic_sse_assembler.py.
+"""
 
 from __future__ import annotations
 
@@ -200,125 +205,7 @@ def openai_to_anthropic_response(response: ModelResponse) -> dict:
     }
 
 
-def openai_chunk_to_anthropic_chunk(chunk: ModelResponse) -> dict:
-    """Convert OpenAI streaming chunk to Anthropic format.
-
-    Args:
-        chunk: Streaming chunk from LiteLLM
-
-    Returns:
-        Anthropic format chunk
-    """
-    delta = chunk.choices[0].delta  # pyright: ignore TODO: FIX THIS
-
-    # Handle tool calls
-    if hasattr(delta, "tool_calls") and delta.tool_calls:
-        tool_call = delta.tool_calls[0]  # Get first tool call
-        has_id = hasattr(tool_call, "id") and tool_call.id
-        has_args = (
-            hasattr(tool_call, "function") and hasattr(tool_call.function, "arguments") and tool_call.function.arguments
-        )
-
-        # Complete tool call in one chunk (from buffered policy)
-        # Send as content_block_start with the id and name
-        if has_id and has_args:
-            # Mark this chunk so gateway can emit additional events
-            return {
-                "type": "content_block_start",
-                "index": getattr(tool_call, "index", 0),
-                "content_block": {
-                    "type": "tool_use",
-                    "id": tool_call.id,
-                    "name": tool_call.function.name,
-                    "input": {},
-                },
-                "_complete_tool_call": True,  # Internal flag for gateway
-                "_arguments": tool_call.function.arguments,
-            }
-        # Start of tool call (progressive streaming)
-        elif has_id:
-            return {
-                "type": "content_block_start",
-                "index": getattr(tool_call, "index", 0),
-                "content_block": {
-                    "type": "tool_use",
-                    "id": tool_call.id,
-                    "name": tool_call.function.name if hasattr(tool_call, "function") else "",
-                    "input": {},
-                },
-            }
-        # Delta for tool call arguments (progressive streaming)
-        elif has_args:
-            return {
-                "type": "content_block_delta",
-                "index": getattr(tool_call, "index", 0),
-                "delta": {
-                    "type": "input_json_delta",
-                    "partial_json": tool_call.function.arguments,
-                },
-            }
-        # Empty tool call chunk (no id, no args) - emit empty input_json_delta
-        else:
-            return {
-                "type": "content_block_delta",
-                "index": getattr(tool_call, "index", 0),
-                "delta": {
-                    "type": "input_json_delta",
-                    "partial_json": "",
-                },
-            }
-
-    # Handle text content
-    content = delta.content or ""
-    if content:
-        return {
-            "type": "content_block_delta",
-            "delta": {
-                "type": "text_delta",
-                "text": content,
-            },
-        }
-
-    # Handle finish reason (message_delta)
-    finish_reason = chunk.choices[0].finish_reason
-    if finish_reason:
-        # Map OpenAI finish reasons to Anthropic stop reasons
-        stop_reason_map = {
-            "stop": "end_turn",
-            "tool_calls": "tool_use",
-            "length": "max_tokens",
-        }
-
-        # Extract usage from _hidden_params if available
-        usage_dict = {}
-        if hasattr(chunk, "_hidden_params") and "usage" in chunk._hidden_params:
-            usage = chunk._hidden_params["usage"]
-            usage_dict = {
-                "input_tokens": getattr(usage, "prompt_tokens", 0),
-                "output_tokens": getattr(usage, "completion_tokens", 0),
-            }
-
-        return {
-            "type": "message_delta",
-            "delta": {
-                "stop_reason": stop_reason_map.get(finish_reason, finish_reason),
-                "stop_sequence": None,
-            },
-            "usage": usage_dict if usage_dict else {"output_tokens": 0},
-        }
-
-    # Default: empty delta
-    return {
-        "type": "content_block_delta",
-        "delta": {
-            "type": "text_delta",
-            "text": "",
-        },
-    }
-
-
 __all__ = [
     "anthropic_to_openai_request",
     "openai_to_anthropic_response",
-    "openai_chunk_to_anthropic_chunk",
 ]
