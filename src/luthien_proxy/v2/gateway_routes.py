@@ -20,10 +20,10 @@ from opentelemetry import trace
 from luthien_proxy.utils import db
 from luthien_proxy.v2.llm.format_converters import (
     anthropic_to_openai_request,
-    openai_chunk_to_anthropic_chunk,
     openai_to_anthropic_response,
 )
 from luthien_proxy.v2.llm.litellm_client import LiteLLMClient
+from luthien_proxy.v2.llm.streaming_converters import AnthropicStreamStateTracker
 from luthien_proxy.v2.messages import Request as RequestMessage
 from luthien_proxy.v2.observability.context import DefaultObservabilityContext
 from luthien_proxy.v2.observability.redis_event_publisher import RedisEventPublisher
@@ -98,6 +98,7 @@ async def stream_anthropic_sse(
 ) -> AsyncIterator[str]:
     """Stream chunks in Anthropic SSE format."""
     message_started = False
+    tracker = AnthropicStreamStateTracker()
 
     try:
         async for chunk in orchestrator.process_streaming_response(request, call_id, span):
@@ -119,41 +120,13 @@ async def stream_anthropic_sse(
                 }
                 yield f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
 
-            # Convert chunk to Anthropic format
-            anthropic_chunk = openai_chunk_to_anthropic_chunk(chunk)
+            # Convert chunk to Anthropic events using stateful tracker
+            events = tracker.process_chunk(chunk)
 
-            # Handle complete tool calls
-            if isinstance(anthropic_chunk, dict) and anthropic_chunk.get("_complete_tool_call"):
-                # Emit start, delta, and stop events for complete tool call
-                index = anthropic_chunk.get("index", 0)
-
-                start_chunk = {
-                    "type": anthropic_chunk["type"],
-                    "index": index,
-                    "content_block": anthropic_chunk["content_block"],
-                }
-                yield f"event: {start_chunk['type']}\ndata: {json.dumps(start_chunk)}\n\n"
-
-                delta_chunk = {
-                    "type": "content_block_delta",
-                    "index": index,
-                    "delta": {
-                        "type": "input_json_delta",
-                        "partial_json": anthropic_chunk["_arguments"],
-                    },
-                }
-                yield f"event: content_block_delta\ndata: {json.dumps(delta_chunk)}\n\n"
-
-                stop_chunk = {"type": "content_block_stop", "index": index}
-                yield f"event: content_block_stop\ndata: {json.dumps(stop_chunk)}\n\n"
-            else:
-                # Regular chunk
-                event_type = (
-                    anthropic_chunk.get("type", "content_block_delta")
-                    if isinstance(anthropic_chunk, dict)
-                    else "content_block_delta"
-                )
-                yield f"event: {event_type}\ndata: {json.dumps(anthropic_chunk)}\n\n"
+            # Emit all events
+            for event in events:
+                event_type = event.get("type", "content_block_delta")
+                yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
 
         # Send message_stop at end
         message_stop = {"type": "message_stop"}

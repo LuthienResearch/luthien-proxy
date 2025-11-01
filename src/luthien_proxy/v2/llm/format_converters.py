@@ -257,6 +257,16 @@ def openai_chunk_to_anthropic_chunk(chunk: ModelResponse) -> dict:
                     "partial_json": tool_call.function.arguments,
                 },
             }
+        # Empty tool call chunk (no id, no args) - emit empty input_json_delta
+        else:
+            return {
+                "type": "content_block_delta",
+                "index": getattr(tool_call, "index", 0),
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": "",
+                },
+            }
 
     # Handle text content
     content = delta.content or ""
@@ -278,12 +288,23 @@ def openai_chunk_to_anthropic_chunk(chunk: ModelResponse) -> dict:
             "tool_calls": "tool_use",
             "length": "max_tokens",
         }
+
+        # Extract usage from _hidden_params if available
+        usage_dict = {}
+        if hasattr(chunk, "_hidden_params") and "usage" in chunk._hidden_params:
+            usage = chunk._hidden_params["usage"]
+            usage_dict = {
+                "input_tokens": getattr(usage, "prompt_tokens", 0),
+                "output_tokens": getattr(usage, "completion_tokens", 0),
+            }
+
         return {
             "type": "message_delta",
             "delta": {
                 "stop_reason": stop_reason_map.get(finish_reason, finish_reason),
                 "stop_sequence": None,
             },
+            "usage": usage_dict if usage_dict else {"output_tokens": 0},
         }
 
     # Default: empty delta
