@@ -1,5 +1,7 @@
 # Conversation Trace Development Notes
 
+NOTE: These are legacy dev notes and do not accurately reflect the current implementation.
+
 This directory collects the planning documents and post-mortems produced while
 building the conversation trace view and the associated streaming refactor.
 

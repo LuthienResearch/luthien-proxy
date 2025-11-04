@@ -1,6 +1,6 @@
 # Streaming Architecture Documentation
 
-**Status**: Current Implementation
+**Status**: Legacy (current architecutre is significantly different)
 **Last Updated**: 2025-10-06
 **Related Files**:
 - `config/litellm_callback.py`
