@@ -143,6 +143,23 @@ class ToolCallJudgePolicy(Policy):
             f"api_base={self._config.api_base}"
         )
 
+    async def on_content_delta(self, ctx: StreamingResponseContext) -> None:
+        """Forward content deltas as-is.
+
+        Args:
+            ctx: Streaming response context with current chunk
+        """
+        try:
+            current_chunk = ctx.ingress_state.raw_chunks[-1]
+            ctx.egress_queue.put_nowait(current_chunk)
+        except IndexError:
+            ctx.observability.emit_event_nonblocking(
+                "policy.judge.content_delta_no_chunk",
+                {"summary": "No content chunk available to forward in on_content_delta (this shouldn't happen!)"},
+            )
+        except Exception as exc:
+            logger.error(f"Error forwarding content delta: {exc}", exc_info=True)
+
     async def on_tool_call_delta(self, ctx: StreamingResponseContext) -> None:
         """Buffer tool call deltas instead of forwarding them.
 
@@ -240,18 +257,26 @@ class ToolCallJudgePolicy(Policy):
                     blocked_text = message.content if hasattr(message, "content") else ""
 
                     if blocked_text:
-                        # Inject blocked text as content chunk
-                        blocked_chunk = create_text_chunk(str(blocked_text), finish_reason="stop")
-                        # Send blocked chunk to egress
-                        await ctx.egress_queue.put(blocked_chunk)
+                        # Inject blocked text as content chunk (without finish_reason)
+                        blocked_content_chunk = create_text_chunk(str(blocked_text), finish_reason=None)
+                        await ctx.egress_queue.put(blocked_content_chunk)
+
+                        # Then send finish chunk to properly close the stream
+                        finish_chunk = create_text_chunk("", finish_reason="stop")
+                        await ctx.egress_queue.put(finish_chunk)
+
                         logger.info(f"Blocked tool call '{tool_call['name']}' for call {call_id}")
                 else:
-                    # Fallback
-                    blocked_chunk = create_text_chunk(
+                    # Fallback - send blocked message then finish
+                    blocked_content_chunk = create_text_chunk(
                         f"⛔ BLOCKED: Tool call '{tool_call['name']}' rejected by policy",
-                        finish_reason="stop",
+                        finish_reason=None,
                     )
-                    await ctx.egress_queue.put(blocked_chunk)
+                    await ctx.egress_queue.put(blocked_content_chunk)
+
+                    # Then send finish chunk
+                    finish_chunk = create_text_chunk("", finish_reason="stop")
+                    await ctx.egress_queue.put(finish_chunk)
 
                 # Clean up buffered data for this call
                 for k in keys_to_judge:

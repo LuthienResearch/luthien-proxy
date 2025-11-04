@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, cast
 
-from litellm.types.utils import Choices, Message, ModelResponse
+from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
 
 
 @dataclass(frozen=True)
@@ -93,12 +93,16 @@ def create_text_chunk(text: str, model: str = "luthien-policy", finish_reason: s
 
     unique_id = f"policy-chunk-{int(time.time() * 1000)}-{random.randint(1000, 9999)}"
 
+    # Create proper Delta object instead of dict for compatibility
+    delta = Delta(content=text if text else None)
+
+    # Use StreamingChoices for streaming chunks (not Choices which is for non-streaming)
     return ModelResponse(
         id=unique_id,
         choices=[
-            Choices(
+            StreamingChoices(
                 index=0,
-                delta={"content": text} if text else {},
+                delta=delta,
                 finish_reason=finish_reason,
             )
         ],

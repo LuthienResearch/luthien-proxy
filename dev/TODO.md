@@ -4,6 +4,32 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 
 ## High Priority
 
+- [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files:
+  - Support policy override via request header (e.g., `X-Luthien-Policy: noop` or `X-Luthien-Policy: simple`)
+  - Or environment variable override (e.g., `LUTHIEN_TEST_POLICY=noop`)
+  - Or CLI flag for test runner (e.g., `pytest --policy=noop`)
+  - Document testing patterns for different policies
+  - Consider test fixtures that automatically swap policies
+- [ ] **Policy API: Prevent common streaming mistakes** - Make it easier for policy writers to avoid streaming bugs:
+  - Consider base class that auto-forwards chunks by default (opt-in buffering instead of opt-in forwarding)
+  - Provide better helper functions for common patterns (send_content, send_blocked_message, etc.)
+  - Add validation/warnings when policies don't forward chunks
+  - Consider dependency injection for chunk creation to ensure correct types
+- [ ] **Format blocked messages for readability** - Current blocked messages are ugly (backslashes, no newlines). Need to:
+  - Pretty-print JSON tool arguments
+  - Add proper line breaks in explanations
+  - Consider terminal/web formatting differences
+- [ ] **Review and document streaming infrastructure** - Comprehensive review of all streaming-related code for clarity and correctness:
+  - **ToolCallJudgePolicy**: Flow from on_tool_call_delta → buffering → on_tool_call_complete → judging → blocking/allowing
+  - **AnthropicSSEAssembler**: Conversion from OpenAI chunks to Anthropic SSE events, content block lifecycle
+  - **StreamingChunkAssembler**: Chunk aggregation, block detection, state transitions
+  - **StreamingOrchestrator**: Queue management, timeout handling, task coordination
+  - **PolicyOrchestrator**: Integration between policy hooks and streaming pipeline
+  - **Utils (create_text_chunk, create_tool_call_chunk)**: Ensure correct types throughout
+  - Add diagrams or detailed comments explaining state machines and event flows
+  - Document edge cases (incomplete tool calls, judge failures, timeout handling, etc.)
+  - Ensure all helper methods have clear docstrings
+  - Review and expand test coverage for all streaming components
 - [ ] Add security documentation for dynamic policy loading mechanism (V2_POLICY_CONFIG) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
 - [ ] Verify all environment variables are documented in README and .env.example ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
 - [ ] Add max buffer size for chunk storage (synchronous_control_plane.py:220 - unbounded growth) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))

@@ -81,9 +81,13 @@ class TestCreateTextChunk:
         assert chunk.model == "custom-model"
 
     def test_empty_text_creates_empty_delta(self):
-        """Test that empty text creates empty delta."""
+        """Test that empty text creates Delta with None content."""
         chunk = create_text_chunk("")
-        assert chunk.choices[0].delta == {}
+        # Should be a proper Delta object (not dict) with None content
+        from litellm.types.utils import Delta
+
+        assert isinstance(chunk.choices[0].delta, Delta)
+        assert chunk.choices[0].delta.content is None
 
     def test_finish_reason_none_by_default(self):
         """Test that finish_reason is None by default."""
