@@ -58,6 +58,130 @@ class PolicyOrchestrator:
 
         return final_request
 
+    async def _create_policy_callback(
+        self,
+        ctx: StreamingResponseContext,
+        keepalive: Callable[[], None],
+    ) -> Callable:
+        """Create callback for assembler that invokes policy hooks.
+
+        Returns a callback that processes chunks through policy hooks based on
+        stream state (content deltas, tool calls, completion events).
+        """
+        DELTA_HOOKS = {
+            ContentStreamBlock: self.policy.on_content_delta,
+            ToolCallStreamBlock: self.policy.on_tool_call_delta,
+        }
+        COMPLETE_HOOKS = {
+            ContentStreamBlock: self.policy.on_content_complete,
+            ToolCallStreamBlock: self.policy.on_tool_call_complete,
+        }
+
+        async def policy_callback(chunk: ModelResponse, state: StreamState, context):
+            """Called by assembler on each chunk."""
+            keepalive()
+            self.recorder.add_ingress_chunk(chunk)
+            await self.policy.on_chunk_received(ctx)
+
+            if state.current_block:
+                block_type = type(state.current_block)
+                if hook := DELTA_HOOKS.get(block_type):
+                    await hook(ctx)
+
+            if state.just_completed:
+                block_type = type(state.just_completed)
+                if hook := COMPLETE_HOOKS.get(block_type):
+                    await hook(ctx)
+
+            if state.finish_reason:
+                await self.policy.on_finish_reason(ctx)
+
+        return policy_callback
+
+    @staticmethod
+    async def _queue_to_async_iter(queue: asyncio.Queue) -> AsyncIterator:
+        """Convert a queue to an async iterator.
+
+        Yields items from the queue until QueueShutDown is raised.
+        """
+        while True:
+            try:
+                chunk = await queue.get()
+                yield chunk
+            except asyncio.QueueShutDown:
+                break
+
+    async def _feed_assembler(
+        self,
+        incoming_queue: asyncio.Queue,
+        ingress_assembler: StreamingChunkAssembler,
+        ctx: StreamingResponseContext,
+        feed_complete: asyncio.Event,
+    ):
+        """Feed incoming chunks to assembler and notify policy on completion."""
+        try:
+            await ingress_assembler.process(self._queue_to_async_iter(incoming_queue), ctx)
+            await self.policy.on_stream_complete(ctx)
+        finally:
+            feed_complete.set()
+
+    async def _drain_egress(
+        self,
+        egress_queue: asyncio.Queue,
+        outgoing_queue: asyncio.Queue,
+        feed_complete: asyncio.Event,
+        keepalive: Callable[[], None],
+    ):
+        """Drain egress queue and forward chunks to outgoing queue.
+
+        Waits for chunks with timeout, and when feed is complete, drains any
+        remaining chunks before shutting down the outgoing queue.
+        """
+        while True:
+            try:
+                chunk = await asyncio.wait_for(egress_queue.get(), timeout=0.1)
+                self.recorder.add_egress_chunk(chunk)
+                await outgoing_queue.put(chunk)
+                keepalive()
+            except asyncio.TimeoutError:
+                if feed_complete.is_set():
+                    # Drain remaining chunks
+                    while not egress_queue.empty():
+                        try:
+                            chunk = egress_queue.get_nowait()
+                            self.recorder.add_egress_chunk(chunk)
+                            await outgoing_queue.put(chunk)
+                            keepalive()
+                        except asyncio.QueueEmpty:
+                            break
+                    break
+
+        await outgoing_queue.put(None)
+        outgoing_queue.shutdown()
+
+    async def _policy_processor(
+        self,
+        incoming_queue: asyncio.Queue,
+        outgoing_queue: asyncio.Queue,
+        keepalive: Callable[[], None],
+        ctx: StreamingResponseContext,
+        egress_queue: asyncio.Queue,
+        feed_complete: asyncio.Event,
+    ):
+        """Orchestrate policy processing of streaming chunks.
+
+        Sets up assembler with policy callback, then runs feed and drain tasks
+        concurrently.
+        """
+        policy_callback = await self._create_policy_callback(ctx, keepalive)
+        ingress_assembler = StreamingChunkAssembler(on_chunk_callback=policy_callback)
+        ctx.ingress_assembler = ingress_assembler
+
+        await asyncio.gather(
+            self._feed_assembler(incoming_queue, ingress_assembler, ctx, feed_complete),
+            self._drain_egress(egress_queue, outgoing_queue, feed_complete, keepalive),
+        )
+
     async def process_streaming_response(
         self, request: Request, transaction_id: str, span: Span
     ) -> AsyncIterator[ModelResponse]:
@@ -81,79 +205,8 @@ class PolicyOrchestrator:
             outgoing_queue: asyncio.Queue,
             keepalive: Callable[[], None],
         ):
-            """Process chunks through policy."""
-            DELTA_HOOKS = {
-                ContentStreamBlock: self.policy.on_content_delta,
-                ToolCallStreamBlock: self.policy.on_tool_call_delta,
-            }
-            COMPLETE_HOOKS = {
-                ContentStreamBlock: self.policy.on_content_complete,
-                ToolCallStreamBlock: self.policy.on_tool_call_complete,
-            }
-
-            async def policy_callback(chunk: ModelResponse, state: StreamState, context):
-                """Called by assembler on each chunk."""
-                keepalive()
-                self.recorder.add_ingress_chunk(chunk)
-                await self.policy.on_chunk_received(ctx)
-
-                if state.current_block:
-                    block_type = type(state.current_block)
-                    if hook := DELTA_HOOKS.get(block_type):
-                        await hook(ctx)
-
-                if state.just_completed:
-                    block_type = type(state.just_completed)
-                    if hook := COMPLETE_HOOKS.get(block_type):
-                        await hook(ctx)
-
-                if state.finish_reason:
-                    await self.policy.on_finish_reason(ctx)
-
-            ingress_assembler = StreamingChunkAssembler(on_chunk_callback=policy_callback)
-            ctx.ingress_assembler = ingress_assembler
-
-            async def feed_assembler():
-                """Feed incoming chunks to assembler."""
-
-                async def queue_to_iter():
-                    while True:
-                        try:
-                            chunk = await incoming_queue.get()
-                            yield chunk
-                        except asyncio.QueueShutDown:
-                            break
-
-                try:
-                    await ingress_assembler.process(queue_to_iter(), ctx)
-                    await self.policy.on_stream_complete(ctx)
-                finally:
-                    feed_complete.set()
-
-            async def drain_egress():
-                """Drain egress queue and forward to outgoing."""
-                while True:
-                    try:
-                        chunk = await asyncio.wait_for(egress_queue.get(), timeout=0.1)
-                        self.recorder.add_egress_chunk(chunk)
-                        await outgoing_queue.put(chunk)
-                        keepalive()
-                    except asyncio.TimeoutError:
-                        if feed_complete.is_set():
-                            while not egress_queue.empty():
-                                try:
-                                    chunk = egress_queue.get_nowait()
-                                    self.recorder.add_egress_chunk(chunk)
-                                    await outgoing_queue.put(chunk)
-                                    keepalive()
-                                except asyncio.QueueEmpty:
-                                    break
-                            break
-
-                await outgoing_queue.put(None)
-                outgoing_queue.shutdown()
-
-            await asyncio.gather(feed_assembler(), drain_egress())
+            """Wrapper to call _policy_processor with captured state."""
+            await self._policy_processor(incoming_queue, outgoing_queue, keepalive, ctx, egress_queue, feed_complete)
 
         try:
             async for chunk in self.streaming_orchestrator.process(
