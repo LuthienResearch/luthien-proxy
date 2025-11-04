@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from luthien_proxy.v2.policies.policy import Policy
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
     from luthien_proxy.v2.streaming.streaming_response_context import (
         StreamingResponseContext,
     )
+
+logger = logging.getLogger(__name__)
 
 
 class SimplePolicy(Policy):
@@ -50,17 +53,15 @@ class SimplePolicy(Policy):
         return await self.on_request_simple(request)
 
     async def on_content_complete(self, ctx: StreamingResponseContext) -> None:
-        """Transform content and emit.
-
-        Raises:
-            RuntimeError: If just_completed is None (indicates orchestrator bug)
-        """
+        """Transform content and emit."""
         # Get the completed content block
         if ctx.ingress_state.just_completed is None:
-            raise RuntimeError("on_content_complete called but just_completed is None - this should not happen")
+            logger.error("ingress_state.just_completed is None in on_content_complete")
+            return
 
         block = ctx.ingress_state.just_completed
         if not isinstance(block, ContentStreamBlock):
+            logger.error("ingress_state.just_completed is not ContentStreamBlock in on_content_complete")
             return
 
         content = block.content
