@@ -40,6 +40,8 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 - [ ] Consolidate/organize utility/helper functions (see policies/utils.py)
 - [ ] move `litellm.drop_params = True` somewhere sensible
 - [ ] thinking and verbosity model flags not respected
+- [ ] write SimpleToolCallJudge policy for pedagogical purposes
+- [ ] improve docstrings for SimplePolicy
 
 ## Medium Priority
 
