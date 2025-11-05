@@ -9,6 +9,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+import litellm
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -49,6 +50,10 @@ def create_app(
         """Manage application lifespan: startup and shutdown."""
         # Startup
         logger.info("Starting Luthien V2 Gateway...")
+
+        # Configure litellm globally (moved from policy file to prevent import side effects)
+        litellm.drop_params = True
+        logger.info("Configured litellm: drop_params=True")
 
         # Initialize OpenTelemetry
         setup_telemetry(app)
