@@ -10,21 +10,21 @@ from typing import Any, AsyncIterator
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.v2.streaming.policy_executor.interface import (
+    PolicyExecutorProtocol,
+)
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 from luthien_proxy.v2.streaming.stream_blocks import (
     ContentStreamBlock,
     ToolCallStreamBlock,
 )
-from luthien_proxy.v2.streaming.stream_state import StreamState
 from luthien_proxy.v2.streaming.streaming_chunk_assembler import (
     StreamingChunkAssembler,
 )
-from luthien_proxy.v2.streaming.streaming_response_context import (
-    StreamingResponseContext,
-)
+from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 
-class PolicyExecutor:
+class PolicyExecutor(PolicyExecutorProtocol):
     """Policy executor with keepalive-based timeout monitoring.
 
     Implements PolicyExecutorProtocol.
@@ -83,11 +83,7 @@ class PolicyExecutor:
         This method:
         1. Reads chunks from input_stream
         2. Feeds them to BlockAssembler to build partial/complete blocks
-        3. Invokes policy hooks at appropriate moments:
-           - on_chunk_added: When a new chunk is added to a block
-           - on_block_complete: When a block is fully assembled
-           - on_tool_block_complete: When a tool use block completes
-           - etc.
+        3. Invokes policy hooks at appropriate moments
         4. Writes policy-approved chunks to output_queue
         5. Monitors for timeout (if configured), checking keepalive
 
@@ -101,62 +97,26 @@ class PolicyExecutor:
             PolicyTimeoutError: If processing exceeds timeout without keepalive
             Exception: On policy errors or assembly failures
         """
-        # Step 3: Add policy hook invocations based on stream state
-        # Define hook mappings based on block type
-        DELTA_HOOKS = {
-            ContentStreamBlock: self.policy.on_content_delta,
-            ToolCallStreamBlock: self.policy.on_tool_call_delta,
-        }
-        COMPLETE_HOOKS = {
-            ContentStreamBlock: self.policy.on_content_complete,
-            ToolCallStreamBlock: self.policy.on_tool_call_complete,
-        }
-
-        # Create a minimal StreamingResponseContext for policy hooks
-        # This will be replaced with proper context in Step 5
+        # Create egress queue for policies to write to
         egress_queue: asyncio.Queue[ModelResponse] = asyncio.Queue()
-        streaming_ctx = StreamingResponseContext(
-            transaction_id=policy_ctx.transaction_id,
-            final_request=None,  # Will be added in Step 5
-            ingress_assembler=None,  # Set below
+
+        # Create assembler - we'll pass the callback shortly
+        # The assembler owns the state, so we create it first
+        async def placeholder(*args):
+            pass
+
+        assembler = StreamingChunkAssembler(on_chunk_callback=placeholder)
+
+        # Create streaming policy context
+        streaming_ctx = StreamingPolicyContext(
+            policy_ctx=policy_ctx,
             egress_queue=egress_queue,
-            scratchpad=policy_ctx.scratchpad,
+            original_streaming_response_state=assembler.state,
             observability=obs_ctx,
         )
 
-        # Create callback that will be invoked by assembler on each chunk
-        async def assembler_callback(chunk: ModelResponse, state: StreamState, context: Any) -> None:
-            """Called by assembler for each chunk after state update.
-
-            Invokes policy hooks based on stream state, then forwards chunk.
-            """
-            self.keepalive()  # Update activity timestamp
-
-            # Call on_chunk_received for every chunk
-            await self.policy.on_chunk_received(streaming_ctx)
-
-            # Call delta hook if current block exists
-            if state.current_block:
-                block_type = type(state.current_block)
-                if hook := DELTA_HOOKS.get(block_type):
-                    await hook(streaming_ctx)
-
-            # Call complete hook if block just completed
-            if state.just_completed:
-                block_type = type(state.just_completed)
-                if hook := COMPLETE_HOOKS.get(block_type):
-                    await hook(streaming_ctx)
-
-            # Call finish_reason hook when present
-            if state.finish_reason:
-                await self.policy.on_finish_reason(streaming_ctx)
-
-            # Forward chunk to output queue
-            await output_queue.put(chunk)
-
-        # Create assembler with our callback
-        assembler = StreamingChunkAssembler(on_chunk_callback=assembler_callback)
-        streaming_ctx.ingress_assembler = assembler  # Set assembler in context
+        # Now set the real callback that uses the context
+        assembler.on_chunk = self._create_chunk_callback(streaming_ctx, output_queue)
 
         try:
             # Feed chunks to assembler - it will call our callback for each one
@@ -167,6 +127,66 @@ class PolicyExecutor:
         finally:
             # Signal end of stream with None sentinel
             await output_queue.put(None)
+
+    def _create_chunk_callback(
+        self,
+        streaming_ctx: StreamingPolicyContext,
+        output_queue: asyncio.Queue[ModelResponse],
+    ):
+        """Create callback for assembler to invoke on each chunk.
+
+        Args:
+            streaming_ctx: Streaming policy context for hook invocations
+            output_queue: Queue to write chunks to after policy processing
+
+        Returns:
+            Async callback function
+        """
+
+        async def on_chunk(chunk: ModelResponse, state: Any, context: Any) -> None:
+            """Called by assembler for each chunk after state update.
+
+            Invokes policy hooks based on stream state, then drains egress queue.
+            """
+            self.keepalive()  # Update activity timestamp
+
+            # Call on_chunk_received for every chunk
+            await self.policy.on_chunk_received(streaming_ctx)
+
+            # Call delta hooks if current block exists
+            if state.current_block:
+                if isinstance(state.current_block, ContentStreamBlock):
+                    await self.policy.on_content_delta(streaming_ctx)
+                elif isinstance(state.current_block, ToolCallStreamBlock):
+                    await self.policy.on_tool_call_delta(streaming_ctx)
+
+            # Call complete hooks if block just completed
+            if state.just_completed:
+                if isinstance(state.just_completed, ContentStreamBlock):
+                    await self.policy.on_content_complete(streaming_ctx)
+                elif isinstance(state.just_completed, ToolCallStreamBlock):
+                    await self.policy.on_tool_call_complete(streaming_ctx)
+
+            # Call finish_reason hook when present
+            if state.finish_reason:
+                await self.policy.on_finish_reason(streaming_ctx)
+
+            # Drain egress queue (policy-approved chunks) to output
+            # If policy didn't write anything, forward the original chunk
+            emitted_count = 0
+            while not streaming_ctx.egress_queue.empty():
+                try:
+                    policy_chunk = streaming_ctx.egress_queue.get_nowait()
+                    await output_queue.put(policy_chunk)
+                    emitted_count += 1
+                except asyncio.QueueEmpty:
+                    break
+
+            # If policy didn't emit anything, forward original chunk
+            if emitted_count == 0:
+                await output_queue.put(chunk)
+
+        return on_chunk
 
     async def _monitor_timeout(self, obs_ctx: ObservabilityContext) -> None:
         """Monitor policy execution time and raise on timeout.

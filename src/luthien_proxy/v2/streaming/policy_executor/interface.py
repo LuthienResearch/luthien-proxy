@@ -18,20 +18,7 @@ class PolicyExecutorProtocol(Protocol):
     Implementations handle:
     - Block assembly from incoming ModelResponse stream
     - Policy hook invocation at key moments
-    - Timeout monitoring (implementation-specific)
-    - Keepalive signaling from policies
-
-    All processing happens with ModelResponse objects in common format.
     """
-
-    def keepalive(self) -> None:
-        """Signal that policy is actively working.
-
-        Policies call this during long-running operations (e.g., waiting
-        for trusted monitor response) to prevent timeout. Implementation
-        determines how this affects timeout monitoring.
-        """
-        ...
 
     async def process(
         self,
@@ -56,7 +43,6 @@ class PolicyExecutorProtocol(Protocol):
             obs_ctx: Observability context for tracing
 
         Raises:
-            PolicyTimeoutError: If processing exceeds timeout
             Exception: On policy errors or assembly failures
         """
         ...
