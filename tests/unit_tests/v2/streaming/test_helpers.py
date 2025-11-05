@@ -17,9 +17,8 @@ from luthien_proxy.v2.streaming.helpers import (
     send_text,
     send_tool_call,
 )
-from luthien_proxy.v2.streaming.streaming_response_context import (
-    StreamingResponseContext,
-)
+from luthien_proxy.v2.streaming.protocol import PolicyContext
+from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 
 @pytest.fixture
@@ -36,23 +35,22 @@ def sample_chunk():
 
 @pytest.fixture
 def streaming_context():
-    """Create a streaming context with assembler."""
-    from luthien_proxy.v2.streaming.streaming_chunk_assembler import (
-        StreamingChunkAssembler,
-    )
+    """Create a streaming context."""
+    from luthien_proxy.v2.streaming.stream_state import StreamState
 
-    async def dummy_callback(chunk, state, ctx):
-        pass
-
-    assembler = StreamingChunkAssembler(on_chunk_callback=dummy_callback)
     mock_span = Mock(spec=Span)
 
-    ctx = StreamingResponseContext(
+    # Create PolicyContext
+    policy_ctx = PolicyContext(
         transaction_id="test-123",
-        final_request=Request(model="gpt-4", messages=[]),
-        ingress_assembler=assembler,
+        request=Request(model="gpt-4", messages=[]),
+    )
+
+    # Create StreamingPolicyContext
+    ctx = StreamingPolicyContext(
+        policy_ctx=policy_ctx,
         egress_queue=asyncio.Queue(),
-        scratchpad={},
+        original_streaming_response_state=StreamState(),
         observability=NoOpObservabilityContext("test-123", mock_span),
     )
     return ctx
@@ -90,7 +88,7 @@ async def test_get_last_ingress_chunk(streaming_context, sample_chunk):
     assert get_last_ingress_chunk(streaming_context) is None
 
     # Add chunks
-    streaming_context.ingress_state.raw_chunks.append(sample_chunk)
+    streaming_context.original_streaming_response_state.raw_chunks.append(sample_chunk)
     assert get_last_ingress_chunk(streaming_context) == sample_chunk
 
     # Add another
@@ -101,14 +99,14 @@ async def test_get_last_ingress_chunk(streaming_context, sample_chunk):
         model="gpt-4",
         choices=[{"index": 0, "delta": {"content": " world"}, "finish_reason": None}],
     )
-    streaming_context.ingress_state.raw_chunks.append(chunk2)
+    streaming_context.original_streaming_response_state.raw_chunks.append(chunk2)
     assert get_last_ingress_chunk(streaming_context) == chunk2
 
 
 @pytest.mark.asyncio
 async def test_passthrough_last_chunk(streaming_context, sample_chunk):
     """Test passthrough of last chunk."""
-    streaming_context.ingress_state.raw_chunks.append(sample_chunk)
+    streaming_context.original_streaming_response_state.raw_chunks.append(sample_chunk)
 
     await passthrough_last_chunk(streaming_context)
 
@@ -132,10 +130,10 @@ async def test_passthrough_accumulated_chunks(streaming_context):
 
     # Add all chunks
     for chunk in chunks:
-        streaming_context.ingress_state.raw_chunks.append(chunk)
+        streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
 
     # Set emission index to 0
-    streaming_context.ingress_state.last_emission_index = 0
+    streaming_context.original_streaming_response_state.last_emission_index = 0
 
     # Passthrough
     await passthrough_accumulated_chunks(streaming_context)
@@ -146,7 +144,7 @@ async def test_passthrough_accumulated_chunks(streaming_context):
         assert emitted.choices[0]["delta"]["content"] == f"chunk{i}"
 
     # Verify emission index updated
-    assert streaming_context.ingress_state.last_emission_index == 3
+    assert streaming_context.original_streaming_response_state.last_emission_index == 3
 
 
 @pytest.mark.asyncio
@@ -165,10 +163,10 @@ async def test_passthrough_accumulated_chunks_from_middle(streaming_context):
 
     # Add all chunks
     for chunk in chunks:
-        streaming_context.ingress_state.raw_chunks.append(chunk)
+        streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
 
     # Set emission index to 2 (already emitted first 2)
-    streaming_context.ingress_state.last_emission_index = 2
+    streaming_context.original_streaming_response_state.last_emission_index = 2
 
     # Passthrough
     await passthrough_accumulated_chunks(streaming_context)
@@ -182,7 +180,7 @@ async def test_passthrough_accumulated_chunks_from_middle(streaming_context):
     assert streaming_context.egress_queue.empty()
 
     # Verify emission index updated
-    assert streaming_context.ingress_state.last_emission_index == 5
+    assert streaming_context.original_streaming_response_state.last_emission_index == 5
 
 
 @pytest.mark.asyncio

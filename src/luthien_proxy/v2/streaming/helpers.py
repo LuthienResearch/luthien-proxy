@@ -11,12 +11,12 @@ if TYPE_CHECKING:
     from litellm.types.utils import ChatCompletionMessageToolCall as ToolCall
     from litellm.types.utils import ModelResponse
 
-    from luthien_proxy.v2.streaming.streaming_response_context import (
-        StreamingResponseContext,
+    from luthien_proxy.v2.streaming.streaming_policy_context import (
+        StreamingPolicyContext,
     )
 
 
-async def send_text(ctx: StreamingResponseContext, text: str) -> None:
+async def send_text(ctx: StreamingPolicyContext, text: str) -> None:
     """Send text chunk to egress."""
     if not text:
         raise ValueError("text must be non-empty")
@@ -27,39 +27,39 @@ async def send_text(ctx: StreamingResponseContext, text: str) -> None:
     await ctx.egress_queue.put(chunk)
 
 
-async def send_chunk(ctx: StreamingResponseContext, chunk: ModelResponse) -> None:
+async def send_chunk(ctx: StreamingPolicyContext, chunk: ModelResponse) -> None:
     """Send chunk to egress."""
     await ctx.egress_queue.put(chunk)
 
 
-def get_last_ingress_chunk(ctx: StreamingResponseContext) -> ModelResponse | None:
+def get_last_ingress_chunk(ctx: StreamingPolicyContext) -> ModelResponse | None:
     """Get most recent ingress chunk."""
-    chunks = ctx.ingress_state.raw_chunks
+    chunks = ctx.original_streaming_response_state.raw_chunks
     return chunks[-1] if chunks else None
 
 
-async def passthrough_last_chunk(ctx: StreamingResponseContext) -> None:
+async def passthrough_last_chunk(ctx: StreamingPolicyContext) -> None:
     """Passthrough most recent ingress chunk to egress."""
     chunk = get_last_ingress_chunk(ctx)
     if chunk:
         await send_chunk(ctx, chunk)
 
 
-async def passthrough_accumulated_chunks(ctx: StreamingResponseContext) -> None:
+async def passthrough_accumulated_chunks(ctx: StreamingPolicyContext) -> None:
     """Emit all chunks buffered since last emission.
 
     Preserves original chunk timing when content unchanged.
     """
-    start_idx = ctx.ingress_state.last_emission_index
-    chunks = ctx.ingress_state.raw_chunks[start_idx:]
+    start_idx = ctx.original_streaming_response_state.last_emission_index
+    chunks = ctx.original_streaming_response_state.raw_chunks[start_idx:]
 
     for chunk in chunks:
         await send_chunk(ctx, chunk)
 
-    ctx.ingress_state.last_emission_index = len(ctx.ingress_state.raw_chunks)
+    ctx.original_streaming_response_state.last_emission_index = len(ctx.original_streaming_response_state.raw_chunks)
 
 
-async def send_tool_call(ctx: StreamingResponseContext, tool_call: ToolCall) -> None:
+async def send_tool_call(ctx: StreamingPolicyContext, tool_call: ToolCall) -> None:
     """Send complete tool call as chunk."""
     from luthien_proxy.v2.policies.utils import create_tool_call_chunk
 

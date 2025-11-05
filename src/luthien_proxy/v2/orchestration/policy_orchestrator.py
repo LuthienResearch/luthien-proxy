@@ -1,4 +1,4 @@
-# ABOUTME: PolicyOrchestrator orchestrates request/response flow through policy layer
+# ABOUTME: DEPRECATED. Look at policy_orchestrator_new.py instead. PolicyOrchestrator orchestrates request/response flow through policy layer
 # ABOUTME: Handles both streaming and non-streaming responses with observability and recording
 
 """Module docstring."""

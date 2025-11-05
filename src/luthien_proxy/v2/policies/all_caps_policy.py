@@ -24,7 +24,9 @@ if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse, StreamingChoices
 
     from luthien_proxy.v2.policies.policy import PolicyContext
-    from luthien_proxy.v2.streaming.streaming_response_context import StreamingResponseContext
+    from luthien_proxy.v2.streaming.streaming_policy_context import (
+        StreamingPolicyContext,
+    )
 
 from litellm.types.utils import Choices
 
@@ -45,16 +47,16 @@ class AllCapsPolicy(Policy):
         self._total_chars_converted = 0
         logger.info("AllCapsPolicy initialized")
 
-    async def on_content_delta(self, ctx: StreamingResponseContext) -> None:
+    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
         """Convert content delta to uppercase.
 
         Args:
-            ctx: Streaming response context with current chunk
+            ctx: Streaming policy context with current chunk
         """
         # Get current content delta from most recent chunk
-        if not ctx.ingress_state.raw_chunks:
+        if not ctx.original_streaming_response_state.raw_chunks:
             return
-        current_chunk = ctx.ingress_state.raw_chunks[-1]
+        current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
         if not current_chunk.choices:
             return
 

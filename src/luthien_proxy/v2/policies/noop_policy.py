@@ -12,7 +12,7 @@ from litellm.types.utils import ModelResponse
 if TYPE_CHECKING:
     from luthien_proxy.v2.messages import Request
     from luthien_proxy.v2.policies.policy import PolicyContext
-    from luthien_proxy.v2.streaming.streaming_response_context import StreamingResponseContext
+    from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 from luthien_proxy.v2.policies.policy import Policy
 
@@ -26,9 +26,9 @@ class NoOpPolicy(Policy):
         """Process request before sending to LLM."""
         return request
 
-    async def on_chunk_received(self, ctx: StreamingResponseContext) -> None:
+    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
         """Called on every chunk."""
-        ctx.egress_queue.put_nowait(ctx.ingress_state.raw_chunks[-1])
+        ctx.egress_queue.put_nowait(ctx.original_streaming_response_state.raw_chunks[-1])
 
     async def process_full_response(self, response, context) -> ModelResponse:
         """Process full response after receiving from LLM."""

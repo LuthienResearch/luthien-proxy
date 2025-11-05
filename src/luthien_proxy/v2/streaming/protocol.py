@@ -7,7 +7,12 @@ This module defines PolicyContext, which provides shared mutable state
 that persists across the entire request/response lifecycle.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from luthien_proxy.v2.messages import Request
 
 
 class PolicyContext:
@@ -27,13 +32,15 @@ class PolicyContext:
     code within a single request handler.
     """
 
-    def __init__(self, transaction_id: str) -> None:
+    def __init__(self, transaction_id: str, request: Request | None = None) -> None:
         """Initialize policy context for a request.
 
         Args:
             transaction_id: Unique identifier for this request/response cycle
+            request: Optional original request for policies that need it
         """
         self.transaction_id = transaction_id
+        self.request = request
         self._scratchpad: dict[str, Any] = {}
 
     @property

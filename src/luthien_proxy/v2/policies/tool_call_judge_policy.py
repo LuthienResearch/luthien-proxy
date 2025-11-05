@@ -38,7 +38,7 @@ from litellm.types.utils import Choices, ModelResponse, StreamingChoices
 if TYPE_CHECKING:
     from luthien_proxy.v2.observability.context import ObservabilityContext
     from luthien_proxy.v2.policies.policy import PolicyContext
-    from luthien_proxy.v2.streaming.streaming_response_context import StreamingResponseContext
+    from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 from luthien_proxy.v2.policies.policy import Policy
 from luthien_proxy.v2.policies.utils import (
@@ -143,14 +143,14 @@ class ToolCallJudgePolicy(Policy):
             f"api_base={self._config.api_base}"
         )
 
-    async def on_content_delta(self, ctx: StreamingResponseContext) -> None:
+    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
         """Forward content deltas as-is.
 
         Args:
             ctx: Streaming response context with current chunk
         """
         try:
-            current_chunk = ctx.ingress_state.raw_chunks[-1]
+            current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
             ctx.egress_queue.put_nowait(current_chunk)
         except IndexError:
             ctx.observability.emit_event_nonblocking(
@@ -160,15 +160,15 @@ class ToolCallJudgePolicy(Policy):
         except Exception as exc:
             logger.error(f"Error forwarding content delta: {exc}", exc_info=True)
 
-    async def on_tool_call_delta(self, ctx: StreamingResponseContext) -> None:
+    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
         """Buffer tool call deltas instead of forwarding them.
 
         Args:
             ctx: Streaming response context with current chunk
         """
-        if not ctx.ingress_state.raw_chunks:
+        if not ctx.original_streaming_response_state.raw_chunks:
             return
-        current_chunk = ctx.ingress_state.raw_chunks[-1]
+        current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
         if not current_chunk.choices:
             return
 
@@ -181,7 +181,7 @@ class ToolCallJudgePolicy(Policy):
             return
 
         # Buffer the tool call delta
-        call_id = ctx.transaction_id
+        call_id = ctx.policy_ctx.transaction_id
         for tc_delta in delta.tool_calls:
             # Get tool call index
             tc_index = tc_delta.index if hasattr(tc_delta, "index") else 0
@@ -213,13 +213,13 @@ class ToolCallJudgePolicy(Policy):
         # Clear the tool_calls from delta to prevent forwarding
         delta.tool_calls = None
 
-    async def on_tool_call_complete(self, ctx: StreamingResponseContext) -> None:
+    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
         """Judge complete tool call and decide whether to forward or block.
 
         Args:
             ctx: Streaming response context
         """
-        call_id = ctx.transaction_id
+        call_id = ctx.policy_ctx.transaction_id
 
         # Check if this call has already been blocked
         if call_id in self._blocked_calls:
