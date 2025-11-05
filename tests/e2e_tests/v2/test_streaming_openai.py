@@ -31,13 +31,6 @@ async def test_streaming_openai_with_uppercase_policy():
     policy = UppercasePolicy()
     llm_client = LiteLLMClient()
 
-    orchestrator = PolicyOrchestrator(
-        policy=policy,
-        llm_client=llm_client,
-        observability=NoOpObservabilityContext(transaction_id="test-e2e"),
-        recorder=NoOpTransactionRecorder(),
-    )
-
     request = Request(
         model="gpt-3.5-turbo",
         messages=[{"role": "user", "content": "Say hello in 3 words"}],
@@ -46,6 +39,12 @@ async def test_streaming_openai_with_uppercase_policy():
 
     # Process request
     with tracer.start_as_current_span("test_streaming_openai") as span:
+        orchestrator = PolicyOrchestrator(
+            policy=policy,
+            llm_client=llm_client,
+            observability=NoOpObservabilityContext(transaction_id="test-e2e", span=span),
+            recorder=NoOpTransactionRecorder(),
+        )
         final_request = await orchestrator.process_request(request, "test-txn-streaming-openai", span)
 
         # Verify request passed through unchanged
@@ -87,13 +86,6 @@ async def test_streaming_openai_passthrough():
     policy = PassthroughPolicy()
     llm_client = LiteLLMClient()
 
-    orchestrator = PolicyOrchestrator(
-        policy=policy,
-        llm_client=llm_client,
-        observability=NoOpObservabilityContext(transaction_id="test-e2e"),
-        recorder=NoOpTransactionRecorder(),
-    )
-
     request = Request(
         model="gpt-3.5-turbo",
         messages=[{"role": "user", "content": "Say hello"}],
@@ -102,6 +94,12 @@ async def test_streaming_openai_passthrough():
 
     # Process request
     with tracer.start_as_current_span("test_streaming_openai_passthrough") as span:
+        orchestrator = PolicyOrchestrator(
+            policy=policy,
+            llm_client=llm_client,
+            observability=NoOpObservabilityContext(transaction_id="test-e2e", span=span),
+            recorder=NoOpTransactionRecorder(),
+        )
         final_request = await orchestrator.process_request(request, "test-txn-streaming-passthrough", span)
 
         # Process streaming response

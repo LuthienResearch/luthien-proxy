@@ -16,7 +16,9 @@ from luthien_proxy.v2.llm.client import LLMClient
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import TransactionRecorder
-from luthien_proxy.v2.policies.policy import Policy, PolicyContext
+from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.policy import PolicyContext as OldPolicyContext
+from luthien_proxy.v2.streaming.protocol import PolicyContext
 from luthien_proxy.v2.streaming.stream_blocks import (
     ContentStreamBlock,
     ToolCallStreamBlock,
@@ -26,6 +28,9 @@ from luthien_proxy.v2.streaming.streaming_chunk_assembler import (
     StreamingChunkAssembler,
 )
 from luthien_proxy.v2.streaming.streaming_orchestrator import StreamingOrchestrator
+from luthien_proxy.v2.streaming.streaming_policy_context import (
+    StreamingPolicyContext,
+)
 from luthien_proxy.v2.streaming.streaming_response_context import (
     StreamingResponseContext,
 )
@@ -52,7 +57,7 @@ class PolicyOrchestrator:
 
     async def process_request(self, request: Request, transaction_id: str, span: Span) -> Request:
         """Apply policy to request, record original + final."""
-        context = PolicyContext(call_id=transaction_id, span=span, request=request, observability=self.observability)
+        context = OldPolicyContext(call_id=transaction_id, span=span, request=request, observability=self.observability)
         final_request = await self.policy.on_request(request, context)
         await self.recorder.record_request(request, final_request)
 
@@ -81,20 +86,35 @@ class PolicyOrchestrator:
             """Called by assembler on each chunk."""
             keepalive()
             self.recorder.add_ingress_chunk(chunk)
-            await self.policy.on_chunk_received(ctx)
+
+            # Convert StreamingResponseContext to StreamingPolicyContext for policy hooks
+            policy_ctx_obj = PolicyContext(
+                transaction_id=ctx.transaction_id,
+                request=ctx.final_request,
+            )
+            # Copy scratchpad data if any exists
+            policy_ctx_obj.scratchpad.update(ctx.scratchpad)
+            streaming_policy_ctx = StreamingPolicyContext(
+                policy_ctx=policy_ctx_obj,
+                egress_queue=ctx.egress_queue,
+                original_streaming_response_state=state,
+                observability=ctx.observability,
+            )
+
+            await self.policy.on_chunk_received(streaming_policy_ctx)
 
             if state.current_block:
                 block_type = type(state.current_block)
                 if hook := DELTA_HOOKS.get(block_type):
-                    await hook(ctx)
+                    await hook(streaming_policy_ctx)
 
             if state.just_completed:
                 block_type = type(state.just_completed)
                 if hook := COMPLETE_HOOKS.get(block_type):
-                    await hook(ctx)
+                    await hook(streaming_policy_ctx)
 
             if state.finish_reason:
-                await self.policy.on_finish_reason(ctx)
+                await self.policy.on_finish_reason(streaming_policy_ctx)
 
         return policy_callback
 
@@ -121,7 +141,21 @@ class PolicyOrchestrator:
         """Feed incoming chunks to assembler and notify policy on completion."""
         try:
             await ingress_assembler.process(self._queue_to_async_iter(incoming_queue), ctx)
-            await self.policy.on_stream_complete(ctx)
+
+            # Convert to StreamingPolicyContext for on_stream_complete
+            policy_ctx_obj = PolicyContext(
+                transaction_id=ctx.transaction_id,
+                request=ctx.final_request,
+            )
+            # Copy scratchpad data if any exists
+            policy_ctx_obj.scratchpad.update(ctx.scratchpad)
+            streaming_policy_ctx = StreamingPolicyContext(
+                policy_ctx=policy_ctx_obj,
+                egress_queue=ctx.egress_queue,
+                original_streaming_response_state=ingress_assembler.state,
+                observability=ctx.observability,
+            )
+            await self.policy.on_stream_complete(streaming_policy_ctx)
         finally:
             feed_complete.set()
 
@@ -220,7 +254,7 @@ class PolicyOrchestrator:
         """Process non-streaming response through policy."""
         original_response = await self.llm_client.complete(request)
 
-        context = PolicyContext(call_id=transaction_id, span=span, request=request, observability=self.observability)
+        context = OldPolicyContext(call_id=transaction_id, span=span, request=request, observability=self.observability)
         final_response = await self.policy.process_full_response(original_response, context)
 
         await self.recorder.finalize_non_streaming(original_response, final_response)

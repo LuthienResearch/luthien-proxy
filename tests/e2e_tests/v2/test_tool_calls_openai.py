@@ -29,13 +29,6 @@ async def test_tool_calls_openai_streaming():
     policy = PassthroughPolicy()
     llm_client = LiteLLMClient()
 
-    orchestrator = PolicyOrchestrator(
-        policy=policy,
-        llm_client=llm_client,
-        observability=NoOpObservabilityContext(transaction_id="test-e2e"),
-        recorder=NoOpTransactionRecorder(),
-    )
-
     # Define a simple tool
     tools = [
         {
@@ -66,6 +59,12 @@ async def test_tool_calls_openai_streaming():
 
     # Process request
     with tracer.start_as_current_span("test_tool_calls_openai") as span:
+        orchestrator = PolicyOrchestrator(
+            policy=policy,
+            llm_client=llm_client,
+            observability=NoOpObservabilityContext(transaction_id="test-e2e", span=span),
+            recorder=NoOpTransactionRecorder(),
+        )
         final_request = await orchestrator.process_request(request, "test-txn-tool-calls-openai", span)
 
         # Process streaming response
@@ -104,13 +103,6 @@ async def test_tool_calls_openai_non_streaming():
     policy = PassthroughPolicy()
     llm_client = LiteLLMClient()
 
-    orchestrator = PolicyOrchestrator(
-        policy=policy,
-        llm_client=llm_client,
-        observability=NoOpObservabilityContext(transaction_id="test-e2e"),
-        recorder=NoOpTransactionRecorder(),
-    )
-
     # Define a simple tool
     tools = [
         {
@@ -142,6 +134,12 @@ async def test_tool_calls_openai_non_streaming():
 
     # Process request
     with tracer.start_as_current_span("test_tool_calls_openai_non_streaming") as span:
+        orchestrator = PolicyOrchestrator(
+            policy=policy,
+            llm_client=llm_client,
+            observability=NoOpObservabilityContext(transaction_id="test-e2e", span=span),
+            recorder=NoOpTransactionRecorder(),
+        )
         final_request = await orchestrator.process_request(request, "test-txn-tool-calls-openai-non-streaming", span)
 
         # Process full response
