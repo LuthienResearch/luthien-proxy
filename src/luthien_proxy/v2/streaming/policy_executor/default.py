@@ -88,7 +88,15 @@ class DefaultPolicyExecutor:
             PolicyTimeoutError: If processing exceeds timeout without keepalive
             Exception: On policy errors or assembly failures
         """
-        pass  # TODO: Implement
+        # Step 1: Basic pass-through - read from input, write to output
+        # TODO: Add block assembly, policy hooks, and timeout monitoring in later steps
+        try:
+            async for chunk in input_stream:
+                self.keepalive()  # Update activity timestamp
+                await output_queue.put(chunk)
+        finally:
+            # Signal end of stream with None sentinel
+            await output_queue.put(None)
 
     async def _monitor_timeout(self, obs_ctx: ObservabilityContext) -> None:
         """Monitor policy execution time and raise on timeout.

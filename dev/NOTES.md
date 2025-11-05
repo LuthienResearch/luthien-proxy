@@ -84,14 +84,20 @@ sse_queue: Queue[str]
 5. Proper type hints (ModelResponse, SSE strings)
 6. Initial unit tests (PolicyContext, keepalive)
 7. Directory structure reorganized
+8. **ClientFormatter implemented and tested** ✅
+   - OpenAIClientFormatter: Converts ModelResponse → OpenAI SSE format
+   - AnthropicClientFormatter: Converts ModelResponse → Anthropic SSE with event lifecycle
+   - 12 passing tests with 100% coverage on formatters
 
-### 🔄 Next Steps
-1. Write ClientFormatter tests
-2. Implement PolicyExecutor (extract from current orchestrator)
-3. Implement ClientFormatter (extract SSE formatting)
-4. Wire up simplified PolicyOrchestrator
-5. Update gateway routes
-6. Integration testing
+###  Next Steps
+1. **Implement PolicyExecutor** (extract from current orchestrator)
+   - Use existing `StreamingChunkAssembler` for block assembly
+   - Set up policy callbacks that match existing `StreamingResponseContext` interface
+   - Output processed chunks to queue
+   - Track keepalive and timeout
+2. Wire up simplified PolicyOrchestrator
+3. Update gateway routes
+4. Integration testing
 
 ## Type Flow
 
