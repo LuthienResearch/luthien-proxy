@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from luthien_proxy.v2.observability.context import NoOpObservabilityContext
 
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
     from luthien_proxy.v2.messages import Request
     from luthien_proxy.v2.observability.context import ObservabilityContext
+    from luthien_proxy.v2.streaming.protocol import PolicyContext as NewPolicyContext
     from luthien_proxy.v2.streaming.streaming_policy_context import (
         StreamingPolicyContext,
     )
@@ -41,6 +42,54 @@ class PolicyContext:
         self.observability: ObservabilityContext = observability or NoOpObservabilityContext(call_id, span)
 
 
+@runtime_checkable
+class PolicyProtocol(Protocol):
+    """Protocol defining the interface all policies must implement.
+
+    This protocol provides type safety for policy methods throughout the codebase.
+    Use this instead of `Any` when accepting policy instances.
+
+    Note: on_request uses NewPolicyContext (from streaming.protocol) while
+    process_full_response uses the old PolicyContext for backwards compatibility.
+    """
+
+    async def on_request(self, request: Request, context: NewPolicyContext) -> Request:
+        """Process request before sending to LLM."""
+        ...
+
+    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
+        """Called on every chunk."""
+        ...
+
+    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
+        """Called when content delta received."""
+        ...
+
+    async def on_content_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Called when content block completes."""
+        ...
+
+    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
+        """Called when tool call delta received."""
+        ...
+
+    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Called when tool call block completes."""
+        ...
+
+    async def on_finish_reason(self, ctx: StreamingPolicyContext) -> None:
+        """Called when finish_reason received."""
+        ...
+
+    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Called when stream completes."""
+        ...
+
+    async def process_full_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+        """Process non-streaming response."""
+        ...
+
+
 class Policy(ABC):
     """Base policy class with full streaming control.
 
@@ -64,7 +113,7 @@ class Policy(ABC):
     ```
     """
 
-    async def on_request(self, request: Request, context: PolicyContext) -> Request:
+    async def on_request(self, request: Request, context: NewPolicyContext) -> Request:
         """Process request before sending to LLM."""
         return request
 
@@ -101,4 +150,4 @@ class Policy(ABC):
         return response
 
 
-__all__ = ["Policy", "PolicyContext"]
+__all__ = ["Policy", "PolicyContext", "PolicyProtocol"]

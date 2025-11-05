@@ -4,12 +4,14 @@
 """Policy executor implementation."""
 
 import asyncio
+import logging
 import time
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.streaming.policy_executor.interface import (
     PolicyExecutorProtocol,
 )
@@ -22,6 +24,11 @@ from luthien_proxy.v2.streaming.streaming_chunk_assembler import (
     StreamingChunkAssembler,
 )
 from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
+
+logger = logging.getLogger(__name__)
+
+# Queue put timeout to prevent deadlock if downstream is slow
+QUEUE_PUT_TIMEOUT = 30.0
 
 
 class PolicyExecutor(PolicyExecutorProtocol):
@@ -71,11 +78,27 @@ class PolicyExecutor(PolicyExecutorProtocol):
         """
         return time.monotonic() - self._last_keepalive
 
+    async def _safe_put(self, queue: asyncio.Queue[ModelResponse | None], item: ModelResponse | None) -> None:
+        """Safely put item in queue with timeout to prevent deadlock.
+
+        Args:
+            queue: Queue to put item into
+            item: Item to put
+
+        Raises:
+            asyncio.TimeoutError: If queue is full and timeout is exceeded
+        """
+        try:
+            await asyncio.wait_for(queue.put(item), timeout=QUEUE_PUT_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.error(f"Queue put timeout after {QUEUE_PUT_TIMEOUT}s - downstream may be slow or stalled")
+            raise
+
     async def process(
         self,
         input_stream: AsyncIterator[ModelResponse],
         output_queue: asyncio.Queue[ModelResponse | None],
-        policy: Any,  # BasePolicy or similar
+        policy: PolicyProtocol,
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
     ) -> None:
@@ -91,7 +114,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
         Args:
             input_stream: Stream of ModelResponse chunks from backend
             output_queue: Queue to write policy-approved chunks to
-            policy: Policy instance with hook methods (on_chunk_received, etc.)
+            policy: Policy instance implementing PolicyProtocol (on_chunk_received, etc.)
             policy_ctx: Policy context for shared state
             obs_ctx: Observability context for tracing
 
@@ -128,26 +151,26 @@ class PolicyExecutor(PolicyExecutorProtocol):
             await policy.on_stream_complete(streaming_ctx)
         finally:
             # Signal end of stream with None sentinel
-            await output_queue.put(None)
+            await self._safe_put(output_queue, None)
 
     def _create_chunk_callback(
         self,
         streaming_ctx: StreamingPolicyContext,
         output_queue: asyncio.Queue[ModelResponse | None],
-        policy: Any,
+        policy: PolicyProtocol,
     ):
         """Create callback for assembler to invoke on each chunk.
 
         Args:
             streaming_ctx: Streaming policy context for hook invocations
             output_queue: Queue to write chunks to after policy processing
-            policy: Policy instance with hook methods
+            policy: Policy instance implementing PolicyProtocol
 
         Returns:
             Async callback function
         """
 
-        async def on_chunk(chunk: ModelResponse, state: Any, context: Any) -> None:
+        async def on_chunk(chunk: ModelResponse, state, context) -> None:
             """Called by assembler for each chunk after state update.
 
             Invokes policy hooks based on stream state, then drains egress queue.
@@ -181,30 +204,16 @@ class PolicyExecutor(PolicyExecutorProtocol):
             while not streaming_ctx.egress_queue.empty():
                 try:
                     policy_chunk = streaming_ctx.egress_queue.get_nowait()
-                    await output_queue.put(policy_chunk)
+                    await self._safe_put(output_queue, policy_chunk)
                     emitted_count += 1
                 except asyncio.QueueEmpty:
                     break
 
             # If policy didn't emit anything, forward original chunk
             if emitted_count == 0:
-                await output_queue.put(chunk)
+                await self._safe_put(output_queue, chunk)
 
         return on_chunk
-
-    async def _monitor_timeout(self, obs_ctx: ObservabilityContext) -> None:
-        """Monitor policy execution time and raise on timeout.
-
-        Runs as a background task, checking _time_since_keepalive()
-        against the configured timeout. Raises PolicyTimeoutError if exceeded.
-
-        Args:
-            obs_ctx: Observability context for logging timeout
-
-        Raises:
-            PolicyTimeoutError: When timeout is exceeded
-        """
-        pass  # TODO: Implement
 
 
 __all__ = ["PolicyExecutor"]

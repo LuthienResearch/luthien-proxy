@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from luthien_proxy.v2.messages import Request
+    from luthien_proxy.v2.observability.context import ObservabilityContext
 
 
 class PolicyContext:
@@ -32,15 +33,22 @@ class PolicyContext:
     code within a single request handler.
     """
 
-    def __init__(self, transaction_id: str, request: Request | None = None) -> None:
+    def __init__(
+        self,
+        transaction_id: str,
+        request: Request | None = None,
+        observability: ObservabilityContext | None = None,
+    ) -> None:
         """Initialize policy context for a request.
 
         Args:
             transaction_id: Unique identifier for this request/response cycle
             request: Optional original request for policies that need it
+            observability: Optional observability context for logging/tracing
         """
         self.transaction_id = transaction_id
         self.request = request
+        self.observability = observability
         self._scratchpad: dict[str, Any] = {}
 
     @property

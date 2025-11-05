@@ -1,10 +1,8 @@
 """Unit tests for PolicyOrchestrator request processing."""
 
-from unittest.mock import Mock
-
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.trace import Span, set_tracer_provider
+from opentelemetry.trace import set_tracer_provider
 
 from luthien_proxy.v2.llm.client import LLMClient
 from luthien_proxy.v2.messages import Request
@@ -54,21 +52,27 @@ def setup_tracing():
 @pytest.fixture
 def orchestrator(setup_tracing):
     """Create orchestrator with mock policy."""
+    from luthien_proxy.v2.streaming.client_formatter.openai import OpenAIClientFormatter
+    from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
+
     policy = MockPolicy()
-    client = MockLLMClient()
-    span = Mock(spec=Span)
+    policy_executor = PolicyExecutor()
+    client_formatter = OpenAIClientFormatter(model_name="gpt-4")
+    recorder = NoOpTransactionRecorder()
 
     return PolicyOrchestrator(
         policy=policy,
-        llm_client=client,
-        observability=NoOpObservabilityContext(transaction_id="test", span=span),
-        recorder=NoOpTransactionRecorder(),
+        policy_executor=policy_executor,
+        client_formatter=client_formatter,
+        transaction_recorder=recorder,
     ), policy
 
 
 @pytest.mark.asyncio
 async def test_process_request_calls_policy(orchestrator, setup_tracing):
     """Test that process_request calls policy.on_request."""
+    from luthien_proxy.v2.streaming.protocol import PolicyContext
+
     orch, policy = orchestrator
     tracer = setup_tracing
 
@@ -79,7 +83,9 @@ async def test_process_request_calls_policy(orchestrator, setup_tracing):
     )
 
     with tracer.start_as_current_span("test") as span:
-        final_request = await orch.process_request(request, "test-123", span)
+        obs_ctx = NoOpObservabilityContext(transaction_id="test-123", span=span)
+        policy_ctx = PolicyContext(transaction_id="test-123", request=request, observability=obs_ctx)
+        final_request = await orch.process_request(request, policy_ctx, obs_ctx)
 
     # Verify policy was called
     assert policy.on_request_called
@@ -93,6 +99,8 @@ async def test_process_request_calls_policy(orchestrator, setup_tracing):
 @pytest.mark.asyncio
 async def test_process_request_preserves_request_fields(orchestrator, setup_tracing):
     """Test that non-modified request fields are preserved."""
+    from luthien_proxy.v2.streaming.protocol import PolicyContext
+
     orch, policy = orchestrator
     tracer = setup_tracing
 
@@ -105,7 +113,9 @@ async def test_process_request_preserves_request_fields(orchestrator, setup_trac
     )
 
     with tracer.start_as_current_span("test") as span:
-        final_request = await orch.process_request(request, "test-123", span)
+        obs_ctx = NoOpObservabilityContext(transaction_id="test-123", span=span)
+        policy_ctx = PolicyContext(transaction_id="test-123", request=request, observability=obs_ctx)
+        final_request = await orch.process_request(request, policy_ctx, obs_ctx)
 
     # Verify unmodified fields preserved
     assert final_request.model == "gpt-4"

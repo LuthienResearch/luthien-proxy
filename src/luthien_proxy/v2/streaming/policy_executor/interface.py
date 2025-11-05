@@ -4,11 +4,12 @@
 """Policy executor protocol for streaming response processing."""
 
 import asyncio
-from typing import Any, AsyncIterator, Protocol
+from typing import AsyncIterator, Protocol
 
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.v2.policies.policy import PolicyProtocol as BasePolicyProtocol
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
@@ -26,8 +27,8 @@ class PolicyExecutorProtocol(Protocol):
     async def process(
         self,
         input_stream: AsyncIterator[ModelResponse],
-        output_queue: asyncio.Queue[ModelResponse],
-        policy: Any,  # BasePolicy or similar
+        output_queue: asyncio.Queue[ModelResponse | None],
+        policy: BasePolicyProtocol,
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
     ) -> None:
@@ -38,12 +39,13 @@ class PolicyExecutorProtocol(Protocol):
         2. Feeds them to block assembly to build partial/complete blocks
         3. Invokes policy hooks at appropriate moments
         4. Writes policy-approved ModelResponse chunks to output_queue
-        5. Monitors for timeout based on implementation strategy
+        5. Sends None sentinel to signal end of stream
+        6. Monitors for timeout based on implementation strategy
 
         Args:
             input_stream: Stream of ModelResponse chunks from backend
-            output_queue: Queue to write policy-approved ModelResponse chunks to
-            policy: Policy instance with hook methods (on_chunk_received, etc.)
+            output_queue: Queue to write policy-approved chunks to (uses None as sentinel)
+            policy: Policy instance implementing PolicyProtocol (on_chunk_received, etc.)
             policy_ctx: Policy context for shared state
             obs_ctx: Observability context for tracing
 

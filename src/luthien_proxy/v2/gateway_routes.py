@@ -108,11 +108,11 @@ async def chat_completions(
         )
 
         # Create policy context (shared across request/response)
-        policy_ctx = PolicyContext(transaction_id=call_id, request=request_message)
+        policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
 
         # Create pipeline dependencies
         policy_executor = PolicyExecutor()
-        client_formatter = OpenAIClientFormatter()
+        client_formatter = OpenAIClientFormatter(model_name=request_message.model)
         recorder = DefaultTransactionRecorder(observability=obs_ctx)
 
         # Create orchestrator with injected dependencies
@@ -146,9 +146,21 @@ async def chat_completions(
         else:
             # Non-streaming response
             response = await llm_client.complete(final_request)
-            # TODO: Add policy.process_full_response hook
+
+            # Process response through policy hook
+            # Create old-style PolicyContext for non-streaming response
+            from luthien_proxy.v2.policies.policy import PolicyContext as OldPolicyContext
+
+            old_policy_ctx = OldPolicyContext(
+                call_id=call_id,
+                span=span,
+                request=final_request,
+                observability=obs_ctx,
+            )
+            processed_response = await policy.process_full_response(response, old_policy_ctx)
+
             return JSONResponse(
-                content=response.model_dump(),
+                content=processed_response.model_dump(),
                 headers={"X-Call-ID": call_id},
             )
 
@@ -198,7 +210,7 @@ async def anthropic_messages(
         )
 
         # Create policy context (shared across request/response)
-        policy_ctx = PolicyContext(transaction_id=call_id, request=request_message)
+        policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
 
         # Create pipeline dependencies
         policy_executor = PolicyExecutor()
@@ -237,8 +249,19 @@ async def anthropic_messages(
             # Non-streaming response
             openai_response = await llm_client.complete(final_request)
 
+            # Process response through policy hook
+            from luthien_proxy.v2.policies.policy import PolicyContext as OldPolicyContext
+
+            old_policy_ctx = OldPolicyContext(
+                call_id=call_id,
+                span=span,
+                request=final_request,
+                observability=obs_ctx,
+            )
+            processed_response = await policy.process_full_response(openai_response, old_policy_ctx)
+
             # Convert back to Anthropic format
-            anthropic_response = openai_to_anthropic_response(openai_response)
+            anthropic_response = openai_to_anthropic_response(processed_response)
             return JSONResponse(
                 content=anthropic_response,
                 headers={"X-Call-ID": call_id},

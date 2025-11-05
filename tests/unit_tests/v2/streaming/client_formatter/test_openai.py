@@ -30,7 +30,7 @@ def obs_ctx():
 @pytest.fixture
 def formatter():
     """Create an OpenAI formatter instance."""
-    return OpenAIClientFormatter()
+    return OpenAIClientFormatter(model_name="gpt-4")
 
 
 def create_model_response(content: str = "Hello", finish_reason: str | None = None) -> ModelResponse:

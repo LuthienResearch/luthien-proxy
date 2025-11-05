@@ -12,7 +12,7 @@ from litellm.types.utils import ModelResponse
 
 if TYPE_CHECKING:
     from luthien_proxy.v2.messages import Request
-    from luthien_proxy.v2.policies.policy import PolicyContext
+    from luthien_proxy.v2.streaming.protocol import PolicyContext
     from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 from luthien_proxy.v2.policies.policy import Policy

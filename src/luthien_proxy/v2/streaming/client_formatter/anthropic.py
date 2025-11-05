@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import logging
 
 from litellm.types.utils import ModelResponse
 
@@ -12,17 +13,38 @@ from luthien_proxy.v2.llm.anthropic_sse_assembler import AnthropicSSEAssembler
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
+logger = logging.getLogger(__name__)
+
+# Queue put timeout to prevent deadlock if client is slow
+QUEUE_PUT_TIMEOUT = 30.0
+
 
 class AnthropicClientFormatter:
     """Converts common format chunks to Anthropic SSE events."""
 
-    def __init__(self, model_name: str = "claude-3-opus-20240229"):
+    def __init__(self, model_name: str):
         """Initialize formatter with model name for message_start event.
 
         Args:
-            model_name: Model name to include in message_start event
+            model_name: Model name to include in message_start event (required, no default)
         """
         self.model_name = model_name
+
+    async def _safe_put(self, queue: asyncio.Queue[str | None], item: str | None) -> None:
+        """Safely put item in queue with timeout to prevent deadlock.
+
+        Args:
+            queue: Queue to put item into
+            item: Item to put
+
+        Raises:
+            asyncio.TimeoutError: If queue is full and timeout is exceeded
+        """
+        try:
+            await asyncio.wait_for(queue.put(item), timeout=QUEUE_PUT_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.error(f"Queue put timeout after {QUEUE_PUT_TIMEOUT}s - client may be slow or disconnected")
+            raise
 
     async def process(
         self,
@@ -73,7 +95,7 @@ class AnthropicClientFormatter:
                         },
                     }
                     sse_line = f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
-                    await output_queue.put(sse_line)
+                    await self._safe_put(output_queue, sse_line)
 
                 # Convert chunk to Anthropic events using stateful assembler
                 events = assembler.process_chunk(chunk)
@@ -82,16 +104,16 @@ class AnthropicClientFormatter:
                 for event in events:
                     event_type = event.get("type", "content_block_delta")
                     sse_line = f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
-                    await output_queue.put(sse_line)
+                    await self._safe_put(output_queue, sse_line)
 
             # Send message_stop at end (only if we started)
             if message_started:
                 message_stop = {"type": "message_stop"}
                 sse_line = f"event: message_stop\ndata: {json.dumps(message_stop)}\n\n"
-                await output_queue.put(sse_line)
+                await self._safe_put(output_queue, sse_line)
         finally:
             # Signal end of stream to output queue
-            await output_queue.put(None)
+            await self._safe_put(output_queue, None)
 
 
 __all__ = ["AnthropicClientFormatter"]

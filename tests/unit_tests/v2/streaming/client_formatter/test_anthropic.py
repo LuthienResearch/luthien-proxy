@@ -30,7 +30,7 @@ def obs_ctx():
 @pytest.fixture
 def formatter():
     """Create an Anthropic formatter instance."""
-    return AnthropicClientFormatter()
+    return AnthropicClientFormatter(model_name="claude-3-5-sonnet-20241022")
 
 
 def create_model_response(content: str = "Hello", finish_reason: str | None = None) -> ModelResponse:

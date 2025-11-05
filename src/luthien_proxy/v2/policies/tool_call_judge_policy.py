@@ -36,7 +36,7 @@ from litellm.types.utils import Choices, ModelResponse, StreamingChoices
 
 if TYPE_CHECKING:
     from luthien_proxy.v2.observability.context import ObservabilityContext
-    from luthien_proxy.v2.policies.policy import PolicyContext
+    from luthien_proxy.v2.streaming.protocol import PolicyContext
     from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 from luthien_proxy.v2.policies.policy import Policy
@@ -307,6 +307,11 @@ class ToolCallJudgePolicy(Policy):
 
         # Evaluate each tool call
         for tool_call in tool_calls:
+            # Use observability if available, otherwise skip evaluation
+            if context.observability is None:
+                logger.warning("No observability context available for tool call evaluation")
+                continue
+
             blocked_response = await self._evaluate_and_maybe_block(tool_call, context.observability)
             if blocked_response is not None:
                 # Tool call was blocked - return blocked response

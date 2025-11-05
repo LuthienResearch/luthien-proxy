@@ -9,13 +9,14 @@ and explicit queues to create a clear, typed streaming pipeline.
 
 import asyncio
 import logging
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import TransactionRecorder
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.streaming.client_formatter import ClientFormatter
 from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 from luthien_proxy.v2.streaming.protocol import PolicyContext
@@ -40,7 +41,7 @@ class PolicyOrchestrator:
 
     def __init__(
         self,
-        policy: Any,  # BasePolicy or similar
+        policy: PolicyProtocol,
         policy_executor: PolicyExecutor,
         client_formatter: ClientFormatter,
         transaction_recorder: TransactionRecorder,
@@ -49,7 +50,7 @@ class PolicyOrchestrator:
         """Initialize orchestrator with injected dependencies.
 
         Args:
-            policy: Policy instance with request/response hooks
+            policy: Policy instance implementing PolicyProtocol with request/response hooks
             policy_executor: Executes policy logic on ModelResponse chunks
             client_formatter: Converts ModelResponse to client SSE strings
             transaction_recorder: Records chunks at pipeline boundaries
@@ -114,36 +115,41 @@ class PolicyOrchestrator:
         Raises:
             PolicyTimeoutError: If policy processing times out
             QueueFullError: If any queue exceeds circuit breaker limit
-            Exception: On pipeline errors
+            Exception: On pipeline errors (propagated from background tasks)
         """
         # Create typed queues that define pipeline contracts
         # Note: Queues use None as sentinel to signal end of stream
         policy_out_queue: asyncio.Queue[ModelResponse | None] = asyncio.Queue(maxsize=self.queue_size)
         sse_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=self.queue_size)
 
-        # Launch pipeline stages - structure is clear and typed
+        # Launch pipeline stages using TaskGroup to ensure error propagation
+        # TaskGroup ensures that exceptions from background tasks are caught and raised
         # TODO: Re-add transaction_recorder.wrap() once we implement it properly
-        asyncio.create_task(
-            self.policy_executor.process(
-                backend_stream,  # type: ignore  # PolicyExecutor needs to accept AsyncIterator
-                policy_out_queue,
-                self.policy,  # Pass policy to executor
-                policy_ctx,
-                obs_ctx,
+        async with asyncio.TaskGroup() as tg:
+            # Start policy executor task
+            tg.create_task(
+                self.policy_executor.process(
+                    backend_stream,
+                    policy_out_queue,
+                    self.policy,  # Pass policy to executor
+                    policy_ctx,
+                    obs_ctx,
+                )
             )
-        )
-        asyncio.create_task(
-            self.client_formatter.process(
-                policy_out_queue,
-                sse_queue,
-                policy_ctx,
-                obs_ctx,
+            # Start client formatter task
+            tg.create_task(
+                self.client_formatter.process(
+                    policy_out_queue,
+                    sse_queue,
+                    policy_ctx,
+                    obs_ctx,
+                )
             )
-        )
 
-        # Drain final queue and yield to client
-        async for event in self._drain_queue(sse_queue):
-            yield event
+            # Drain final queue and yield to client while tasks run
+            # If either task fails, TaskGroup will cancel remaining tasks and raise
+            async for event in self._drain_queue(sse_queue):
+                yield event
 
     async def _drain_queue(self, queue: asyncio.Queue[str | None]) -> AsyncIterator[str]:
         """Drain queue until shutdown.
