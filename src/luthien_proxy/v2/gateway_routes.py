@@ -202,7 +202,7 @@ async def anthropic_messages(
 
         # Create pipeline dependencies
         policy_executor = PolicyExecutor()
-        client_formatter = AnthropicClientFormatter()
+        client_formatter = AnthropicClientFormatter(model_name=request_message.model)
         recorder = DefaultTransactionRecorder(observability=obs_ctx)
 
         # Create orchestrator with injected dependencies

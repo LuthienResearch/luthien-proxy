@@ -3,7 +3,9 @@
 
 """Module docstring."""
 
+import asyncio
 from abc import ABC, abstractmethod
+from typing import Any, AsyncIterator
 
 from litellm.types.utils import ModelResponse
 
@@ -65,6 +67,10 @@ class NoOpTransactionRecorder(TransactionRecorder):
 
     async def finalize_non_streaming(self, original_response: ModelResponse, final_response: ModelResponse) -> None:  # noqa: D102
         pass
+
+    def wrap(self, component: Any) -> Any:  # noqa: D102
+        # No-op: just return the component unchanged
+        return component
 
 
 class DefaultTransactionRecorder(TransactionRecorder):
@@ -149,3 +155,62 @@ class DefaultTransactionRecorder(TransactionRecorder):
         """Extract finish_reason from response."""
         choices = response.model_dump().get("choices", [])
         return choices[0].get("finish_reason") if choices else None
+
+    def wrap(self, component: Any) -> Any:
+        """Wrap a pipeline component to record ingress/egress chunks.
+
+        The wrapper intercepts the input stream and output queue to record
+        chunks as they pass through, while maintaining transparent pass-through.
+
+        Args:
+            component: Component with process() method
+
+        Returns:
+            Wrapper object with same process() interface
+        """
+        recorder = self  # Capture self in closure
+
+        class ComponentWrapper:
+            """Wrapper that records chunks while delegating to component."""
+
+            def __init__(self, wrapped_component: Any):
+                self._component = wrapped_component
+
+            async def process(
+                self,
+                input_stream: AsyncIterator[ModelResponse],
+                output_queue: asyncio.Queue[ModelResponse | None],
+                *args,
+                **kwargs,
+            ) -> None:
+                """Process with chunk recording for both ingress and egress."""
+                # Create intermediate queue for egress recording
+                intermediate_queue: asyncio.Queue[ModelResponse | None] = asyncio.Queue()
+
+                # Wrap input stream to record ingress
+                async def ingress_stream() -> AsyncIterator[ModelResponse]:
+                    async for chunk in input_stream:
+                        recorder.add_ingress_chunk(chunk)
+                        yield chunk
+
+                # Component task: process ingress and write to intermediate queue
+                async def component_task():
+                    await self._component.process(ingress_stream(), intermediate_queue, *args, **kwargs)
+
+                # Recording task: record egress and forward to output queue
+                async def egress_task():
+                    while True:
+                        chunk = await intermediate_queue.get()
+                        if chunk is None:
+                            # None sentinel - pass through but don't record
+                            await output_queue.put(None)
+                            break
+                        # Record egress chunk
+                        recorder.add_egress_chunk(chunk)
+                        # Pass through to output
+                        await output_queue.put(chunk)
+
+                # Run both tasks concurrently
+                await asyncio.gather(component_task(), egress_task())
+
+        return ComponentWrapper(component)

@@ -69,10 +69,12 @@ async def test_openai_formatter_basic_flow(formatter, policy_ctx, obs_ctx):
     # Process
     await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
 
-    # Verify output
+    # Verify output (filter out None sentinel)
     results = []
     while not output_queue.empty():
-        results.append(await output_queue.get())
+        item = await output_queue.get()
+        if item is not None:
+            results.append(item)
 
     assert len(results) == 3
 
@@ -123,7 +125,9 @@ async def test_openai_formatter_empty_queue(formatter, policy_ctx, obs_ctx):
 
     await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
 
-    # Should produce no output
+    # Should produce only None sentinel (no data)
+    sentinel = await output_queue.get()
+    assert sentinel is None
     assert output_queue.empty()
 
 

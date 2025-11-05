@@ -65,6 +65,8 @@ class SimplePolicy(Policy):
             return
 
         content = block.content
+        # Request is always set by gateway before streaming begins
+        assert ctx.policy_ctx.request is not None, "Request must be set in policy context"
         transformed = await self.on_response_content(content, ctx.policy_ctx.request)
 
         if transformed != content:
@@ -86,6 +88,8 @@ class SimplePolicy(Policy):
             return
 
         tool_call = block.tool_call
+        # Request is always set by gateway before streaming begins
+        assert ctx.policy_ctx.request is not None, "Request must be set in policy context"
         transformed = await self.on_response_tool_call(tool_call, ctx.policy_ctx.request)
 
         if transformed != tool_call:

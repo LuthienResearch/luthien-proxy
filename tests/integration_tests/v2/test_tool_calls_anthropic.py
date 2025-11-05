@@ -16,7 +16,6 @@ from luthien_proxy.v2.policies.simple_policy import SimplePolicy
 tracer = trace.get_tracer(__name__)
 
 
-@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_tool_calls_anthropic_streaming():
     """E2E test: Anthropic streaming with tool calls."""
@@ -88,7 +87,6 @@ async def test_tool_calls_anthropic_streaming():
     print(f"Tool calls detected: {has_tool_calls}")
 
 
-@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_tool_calls_anthropic_non_streaming():
     """E2E test: Anthropic non-streaming with tool calls."""

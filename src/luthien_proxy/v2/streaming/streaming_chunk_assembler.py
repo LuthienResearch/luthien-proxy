@@ -5,6 +5,7 @@ ABOUTME: Parses chunks, detects block transitions, and calls policy callbacks.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, cast
 
@@ -15,6 +16,8 @@ from luthien_proxy.v2.streaming.stream_blocks import (
     ToolCallStreamBlock,
 )
 from luthien_proxy.v2.streaming.stream_state import StreamState
+
+logger = logging.getLogger(__name__)
 
 
 class StreamingChunkAssembler:
@@ -59,6 +62,9 @@ class StreamingChunkAssembler:
             context: Streaming context passed to policy callback
         """
         async for chunk in incoming:
+            # DEBUG: Log raw chunk from backend
+            logger.debug(f"[BACKEND IN] {str(chunk)[:300]}")  # Truncate for readability
+
             # Store raw chunk for recording
             self.state.raw_chunks.append(chunk)
 

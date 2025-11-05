@@ -74,7 +74,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
     async def process(
         self,
         input_stream: AsyncIterator[ModelResponse],
-        output_queue: asyncio.Queue[ModelResponse],
+        output_queue: asyncio.Queue[ModelResponse | None],
         policy: Any,  # BasePolicy or similar
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
@@ -133,7 +133,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
     def _create_chunk_callback(
         self,
         streaming_ctx: StreamingPolicyContext,
-        output_queue: asyncio.Queue[ModelResponse],
+        output_queue: asyncio.Queue[ModelResponse | None],
         policy: Any,
     ):
         """Create callback for assembler to invoke on each chunk.

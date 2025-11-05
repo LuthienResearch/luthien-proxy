@@ -94,10 +94,12 @@ async def test_anthropic_formatter_sends_message_stop(formatter, policy_ctx, obs
 
     await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
 
-    # Drain queue to find last event
+    # Drain queue to find last event (filter out None sentinel)
     events = []
     while not output_queue.empty():
-        events.append(await output_queue.get())
+        item = await output_queue.get()
+        if item is not None:
+            events.append(item)
 
     # Last event should be message_stop
     last_sse = events[-1]
@@ -127,10 +129,12 @@ async def test_anthropic_formatter_content_block_lifecycle(formatter, policy_ctx
 
     await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
 
-    # Collect all events
+    # Collect all events (filter out None sentinel)
     events = []
     while not output_queue.empty():
         sse_line = await output_queue.get()
+        if sse_line is None:
+            continue
         # Parse SSE format: "event: <type>\ndata: <json>\n\n"
         lines = sse_line.strip().split("\n")
         event_type_line = lines[0] if lines[0].startswith("event: ") else None
@@ -224,7 +228,9 @@ async def test_anthropic_formatter_empty_queue(formatter, policy_ctx, obs_ctx):
 
     await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
 
-    # Should have no events (not even message_start if no chunks)
+    # Should have only None sentinel (no events - not even message_start if no chunks)
+    sentinel = await output_queue.get()
+    assert sentinel is None
     assert output_queue.empty()
 
 

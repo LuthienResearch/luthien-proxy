@@ -24,7 +24,6 @@ class UppercasePolicy(SimplePolicy):
         return content.upper()
 
 
-@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_streaming_openai_with_uppercase_policy():
     """E2E test: OpenAI streaming with uppercase transformation."""
@@ -73,7 +72,6 @@ async def test_streaming_openai_with_uppercase_policy():
     assert full_content.isupper(), f"Content should be uppercase, got: {full_content}"
 
 
-@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_streaming_openai_passthrough():
     """E2E test: OpenAI streaming with passthrough (no transformation)."""

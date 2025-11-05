@@ -3,7 +3,6 @@
 
 """E2E tests for gateway streaming."""
 
-import pytest
 from fastapi.testclient import TestClient
 
 from luthien_proxy.v2.main import create_app
@@ -19,9 +18,8 @@ class UppercasePolicy(SimplePolicy):
         return content.upper()
 
 
-@pytest.mark.e2e
 def test_openai_streaming_with_policy():
-    """E2E test: OpenAI streaming endpoint with uppercase policy."""
+    """Integration test: OpenAI streaming endpoint with uppercase policy."""
     # Create app with uppercase policy
     app = create_app(
         api_key="test-key",
@@ -58,9 +56,8 @@ def test_openai_streaming_with_policy():
         # This requires parsing the SSE format and extracting content from deltas
 
 
-@pytest.mark.e2e
 def test_anthropic_streaming():
-    """E2E test: Anthropic streaming endpoint."""
+    """Integration test: Anthropic streaming endpoint."""
     app = create_app(
         api_key="test-key",
         database_url="",
@@ -93,9 +90,8 @@ def test_anthropic_streaming():
         assert len(event_lines) > 0, "Should receive SSE events"
 
 
-@pytest.mark.e2e
 def test_openai_non_streaming():
-    """E2E test: OpenAI non-streaming endpoint."""
+    """Integration test: OpenAI non-streaming endpoint."""
     app = create_app(
         api_key="test-key",
         database_url="",

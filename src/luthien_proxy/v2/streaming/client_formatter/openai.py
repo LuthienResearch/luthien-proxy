@@ -16,8 +16,8 @@ class OpenAIClientFormatter:
 
     async def process(
         self,
-        input_queue: asyncio.Queue[ModelResponse],
-        output_queue: asyncio.Queue[str],
+        input_queue: asyncio.Queue[ModelResponse | None],
+        output_queue: asyncio.Queue[str | None],
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
     ) -> None:
@@ -35,16 +35,20 @@ class OpenAIClientFormatter:
         Raises:
             Exception: On conversion errors or malformed chunks
         """
-        while True:
-            chunk = await input_queue.get()
+        try:
+            while True:
+                chunk = await input_queue.get()
 
-            # None signals end of stream
-            if chunk is None:
-                break
+                # None signals end of stream
+                if chunk is None:
+                    break
 
-            # Convert ModelResponse to SSE format: "data: {json}\n\n"
-            sse_line = f"data: {chunk.model_dump_json()}\n\n"
-            await output_queue.put(sse_line)
+                # Convert ModelResponse to SSE format: "data: {json}\n\n"
+                sse_line = f"data: {chunk.model_dump_json()}\n\n"
+                await output_queue.put(sse_line)
+        finally:
+            # Signal end of stream to output queue
+            await output_queue.put(None)
 
 
 __all__ = ["OpenAIClientFormatter"]

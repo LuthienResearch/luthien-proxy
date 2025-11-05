@@ -7,6 +7,22 @@ from __future__ import annotations
 
 import logging
 import os
+
+# Configure logging BEFORE any other imports to ensure it takes effect
+_log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+_log_level = getattr(logging, _log_level_str)
+logging.basicConfig(
+    level=_log_level,
+    format='{"timestamp":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","message":"%(message)s"}',
+    force=True,  # Force reconfiguration even if logging was already configured
+)
+# Also set root logger level directly to ensure it takes effect
+logging.getLogger().setLevel(_log_level)
+# Explicitly set our app loggers to the configured level
+logging.getLogger("luthien_proxy").setLevel(_log_level)
+
+# ruff: noqa: E402
+# Imports must come after logging configuration
 from contextlib import asynccontextmanager
 
 import litellm
@@ -171,4 +187,4 @@ if __name__ == "__main__":
         policy=policy_handler,
     )
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug")

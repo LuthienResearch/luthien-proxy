@@ -21,8 +21,8 @@ class ClientFormatter(Protocol):
 
     async def process(
         self,
-        input_queue: asyncio.Queue[ModelResponse],
-        output_queue: asyncio.Queue[str],
+        input_queue: asyncio.Queue[ModelResponse | None],
+        output_queue: asyncio.Queue[str | None],
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
     ) -> None:

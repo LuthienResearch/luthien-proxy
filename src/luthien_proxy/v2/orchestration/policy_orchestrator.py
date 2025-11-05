@@ -8,6 +8,7 @@ and explicit queues to create a clear, typed streaming pipeline.
 """
 
 import asyncio
+import logging
 from typing import Any, AsyncIterator
 
 from litellm.types.utils import ModelResponse
@@ -18,6 +19,8 @@ from luthien_proxy.v2.observability.transaction_recorder import TransactionRecor
 from luthien_proxy.v2.streaming.client_formatter import ClientFormatter
 from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 from luthien_proxy.v2.streaming.protocol import PolicyContext
+
+logger = logging.getLogger(__name__)
 
 
 class PolicyOrchestrator:
@@ -114,12 +117,14 @@ class PolicyOrchestrator:
             Exception: On pipeline errors
         """
         # Create typed queues that define pipeline contracts
-        policy_out_queue: asyncio.Queue[ModelResponse] = asyncio.Queue(maxsize=self.queue_size)
-        sse_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=self.queue_size)
+        # Note: Queues use None as sentinel to signal end of stream
+        policy_out_queue: asyncio.Queue[ModelResponse | None] = asyncio.Queue(maxsize=self.queue_size)
+        sse_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=self.queue_size)
 
         # Launch pipeline stages - structure is clear and typed
+        # TODO: Re-add transaction_recorder.wrap() once we implement it properly
         asyncio.create_task(
-            self.transaction_recorder.wrap(self.policy_executor).process(
+            self.policy_executor.process(
                 backend_stream,  # type: ignore  # PolicyExecutor needs to accept AsyncIterator
                 policy_out_queue,
                 self.policy,  # Pass policy to executor
@@ -128,7 +133,7 @@ class PolicyOrchestrator:
             )
         )
         asyncio.create_task(
-            self.transaction_recorder.wrap(self.client_formatter).process(
+            self.client_formatter.process(
                 policy_out_queue,
                 sse_queue,
                 policy_ctx,
@@ -140,7 +145,7 @@ class PolicyOrchestrator:
         async for event in self._drain_queue(sse_queue):
             yield event
 
-    async def _drain_queue(self, queue: asyncio.Queue[str]) -> AsyncIterator[str]:
+    async def _drain_queue(self, queue: asyncio.Queue[str | None]) -> AsyncIterator[str]:
         """Drain queue until shutdown.
 
         Args:
@@ -154,6 +159,8 @@ class PolicyOrchestrator:
             if event is None:
                 # None sentinel signals end of stream
                 break
+            # DEBUG: Log raw SSE string being sent to client
+            logger.debug(f"[CLIENT OUT] {event[:200]}")  # Truncate for readability
             yield event
 
 
