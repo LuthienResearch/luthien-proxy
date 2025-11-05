@@ -1,33 +1,24 @@
-# ABOUTME: PolicyExecutor handles block assembly and policy hook invocation
-# ABOUTME: Operates entirely in common format, enforces timeouts, manages policy state
+# ABOUTME: Default PolicyExecutor implementation with keepalive-based timeout
+# ABOUTME: Handles block assembly, policy hooks, and timeout monitoring
 
-"""Policy execution engine for streaming responses.
-
-This module provides the PolicyExecutor which:
-1. Assembles blocks from incoming common-format chunks
-2. Invokes policy hooks at key moments (chunk added, block complete, etc.)
-3. Manages timeout with keepalive support
-4. Maintains policy state via PolicyContext
-"""
+"""Default policy executor implementation."""
 
 import asyncio
+import time
 from typing import Any
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
-class PolicyExecutor:
-    """Executes policy logic during streaming response processing.
+class DefaultPolicyExecutor:
+    """Default policy executor with keepalive-based timeout monitoring.
 
-    The PolicyExecutor is the heart of the streaming pipeline. It:
-    - Owns a BlockAssembler that builds partial/complete blocks from chunks
+    This implementation:
+    - Owns a BlockAssembler for building blocks from chunks
     - Invokes policy hooks as blocks are assembled
-    - Enforces timeout with support for policy keepalive signals
-    - Outputs policy-approved chunks to egress queue
-
-    All processing happens in common chunk format - the executor doesn't
-    know about backend-specific or client-specific formats.
+    - Enforces timeout unless keepalive() is called
+    - Tracks last activity time internally
     """
 
     def __init__(
@@ -35,15 +26,35 @@ class PolicyExecutor:
         policy: Any,  # BasePolicy or similar
         timeout_seconds: float | None = None,
     ) -> None:
-        """Initialize policy executor.
+        """Initialize default policy executor.
 
         Args:
             policy: Policy instance with hook methods (on_chunk_added, etc.)
-            timeout_seconds: Maximum time for policy processing before timeout.
-                If None, no timeout is enforced. Policies can call
-                policy_ctx.keepalive() to reset the timeout.
+            timeout_seconds: Maximum time between keepalive calls before timeout.
+                If None, no timeout is enforced.
         """
-        pass  # TODO: Implement
+        self.policy = policy
+        self.timeout_seconds = timeout_seconds
+        self._last_keepalive = time.monotonic()
+
+    def keepalive(self) -> None:
+        """Signal that policy is actively working, resetting timeout.
+
+        Policies should call this during long-running operations to
+        indicate they haven't stalled. Resets the internal activity
+        timestamp used by timeout monitoring.
+        """
+        self._last_keepalive = time.monotonic()
+
+    def _time_since_keepalive(self) -> float:
+        """Time in seconds since last keepalive (or initialization).
+
+        Used internally by timeout monitoring.
+
+        Returns:
+            Seconds since last keepalive() call or __init__
+        """
+        return time.monotonic() - self._last_keepalive
 
     async def process(
         self,
@@ -63,12 +74,12 @@ class PolicyExecutor:
            - on_tool_block_complete: When a tool use block completes
            - etc.
         4. Writes policy-approved chunks to output_queue
-        5. Monitors for timeout (if configured), respecting keepalive signals
+        5. Monitors for timeout (if configured), checking keepalive
 
         Args:
             input_queue: Queue of common-format chunks from backend
             output_queue: Queue for policy-approved common-format chunks
-            policy_ctx: Policy context for state and keepalive
+            policy_ctx: Policy context for shared state
             obs_ctx: Observability context for tracing
 
         Raises:
@@ -77,18 +88,13 @@ class PolicyExecutor:
         """
         pass  # TODO: Implement
 
-    async def _monitor_timeout(
-        self,
-        policy_ctx: PolicyContext,
-        obs_ctx: ObservabilityContext,
-    ) -> None:
+    async def _monitor_timeout(self, obs_ctx: ObservabilityContext) -> None:
         """Monitor policy execution time and raise on timeout.
 
-        Runs as a background task, checking policy_ctx.time_since_keepalive()
+        Runs as a background task, checking _time_since_keepalive()
         against the configured timeout. Raises PolicyTimeoutError if exceeded.
 
         Args:
-            policy_ctx: Policy context to check keepalive status
             obs_ctx: Observability context for logging timeout
 
         Raises:
@@ -97,10 +103,4 @@ class PolicyExecutor:
         pass  # TODO: Implement
 
 
-class PolicyTimeoutError(Exception):
-    """Raised when policy processing exceeds configured timeout."""
-
-    pass
-
-
-__all__ = ["PolicyExecutor", "PolicyTimeoutError"]
+__all__ = ["DefaultPolicyExecutor"]
