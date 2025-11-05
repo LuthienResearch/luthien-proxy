@@ -59,7 +59,7 @@ async def async_iter_from_list(items: list):
 @pytest.mark.asyncio
 async def test_basic_passthrough_single_chunk(noop_policy, policy_ctx, obs_ctx):
     """Test that a single chunk passes through unchanged."""
-    executor = PolicyExecutor(policy=noop_policy)
+    executor = PolicyExecutor()
 
     # Create input stream with one chunk
     chunk = create_model_response(content="Hello")
@@ -69,7 +69,7 @@ async def test_basic_passthrough_single_chunk(noop_policy, policy_ctx, obs_ctx):
     output_queue = asyncio.Queue()
 
     # Process
-    await executor.process(input_stream, output_queue, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, noop_policy, policy_ctx, obs_ctx)
 
     # Verify output
     result = await output_queue.get()
@@ -86,7 +86,7 @@ async def test_basic_passthrough_single_chunk(noop_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_basic_passthrough_multiple_chunks(noop_policy, policy_ctx, obs_ctx):
     """Test that multiple chunks pass through in order."""
-    executor = PolicyExecutor(policy=noop_policy)
+    executor = PolicyExecutor()
 
     # Create input stream with multiple chunks
     chunks = [
@@ -98,7 +98,7 @@ async def test_basic_passthrough_multiple_chunks(noop_policy, policy_ctx, obs_ct
 
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, noop_policy, policy_ctx, obs_ctx)
 
     # Verify all chunks passed through in order
     for expected_chunk in chunks:
@@ -113,12 +113,12 @@ async def test_basic_passthrough_multiple_chunks(noop_policy, policy_ctx, obs_ct
 @pytest.mark.asyncio
 async def test_basic_passthrough_empty_stream(noop_policy, policy_ctx, obs_ctx):
     """Test that empty stream produces only None sentinel."""
-    executor = PolicyExecutor(policy=noop_policy)
+    executor = PolicyExecutor()
 
     input_stream = async_iter_from_list([])
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, noop_policy, policy_ctx, obs_ctx)
 
     # Should only have None sentinel
     sentinel = await output_queue.get()
@@ -129,14 +129,14 @@ async def test_basic_passthrough_empty_stream(noop_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_basic_passthrough_preserves_chunk_data(noop_policy, policy_ctx, obs_ctx):
     """Test that chunk data is preserved exactly."""
-    executor = PolicyExecutor(policy=noop_policy)
+    executor = PolicyExecutor()
 
     # Create chunk with specific data
     original_chunk = create_model_response(content="Test content")
     input_stream = async_iter_from_list([original_chunk])
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, noop_policy, policy_ctx, obs_ctx)
 
     result = await output_queue.get()
 
@@ -150,13 +150,13 @@ async def test_basic_passthrough_preserves_chunk_data(noop_policy, policy_ctx, o
 @pytest.mark.asyncio
 async def test_basic_passthrough_finish_reason(noop_policy, policy_ctx, obs_ctx):
     """Test that finish_reason is preserved."""
-    executor = PolicyExecutor(policy=noop_policy)
+    executor = PolicyExecutor()
 
     chunk = create_model_response(content="Done", finish_reason="stop")
     input_stream = async_iter_from_list([chunk])
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, noop_policy, policy_ctx, obs_ctx)
 
     result = await output_queue.get()
     assert result.choices[0].finish_reason == "stop"

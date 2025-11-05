@@ -96,7 +96,7 @@ async def async_iter_from_list(items: list):
 @pytest.mark.asyncio
 async def test_assembler_processes_content_chunks(mock_policy, policy_ctx, obs_ctx):
     """Test that content chunks are processed through assembler."""
-    executor = PolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor()
 
     chunks = [
         create_content_chunk("Hello"),
@@ -106,7 +106,7 @@ async def test_assembler_processes_content_chunks(mock_policy, policy_ctx, obs_c
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
 
     # All chunks should pass through
     for expected in chunks:
@@ -124,7 +124,7 @@ async def test_assembler_tracks_content_block(mock_policy, policy_ctx, obs_ctx):
     This test verifies the assembler is working, but we don't inspect
     internal state yet - we'll verify hook invocations in Step 3.
     """
-    executor = PolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor()
 
     chunks = [
         create_content_chunk("Hello"),
@@ -134,7 +134,7 @@ async def test_assembler_tracks_content_block(mock_policy, policy_ctx, obs_ctx):
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
 
     # Verify chunks passed through (assembler doesn't modify them)
     results = []
@@ -154,7 +154,7 @@ async def test_assembler_tracks_content_block(mock_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_assembler_handles_tool_calls(mock_policy, policy_ctx, obs_ctx):
     """Test that assembler processes tool call chunks."""
-    executor = PolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor()
 
     chunks = [
         create_tool_call_chunk(tool_id="call_123", name="search", index=0),
@@ -165,7 +165,7 @@ async def test_assembler_handles_tool_calls(mock_policy, policy_ctx, obs_ctx):
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
 
     # All chunks should pass through
     results = []
@@ -184,7 +184,7 @@ async def test_assembler_handles_tool_calls(mock_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_assembler_handles_mixed_content_and_tools(mock_policy, policy_ctx, obs_ctx):
     """Test content followed by tool call."""
-    executor = PolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor()
 
     chunks = [
         create_content_chunk("Let me search for that."),
@@ -196,7 +196,7 @@ async def test_assembler_handles_mixed_content_and_tools(mock_policy, policy_ctx
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
 
     results = []
     while True:
@@ -211,7 +211,7 @@ async def test_assembler_handles_mixed_content_and_tools(mock_policy, policy_ctx
 @pytest.mark.asyncio
 async def test_assembler_preserves_chunk_order(mock_policy, policy_ctx, obs_ctx):
     """Test that chunk order is preserved through assembly."""
-    executor = PolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor()
 
     chunks = [
         create_content_chunk("1"),
@@ -223,7 +223,7 @@ async def test_assembler_preserves_chunk_order(mock_policy, policy_ctx, obs_ctx)
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
 
     # Verify exact order
     for i, expected in enumerate(chunks, 1):

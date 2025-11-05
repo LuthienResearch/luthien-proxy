@@ -12,7 +12,7 @@ Once the old PolicyOrchestrator is removed, rename this to policy_orchestrator.p
 """
 
 import asyncio
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from litellm.types.utils import ModelResponse
 
@@ -28,7 +28,8 @@ class PolicyOrchestrator:
     """Orchestrates request/response flow with explicit streaming pipeline.
 
     This orchestrator uses dependency injection to decouple pipeline stages:
-    - PolicyExecutor: Block assembly + policy hooks (ModelResponse → ModelResponse)
+    - Policy: Contains business logic for request/response transformation
+    - PolicyExecutor: Block assembly + policy hook invocation (ModelResponse → ModelResponse)
     - ClientFormatter: Common format → client-specific SSE (ModelResponse → str)
 
     The streaming pipeline is explicit, with typed queues connecting stages
@@ -40,6 +41,7 @@ class PolicyOrchestrator:
 
     def __init__(
         self,
+        policy: Any,  # BasePolicy or similar
         policy_executor: PolicyExecutor,
         client_formatter: ClientFormatter,
         transaction_recorder: TransactionRecorder,
@@ -48,11 +50,13 @@ class PolicyOrchestrator:
         """Initialize orchestrator with injected dependencies.
 
         Args:
+            policy: Policy instance with request/response hooks
             policy_executor: Executes policy logic on ModelResponse chunks
             client_formatter: Converts ModelResponse to client SSE strings
             transaction_recorder: Records chunks at pipeline boundaries
             queue_size: Maximum queue size (circuit breaker on overflow)
         """
+        self.policy = policy
         self.policy_executor = policy_executor
         self.client_formatter = client_formatter
         self.transaction_recorder = transaction_recorder
@@ -81,7 +85,11 @@ class PolicyOrchestrator:
         Raises:
             PolicyError: If policy rejects the request
         """
-        return await self.policy_executor.process_request(request, policy_ctx, obs_ctx)
+        # Set request in context for policy access
+        policy_ctx.request = request
+
+        # Call policy's on_request hook
+        return await self.policy.on_request(request, policy_ctx)
 
     async def process_streaming_response(
         self,
@@ -118,6 +126,7 @@ class PolicyOrchestrator:
             self.transaction_recorder.wrap(self.policy_executor).process(
                 backend_stream,  # type: ignore  # PolicyExecutor needs to accept AsyncIterator
                 policy_out_queue,
+                self.policy,  # Pass policy to executor
                 policy_ctx,
                 obs_ctx,
             )

@@ -9,7 +9,6 @@ from typing import Any, AsyncIterator
 
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.policy_executor.interface import (
     PolicyExecutorProtocol,
@@ -35,21 +34,21 @@ class PolicyExecutor(PolicyExecutorProtocol):
     - Invokes policy hooks as blocks are assembled
     - Enforces timeout unless keepalive() is called
     - Tracks last activity time internally
+
+    Note: Policy is passed to process() method, not stored in executor.
+    This makes the executor reusable with different policies.
     """
 
     def __init__(
         self,
-        policy: Any,  # BasePolicy or similar
         timeout_seconds: float | None = None,
     ) -> None:
         """Initialize policy executor.
 
         Args:
-            policy: Policy instance with hook methods (on_chunk_added, etc.)
             timeout_seconds: Maximum time between keepalive calls before timeout.
                 If None, no timeout is enforced.
         """
-        self.policy = policy
         self.timeout_seconds = timeout_seconds
         self._last_keepalive = time.monotonic()
 
@@ -72,37 +71,11 @@ class PolicyExecutor(PolicyExecutorProtocol):
         """
         return time.monotonic() - self._last_keepalive
 
-    async def process_request(
-        self,
-        request: Request,
-        policy_ctx: PolicyContext,
-        obs_ctx: ObservabilityContext,
-    ) -> Request:
-        """Execute policy processing on request before backend invocation.
-
-        Args:
-            request: Incoming request from client
-            policy_ctx: Policy context for shared state
-            obs_ctx: Observability context for tracing
-
-        Returns:
-            Policy-modified request to send to backend
-
-        Raises:
-            Exception: On policy errors
-        """
-        # Update policy context with the request
-        policy_ctx.request = request
-
-        # Call policy's on_request hook
-        modified_request = await self.policy.on_request(request, policy_ctx)
-
-        return modified_request
-
     async def process(
         self,
         input_stream: AsyncIterator[ModelResponse],
         output_queue: asyncio.Queue[ModelResponse],
+        policy: Any,  # BasePolicy or similar
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
     ) -> None:
@@ -118,6 +91,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
         Args:
             input_stream: Stream of ModelResponse chunks from backend
             output_queue: Queue to write policy-approved chunks to
+            policy: Policy instance with hook methods (on_chunk_received, etc.)
             policy_ctx: Policy context for shared state
             obs_ctx: Observability context for tracing
 
@@ -144,14 +118,14 @@ class PolicyExecutor(PolicyExecutorProtocol):
         )
 
         # Now set the real callback that uses the context
-        assembler.on_chunk = self._create_chunk_callback(streaming_ctx, output_queue)
+        assembler.on_chunk = self._create_chunk_callback(streaming_ctx, output_queue, policy)
 
         try:
             # Feed chunks to assembler - it will call our callback for each one
             await assembler.process(input_stream, context=streaming_ctx)
 
             # Call on_stream_complete after all chunks processed
-            await self.policy.on_stream_complete(streaming_ctx)
+            await policy.on_stream_complete(streaming_ctx)
         finally:
             # Signal end of stream with None sentinel
             await output_queue.put(None)
@@ -160,12 +134,14 @@ class PolicyExecutor(PolicyExecutorProtocol):
         self,
         streaming_ctx: StreamingPolicyContext,
         output_queue: asyncio.Queue[ModelResponse],
+        policy: Any,
     ):
         """Create callback for assembler to invoke on each chunk.
 
         Args:
             streaming_ctx: Streaming policy context for hook invocations
             output_queue: Queue to write chunks to after policy processing
+            policy: Policy instance with hook methods
 
         Returns:
             Async callback function
@@ -179,25 +155,25 @@ class PolicyExecutor(PolicyExecutorProtocol):
             self.keepalive()  # Update activity timestamp
 
             # Call on_chunk_received for every chunk
-            await self.policy.on_chunk_received(streaming_ctx)
+            await policy.on_chunk_received(streaming_ctx)
 
             # Call delta hooks if current block exists
             if state.current_block:
                 if isinstance(state.current_block, ContentStreamBlock):
-                    await self.policy.on_content_delta(streaming_ctx)
+                    await policy.on_content_delta(streaming_ctx)
                 elif isinstance(state.current_block, ToolCallStreamBlock):
-                    await self.policy.on_tool_call_delta(streaming_ctx)
+                    await policy.on_tool_call_delta(streaming_ctx)
 
             # Call complete hooks if block just completed
             if state.just_completed:
                 if isinstance(state.just_completed, ContentStreamBlock):
-                    await self.policy.on_content_complete(streaming_ctx)
+                    await policy.on_content_complete(streaming_ctx)
                 elif isinstance(state.just_completed, ToolCallStreamBlock):
-                    await self.policy.on_tool_call_complete(streaming_ctx)
+                    await policy.on_tool_call_complete(streaming_ctx)
 
             # Call finish_reason hook when present
             if state.finish_reason:
-                await self.policy.on_finish_reason(streaming_ctx)
+                await policy.on_finish_reason(streaming_ctx)
 
             # Drain egress queue (policy-approved chunks) to output
             # If policy didn't write anything, forward the original chunk
