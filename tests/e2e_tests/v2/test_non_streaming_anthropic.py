@@ -11,7 +11,7 @@ from luthien_proxy.v2.llm.litellm_client import LiteLLMClient
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import NoOpObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import NoOpTransactionRecorder
-from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
+from luthien_proxy.v2.orchestration.policy_orchestrator_old import PolicyOrchestrator
 from luthien_proxy.v2.policies.policy import Policy, PolicyContext
 
 tracer = trace.get_tracer(__name__)

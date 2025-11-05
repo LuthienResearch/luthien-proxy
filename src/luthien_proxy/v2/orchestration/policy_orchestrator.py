@@ -1,265 +1,166 @@
-# ABOUTME: DEPRECATED. Look at policy_orchestrator_new.py instead. PolicyOrchestrator orchestrates request/response flow through policy layer
-# ABOUTME: Handles both streaming and non-streaming responses with observability and recording
+# ABOUTME: Simplified PolicyOrchestrator using explicit queue-based streaming pipeline
+# ABOUTME: Dependencies injected for policy execution and client formatting, recording at boundaries
 
-"""Module docstring."""
+"""Simplified policy orchestration with explicit streaming pipeline.
 
-from __future__ import annotations
+This refactored PolicyOrchestrator uses dependency injection
+and explicit queues to create a clear, typed streaming pipeline.
+"""
 
 import asyncio
-from typing import AsyncIterator, Callable
+from typing import Any, AsyncIterator
 
 from litellm.types.utils import ModelResponse
-from opentelemetry import trace
-from opentelemetry.trace import Span
 
-from luthien_proxy.v2.llm.client import LLMClient
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import TransactionRecorder
-from luthien_proxy.v2.policies.policy import Policy
-from luthien_proxy.v2.policies.policy import PolicyContext as OldPolicyContext
+from luthien_proxy.v2.streaming.client_formatter import ClientFormatter
+from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 from luthien_proxy.v2.streaming.protocol import PolicyContext
-from luthien_proxy.v2.streaming.stream_blocks import (
-    ContentStreamBlock,
-    ToolCallStreamBlock,
-)
-from luthien_proxy.v2.streaming.stream_state import StreamState
-from luthien_proxy.v2.streaming.streaming_chunk_assembler import (
-    StreamingChunkAssembler,
-)
-from luthien_proxy.v2.streaming.streaming_orchestrator import StreamingOrchestrator
-from luthien_proxy.v2.streaming.streaming_policy_context import (
-    StreamingPolicyContext,
-)
-from luthien_proxy.v2.streaming.streaming_response_context import (
-    StreamingResponseContext,
-)
-
-tracer = trace.get_tracer(__name__)
 
 
 class PolicyOrchestrator:
-    """Orchestrates request/response flow through policy layer."""
+    """Orchestrates request/response flow with explicit streaming pipeline.
 
-    def __init__(  # noqa: D107
+    This orchestrator uses dependency injection to decouple pipeline stages:
+    - Policy: Contains business logic for request/response transformation
+    - PolicyExecutor: Block assembly + policy hook invocation (ModelResponse → ModelResponse)
+    - ClientFormatter: Common format → client-specific SSE (ModelResponse → str)
+
+    The streaming pipeline is explicit, with typed queues connecting stages
+    and TransactionRecorder wrapping stages at common format boundaries.
+
+    Note: Backend streams from LiteLLM are already in common format (ModelResponse),
+    so no ingress formatting is needed.
+    """
+
+    def __init__(
         self,
-        policy: Policy,
-        llm_client: LLMClient,
-        observability: ObservabilityContext,
-        recorder: TransactionRecorder,
-        streaming_orchestrator: StreamingOrchestrator | None = None,
-    ):
+        policy: Any,  # BasePolicy or similar
+        policy_executor: PolicyExecutor,
+        client_formatter: ClientFormatter,
+        transaction_recorder: TransactionRecorder,
+        queue_size: int = 10000,
+    ) -> None:
+        """Initialize orchestrator with injected dependencies.
+
+        Args:
+            policy: Policy instance with request/response hooks
+            policy_executor: Executes policy logic on ModelResponse chunks
+            client_formatter: Converts ModelResponse to client SSE strings
+            transaction_recorder: Records chunks at pipeline boundaries
+            queue_size: Maximum queue size (circuit breaker on overflow)
+        """
         self.policy = policy
-        self.llm_client = llm_client
-        self.observability = observability
-        self.recorder = recorder
-        self.streaming_orchestrator = streaming_orchestrator or StreamingOrchestrator()
+        self.policy_executor = policy_executor
+        self.client_formatter = client_formatter
+        self.transaction_recorder = transaction_recorder
+        self.queue_size = queue_size
 
-    async def process_request(self, request: Request, transaction_id: str, span: Span) -> Request:
-        """Apply policy to request, record original + final."""
-        context = OldPolicyContext(call_id=transaction_id, span=span, request=request, observability=self.observability)
-        final_request = await self.policy.on_request(request, context)
-        await self.recorder.record_request(request, final_request)
-
-        return final_request
-
-    async def _create_policy_callback(
+    async def process_request(
         self,
-        ctx: StreamingResponseContext,
-        keepalive: Callable[[], None],
-    ) -> Callable:
-        """Create callback for assembler that invokes policy hooks.
+        request: Request,
+        policy_ctx: PolicyContext,
+        obs_ctx: ObservabilityContext,
+    ) -> Request:
+        """Apply policy to request before backend invocation.
 
-        Returns a callback that processes chunks through policy hooks based on
-        stream state (content deltas, tool calls, completion events).
+        This processes the request through policy hooks before sending
+        to the backend LLM. The policy_ctx is shared with streaming
+        response processing.
+
+        Args:
+            request: Incoming request from client
+            policy_ctx: Policy context (shared with response processing)
+            obs_ctx: Observability context for tracing
+
+        Returns:
+            Policy-modified request to send to backend
+
+        Raises:
+            PolicyError: If policy rejects the request
         """
-        DELTA_HOOKS = {
-            ContentStreamBlock: self.policy.on_content_delta,
-            ToolCallStreamBlock: self.policy.on_tool_call_delta,
-        }
-        COMPLETE_HOOKS = {
-            ContentStreamBlock: self.policy.on_content_complete,
-            ToolCallStreamBlock: self.policy.on_tool_call_complete,
-        }
+        # Set request in context for policy access
+        policy_ctx.request = request
 
-        async def policy_callback(chunk: ModelResponse, state: StreamState, context):
-            """Called by assembler on each chunk."""
-            keepalive()
-            self.recorder.add_ingress_chunk(chunk)
-
-            # Convert StreamingResponseContext to StreamingPolicyContext for policy hooks
-            policy_ctx_obj = PolicyContext(
-                transaction_id=ctx.transaction_id,
-                request=ctx.final_request,
-            )
-            # Copy scratchpad data if any exists
-            policy_ctx_obj.scratchpad.update(ctx.scratchpad)
-            streaming_policy_ctx = StreamingPolicyContext(
-                policy_ctx=policy_ctx_obj,
-                egress_queue=ctx.egress_queue,
-                original_streaming_response_state=state,
-                observability=ctx.observability,
-            )
-
-            await self.policy.on_chunk_received(streaming_policy_ctx)
-
-            if state.current_block:
-                block_type = type(state.current_block)
-                if hook := DELTA_HOOKS.get(block_type):
-                    await hook(streaming_policy_ctx)
-
-            if state.just_completed:
-                block_type = type(state.just_completed)
-                if hook := COMPLETE_HOOKS.get(block_type):
-                    await hook(streaming_policy_ctx)
-
-            if state.finish_reason:
-                await self.policy.on_finish_reason(streaming_policy_ctx)
-
-        return policy_callback
-
-    @staticmethod
-    async def _queue_to_async_iter(queue: asyncio.Queue) -> AsyncIterator:
-        """Convert a queue to an async iterator.
-
-        Yields items from the queue until QueueShutDown is raised.
-        """
-        while True:
-            try:
-                chunk = await queue.get()
-                yield chunk
-            except asyncio.QueueShutDown:
-                break
-
-    async def _feed_assembler(
-        self,
-        incoming_queue: asyncio.Queue,
-        ingress_assembler: StreamingChunkAssembler,
-        ctx: StreamingResponseContext,
-        feed_complete: asyncio.Event,
-    ):
-        """Feed incoming chunks to assembler and notify policy on completion."""
-        try:
-            await ingress_assembler.process(self._queue_to_async_iter(incoming_queue), ctx)
-
-            # Convert to StreamingPolicyContext for on_stream_complete
-            policy_ctx_obj = PolicyContext(
-                transaction_id=ctx.transaction_id,
-                request=ctx.final_request,
-            )
-            # Copy scratchpad data if any exists
-            policy_ctx_obj.scratchpad.update(ctx.scratchpad)
-            streaming_policy_ctx = StreamingPolicyContext(
-                policy_ctx=policy_ctx_obj,
-                egress_queue=ctx.egress_queue,
-                original_streaming_response_state=ingress_assembler.state,
-                observability=ctx.observability,
-            )
-            await self.policy.on_stream_complete(streaming_policy_ctx)
-        finally:
-            feed_complete.set()
-
-    async def _drain_egress(
-        self,
-        egress_queue: asyncio.Queue,
-        outgoing_queue: asyncio.Queue,
-        feed_complete: asyncio.Event,
-        keepalive: Callable[[], None],
-    ):
-        """Drain egress queue and forward chunks to outgoing queue.
-
-        Waits for chunks with timeout, and when feed is complete, drains any
-        remaining chunks before shutting down the outgoing queue.
-        """
-        while True:
-            try:
-                chunk = await asyncio.wait_for(egress_queue.get(), timeout=0.1)
-                self.recorder.add_egress_chunk(chunk)
-                await outgoing_queue.put(chunk)
-                keepalive()
-            except asyncio.TimeoutError:
-                if feed_complete.is_set():
-                    # Drain remaining chunks
-                    while not egress_queue.empty():
-                        try:
-                            chunk = egress_queue.get_nowait()
-                            self.recorder.add_egress_chunk(chunk)
-                            await outgoing_queue.put(chunk)
-                            keepalive()
-                        except asyncio.QueueEmpty:
-                            break
-                    break
-
-        await outgoing_queue.put(None)
-        outgoing_queue.shutdown()
-
-    async def _policy_processor(
-        self,
-        incoming_queue: asyncio.Queue,
-        outgoing_queue: asyncio.Queue,
-        keepalive: Callable[[], None],
-        ctx: StreamingResponseContext,
-        egress_queue: asyncio.Queue,
-        feed_complete: asyncio.Event,
-    ):
-        """Orchestrate policy processing of streaming chunks.
-
-        Sets up assembler with policy callback, then runs feed and drain tasks
-        concurrently.
-        """
-        policy_callback = await self._create_policy_callback(ctx, keepalive)
-        ingress_assembler = StreamingChunkAssembler(on_chunk_callback=policy_callback)
-        ctx.ingress_assembler = ingress_assembler
-
-        await asyncio.gather(
-            self._feed_assembler(incoming_queue, ingress_assembler, ctx, feed_complete),
-            self._drain_egress(egress_queue, outgoing_queue, feed_complete, keepalive),
-        )
+        # Call policy's on_request hook
+        return await self.policy.on_request(request, policy_ctx)
 
     async def process_streaming_response(
-        self, request: Request, transaction_id: str, span: Span
-    ) -> AsyncIterator[ModelResponse]:
-        """Process streaming response through policy."""
-        llm_stream: AsyncIterator[ModelResponse] = await self.llm_client.stream(request)
-        egress_queue: asyncio.Queue[ModelResponse] = asyncio.Queue()
+        self,
+        backend_stream: AsyncIterator[ModelResponse],
+        policy_ctx: PolicyContext,
+        obs_ctx: ObservabilityContext,
+    ) -> AsyncIterator[str]:
+        """Process streaming response through policy pipeline.
 
-        ctx = StreamingResponseContext(
-            transaction_id=transaction_id,
-            final_request=request,
-            ingress_assembler=None,
-            egress_queue=egress_queue,
-            scratchpad={},
-            observability=self.observability,
+        This creates the explicit queue-based pipeline:
+        1. backend_stream (ModelResponse) → PolicyExecutor (recorded) → policy_out_queue
+        2. policy_out_queue → ClientFormatter (recorded) → sse_queue
+        3. Drain sse_queue and yield to client
+
+        Args:
+            backend_stream: Streaming ModelResponse from backend LLM (already common format)
+            policy_ctx: Policy context (shared with request processing)
+            obs_ctx: Observability context for tracing
+
+        Yields:
+            SSE formatted strings in client-specific format
+
+        Raises:
+            PolicyTimeoutError: If policy processing times out
+            QueueFullError: If any queue exceeds circuit breaker limit
+            Exception: On pipeline errors
+        """
+        # Create typed queues that define pipeline contracts
+        policy_out_queue: asyncio.Queue[ModelResponse] = asyncio.Queue(maxsize=self.queue_size)
+        sse_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=self.queue_size)
+
+        # Launch pipeline stages - structure is clear and typed
+        asyncio.create_task(
+            self.transaction_recorder.wrap(self.policy_executor).process(
+                backend_stream,  # type: ignore  # PolicyExecutor needs to accept AsyncIterator
+                policy_out_queue,
+                self.policy,  # Pass policy to executor
+                policy_ctx,
+                obs_ctx,
+            )
+        )
+        asyncio.create_task(
+            self.transaction_recorder.wrap(self.client_formatter).process(
+                policy_out_queue,
+                sse_queue,
+                policy_ctx,
+                obs_ctx,
+            )
         )
 
-        feed_complete = asyncio.Event()
+        # Drain final queue and yield to client
+        async for event in self._drain_queue(sse_queue):
+            yield event
 
-        async def policy_processor(
-            incoming_queue: asyncio.Queue,
-            outgoing_queue: asyncio.Queue,
-            keepalive: Callable[[], None],
-        ):
-            """Wrapper to call _policy_processor with captured state."""
-            await self._policy_processor(incoming_queue, outgoing_queue, keepalive, ctx, egress_queue, feed_complete)
+    async def _drain_queue(self, queue: asyncio.Queue[str]) -> AsyncIterator[str]:
+        """Drain queue until shutdown.
 
-        try:
-            async for chunk in self.streaming_orchestrator.process(
-                llm_stream, policy_processor, timeout_seconds=30.0, span=span
-            ):
-                yield chunk
-        finally:
-            await self.recorder.finalize_streaming()
+        Args:
+            queue: Queue to drain
 
-    async def process_full_response(self, request: Request, transaction_id: str, span: Span) -> ModelResponse:
-        """Process non-streaming response through policy."""
-        original_response = await self.llm_client.complete(request)
-
-        context = OldPolicyContext(call_id=transaction_id, span=span, request=request, observability=self.observability)
-        final_response = await self.policy.process_full_response(original_response, context)
-
-        await self.recorder.finalize_non_streaming(original_response, final_response)
-
-        return final_response
+        Yields:
+            SSE strings from queue until None sentinel
+        """
+        while True:
+            event = await queue.get()
+            if event is None:
+                # None sentinel signals end of stream
+                break
+            yield event
 
 
-__all__ = ["PolicyOrchestrator"]
+class QueueFullError(Exception):
+    """Raised when a pipeline queue exceeds circuit breaker limit."""
+
+    pass
+
+
+__all__ = ["PolicyOrchestrator", "QueueFullError"]
