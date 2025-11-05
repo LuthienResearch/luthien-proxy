@@ -43,7 +43,7 @@ def test_openai_streaming_with_policy():
 
         # Verify response
         assert response.status_code == 200
-        assert response.headers["content-type"] == "text/event-stream"
+        assert response.headers["content-type"].startswith("text/event-stream")
 
         # Collect SSE data
         lines = response.text.split("\n")
@@ -80,7 +80,7 @@ def test_anthropic_streaming():
 
         # Verify response
         assert response.status_code == 200
-        assert response.headers["content-type"] == "text/event-stream"
+        assert response.headers["content-type"].startswith("text/event-stream")
 
         # Collect SSE events
         lines = response.text.split("\n")
