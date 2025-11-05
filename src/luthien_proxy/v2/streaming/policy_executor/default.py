@@ -7,6 +7,8 @@ import asyncio
 import time
 from typing import Any
 
+from litellm.types.utils import ModelResponse
+
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
@@ -58,8 +60,8 @@ class DefaultPolicyExecutor:
 
     async def process(
         self,
-        input_queue: asyncio.Queue[Any],  # Common format chunks
-        output_queue: asyncio.Queue[Any],  # Common format chunks
+        input_queue: asyncio.Queue[ModelResponse],
+        output_queue: asyncio.Queue[ModelResponse],
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
     ) -> None:

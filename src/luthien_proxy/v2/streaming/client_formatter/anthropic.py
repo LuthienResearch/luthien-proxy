@@ -4,7 +4,8 @@
 """Anthropic client formatter implementation."""
 
 import asyncio
-from typing import Any
+
+from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.protocol import PolicyContext
@@ -15,8 +16,8 @@ class AnthropicClientFormatter:
 
     async def process(
         self,
-        input_queue: asyncio.Queue[Any],  # Common format chunks
-        output_queue: asyncio.Queue[Any],  # Anthropic SSE events
+        input_queue: asyncio.Queue[ModelResponse],
+        output_queue: asyncio.Queue[str],
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
     ) -> None:

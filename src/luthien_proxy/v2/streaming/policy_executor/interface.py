@@ -4,7 +4,9 @@
 """Policy executor interface for streaming responses."""
 
 import asyncio
-from typing import Any, Protocol
+from typing import Protocol
+
+from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.protocol import PolicyContext
@@ -14,12 +16,12 @@ class PolicyExecutor(Protocol):
     """Executes policy logic during streaming response processing.
 
     Implementations handle:
-    - Block assembly from incoming chunks
+    - Block assembly from incoming ModelResponse chunks
     - Policy hook invocation at key moments
     - Timeout monitoring (implementation-specific)
     - Keepalive signaling from policies
 
-    All processing happens in common chunk format.
+    All processing happens with ModelResponse objects in common format.
     """
 
     def keepalive(self) -> None:
@@ -33,23 +35,23 @@ class PolicyExecutor(Protocol):
 
     async def process(
         self,
-        input_queue: asyncio.Queue[Any],  # Common format chunks (ingress)
-        output_queue: asyncio.Queue[Any],  # Common format chunks (egress)
+        input_queue: asyncio.Queue[ModelResponse],
+        output_queue: asyncio.Queue[ModelResponse],
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
     ) -> None:
         """Execute policy processing on streaming chunks.
 
         This method:
-        1. Reads common-format chunks from input_queue
+        1. Reads ModelResponse chunks from input_queue
         2. Feeds them to block assembly to build partial/complete blocks
         3. Invokes policy hooks at appropriate moments
-        4. Writes policy-approved chunks to output_queue
+        4. Writes policy-approved ModelResponse chunks to output_queue
         5. Monitors for timeout based on implementation strategy
 
         Args:
-            input_queue: Queue of common-format chunks from backend
-            output_queue: Queue for policy-approved common-format chunks
+            input_queue: Queue to read ModelResponse chunks from
+            output_queue: Queue to write policy-approved ModelResponse chunks to
             policy_ctx: Policy context for shared state
             obs_ctx: Observability context for tracing
 

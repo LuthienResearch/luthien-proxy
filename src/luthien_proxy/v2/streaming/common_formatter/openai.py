@@ -4,7 +4,9 @@
 """OpenAI common formatter implementation."""
 
 import asyncio
-from typing import Any
+from typing import AsyncIterator
+
+from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.protocol import PolicyContext
@@ -15,8 +17,8 @@ class OpenAICommonFormatter:
 
     async def process(
         self,
-        input_stream: Any,  # OpenAI stream (AsyncIterator)
-        output_queue: asyncio.Queue[Any],  # Common format chunks
+        input_stream: AsyncIterator[ModelResponse],
+        output_queue: asyncio.Queue[ModelResponse],
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
     ) -> None:
