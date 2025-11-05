@@ -1,10 +1,14 @@
 # ABOUTME: Simplified PolicyOrchestrator using explicit queue-based streaming pipeline
 # ABOUTME: Dependencies injected for formatters and policy execution, recording at boundaries
+# TODO: Rename to policy_orchestrator.py once old implementation is removed
 
 """Simplified policy orchestration with explicit streaming pipeline.
 
-This is the v2 refactor of PolicyOrchestrator that uses dependency injection
+This is the refactored PolicyOrchestrator that uses dependency injection
 and explicit queues to create a clear, typed streaming pipeline.
+
+NOTE: This file is temporarily named _new.py to avoid conflicts during migration.
+Once the old PolicyOrchestrator is removed, rename this to policy_orchestrator.py.
 """
 
 import asyncio
@@ -23,7 +27,7 @@ from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
-class PolicyOrchestratorV2:
+class PolicyOrchestratorNew:
     """Orchestrates request/response flow with explicit streaming pipeline.
 
     This orchestrator uses dependency injection to decouple pipeline stages:
@@ -163,4 +167,4 @@ class QueueFullError(Exception):
     pass
 
 
-__all__ = ["PolicyOrchestratorV2", "QueueFullError"]
+__all__ = ["PolicyOrchestratorNew", "QueueFullError"]
