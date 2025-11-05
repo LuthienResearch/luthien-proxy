@@ -1,5 +1,5 @@
 # ABOUTME: Simplified PolicyOrchestrator using explicit queue-based streaming pipeline
-# ABOUTME: Dependencies injected for formatters and policy execution, recording at boundaries
+# ABOUTME: Dependencies injected for policy execution and client formatting, recording at boundaries
 # TODO: Rename to policy_orchestrator.py once old implementation is removed
 
 """Simplified policy orchestration with explicit streaming pipeline.
@@ -19,12 +19,7 @@ from litellm.types.utils import ModelResponse
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import TransactionRecorder
-from luthien_proxy.v2.streaming.client_formatter import (
-    ClientFormatter,
-)
-from luthien_proxy.v2.streaming.common_formatter import (
-    CommonFormatter,
-)
+from luthien_proxy.v2.streaming.client_formatter import ClientFormatter
 from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
@@ -33,17 +28,18 @@ class PolicyOrchestrator:
     """Orchestrates request/response flow with explicit streaming pipeline.
 
     This orchestrator uses dependency injection to decouple pipeline stages:
-    - CommonFormatter: Backend-specific → common format
-    - PolicyExecutor: Block assembly + policy hooks (common → common)
-    - ClientFormatter: Common format → client-specific SSE
+    - PolicyExecutor: Block assembly + policy hooks (ModelResponse → ModelResponse)
+    - ClientFormatter: Common format → client-specific SSE (ModelResponse → str)
 
     The streaming pipeline is explicit, with typed queues connecting stages
     and TransactionRecorder wrapping stages at common format boundaries.
+
+    Note: Backend streams from LiteLLM are already in common format (ModelResponse),
+    so no ingress formatting is needed.
     """
 
     def __init__(
         self,
-        common_formatter: CommonFormatter,
         policy_executor: PolicyExecutor,
         client_formatter: ClientFormatter,
         transaction_recorder: TransactionRecorder,
@@ -52,13 +48,11 @@ class PolicyOrchestrator:
         """Initialize orchestrator with injected dependencies.
 
         Args:
-            common_formatter: Converts backend chunks to common format
-            policy_executor: Executes policy logic on common-format chunks
-            client_formatter: Converts common format to client SSE events
+            policy_executor: Executes policy logic on ModelResponse chunks
+            client_formatter: Converts ModelResponse to client SSE strings
             transaction_recorder: Records chunks at pipeline boundaries
             queue_size: Maximum queue size (circuit breaker on overflow)
         """
-        self.common_formatter = common_formatter
         self.policy_executor = policy_executor
         self.client_formatter = client_formatter
         self.transaction_recorder = transaction_recorder
@@ -98,13 +92,12 @@ class PolicyOrchestrator:
         """Process streaming response through policy pipeline.
 
         This creates the explicit queue-based pipeline:
-        1. backend_stream → CommonFormatter → common_in_queue
-        2. common_in_queue → PolicyExecutor (recorded) → common_out_queue
-        3. common_out_queue → ClientFormatter (recorded) → sse_queue
-        4. Drain sse_queue and yield to client
+        1. backend_stream (ModelResponse) → PolicyExecutor (recorded) → policy_out_queue
+        2. policy_out_queue → ClientFormatter (recorded) → sse_queue
+        3. Drain sse_queue and yield to client
 
         Args:
-            backend_stream: Streaming ModelResponse from backend LLM
+            backend_stream: Streaming ModelResponse from backend LLM (already common format)
             policy_ctx: Policy context (shared with request processing)
             obs_ctx: Observability context for tracing
 
@@ -117,30 +110,21 @@ class PolicyOrchestrator:
             Exception: On pipeline errors
         """
         # Create typed queues that define pipeline contracts
-        common_in_queue: asyncio.Queue[ModelResponse] = asyncio.Queue(maxsize=self.queue_size)
-        common_out_queue: asyncio.Queue[ModelResponse] = asyncio.Queue(maxsize=self.queue_size)
+        policy_out_queue: asyncio.Queue[ModelResponse] = asyncio.Queue(maxsize=self.queue_size)
         sse_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=self.queue_size)
 
         # Launch pipeline stages - structure is clear and typed
         asyncio.create_task(
-            self.common_formatter.process(
-                backend_stream,  # type: ignore  # Backend stream is input
-                common_in_queue,
-                policy_ctx,
-                obs_ctx,
-            )
-        )
-        asyncio.create_task(
             self.transaction_recorder.wrap(self.policy_executor).process(
-                common_in_queue,
-                common_out_queue,
+                backend_stream,  # type: ignore  # PolicyExecutor needs to accept AsyncIterator
+                policy_out_queue,
                 policy_ctx,
                 obs_ctx,
             )
         )
         asyncio.create_task(
             self.transaction_recorder.wrap(self.client_formatter).process(
-                common_out_queue,
+                policy_out_queue,
                 sse_queue,
                 policy_ctx,
                 obs_ctx,
