@@ -27,7 +27,7 @@ from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
-class PolicyOrchestratorNew:
+class PolicyOrchestrator:
     """Orchestrates request/response flow with explicit streaming pipeline.
 
     This orchestrator uses dependency injection to decouple pipeline stages:
@@ -167,4 +167,4 @@ class QueueFullError(Exception):
     pass
 
 
-__all__ = ["PolicyOrchestratorNew", "QueueFullError"]
+__all__ = ["PolicyOrchestrator", "QueueFullError"]
