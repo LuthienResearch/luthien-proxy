@@ -63,8 +63,8 @@ async def test_streaming_anthropic_with_uppercase_policy():
     for chunk in chunks:
         if chunk.choices and len(chunk.choices) > 0:
             delta = chunk.choices[0].delta
-            if delta and isinstance(delta, dict) and "content" in delta:
-                content_parts.append(delta["content"])
+            if delta and hasattr(delta, "content") and delta.content:
+                content_parts.append(delta.content)
 
     full_content = "".join(content_parts)
 
