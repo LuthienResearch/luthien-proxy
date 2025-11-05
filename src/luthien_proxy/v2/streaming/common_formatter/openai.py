@@ -11,11 +11,7 @@ from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
 class OpenAICommonFormatter:
-    """Converts OpenAI streaming chunks to common format.
-
-    Consumes raw OpenAI SSE chunks and produces chunks in our common
-    format that can be processed by policies regardless of backend.
-    """
+    """Converts OpenAI streaming chunks to common format."""
 
     async def process(
         self,
@@ -26,13 +22,13 @@ class OpenAICommonFormatter:
     ) -> None:
         """Convert OpenAI chunks to common format.
 
-        Reads OpenAI-specific streaming chunks from input_stream, converts
-        them to our common format, and writes to output_queue.
+        Reads OpenAI-specific streaming chunks, converts them to common
+        format, and writes to output queue.
 
         Args:
-            input_stream: Stream of raw OpenAI chunks
-            output_queue: Queue for common format chunks
-            policy_ctx: Policy context (unused in formatter)
+            input_stream: Stream of OpenAI chunks to convert
+            output_queue: Queue to write converted chunks to
+            policy_ctx: Policy context for shared state
             obs_ctx: Observability context for tracing
 
         Raises:

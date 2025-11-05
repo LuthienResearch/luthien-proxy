@@ -11,11 +11,7 @@ from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
 class AnthropicClientFormatter:
-    """Converts common format chunks to Anthropic SSE events.
-
-    Consumes common-format chunks (from policy egress) and produces
-    Anthropic-compatible SSE events for streaming to the client.
-    """
+    """Converts common format chunks to Anthropic SSE events."""
 
     async def process(
         self,
@@ -26,13 +22,13 @@ class AnthropicClientFormatter:
     ) -> None:
         """Convert common format chunks to Anthropic SSE format.
 
-        Reads common-format chunks from input_queue, converts them to
-        Anthropic-specific SSE events, and writes to output_queue.
+        Reads chunks from input queue, converts them to Anthropic-specific
+        SSE events, and writes to output queue.
 
         Args:
-            input_queue: Queue of common format chunks
-            output_queue: Queue for Anthropic SSE events
-            policy_ctx: Policy context (unused in formatter)
+            input_queue: Queue to read chunks from
+            output_queue: Queue to write SSE events to
+            policy_ctx: Policy context for shared state
             obs_ctx: Observability context for tracing
 
         Raises:

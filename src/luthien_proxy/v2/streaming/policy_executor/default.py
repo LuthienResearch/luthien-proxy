@@ -58,15 +58,15 @@ class DefaultPolicyExecutor:
 
     async def process(
         self,
-        input_queue: asyncio.Queue[Any],  # Common format chunks (ingress)
-        output_queue: asyncio.Queue[Any],  # Common format chunks (egress)
+        input_queue: asyncio.Queue[Any],  # Common format chunks
+        output_queue: asyncio.Queue[Any],  # Common format chunks
         policy_ctx: PolicyContext,
         obs_ctx: ObservabilityContext,
     ) -> None:
         """Execute policy processing on streaming chunks.
 
         This method:
-        1. Reads common-format chunks from input_queue
+        1. Reads chunks from input_queue
         2. Feeds them to BlockAssembler to build partial/complete blocks
         3. Invokes policy hooks at appropriate moments:
            - on_chunk_added: When a new chunk is added to a block
@@ -77,8 +77,8 @@ class DefaultPolicyExecutor:
         5. Monitors for timeout (if configured), checking keepalive
 
         Args:
-            input_queue: Queue of common-format chunks from backend
-            output_queue: Queue for policy-approved common-format chunks
+            input_queue: Queue to read chunks from
+            output_queue: Queue to write policy-approved chunks to
             policy_ctx: Policy context for shared state
             obs_ctx: Observability context for tracing
 
