@@ -4,6 +4,11 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 
 ## High Priority
 
+- [ ] **Update PolicyOrchestrator unit tests** - The orchestrator unit tests (test_policy_orchestrator_streaming.py, test_policy_orchestrator_non_streaming.py) need to be updated or removed:
+  - Tests were written for pre-refactor interface (before dependency injection)
+  - E2E tests validate actual behavior and are passing
+  - Unit tests need updating to match new PolicyOrchestrator interface (injected policy_executor, client_formatter, transaction_recorder)
+  - Also update integration tests in tests/integration_tests/v2/test_gateway_streaming.py
 - [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files:
   - Support policy override via request header (e.g., `X-Luthien-Policy: noop` or `X-Luthien-Policy: simple`)
   - Or environment variable override (e.g., `LUTHIEN_TEST_POLICY=noop`)
