@@ -35,7 +35,16 @@ class OpenAIClientFormatter:
         Raises:
             Exception: On conversion errors or malformed chunks
         """
-        pass  # TODO: Implement
+        while True:
+            chunk = await input_queue.get()
+
+            # None signals end of stream
+            if chunk is None:
+                break
+
+            # Convert ModelResponse to SSE format: "data: {json}\n\n"
+            sse_line = f"data: {chunk.model_dump_json()}\n\n"
+            await output_queue.put(sse_line)
 
 
 __all__ = ["OpenAIClientFormatter"]
