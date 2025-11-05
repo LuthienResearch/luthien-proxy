@@ -4,7 +4,7 @@
 """Tests for basic PolicyExecutor pass-through."""
 
 import asyncio
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
@@ -28,12 +28,19 @@ def obs_ctx():
 
 @pytest.fixture
 def mock_policy():
-    """Create a mock policy with no-op hooks.
+    """Create a mock policy with async hook methods.
 
-    For Step 1, we don't actually call policy hooks, so this is just
-    a placeholder to match the DefaultPolicyExecutor interface.
+    Updated for Step 3: Now that we invoke policy hooks, we need AsyncMock.
     """
-    return Mock()
+    policy = Mock()
+    policy.on_chunk_received = AsyncMock()
+    policy.on_content_delta = AsyncMock()
+    policy.on_content_complete = AsyncMock()
+    policy.on_tool_call_delta = AsyncMock()
+    policy.on_tool_call_complete = AsyncMock()
+    policy.on_finish_reason = AsyncMock()
+    policy.on_stream_complete = AsyncMock()
+    return policy
 
 
 def create_model_response(content: str = "Hello", finish_reason: str | None = None) -> ModelResponse:

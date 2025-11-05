@@ -11,9 +11,16 @@ from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.protocol import PolicyContext
+from luthien_proxy.v2.streaming.stream_blocks import (
+    ContentStreamBlock,
+    ToolCallStreamBlock,
+)
 from luthien_proxy.v2.streaming.stream_state import StreamState
 from luthien_proxy.v2.streaming.streaming_chunk_assembler import (
     StreamingChunkAssembler,
+)
+from luthien_proxy.v2.streaming.streaming_response_context import (
+    StreamingResponseContext,
 )
 
 
@@ -92,24 +99,69 @@ class DefaultPolicyExecutor:
             PolicyTimeoutError: If processing exceeds timeout without keepalive
             Exception: On policy errors or assembly failures
         """
+        # Step 3: Add policy hook invocations based on stream state
+        # Define hook mappings based on block type
+        DELTA_HOOKS = {
+            ContentStreamBlock: self.policy.on_content_delta,
+            ToolCallStreamBlock: self.policy.on_tool_call_delta,
+        }
+        COMPLETE_HOOKS = {
+            ContentStreamBlock: self.policy.on_content_complete,
+            ToolCallStreamBlock: self.policy.on_tool_call_complete,
+        }
 
-        # Step 2: Add StreamingChunkAssembler for block assembly
+        # Create a minimal StreamingResponseContext for policy hooks
+        # This will be replaced with proper context in Step 5
+        egress_queue: asyncio.Queue[ModelResponse] = asyncio.Queue()
+        streaming_ctx = StreamingResponseContext(
+            transaction_id=policy_ctx.transaction_id,
+            final_request=None,  # Will be added in Step 5
+            ingress_assembler=None,  # Set below
+            egress_queue=egress_queue,
+            scratchpad=policy_ctx.scratchpad,
+            observability=obs_ctx,
+        )
+
         # Create callback that will be invoked by assembler on each chunk
         async def assembler_callback(chunk: ModelResponse, state: StreamState, context: Any) -> None:
             """Called by assembler for each chunk after state update.
 
-            For Step 2, we just update keepalive and pass chunks through.
-            Step 3 will add policy hook invocations here.
+            Invokes policy hooks based on stream state, then forwards chunk.
             """
             self.keepalive()  # Update activity timestamp
+
+            # Call on_chunk_received for every chunk
+            await self.policy.on_chunk_received(streaming_ctx)
+
+            # Call delta hook if current block exists
+            if state.current_block:
+                block_type = type(state.current_block)
+                if hook := DELTA_HOOKS.get(block_type):
+                    await hook(streaming_ctx)
+
+            # Call complete hook if block just completed
+            if state.just_completed:
+                block_type = type(state.just_completed)
+                if hook := COMPLETE_HOOKS.get(block_type):
+                    await hook(streaming_ctx)
+
+            # Call finish_reason hook when present
+            if state.finish_reason:
+                await self.policy.on_finish_reason(streaming_ctx)
+
+            # Forward chunk to output queue
             await output_queue.put(chunk)
 
         # Create assembler with our callback
         assembler = StreamingChunkAssembler(on_chunk_callback=assembler_callback)
+        streaming_ctx.ingress_assembler = assembler  # Set assembler in context
 
         try:
             # Feed chunks to assembler - it will call our callback for each one
-            await assembler.process(input_stream, context=None)
+            await assembler.process(input_stream, context=streaming_ctx)
+
+            # Call on_stream_complete after all chunks processed
+            await self.policy.on_stream_complete(streaming_ctx)
         finally:
             # Signal end of stream with None sentinel
             await output_queue.put(None)
