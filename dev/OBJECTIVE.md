@@ -1,104 +1,143 @@
 # Objective: Refactor Streaming Pipeline to Explicit Queue-Based Architecture
 
 ## Goal
-Simplify `PolicyOrchestrator.process_streaming_response` by making the streaming pipeline explicit, using dependency injection for formatters and policy execution, and clearly separating concerns.
+Simplify `PolicyOrchestrator.process_streaming_response` by making the streaming pipeline explicit, using dependency injection for policy execution and client formatting, and clearly separating concerns.
 
-## Core Vision
+## Core Vision - SIMPLIFIED
 
-The streaming pipeline processes data through three stages connected by typed queues:
+The streaming pipeline processes data through **two stages** connected by typed queues:
 
-1. **CommonFormatter**: `backend_stream � common_in_queue` - Converts backend-specific chunks to common format
-2. **PolicyExecutor**: `common_in_queue � common_out_queue` - Block assembly + policy hooks (recorded)
-3. **ClientFormatter**: `common_out_queue � sse_queue` - Converts common format to SSE events (recorded)
+1. **PolicyExecutor**: `AsyncIterator[ModelResponse] → policy_out_queue` - Block assembly + policy hooks (recorded)
+2. **ClientFormatter**: `policy_out_queue → sse_queue` - Converts ModelResponse to SSE strings (recorded)
 
 Gateway drains `sse_queue` and yields to client.
 
+**Key Insight**: LiteLLM already provides backend chunks in common format (ModelResponse), so no ingress formatting needed!
+
 ## Key Principles
 
-- **Dependency Injection**: Gateway injects formatters and policy executor into orchestrator
-- **Explicit Queues**: Typed queues (`Queue[CommonChunk]`, etc.) define data contracts between stages
-- **Recording at Boundaries**: `TransactionRecorder` wraps stages that enter/exit common format space
+- **Dependency Injection**: Gateway injects policy executor and client formatter into orchestrator
+- **Explicit Queues**: Typed queues (`Queue[ModelResponse]`, `Queue[str]`) define data contracts between stages
+- **Recording at Boundaries**: `TransactionRecorder` wraps both stages
 - **Context Threading**: `ObservabilityContext` and `PolicyContext` created at gateway, passed through entire lifecycle
-- **Large Bounded Queues**: Queues sized 1000-10000 with circuit breaker on overflow
+- **Large Bounded Queues**: Queues sized 10000 with circuit breaker on overflow
+- **Keepalive in Executor**: PolicyExecutor owns keepalive state, not PolicyContext
 
 ## Components
 
-### Stream Processor Protocol
-```python
-class StreamProcessor(Protocol):
-    async def process(
-        self,
-        input_queue: asyncio.Queue,
-        output_queue: asyncio.Queue,
-        policy_ctx: PolicyContext,
-        obs_ctx: ObservabilityContext,
-    ) -> None:
-        ...
-```
+### Pipeline Stages
 
-### Three Implementations
-1. **CommonFormatter** - Backend-specific logic (OpenAI vs Anthropic chunk formats)
-2. **PolicyExecutor** - Owns `BlockAssembler`, invokes policy hooks, enforces timeout, handles keepalive
-3. **ClientFormatter** - Converts common chunks to SSE events for client
+1. **PolicyExecutor** - Consumes `AsyncIterator[ModelResponse]` directly from backend
+   - Owns `BlockAssembler` for building blocks
+   - Invokes policy hooks at key moments (chunk_added, block_complete, etc.)
+   - Enforces timeout with `keepalive()` method
+   - Outputs to `Queue[ModelResponse]`
+
+2. **ClientFormatter** - Converts to client-specific SSE format
+   - OpenAI: ModelResponse → OpenAI SSE string
+   - Anthropic: ModelResponse → Anthropic SSE string
+   - Outputs to `Queue[str]`
 
 ### Context Objects
 - **ObservabilityContext**: Created at gateway, spans/metrics for entire request lifecycle
-- **PolicyContext**: Created at gateway, mutable state shared across request + response processing
-  - Includes `keepalive()` method for policies to signal active work
+- **PolicyContext**: Created at gateway, mutable state (scratchpad, transaction_id) shared across request + response
+  - NO keepalive - that's in PolicyExecutor
 
 ### PolicyExecutor Responsibilities
+- Accept `AsyncIterator[ModelResponse]` from backend LLM
 - Block assembly (owns `BlockAssembler` instance)
-- Policy hook invocation at key moments (chunk_added, block_complete, etc.)
-- Timeout enforcement (implementation-specific, may use `policy_ctx.keepalive()`)
-- State management via `PolicyContext`
+- Policy hook invocation at key moments
+- Timeout enforcement via internal `keepalive()` method
+- State management via `PolicyContext.scratchpad`
 
-## Implementation Steps
+## Implementation Progress
 
-1. **Define `StreamProcessor` protocol and context objects**
-   - Create `StreamProcessor` protocol
-   - Update/create `PolicyContext` with keepalive support
-   - Ensure `ObservabilityContext` is ready
+### ✅ Completed
+1. **Define protocols and context objects**
+   - ✅ PolicyContext (simplified - no keepalive)
+   - ✅ PolicyExecutor interface (with keepalive method)
+   - ✅ ClientFormatter interface
+   - ✅ DefaultPolicyExecutor stub with keepalive
+   - ✅ OpenAI/Anthropic ClientFormatter stubs
 
-2. **Extract CommonFormatter implementations**
-   - OpenAI chunk � common format
-   - Anthropic chunk � common format
+2. **Remove CommonFormatter**
+   - ✅ Deleted - LiteLLM already provides common format
+   - ✅ Updated PolicyExecutor to accept AsyncIterator[ModelResponse]
 
-3. **Extract PolicyExecutor implementation**
-   - Move block assembly logic
-   - Move policy hook invocation
-   - Add timeout monitoring with keepalive support
-   - Extract from current `_feed_assembler` logic
+3. **Add proper type hints**
+   - ✅ AsyncIterator[ModelResponse] for backend streams
+   - ✅ Queue[ModelResponse] for policy output
+   - ✅ Queue[str] for SSE output
 
-4. **Extract ClientFormatter implementations**
-   - Common format � OpenAI SSE
-   - Common format � Anthropic SSE
-   - Extract from current `_drain_egress` logic
+4. **Write initial unit tests**
+   - ✅ PolicyContext tests (scratchpad, isolation)
+   - ✅ DefaultPolicyExecutor keepalive tests
 
-5. **Refactor `PolicyOrchestrator`**
-   - Accept injected formatters and policy executor
-   - Simplify `process_streaming_response` to queue setup + task launching
-   - Wire up `TransactionRecorder` at boundaries
+### 🔄 In Progress
+5. **Write tests for ClientFormatter**
+   - Write unit tests for OpenAI formatter
+   - Write unit tests for Anthropic formatter
 
-6. **Update gateway routes**
+### 📋 Todo
+6. **Implement PolicyExecutor**
+   - Extract block assembly logic from current orchestrator
+   - Implement policy hook invocation
+   - Implement timeout monitoring with keepalive
+
+7. **Implement ClientFormatter**
+   - OpenAI: ModelResponse → SSE string conversion
+   - Anthropic: ModelResponse → SSE string conversion
+
+8. **Refactor PolicyOrchestrator**
+   - Simplify `process_streaming_response` to 2-stage pipeline
+   - Wire up TransactionRecorder at boundaries
+
+9. **Update gateway routes**
    - Instantiate contexts (`obs_ctx`, `policy_ctx`)
-   - Instantiate formatters and policy executor based on request
-   - Pass contexts to both `process_request` and `process_streaming_response`
+   - Instantiate policy executor and client formatter
+   - Pass contexts through request/response lifecycle
 
-7. **Add queue bounds and circuit breaker logic**
-   - Configure queue max sizes (1000-10000)
-   - Add monitoring/error handling for full queues
+10. **Add queue bounds and circuit breaker**
+    - Monitor queue sizes
+    - Raise QueueFullError on overflow
 
-8. **Testing**
-   - Unit tests for each `StreamProcessor` implementation
-   - Integration tests for full pipeline
-   - Test timeout and keepalive behavior
+11. **Integration testing**
+    - Test full pipeline end-to-end
+    - Verify timeout behavior
+    - Ensure all existing tests pass
 
 ## Success Criteria
 
-- [ ] `process_streaming_response` is simplified to ~20 lines of queue setup + task launching
-- [ ] Three `StreamProcessor` implementations extracted and tested independently
+- [x] PolicyContext simplified (no keepalive, just scratchpad)
+- [x] Keepalive logic moved to PolicyExecutor
+- [x] CommonFormatter removed (unnecessary)
+- [x] Proper type hints throughout
+- [ ] `process_streaming_response` simplified to ~15 lines
+- [ ] Two pipeline stages (PolicyExecutor, ClientFormatter) extracted and tested
 - [ ] `ObservabilityContext` and `PolicyContext` thread through entire request lifecycle
-- [ ] Recording happens at common format boundaries via `TransactionRecorder`
-- [ ] Timeout logic with keepalive support works correctly
+- [ ] Recording happens at stage boundaries via `TransactionRecorder`
+- [ ] Timeout logic with keepalive works correctly
 - [ ] All existing tests pass
-- [ ] Pipeline structure is clear and intuitive from reading the code
+- [ ] Pipeline structure is clear from reading code
+
+## Architecture Diagram
+
+```
+Backend LLM (via LiteLLM)
+         ↓
+AsyncIterator[ModelResponse] (already common format)
+         ↓
+    PolicyExecutor (recorded)
+    - Block assembly
+    - Policy hooks
+    - Timeout + keepalive
+         ↓
+policy_out_queue: Queue[ModelResponse]
+         ↓
+   ClientFormatter (recorded)
+    - OpenAI or Anthropic SSE
+         ↓
+sse_queue: Queue[str]
+         ↓
+    Gateway yields to client
+```
