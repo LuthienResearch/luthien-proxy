@@ -11,6 +11,10 @@ from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.protocol import PolicyContext
+from luthien_proxy.v2.streaming.stream_state import StreamState
+from luthien_proxy.v2.streaming.streaming_chunk_assembler import (
+    StreamingChunkAssembler,
+)
 
 
 class DefaultPolicyExecutor:
@@ -88,12 +92,24 @@ class DefaultPolicyExecutor:
             PolicyTimeoutError: If processing exceeds timeout without keepalive
             Exception: On policy errors or assembly failures
         """
-        # Step 1: Basic pass-through - read from input, write to output
-        # TODO: Add block assembly, policy hooks, and timeout monitoring in later steps
+
+        # Step 2: Add StreamingChunkAssembler for block assembly
+        # Create callback that will be invoked by assembler on each chunk
+        async def assembler_callback(chunk: ModelResponse, state: StreamState, context: Any) -> None:
+            """Called by assembler for each chunk after state update.
+
+            For Step 2, we just update keepalive and pass chunks through.
+            Step 3 will add policy hook invocations here.
+            """
+            self.keepalive()  # Update activity timestamp
+            await output_queue.put(chunk)
+
+        # Create assembler with our callback
+        assembler = StreamingChunkAssembler(on_chunk_callback=assembler_callback)
+
         try:
-            async for chunk in input_stream:
-                self.keepalive()  # Update activity timestamp
-                await output_queue.put(chunk)
+            # Feed chunks to assembler - it will call our callback for each one
+            await assembler.process(input_stream, context=None)
         finally:
             # Signal end of stream with None sentinel
             await output_queue.put(None)
