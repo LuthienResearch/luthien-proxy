@@ -11,7 +11,7 @@ from litellm.types.utils import ChatCompletionDeltaToolCall as ToolCall
 from litellm.types.utils import Delta, Function, ModelResponse, StreamingChoices
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
-from luthien_proxy.v2.streaming.policy_executor.default import DefaultPolicyExecutor
+from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
@@ -95,7 +95,7 @@ async def async_iter_from_list(items: list):
 @pytest.mark.asyncio
 async def test_on_chunk_received_called_for_every_chunk(mock_policy, policy_ctx, obs_ctx):
     """Test that on_chunk_received is called for every chunk."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     chunks = [
         create_content_chunk("Hello"),
@@ -114,7 +114,7 @@ async def test_on_chunk_received_called_for_every_chunk(mock_policy, policy_ctx,
 @pytest.mark.asyncio
 async def test_on_content_delta_called_for_content_chunks(mock_policy, policy_ctx, obs_ctx):
     """Test that on_content_delta is called for content chunks."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     chunks = [
         create_content_chunk("Hello"),
@@ -134,7 +134,7 @@ async def test_on_content_delta_called_for_content_chunks(mock_policy, policy_ct
 @pytest.mark.asyncio
 async def test_on_content_complete_called_at_block_end(mock_policy, policy_ctx, obs_ctx):
     """Test that on_content_complete is called when content block completes."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     chunks = [
         create_content_chunk("Hello world"),
@@ -152,7 +152,7 @@ async def test_on_content_complete_called_at_block_end(mock_policy, policy_ctx, 
 @pytest.mark.asyncio
 async def test_on_tool_call_delta_called_for_tool_chunks(mock_policy, policy_ctx, obs_ctx):
     """Test that on_tool_call_delta is called for tool call chunks."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     chunks = [
         create_tool_call_chunk(tool_id="call_123", name="search", index=0),
@@ -172,7 +172,7 @@ async def test_on_tool_call_delta_called_for_tool_chunks(mock_policy, policy_ctx
 @pytest.mark.asyncio
 async def test_on_tool_call_complete_called_at_tool_end(mock_policy, policy_ctx, obs_ctx):
     """Test that on_tool_call_complete is called when tool call completes."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     chunks = [
         create_tool_call_chunk(tool_id="call_123", name="search", index=0),
@@ -191,7 +191,7 @@ async def test_on_tool_call_complete_called_at_tool_end(mock_policy, policy_ctx,
 @pytest.mark.asyncio
 async def test_on_finish_reason_called_when_present(mock_policy, policy_ctx, obs_ctx):
     """Test that on_finish_reason is called when finish_reason appears."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     chunks = [
         create_content_chunk("Hello"),
@@ -209,7 +209,7 @@ async def test_on_finish_reason_called_when_present(mock_policy, policy_ctx, obs
 @pytest.mark.asyncio
 async def test_on_stream_complete_called_at_end(mock_policy, policy_ctx, obs_ctx):
     """Test that on_stream_complete is called after all chunks processed."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     chunks = [
         create_content_chunk("Hello"),
@@ -227,7 +227,7 @@ async def test_on_stream_complete_called_at_end(mock_policy, policy_ctx, obs_ctx
 @pytest.mark.asyncio
 async def test_hooks_called_in_correct_order(mock_policy, policy_ctx, obs_ctx):
     """Test that hooks are called in the correct order."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     # Track call order
     call_order = []
@@ -265,7 +265,7 @@ async def test_hooks_called_in_correct_order(mock_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_chunks_still_pass_through_with_hooks(mock_policy, policy_ctx, obs_ctx):
     """Test that chunks still pass through even when hooks are invoked."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     chunks = [
         create_content_chunk("Hello"),

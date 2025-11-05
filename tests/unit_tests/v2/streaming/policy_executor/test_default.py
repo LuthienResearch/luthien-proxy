@@ -1,35 +1,35 @@
-# ABOUTME: Unit tests for DefaultPolicyExecutor
+# ABOUTME: Unit tests for PolicyExecutor
 # ABOUTME: Tests keepalive mechanism and timeout tracking
 
-"""Tests for DefaultPolicyExecutor."""
+"""Tests for PolicyExecutor."""
 
 import time
 
-from luthien_proxy.v2.streaming.policy_executor import DefaultPolicyExecutor
+from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 
 
-class TestDefaultPolicyExecutor:
-    """Tests for DefaultPolicyExecutor."""
+class TestPolicyExecutor:
+    """Tests for PolicyExecutor."""
 
     def test_initialization(self):
-        """DefaultPolicyExecutor initializes with policy and timeout."""
+        """PolicyExecutor initializes with policy and timeout."""
         mock_policy = object()
-        executor = DefaultPolicyExecutor(policy=mock_policy, timeout_seconds=30.0)
+        executor = PolicyExecutor(policy=mock_policy, timeout_seconds=30.0)
 
         assert executor.policy is mock_policy
         assert executor.timeout_seconds == 30.0
 
     def test_initialization_without_timeout(self):
-        """DefaultPolicyExecutor can be initialized without timeout."""
+        """PolicyExecutor can be initialized without timeout."""
         mock_policy = object()
-        executor = DefaultPolicyExecutor(policy=mock_policy, timeout_seconds=None)
+        executor = PolicyExecutor(policy=mock_policy, timeout_seconds=None)
 
         assert executor.policy is mock_policy
         assert executor.timeout_seconds is None
 
     def test_keepalive_resets_timer(self):
         """Calling keepalive() resets the internal timer."""
-        executor = DefaultPolicyExecutor(policy=object(), timeout_seconds=10.0)
+        executor = PolicyExecutor(policy=object(), timeout_seconds=10.0)
 
         # Initial time_since_keepalive should be near zero
         initial_time = executor._time_since_keepalive()
@@ -49,7 +49,7 @@ class TestDefaultPolicyExecutor:
 
     def test_time_since_keepalive_increases(self):
         """time_since_keepalive() increases as time passes."""
-        executor = DefaultPolicyExecutor(policy=object(), timeout_seconds=10.0)
+        executor = PolicyExecutor(policy=object(), timeout_seconds=10.0)
 
         time1 = executor._time_since_keepalive()
         time.sleep(0.1)
@@ -60,7 +60,7 @@ class TestDefaultPolicyExecutor:
 
     def test_multiple_keepalives(self):
         """Multiple keepalive calls each reset the timer."""
-        executor = DefaultPolicyExecutor(policy=object(), timeout_seconds=10.0)
+        executor = PolicyExecutor(policy=object(), timeout_seconds=10.0)
 
         # First keepalive
         time.sleep(0.1)

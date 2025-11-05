@@ -1,7 +1,7 @@
-# ABOUTME: Default PolicyExecutor implementation with keepalive-based timeout
+# ABOUTME: PolicyExecutor implementation with keepalive-based timeout
 # ABOUTME: Handles block assembly, policy hooks, and timeout monitoring
 
-"""Default policy executor implementation."""
+"""Policy executor implementation."""
 
 import asyncio
 import time
@@ -24,8 +24,10 @@ from luthien_proxy.v2.streaming.streaming_response_context import (
 )
 
 
-class DefaultPolicyExecutor:
-    """Default policy executor with keepalive-based timeout monitoring.
+class PolicyExecutor:
+    """Policy executor with keepalive-based timeout monitoring.
+
+    Implements PolicyExecutorProtocol.
 
     This implementation:
     - Owns a BlockAssembler for building blocks from chunks
@@ -39,7 +41,7 @@ class DefaultPolicyExecutor:
         policy: Any,  # BasePolicy or similar
         timeout_seconds: float | None = None,
     ) -> None:
-        """Initialize default policy executor.
+        """Initialize policy executor.
 
         Args:
             policy: Policy instance with hook methods (on_chunk_added, etc.)
@@ -181,4 +183,4 @@ class DefaultPolicyExecutor:
         pass  # TODO: Implement
 
 
-__all__ = ["DefaultPolicyExecutor"]
+__all__ = ["PolicyExecutor"]

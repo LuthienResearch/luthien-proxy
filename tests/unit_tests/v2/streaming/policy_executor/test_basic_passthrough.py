@@ -10,7 +10,7 @@ import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
-from luthien_proxy.v2.streaming.policy_executor.default import DefaultPolicyExecutor
+from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
@@ -69,7 +69,7 @@ async def async_iter_from_list(items: list):
 @pytest.mark.asyncio
 async def test_basic_passthrough_single_chunk(mock_policy, policy_ctx, obs_ctx):
     """Test that a single chunk passes through unchanged."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     # Create input stream with one chunk
     chunk = create_model_response(content="Hello")
@@ -96,7 +96,7 @@ async def test_basic_passthrough_single_chunk(mock_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_basic_passthrough_multiple_chunks(mock_policy, policy_ctx, obs_ctx):
     """Test that multiple chunks pass through in order."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     # Create input stream with multiple chunks
     chunks = [
@@ -123,7 +123,7 @@ async def test_basic_passthrough_multiple_chunks(mock_policy, policy_ctx, obs_ct
 @pytest.mark.asyncio
 async def test_basic_passthrough_empty_stream(mock_policy, policy_ctx, obs_ctx):
     """Test that empty stream produces only None sentinel."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     input_stream = async_iter_from_list([])
     output_queue = asyncio.Queue()
@@ -139,7 +139,7 @@ async def test_basic_passthrough_empty_stream(mock_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_basic_passthrough_preserves_chunk_data(mock_policy, policy_ctx, obs_ctx):
     """Test that chunk data is preserved exactly."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     # Create chunk with specific data
     original_chunk = create_model_response(content="Test content")
@@ -160,7 +160,7 @@ async def test_basic_passthrough_preserves_chunk_data(mock_policy, policy_ctx, o
 @pytest.mark.asyncio
 async def test_basic_passthrough_finish_reason(mock_policy, policy_ctx, obs_ctx):
     """Test that finish_reason is preserved."""
-    executor = DefaultPolicyExecutor(policy=mock_policy)
+    executor = PolicyExecutor(policy=mock_policy)
 
     chunk = create_model_response(content="Done", finish_reason="stop")
     input_stream = async_iter_from_list([chunk])

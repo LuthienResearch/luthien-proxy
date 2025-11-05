@@ -1,7 +1,7 @@
-# ABOUTME: PolicyExecutor interface - handles block assembly and policy hook invocation
+# ABOUTME: PolicyExecutorProtocol interface - handles block assembly and policy hook invocation
 # ABOUTME: Implementations can customize timeout strategies
 
-"""Policy executor interface for streaming responses."""
+"""Policy executor protocol for streaming responses."""
 
 import asyncio
 from typing import AsyncIterator, Protocol
@@ -12,7 +12,7 @@ from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
-class PolicyExecutor(Protocol):
+class PolicyExecutorProtocol(Protocol):
     """Executes policy logic during streaming response processing.
 
     Implementations handle:
@@ -68,4 +68,4 @@ class PolicyTimeoutError(Exception):
     pass
 
 
-__all__ = ["PolicyExecutor", "PolicyTimeoutError"]
+__all__ = ["PolicyExecutorProtocol", "PolicyTimeoutError"]
