@@ -81,7 +81,7 @@ class PolicyOrchestrator:
         Raises:
             PolicyError: If policy rejects the request
         """
-        pass  # TODO: Implement
+        return await self.policy_executor.process_request(request, policy_ctx, obs_ctx)
 
     async def process_streaming_response(
         self,
@@ -142,9 +142,14 @@ class PolicyOrchestrator:
             queue: Queue to drain
 
         Yields:
-            SSE strings from queue until QueueShutDown
+            SSE strings from queue until None sentinel
         """
-        pass  # TODO: Implement
+        while True:
+            event = await queue.get()
+            if event is None:
+                # None sentinel signals end of stream
+                break
+            yield event
 
 
 class QueueFullError(Exception):

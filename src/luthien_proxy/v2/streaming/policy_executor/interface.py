@@ -1,24 +1,47 @@
 # ABOUTME: PolicyExecutorProtocol interface - handles block assembly and policy hook invocation
 # ABOUTME: Implementations can customize timeout strategies
 
-"""Policy executor protocol for streaming responses."""
+"""Policy executor protocol for streaming and request processing."""
 
 import asyncio
 from typing import AsyncIterator, Protocol
 
 from litellm.types.utils import ModelResponse
 
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
 class PolicyExecutorProtocol(Protocol):
-    """Executes policy logic during streaming response processing.
+    """Executes policy logic for both request and streaming response processing.
 
     Implementations handle:
+    - Request processing through policy hooks
     - Block assembly from incoming ModelResponse stream
-    - Policy hook invocation at key moments
+    - Streaming response policy hook invocation at key moments
     """
+
+    async def process_request(
+        self,
+        request: Request,
+        policy_ctx: PolicyContext,
+        obs_ctx: ObservabilityContext,
+    ) -> Request:
+        """Execute policy processing on request before backend invocation.
+
+        Args:
+            request: Incoming request from client
+            policy_ctx: Policy context for shared state
+            obs_ctx: Observability context for tracing
+
+        Returns:
+            Policy-modified request to send to backend
+
+        Raises:
+            Exception: On policy errors
+        """
+        ...
 
     async def process(
         self,

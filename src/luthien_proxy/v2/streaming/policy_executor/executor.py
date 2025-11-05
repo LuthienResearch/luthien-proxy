@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator
 
 from litellm.types.utils import ModelResponse
 
+from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.streaming.policy_executor.interface import (
     PolicyExecutorProtocol,
@@ -70,6 +71,33 @@ class PolicyExecutor(PolicyExecutorProtocol):
             Seconds since last keepalive() call or __init__
         """
         return time.monotonic() - self._last_keepalive
+
+    async def process_request(
+        self,
+        request: Request,
+        policy_ctx: PolicyContext,
+        obs_ctx: ObservabilityContext,
+    ) -> Request:
+        """Execute policy processing on request before backend invocation.
+
+        Args:
+            request: Incoming request from client
+            policy_ctx: Policy context for shared state
+            obs_ctx: Observability context for tracing
+
+        Returns:
+            Policy-modified request to send to backend
+
+        Raises:
+            Exception: On policy errors
+        """
+        # Update policy context with the request
+        policy_ctx.request = request
+
+        # Call policy's on_request hook
+        modified_request = await self.policy.on_request(request, policy_ctx)
+
+        return modified_request
 
     async def process(
         self,
