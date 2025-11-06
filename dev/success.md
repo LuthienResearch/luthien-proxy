@@ -2,6 +2,53 @@
 
 A log of successfully completed debugging and implementation tasks.
 
+## 2025-11-05: Streaming Pipeline Refactor (Complete)
+
+**Achievement**: Successfully refactored the entire streaming pipeline from implicit callback-based architecture to explicit queue-based architecture with dependency injection.
+
+**Scope**: 40+ commits over several days, touching core gateway infrastructure, policy execution, and client formatting.
+
+**Key Accomplishments**:
+
+1. **Simplified Architecture** (3 stages → 2 stages)
+   - Discovered LiteLLM already provides `ModelResponse` in common format
+   - Removed unnecessary `CommonFormatter` stage (~200 lines eliminated)
+   - Final pipeline: `PolicyExecutor → ClientFormatter → Client`
+
+2. **New Components Implemented**:
+   - `PolicyContext`: Simplified context object (transaction_id + scratchpad)
+   - `PolicyExecutor`: Block assembly + policy hooks + timeout monitoring (55 unit tests)
+   - `ClientFormatter`: OpenAI and Anthropic SSE formatters (12 unit tests, 100% coverage)
+   - `PolicyOrchestrator`: Simplified to ~30 lines with clean 2-stage pipeline
+
+3. **Design Improvements**:
+   - Dependency injection for executor and formatter
+   - Explicit typed queues (`Queue[ModelResponse]`, `Queue[str]`)
+   - Bounded queues (maxsize=10000) with circuit breaker
+   - Keepalive logic moved from context to executor (proper separation of concerns)
+   - `ObservabilityContext` and `PolicyContext` threaded through entire request lifecycle
+
+4. **Gateway Integration**:
+   - Both OpenAI and Anthropic endpoints migrated to new architecture
+   - Proper context instantiation and threading
+   - All 309 existing tests passing after migration
+
+5. **Code Quality**:
+   - Moved `litellm.drop_params = True` to proper startup location
+   - Created proper E2E test infrastructure (separate from integration tests)
+   - Fixed streaming hang issues and debug logging
+   - Comprehensive docstrings and type hints throughout
+
+**Files Modified**: 20+ files across `streaming/`, `orchestration/`, `policies/`, and `gateway_routes.py`
+
+**Tests Added**: 67 new unit tests (PolicyExecutor: 55, ClientFormatter: 12)
+
+**Result**: Clean, maintainable streaming architecture that's easier to debug, test, and extend. Pipeline structure is now immediately clear from reading the code.
+
+**Related Work**: Fixed integration tests, migrated E2E tests, updated documentation in OBJECTIVE.md and NOTES.md
+
+---
+
 ## 2025-11-04: Fixed ToolCallJudgePolicy Streaming
 
 **Problem**: Streaming broke with ToolCallJudgePolicy - no chunks reached client, causing "message_stop before message_start" errors. Blocked tool calls showed no response.

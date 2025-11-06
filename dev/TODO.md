@@ -1,7 +1,5 @@
 # TODO
 
-Items sourced from PR #46 reviews link back to originating comments for context.
-
 ## High Priority
 
 - [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files:
@@ -19,26 +17,11 @@ Items sourced from PR #46 reviews link back to originating comments for context.
   - Pretty-print JSON tool arguments
   - Add proper line breaks in explanations
   - Consider terminal/web formatting differences
-- [ ] **Review and document streaming infrastructure** - Comprehensive review of all streaming-related code for clarity and correctness:
-  - **ToolCallJudgePolicy**: Flow from on_tool_call_delta → buffering → on_tool_call_complete → judging → blocking/allowing
-  - **AnthropicSSEAssembler**: Conversion from OpenAI chunks to Anthropic SSE events, content block lifecycle
-  - **StreamingChunkAssembler**: Chunk aggregation, block detection, state transitions
-  - **StreamingOrchestrator**: Queue management, timeout handling, task coordination
-  - **PolicyOrchestrator**: Integration between policy hooks and streaming pipeline
-  - **Utils (create_text_chunk, create_tool_call_chunk)**: Ensure correct types throughout
-  - Add diagrams or detailed comments explaining state machines and event flows
-  - Document edge cases (incomplete tool calls, judge failures, timeout handling, etc.)
-  - Ensure all helper methods have clear docstrings
-  - Review and expand test coverage for all streaming components
 - [ ] Add security documentation for dynamic policy loading mechanism (V2_POLICY_CONFIG) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
 - [ ] Verify all environment variables are documented in README and .env.example ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
-- [ ] Add max buffer size for chunk storage (synchronous_control_plane.py:220 - unbounded growth) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Review and test graceful shutdown behavior (ensure event publisher tasks complete) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add input validation: max request size and message count limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Move "v2" code out of v2/
-- [ ] Add unit tests for all new pipeline code
 - [ ] Consolidate/organize utility/helper functions (see policies/utils.py)
-- [ ] move `litellm.drop_params = True` somewhere sensible
 - [ ] thinking and verbosity model flags not respected
 - [ ] write SimpleToolCallJudge policy for pedagogical purposes
 - [ ] improve docstrings for SimplePolicy
@@ -48,7 +31,6 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 - [ ] remove unnecessary string-matching test conditions (e.g. matching exception messages)
 - [ ] call_id -> transaction_id
 - [ ] Revisit ignored pyright issues
-- [ ] Sort out PolicyContext/StreamingResponseContext
 - [ ] Make filtering on the activity monitor easier and more intuitive
 - [ ] Add rate limiting middleware (slowapi or custom FastAPI middleware) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Implement circuit breaker for upstream calls ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
