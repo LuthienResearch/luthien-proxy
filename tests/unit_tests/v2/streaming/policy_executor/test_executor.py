@@ -33,54 +33,54 @@ class TestPolicyExecutor:
         assert executor._timeout_monitor.timeout_seconds is None
 
     def test_keepalive_resets_timer(self):
-        """Calling keepalive() resets the internal timer."""
+        """Calling keepalive() resets the timeout deadline."""
         executor = PolicyExecutor(timeout_seconds=10.0, recorder=NoOpTransactionRecorder())
 
-        # Initial time_since_keepalive should be near zero
-        initial_time = executor._timeout_monitor.time_since_keepalive()
-        assert initial_time < 0.1  # Should be very small
+        # Initial time_until_timeout should be close to the full timeout
+        initial_time = executor._timeout_monitor.time_until_timeout()
+        assert 9.9 < initial_time <= 10.0  # Should be close to full timeout
 
         # Wait a bit
         time.sleep(0.15)
-        before_keepalive = executor._timeout_monitor.time_since_keepalive()
-        assert before_keepalive >= 0.15
+        before_keepalive = executor._timeout_monitor.time_until_timeout()
+        assert before_keepalive < 9.9  # Deadline approaching
 
         # Call keepalive (public method)
         executor.keepalive()
 
-        # Time should reset to near zero
-        after_keepalive = executor._timeout_monitor.time_since_keepalive()
-        assert after_keepalive < 0.1
+        # Time until timeout should reset to full timeout
+        after_keepalive = executor._timeout_monitor.time_until_timeout()
+        assert 9.9 < after_keepalive <= 10.0  # Back to full timeout
 
-    def test_time_since_keepalive_increases(self):
-        """time_since_keepalive() increases as time passes."""
+    def test_time_until_timeout_decreases(self):
+        """time_until_timeout() decreases as time passes."""
         executor = PolicyExecutor(timeout_seconds=10.0, recorder=NoOpTransactionRecorder())
 
-        time1 = executor._timeout_monitor.time_since_keepalive()
+        time1 = executor._timeout_monitor.time_until_timeout()
         time.sleep(0.1)
-        time2 = executor._timeout_monitor.time_since_keepalive()
+        time2 = executor._timeout_monitor.time_until_timeout()
 
-        assert time2 > time1
-        assert time2 - time1 >= 0.1
+        assert time2 < time1  # Deadline is getting closer
+        assert time1 - time2 >= 0.1  # Decreased by at least the sleep time
 
     def test_multiple_keepalives(self):
-        """Multiple keepalive calls each reset the timer."""
+        """Multiple keepalive calls each reset the deadline."""
         executor = PolicyExecutor(timeout_seconds=10.0, recorder=NoOpTransactionRecorder())
 
         # First keepalive
         time.sleep(0.1)
         executor.keepalive()
-        assert executor._timeout_monitor.time_since_keepalive() < 0.05
+        assert executor._timeout_monitor.time_until_timeout() > 9.9  # Reset to full timeout
 
         # Second keepalive
         time.sleep(0.1)
         executor.keepalive()
-        assert executor._timeout_monitor.time_since_keepalive() < 0.05
+        assert executor._timeout_monitor.time_until_timeout() > 9.9  # Reset to full timeout
 
         # Third keepalive
         time.sleep(0.1)
         executor.keepalive()
-        assert executor._timeout_monitor.time_since_keepalive() < 0.05
+        assert executor._timeout_monitor.time_until_timeout() > 9.9  # Reset to full timeout
 
 
 class TestPolicyExecutorTimeoutEnforcement:

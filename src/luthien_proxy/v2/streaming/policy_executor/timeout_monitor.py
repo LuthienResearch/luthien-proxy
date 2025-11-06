@@ -1,10 +1,15 @@
 # ABOUTME: TimeoutMonitor class for managing keepalive-based timeout tracking
-# ABOUTME: Provides background monitoring task and keepalive reset functionality
+# ABOUTME: Uses deadline-based approach to minimize unnecessary wake-ups
 
 """Timeout monitoring for policy execution.
 
 This module provides a TimeoutMonitor class that tracks activity via keepalive
 signals and raises an error if too much time passes without activity.
+
+The monitor uses a deadline-based approach: it sets a deadline timestamp
+(now + timeout_seconds) and sleeps until that deadline. Keepalive calls
+reset the deadline, waking the monitor to sleep again with the new deadline.
+This minimizes unnecessary wake-ups compared to polling approaches.
 """
 
 import asyncio
@@ -15,19 +20,15 @@ from luthien_proxy.v2.streaming.policy_executor.interface import PolicyTimeoutEr
 
 logger = logging.getLogger(__name__)
 
-# How often to check for timeout (in seconds)
-# This should be significantly smaller than typical timeout thresholds
-# to ensure responsive timeout detection
-TIMEOUT_CHECK_INTERVAL = 0.1
-
 
 class TimeoutMonitor:
-    """Monitors for timeout violations using keepalive mechanism.
+    """Monitors for timeout violations using keepalive mechanism with deadline-based sleeping.
 
     This class:
-    - Tracks time since last keepalive signal
-    - Provides a background monitoring task that checks for timeout
-    - Raises PolicyTimeoutError when timeout threshold is exceeded
+    - Tracks a deadline timestamp for when timeout should occur
+    - Sleeps until the deadline (minimizing wake-ups)
+    - Keepalive calls reset the deadline and wake the monitor
+    - Raises PolicyTimeoutError when current time exceeds deadline
     - Can be disabled by setting timeout_seconds to None
 
     Usage:
@@ -35,7 +36,7 @@ class TimeoutMonitor:
         monitor_task = asyncio.create_task(monitor.run())
 
         # During processing
-        monitor.keepalive()  # Reset timeout
+        monitor.keepalive()  # Reset deadline to now + timeout_seconds
 
         # When done
         monitor_task.cancel()
@@ -49,29 +50,35 @@ class TimeoutMonitor:
                 If None, timeout monitoring is disabled.
         """
         self.timeout_seconds = timeout_seconds
-        self._last_keepalive = time.monotonic()
+        # Set initial deadline to now + timeout_seconds
+        self._deadline = time.monotonic() + timeout_seconds if timeout_seconds is not None else float("inf")
+        # Event to signal deadline updates (from keepalive calls)
+        self._deadline_updated = asyncio.Event()
 
     def keepalive(self) -> None:
-        """Signal that processing is actively working, resetting timeout.
+        """Signal that processing is actively working, resetting timeout deadline.
 
         Call this periodically during long-running operations to indicate
-        the system hasn't stalled. Resets the internal activity timestamp.
+        the system hasn't stalled. Resets the deadline to now + timeout_seconds
+        and wakes the monitor to recalculate sleep time.
         """
-        self._last_keepalive = time.monotonic()
+        if self.timeout_seconds is not None:
+            self._deadline = time.monotonic() + self.timeout_seconds
+            self._deadline_updated.set()
 
-    def time_since_keepalive(self) -> float:
-        """Get time in seconds since last keepalive (or initialization).
+    def time_until_timeout(self) -> float:
+        """Get time in seconds until timeout deadline.
 
         Returns:
-            Seconds since last keepalive() call or __init__
+            Seconds until deadline (negative if already past deadline)
         """
-        return time.monotonic() - self._last_keepalive
+        return self._deadline - time.monotonic()
 
     async def run(self) -> None:
-        """Background monitoring task that checks for timeout violations.
+        """Background monitoring task that sleeps until timeout deadline.
 
-        Periodically checks if time since last keepalive exceeds the configured
-        timeout threshold. If so, raises PolicyTimeoutError.
+        Sleeps until the deadline, then raises PolicyTimeoutError. If keepalive
+        is called during sleep, wakes up and recalculates sleep time with new deadline.
 
         This runs continuously until cancelled (on completion or error).
 
@@ -85,24 +92,34 @@ class TimeoutMonitor:
 
         try:
             while True:
-                await asyncio.sleep(TIMEOUT_CHECK_INTERVAL)
+                # Calculate time until deadline
+                time_until = self._deadline - time.monotonic()
 
-                time_since = self.time_since_keepalive()
-                logger.debug(
-                    f"Timeout monitor check: {time_since:.3f}s since keepalive (threshold: {self.timeout_seconds}s)"
-                )
-                if time_since > self.timeout_seconds:
+                if time_until <= 0:
+                    # Already past deadline - timeout!
                     logger.error(
-                        f"Policy timeout: {time_since:.2f}s since last keepalive (threshold: {self.timeout_seconds}s)"
+                        f"Policy timeout: deadline exceeded by {-time_until:.2f}s (threshold: {self.timeout_seconds}s)"
                     )
-                    raise PolicyTimeoutError(
-                        f"Policy processing timed out after {time_since:.2f}s "
-                        f"without keepalive (threshold: {self.timeout_seconds}s)"
-                    )
+                    raise PolicyTimeoutError(f"Policy processing timed out (threshold: {self.timeout_seconds}s)")
+
+                logger.debug(f"Timeout monitor sleeping for {time_until:.3f}s until deadline")
+
+                # Clear the event before sleeping
+                self._deadline_updated.clear()
+
+                # Sleep until deadline or until deadline is updated by keepalive
+                try:
+                    await asyncio.wait_for(self._deadline_updated.wait(), timeout=time_until)
+                    # Event was set - deadline was updated by keepalive, loop to recalculate
+                    logger.debug("Deadline updated by keepalive, recalculating sleep time")
+                except asyncio.TimeoutError:
+                    # Sleep completed - deadline reached, loop will raise timeout
+                    logger.debug("Deadline reached, checking for timeout")
+
         except asyncio.CancelledError:
             # Normal cancellation when stream completes
             logger.debug("Timeout monitor cancelled (stream completed)")
             raise
 
 
-__all__ = ["TimeoutMonitor", "TIMEOUT_CHECK_INTERVAL"]
+__all__ = ["TimeoutMonitor"]
