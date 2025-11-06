@@ -2,6 +2,15 @@
 
 ## High Priority
 
+- [ ] **Verify UI monitoring endpoints functionality** - Check which UI endpoints are working and refactor as needed:
+  - Test `/v2/debug/diff` - diff viewer with side-by-side comparisons
+  - Test `/v2/activity/monitor` - real-time activity stream
+  - Test `/v2/debug/calls/{call_id}/diff` - API endpoint for diffs
+  - Test `/v2/debug/calls` - recent calls listing
+  - Test `/v2/activity/stream` - SSE endpoint
+  - Verify transaction recorder is storing both original and final requests/responses
+  - Check if debug routes are properly mounted in main.py
+  - Refactor/fix any broken endpoints
 - [ ] **Factor out common gateway route logic** - `/v1/chat/completions` and `/v1/messages` endpoints have significant duplication:
   - Both create the same pipeline dependencies (recorder, executor, formatter, orchestrator)
   - Both call `process_request()` and `record_request()` identically
