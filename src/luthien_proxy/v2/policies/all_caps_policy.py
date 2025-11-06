@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse, StreamingChoices
 
-    from luthien_proxy.v2.streaming.protocol import PolicyContext
+    from luthien_proxy.v2.policies.policy_context import PolicyContext
     from luthien_proxy.v2.streaming.streaming_policy_context import (
         StreamingPolicyContext,
     )

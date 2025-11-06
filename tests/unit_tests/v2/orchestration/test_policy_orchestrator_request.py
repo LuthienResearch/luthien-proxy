@@ -9,8 +9,8 @@ from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import NoOpObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
+from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.policies.policy import PolicyProtocol
-from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
 class MockPolicy(PolicyProtocol):
@@ -72,7 +72,7 @@ def orchestrator(setup_tracing):
 @pytest.mark.asyncio
 async def test_process_request_calls_policy(orchestrator, setup_tracing):
     """Test that process_request calls policy.on_request."""
-    from luthien_proxy.v2.streaming.protocol import PolicyContext
+    from luthien_proxy.v2.policies import PolicyContext
 
     orch, policy = orchestrator
     tracer = setup_tracing
@@ -100,7 +100,7 @@ async def test_process_request_calls_policy(orchestrator, setup_tracing):
 @pytest.mark.asyncio
 async def test_process_request_preserves_request_fields(orchestrator, setup_tracing):
     """Test that non-modified request fields are preserved."""
-    from luthien_proxy.v2.streaming.protocol import PolicyContext
+    from luthien_proxy.v2.policies import PolicyContext
 
     orch, policy = orchestrator
     tracer = setup_tracing

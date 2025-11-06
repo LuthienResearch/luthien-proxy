@@ -11,8 +11,8 @@ import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.streaming.client_formatter.anthropic import AnthropicClientFormatter
-from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
 @pytest.fixture

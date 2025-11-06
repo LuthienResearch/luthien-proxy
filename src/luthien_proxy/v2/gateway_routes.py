@@ -29,12 +29,12 @@ from luthien_proxy.v2.observability.transaction_recorder import (
 )
 from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.v2.policies.policy import PolicyProtocol
+from luthien_proxy.v2.policies.policy_context import PolicyContext
 from luthien_proxy.v2.streaming.client_formatter.anthropic import (
     AnthropicClientFormatter,
 )
 from luthien_proxy.v2.streaming.client_formatter.openai import OpenAIClientFormatter
 from luthien_proxy.v2.streaming.policy_executor.executor import PolicyExecutor
-from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)

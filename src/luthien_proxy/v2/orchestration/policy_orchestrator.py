@@ -17,9 +17,9 @@ from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import TransactionRecorder
 from luthien_proxy.v2.policies.policy import PolicyProtocol
+from luthien_proxy.v2.policies.policy_context import PolicyContext
 from luthien_proxy.v2.streaming.client_formatter import ClientFormatter
 from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
-from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 logger = logging.getLogger(__name__)
 

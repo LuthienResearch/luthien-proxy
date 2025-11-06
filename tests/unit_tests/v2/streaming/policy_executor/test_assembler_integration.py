@@ -11,8 +11,8 @@ from litellm.types.utils import ChatCompletionDeltaToolCall as ToolCall
 from litellm.types.utils import Delta, Function, ModelResponse, StreamingChoices
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
-from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
 @pytest.fixture

@@ -10,7 +10,7 @@ from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.policies.policy import PolicyProtocol as BasePolicyProtocol
-from luthien_proxy.v2.streaming.protocol import PolicyContext
+from luthien_proxy.v2.policies.policy_context import PolicyContext
 
 
 class PolicyExecutorProtocol(Protocol):

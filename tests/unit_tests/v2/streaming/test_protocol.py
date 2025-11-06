@@ -3,7 +3,7 @@
 
 """Tests for PolicyContext."""
 
-from luthien_proxy.v2.streaming.protocol import PolicyContext
+from luthien_proxy.v2.policies import PolicyContext
 
 
 class TestPolicyContext:

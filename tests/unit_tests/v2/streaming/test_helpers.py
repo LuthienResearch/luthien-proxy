@@ -9,6 +9,7 @@ from opentelemetry.trace import Span
 
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import NoOpObservabilityContext
+from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.streaming.helpers import (
     get_last_ingress_chunk,
     passthrough_accumulated_chunks,
@@ -17,7 +18,6 @@ from luthien_proxy.v2.streaming.helpers import (
     send_text,
     send_tool_call,
 )
-from luthien_proxy.v2.streaming.protocol import PolicyContext
 from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 

@@ -36,7 +36,7 @@ from litellm.types.utils import Choices, ModelResponse, StreamingChoices
 
 if TYPE_CHECKING:
     from luthien_proxy.v2.observability.context import ObservabilityContext
-    from luthien_proxy.v2.streaming.protocol import PolicyContext
+    from luthien_proxy.v2.policies.policy_context import PolicyContext
     from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 from luthien_proxy.v2.policies.policy import PolicyProtocol

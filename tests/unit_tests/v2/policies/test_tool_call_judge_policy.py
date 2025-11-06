@@ -21,9 +21,9 @@ from litellm.types.utils import (
 )
 
 from luthien_proxy.v2.messages import Request
+from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.policies.tool_call_judge_policy import ToolCallJudgePolicy
 from luthien_proxy.v2.policies.utils import create_text_chunk
-from luthien_proxy.v2.streaming.protocol import PolicyContext
 from luthien_proxy.v2.streaming.stream_blocks import ToolCallStreamBlock
 from luthien_proxy.v2.streaming.stream_state import StreamState
 from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext

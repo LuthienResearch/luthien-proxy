@@ -16,8 +16,8 @@ import pytest
 from litellm.types.utils import ChatCompletionMessageToolCall, Function, ModelResponse
 
 from luthien_proxy.v2.messages import Request
+from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.policies.simple_policy import SimplePolicy
-from luthien_proxy.v2.streaming.protocol import PolicyContext
 from luthien_proxy.v2.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 from luthien_proxy.v2.streaming.stream_state import StreamState
 from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext

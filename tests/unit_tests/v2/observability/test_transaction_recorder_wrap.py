@@ -13,7 +13,7 @@ from luthien_proxy.v2.observability.context import NoOpObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import (
     DefaultTransactionRecorder,
 )
-from luthien_proxy.v2.streaming.protocol import PolicyContext
+from luthien_proxy.v2.policies import PolicyContext
 
 
 class MockComponent:

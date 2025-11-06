@@ -12,10 +12,10 @@ from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.policies.policy import PolicyProtocol
+from luthien_proxy.v2.policies.policy_context import PolicyContext
 from luthien_proxy.v2.streaming.policy_executor.interface import (
     PolicyExecutorProtocol,
 )
-from luthien_proxy.v2.streaming.protocol import PolicyContext
 from luthien_proxy.v2.streaming.stream_blocks import (
     ContentStreamBlock,
     ToolCallStreamBlock,
