@@ -3,6 +3,7 @@
 ## High Priority
 
 - [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files:
+- [ ] Add nonstreaming support to PolicyOrchestrator
   - Support policy override via request header (e.g., `X-Luthien-Policy: noop` or `X-Luthien-Policy: simple`)
   - Or environment variable override (e.g., `LUTHIEN_TEST_POLICY=noop`)
   - Or CLI flag for test runner (e.g., `pytest --policy=noop`)
@@ -45,6 +46,12 @@
 
 ## Low Priority / Future Work
 
+- [ ] **Review and test observability functionality** - Verify observability stack is working correctly:
+  - Test trace collection and visualization in Grafana
+  - Verify activity monitor is receiving events
+  - Check diff viewer functionality
+  - Validate log-trace correlation
+  - Consider consolidating the three observability docs (OBSERVABILITY_DEMO, VIEWING_TRACES_GUIDE, observability-v2) if there's significant overlap
 - [ ] 99% unit test coverage (currently 81%, focus on critical paths first) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add config schema validation (Pydantic model for v2_config.yaml) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add request/response size limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))

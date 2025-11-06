@@ -92,6 +92,58 @@ The V2 architecture supports this range:
 
 This is infrastructure-first: AI Control is an important use case, not the defining architecture.
 
+## Streaming Pipeline: Queue-Based Architecture (2025-11-05)
+
+**Decision**: Refactor streaming pipeline from implicit callback-based to explicit queue-based architecture with dependency injection.
+
+**Rationale**:
+- **Explicit data flow**: Clear pipeline stages with typed queues make architecture obvious from code
+- **Testability**: Each stage (PolicyExecutor, ClientFormatter) can be tested in isolation
+- **Type safety**: Explicit `Queue[ModelResponse]` and `Queue[str]` types catch errors early
+- **Separation of concerns**: Policy logic separate from streaming mechanics
+- **Debuggability**: Can inspect queue states, add recording at boundaries
+
+**Key insight**: LiteLLM already provides ModelResponse format from backends, so no ingress formatting needed. This simplified original 3-stage plan to 2 stages.
+
+**Architecture**:
+```
+PolicyExecutor: AsyncIterator[ModelResponse] → Queue[ModelResponse]
+ClientFormatter: Queue[ModelResponse] → Queue[str]
+```
+
+**Trade-offs accepted**:
+- More verbose setup (dependency injection) vs. simpler implicit flow
+- Queue memory overhead vs. backpressure control (bounded queues mitigate this)
+
+**Benefits realized**:
+- Removed ~200 lines of unnecessary CommonFormatter code
+- PolicyOrchestrator simplified to ~30 lines
+- 67 new unit tests added (pipeline is well-tested)
+- All 309 existing tests continue passing
+
+## Context Threading Pattern (2025-11-05)
+
+**Decision**: Create `ObservabilityContext` and `PolicyContext` at gateway, thread through entire request/response lifecycle.
+
+**Rationale**:
+- **Consistent observability**: Trace ID and span context available throughout pipeline
+- **Policy state management**: PolicyContext.scratchpad allows stateful policy logic
+- **Clear ownership**: Gateway owns context lifecycle, components just use it
+- **Prevents globals**: Explicit context passing instead of thread-locals or globals
+
+**Pattern**:
+```python
+# Gateway creates contexts
+obs_ctx = ObservabilityContext(...)
+policy_ctx = PolicyContext(transaction_id=call_id)
+
+# Pass to orchestrator
+orchestrator.process_request(request, obs_ctx, policy_ctx)
+orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
+```
+
+**Key separation**: ObservabilityContext is immutable (tracing), PolicyContext is mutable (scratchpad for policy state).
+
 ---
 
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)
