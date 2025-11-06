@@ -1,11 +1,10 @@
-# ABOUTME: PolicyExecutor implementation with keepalive-based timeout
-# ABOUTME: Handles block assembly, policy hooks, and timeout monitoring
+# ABOUTME: PolicyExecutor implementation with timeout monitoring
+# ABOUTME: Handles block assembly, policy hooks, and delegates timeout tracking to TimeoutMonitor
 
 """Policy executor implementation."""
 
 import asyncio
 import logging
-import time
 from typing import AsyncIterator
 
 from litellm.types.utils import ModelResponse
@@ -16,7 +15,9 @@ from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.policies.policy_context import PolicyContext
 from luthien_proxy.v2.streaming.policy_executor.interface import (
     PolicyExecutorProtocol,
+    PolicyTimeoutError,
 )
+from luthien_proxy.v2.streaming.policy_executor.timeout_monitor import TimeoutMonitor
 from luthien_proxy.v2.streaming.stream_blocks import (
     ContentStreamBlock,
     ToolCallStreamBlock,
@@ -40,8 +41,8 @@ class PolicyExecutor(PolicyExecutorProtocol):
     This implementation:
     - Owns a BlockAssembler for building blocks from chunks
     - Invokes policy hooks as blocks are assembled
-    - Enforces timeout unless keepalive() is called
-    - Tracks last activity time internally
+    - Enforces timeout using TimeoutMonitor
+    - Delegates timeout tracking to TimeoutMonitor instance
 
     Note: Policy is passed to process() method, not stored in executor.
     This makes the executor reusable with different policies.
@@ -60,28 +61,18 @@ class PolicyExecutor(PolicyExecutorProtocol):
             recorder: Transaction recorder for capturing ingress/egress chunks.
                 If None, no recording is performed.
         """
-        self.timeout_seconds = timeout_seconds
         self.recorder = recorder
-        self._last_keepalive = time.monotonic()
+        self._timeout_monitor = TimeoutMonitor(timeout_seconds=timeout_seconds)
 
     def keepalive(self) -> None:
-        """Signal that policy is actively working, resetting timeout.
+        """Signal that processing is actively working, resetting timeout.
 
-        Policies should call this during long-running operations to
-        indicate they haven't stalled. Resets the internal activity
-        timestamp used by timeout monitoring.
+        Policies can call this during long-running operations to indicate
+        they haven't stalled. This is automatically called on each chunk,
+        but policies doing expensive work between chunks may need to call
+        it explicitly.
         """
-        self._last_keepalive = time.monotonic()
-
-    def _time_since_keepalive(self) -> float:
-        """Time in seconds since last keepalive (or initialization).
-
-        Used internally by timeout monitoring.
-
-        Returns:
-            Seconds since last keepalive() call or __init__
-        """
-        return time.monotonic() - self._last_keepalive
+        self._timeout_monitor.keepalive()
 
     async def _safe_put(self, queue: asyncio.Queue[ModelResponse | None], item: ModelResponse | None) -> None:
         """Safely put item in queue with timeout to prevent deadlock.
@@ -98,6 +89,21 @@ class PolicyExecutor(PolicyExecutorProtocol):
         except asyncio.TimeoutError:
             logger.error(f"Queue put timeout after {QUEUE_PUT_TIMEOUT}s - downstream may be slow or stalled")
             raise
+
+    async def _cancel_task(self, task: asyncio.Task) -> None:
+        """Cancel a task and wait for it to complete.
+
+        Handles CancelledError gracefully. Safe to call on already-done tasks.
+
+        Args:
+            task: Task to cancel
+        """
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     async def process(
         self,
@@ -143,21 +149,55 @@ class PolicyExecutor(PolicyExecutorProtocol):
             egress_queue=egress_queue,
             original_streaming_response_state=assembler.state,
             observability=obs_ctx,
+            keepalive=self.keepalive,  # Pass executor's keepalive to policies
         )
 
         # Now set the real callback that uses the context
         assembler.on_chunk = self._create_chunk_callback(streaming_ctx, output_queue, policy)
 
-        try:
+        # Define stream processing coroutine
+        async def process_stream():
             # Feed chunks to assembler - it will call our callback for each one
             await assembler.process(input_stream, context=streaming_ctx)
-
             # Call on_stream_complete after all chunks processed
             await policy.on_stream_complete(streaming_ctx)
 
+        # Create tasks for stream processing and timeout monitoring
+        stream_task = asyncio.create_task(process_stream())
+        monitor_task = asyncio.create_task(self._timeout_monitor.run())
+
+        try:
+            # Wait for either task to complete
+            done, pending = await asyncio.wait({stream_task, monitor_task}, return_when=asyncio.FIRST_COMPLETED)
+
+            # Check if monitor raised timeout
+            if monitor_task in done:
+                # Monitor completed first - likely a timeout error
+                await self._cancel_task(stream_task)
+                # Re-raise the timeout error from monitor (if any)
+                await monitor_task  # This will raise PolicyTimeoutError
+
+            # Stream completed first - cancel monitor and get result
+            await self._cancel_task(monitor_task)
+
+            # Get result from stream task (may raise exception)
+            await stream_task
+
             # Finalize recording (reconstruct and emit full responses)
             await self.recorder.finalize_streaming_response()
+        except PolicyTimeoutError:
+            # Timeout occurred - clean up and re-raise
+            logger.debug("Policy timeout detected, cleaning up stream processing")
+            raise
+        except Exception:
+            # Other error - ensure both tasks are cancelled
+            await self._cancel_task(stream_task)
+            await self._cancel_task(monitor_task)
+            raise
         finally:
+            # Ensure both tasks are cancelled if still running
+            await self._cancel_task(stream_task)
+            await self._cancel_task(monitor_task)
             # Signal end of stream with None sentinel
             await self._safe_put(output_queue, None)
 
@@ -183,7 +223,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
 
             Invokes policy hooks based on stream state, then drains egress queue.
             """
-            self.keepalive()  # Update activity timestamp
+            self._timeout_monitor.keepalive()  # Update activity timestamp
 
             # Record ingress chunk (before policy processing)
             self.recorder.add_ingress_chunk(chunk)

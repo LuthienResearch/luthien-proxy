@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -27,6 +28,7 @@ class StreamingPolicyContext:
     - Write chunks to egress_queue for client delivery
     - Access shared policy state via policy_ctx
     - Emit observability events
+    - Call keepalive() during long-running operations to prevent timeout
 
     The original_streaming_response_state is a reference to the assembler's state
     object, which gets updated automatically as the assembler processes chunks.
@@ -36,6 +38,7 @@ class StreamingPolicyContext:
     egress_queue: asyncio.Queue[ModelResponse]  # Where policies write chunks
     original_streaming_response_state: StreamState  # Assembler state (auto-updated)
     observability: ObservabilityContext  # For emitting events
+    keepalive: Callable[[], None]  # Reset timeout during long-running operations
 
 
 __all__ = ["StreamingPolicyContext"]

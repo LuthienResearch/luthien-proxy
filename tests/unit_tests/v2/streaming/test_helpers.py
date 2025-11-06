@@ -52,6 +52,7 @@ def streaming_context():
         egress_queue=asyncio.Queue(),
         original_streaming_response_state=StreamState(),
         observability=NoOpObservabilityContext("test-123", mock_span),
+        keepalive=lambda: None,  # No-op keepalive for tests
     )
     return ctx
 

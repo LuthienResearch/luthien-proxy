@@ -19,10 +19,21 @@ class PolicyExecutorProtocol(Protocol):
     Implementations handle:
     - Block assembly from incoming ModelResponse stream
     - Policy hook invocation at key moments
+    - Timeout monitoring with keepalive mechanism
 
     Note: Policy is passed as parameter to process(), not stored in executor.
     This makes the executor reusable with different policies.
     """
+
+    def keepalive(self) -> None:
+        """Signal that processing is actively working, resetting timeout.
+
+        Policies can call this during long-running operations to indicate
+        they haven't stalled. This is automatically called on each chunk,
+        but policies doing expensive work between chunks may need to call
+        it explicitly.
+        """
+        ...
 
     async def process(
         self,

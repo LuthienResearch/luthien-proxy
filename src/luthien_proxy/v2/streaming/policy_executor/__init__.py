@@ -5,5 +5,11 @@ from luthien_proxy.v2.streaming.policy_executor.interface import (
     PolicyExecutorProtocol,
     PolicyTimeoutError,
 )
+from luthien_proxy.v2.streaming.policy_executor.timeout_monitor import TimeoutMonitor
 
-__all__ = ["PolicyExecutor", "PolicyExecutorProtocol", "PolicyTimeoutError"]
+__all__ = [
+    "PolicyExecutor",
+    "PolicyExecutorProtocol",
+    "PolicyTimeoutError",
+    "TimeoutMonitor",
+]
