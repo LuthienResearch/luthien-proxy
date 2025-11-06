@@ -9,10 +9,11 @@ from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.observability.context import NoOpObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
-from luthien_proxy.v2.policies.policy import Policy, PolicyContext
+from luthien_proxy.v2.policies.policy import PolicyProtocol
+from luthien_proxy.v2.streaming.protocol import PolicyContext
 
 
-class MockPolicy(Policy):
+class MockPolicy(PolicyProtocol):
     """Mock policy for testing."""
 
     def __init__(self):

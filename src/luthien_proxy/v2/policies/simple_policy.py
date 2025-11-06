@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.streaming.helpers import passthrough_accumulated_chunks, send_text, send_tool_call
 from luthien_proxy.v2.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class SimplePolicy(Policy):
+class SimplePolicy(PolicyProtocol):
     """Convenience base class for content-level transformations.
 
     Buffers streaming content and applies transformations when complete.

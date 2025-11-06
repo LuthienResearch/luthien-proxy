@@ -1,14 +1,9 @@
 # V2 Integration Tests
 
-These tests verify the PolicyOrchestrator integration with real LLM backends.
+These tests exercise the FastAPI gateway backed by the new queue-based `PolicyOrchestrator`.
 
-They directly instantiate the orchestrator (using policy_orchestrator_old) and verify:
-- Request processing through policies
-- Streaming response handling
-- Content transformation (uppercase policy)
-- Tool call handling
+Currently `test_gateway_streaming.py` issues requests against an in-process app created via
+`luthien_proxy.v2.main.create_app` to validate streaming and non-streaming responses end-to-end.
 
-Note: These currently test the **deprecated** policy_orchestrator_old.
-They should eventually be updated to test the new orchestrator or removed.
-
-These are **integration tests**, not E2E tests - they don't test the HTTP gateway.
+The legacy orchestrator-specific integration tests have been removed along with the deprecated
+implementation.

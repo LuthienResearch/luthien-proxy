@@ -1,13 +1,23 @@
-# ABOUTME: E2E tests for gateway streaming endpoints
-# ABOUTME: Tests HTTP gateway with real policy and LLM integration
+"""Integration tests hitting the FastAPI gateway endpoints."""
 
-"""E2E tests for gateway streaming."""
+from __future__ import annotations
 
+import os
+
+import pytest
 from fastapi.testclient import TestClient
 
 from luthien_proxy.v2.main import create_app
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies.simple_policy import SimplePolicy
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not (os.environ.get("OPENAI_API_KEY") and os.environ.get("ANTHROPIC_API_KEY")),
+        reason="Requires OPENAI_API_KEY and ANTHROPIC_API_KEY for live LiteLLM calls.",
+    ),
+]
 
 
 class UppercasePolicy(SimplePolicy):

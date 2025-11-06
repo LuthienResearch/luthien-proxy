@@ -36,7 +36,7 @@ from luthien_proxy.v2.config import load_policy_from_yaml
 from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.gateway_routes import router as gateway_router
 from luthien_proxy.v2.observability import RedisEventPublisher
-from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.telemetry import setup_telemetry
 from luthien_proxy.v2.ui import router as ui_router
 
@@ -47,7 +47,7 @@ def create_app(
     api_key: str,
     database_url: str,
     redis_url: str,
-    policy: Policy,
+    policy: PolicyProtocol,
 ) -> FastAPI:
     """Create V2 FastAPI application with dependency injection.
 

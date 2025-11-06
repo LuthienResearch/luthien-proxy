@@ -29,12 +29,12 @@ from typing import Any, cast
 
 import yaml
 
-from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 
 logger = logging.getLogger(__name__)
 
 
-def load_policy_from_yaml(config_path: str | None = None) -> Policy:
+def load_policy_from_yaml(config_path: str | None = None) -> PolicyProtocol:
     """Load a policy from YAML configuration file.
 
     Args:
@@ -80,7 +80,7 @@ def load_policy_from_yaml(config_path: str | None = None) -> Policy:
 
         # Import and validate policy class
         policy_class = _import_policy_class(policy_class_ref)
-        if not issubclass(policy_class, Policy):
+        if not issubclass(policy_class, PolicyProtocol):
             raise TypeError(
                 f"Class '{policy_class_ref}' from {config_path} is not a Policy subclass. "
                 f"All policy classes must inherit from luthien_proxy.v2.policies.policy.Policy"
@@ -98,7 +98,7 @@ def load_policy_from_yaml(config_path: str | None = None) -> Policy:
         raise exc
 
 
-def _import_policy_class(class_ref: str) -> type[Policy]:
+def _import_policy_class(class_ref: str) -> type[PolicyProtocol]:
     """Import a policy class from a module:class reference.
 
     Args:
@@ -128,10 +128,10 @@ def _import_policy_class(class_ref: str) -> type[Policy]:
     if not isinstance(cls, type):
         raise TypeError(f"{class_name} is not a class")
 
-    return cast(type[Policy], cls)
+    return cast(type[PolicyProtocol], cls)
 
 
-def _instantiate_policy(policy_class: type[Policy], config: dict[str, Any]) -> Policy:
+def _instantiate_policy(policy_class: type[PolicyProtocol], config: dict[str, Any]) -> PolicyProtocol:
     """Instantiate a policy with the given config.
 
     Args:

@@ -55,7 +55,10 @@ def create_mock_context(
     ctx.original_streaming_response_state.raw_chunks = raw_chunks or []
 
     # Egress queue and observability
-    ctx.egress_queue = AsyncMock()
+    # Use Mock (not AsyncMock) because put_nowait is sync, but make put async
+    ctx.egress_queue = Mock()
+    ctx.egress_queue.put_nowait = Mock()
+    ctx.egress_queue.put = AsyncMock()
     ctx.observability = Mock()
     ctx.observability.emit_event_nonblocking = Mock()
 

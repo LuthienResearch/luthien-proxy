@@ -14,12 +14,12 @@ if TYPE_CHECKING:
     from luthien_proxy.v2.streaming.protocol import PolicyContext
     from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
-from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 
 logger = logging.getLogger(__name__)
 
 
-class NoOpPolicy(Policy):
+class NoOpPolicy(PolicyProtocol):
     """No-op policy that does nothing."""
 
     async def on_request(self, request: Request, context: PolicyContext) -> Request:

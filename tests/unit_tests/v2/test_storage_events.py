@@ -36,7 +36,7 @@ def test_emit_request_event_with_null_call_id(caplog):
 
 def test_emit_request_event_with_null_db_pool(caplog):
     """Test that emit_request_event handles null db_pool gracefully."""
-    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="luthien_proxy.v2.storage.events")
 
     emit_request_event(
         call_id="test-123",
@@ -113,7 +113,7 @@ def test_emit_request_event_with_redis(mock_queue, mock_build_events):
 @patch("luthien_proxy.v2.storage.events.build_conversation_events")
 def test_emit_request_event_no_events_generated(mock_build_events, caplog):
     """Test when build_conversation_events returns empty list."""
-    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="luthien_proxy.v2.storage.events")
 
     mock_db_pool = Mock()
     mock_build_events.return_value = []  # No events generated
@@ -147,7 +147,7 @@ def test_emit_response_event_with_null_call_id(caplog):
 
 def test_emit_response_event_with_null_db_pool(caplog):
     """Test that emit_response_event handles null db_pool gracefully."""
-    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="luthien_proxy.v2.storage.events")
 
     emit_response_event(
         call_id="test-123",
@@ -224,7 +224,7 @@ def test_emit_response_event_with_redis(mock_queue, mock_build_events):
 @patch("luthien_proxy.v2.storage.events.build_conversation_events")
 def test_emit_response_event_no_events_generated(mock_build_events, caplog):
     """Test when build_conversation_events returns empty list."""
-    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="luthien_proxy.v2.storage.events")
 
     mock_db_pool = Mock()
     mock_build_events.return_value = []  # No events generated

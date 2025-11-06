@@ -30,12 +30,12 @@ if TYPE_CHECKING:
 
 from litellm.types.utils import Choices
 
-from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 
 logger = logging.getLogger(__name__)
 
 
-class AllCapsPolicy(Policy):
+class AllCapsPolicy(PolicyProtocol):
     """Policy that converts all response content to uppercase.
 
     This is a simple example policy that demonstrates basic content transformation.

@@ -28,7 +28,7 @@ from luthien_proxy.v2.observability.transaction_recorder import (
     DefaultTransactionRecorder,
 )
 from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
-from luthien_proxy.v2.policies.simple_policy import SimplePolicy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.streaming.client_formatter.anthropic import (
     AnthropicClientFormatter,
 )
@@ -81,7 +81,9 @@ async def chat_completions(
     # Get dependencies from app state
     db_pool: db.DatabasePool | None = getattr(request.app.state, "db_pool", None)
     event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
-    policy = getattr(request.app.state, "policy", SimplePolicy())
+    if not hasattr(request.app.state, "policy"):
+        raise HTTPException(status_code=500, detail="Policy not configured in application state")
+    policy: PolicyProtocol = request.app.state.policy
 
     # Create request message
     request_message = RequestMessage(**body)
@@ -146,18 +148,7 @@ async def chat_completions(
         else:
             # Non-streaming response
             response = await llm_client.complete(final_request)
-
-            # Process response through policy hook
-            # Create old-style PolicyContext for non-streaming response
-            from luthien_proxy.v2.policies.policy import PolicyContext as OldPolicyContext
-
-            old_policy_ctx = OldPolicyContext(
-                call_id=call_id,
-                span=span,
-                request=final_request,
-                observability=obs_ctx,
-            )
-            processed_response = await policy.process_full_response(response, old_policy_ctx)
+            processed_response = await policy.process_full_response(response, policy_ctx)
 
             return JSONResponse(
                 content=processed_response.model_dump(),
@@ -177,7 +168,9 @@ async def anthropic_messages(
     # Get dependencies from app state
     db_pool: db.DatabasePool | None = getattr(request.app.state, "db_pool", None)
     event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
-    policy = getattr(request.app.state, "policy", SimplePolicy())
+    if not hasattr(request.app.state, "policy"):
+        raise HTTPException(status_code=500, detail="Policy not configured in application state")
+    policy: PolicyProtocol = request.app.state.policy
 
     # Convert Anthropic request to OpenAI format
     logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
@@ -248,17 +241,7 @@ async def anthropic_messages(
         else:
             # Non-streaming response
             openai_response = await llm_client.complete(final_request)
-
-            # Process response through policy hook
-            from luthien_proxy.v2.policies.policy import PolicyContext as OldPolicyContext
-
-            old_policy_ctx = OldPolicyContext(
-                call_id=call_id,
-                span=span,
-                request=final_request,
-                observability=obs_ctx,
-            )
-            processed_response = await policy.process_full_response(openai_response, old_policy_ctx)
+            processed_response = await policy.process_full_response(openai_response, policy_ctx)
 
             # Convert back to Anthropic format
             anthropic_response = openai_to_anthropic_response(processed_response)

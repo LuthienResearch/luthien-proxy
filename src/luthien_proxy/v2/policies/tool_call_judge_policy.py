@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from luthien_proxy.v2.streaming.protocol import PolicyContext
     from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
-from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.policies.utils import (
     JudgeConfig,
     JudgeResult,
@@ -51,7 +51,7 @@ from luthien_proxy.v2.policies.utils import (
 logger = logging.getLogger(__name__)
 
 
-class ToolCallJudgePolicy(Policy):
+class ToolCallJudgePolicy(PolicyProtocol):
     """Policy that evaluates tool calls with a judge LLM and blocks harmful ones.
 
     This policy demonstrates buffering, external LLM calls, and content replacement.
