@@ -26,10 +26,10 @@ class NoOpPolicy(PolicyProtocol):
         """Process request before sending to LLM."""
         return request
 
+    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+        """Process non-streaming response after receiving from LLM."""
+        return response
+
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
         """Called on every chunk."""
         ctx.egress_queue.put_nowait(ctx.original_streaming_response_state.raw_chunks[-1])
-
-    async def process_full_response(self, response, context) -> ModelResponse:
-        """Process full response after receiving from LLM."""
-        return response

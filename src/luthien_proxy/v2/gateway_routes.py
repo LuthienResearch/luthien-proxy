@@ -129,7 +129,6 @@ async def chat_completions(
         final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
 
         # Record original and final request
-        await recorder.record_request(request_message, final_request)
 
         # Call backend LLM
         llm_client = LiteLLMClient()
@@ -151,10 +150,7 @@ async def chat_completions(
         else:
             # Non-streaming response
             response = await llm_client.complete(final_request)
-            processed_response = await policy.process_full_response(response, policy_ctx)
-
-            # Record original and final response
-            await recorder.finalize_non_streaming(response, processed_response)
+            processed_response = await orchestrator.process_full_response(response, policy_ctx)
 
             return JSONResponse(
                 content=processed_response.model_dump(),
@@ -227,9 +223,6 @@ async def anthropic_messages(
         # Process request through policy
         final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
 
-        # Record original and final request
-        await recorder.record_request(request_message, final_request)
-
         # Call backend LLM
         llm_client = LiteLLMClient()
 
@@ -250,10 +243,7 @@ async def anthropic_messages(
         else:
             # Non-streaming response
             openai_response = await llm_client.complete(final_request)
-            processed_response = await policy.process_full_response(openai_response, policy_ctx)
-
-            # Record original and final response
-            await recorder.finalize_non_streaming(openai_response, processed_response)
+            processed_response = await orchestrator.process_full_response(openai_response, policy_ctx)
 
             # Convert back to Anthropic format
             anthropic_response = openai_to_anthropic_response(processed_response)

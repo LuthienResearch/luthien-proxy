@@ -88,7 +88,7 @@ class AllCapsPolicy(PolicyProtocol):
 
                 logger.debug(f"Converted content delta to uppercase: {chars_converted} chars")
 
-    async def process_full_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
         """Convert non-streaming response content to uppercase.
 
         Args:

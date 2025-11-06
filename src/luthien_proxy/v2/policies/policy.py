@@ -32,6 +32,10 @@ class PolicyProtocol(Protocol):
         """Process request before sending to LLM."""
         ...
 
+    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+        """Process non-streaming response after receiving from LLM."""
+        ...
+
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
         """Called on every chunk."""
         ...
@@ -58,8 +62,4 @@ class PolicyProtocol(Protocol):
 
     async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
         """Called when stream completes."""
-        ...
-
-    async def process_full_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
-        """Process non-streaming response."""
         ...

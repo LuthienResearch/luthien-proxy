@@ -1,6 +1,7 @@
-"""Unit tests for PolicyOrchestrator request processing."""
+"""Unit tests for PolicyOrchestrator request processing and transaction recording."""
 
 import pytest
+from litellm.types.utils import Choices, Message, ModelResponse
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.trace import set_tracer_provider
 
@@ -125,3 +126,93 @@ async def test_process_request_preserves_request_fields(orchestrator, setup_trac
     assert final_request.top_p == 0.9
     # Only temperature was modified by MockPolicy
     assert final_request.temperature == 0.5
+
+
+# ============================================================================
+# Transaction Recording Tests
+# ============================================================================
+
+
+@pytest.fixture
+def orchestrator_with_recording(setup_tracing):
+    """Create orchestrator with real recorder and spy on recording methods."""
+    from unittest.mock import AsyncMock
+
+    from luthien_proxy.v2.policies.noop_policy import NoOpPolicy
+    from luthien_proxy.v2.streaming.client_formatter.openai import OpenAIClientFormatter
+    from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
+
+    policy = NoOpPolicy()
+    recorder = NoOpTransactionRecorder()
+
+    # Spy on recorder methods
+    recorder.record_request = AsyncMock(wraps=recorder.record_request)
+    recorder.record_response = AsyncMock(wraps=recorder.record_response)
+
+    policy_executor = PolicyExecutor(recorder=recorder)
+    client_formatter = OpenAIClientFormatter(model_name="gpt-4")
+
+    return PolicyOrchestrator(
+        policy=policy,
+        policy_executor=policy_executor,
+        client_formatter=client_formatter,
+        transaction_recorder=recorder,
+    ), recorder
+
+
+@pytest.mark.asyncio
+async def test_process_request_records_transaction(orchestrator_with_recording, setup_tracing):
+    """Test that process_request calls record_request with original and final requests."""
+    orch, recorder = orchestrator_with_recording
+    tracer = setup_tracing
+
+    original_request = Request(
+        model="gpt-4",
+        messages=[{"role": "user", "content": "Hello"}],
+        temperature=1.0,
+    )
+
+    with tracer.start_as_current_span("test") as span:
+        obs_ctx = NoOpObservabilityContext(transaction_id="test-123", span=span)
+        policy_ctx = PolicyContext(transaction_id="test-123", request=original_request, observability=obs_ctx)
+        final_request = await orch.process_request(original_request, policy_ctx, obs_ctx)
+
+    # Verify recorder.record_request was called
+    recorder.record_request.assert_called_once()
+
+    # Verify correct arguments passed
+    call_args = recorder.record_request.call_args
+    assert call_args[0][0] == original_request  # First positional arg
+    assert call_args[0][1] == final_request  # Second positional arg
+
+
+@pytest.mark.asyncio
+async def test_process_full_response_records_transaction(orchestrator_with_recording, setup_tracing):
+    """Test that process_full_response calls record_response with original and final responses."""
+    orch, recorder = orchestrator_with_recording
+    tracer = setup_tracing
+
+    original_response = ModelResponse(
+        id="test-id",
+        model="gpt-4",
+        choices=[
+            Choices(
+                index=0,
+                message=Message(content="Hello world", role="assistant"),
+                finish_reason="stop",
+            )
+        ],
+    )
+
+    with tracer.start_as_current_span("test") as span:
+        obs_ctx = NoOpObservabilityContext(transaction_id="test-123", span=span)
+        policy_ctx = PolicyContext(transaction_id="test-123", request=None, observability=obs_ctx)
+        final_response = await orch.process_full_response(original_response, policy_ctx)
+
+    # Verify recorder.record_response was called
+    recorder.record_response.assert_called_once()
+
+    # Verify correct arguments passed
+    call_args = recorder.record_response.call_args
+    assert call_args[0][0] == original_response  # First positional arg
+    assert call_args[0][1] == final_response  # Second positional arg

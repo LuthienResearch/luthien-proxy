@@ -288,7 +288,7 @@ class ToolCallJudgePolicy(PolicyProtocol):
             if key in self._buffered_tool_calls:
                 del self._buffered_tool_calls[key]
 
-    async def process_full_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
         """Evaluate non-streaming tool calls and block if necessary.
 
         Args:

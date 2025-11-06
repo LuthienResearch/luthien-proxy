@@ -36,12 +36,12 @@ class TransactionRecorder(ABC):
         """Buffer egress chunk (streaming only)."""
 
     @abstractmethod
-    async def finalize_streaming(self) -> None:
-        """Finalize streaming response recording."""
+    async def record_response(self, original_response: ModelResponse, final_response: ModelResponse) -> None:
+        """Record original and final response (non-streaming)."""
 
     @abstractmethod
-    async def finalize_non_streaming(self, original_response: ModelResponse, final_response: ModelResponse) -> None:
-        """Finalize non-streaming response recording."""
+    async def finalize_streaming_response(self) -> None:
+        """Finalize streaming response recording (reconstruct from buffered chunks)."""
 
 
 class NoOpTransactionRecorder(TransactionRecorder):
@@ -60,10 +60,10 @@ class NoOpTransactionRecorder(TransactionRecorder):
     def add_egress_chunk(self, chunk: ModelResponse) -> None:  # noqa: D102
         pass
 
-    async def finalize_streaming(self) -> None:  # noqa: D102
+    async def record_response(self, original_response: ModelResponse, final_response: ModelResponse) -> None:  # noqa: D102
         pass
 
-    async def finalize_non_streaming(self, original_response: ModelResponse, final_response: ModelResponse) -> None:  # noqa: D102
+    async def finalize_streaming_response(self) -> None:  # noqa: D102
         pass
 
 
@@ -111,7 +111,23 @@ class DefaultTransactionRecorder(TransactionRecorder):
             return
         self._egress_chunks.append(chunk)
 
-    async def finalize_streaming(self) -> None:
+    async def record_response(self, original_response: ModelResponse, final_response: ModelResponse) -> None:
+        """Emit full responses directly."""
+        await self.observability.emit_event(
+            event_type="transaction.non_streaming_response_recorded",
+            data={
+                "original_finish_reason": self._get_finish_reason(original_response),
+                "final_finish_reason": self._get_finish_reason(final_response),
+                "original_response": original_response.model_dump(),
+                "final_response": final_response.model_dump(),
+            },
+        )
+
+        finish_reason = self._get_finish_reason(final_response)
+        if finish_reason:
+            self.observability.add_span_attribute("response.finish_reason", finish_reason)
+
+    async def finalize_streaming_response(self) -> None:
         """Reconstruct full responses from chunks and emit."""
         original_response_dict = reconstruct_full_response_from_chunks(self._ingress_chunks)
         final_response_dict = reconstruct_full_response_from_chunks(self._egress_chunks)
@@ -128,22 +144,6 @@ class DefaultTransactionRecorder(TransactionRecorder):
 
         self.observability.record_metric("response.chunks.ingress", len(self._ingress_chunks))
         self.observability.record_metric("response.chunks.egress", len(self._egress_chunks))
-
-    async def finalize_non_streaming(self, original_response: ModelResponse, final_response: ModelResponse) -> None:
-        """Emit full responses directly."""
-        await self.observability.emit_event(
-            event_type="transaction.non_streaming_response_recorded",
-            data={
-                "original_finish_reason": self._get_finish_reason(original_response),
-                "final_finish_reason": self._get_finish_reason(final_response),
-                "original_response": original_response.model_dump(),
-                "final_response": final_response.model_dump(),
-            },
-        )
-
-        finish_reason = self._get_finish_reason(final_response)
-        if finish_reason:
-            self.observability.add_span_attribute("response.finish_reason", finish_reason)
 
     def _get_finish_reason(self, response: ModelResponse) -> str | None:
         """Extract finish_reason from response."""

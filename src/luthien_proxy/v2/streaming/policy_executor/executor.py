@@ -156,7 +156,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
             await policy.on_stream_complete(streaming_ctx)
 
             # Finalize recording (reconstruct and emit full responses)
-            await self.recorder.finalize_streaming()
+            await self.recorder.finalize_streaming_response()
         finally:
             # Signal end of stream with None sentinel
             await self._safe_put(output_queue, None)

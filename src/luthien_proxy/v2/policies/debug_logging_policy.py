@@ -41,7 +41,7 @@ class DebugLoggingPolicy(PolicyProtocol):
         # Pass through
         ctx.egress_queue.put_nowait(chunk)
 
-    async def process_full_response(self, response, context) -> ModelResponse:
+    async def on_response(self, response, context) -> ModelResponse:
         """Process full response after receiving from LLM."""
         return response
 

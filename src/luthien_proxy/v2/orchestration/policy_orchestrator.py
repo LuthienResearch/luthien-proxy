@@ -90,7 +90,9 @@ class PolicyOrchestrator:
         policy_ctx.request = request
 
         # Call policy's on_request hook
-        return await self.policy.on_request(request, policy_ctx)
+        final_request = await self.policy.on_request(request, policy_ctx)
+        await self.transaction_recorder.record_request(request, final_request)
+        return final_request
 
     async def process_streaming_response(
         self,
@@ -152,6 +154,22 @@ class PolicyOrchestrator:
             # If either task fails, TaskGroup will cancel remaining tasks and raise
             async for event in self._drain_queue(sse_queue):
                 yield event
+
+    async def process_full_response(
+        self,
+        response: ModelResponse,
+        policy_ctx: PolicyContext,
+    ) -> ModelResponse:
+        """Process non-streaming full response through policy.
+
+        Args:
+            response: Full ModelResponse from backend LLM
+            policy_ctx: Policy context (shared with request processing)
+        """
+        # Call policy's on_response hook
+        final_response = await self.policy.on_response(response, policy_ctx)
+        await self.transaction_recorder.record_response(response, final_response)
+        return final_response
 
     async def _drain_queue(self, queue: asyncio.Queue[str | None]) -> AsyncIterator[str]:
         """Drain queue until shutdown.

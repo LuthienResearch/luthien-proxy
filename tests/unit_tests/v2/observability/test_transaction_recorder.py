@@ -41,19 +41,19 @@ class TestNoOpTransactionRecorder:
         # No assertion - just verify it doesn't raise
 
     @pytest.mark.asyncio
-    async def test_finalize_streaming_does_nothing(self):
-        """finalize_streaming does nothing and doesn't raise."""
-        recorder = NoOpTransactionRecorder()
-        await recorder.finalize_streaming()
-        # No assertion - just verify it doesn't raise
-
-    @pytest.mark.asyncio
-    async def test_finalize_non_streaming_does_nothing(self):
-        """finalize_non_streaming does nothing and doesn't raise."""
+    async def test_record_response_does_nothing(self):
+        """record_response does nothing and doesn't raise."""
         recorder = NoOpTransactionRecorder()
         original = Mock(spec=ModelResponse)
         final = Mock(spec=ModelResponse)
-        await recorder.finalize_non_streaming(original, final)
+        await recorder.record_response(original, final)
+        # No assertion - just verify it doesn't raise
+
+    @pytest.mark.asyncio
+    async def test_finalize_streaming_response_does_nothing(self):
+        """finalize_streaming_response does nothing and doesn't raise."""
+        recorder = NoOpTransactionRecorder()
+        await recorder.finalize_streaming_response()
         # No assertion - just verify it doesn't raise
 
 
@@ -110,7 +110,7 @@ class TestDefaultTransactionRecorder:
             )
             recorder.add_ingress_chunk(chunk)
 
-        await recorder.finalize_streaming()
+        await recorder.finalize_streaming_response()
 
         # Verify all 3 chunks included in event
         call_args = observability.emit_event.call_args
@@ -144,7 +144,7 @@ class TestDefaultTransactionRecorder:
             )
             recorder.add_ingress_chunk(chunk)
 
-        await recorder.finalize_streaming()
+        await recorder.finalize_streaming_response()
 
         # Verify only first 2 chunks included
         call_args = observability.emit_event.call_args
@@ -204,7 +204,7 @@ class TestDefaultTransactionRecorder:
             )
             recorder.add_egress_chunk(chunk)
 
-        await recorder.finalize_streaming()
+        await recorder.finalize_streaming_response()
 
         # Verify only first 2 chunks included
         call_args = observability.emit_event.call_args
@@ -240,8 +240,8 @@ class TestDefaultTransactionRecorder:
         assert "max_chunks_queued_exceeded" in call_args[1]["data"]["reason"]
 
     @pytest.mark.asyncio
-    async def test_finalize_streaming_reconstructs_and_emits(self):
-        """finalize_streaming reconstructs responses and emits event."""
+    async def test_finalize_streaming_response_reconstructs_and_emits(self):
+        """finalize_streaming_response reconstructs responses and emits event."""
         observability = Mock(spec=ObservabilityContext)
         observability.emit_event = AsyncMock()
         recorder = DefaultTransactionRecorder(observability)
@@ -276,7 +276,7 @@ class TestDefaultTransactionRecorder:
         recorder.add_ingress_chunk(ingress_chunk)
         recorder.add_egress_chunk(egress_chunk)
 
-        await recorder.finalize_streaming()
+        await recorder.finalize_streaming_response()
 
         # Verify event emitted with reconstructed responses
         observability.emit_event.assert_called_once()
@@ -301,8 +301,8 @@ class TestDefaultTransactionRecorder:
         observability.record_metric.assert_any_call("response.chunks.egress", 1)
 
     @pytest.mark.asyncio
-    async def test_finalize_non_streaming_emits_responses(self):
-        """finalize_non_streaming emits both responses."""
+    async def test_record_response_emits_responses(self):
+        """record_response emits both responses."""
         observability = Mock(spec=ObservabilityContext)
         observability.emit_event = AsyncMock()
         recorder = DefaultTransactionRecorder(observability)
@@ -331,7 +331,7 @@ class TestDefaultTransactionRecorder:
             model="gpt-4-turbo",
         )
 
-        await recorder.finalize_non_streaming(original, final)
+        await recorder.record_response(original, final)
 
         # Verify event emitted
         observability.emit_event.assert_called_once()
@@ -346,8 +346,8 @@ class TestDefaultTransactionRecorder:
         observability.add_span_attribute.assert_called_once_with("response.finish_reason", "length")
 
     @pytest.mark.asyncio
-    async def test_finalize_non_streaming_handles_missing_finish_reason(self):
-        """finalize_non_streaming handles responses without finish_reason."""
+    async def test_record_response_handles_missing_finish_reason(self):
+        """record_response handles responses without finish_reason."""
         observability = Mock(spec=ObservabilityContext)
         observability.emit_event = AsyncMock()
         recorder = DefaultTransactionRecorder(observability)
@@ -364,7 +364,7 @@ class TestDefaultTransactionRecorder:
             model="gpt-4-turbo",
         )
 
-        await recorder.finalize_non_streaming(original, final)
+        await recorder.record_response(original, final)
 
         # Verify event emitted with None finish_reason
         observability.emit_event.assert_called_once()
