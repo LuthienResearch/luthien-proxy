@@ -2,6 +2,13 @@
 
 ## High Priority
 
+- [ ] **Factor out common gateway route logic** - `/v1/chat/completions` and `/v1/messages` endpoints have significant duplication:
+  - Both create the same pipeline dependencies (recorder, executor, formatter, orchestrator)
+  - Both call `process_request()` and `record_request()` identically
+  - Both handle streaming/non-streaming with identical patterns
+  - Consider extracting a `_process_gateway_request()` helper function
+  - Would reduce code duplication from ~90 lines each to ~20 lines each
+  - Main differences are: request format conversion (Anthropic→OpenAI) and response format conversion (OpenAI→Anthropic)
 - [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files:
 - [ ] Add nonstreaming support to PolicyOrchestrator
   - Support policy override via request header (e.g., `X-Luthien-Policy: noop` or `X-Luthien-Policy: simple`)

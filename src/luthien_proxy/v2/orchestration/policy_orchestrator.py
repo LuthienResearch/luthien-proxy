@@ -31,9 +31,10 @@ class PolicyOrchestrator:
     - Policy: Contains business logic for request/response transformation
     - PolicyExecutor: Block assembly + policy hook invocation (ModelResponse → ModelResponse)
     - ClientFormatter: Common format → client-specific SSE (ModelResponse → str)
+    - TransactionRecorder: Records request/response data for observability
 
-    The streaming pipeline is explicit, with typed queues connecting stages
-    and TransactionRecorder wrapping stages at common format boundaries.
+    The streaming pipeline is explicit, with typed queues connecting stages.
+    Recording happens at natural boundaries within PolicyExecutor.
 
     Note: Backend streams from LiteLLM are already in common format (ModelResponse),
     so no ingress formatting is needed.
@@ -100,9 +101,11 @@ class PolicyOrchestrator:
         """Process streaming response through policy pipeline.
 
         This creates the explicit queue-based pipeline:
-        1. backend_stream (ModelResponse) → PolicyExecutor (recorded) → policy_out_queue
-        2. policy_out_queue → ClientFormatter (recorded) → sse_queue
+        1. backend_stream (ModelResponse) → PolicyExecutor → policy_out_queue
+        2. policy_out_queue → ClientFormatter → sse_queue
         3. Drain sse_queue and yield to client
+
+        Recording happens inside PolicyExecutor (ingress/egress chunks + finalization).
 
         Args:
             backend_stream: Streaming ModelResponse from backend LLM (already common format)
@@ -124,7 +127,6 @@ class PolicyOrchestrator:
 
         # Launch pipeline stages using TaskGroup to ensure error propagation
         # TaskGroup ensures that exceptions from background tasks are caught and raised
-        # TODO: Re-add transaction_recorder.wrap() once we implement it properly
         async with asyncio.TaskGroup() as tg:
             # Start policy executor task
             tg.create_task(

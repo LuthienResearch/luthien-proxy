@@ -11,6 +11,7 @@ from litellm.types.utils import ChatCompletionDeltaToolCall as ToolCall
 from litellm.types.utils import Delta, Function, ModelResponse, StreamingChoices
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.v2.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 
@@ -96,7 +97,7 @@ async def async_iter_from_list(items: list):
 @pytest.mark.asyncio
 async def test_assembler_processes_content_chunks(mock_policy, policy_ctx, obs_ctx):
     """Test that content chunks are processed through assembler."""
-    executor = PolicyExecutor()
+    executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     chunks = [
         create_content_chunk("Hello"),
@@ -124,7 +125,7 @@ async def test_assembler_tracks_content_block(mock_policy, policy_ctx, obs_ctx):
     This test verifies the assembler is working, but we don't inspect
     internal state yet - we'll verify hook invocations in Step 3.
     """
-    executor = PolicyExecutor()
+    executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     chunks = [
         create_content_chunk("Hello"),
@@ -154,7 +155,7 @@ async def test_assembler_tracks_content_block(mock_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_assembler_handles_tool_calls(mock_policy, policy_ctx, obs_ctx):
     """Test that assembler processes tool call chunks."""
-    executor = PolicyExecutor()
+    executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     chunks = [
         create_tool_call_chunk(tool_id="call_123", name="search", index=0),
@@ -184,7 +185,7 @@ async def test_assembler_handles_tool_calls(mock_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_assembler_handles_mixed_content_and_tools(mock_policy, policy_ctx, obs_ctx):
     """Test content followed by tool call."""
-    executor = PolicyExecutor()
+    executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     chunks = [
         create_content_chunk("Let me search for that."),
@@ -211,7 +212,7 @@ async def test_assembler_handles_mixed_content_and_tools(mock_policy, policy_ctx
 @pytest.mark.asyncio
 async def test_assembler_preserves_chunk_order(mock_policy, policy_ctx, obs_ctx):
     """Test that chunk order is preserved through assembly."""
-    executor = PolicyExecutor()
+    executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     chunks = [
         create_content_chunk("1"),

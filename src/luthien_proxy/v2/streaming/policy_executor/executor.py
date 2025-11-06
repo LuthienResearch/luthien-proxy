@@ -11,6 +11,7 @@ from typing import AsyncIterator
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.v2.observability.transaction_recorder import TransactionRecorder
 from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.policies.policy_context import PolicyContext
 from luthien_proxy.v2.streaming.policy_executor.interface import (
@@ -48,6 +49,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
 
     def __init__(
         self,
+        recorder: TransactionRecorder,
         timeout_seconds: float | None = None,
     ) -> None:
         """Initialize policy executor.
@@ -55,8 +57,11 @@ class PolicyExecutor(PolicyExecutorProtocol):
         Args:
             timeout_seconds: Maximum time between keepalive calls before timeout.
                 If None, no timeout is enforced.
+            recorder: Transaction recorder for capturing ingress/egress chunks.
+                If None, no recording is performed.
         """
         self.timeout_seconds = timeout_seconds
+        self.recorder = recorder
         self._last_keepalive = time.monotonic()
 
     def keepalive(self) -> None:
@@ -149,6 +154,9 @@ class PolicyExecutor(PolicyExecutorProtocol):
 
             # Call on_stream_complete after all chunks processed
             await policy.on_stream_complete(streaming_ctx)
+
+            # Finalize recording (reconstruct and emit full responses)
+            await self.recorder.finalize_streaming()
         finally:
             # Signal end of stream with None sentinel
             await self._safe_put(output_queue, None)
@@ -177,6 +185,9 @@ class PolicyExecutor(PolicyExecutorProtocol):
             """
             self.keepalive()  # Update activity timestamp
 
+            # Record ingress chunk (before policy processing)
+            self.recorder.add_ingress_chunk(chunk)
+
             # Call on_chunk_received for every chunk
             await policy.on_chunk_received(streaming_ctx)
 
@@ -204,6 +215,8 @@ class PolicyExecutor(PolicyExecutorProtocol):
             while not streaming_ctx.egress_queue.empty():
                 try:
                     policy_chunk = streaming_ctx.egress_queue.get_nowait()
+                    # Record egress chunk (after policy processing)
+                    self.recorder.add_egress_chunk(policy_chunk)
                     await self._safe_put(output_queue, policy_chunk)
                     emitted_count += 1
                 except asyncio.QueueEmpty:
@@ -211,6 +224,8 @@ class PolicyExecutor(PolicyExecutorProtocol):
 
             # If policy didn't emit anything, forward original chunk
             if emitted_count == 0:
+                # Record egress chunk (original chunk forwarded)
+                self.recorder.add_egress_chunk(chunk)
                 await self._safe_put(output_queue, chunk)
 
         return on_chunk

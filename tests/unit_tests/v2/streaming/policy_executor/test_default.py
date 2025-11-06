@@ -5,6 +5,7 @@
 
 import time
 
+from luthien_proxy.v2.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 
 
@@ -13,19 +14,19 @@ class TestPolicyExecutor:
 
     def test_initialization_with_timeout(self):
         """PolicyExecutor initializes with timeout."""
-        executor = PolicyExecutor(timeout_seconds=30.0)
+        executor = PolicyExecutor(timeout_seconds=30.0, recorder=NoOpTransactionRecorder())
 
         assert executor.timeout_seconds == 30.0
 
     def test_initialization_without_timeout(self):
         """PolicyExecutor can be initialized without timeout."""
-        executor = PolicyExecutor()
+        executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
         assert executor.timeout_seconds is None
 
     def test_keepalive_resets_timer(self):
         """Calling keepalive() resets the internal timer."""
-        executor = PolicyExecutor(timeout_seconds=10.0)
+        executor = PolicyExecutor(timeout_seconds=10.0, recorder=NoOpTransactionRecorder())
 
         # Initial time_since_keepalive should be near zero
         initial_time = executor._time_since_keepalive()
@@ -45,7 +46,7 @@ class TestPolicyExecutor:
 
     def test_time_since_keepalive_increases(self):
         """time_since_keepalive() increases as time passes."""
-        executor = PolicyExecutor(timeout_seconds=10.0)
+        executor = PolicyExecutor(timeout_seconds=10.0, recorder=NoOpTransactionRecorder())
 
         time1 = executor._time_since_keepalive()
         time.sleep(0.1)
@@ -56,7 +57,7 @@ class TestPolicyExecutor:
 
     def test_multiple_keepalives(self):
         """Multiple keepalive calls each reset the timer."""
-        executor = PolicyExecutor(timeout_seconds=10.0)
+        executor = PolicyExecutor(timeout_seconds=10.0, recorder=NoOpTransactionRecorder())
 
         # First keepalive
         time.sleep(0.1)

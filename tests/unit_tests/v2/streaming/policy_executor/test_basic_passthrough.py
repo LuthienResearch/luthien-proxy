@@ -10,6 +10,7 @@ import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.v2.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.policies.noop_policy import NoOpPolicy
 from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
@@ -59,7 +60,7 @@ async def async_iter_from_list(items: list):
 @pytest.mark.asyncio
 async def test_basic_passthrough_single_chunk(noop_policy, policy_ctx, obs_ctx):
     """Test that a single chunk passes through unchanged."""
-    executor = PolicyExecutor()
+    executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     # Create input stream with one chunk
     chunk = create_model_response(content="Hello")
@@ -86,7 +87,7 @@ async def test_basic_passthrough_single_chunk(noop_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_basic_passthrough_multiple_chunks(noop_policy, policy_ctx, obs_ctx):
     """Test that multiple chunks pass through in order."""
-    executor = PolicyExecutor()
+    executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     # Create input stream with multiple chunks
     chunks = [
@@ -113,7 +114,7 @@ async def test_basic_passthrough_multiple_chunks(noop_policy, policy_ctx, obs_ct
 @pytest.mark.asyncio
 async def test_basic_passthrough_empty_stream(noop_policy, policy_ctx, obs_ctx):
     """Test that empty stream produces only None sentinel."""
-    executor = PolicyExecutor()
+    executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     input_stream = async_iter_from_list([])
     output_queue = asyncio.Queue()
@@ -129,7 +130,7 @@ async def test_basic_passthrough_empty_stream(noop_policy, policy_ctx, obs_ctx):
 @pytest.mark.asyncio
 async def test_basic_passthrough_preserves_chunk_data(noop_policy, policy_ctx, obs_ctx):
     """Test that chunk data is preserved exactly."""
-    executor = PolicyExecutor()
+    executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     # Create chunk with specific data
     original_chunk = create_model_response(content="Test content")
@@ -150,7 +151,7 @@ async def test_basic_passthrough_preserves_chunk_data(noop_policy, policy_ctx, o
 @pytest.mark.asyncio
 async def test_basic_passthrough_finish_reason(noop_policy, policy_ctx, obs_ctx):
     """Test that finish_reason is preserved."""
-    executor = PolicyExecutor()
+    executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     chunk = create_model_response(content="Done", finish_reason="stop")
     input_stream = async_iter_from_list([chunk])

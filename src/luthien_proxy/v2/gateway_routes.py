@@ -113,9 +113,9 @@ async def chat_completions(
         policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
 
         # Create pipeline dependencies
-        policy_executor = PolicyExecutor()
-        client_formatter = OpenAIClientFormatter(model_name=request_message.model)
         recorder = DefaultTransactionRecorder(observability=obs_ctx)
+        policy_executor = PolicyExecutor(recorder=recorder)
+        client_formatter = OpenAIClientFormatter(model_name=request_message.model)
 
         # Create orchestrator with injected dependencies
         orchestrator = PolicyOrchestrator(
@@ -127,6 +127,9 @@ async def chat_completions(
 
         # Process request through policy
         final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
+
+        # Record original and final request
+        await recorder.record_request(request_message, final_request)
 
         # Call backend LLM
         llm_client = LiteLLMClient()
@@ -149,6 +152,9 @@ async def chat_completions(
             # Non-streaming response
             response = await llm_client.complete(final_request)
             processed_response = await policy.process_full_response(response, policy_ctx)
+
+            # Record original and final response
+            await recorder.finalize_non_streaming(response, processed_response)
 
             return JSONResponse(
                 content=processed_response.model_dump(),
@@ -206,9 +212,9 @@ async def anthropic_messages(
         policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
 
         # Create pipeline dependencies
-        policy_executor = PolicyExecutor()
-        client_formatter = AnthropicClientFormatter(model_name=request_message.model)
         recorder = DefaultTransactionRecorder(observability=obs_ctx)
+        policy_executor = PolicyExecutor(recorder=recorder)
+        client_formatter = AnthropicClientFormatter(model_name=request_message.model)
 
         # Create orchestrator with injected dependencies
         orchestrator = PolicyOrchestrator(
@@ -220,6 +226,9 @@ async def anthropic_messages(
 
         # Process request through policy
         final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
+
+        # Record original and final request
+        await recorder.record_request(request_message, final_request)
 
         # Call backend LLM
         llm_client = LiteLLMClient()
@@ -242,6 +251,9 @@ async def anthropic_messages(
             # Non-streaming response
             openai_response = await llm_client.complete(final_request)
             processed_response = await policy.process_full_response(openai_response, policy_ctx)
+
+            # Record original and final response
+            await recorder.finalize_non_streaming(openai_response, processed_response)
 
             # Convert back to Anthropic format
             anthropic_response = openai_to_anthropic_response(processed_response)

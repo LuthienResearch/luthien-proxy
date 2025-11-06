@@ -57,9 +57,9 @@ def orchestrator(setup_tracing):
     from luthien_proxy.v2.streaming.policy_executor import PolicyExecutor
 
     policy = MockPolicy()
-    policy_executor = PolicyExecutor()
-    client_formatter = OpenAIClientFormatter(model_name="gpt-4")
     recorder = NoOpTransactionRecorder()
+    policy_executor = PolicyExecutor(recorder=recorder)
+    client_formatter = OpenAIClientFormatter(model_name="gpt-4")
 
     return PolicyOrchestrator(
         policy=policy,
