@@ -119,7 +119,6 @@ class PolicyOrchestrator:
 
         Raises:
             PolicyTimeoutError: If policy processing times out
-            QueueFullError: If any queue exceeds circuit breaker limit
             Exception: On pipeline errors (propagated from background tasks)
         """
         # Create typed queues that define pipeline contracts
@@ -190,10 +189,4 @@ class PolicyOrchestrator:
             yield event
 
 
-class QueueFullError(Exception):
-    """Raised when a pipeline queue exceeds circuit breaker limit."""
-
-    pass
-
-
-__all__ = ["PolicyOrchestrator", "QueueFullError"]
+__all__ = ["PolicyOrchestrator"]
