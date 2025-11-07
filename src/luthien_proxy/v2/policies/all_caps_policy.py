@@ -109,14 +109,15 @@ class AllCapsPolicy(PolicyProtocol):
             # Cast to Choices (non-streaming) since this is process_full_response
             choice = cast(Choices, choice)
             message = choice.message
-            if hasattr(message, "content") and message.content:
-                original = message.content
-                uppercased = original.upper()
+            if not message.content:
+                continue
+            original = message.content
+            uppercased = original.upper()
 
-                if uppercased != original:
-                    message.content = uppercased
-                    total_chars += len(original)
-                    modified_count += 1
+            if uppercased != original:
+                message.content = uppercased
+                total_chars += len(original)
+                modified_count += 1
 
         if total_chars > 0:
             # Emit event for observability (shows in activity monitor)
