@@ -307,11 +307,6 @@ class ToolCallJudgePolicy(PolicyProtocol):
 
         # Evaluate each tool call
         for tool_call in tool_calls:
-            # Use observability if available, otherwise skip evaluation
-            if context.observability is None:
-                logger.warning("No observability context available for tool call evaluation")
-                continue
-
             blocked_response = await self._evaluate_and_maybe_block(tool_call, context.observability)
             if blocked_response is not None:
                 # Tool call was blocked - return blocked response
