@@ -16,10 +16,11 @@ import pytest
 from litellm.types.utils import ChatCompletionMessageToolCall, Function, ModelResponse
 
 from luthien_proxy.v2.messages import Request
+from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.policies.simple_policy import SimplePolicy
 from luthien_proxy.v2.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 from luthien_proxy.v2.streaming.stream_state import StreamState
-from luthien_proxy.v2.streaming.streaming_response_context import StreamingResponseContext
+from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 if TYPE_CHECKING:
     pass
@@ -56,17 +57,28 @@ class ToolBlockerPolicy(SimplePolicy):
 def create_mock_context(
     just_completed=None,
     raw_chunks: list[ModelResponse] | None = None,
-) -> StreamingResponseContext:
-    """Create a mock StreamingResponseContext for testing."""
-    ctx = Mock(spec=StreamingResponseContext)
-    ctx.final_request = Request(
+) -> StreamingPolicyContext:
+    """Create a mock StreamingPolicyContext for testing."""
+    ctx = Mock(spec=StreamingPolicyContext)
+
+    # Create PolicyContext with request
+    ctx.policy_ctx = Mock(spec=PolicyContext)
+    ctx.policy_ctx.transaction_id = "test-transaction-id"
+    ctx.policy_ctx.request = Request(
         model="test-model",
         messages=[{"role": "user", "content": "test"}],
     )
-    ctx.ingress_state = StreamState()
-    ctx.ingress_state.just_completed = just_completed
-    ctx.ingress_state.raw_chunks = raw_chunks or []
+    ctx.policy_ctx.scratchpad = {}
+
+    # Create stream state (renamed from ingress_state)
+    ctx.original_streaming_response_state = StreamState()
+    ctx.original_streaming_response_state.just_completed = just_completed
+    ctx.original_streaming_response_state.raw_chunks = raw_chunks or []
+
+    # Egress queue and observability
     ctx.egress_queue = AsyncMock()
+    ctx.observability = Mock()
+
     return ctx
 
 
@@ -184,14 +196,16 @@ class TestSimplePolicyContentComplete:
         ctx.egress_queue.put.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_on_content_complete_with_none_just_completed_raises(self):
-        """Test that on_content_complete raises error when just_completed is None."""
+    async def test_on_content_complete_with_none_just_completed_logs_and_returns(self):
+        """Test that on_content_complete logs error and returns when just_completed is None."""
         policy = NoTransformPolicy()
         ctx = create_mock_context(just_completed=None)
 
-        # Call on_content_complete should raise RuntimeError
-        with pytest.raises(RuntimeError):
-            await policy.on_content_complete(ctx)
+        # Call on_content_complete - should log error and return (not raise)
+        await policy.on_content_complete(ctx)
+
+        # Verify nothing was emitted
+        ctx.egress_queue.put.assert_not_called()
 
 
 class TestSimplePolicyToolCallComplete:

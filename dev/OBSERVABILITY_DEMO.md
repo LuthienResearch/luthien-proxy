@@ -1,6 +1,12 @@
 # V2 Observability Demonstration Guide
 
+**When to use this guide:** You're new to the observability system and want a hands-on walkthrough of all features.
+
 This guide walks through testing the UppercaseNthWordPolicy and exploring all V2 observability features.
+
+**Other observability docs:**
+- Need to view a specific trace? See [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md)
+- Understanding the architecture? Read [observability-v2.md](observability-v2.md)
 
 ## Prerequisites
 

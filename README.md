@@ -162,7 +162,6 @@ Editor setup (VS Code)
 - Type checking: `uv run pyright` (configured in `[tool.pyright]` within `pyproject.toml`).
 - Tests: `uv run pytest -q` with coverage for `src/luthien_proxy/**` configured in `[tool.pytest.ini_options]`.
 - Config consolidation: Ruff, Pytest, and Pyright live in `pyproject.toml` to avoid extra files.
-- Plan: see `dev/maintainability_plan.md` for the staged rollout (typing, docs, tests, complexity).
 
 ## Architecture
 
@@ -192,10 +191,11 @@ The V2 architecture integrates everything into a single FastAPI application:
 
 **Documentation**:
 
-- Architecture principles: [`dev/ARCHITECTURE.md`](dev/ARCHITECTURE.md)
-- Event-driven policies: [`dev/event_driven_policy_guide.md`](dev/event_driven_policy_guide.md)
-- Observability: [`dev/observability-v2.md`](dev/observability-v2.md)
-- Viewing traces: [`dev/VIEWING_TRACES_GUIDE.md`](dev/VIEWING_TRACES_GUIDE.md)
+- **Start here**: [Development docs index](dev/README.md) - Guide to all documentation
+- Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
+- Observability: [dev/observability-v2.md](dev/observability-v2.md) - Tracing and monitoring
+- Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](dev/VIEWING_TRACES_GUIDE.md) - Using Grafana/Tempo
+- Context files: [dev/context/](dev/context/) - Architectural patterns, decisions, and gotchas
 
 ## Endpoints
 

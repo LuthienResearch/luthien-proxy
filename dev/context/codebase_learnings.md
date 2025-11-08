@@ -60,6 +60,58 @@ def v2_gateway():
         yield manager
 ```
 
+## Streaming Pipeline Architecture (2025-11-05)
+
+**Two-stage queue-based pipeline** with dependency injection and explicit data flow.
+
+### Architecture
+
+```
+Backend LLM (via LiteLLM)
+         ↓
+AsyncIterator[ModelResponse] ← LiteLLM provides common format
+         ↓
+    PolicyExecutor (stage 1)
+    - Block assembly (StreamingChunkAssembler)
+    - Policy hook invocation
+    - Timeout + keepalive monitoring
+         ↓
+policy_out_queue: Queue[ModelResponse]
+         ↓
+   ClientFormatter (stage 2)
+    - OpenAI or Anthropic SSE conversion
+         ↓
+sse_queue: Queue[str]
+         ↓
+    Gateway yields to client
+```
+
+### Key Design Principles
+
+1. **No Ingress Formatting**: LiteLLM already normalizes backend responses to ModelResponse format
+2. **Dependency Injection**: Gateway instantiates PolicyExecutor and ClientFormatter, injects into PolicyOrchestrator
+3. **Explicit Queues**: Typed queues (`Queue[ModelResponse]`, `Queue[str]`) define clear data contracts
+4. **Context Threading**: `ObservabilityContext` and `PolicyContext` created at gateway, passed through entire lifecycle
+5. **Bounded Queues**: maxsize=10000 with 30s timeout on put() operations (circuit breaker)
+6. **Separation of Concerns**: Keepalive in PolicyExecutor (not PolicyContext), policies are stateless hooks
+
+### Why This Architecture
+
+**Simplified from original 3-stage plan**: Discovered LiteLLM provides ModelResponse, eliminating need for CommonFormatter stage.
+
+**Benefits**:
+- Clear data flow visible in code structure
+- Type safety at queue boundaries
+- Easy to test each stage in isolation
+- Recording at boundaries via TransactionRecorder
+- ~200 lines of unnecessary code eliminated
+
+**Files**:
+- `orchestration/policy_orchestrator.py` - orchestration (~30 lines)
+- `streaming/policy_executor/` - block assembly + policy hooks (55 tests)
+- `streaming/client_formatter/` - SSE conversion (12 tests)
+- `policies/policy_context.py` - per-request state (transaction_id + scratchpad)
+
 ---
 
 (Add learnings as discovered during development with timestamps: YYYY-MM-DD)

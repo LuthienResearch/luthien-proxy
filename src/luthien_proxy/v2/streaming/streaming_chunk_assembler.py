@@ -5,16 +5,19 @@ ABOUTME: Parses chunks, detects block transitions, and calls policy callbacks.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, cast
 
-from litellm.types.utils import ModelResponse, StreamingChoices
+from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
 from luthien_proxy.v2.streaming.stream_blocks import (
     ContentStreamBlock,
     ToolCallStreamBlock,
 )
 from luthien_proxy.v2.streaming.stream_state import StreamState
+
+logger = logging.getLogger(__name__)
 
 
 class StreamingChunkAssembler:
@@ -59,6 +62,9 @@ class StreamingChunkAssembler:
             context: Streaming context passed to policy callback
         """
         async for chunk in incoming:
+            # DEBUG: Log raw chunk from backend
+            logger.debug(f"[BACKEND IN] {str(chunk)[:300]}")  # Truncate for readability
+
             # Store raw chunk for recording
             self.state.raw_chunks.append(chunk)
 
@@ -99,15 +105,11 @@ class StreamingChunkAssembler:
 
         choice = chunk.choices[0]
         choice = cast(StreamingChoices, choice)
-        delta = choice.delta
+        delta: Delta = choice.delta
         finish_reason = choice.finish_reason
 
         # Extract content from delta (handle both dict and Delta object)
-        content = None
-        if isinstance(delta, dict):
-            content = delta.get("content")
-        elif hasattr(delta, "content"):
-            content = delta.content  # type: ignore[union-attr]
+        content = delta.content
 
         # Process content
         # Note: content can be: actual text, empty string "", or null
@@ -116,11 +118,7 @@ class StreamingChunkAssembler:
             self._process_content_delta(content)
 
         # Extract tool_calls from delta (handle both dict and Delta object)
-        tool_calls = None
-        if isinstance(delta, dict):
-            tool_calls = delta.get("tool_calls")
-        elif hasattr(delta, "tool_calls"):
-            tool_calls = delta.tool_calls  # type: ignore[union-attr]
+        tool_calls = delta.tool_calls
 
         # Process tool calls
         if tool_calls:
@@ -243,12 +241,10 @@ class StreamingChunkAssembler:
             return chunk
 
         delta = choices[0].delta
-        if not isinstance(delta, dict):
-            return chunk
 
-        # Remove empty content field by modifying the delta dict in-place
-        if delta.get("content") == "":
-            del delta["content"]
+        # Set content to None if it's empty string (for Delta objects)
+        if delta.content == "":
+            delta.content = None
 
         return chunk
 

@@ -15,12 +15,6 @@ from luthien_proxy.v2.observability.context import (
 class TestNoOpObservabilityContext:
     """Test that NoOpObservabilityContext implements all interface methods as no-ops."""
 
-    def test_transaction_id(self):
-        """Transaction ID property returns the provided ID."""
-        span = Mock(spec=Span)
-        ctx = NoOpObservabilityContext("test-txn-123", span)
-        assert ctx.transaction_id == "test-txn-123"
-
     @pytest.mark.asyncio
     async def test_emit_event_does_nothing(self):
         """emit_event does nothing and doesn't raise."""
@@ -53,12 +47,6 @@ class TestNoOpObservabilityContext:
 
 class TestDefaultObservabilityContext:
     """Test DefaultObservabilityContext enrichment and delegation."""
-
-    def test_transaction_id(self):
-        """Transaction ID property returns the provided ID."""
-        span = Mock(spec=Span)
-        ctx = DefaultObservabilityContext("test-txn-456", span)
-        assert ctx.transaction_id == "test-txn-456"
 
     @pytest.mark.asyncio
     async def test_emit_event_enriches_data(self):

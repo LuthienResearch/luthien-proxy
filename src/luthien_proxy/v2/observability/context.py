@@ -21,25 +21,6 @@ class ObservabilityContext(ABC):
     """Unified interface for observability operations."""
 
     @abstractmethod
-    def __init__(
-        self,
-        transaction_id: str,
-        span: Span,
-        db_pool: "DatabasePool | None" = None,
-        event_publisher: "RedisEventPublisher | None" = None,
-    ):
-        """Initialize observability context.
-
-        All subclasses must accept these parameters to ensure compatibility
-        with PolicyOrchestrator's class-based instantiation.
-        """
-
-    @property
-    @abstractmethod
-    def transaction_id(self) -> str:
-        """Transaction ID for this context."""
-
-    @abstractmethod
     async def emit_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Emit event with automatic context enrichment."""
 
@@ -74,19 +55,9 @@ class ObservabilityContext(ABC):
 class NoOpObservabilityContext(ObservabilityContext):
     """No-op implementation for testing."""
 
-    def __init__(  # noqa: D107
-        self,
-        transaction_id: str,
-        span: Span,  # noqa: ARG002
-        db_pool: "DatabasePool | None" = None,  # noqa: ARG002
-        event_publisher: "RedisEventPublisher | None" = None,  # noqa: ARG002
-    ):
-        self._transaction_id = transaction_id
+    def __init__(self, *args, **kwargs):
+        """Initialize NoOpObservabilityContext."""
         # Span, db_pool, and event_publisher are accepted for signature compatibility but unused
-
-    @property
-    def transaction_id(self) -> str:  # noqa: D102
-        return self._transaction_id
 
     async def emit_event(self, event_type: str, data: dict[str, Any]) -> None:  # noqa: D102
         pass
@@ -115,10 +86,6 @@ class DefaultObservabilityContext(ObservabilityContext):
         self.span = span
         self.db_pool = db_pool
         self.event_publisher = event_publisher
-
-    @property
-    def transaction_id(self) -> str:  # noqa: D102
-        return self._transaction_id
 
     async def emit_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Emit to DB, Redis, and OTel span."""

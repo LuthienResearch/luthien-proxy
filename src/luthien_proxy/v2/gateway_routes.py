@@ -6,10 +6,8 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import uuid
-from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -18,7 +16,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from opentelemetry import trace
 
 from luthien_proxy.utils import db
-from luthien_proxy.v2.llm.anthropic_sse_assembler import AnthropicSSEAssembler
 from luthien_proxy.v2.llm.litellm_client import LiteLLMClient
 from luthien_proxy.v2.llm.llm_format_utils import (
     anthropic_to_openai_request,
@@ -31,7 +28,13 @@ from luthien_proxy.v2.observability.transaction_recorder import (
     DefaultTransactionRecorder,
 )
 from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
-from luthien_proxy.v2.policies.simple_policy import SimplePolicy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
+from luthien_proxy.v2.policies.policy_context import PolicyContext
+from luthien_proxy.v2.streaming.client_formatter.anthropic import (
+    AnthropicClientFormatter,
+)
+from luthien_proxy.v2.streaming.client_formatter.openai import OpenAIClientFormatter
+from luthien_proxy.v2.streaming.policy_executor.executor import PolicyExecutor
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -63,83 +66,6 @@ def hash_api_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
-# === STREAMING HELPER FOR OPENAI FORMAT ===
-async def stream_openai_sse(
-    orchestrator,
-    request: RequestMessage,
-    call_id: str,
-    span,
-) -> AsyncIterator[str]:
-    """Stream chunks in OpenAI SSE format."""
-    try:
-        async for chunk in orchestrator.process_streaming_response(request, call_id, span):
-            if hasattr(chunk, "model_dump_json"):
-                sse_line = f"data: {chunk.model_dump_json()}\n\n"
-                yield sse_line
-            else:
-                logger.error(f"[{call_id}] Unknown chunk type: {type(chunk)}")
-                yield f"data: {json.dumps({'error': 'Unknown chunk type'})}\n\n"
-
-        logger.info(f"[{call_id}] Stream complete")
-
-    except Exception as exc:
-        logger.error(f"[{call_id}] Streaming error: {exc}", exc_info=True)
-        error_data = {"error": str(exc), "type": type(exc).__name__}
-        yield f"data: {json.dumps(error_data)}\n\n"
-
-
-# === STREAMING HELPER FOR ANTHROPIC FORMAT ===
-async def stream_anthropic_sse(
-    orchestrator,
-    request: RequestMessage,
-    call_id: str,
-    span,
-    model_name: str,
-) -> AsyncIterator[str]:
-    """Stream chunks in Anthropic SSE format."""
-    message_started = False
-    tracker = AnthropicSSEAssembler()
-
-    try:
-        async for chunk in orchestrator.process_streaming_response(request, call_id, span):
-            # Send message_start before first chunk
-            if not message_started:
-                message_started = True
-                message_start = {
-                    "type": "message_start",
-                    "message": {
-                        "id": f"msg_{call_id}",
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [],
-                        "model": model_name,
-                        "stop_reason": None,
-                        "stop_sequence": None,
-                        "usage": {"input_tokens": 0, "output_tokens": 0},
-                    },
-                }
-                yield f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
-
-            # Convert chunk to Anthropic events using stateful tracker
-            events = tracker.process_chunk(chunk)
-
-            # Emit all events
-            for event in events:
-                event_type = event.get("type", "content_block_delta")
-                yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
-
-        # Send message_stop at end
-        message_stop = {"type": "message_stop"}
-        yield f"event: message_stop\ndata: {json.dumps(message_stop)}\n\n"
-
-        logger.info(f"[{call_id}] Anthropic stream complete")
-
-    except Exception as exc:
-        logger.error(f"[{call_id}] Anthropic streaming error: {exc}", exc_info=True)
-        error_data = {"error": str(exc), "type": type(exc).__name__}
-        yield f"data: {json.dumps(error_data)}\n\n"
-
-
 # === ROUTES ===
 
 
@@ -155,7 +81,9 @@ async def chat_completions(
     # Get dependencies from app state
     db_pool: db.DatabasePool | None = getattr(request.app.state, "db_pool", None)
     event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
-    policy = getattr(request.app.state, "policy", SimplePolicy())
+    if not hasattr(request.app.state, "policy"):
+        raise HTTPException(status_code=500, detail="Policy not configured in application state")
+    policy: PolicyProtocol = request.app.state.policy
 
     # Create request message
     request_message = RequestMessage(**body)
@@ -173,30 +101,45 @@ async def chat_completions(
             "luthien.stream": is_streaming,
         },
     ) as span:
-        # Create observability and recorder once per request
-        observability = DefaultObservabilityContext(
+        # Create observability context
+        obs_ctx = DefaultObservabilityContext(
             transaction_id=call_id,
             span=span,
             db_pool=db_pool,
             event_publisher=event_publisher,
         )
-        recorder = DefaultTransactionRecorder(observability=observability)
 
-        # Create LLM client and orchestrator
-        llm_client = LiteLLMClient()
+        # Create policy context (shared across request/response)
+        policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
+
+        # Create pipeline dependencies
+        recorder = DefaultTransactionRecorder(observability=obs_ctx)
+        policy_executor = PolicyExecutor(recorder=recorder)
+        client_formatter = OpenAIClientFormatter(model_name=request_message.model)
+
+        # Create orchestrator with injected dependencies
         orchestrator = PolicyOrchestrator(
             policy=policy,
-            llm_client=llm_client,
-            observability=observability,
-            recorder=recorder,
+            policy_executor=policy_executor,
+            client_formatter=client_formatter,
+            transaction_recorder=recorder,
         )
+
         # Process request through policy
-        final_request = await orchestrator.process_request(request_message, call_id, span)
+        final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
+
+        # Record original and final request
+
+        # Call backend LLM
+        llm_client = LiteLLMClient()
 
         if is_streaming:
+            # Get backend stream and process through pipeline
+            backend_stream = await llm_client.stream(final_request)
+
             # Streaming response
             return FastAPIStreamingResponse(
-                stream_openai_sse(orchestrator, final_request, call_id, span),
+                orchestrator.process_streaming_response(backend_stream, policy_ctx, obs_ctx),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -206,9 +149,11 @@ async def chat_completions(
             )
         else:
             # Non-streaming response
-            response = await orchestrator.process_full_response(final_request, call_id, span)
+            response = await llm_client.complete(final_request)
+            processed_response = await orchestrator.process_full_response(response, policy_ctx)
+
             return JSONResponse(
-                content=response.model_dump(),
+                content=processed_response.model_dump(),
                 headers={"X-Call-ID": call_id},
             )
 
@@ -225,7 +170,9 @@ async def anthropic_messages(
     # Get dependencies from app state
     db_pool: db.DatabasePool | None = getattr(request.app.state, "db_pool", None)
     event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
-    policy = getattr(request.app.state, "policy", SimplePolicy())
+    if not hasattr(request.app.state, "policy"):
+        raise HTTPException(status_code=500, detail="Policy not configured in application state")
+    policy: PolicyProtocol = request.app.state.policy
 
     # Convert Anthropic request to OpenAI format
     logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
@@ -234,7 +181,6 @@ async def anthropic_messages(
     # Create request message
     request_message = RequestMessage(**openai_body)
     is_streaming = request_message.stream
-    model_name = anthropic_body.get("model", "unknown")
 
     logger.info(
         f"[{call_id}] /v1/messages: Converted to OpenAI format, model={request_message.model}, stream={is_streaming}"
@@ -250,30 +196,43 @@ async def anthropic_messages(
             "luthien.stream": is_streaming,
         },
     ) as span:
-        # Create observability and recorder once per request
-        observability = DefaultObservabilityContext(
+        # Create observability context
+        obs_ctx = DefaultObservabilityContext(
             transaction_id=call_id,
             span=span,
             db_pool=db_pool,
             event_publisher=event_publisher,
         )
-        recorder = DefaultTransactionRecorder(observability=observability)
 
-        # Create LLM client and orchestrator
-        llm_client = LiteLLMClient()
+        # Create policy context (shared across request/response)
+        policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
+
+        # Create pipeline dependencies
+        recorder = DefaultTransactionRecorder(observability=obs_ctx)
+        policy_executor = PolicyExecutor(recorder=recorder)
+        client_formatter = AnthropicClientFormatter(model_name=request_message.model)
+
+        # Create orchestrator with injected dependencies
         orchestrator = PolicyOrchestrator(
             policy=policy,
-            llm_client=llm_client,
-            observability=observability,
-            recorder=recorder,
+            policy_executor=policy_executor,
+            client_formatter=client_formatter,
+            transaction_recorder=recorder,
         )
+
         # Process request through policy
-        final_request = await orchestrator.process_request(request_message, call_id, span)
+        final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
+
+        # Call backend LLM
+        llm_client = LiteLLMClient()
 
         if is_streaming:
+            # Get backend stream and process through pipeline
+            backend_stream = await llm_client.stream(final_request)
+
             # Streaming response in Anthropic format
             return FastAPIStreamingResponse(
-                stream_anthropic_sse(orchestrator, final_request, call_id, span, model_name),
+                orchestrator.process_streaming_response(backend_stream, policy_ctx, obs_ctx),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -283,10 +242,11 @@ async def anthropic_messages(
             )
         else:
             # Non-streaming response
-            openai_response = await orchestrator.process_full_response(final_request, call_id, span)
+            openai_response = await llm_client.complete(final_request)
+            processed_response = await orchestrator.process_full_response(openai_response, policy_ctx)
 
             # Convert back to Anthropic format
-            anthropic_response = openai_to_anthropic_response(openai_response)
+            anthropic_response = openai_to_anthropic_response(processed_response)
             return JSONResponse(
                 content=anthropic_response,
                 headers={"X-Call-ID": call_id},

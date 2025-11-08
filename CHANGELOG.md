@@ -2,6 +2,19 @@
 
 ## DEVELOPMENT | TBA
 
+- Refactor streaming pipeline to explicit queue-based architecture (`streaming-pipeline-refactor`)
+  - Simplified `PolicyOrchestrator.process_streaming_response` to clear 2-stage pipeline
+  - PolicyExecutor: Block assembly + policy hooks with background timeout enforcement
+  - **TimeoutMonitor**: Dedicated class for keepalive-based timeout tracking (100ms check interval)
+    - Detects stalled streams when no chunks arrive within configured threshold
+    - Raises `PolicyTimeoutError` with timing details for debugging
+    - Automatic keepalive reset on each chunk processed
+  - ClientFormatter: Model responses to client-specific SSE format (OpenAI/Anthropic)
+  - Explicit typed queues (`Queue[ModelResponse]`, `Queue[str]`) define data contracts
+  - Dependency injection pattern for policy execution and client formatting
+  - Comprehensive unit tests (32 policy executor tests including 8 timeout enforcement tests, 12 formatter tests)
+  - Transaction recording infrastructure at pipeline boundaries
+
 - Add `SimpleEventBasedPolicy` for beginner-friendly policy authoring (buffers streaming into complete blocks)
   - Example policies: `SimpleUppercasePolicy`, `SimpleToolFilterPolicy`, `SimpleStringReplacementPolicy`
   - Comprehensive unit and e2e test coverage

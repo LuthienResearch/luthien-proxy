@@ -23,17 +23,19 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse, StreamingChoices
 
-    from luthien_proxy.v2.policies.policy import PolicyContext
-    from luthien_proxy.v2.streaming.streaming_response_context import StreamingResponseContext
+    from luthien_proxy.v2.policies.policy_context import PolicyContext
+    from luthien_proxy.v2.streaming.streaming_policy_context import (
+        StreamingPolicyContext,
+    )
 
 from litellm.types.utils import Choices
 
-from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 
 logger = logging.getLogger(__name__)
 
 
-class AllCapsPolicy(Policy):
+class AllCapsPolicy(PolicyProtocol):
     """Policy that converts all response content to uppercase.
 
     This is a simple example policy that demonstrates basic content transformation.
@@ -45,16 +47,16 @@ class AllCapsPolicy(Policy):
         self._total_chars_converted = 0
         logger.info("AllCapsPolicy initialized")
 
-    async def on_content_delta(self, ctx: StreamingResponseContext) -> None:
+    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
         """Convert content delta to uppercase.
 
         Args:
-            ctx: Streaming response context with current chunk
+            ctx: Streaming policy context with current chunk
         """
         # Get current content delta from most recent chunk
-        if not ctx.ingress_state.raw_chunks:
+        if not ctx.original_streaming_response_state.raw_chunks:
             return
-        current_chunk = ctx.ingress_state.raw_chunks[-1]
+        current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
         if not current_chunk.choices:
             return
 
@@ -86,7 +88,7 @@ class AllCapsPolicy(Policy):
 
                 logger.debug(f"Converted content delta to uppercase: {chars_converted} chars")
 
-    async def process_full_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
         """Convert non-streaming response content to uppercase.
 
         Args:
@@ -107,14 +109,15 @@ class AllCapsPolicy(Policy):
             # Cast to Choices (non-streaming) since this is process_full_response
             choice = cast(Choices, choice)
             message = choice.message
-            if hasattr(message, "content") and message.content:
-                original = message.content
-                uppercased = original.upper()
+            if not message.content:
+                continue
+            original = message.content
+            uppercased = original.upper()
 
-                if uppercased != original:
-                    message.content = uppercased
-                    total_chars += len(original)
-                    modified_count += 1
+            if uppercased != original:
+                message.content = uppercased
+                total_chars += len(original)
+                modified_count += 1
 
         if total_chars > 0:
             # Emit event for observability (shows in activity monitor)

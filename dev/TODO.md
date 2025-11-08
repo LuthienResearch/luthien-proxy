@@ -1,15 +1,24 @@
 # TODO
 
-Items sourced from PR #46 reviews link back to originating comments for context.
-
 ## High Priority
 
+- [ ] **Verify UI monitoring endpoints functionality** - Check which UI endpoints are working and refactor as needed:
+  - Test `/v2/debug/diff` - diff viewer with side-by-side comparisons
+  - Test `/v2/activity/monitor` - real-time activity stream
+  - Test `/v2/debug/calls/{call_id}/diff` - API endpoint for diffs
+  - Test `/v2/debug/calls` - recent calls listing
+  - Test `/v2/activity/stream` - SSE endpoint
+  - Verify transaction recorder is storing both original and final requests/responses
+  - Check if debug routes are properly mounted in main.py
+  - Refactor/fix any broken endpoints
+- [ ] **Factor out common gateway route logic** - `/v1/chat/completions` and `/v1/messages` endpoints have significant duplication:
+  - Both create the same pipeline dependencies (recorder, executor, formatter, orchestrator)
+  - Both call `process_request()` and `record_request()` identically
+  - Both handle streaming/non-streaming with identical patterns
+  - Consider extracting a `_process_gateway_request()` helper function
+  - Would reduce code duplication from ~90 lines each to ~20 lines each
+  - Main differences are: request format conversion (Anthropic→OpenAI) and response format conversion (OpenAI→Anthropic)
 - [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files:
-  - Support policy override via request header (e.g., `X-Luthien-Policy: noop` or `X-Luthien-Policy: simple`)
-  - Or environment variable override (e.g., `LUTHIEN_TEST_POLICY=noop`)
-  - Or CLI flag for test runner (e.g., `pytest --policy=noop`)
-  - Document testing patterns for different policies
-  - Consider test fixtures that automatically swap policies
 - [ ] **Policy API: Prevent common streaming mistakes** - Make it easier for policy writers to avoid streaming bugs:
   - Consider base class that auto-forwards chunks by default (opt-in buffering instead of opt-in forwarding)
   - Provide better helper functions for common patterns (send_content, send_blocked_message, etc.)
@@ -19,41 +28,25 @@ Items sourced from PR #46 reviews link back to originating comments for context.
   - Pretty-print JSON tool arguments
   - Add proper line breaks in explanations
   - Consider terminal/web formatting differences
-- [ ] **Review and document streaming infrastructure** - Comprehensive review of all streaming-related code for clarity and correctness:
-  - **ToolCallJudgePolicy**: Flow from on_tool_call_delta → buffering → on_tool_call_complete → judging → blocking/allowing
-  - **AnthropicSSEAssembler**: Conversion from OpenAI chunks to Anthropic SSE events, content block lifecycle
-  - **StreamingChunkAssembler**: Chunk aggregation, block detection, state transitions
-  - **StreamingOrchestrator**: Queue management, timeout handling, task coordination
-  - **PolicyOrchestrator**: Integration between policy hooks and streaming pipeline
-  - **Utils (create_text_chunk, create_tool_call_chunk)**: Ensure correct types throughout
-  - Add diagrams or detailed comments explaining state machines and event flows
-  - Document edge cases (incomplete tool calls, judge failures, timeout handling, etc.)
-  - Ensure all helper methods have clear docstrings
-  - Review and expand test coverage for all streaming components
 - [ ] Add security documentation for dynamic policy loading mechanism (V2_POLICY_CONFIG) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
 - [ ] Verify all environment variables are documented in README and .env.example ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
-- [ ] Add max buffer size for chunk storage (synchronous_control_plane.py:220 - unbounded growth) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Review and test graceful shutdown behavior (ensure event publisher tasks complete) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add input validation: max request size and message count limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Move "v2" code out of v2/
-- [ ] Add unit tests for all new pipeline code
 - [ ] Consolidate/organize utility/helper functions (see policies/utils.py)
-- [ ] move `litellm.drop_params = True` somewhere sensible
 - [ ] thinking and verbosity model flags not respected
 - [ ] write SimpleToolCallJudge policy for pedagogical purposes
 - [ ] improve docstrings for SimplePolicy
 
 ## Medium Priority
 
+- [ ] **Audit all tests for unjustified conditional logic** - Review all test files (unit, integration, e2e) and remove conditional logic that checks for optional behavior. Tests should assert expected behavior, not conditionally validate. Exceptions: helper functions for parsing, format validation logic, legitimate expected variance in responses. Reference: test_streaming_chunk_structure.py cleanup as example.
 - [ ] remove unnecessary string-matching test conditions (e.g. matching exception messages)
 - [ ] call_id -> transaction_id
 - [ ] Revisit ignored pyright issues
-- [ ] Sort out PolicyContext/StreamingResponseContext
 - [ ] Make filtering on the activity monitor easier and more intuitive
 - [ ] Add rate limiting middleware (slowapi or custom FastAPI middleware) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Implement circuit breaker for upstream calls ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add Prometheus metrics endpoint ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Make streaming timeout configurable (currently hardcoded 30s) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Implement proper task tracking for event publisher (replace fire-and-forget) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add integration tests for error recovery paths ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Factor out env var logic into centralized config
@@ -63,6 +56,12 @@ Items sourced from PR #46 reviews link back to originating comments for context.
 
 ## Low Priority / Future Work
 
+- [ ] **Review and test observability functionality** - Verify observability stack is working correctly:
+  - Test trace collection and visualization in Grafana
+  - Verify activity monitor is receiving events
+  - Check diff viewer functionality
+  - Validate log-trace correlation
+  - Consider consolidating the three observability docs (OBSERVABILITY_DEMO, VIEWING_TRACES_GUIDE, observability-v2) if there's significant overlap
 - [ ] 99% unit test coverage (currently 81%, focus on critical paths first) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add config schema validation (Pydantic model for v2_config.yaml) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add request/response size limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))

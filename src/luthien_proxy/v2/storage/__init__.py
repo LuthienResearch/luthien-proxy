@@ -8,8 +8,6 @@ to the conversation_events database table.
 """
 
 from .events import (
-    emit_request_event,
-    emit_response_event,
     reconstruct_full_response_from_chunks,
 )
 from .persistence import (
@@ -22,8 +20,6 @@ from .persistence import (
 
 __all__ = [
     # Event emission (high-level API)
-    "emit_request_event",
-    "emit_response_event",
     "reconstruct_full_response_from_chunks",
     # Low-level persistence API
     "ConversationEvent",

@@ -1,6 +1,12 @@
 # How to View OpenTelemetry Traces and Logs
 
+**When to use this guide:** You have a specific `call_id` or trace you want to inspect in Grafana/Tempo.
+
 **Quick Guide:** See traces and logs from proxy activity in Grafana
+
+**Other observability docs:**
+- New to observability? Start with [OBSERVABILITY_DEMO.md](OBSERVABILITY_DEMO.md)
+- Understanding the system? Read [observability-v2.md](observability-v2.md)
 
 ---
 

@@ -9,6 +9,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+import litellm
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -19,7 +20,7 @@ from luthien_proxy.v2.config import load_policy_from_yaml
 from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.gateway_routes import router as gateway_router
 from luthien_proxy.v2.observability import RedisEventPublisher
-from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.telemetry import setup_telemetry
 from luthien_proxy.v2.ui import router as ui_router
 
@@ -30,7 +31,7 @@ def create_app(
     api_key: str,
     database_url: str,
     redis_url: str,
-    policy: Policy,
+    policy: PolicyProtocol,
 ) -> FastAPI:
     """Create V2 FastAPI application with dependency injection.
 
@@ -49,6 +50,10 @@ def create_app(
         """Manage application lifespan: startup and shutdown."""
         # Startup
         logger.info("Starting Luthien V2 Gateway...")
+
+        # Configure litellm globally (moved from policy file to prevent import side effects)
+        litellm.drop_params = True
+        logger.info("Configured litellm: drop_params=True")
 
         # Initialize OpenTelemetry
         setup_telemetry(app)
@@ -166,4 +171,4 @@ if __name__ == "__main__":
         policy=policy_handler,
     )
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug")

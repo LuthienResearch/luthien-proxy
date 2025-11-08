@@ -21,11 +21,12 @@ from litellm.types.utils import (
 )
 
 from luthien_proxy.v2.messages import Request
+from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.policies.tool_call_judge_policy import ToolCallJudgePolicy
 from luthien_proxy.v2.policies.utils import create_text_chunk
 from luthien_proxy.v2.streaming.stream_blocks import ToolCallStreamBlock
 from luthien_proxy.v2.streaming.stream_state import StreamState
-from luthien_proxy.v2.streaming.streaming_response_context import StreamingResponseContext
+from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 if TYPE_CHECKING:
     pass
@@ -35,20 +36,32 @@ def create_mock_context(
     transaction_id: str = "test-call-id",
     just_completed=None,
     raw_chunks: list[ModelResponse] | None = None,
-) -> StreamingResponseContext:
-    """Create a mock StreamingResponseContext for testing."""
-    ctx = Mock(spec=StreamingResponseContext)
-    ctx.transaction_id = transaction_id
-    ctx.final_request = Request(
+) -> StreamingPolicyContext:
+    """Create a mock StreamingPolicyContext for testing."""
+    ctx = Mock(spec=StreamingPolicyContext)
+
+    # Create PolicyContext
+    ctx.policy_ctx = Mock(spec=PolicyContext)
+    ctx.policy_ctx.transaction_id = transaction_id
+    ctx.policy_ctx.request = Request(
         model="test-model",
         messages=[{"role": "user", "content": "test"}],
     )
-    ctx.ingress_state = StreamState()
-    ctx.ingress_state.just_completed = just_completed
-    ctx.ingress_state.raw_chunks = raw_chunks or []
-    ctx.egress_queue = AsyncMock()
+    ctx.policy_ctx.scratchpad = {}
+
+    # Create stream state
+    ctx.original_streaming_response_state = StreamState()
+    ctx.original_streaming_response_state.just_completed = just_completed
+    ctx.original_streaming_response_state.raw_chunks = raw_chunks or []
+
+    # Egress queue and observability
+    # Use Mock (not AsyncMock) because put_nowait is sync, but make put async
+    ctx.egress_queue = Mock()
+    ctx.egress_queue.put_nowait = Mock()
+    ctx.egress_queue.put = AsyncMock()
     ctx.observability = Mock()
     ctx.observability.emit_event_nonblocking = Mock()
+
     return ctx
 
 
@@ -162,7 +175,7 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
                 )
             ],
         )
-        ctx.ingress_state.raw_chunks = [tool_call_chunk]
+        ctx.original_streaming_response_state.raw_chunks = [tool_call_chunk]
         await policy.on_tool_call_delta(ctx)
 
         # Now create a completed tool call block
@@ -173,7 +186,7 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
             arguments='{"confirm": true}',
         )
         block.is_complete = True
-        ctx.ingress_state.just_completed = block
+        ctx.original_streaming_response_state.just_completed = block
 
         # Mock the judge to always return high probability (block)
         async def mock_call_judge(name, arguments):
@@ -253,7 +266,7 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
             arguments='{"ok": true}',
         )
         block.is_complete = True
-        ctx.ingress_state.just_completed = block
+        ctx.original_streaming_response_state.just_completed = block
 
         # Mock judge to allow
         async def mock_evaluate(tool_call, obs_ctx):
@@ -338,7 +351,7 @@ class TestToolCallJudgePolicyToolCallBuffering:
 
         # Process chunks
         for chunk in [chunk1, chunk2, chunk3]:
-            ctx.ingress_state.raw_chunks = [chunk]
+            ctx.original_streaming_response_state.raw_chunks = [chunk]
             await policy.on_tool_call_delta(ctx)
 
         # Verify buffered data

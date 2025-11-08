@@ -31,16 +31,15 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, cast
 
-import litellm
 from litellm import acompletion
-from litellm.types.utils import Choices, ModelResponse, StreamingChoices
+from litellm.types.utils import Choices, Message, ModelResponse, StreamingChoices
 
 if TYPE_CHECKING:
     from luthien_proxy.v2.observability.context import ObservabilityContext
-    from luthien_proxy.v2.policies.policy import PolicyContext
-    from luthien_proxy.v2.streaming.streaming_response_context import StreamingResponseContext
+    from luthien_proxy.v2.policies.policy_context import PolicyContext
+    from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
-from luthien_proxy.v2.policies.policy import Policy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.policies.utils import (
     JudgeConfig,
     JudgeResult,
@@ -51,13 +50,8 @@ from luthien_proxy.v2.policies.utils import (
 
 logger = logging.getLogger(__name__)
 
-# Enable dropping unsupported parameters to avoid errors with different models
-# TODO: MOVE THIS SOMEWHERE ELSE!
-# IT SHOULDN'T BE SET GLOBALLY IN A POLICY FILE. WTF.
-litellm.drop_params = True
 
-
-class ToolCallJudgePolicy(Policy):
+class ToolCallJudgePolicy(PolicyProtocol):
     """Policy that evaluates tool calls with a judge LLM and blocks harmful ones.
 
     This policy demonstrates buffering, external LLM calls, and content replacement.
@@ -143,14 +137,14 @@ class ToolCallJudgePolicy(Policy):
             f"api_base={self._config.api_base}"
         )
 
-    async def on_content_delta(self, ctx: StreamingResponseContext) -> None:
+    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
         """Forward content deltas as-is.
 
         Args:
             ctx: Streaming response context with current chunk
         """
         try:
-            current_chunk = ctx.ingress_state.raw_chunks[-1]
+            current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
             ctx.egress_queue.put_nowait(current_chunk)
         except IndexError:
             ctx.observability.emit_event_nonblocking(
@@ -160,15 +154,15 @@ class ToolCallJudgePolicy(Policy):
         except Exception as exc:
             logger.error(f"Error forwarding content delta: {exc}", exc_info=True)
 
-    async def on_tool_call_delta(self, ctx: StreamingResponseContext) -> None:
+    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
         """Buffer tool call deltas instead of forwarding them.
 
         Args:
             ctx: Streaming response context with current chunk
         """
-        if not ctx.ingress_state.raw_chunks:
+        if not ctx.original_streaming_response_state.raw_chunks:
             return
-        current_chunk = ctx.ingress_state.raw_chunks[-1]
+        current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
         if not current_chunk.choices:
             return
 
@@ -181,7 +175,7 @@ class ToolCallJudgePolicy(Policy):
             return
 
         # Buffer the tool call delta
-        call_id = ctx.transaction_id
+        call_id = ctx.policy_ctx.transaction_id
         for tc_delta in delta.tool_calls:
             # Get tool call index
             tc_index = tc_delta.index if hasattr(tc_delta, "index") else 0
@@ -213,13 +207,13 @@ class ToolCallJudgePolicy(Policy):
         # Clear the tool_calls from delta to prevent forwarding
         delta.tool_calls = None
 
-    async def on_tool_call_complete(self, ctx: StreamingResponseContext) -> None:
+    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
         """Judge complete tool call and decide whether to forward or block.
 
         Args:
             ctx: Streaming response context
         """
-        call_id = ctx.transaction_id
+        call_id = ctx.policy_ctx.transaction_id
 
         # Check if this call has already been blocked
         if call_id in self._blocked_calls:
@@ -294,7 +288,7 @@ class ToolCallJudgePolicy(Policy):
             if key in self._buffered_tool_calls:
                 del self._buffered_tool_calls[key]
 
-    async def process_full_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
         """Evaluate non-streaming tool calls and block if necessary.
 
         Args:
@@ -476,9 +470,11 @@ class ToolCallJudgePolicy(Policy):
             raise
 
         # Extract response content
-        first_choice = response.choices[0]
-        message = first_choice.message if hasattr(first_choice, "message") else first_choice.get("message")  # type: ignore
-        content = message.content if hasattr(message, "content") else message.get("content")  # type: ignore
+        first_choice: Choices = cast(Choices, response.choices[0])
+        message: Message = first_choice.message
+        if message.content is None:
+            raise ValueError("Judge response content is None")
+        content: str = message.content
 
         if not isinstance(content, str):
             raise ValueError("Judge response content must be a string")
