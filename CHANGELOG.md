@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## DEVELOPMENT | TBA
+## 0.0.2 | 2025-11-07
 
 - **Anthropic streaming fixes** (post-#49):
   - Add `AnthropicSSEAssembler` for stateful SSE event generation with proper block indices
