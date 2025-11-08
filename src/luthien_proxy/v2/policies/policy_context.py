@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from luthien_proxy.v2.observability.context import NoOpObservabilityContext
+
 if TYPE_CHECKING:
     from luthien_proxy.v2.messages import Request
     from luthien_proxy.v2.observability.context import ObservabilityContext
@@ -43,12 +45,14 @@ class PolicyContext:
 
         Args:
             transaction_id: Unique identifier for this request/response cycle
+            observability: Optional observability context for logging/tracing (default to NoOpObservabilityContext)
             request: Optional original request for policies that need it
-            observability: Optional observability context for logging/tracing
         """
-        self.transaction_id = transaction_id
-        self.request = request
-        self.observability = observability
+        self.transaction_id: str = transaction_id
+        self.request: Request | None = request
+        self.observability: ObservabilityContext = observability or NoOpObservabilityContext(
+            transaction_id=transaction_id
+        )
         self._scratchpad: dict[str, Any] = {}
 
     @property

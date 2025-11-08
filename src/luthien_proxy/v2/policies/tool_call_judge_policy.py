@@ -32,7 +32,7 @@ import os
 from typing import TYPE_CHECKING, Any, cast
 
 from litellm import acompletion
-from litellm.types.utils import Choices, ModelResponse, StreamingChoices
+from litellm.types.utils import Choices, Message, ModelResponse, StreamingChoices
 
 if TYPE_CHECKING:
     from luthien_proxy.v2.observability.context import ObservabilityContext
@@ -470,9 +470,11 @@ class ToolCallJudgePolicy(PolicyProtocol):
             raise
 
         # Extract response content
-        first_choice = response.choices[0]
-        message = first_choice.message if hasattr(first_choice, "message") else first_choice.get("message")  # type: ignore
-        content = message.content if hasattr(message, "content") else message.get("content")  # type: ignore
+        first_choice: Choices = cast(Choices, response.choices[0])
+        message: Message = first_choice.message
+        if message.content is None:
+            raise ValueError("Judge response content is None")
+        content: str = message.content
 
         if not isinstance(content, str):
             raise ValueError("Judge response content must be a string")

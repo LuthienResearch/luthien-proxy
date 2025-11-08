@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
-from litellm.types.utils import ModelResponse
+from litellm.types.utils import Delta, ModelResponse
 
 from luthien_proxy.v2.streaming.stream_blocks import (
     ContentStreamBlock,
@@ -52,17 +52,26 @@ class ChunkRecorder:
         )
 
 
-def load_chunks(filename: str) -> list[dict]:
-    """Load chunk data from JSON file."""
+def load_chunks(filename: str) -> list[ModelResponse]:
+    """Load streaming ModelResponse objects from JSON fixture file.
+
+    Returns a list of LiteLLM ModelResponse objects that represent streaming chunks
+    as they would appear in practice from the LLM API.
+    """
     path = FIXTURE_DIR / filename
     with path.open() as f:
-        return json.load(f)
+        chunk_dicts = json.load(f)
 
+    responses = []
+    for chunk_dict in chunk_dicts:
+        # Convert delta dicts to Delta objects for proper typing
+        if chunk_dict.get("choices"):
+            for choice in chunk_dict["choices"]:
+                if choice.get("delta") and isinstance(choice["delta"], dict):
+                    choice["delta"] = Delta(**choice["delta"])
 
-async def simulate_stream(chunks: list[dict]):
-    """Simulate async stream from chunk list."""
-    for chunk_dict in chunks:
-        mr = ModelResponse(**chunk_dict)
+        # Create ModelResponse from dict
+        mr = ModelResponse.model_validate(chunk_dict)
 
         # Fix Pydantic default: restore original finish_reason from dict
         # ModelResponse sets finish_reason='stop' as default even when None in JSON
@@ -71,6 +80,17 @@ async def simulate_stream(chunks: list[dict]):
             if mr.choices and mr.choices[0].finish_reason != original_finish:
                 mr.choices[0].finish_reason = original_finish
 
+        responses.append(mr)
+
+    return responses
+
+
+async def simulate_stream(chunks: list[ModelResponse]):
+    """Simulate async stream from ModelResponse list.
+
+    Yields each ModelResponse object as it would be received from an async stream.
+    """
+    for mr in chunks:
         yield mr
 
 
@@ -231,8 +251,9 @@ async def test_empty_content_stripped():
         # (model_dump may reconstruct fields that were deleted)
         if chunk.choices and chunk.choices[0].delta:
             delta = chunk.choices[0].delta
-            has_tool_calls = "tool_calls" in delta and delta["tool_calls"]
-            chunks_received.append({"has_content": "content" in delta, "has_tool_calls": has_tool_calls})
+            has_tool_calls = delta.tool_calls is not None and bool(delta.tool_calls)
+            has_content = delta.content is not None
+            chunks_received.append({"has_content": has_content, "has_tool_calls": has_tool_calls})
 
     processor = StreamingChunkAssembler(on_chunk_callback=track_chunks)
     await processor.process(simulate_stream(chunks), context=None)

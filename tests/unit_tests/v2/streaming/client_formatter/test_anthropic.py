@@ -16,15 +16,15 @@ from luthien_proxy.v2.streaming.client_formatter.anthropic import AnthropicClien
 
 
 @pytest.fixture
-def policy_ctx():
-    """Create a PolicyContext."""
-    return PolicyContext(transaction_id="test-123")
-
-
-@pytest.fixture
 def obs_ctx():
     """Create a mock ObservabilityContext."""
     return Mock(spec=ObservabilityContext)
+
+
+@pytest.fixture
+def policy_ctx(obs_ctx):
+    """Create a PolicyContext."""
+    return PolicyContext(transaction_id="test-123", observability=obs_ctx)
 
 
 @pytest.fixture
