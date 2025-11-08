@@ -1,7 +1,13 @@
 # V2 Observability
 
+**When to use this guide:** You want to understand the observability architecture, implementation status, and design decisions.
+
 **Last Updated:** 2025-10-20
 **Status:** Complete ✅ (All phases 1-3 implemented)
+
+**Other observability docs:**
+- New to observability? Start with [OBSERVABILITY_DEMO.md](OBSERVABILITY_DEMO.md)
+- Need to view a trace? See [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md)
 
 ---
 

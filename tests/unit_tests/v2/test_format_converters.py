@@ -3,11 +3,10 @@
 
 """Tests for LLM format converters."""
 
-from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices, Usage
+from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
-from luthien_proxy.v2.llm.format_converters import (
+from luthien_proxy.v2.llm.llm_format_utils import (
     anthropic_to_openai_request,
-    openai_chunk_to_anthropic_chunk,
     openai_to_anthropic_response,
 )
 
@@ -160,69 +159,3 @@ class TestOpenAIToAnthropicResponse:
 
         # OpenAI's "length" should map to Anthropic's "max_tokens"
         assert result["stop_reason"] == "max_tokens"
-
-
-class TestOpenAIChunkToAnthropicChunk:
-    """Test OpenAI streaming chunk to Anthropic chunk conversion."""
-
-    def test_chunk_with_content(self):
-        """Test converting chunk with content."""
-        chunk = ModelResponse(
-            id="chunk-id",
-            created=1234567890,
-            model="gpt-4",
-            object="chat.completion.chunk",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(role="assistant", content="Hello "),
-                    finish_reason=None,
-                )
-            ],
-        )
-
-        result = openai_chunk_to_anthropic_chunk(chunk)
-
-        assert result["type"] == "content_block_delta"
-        assert result["delta"]["type"] == "text_delta"
-        assert result["delta"]["text"] == "Hello "
-
-    def test_chunk_with_empty_content(self):
-        """Test converting chunk with empty content."""
-        chunk = ModelResponse(
-            id="chunk-id",
-            created=1234567890,
-            model="gpt-4",
-            object="chat.completion.chunk",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(role="assistant", content=""),
-                    finish_reason=None,
-                )
-            ],
-        )
-
-        result = openai_chunk_to_anthropic_chunk(chunk)
-
-        assert result["delta"]["text"] == ""
-
-    def test_chunk_with_none_content(self):
-        """Test converting chunk with None content."""
-        chunk = ModelResponse(
-            id="chunk-id",
-            created=1234567890,
-            model="gpt-4",
-            object="chat.completion.chunk",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(role="assistant", content=None),
-                    finish_reason=None,
-                )
-            ],
-        )
-
-        result = openai_chunk_to_anthropic_chunk(chunk)
-
-        assert result["delta"]["text"] == ""

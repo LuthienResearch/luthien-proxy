@@ -1,34 +1,27 @@
-// Activity Monitor JavaScript
-// Real-time event stream display with filtering
+// Activity Monitor - Clean and reliable event streaming
 
 let eventSource = null;
 let eventCount = 0;
 let allEvents = [];
 
+// DOM elements
 const statusEl = document.getElementById('status');
 const statusTextEl = document.getElementById('status-text');
-const eventFeedEl = document.getElementById('event-feed');
-const clearBtn = document.getElementById('clear-btn');
-const reconnectBtn = document.getElementById('reconnect-btn');
-const filterCallId = document.getElementById('filter-call-id');
-const filterModel = document.getElementById('filter-model');
-const eventTypeButton = document.getElementById('event-type-button');
-const eventTypeDropdown = document.getElementById('event-type-dropdown');
-const eventTypeLabel = document.getElementById('event-type-label');
+const eventsEl = document.getElementById('events');
+const idFilterEl = document.getElementById('id-filter');
+const typeFilterBtnEl = document.getElementById('type-filter-btn');
+const typeFilterDropdownEl = document.getElementById('type-filter-dropdown');
+const typeFilterLabelEl = document.getElementById('type-filter-label');
+const clearBtnEl = document.getElementById('clear-btn');
+const reconnectBtnEl = document.getElementById('reconnect-btn');
 
-// Track selected event types (all selected by default)
-let selectedEventTypes = new Set([
-    'gateway.request_received',
-    'gateway.request_sent',
-    'gateway.response_received',
-    'gateway.response_sent',
-    'streaming.chunk_received',
-    'streaming.chunk_sent',
-    'streaming.original_complete',
-    'streaming.transformed_complete',
-    'policy_event',
-]);
+// Dynamic event type tracking
+// Structure: { "transaction": ["request_recorded", "streaming_response_recorded"], ... }
+const discoveredEventTypes = new Map();
+const selectedEventTypes = new Set(); // Set of full event type strings (e.g., "transaction.request_recorded")
+let selectAllChecked = true;
 
+// Update connection status
 function updateStatus(connected) {
     if (connected) {
         statusEl.className = 'status connected';
@@ -39,202 +32,290 @@ function updateStatus(connected) {
     }
 }
 
+// Format timestamp
 function formatTime(timestamp) {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', {
+    const time = date.toLocaleTimeString('en-US', {
         hour12: false,
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
-        fractionalSecondDigits: 3
     });
+    const ms = date.getMilliseconds().toString().padStart(3, '0');
+    return `${time}.${ms}`;
 }
 
-function matchesFilters(event) {
-    // Filter by call_id
-    const callIdFilter = filterCallId.value.trim().toLowerCase();
-    if (callIdFilter && !event.call_id.toLowerCase().includes(callIdFilter)) {
-        return false;
+// Register discovered event type
+function registerEventType(eventType) {
+    if (!eventType || typeof eventType !== 'string') return;
+
+    const parts = eventType.split('.');
+    if (parts.length < 2) return; // Skip malformed event types
+
+    const category = parts[0];
+    const subtype = parts.slice(1).join('.');
+
+    if (!discoveredEventTypes.has(category)) {
+        discoveredEventTypes.set(category, new Set());
     }
 
-    // Filter by model
-    const modelFilter = filterModel.value.trim().toLowerCase();
-    if (modelFilter) {
-        const eventModel = (event.data?.model || event.model || '').toLowerCase();
-        if (!eventModel.includes(modelFilter)) {
+    const subtypes = discoveredEventTypes.get(category);
+    const wasNew = !subtypes.has(subtype);
+    subtypes.add(subtype);
+
+    // Auto-select new event types if "Select All" is checked
+    if (selectAllChecked) {
+        selectedEventTypes.add(eventType);
+    }
+
+    // Rebuild filter UI if this was a new type
+    if (wasNew) {
+        rebuildFilterDropdown();
+    }
+}
+
+// Check if event matches current filters
+function matchesFilters(event) {
+    // ID filter (checks both call_id and transaction_id)
+    const idFilter = idFilterEl.value.trim().toLowerCase();
+    if (idFilter) {
+        const callId = (event.call_id || '').toLowerCase();
+        const transactionId = (event.transaction_id || '').toLowerCase();
+        if (!callId.includes(idFilter) && !transactionId.includes(idFilter)) {
             return false;
         }
     }
 
-    // Filter by event type - match exact type or prefix
-    const eventType = event.event_type;
-    const typeMatches = Array.from(selectedEventTypes).some(selected => {
-        if (eventType === selected) return true;
-        // "policy_event" matches "policy.*"
-        if (selected === 'policy_event' && eventType.startsWith('policy.')) return true;
-        return false;
-    });
-    if (!typeMatches) return false;
-
-    return true;
-}
-
-function updateEventTypeLabel() {
-    const selectedCount = selectedEventTypes.size;
-    const totalCount = eventTypeDropdown.querySelectorAll('input[type="checkbox"]').length;
-
-    if (selectedCount === 0) {
-        eventTypeLabel.textContent = 'No Events';
-    } else if (selectedCount === totalCount) {
-        eventTypeLabel.textContent = 'All Events';
-    } else {
-        eventTypeLabel.textContent = `${selectedCount} Selected`;
+    // Event type filter
+    if (selectAllChecked) {
+        return true; // "Select All" means show everything
     }
+
+    const eventType = event.event_type || '';
+    return selectedEventTypes.has(eventType);
 }
 
+// Apply filters to all events
 function applyFilters() {
-    const events = eventFeedEl.querySelectorAll('.event');
-    let visibleCount = 0;
+    const eventElements = eventsEl.querySelectorAll('.event');
 
-    events.forEach((eventEl, idx) => {
-        const event = allEvents[allEvents.length - 1 - idx]; // Events are prepended, so reverse index
+    eventElements.forEach((el, idx) => {
+        const event = allEvents[idx];
         if (event && matchesFilters(event)) {
-            eventEl.classList.remove('filtered');
-            visibleCount++;
+            el.classList.remove('hidden');
         } else {
-            eventEl.classList.add('filtered');
+            el.classList.add('hidden');
         }
     });
-
-    return visibleCount;
 }
 
-function renderEvent(event) {
-    const eventEl = document.createElement('div');
-    eventEl.className = `event ${event.event_type}`;
+// Rebuild the filter dropdown dynamically
+function rebuildFilterDropdown() {
+    typeFilterDropdownEl.innerHTML = '';
 
-    // Parse event data
-    const eventData = event.data || {};
-    const endpoint = eventData.endpoint || '';
-    const model = eventData.model || event.model || '';
-    const messages = eventData.messages || [];
-    const stream = eventData.stream || false;
-    const content = eventData.content || '';
-    const usage = eventData.usage || null;
-    const policyName = eventData.policy_name || '';
-    const eventName = eventData.event_name || '';
-    const description = eventData.description || '';
-    const chunkIndex = eventData.chunk_index;
-    const totalChunks = eventData.total_chunks;
-    const finishReason = eventData.finish_reason || '';
-    const contentPreview = eventData.content_preview || '';
+    // Add "Select All" option
+    const selectAllDiv = document.createElement('div');
+    selectAllDiv.className = 'filter-option';
+    selectAllDiv.innerHTML = `
+        <input type="checkbox" id="select-all-types" ${selectAllChecked ? 'checked' : ''}>
+        <label for="select-all-types"><strong>Select All</strong></label>
+    `;
+    typeFilterDropdownEl.appendChild(selectAllDiv);
 
-    // Build summary (always visible)
-    let summaryHtml = '';
+    // Add categories and subtypes
+    const sortedCategories = Array.from(discoveredEventTypes.keys()).sort();
 
-    // Add call_id to all events
-    summaryHtml += `<div><strong>Call ID:</strong> <span class="call-id">${event.call_id}</span></div>`;
+    sortedCategories.forEach(category => {
+        const subtypes = Array.from(discoveredEventTypes.get(category)).sort();
 
-    // Event-specific summary
-    if (event.event_type === 'gateway.request_received') {
-        summaryHtml += `
-            <div><strong>Endpoint:</strong> <code>${endpoint}</code></div>
-            <div><strong>Model:</strong> <code>${model}</code> | <strong>Stream:</strong> ${stream ? 'Yes' : 'No'} | <strong>Messages:</strong> ${messages.length}</div>
+        // Category header (clickable to toggle all in category)
+        const categoryDiv = document.createElement('div');
+        categoryDiv.className = 'filter-category';
+        categoryDiv.innerHTML = `
+            <div class="filter-option category-header" data-category="${category}">
+                <label><strong>${category}</strong> (${subtypes.length})</label>
+            </div>
         `;
-    } else if (event.event_type === 'gateway.request_sent') {
-        summaryHtml += `<div><strong>Model:</strong> <code>${model}</code> | <strong>Stream:</strong> ${stream ? 'Yes' : 'No'}</div>`;
-    } else if (event.event_type === 'gateway.response_received' || event.event_type === 'gateway.response_sent') {
-        const contentSnippet = content ? content.substring(0, 80) : '';
-        summaryHtml += `<div><strong>Model:</strong> <code>${model}</code></div>`;
-        if (contentSnippet) {
-            summaryHtml += `<div><strong>Content:</strong> ${contentSnippet}${content.length > 80 ? '...' : ''}</div>`;
-        }
-        if (usage) {
-            summaryHtml += `<div><strong>Tokens:</strong> ${usage.total_tokens || 'N/A'}</div>`;
-        }
-    } else if (event.event_type === 'streaming.chunk_received' || event.event_type === 'streaming.chunk_sent') {
-        summaryHtml += `<div><strong>Chunk:</strong> #${chunkIndex}</div>`;
-        if (contentPreview) {
-            summaryHtml += `<div><strong>Preview:</strong> ${contentPreview}</div>`;
-        }
-        if (finishReason) {
-            summaryHtml += `<div><strong>Finish:</strong> ${finishReason}</div>`;
-        }
-    } else if (event.event_type === 'streaming.original_complete' || event.event_type === 'streaming.transformed_complete') {
-        const contentSnippet = content ? content.substring(0, 80) : '';
-        summaryHtml += `<div><strong>Total Chunks:</strong> ${totalChunks || 'N/A'} | <strong>Finish:</strong> ${finishReason || 'N/A'}</div>`;
-        if (contentSnippet) {
-            summaryHtml += `<div><strong>Content:</strong> ${contentSnippet}${content.length > 80 ? '...' : ''}</div>`;
-        }
-    } else if (event.event_type === 'policy_event' || event.event_type.startsWith('policy.')) {
-        if (policyName) summaryHtml += `<div><strong>Policy:</strong> <code>${policyName}</code></div>`;
-        if (eventName) summaryHtml += `<div><strong>Event:</strong> ${eventName}</div>`;
-        if (description) summaryHtml += `<div><strong>Description:</strong> ${description}</div>`;
-    } else {
-        // Generic summary for unknown events
-        summaryHtml += `<div><em>Click to view full event data</em></div>`;
+        typeFilterDropdownEl.appendChild(categoryDiv);
+
+        // Subtypes
+        subtypes.forEach(subtype => {
+            const fullType = `${category}.${subtype}`;
+            const isSelected = selectedEventTypes.has(fullType);
+
+            const subtypeDiv = document.createElement('div');
+            subtypeDiv.className = 'filter-option filter-subtype';
+            subtypeDiv.innerHTML = `
+                <input type="checkbox" id="type-${category}-${subtype}" value="${fullType}" ${isSelected ? 'checked' : ''}>
+                <label for="type-${category}-${subtype}">${subtype}</label>
+            `;
+            typeFilterDropdownEl.appendChild(subtypeDiv);
+        });
+    });
+
+    // Attach event listeners
+    attachFilterListeners();
+    updateTypeFilterLabel();
+}
+
+// Update event type filter label
+function updateTypeFilterLabel() {
+    if (selectAllChecked) {
+        typeFilterLabelEl.textContent = 'All Events';
+        return;
     }
 
-    // Build full details (collapsible)
-    const detailsHtml = `<pre>${JSON.stringify(event, null, 2)}</pre>`;
+    const selectedCount = selectedEventTypes.size;
+    if (selectedCount === 0) {
+        typeFilterLabelEl.textContent = 'None';
+    } else {
+        typeFilterLabelEl.textContent = `${selectedCount} selected`;
+    }
+}
 
-    // Build complete HTML
-    eventEl.innerHTML = `
-        <div class="event-header collapsed">
-            <span class="event-type">
-                <span class="expand-icon"></span>
-                ${event.event_type}
-            </span>
-            <span class="event-time">${formatTime(event.timestamp)}</span>
+// Create event DOM element
+function createEventElement(event) {
+    const el = document.createElement('div');
+    el.className = 'event';
+    el.dataset.type = event.event_type || 'unknown';
+
+    // Extract relevant IDs
+    const callId = event.call_id || 'N/A';
+    const transactionId = event.transaction_id || callId;
+    const timestamp = event.timestamp || new Date().toISOString();
+
+    el.innerHTML = `
+        <div class="event-header">
+            <div class="event-main">
+                <div class="event-type">${event.event_type || 'unknown'}</div>
+                <div class="event-meta">
+                    <span class="event-id">ID: ${transactionId.substring(0, 12)}...</span>
+                    <span class="event-time">${formatTime(timestamp)}</span>
+                </div>
+            </div>
+            <div class="expand-icon">▼</div>
         </div>
-        <div class="event-summary">${summaryHtml}</div>
-        <div class="event-details collapsed">${detailsHtml}</div>
+        <div class="event-payload">
+            <pre>${JSON.stringify(event, null, 2)}</pre>
+        </div>
     `;
 
-    // Add click handler for collapse/expand
-    const header = eventEl.querySelector('.event-header');
-    const details = eventEl.querySelector('.event-details');
-
+    // Add click handler for expand/collapse
+    const header = el.querySelector('.event-header');
     header.addEventListener('click', () => {
-        header.classList.toggle('collapsed');
-        details.classList.toggle('collapsed');
+        el.classList.toggle('expanded');
     });
 
-    return eventEl;
+    return el;
 }
 
+// Attach event listeners to filter checkboxes
+function attachFilterListeners() {
+    // "Select All" checkbox
+    const selectAllCheckbox = document.getElementById('select-all-types');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', () => {
+            selectAllChecked = selectAllCheckbox.checked;
+
+            if (selectAllChecked) {
+                // Select all discovered event types
+                selectedEventTypes.clear();
+                discoveredEventTypes.forEach((subtypes, category) => {
+                    subtypes.forEach(subtype => {
+                        selectedEventTypes.add(`${category}.${subtype}`);
+                    });
+                });
+            }
+
+            rebuildFilterDropdown();
+            applyFilters();
+        });
+    }
+
+    // Category headers (toggle all in category)
+    document.querySelectorAll('.category-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const category = header.dataset.category;
+            const subtypes = discoveredEventTypes.get(category);
+
+            // Check if all subtypes in this category are selected
+            const allSelected = Array.from(subtypes).every(subtype =>
+                selectedEventTypes.has(`${category}.${subtype}`)
+            );
+
+            // Toggle: if all selected, deselect all; otherwise select all
+            subtypes.forEach(subtype => {
+                const fullType = `${category}.${subtype}`;
+                if (allSelected) {
+                    selectedEventTypes.delete(fullType);
+                } else {
+                    selectedEventTypes.add(fullType);
+                }
+            });
+
+            selectAllChecked = false;
+            rebuildFilterDropdown();
+            applyFilters();
+        });
+    });
+
+    // Individual subtype checkboxes
+    document.querySelectorAll('.filter-subtype input[type="checkbox"]').forEach(checkbox => {
+        checkbox.addEventListener('change', () => {
+            const fullType = checkbox.value;
+
+            if (checkbox.checked) {
+                selectedEventTypes.add(fullType);
+            } else {
+                selectedEventTypes.delete(fullType);
+                selectAllChecked = false;
+            }
+
+            updateTypeFilterLabel();
+            applyFilters();
+        });
+    });
+}
+
+// Add new event
 function addEvent(event) {
-    // Store event for filtering
-    allEvents.unshift(event);
-    if (allEvents.length > 100) {
-        allEvents.pop();
+    // Register event type for dynamic filter
+    if (event.event_type) {
+        registerEventType(event.event_type);
     }
 
     // Remove empty state if present
-    const emptyState = eventFeedEl.querySelector('.empty-state');
+    const emptyState = eventsEl.querySelector('.empty-state');
     if (emptyState) {
         emptyState.remove();
     }
 
-    const eventEl = renderEvent(event);
-
-    // Apply filters immediately to new event
-    if (!matchesFilters(event)) {
-        eventEl.classList.add('filtered');
+    // Store event
+    allEvents.unshift(event);
+    if (allEvents.length > 200) {
+        allEvents.pop();
     }
 
-    eventFeedEl.insertBefore(eventEl, eventFeedEl.firstChild);
+    // Create and insert element
+    const el = createEventElement(event);
+
+    // Apply filters to new event
+    if (!matchesFilters(event)) {
+        el.classList.add('hidden');
+    }
+
+    eventsEl.insertBefore(el, eventsEl.firstChild);
+
+    // Limit DOM to 200 events
+    while (eventsEl.children.length > 200) {
+        eventsEl.removeChild(eventsEl.lastChild);
+    }
 
     eventCount++;
     updateStatus(true);
-
-    // Limit to 100 events
-    while (eventFeedEl.children.length > 100) {
-        eventFeedEl.removeChild(eventFeedEl.lastChild);
-        allEvents.pop();
-    }
 }
 
+// Connect to event stream
 function connect() {
     if (eventSource) {
         eventSource.close();
@@ -252,101 +333,52 @@ function connect() {
             const event = JSON.parse(e.data);
             addEvent(event);
         } catch (err) {
-            console.error('Failed to parse event:', err);
+            console.error('Failed to parse event:', err, e.data);
         }
     };
 
-    eventSource.addEventListener('heartbeat', (e) => {
-        console.log('Heartbeat received');
-    });
-
-    eventSource.addEventListener('error', (e) => {
-        console.error('EventSource error');
-        updateStatus(false);
+    eventSource.addEventListener('heartbeat', () => {
+        // Just keep connection alive
+        console.log('Heartbeat');
     });
 
     eventSource.onerror = () => {
-        console.error('Connection error, will retry...');
+        console.error('Connection error, reconnecting in 3s...');
         updateStatus(false);
         eventSource.close();
-
-        // Retry after 3 seconds
         setTimeout(connect, 3000);
     };
 }
 
-clearBtn.addEventListener('click', () => {
-    eventFeedEl.innerHTML = '<div class="empty-state">Events cleared. Waiting for new events...</div>';
-    eventCount = 0;
+// Clear events
+clearBtnEl.addEventListener('click', () => {
+    eventsEl.innerHTML = '<div class="empty-state">Events cleared. Waiting for new events...</div>';
     allEvents = [];
+    eventCount = 0;
     updateStatus(eventSource && eventSource.readyState === EventSource.OPEN);
 });
 
-reconnectBtn.addEventListener('click', () => {
+// Reconnect
+reconnectBtnEl.addEventListener('click', () => {
     connect();
 });
 
-// Wire up filter inputs
-filterCallId.addEventListener('input', applyFilters);
-filterModel.addEventListener('input', applyFilters);
+// ID filter input
+idFilterEl.addEventListener('input', applyFilters);
 
-// Multiselect event type filter
-eventTypeButton.addEventListener('click', (e) => {
+// Event type filter dropdown toggle
+typeFilterBtnEl.addEventListener('click', (e) => {
     e.stopPropagation();
-    eventTypeDropdown.classList.toggle('open');
+    typeFilterDropdownEl.classList.toggle('open');
 });
 
 // Close dropdown when clicking outside
 document.addEventListener('click', (e) => {
-    if (!eventTypeDropdown.contains(e.target) && !eventTypeButton.contains(e.target)) {
-        eventTypeDropdown.classList.remove('open');
+    if (!typeFilterDropdownEl.contains(e.target) && !typeFilterBtnEl.contains(e.target)) {
+        typeFilterDropdownEl.classList.remove('open');
     }
 });
 
-// Handle category header clicks (toggle all/none in category)
-eventTypeDropdown.querySelectorAll('.category-header').forEach(header => {
-    header.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const category = header.dataset.category;
-        const categoryDiv = header.closest('.multiselect-category');
-        const checkboxes = categoryDiv.querySelectorAll('input[type="checkbox"]');
-
-        // Check if all are currently checked
-        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-
-        // Toggle: if all checked, uncheck all; otherwise check all
-        checkboxes.forEach(cb => {
-            cb.checked = !allChecked;
-            if (cb.checked) {
-                selectedEventTypes.add(cb.value);
-            } else {
-                selectedEventTypes.delete(cb.value);
-            }
-        });
-
-        updateEventTypeLabel();
-        applyFilters();
-    });
-});
-
-// Handle individual checkbox changes
-eventTypeDropdown.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-    checkbox.addEventListener('change', (e) => {
-        e.stopPropagation();
-        if (checkbox.checked) {
-            selectedEventTypes.add(checkbox.value);
-        } else {
-            selectedEventTypes.delete(checkbox.value);
-        }
-        updateEventTypeLabel();
-        applyFilters();
-    });
-});
-
-// Prevent dropdown from closing when clicking inside it
-eventTypeDropdown.addEventListener('click', (e) => {
-    e.stopPropagation();
-});
-
-// Auto-connect on load
+// Initialize and auto-connect
+rebuildFilterDropdown(); // Initial empty dropdown
 connect();

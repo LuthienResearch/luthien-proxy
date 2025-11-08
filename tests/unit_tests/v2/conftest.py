@@ -4,59 +4,9 @@
 """Shared fixtures for V2 tests."""
 
 import warnings
-from contextlib import asynccontextmanager
-from typing import Any
 
 import pytest
-from fastapi import FastAPI
 from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
-
-
-def create_test_lifespan(
-    control_plane: Any,
-    db_pool: Any | None = None,
-    redis_client: Any | None = None,
-    event_publisher: Any | None = None,
-    api_key: str = "test-api-key",
-):
-    """Create a test lifespan context manager with mocked dependencies.
-
-    This factory creates a lifespan that mimics the production lifespan in
-    src/luthien_proxy/v2/main.py but with injected test doubles instead of
-    real database/redis connections.
-
-    Args:
-        control_plane: Mock or fake control plane instance
-        db_pool: Optional mock database pool (None to disable DB)
-        redis_client: Optional mock Redis client (None to disable Redis)
-        event_publisher: Optional mock event publisher (None to disable events)
-        api_key: API key to use for authentication (default: "test-api-key")
-
-    Returns:
-        Async context manager suitable for FastAPI(lifespan=...)
-
-    Example:
-        >>> control_plane = FakeControlPlane()
-        >>> lifespan = create_test_lifespan(control_plane=control_plane)
-        >>> app = FastAPI(lifespan=lifespan)
-    """
-
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        """Test lifespan that injects mocked dependencies into app.state."""
-        # Store test dependencies in app state (same as production)
-        app.state.db_pool = db_pool
-        app.state.redis_client = redis_client
-        app.state.event_publisher = event_publisher
-        app.state.control_plane = control_plane
-        app.state.api_key = api_key
-
-        yield
-
-        # Cleanup: For mocks, usually no cleanup needed
-        # But this mirrors production structure for consistency
-
-    return lifespan
 
 
 @pytest.fixture(autouse=True)

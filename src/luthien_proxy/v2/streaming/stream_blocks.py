@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from litellm.types.utils import ChatCompletionMessageToolCall, Function
+
 
 @dataclass
 class StreamBlock:
@@ -68,6 +70,13 @@ class ToolCallStreamBlock(StreamBlock):
         self.name = name
         self.arguments = arguments
         self.index = index
+
+    @property
+    def tool_call(self) -> ChatCompletionMessageToolCall:
+        """Get tool call as ChatCompletionMessageToolCall object."""
+        return ChatCompletionMessageToolCall(
+            function=Function(name=self.name, arguments=self.arguments),
+        )
 
 
 __all__ = [

@@ -7,7 +7,7 @@ Loads policy configuration from YAML files with the format:
 
 ```yaml
 policy:
-  class: "luthien_proxy.v2.policies.noop:NoOpPolicy"
+  class: "luthien_proxy.v2.policies.simple_policy:SimplePolicy"
   config: {}
 ```
 
@@ -15,9 +15,9 @@ Or with config parameters:
 
 ```yaml
 policy:
-  class: "luthien_proxy.v2.policies.uppercase_nth_word:UppercaseNthWordPolicy"
+  class: "luthien_proxy.v2.policies.all_caps:AllCapsPolicy"
   config:
-    n: 3
+    enabled: true
 ```
 """
 
@@ -29,13 +29,12 @@ from typing import Any, cast
 
 import yaml
 
-from luthien_proxy.v2.policies.base import LuthienPolicy
-from luthien_proxy.v2.policies.noop import NoOpPolicy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 
 logger = logging.getLogger(__name__)
 
 
-def load_policy_from_yaml(config_path: str | None = None) -> LuthienPolicy:
+def load_policy_from_yaml(config_path: str | None = None) -> PolicyProtocol:
     """Load a policy from YAML configuration file.
 
     Args:
@@ -46,60 +45,60 @@ def load_policy_from_yaml(config_path: str | None = None) -> LuthienPolicy:
         Instantiated policy object
 
     Raises:
-        RuntimeError: If config file cannot be read or policy cannot be loaded
+        FileNotFoundError: If config file doesn't exist
+        ValueError: If config is missing required fields or has invalid structure
+        TypeError: If specified class is not a Policy subclass
+        ImportError: If policy module cannot be imported
+        yaml.YAMLError: If YAML syntax is invalid
     """
     # Determine config path
     if config_path is None:
         config_path = os.getenv("V2_POLICY_CONFIG", "config/v2_config.yaml")
 
     # Read YAML file
-    if not os.path.exists(config_path):
-        logger.warning(f"Policy config not found at {config_path}; using NoOpPolicy")
-        return NoOpPolicy()
-
     try:
         with open(config_path, "r", encoding="utf-8") as file:
             cfg = yaml.safe_load(file) or {}
-    except Exception as exc:
-        logger.error(f"Failed to read policy config {config_path}: {exc}")
-        return NoOpPolicy()
 
-    # Extract policy section
-    policy_section = cfg.get("policy")
-    if not isinstance(policy_section, dict):
-        logger.warning(f"No valid 'policy' section in {config_path}; using NoOpPolicy")
-        return NoOpPolicy()
+        # Validate policy section exists
+        policy_section = cfg.get("policy")
+        if not isinstance(policy_section, dict):
+            raise ValueError(
+                f"Config at {config_path} must contain a 'policy' section as a dictionary. "
+                f"Found: {type(policy_section).__name__ if policy_section is not None else 'None'}"
+            )
 
-    policy_class_ref = policy_section.get("class")
-    policy_config = policy_section.get("config", {})
+        # Validate class reference exists and is a string
+        policy_class_ref = policy_section.get("class")
+        if not isinstance(policy_class_ref, str):
+            raise ValueError(
+                f"Policy section in {config_path} must contain a 'class' field as a string. "
+                f"Found: {type(policy_class_ref).__name__ if policy_class_ref is not None else 'None'}"
+            )
 
-    if not policy_class_ref:
-        logger.warning(f"No 'class' specified in policy section of {config_path}; using NoOpPolicy")
-        return NoOpPolicy()
+        policy_config = policy_section.get("config", {})
 
-    # Import policy class
-    try:
+        # Import and validate policy class
         policy_class = _import_policy_class(policy_class_ref)
-    except Exception as exc:
-        logger.error(f"Failed to import policy '{policy_class_ref}': {exc}")
-        return NoOpPolicy()
+        if not issubclass(policy_class, PolicyProtocol):
+            raise TypeError(
+                f"Class '{policy_class_ref}' from {config_path} is not a Policy subclass. "
+                f"All policy classes must inherit from luthien_proxy.v2.policies.policy.Policy"
+            )
 
-    # Validate it's a LuthienPolicy subclass
-    if not issubclass(policy_class, LuthienPolicy):
-        logger.warning(f"Policy class {policy_class_ref} does not subclass LuthienPolicy; using NoOpPolicy")
-        return NoOpPolicy()
-
-    # Instantiate policy
-    try:
+        # Instantiate and return policy
         policy = _instantiate_policy(policy_class, policy_config)
-        logger.info(f"Loaded policy from {config_path}: {policy_class.__name__}")
         return policy
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"Policy config not found at {config_path} (path set with V2_POLICY_CONFIG env var or passed explicitly)"
+        )
     except Exception as exc:
-        logger.error(f"Failed to instantiate policy {policy_class_ref} with config {policy_config}: {exc}")
-        return NoOpPolicy()
+        logger.error(f"Failed to load policy config {config_path}: {exc}")
+        raise exc
 
 
-def _import_policy_class(class_ref: str) -> type[LuthienPolicy]:
+def _import_policy_class(class_ref: str) -> type[PolicyProtocol]:
     """Import a policy class from a module:class reference.
 
     Args:
@@ -129,10 +128,10 @@ def _import_policy_class(class_ref: str) -> type[LuthienPolicy]:
     if not isinstance(cls, type):
         raise TypeError(f"{class_name} is not a class")
 
-    return cast(type[LuthienPolicy], cls)
+    return cast(type[PolicyProtocol], cls)
 
 
-def _instantiate_policy(policy_class: type[LuthienPolicy], config: dict[str, Any]) -> LuthienPolicy:
+def _instantiate_policy(policy_class: type[PolicyProtocol], config: dict[str, Any]) -> PolicyProtocol:
     """Instantiate a policy with the given config.
 
     Args:

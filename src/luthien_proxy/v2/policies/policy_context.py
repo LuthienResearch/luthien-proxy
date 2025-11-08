@@ -1,138 +1,73 @@
-# ABOUTME: Context object passed to policy methods for event emission
-# ABOUTME: Provides call_id and OpenTelemetry span for tracing
+# ABOUTME: PolicyContext for cross-stage state management
+# ABOUTME: Shared mutable state across request/response lifecycle
 
-"""Policy execution context.
+"""Policy context for the streaming pipeline.
 
-This module defines PolicyContext, which carries everything a policy needs
-beyond the message itself (call_id, OpenTelemetry span for tracing).
+This module defines PolicyContext, which provides shared mutable state
+that persists across the entire request/response lifecycle.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from opentelemetry.trace import Span
+from luthien_proxy.v2.observability.context import NoOpObservabilityContext
 
+if TYPE_CHECKING:
     from luthien_proxy.v2.messages import Request
-    from luthien_proxy.v2.observability import RedisEventPublisher
+    from luthien_proxy.v2.observability.context import ObservabilityContext
 
 
 class PolicyContext:
-    """Context provided to policy methods for event emission and correlation.
+    """Shared mutable state across the entire request/response lifecycle.
 
-    This carries everything a policy needs that's not part of the message itself:
-    - Call ID for correlation across the request/response lifecycle
-    - OpenTelemetry span for distributed tracing
-    - Optional event publisher for real-time UI updates
-    - Original request (added in V3)
-    - Per-request scratchpad for policy-specific state (added in V3)
+    This context is created at the gateway level and passed through both
+    request processing and streaming response processing. It provides
+    cross-stage state storage via a scratchpad dictionary.
 
-    Policies remain stateless - all per-request state lives in this context.
+    Policies can use the scratchpad to:
+    - Track whether safety checks have been performed
+    - Store intermediate results from trusted monitors
+    - Accumulate metrics across streaming chunks
+    - Share any state between request and response processing
+
+    The context is NOT thread-safe and should only be accessed from async
+    code within a single request handler.
     """
-
-    call_id: str
-    """Unique identifier for this request-response cycle."""
-
-    span: Span
-    """OpenTelemetry span for tracing."""
-
-    request: Request
-    """Original request from client (added in V3)."""
-
-    scratchpad: dict[str, Any]
-    """Per-request scratchpad for policy-specific state.
-
-    Policies can store arbitrary data here without needing to subclass PolicyContext.
-    Common uses:
-    - Counters: scratchpad['tool_calls_judged'] = 0
-    - Flags: scratchpad['already_warned'] = True
-    - Buffers: scratchpad['buffered_text'] = []
-    - Metadata: scratchpad['block_reason'] = "harmful tool call"
-
-    Each request gets a fresh empty scratchpad. Data does not persist across requests.
-    """
-
-    _event_publisher: RedisEventPublisher | None
-    """Optional publisher for real-time UI events."""
 
     def __init__(
         self,
-        call_id: str,
-        span: Span,
-        request: Request,
-        event_publisher: RedisEventPublisher | None = None,
-    ):
-        """Initialize policy context.
-
-        Args:
-            call_id: Unique identifier for this request/response cycle
-            span: OpenTelemetry span for this policy execution
-            request: Original request from client
-            event_publisher: Optional publisher for real-time UI events
-        """
-        self.call_id = call_id
-        self.span = span
-        self.request = request
-        self.scratchpad = {}  # Fresh empty dict per request
-        self._event_publisher = event_publisher
-
-    def emit(
-        self,
-        event_type: str,
-        summary: str,
-        details: dict[str, Any] | None = None,
-        severity: str = "info",
+        transaction_id: str,
+        request: Request | None = None,
+        observability: ObservabilityContext | None = None,
     ) -> None:
-        """Emit a policy event as an OpenTelemetry span event.
-
-        This adds an event to the current span and optionally publishes to Redis
-        for real-time UI monitoring.
+        """Initialize policy context for a request.
 
         Args:
-            event_type: Type of event (e.g., 'policy.request_modified', 'policy.content_filtered')
-            summary: Human-readable summary of what happened
-            details: Additional structured data about the event
-            severity: Severity level: debug, info, warning, error
+            transaction_id: Unique identifier for this request/response cycle
+            observability: Optional observability context for logging/tracing (default to NoOpObservabilityContext)
+            request: Optional original request for policies that need it
         """
-        # Add event to OpenTelemetry span
-        attributes = {
-            "event.type": event_type,
-            "event.summary": summary,
-            "event.severity": severity,
-        }
+        self.transaction_id: str = transaction_id
+        self.request: Request | None = request
+        self.observability: ObservabilityContext = observability or NoOpObservabilityContext(
+            transaction_id=transaction_id
+        )
+        self._scratchpad: dict[str, Any] = {}
 
-        # Add details as individual attributes
-        if details:
-            for key, value in details.items():
-                # OTel attributes must be primitives
-                if isinstance(value, (str, int, float, bool)):
-                    attributes[f"event.{key}"] = value  # type: ignore[assignment]
-                else:
-                    # Convert complex types to string
-                    attributes[f"event.{key}"] = str(value)
+    @property
+    def scratchpad(self) -> dict[str, Any]:
+        """Mutable dictionary for storing arbitrary policy state.
 
-        self.span.add_event(event_type, attributes=attributes)
+        Policies can use this to share state across invocations. For example:
+        - Track whether a safety check has been performed
+        - Store intermediate results from trusted monitors
+        - Accumulate metrics across streaming chunks
 
-        # Optionally publish to Redis for real-time UI
-        if self._event_publisher:
-            import asyncio
-
-            # If we're in an async context, schedule the publish
-            # (don't await - fire and forget for performance)
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(
-                        self._event_publisher.publish_event(
-                            call_id=self.call_id,
-                            event_type=event_type,
-                            data={"summary": summary, "severity": severity, **(details or {})},
-                        )
-                    )
-            except RuntimeError:
-                # No event loop - skip real-time publish
-                pass
+        Returns:
+            Mutable dictionary unique to this context
+        """
+        return self._scratchpad
 
 
 __all__ = ["PolicyContext"]

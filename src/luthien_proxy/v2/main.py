@@ -9,6 +9,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+import litellm
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -16,11 +17,10 @@ from redis.asyncio import Redis
 
 from luthien_proxy.utils import db
 from luthien_proxy.v2.config import load_policy_from_yaml
-from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
 from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.gateway_routes import router as gateway_router
 from luthien_proxy.v2.observability import RedisEventPublisher
-from luthien_proxy.v2.policies.base import LuthienPolicy
+from luthien_proxy.v2.policies.policy import PolicyProtocol
 from luthien_proxy.v2.telemetry import setup_telemetry
 from luthien_proxy.v2.ui import router as ui_router
 
@@ -31,7 +31,7 @@ def create_app(
     api_key: str,
     database_url: str,
     redis_url: str,
-    policy: LuthienPolicy,
+    policy: PolicyProtocol,
 ) -> FastAPI:
     """Create V2 FastAPI application with dependency injection.
 
@@ -50,6 +50,10 @@ def create_app(
         """Manage application lifespan: startup and shutdown."""
         # Startup
         logger.info("Starting Luthien V2 Gateway...")
+
+        # Configure litellm globally (moved from policy file to prevent import side effects)
+        litellm.drop_params = True
+        logger.info("Configured litellm: drop_params=True")
 
         # Initialize OpenTelemetry
         setup_telemetry(app)
@@ -83,18 +87,11 @@ def create_app(
         else:
             logger.info("Event publisher disabled (no Redis)")
 
-        # Initialize control plane with event publisher
-        _control_plane = SynchronousControlPlane(
-            policy=policy,
-            event_publisher=_event_publisher,
-        )
-        logger.info("Control plane initialized with OpenTelemetry tracing")
-
         # Store everything in app state for dependency injection
         app.state.db_pool = _db_pool
         app.state.redis_client = _redis_client
         app.state.event_publisher = _event_publisher
-        app.state.control_plane = _control_plane
+        app.state.policy = policy
         app.state.api_key = api_key
         logger.info("App state initialized")
 
@@ -121,7 +118,7 @@ def create_app(
     app.mount("/v2/static", StaticFiles(directory=static_dir), name="static")
 
     # Include routers
-    app.include_router(gateway_router)  # /v1/chat/completions, /v1/messages
+    app.include_router(gateway_router)  # /v1/chat/completions, /v1/messages (PolicyOrchestrator)
     app.include_router(debug_router)  # /v2/debug/*
     app.include_router(ui_router)  # /v2/activity/*, /v2/debug/diff
 
@@ -164,7 +161,7 @@ if __name__ == "__main__":
 
     # Load policy from YAML configuration
     # Set V2_POLICY_CONFIG env var to override default (config/v2_config.yaml)
-    policy_handler: LuthienPolicy = load_policy_from_yaml()
+    policy_handler = load_policy_from_yaml()
 
     # Create app with factory function
     app = create_app(
@@ -174,4 +171,4 @@ if __name__ == "__main__":
         policy=policy_handler,
     )
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug")
