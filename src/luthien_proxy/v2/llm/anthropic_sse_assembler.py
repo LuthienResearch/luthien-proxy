@@ -13,7 +13,9 @@ This module reconstructs the Anthropic format:
 - `process_chunk()` - Stateful assembly that tracks indices and manages block lifecycle
 """
 
-from litellm.types.utils import ModelResponse
+from typing import cast
+
+from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
 
 class AnthropicSSEAssembler:
@@ -135,7 +137,7 @@ class AnthropicSSEAssembler:
         Returns:
             Anthropic SSE event dict (may contain internal flags like _complete_tool_call)
         """
-        delta = chunk.choices[0].delta  # pyright: ignore TODO: FIX THIS
+        delta: Delta = cast(StreamingChoices, chunk.choices[0]).delta
 
         # Handle tool calls
         if hasattr(delta, "tool_calls") and delta.tool_calls:

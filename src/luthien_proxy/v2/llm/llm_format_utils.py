@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from typing import cast
 
-from litellm.types.utils import Choices, ModelResponse
+from litellm.types.utils import Choices, ModelResponse, Usage
 
 
 def anthropic_to_openai_request(data: dict) -> dict:
@@ -184,12 +184,14 @@ def openai_to_anthropic_response(response: ModelResponse) -> dict:
             )
 
     # Map finish reasons
-    finish_reason = response.choices[0].finish_reason
+    finish_reason = str(response.choices[0].finish_reason)
     stop_reason_map = {
         "stop": "end_turn",
         "tool_calls": "tool_use",
         "length": "max_tokens",
     }
+
+    usage: Usage = response.usage  # type: ignore[attr-defined] - usage is present, litellm types issue
 
     return {
         "id": response.id,
@@ -198,10 +200,10 @@ def openai_to_anthropic_response(response: ModelResponse) -> dict:
         "content": content,
         "model": response.model,
         "usage": {
-            "input_tokens": response.usage.prompt_tokens,  # pyright: ignore  TODO: FIX THIS
-            "output_tokens": response.usage.completion_tokens,  # pyright: ignore  TODO: FIX THIS
+            "input_tokens": usage.prompt_tokens,
+            "output_tokens": usage.completion_tokens,
         },
-        "stop_reason": stop_reason_map.get(finish_reason, finish_reason),  # pyright: ignore TODO: FIX THIS
+        "stop_reason": stop_reason_map.get(finish_reason, finish_reason),
     }
 
 
