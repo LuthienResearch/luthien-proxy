@@ -2,6 +2,11 @@
 
 ## High Priority
 
+- [ ] **Add request size limits** - Add validation before parsing JSON to prevent DoS attacks:
+  - Add `max_request_size` validation in gateway routes (even 10MB would prevent trivial DoS)
+  - Consider using FastAPI's `Request.body()` size limits or custom middleware
+  - Log/alert on rejected oversized requests
+  - Make limit configurable via environment variable
 - [ ] **Verify UI monitoring endpoints functionality** - Check which UI endpoints are working and refactor as needed:
   - Test `/v2/debug/diff` - diff viewer with side-by-side comparisons
   - Test `/v2/activity/monitor` - real-time activity stream
@@ -15,7 +20,7 @@
   - Both create the same pipeline dependencies (recorder, executor, formatter, orchestrator)
   - Both call `process_request()` and `record_request()` identically
   - Both handle streaming/non-streaming with identical patterns
-  - Consider extracting a `_process_gateway_request()` helper function
+  - Extract common pipeline setup into `_create_pipeline_components()` helper function
   - Would reduce code duplication from ~90 lines each to ~20 lines each
   - Main differences are: request format conversion (Anthropic→OpenAI) and response format conversion (OpenAI→Anthropic)
 - [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files:
@@ -31,6 +36,28 @@
 - [ ] Add security documentation for dynamic policy loading mechanism (V2_POLICY_CONFIG) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
 - [ ] Verify all environment variables are documented in README and .env.example ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
 - [ ] Add input validation: max request size and message count limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
+- [ ] **Fix assertion usage in production code** - Replace `assert` statements with proper error handling:
+  - `simple_policy.py:69, 92` - Replace assertions with explicit `if` checks and raise proper exceptions
+  - Assertions can be disabled with Python's `-O` flag, making them unreliable for production
+  - Use `ValueError` or custom exceptions instead
+- [ ] **Replace magic numbers with named constants**:
+  - `queue_size: int = 10000` (policy_orchestrator.py:49) - should be named constant `DEFAULT_QUEUE_SIZE`
+  - `max_chunks_queued: int = 4096` (transaction_recorder.py:19) - should be configurable via env var
+  - Truncation length `[:200]` (policy_orchestrator.py:188) - should be `LOG_TRUNCATION_LENGTH`
+  - Document rationale for queue sizes and benchmark for typical workloads
+- [ ] **Improve error handling for OpenTelemetry spans** - Add defensive coding for when OTEL is not configured:
+  - `DefaultObservabilityContext` assumes span is always valid (context.py:78-88)
+  - Add checks: `if self.span and self.span.is_recording(): self.span.set_attribute(...)`
+- [ ] **Review LiteLLMClient instantiation pattern** - Currently creates new instance per request (gateway_routes.py:134, 227):
+  - Check if LiteLLM needs connection pooling or has startup overhead
+  - Consider making it a singleton or FastAPI app state dependency
+- [ ] **Add logging for chunk truncation** - Silent truncation should be more visible:
+  - Log at ERROR level when chunks are truncated (transaction_recorder.py:96-101)
+  - Add metrics/alerts for frequent truncation
+  - Consider circuit breaking on sustained truncation
+- [ ] **Add timeout configuration documentation** - Document why no timeout is set in gateway routes or make it configurable:
+  - `PolicyExecutor(recorder=recorder)` uses default timeout of `None` (gateway_routes.py:117)
+  - Either document rationale or add environment variable configuration
 - [ ] Move "v2" code out of v2/
 - [ ] Consolidate/organize utility/helper functions (see policies/utils.py)
 - [ ] thinking and verbosity model flags not respected
@@ -39,9 +66,18 @@
 
 ## Medium Priority
 
+- [ ] **Add missing integration tests for error recovery paths**:
+  - Database failure scenarios (what happens when db_pool connection fails mid-request?)
+  - Redis failure scenarios (event_publisher connection errors during event emission)
+  - Policy timeout recovery (verify system recovers gracefully after policy timeout)
+  - Network failures during LLM calls
+  - Malformed response handling from upstream providers
+- [ ] **Improve module-level docstrings** - Replace placeholder docstrings with descriptive ones:
+  - `transaction_recorder.py:4` has `"""Module docstring."""` - should describe purpose
+  - Follow pattern from well-documented modules like `anthropic_sse_assembler.py`
 - [ ] **Audit all tests for unjustified conditional logic** - Review all test files (unit, integration, e2e) and remove conditional logic that checks for optional behavior. Tests should assert expected behavior, not conditionally validate. Exceptions: helper functions for parsing, format validation logic, legitimate expected variance in responses. Reference: test_streaming_chunk_structure.py cleanup as example.
 - [ ] remove unnecessary string-matching test conditions (e.g. matching exception messages)
-- [ ] call_id -> transaction_id
+- [ ] call_id -> transaction_id (rename throughout codebase for consistency)
 - [ ] Revisit ignored pyright issues
 - [ ] Make filtering on the activity monitor easier and more intuitive
 - [ ] Add rate limiting middleware (slowapi or custom FastAPI middleware) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))

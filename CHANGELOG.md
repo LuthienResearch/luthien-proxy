@@ -2,7 +2,13 @@
 
 ## DEVELOPMENT | TBA
 
-- Refactor streaming pipeline to explicit queue-based architecture (`streaming-pipeline-refactor`)
+- **Anthropic streaming fixes** (post-#49):
+  - Add `AnthropicSSEAssembler` for stateful SSE event generation with proper block indices
+  - Fix `ToolCallJudgePolicy` streaming: add `on_content_delta()`, fix chunk creation with proper `Delta` and `StreamingChoices` types
+  - Add `DebugLoggingPolicy` for inspecting streaming chunks
+  - 8 regression tests to prevent streaming bugs
+
+- Refactor streaming pipeline to explicit queue-based architecture (#49)
   - Simplified `PolicyOrchestrator.process_streaming_response` to clear 2-stage pipeline
   - PolicyExecutor: Block assembly + policy hooks with background timeout enforcement
   - **TimeoutMonitor**: Dedicated class for keepalive-based timeout tracking (100ms check interval)

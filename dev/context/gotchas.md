@@ -48,6 +48,18 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - **Batch processing**: Block with `await queue.get()` for first item (don't busy-wait with `get_nowait()` in loop!)
 - **Why it matters**: Busy-wait consumes 100% CPU; proper blocking is essential for async efficiency
 
+## Anthropic SSE Requires Stateful Block Index Tracking (2025-11-03)
+
+- OpenAI chunks lack block indices; Anthropic clients need sequential indices (0,1,2...) + lifecycle events (start/delta/stop)
+- Use `AnthropicSSEAssembler` to maintain state across chunks (v2/llm/anthropic_sse_assembler.py)
+
+## Policies Must Forward Content Chunks (2025-11-04)
+
+- If policy handles tool calls but doesn't implement `on_content_delta()`, content never reaches client
+- Always forward content chunks in `on_content_delta()` (see tool_call_judge_policy.py:146)
+- Use `Delta(content=text)` not `{"content": text}` - dicts break SSE assembly
+- Use `StreamingChoices` not `Choices` for streaming (utils.py create_text_chunk)
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
