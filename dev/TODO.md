@@ -39,6 +39,7 @@
 
 ## Medium Priority
 
+- [ ] **Audit all tests for unjustified conditional logic** - Review all test files (unit, integration, e2e) and remove conditional logic that checks for optional behavior. Tests should assert expected behavior, not conditionally validate. Exceptions: helper functions for parsing, format validation logic, legitimate expected variance in responses. Reference: test_streaming_chunk_structure.py cleanup as example.
 - [ ] remove unnecessary string-matching test conditions (e.g. matching exception messages)
 - [ ] call_id -> transaction_id
 - [ ] Revisit ignored pyright issues

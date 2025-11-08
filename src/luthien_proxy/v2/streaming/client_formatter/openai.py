@@ -76,6 +76,9 @@ class OpenAIClientFormatter:
                 # Convert ModelResponse to SSE format: "data: {json}\n\n"
                 sse_line = f"data: {chunk.model_dump_json()}\n\n"
                 await self._safe_put(output_queue, sse_line)
+
+            # Send [DONE] marker per OpenAI streaming spec
+            await self._safe_put(output_queue, "data: [DONE]\n\n")
         finally:
             # Signal end of stream to output queue
             await self._safe_put(output_queue, None)

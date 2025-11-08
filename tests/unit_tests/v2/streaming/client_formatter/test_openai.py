@@ -76,10 +76,12 @@ async def test_openai_formatter_basic_flow(formatter, policy_ctx, obs_ctx):
         if item is not None:
             results.append(item)
 
-    assert len(results) == 3
+    # Should have 3 content chunks + 1 [DONE] marker
+    assert len(results) == 4
+    assert results[-1] == "data: [DONE]\n\n", "Last item should be [DONE] marker"
 
-    # Each SSE line should be "data: {json}\n\n"
-    for sse_line in results:
+    # Each SSE line (except [DONE]) should be "data: {json}\n\n"
+    for sse_line in results[:-1]:  # Skip [DONE] marker
         assert sse_line.startswith("data: ")
         assert sse_line.endswith("\n\n")
 
@@ -125,9 +127,12 @@ async def test_openai_formatter_empty_queue(formatter, policy_ctx, obs_ctx):
 
     await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
 
-    # Should produce only None sentinel (no data)
+    # Should produce [DONE] marker even with no chunks, then None sentinel
+    done_marker = await output_queue.get()
+    assert done_marker == "data: [DONE]\n\n", "Should send [DONE] even with empty stream"
+
     sentinel = await output_queue.get()
-    assert sentinel is None
+    assert sentinel is None, "Should send None sentinel after [DONE]"
     assert output_queue.empty()
 
 
@@ -173,3 +178,40 @@ async def test_openai_formatter_sse_format_compliance(formatter, policy_ctx, obs
 
     # 3. No extra whitespace or formatting
     assert sse_line.count("\n") == 2  # Exactly two newlines at the end
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_sends_done_marker(formatter, policy_ctx, obs_ctx):
+    """Test that formatter sends [DONE] marker at end of stream.
+
+    Per OpenAI API spec, streaming responses must end with 'data: [DONE]'.
+    Reference: scripts/capture_openai_sse.py shows real OpenAI API sends this.
+    """
+    input_queue = asyncio.Queue()
+    output_queue = asyncio.Queue()
+
+    # Add some chunks
+    await input_queue.put(create_model_response(content="Hello"))
+    await input_queue.put(create_model_response(content=" world", finish_reason="stop"))
+    await input_queue.put(None)  # End signal
+
+    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+
+    # Collect all output
+    results = []
+    while not output_queue.empty():
+        item = await output_queue.get()
+        if item is not None:
+            results.append(item)
+
+    # Last item should be [DONE] marker
+    assert len(results) >= 2, "Should have at least content chunks"
+
+    # Check if we have a [DONE] marker
+    done_marker = "data: [DONE]\n\n"
+    has_done = any(item == done_marker for item in results)
+
+    assert has_done, f"OpenAI streaming responses must end with 'data: [DONE]' marker. Got final items: {results[-2:]}"
+
+    # [DONE] should be the last item
+    assert results[-1] == done_marker, "[DONE] marker must be the last item in stream"
