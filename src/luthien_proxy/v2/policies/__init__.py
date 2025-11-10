@@ -6,10 +6,10 @@
 from luthien_proxy.v2.policies.all_caps_policy import AllCapsPolicy
 from luthien_proxy.v2.policies.debug_logging_policy import DebugLoggingPolicy
 from luthien_proxy.v2.policies.noop_policy import NoOpPolicy
-from luthien_proxy.v2.policies.policy import PolicyProtocol
-from luthien_proxy.v2.policies.policy_context import PolicyContext
 from luthien_proxy.v2.policies.simple_policy import SimplePolicy
 from luthien_proxy.v2.policies.tool_call_judge_policy import ToolCallJudgePolicy
+from luthien_proxy.v2.policy_core.policy_context import PolicyContext
+from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol
 
 __all__ = [
     "PolicyProtocol",

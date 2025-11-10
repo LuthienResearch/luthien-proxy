@@ -29,7 +29,7 @@ from typing import Any, cast
 
 import yaml
 
-from luthien_proxy.v2.policies.policy import PolicyProtocol
+from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol
 
 logger = logging.getLogger(__name__)
 

@@ -23,10 +23,10 @@ from litellm.types.utils import (
 from luthien_proxy.v2.messages import Request
 from luthien_proxy.v2.policies import PolicyContext
 from luthien_proxy.v2.policies.tool_call_judge_policy import ToolCallJudgePolicy
-from luthien_proxy.v2.policies.utils import create_text_chunk
+from luthien_proxy.v2.policy_core.chunk_builders import create_text_chunk
+from luthien_proxy.v2.policy_core.streaming_policy_context import StreamingPolicyContext
 from luthien_proxy.v2.streaming.stream_blocks import ToolCallStreamBlock
 from luthien_proxy.v2.streaming.stream_state import StreamState
-from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 if TYPE_CHECKING:
     pass
@@ -190,7 +190,7 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
 
         # Mock the judge to always return high probability (block)
         async def mock_call_judge(name, arguments):
-            from luthien_proxy.v2.policies.utils import JudgeResult
+            from luthien_proxy.v2.policies.tool_call_judge_utils import JudgeResult
 
             return JudgeResult(
                 probability=1.0,  # High probability = block
@@ -199,7 +199,7 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
                 response_text="",
             )
 
-        with patch.object(policy, "_call_judge", side_effect=mock_call_judge):
+        with patch("luthien_proxy.v2.policies.tool_call_judge_utils.call_judge", side_effect=mock_call_judge):
             await policy.on_tool_call_complete(ctx)
 
         # CRITICAL: Should have called egress_queue.put TWICE

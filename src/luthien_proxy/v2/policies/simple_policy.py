@@ -8,16 +8,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from luthien_proxy.v2.policies.policy import PolicyProtocol
-from luthien_proxy.v2.streaming.helpers import passthrough_accumulated_chunks, send_text, send_tool_call
+from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol
+from luthien_proxy.v2.policy_core.streaming_utils import passthrough_accumulated_chunks, send_text, send_tool_call
 from luthien_proxy.v2.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
 if TYPE_CHECKING:
     from litellm.types.utils import ChatCompletionMessageToolCall
 
     from luthien_proxy.v2.messages import Request
-    from luthien_proxy.v2.policies.policy_context import PolicyContext
-    from luthien_proxy.v2.streaming.streaming_policy_context import (
+    from luthien_proxy.v2.policy_core.policy_context import PolicyContext
+    from luthien_proxy.v2.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
     )
 

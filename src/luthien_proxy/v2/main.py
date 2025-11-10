@@ -20,7 +20,7 @@ from luthien_proxy.v2.config import load_policy_from_yaml
 from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.gateway_routes import router as gateway_router
 from luthien_proxy.v2.observability import RedisEventPublisher
-from luthien_proxy.v2.policies.policy import PolicyProtocol
+from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.v2.telemetry import setup_telemetry
 from luthien_proxy.v2.ui import router as ui_router
 

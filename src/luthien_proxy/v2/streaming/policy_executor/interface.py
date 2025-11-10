@@ -9,8 +9,8 @@ from typing import AsyncIterator, Protocol
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
-from luthien_proxy.v2.policies.policy import PolicyProtocol as BasePolicyProtocol
-from luthien_proxy.v2.policies.policy_context import PolicyContext
+from luthien_proxy.v2.policy_core.policy_context import PolicyContext
+from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol as BasePolicyProtocol
 
 
 class PolicyExecutorProtocol(Protocol):

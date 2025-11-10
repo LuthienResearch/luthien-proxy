@@ -11,22 +11,15 @@ if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse
 
     from luthien_proxy.v2.messages import Request
-    from luthien_proxy.v2.policies.policy_context import PolicyContext
-    from luthien_proxy.v2.streaming.streaming_policy_context import (
+    from luthien_proxy.v2.policy_core.policy_context import PolicyContext
+    from luthien_proxy.v2.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
     )
 
 
 @runtime_checkable
 class PolicyProtocol(Protocol):
-    """Protocol defining the interface all policies must implement.
-
-    This protocol provides type safety for policy methods throughout the codebase.
-    Use this instead of `Any` when accepting policy instances.
-
-    Note: on_request uses NewPolicyContext (from streaming.protocol) while
-    process_full_response uses the old PolicyContext for backwards compatibility.
-    """
+    """Protocol defining the policy interface. Not every method needs to be implemented."""
 
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
         """Process request before sending to LLM."""

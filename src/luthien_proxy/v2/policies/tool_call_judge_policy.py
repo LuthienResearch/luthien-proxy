@@ -31,22 +31,24 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, cast
 
-from litellm import acompletion
-from litellm.types.utils import Choices, Message, ModelResponse, StreamingChoices
+from litellm.types.utils import Choices, ModelResponse, StreamingChoices
 
 if TYPE_CHECKING:
     from luthien_proxy.v2.observability.context import ObservabilityContext
-    from luthien_proxy.v2.policies.policy_context import PolicyContext
-    from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
+    from luthien_proxy.v2.policy_core.policy_context import PolicyContext
+    from luthien_proxy.v2.policy_core.streaming_policy_context import StreamingPolicyContext
 
-from luthien_proxy.v2.policies.policy import PolicyProtocol
-from luthien_proxy.v2.policies.utils import (
+from luthien_proxy.v2.policies.tool_call_judge_utils import (
     JudgeConfig,
-    JudgeResult,
+    call_judge,
+    create_blocked_response,
+)
+from luthien_proxy.v2.policy_core import (
     create_text_chunk,
     create_text_response,
     extract_tool_calls_from_response,
 )
+from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -352,7 +354,7 @@ class ToolCallJudgePolicy(PolicyProtocol):
 
         # Call judge
         try:
-            judge_result = await self._call_judge(name, arguments)
+            judge_result = await call_judge(name, arguments, self._config, self._judge_instructions)
         except Exception as exc:
             # LOUD ERROR LOGGING - judge failure is a security concern
             logger.error(
@@ -428,147 +430,7 @@ class ToolCallJudgePolicy(PolicyProtocol):
             },
         )
 
-        return self._create_blocked_response(tool_call, judge_result)
-
-    async def _call_judge(self, name: str, arguments: str) -> JudgeResult:
-        """Call LLM judge to evaluate a tool call.
-
-        Args:
-            name: Tool call name
-            arguments: Tool call arguments (JSON string)
-
-        Returns:
-            JudgeResult with probability and explanation
-        """
-        prompt = self._build_judge_prompt(name, arguments)
-
-        try:
-            kwargs: dict[str, Any] = {
-                "model": self._config.model,
-                "temperature": self._config.temperature,
-                "max_tokens": self._config.max_tokens,
-                "messages": prompt,
-            }
-
-            # Only use response_format for models that support it
-            # (gpt-4-turbo, gpt-4o, gpt-3.5-turbo-1106+, etc.)
-            # Skip for base gpt-4 which doesn't support it
-            model_lower = self._config.model.lower()
-            if "gpt-4o" in model_lower or "gpt-4-turbo" in model_lower or "gpt-3.5-turbo" in model_lower:
-                kwargs["response_format"] = {"type": "json_object"}
-
-            if self._config.api_base:
-                kwargs["api_base"] = self._config.api_base
-            if self._config.api_key:
-                kwargs["api_key"] = self._config.api_key
-
-            response = await acompletion(**kwargs)
-            response = cast(ModelResponse, response)
-
-        except Exception as exc:
-            logger.error(f"LLM judge request failed: {exc}")
-            raise
-
-        # Extract response content
-        first_choice: Choices = cast(Choices, response.choices[0])
-        message: Message = first_choice.message
-        if message.content is None:
-            raise ValueError("Judge response content is None")
-        content: str = message.content
-
-        if not isinstance(content, str):
-            raise ValueError("Judge response content must be a string")
-
-        # Parse JSON response
-        data = self._parse_judge_response(content)
-        probability = float(data.get("probability", 0.0))
-        explanation = str(data.get("explanation", ""))
-
-        # Clamp probability to [0, 1]
-        probability = max(0.0, min(1.0, probability))
-
-        return JudgeResult(
-            probability=probability,
-            explanation=explanation,
-            prompt=prompt,
-            response_text=content,
-        )
-
-    def _parse_judge_response(self, content: str) -> dict[str, Any]:
-        """Parse judge response JSON, handling fenced code blocks.
-
-        Args:
-            content: Raw judge response text
-
-        Returns:
-            Parsed JSON dict
-        """
-        text = content.strip()
-
-        # Handle fenced code blocks (```json ... ```)
-        if text.startswith("```"):
-            text = text.lstrip("`")
-            newline_index = text.find("\n")
-            if newline_index != -1:
-                prefix = text[:newline_index].strip().lower()
-                if prefix in {"json", "```json", ""}:
-                    text = text[newline_index + 1 :]
-            text = text.rstrip("`").strip()
-
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Judge response JSON parsing failed: {exc}") from exc
-
-        if not isinstance(data, dict):
-            raise ValueError("Judge response must be a JSON object")
-
-        return data
-
-    def _build_judge_prompt(self, name: str, arguments: str) -> list[dict[str, str]]:
-        """Build prompt for judge LLM using custom instructions.
-
-        Args:
-            name: Tool call name
-            arguments: Tool call arguments (JSON string)
-
-        Returns:
-            Messages list for judge LLM
-        """
-        return [
-            {
-                "role": "system",
-                "content": self._judge_instructions,
-            },
-            {
-                "role": "user",
-                "content": f"Tool name: {name}\nArguments: {arguments}\n\nAssess the risk.",
-            },
-        ]
-
-    def _create_blocked_response(self, tool_call: dict[str, Any], judge_result: JudgeResult) -> ModelResponse:
-        """Create a blocked response message using template.
-
-        Args:
-            tool_call: Tool call that was blocked
-            judge_result: Judge evaluation result
-
-        Returns:
-            ModelResponse with blocked message
-        """
-        # Format message using template with available variables
-        tool_arguments = tool_call.get("arguments", "")
-        if not isinstance(tool_arguments, str):
-            tool_arguments = json.dumps(tool_arguments)
-
-        message = self._blocked_message_template.format(
-            tool_name=tool_call.get("name", "unknown"),
-            tool_arguments=tool_arguments,
-            probability=judge_result.probability,
-            explanation=judge_result.explanation or "No explanation provided",
-        )
-
-        return create_text_response(message, model=self._config.model)
+        return create_blocked_response(tool_call, judge_result, self._blocked_message_template, self._config.model)
 
 
 __all__ = ["ToolCallJudgePolicy"]

@@ -28,8 +28,8 @@ from luthien_proxy.v2.observability.transaction_recorder import (
     DefaultTransactionRecorder,
 )
 from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
-from luthien_proxy.v2.policies.policy import PolicyProtocol
-from luthien_proxy.v2.policies.policy_context import PolicyContext
+from luthien_proxy.v2.policy_core.policy_context import PolicyContext
+from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.v2.streaming.client_formatter.anthropic import (
     AnthropicClientFormatter,
 )

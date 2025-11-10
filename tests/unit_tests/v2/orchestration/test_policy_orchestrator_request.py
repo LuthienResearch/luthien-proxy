@@ -11,7 +11,7 @@ from luthien_proxy.v2.observability.context import NoOpObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.v2.policies import PolicyContext
-from luthien_proxy.v2.policies.policy import PolicyProtocol
+from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol
 
 
 class MockPolicy(PolicyProtocol):

@@ -279,13 +279,13 @@ Policies can intercept at these points:
 ### Supporting Components
 
 - **StreamingChunkAssembler**: `src/luthien_proxy/v2/streaming/streaming_chunk_assembler.py`
-- **PolicyContext**: `src/luthien_proxy/v2/policies/policy_context.py`
+- **PolicyContext**: `src/luthien_proxy/v2/policy_core/policy_context.py`
 - **ObservabilityContext**: `src/luthien_proxy/v2/observability/context.py`
 - **TransactionRecorder**: `src/luthien_proxy/v2/observability/transaction_recorder.py`
 
 ### Policies
 
-- **Policy Protocol**: `src/luthien_proxy/v2/policies/policy.py`
+- **Policy Protocol**: `src/luthien_proxy/v2/policy_core/policy_protocol.py`
 - **Example Policies**: `src/luthien_proxy/v2/policies/{noop,simple,debug_logging,tool_call_judge}_policy.py`
 
 ### Tests

@@ -8,10 +8,12 @@ from __future__ import annotations
 import pytest
 from litellm.types.utils import ChatCompletionMessageToolCall, Choices, Function, Message, ModelResponse
 
-from luthien_proxy.v2.policies.utils import (
-    chunk_contains_tool_call,
+from luthien_proxy.v2.policy_core.chunk_builders import (
     create_text_chunk,
     create_text_response,
+)
+from luthien_proxy.v2.policy_core.response_utils import (
+    chunk_contains_tool_call,
     extract_tool_calls_from_response,
     is_tool_call_complete,
 )
