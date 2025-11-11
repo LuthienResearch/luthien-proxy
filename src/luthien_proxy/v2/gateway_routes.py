@@ -75,6 +75,10 @@ async def chat_completions(
     _: str = Depends(verify_token),
 ):
     """OpenAI-compatible chat completions endpoint."""
+    # Check request size (default 10MB limit)
+    if (content_length := request.headers.get("content-length")) and int(content_length) > 10_485_760:
+        raise HTTPException(status_code=413, detail="Request payload too large")
+
     body = await request.json()
     call_id = str(uuid.uuid4())
 
@@ -164,6 +168,10 @@ async def anthropic_messages(
     _: str = Depends(verify_token),
 ):
     """Anthropic Messages API endpoint."""
+    # Check request size (default 10MB limit)
+    if (content_length := request.headers.get("content-length")) and int(content_length) > 10_485_760:
+        raise HTTPException(status_code=413, detail="Request payload too large")
+
     anthropic_body = await request.json()
     call_id = str(uuid.uuid4())
 
