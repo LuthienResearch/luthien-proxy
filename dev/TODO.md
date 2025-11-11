@@ -2,11 +2,6 @@
 
 ## High Priority
 
-- [ ] **Add request size limits** - Add validation before parsing JSON to prevent DoS attacks:
-  - Add `max_request_size` validation in gateway routes (even 10MB would prevent trivial DoS)
-  - Consider using FastAPI's `Request.body()` size limits or custom middleware
-  - Log/alert on rejected oversized requests
-  - Make limit configurable via environment variable
 - [ ] **Verify UI monitoring endpoints functionality** - Check which UI endpoints are working and refactor as needed:
   - Test `/v2/debug/diff` - diff viewer with side-by-side comparisons
   - Test `/v2/activity/monitor` - real-time activity stream
