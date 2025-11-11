@@ -2,6 +2,14 @@
 
 ## Unreleased | TBA
 
+- Add request size limits to V2 gateway (#54)
+  - `RequestSizeLimitMiddleware` validates Content-Length before parsing request bodies
+  - Configurable via `MAX_REQUEST_SIZE` environment variable (default: 10MB)
+  - Returns 413 Payload Too Large with detailed error response for oversized requests
+  - Logs rejected requests with size details for security monitoring
+  - Prevents DoS attacks via oversized payloads
+  - Comprehensive unit and integration test coverage
+
 - Cleanup and refactoring (#50)
   - introduced `policy_core` for common streaming/policy utilities
     - moved core abstractions (`PolicyProtocol`, `PolicyContext`, `StreamingPolicyContext` to `policy_core`)
