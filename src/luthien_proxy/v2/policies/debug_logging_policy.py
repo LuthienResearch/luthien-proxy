@@ -12,10 +12,10 @@ from litellm.types.utils import ModelResponse
 
 if TYPE_CHECKING:
     from luthien_proxy.v2.messages import Request
-    from luthien_proxy.v2.policies.policy_context import PolicyContext
-    from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
+    from luthien_proxy.v2.policy_core.policy_context import PolicyContext
+    from luthien_proxy.v2.policy_core.streaming_policy_context import StreamingPolicyContext
 
-from luthien_proxy.v2.policies.policy import PolicyProtocol
+from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol
 
 logger = logging.getLogger(__name__)
 

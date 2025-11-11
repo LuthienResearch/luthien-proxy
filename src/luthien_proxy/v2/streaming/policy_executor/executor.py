@@ -11,8 +11,9 @@ from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
 from luthien_proxy.v2.observability.transaction_recorder import TransactionRecorder
-from luthien_proxy.v2.policies.policy import PolicyProtocol
-from luthien_proxy.v2.policies.policy_context import PolicyContext
+from luthien_proxy.v2.policy_core.policy_context import PolicyContext
+from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol
+from luthien_proxy.v2.policy_core.streaming_policy_context import StreamingPolicyContext
 from luthien_proxy.v2.streaming.policy_executor.interface import (
     PolicyExecutorProtocol,
     PolicyTimeoutError,
@@ -25,7 +26,6 @@ from luthien_proxy.v2.streaming.stream_blocks import (
 from luthien_proxy.v2.streaming.streaming_chunk_assembler import (
     StreamingChunkAssembler,
 )
-from luthien_proxy.v2.streaming.streaming_policy_context import StreamingPolicyContext
 
 logger = logging.getLogger(__name__)
 

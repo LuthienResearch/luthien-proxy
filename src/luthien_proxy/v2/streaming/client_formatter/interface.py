@@ -9,7 +9,7 @@ from typing import Protocol
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.v2.observability.context import ObservabilityContext
-from luthien_proxy.v2.policies.policy_context import PolicyContext
+from luthien_proxy.v2.policy_core.policy_context import PolicyContext
 
 
 class ClientFormatter(Protocol):

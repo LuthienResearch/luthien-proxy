@@ -7,11 +7,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from luthien_proxy.v2.policy_core.chunk_builders import create_text_chunk, create_tool_call_chunk
+
 if TYPE_CHECKING:
     from litellm.types.utils import ChatCompletionMessageToolCall as ToolCall
     from litellm.types.utils import ModelResponse
 
-    from luthien_proxy.v2.streaming.streaming_policy_context import (
+    from luthien_proxy.v2.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
     )
 
@@ -20,8 +22,6 @@ async def send_text(ctx: StreamingPolicyContext, text: str) -> None:
     """Send text chunk to egress."""
     if not text:
         raise ValueError("text must be non-empty")
-
-    from luthien_proxy.v2.policies.utils import create_text_chunk
 
     chunk = create_text_chunk(text)
     await ctx.egress_queue.put(chunk)
@@ -61,8 +61,6 @@ async def passthrough_accumulated_chunks(ctx: StreamingPolicyContext) -> None:
 
 async def send_tool_call(ctx: StreamingPolicyContext, tool_call: ToolCall) -> None:
     """Send complete tool call as chunk."""
-    from luthien_proxy.v2.policies.utils import create_tool_call_chunk
-
     chunk = create_tool_call_chunk(tool_call)
     await ctx.egress_queue.put(chunk)
 

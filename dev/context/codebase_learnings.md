@@ -110,7 +110,7 @@ sse_queue: Queue[str]
 - `orchestration/policy_orchestrator.py` - orchestration (~30 lines)
 - `streaming/policy_executor/` - block assembly + policy hooks (55 tests)
 - `streaming/client_formatter/` - SSE conversion (12 tests)
-- `policies/policy_context.py` - per-request state (transaction_id + scratchpad)
+- `policy_core/policy_context.py` - per-request state (transaction_id + scratchpad)
 
 ---
 

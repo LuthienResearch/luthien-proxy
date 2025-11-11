@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## Unreleased | TBA
+
+- Cleanup and refactoring (#50)
+  - introduced `policy_core` for common streaming/policy utilities
+    - moved core abstractions (`PolicyProtocol`, `PolicyContext`, `StreamingPolicyContext` to `policy_core`)
+  - split `policies/utils.py` into focused modules `chunk_builders.py`, `response_utils.py`, `tool_call_judge_utils.py`
+  - dependency analysis script
+
 ## 0.0.2 | 2025-11-07
 
 - **Anthropic streaming fixes** (post-#49):
