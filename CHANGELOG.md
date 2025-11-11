@@ -2,6 +2,15 @@
 
 ## Unreleased | TBA
 
+- Remove "v2" concept and consolidate architecture (#55)
+  - Moved all code from `src/luthien_proxy/v2/*` to `src/luthien_proxy/*`
+  - Updated all imports from `luthien_proxy.v2.*` to `luthien_proxy.*`
+  - Renamed `V2_POLICY_CONFIG` env var to `POLICY_CONFIG`
+  - Renamed `config/v2_config.yaml` to `config/policy_config.yaml`
+  - Updated route prefixes: `/v2/debug` → `/debug`, `/v2/activity` → `/activity`
+  - Renamed docker service from `v2-gateway` to `gateway`
+  - Moved test directories from `tests/**/v2/` to `tests/**/`
+
 - Cleanup and refactoring (#50)
   - introduced `policy_core` for common streaming/policy utilities
     - moved core abstractions (`PolicyProtocol`, `PolicyContext`, `StreamingPolicyContext` to `policy_core`)
