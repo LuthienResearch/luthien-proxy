@@ -15,7 +15,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from litellm.types.utils import Choices, Delta, ModelResponse, StreamingChoices
+from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
 
 
 def create_text_response(
@@ -40,7 +40,7 @@ def create_text_response(
             Choices(
                 finish_reason=finish_reason,
                 index=0,
-                message={"content": text, "role": "assistant"},
+                message=Message(content=text, role="assistant"),
             )
         ],
         created=int(time.time()),
@@ -112,7 +112,7 @@ def create_tool_call_chunk(tool_call: Any, model: str = "luthien-policy") -> Mod
         choices=[
             Choices(
                 index=0,
-                delta={"tool_calls": [tool_call_dict]},
+                delta=Delta(tool_calls=[tool_call_dict]),
                 finish_reason="tool_calls",
             )
         ],
