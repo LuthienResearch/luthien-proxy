@@ -1,6 +1,6 @@
 #!/bin/bash
 # ABOUTME: Start the V2 integrated gateway (FastAPI + LiteLLM with control plane)
-# ABOUTME: Runs on port 8000 (configurable via V2_GATEWAY_PORT env var)
+# ABOUTME: Runs on port 8000 (configurable via GATEWAY_PORT env var)
 
 set -e
 
@@ -11,7 +11,7 @@ if [ -f .env ]; then
 fi
 
 # Set defaults
-PORT=${V2_GATEWAY_PORT:-8000}
+PORT=${GATEWAY_PORT:-8000}
 API_KEY=${PROXY_API_KEY:-sk-luthien-dev-key}
 
 # Validate required API keys

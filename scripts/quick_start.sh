@@ -183,7 +183,7 @@ if [ "$services_healthy" = true ]; then
     echo "🎉 Luthien V2 is ready!"
     echo ""
     echo "📋 Service URLs:"
-    echo "   • V2 Gateway (OpenAI-compatible): http://localhost:${V2_GATEWAY_PORT:-8000}"
+    echo "   • V2 Gateway (OpenAI-compatible): http://localhost:${GATEWAY_PORT:-8000}"
     echo "   • PostgreSQL:     localhost:${POSTGRES_PORT:-5432}"
     echo "   • Redis:          localhost:${REDIS_PORT:-6379}"
     echo "   • Ollama OpenAI API: http://localhost:${ollama_port} (OpenAI-compatible)"

@@ -1,5 +1,5 @@
-"""ABOUTME: Helper for managing V2 gateway lifecycle in e2e tests.
-ABOUTME: Provides self-contained V2 gateway that doesn't interfere with dev environment.
+"""ABOUTME: Helper for managing gateway lifecycle in e2e tests.
+ABOUTME: Provides self-contained gateway that doesn't interfere with dev environment.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from luthien_proxy.policies.noop import NoOpPolicy
 
 
 def _run_v2_gateway(port: int, api_key: str) -> None:
-    """Run V2 gateway in a subprocess.
+    """Run gateway in a subprocess.
 
     This function is the target for multiprocessing.Process.
     It configures the environment and starts uvicorn.
@@ -52,9 +52,9 @@ def _run_v2_gateway(port: int, api_key: str) -> None:
 
 
 class V2GatewayManager:
-    """Manager for V2 gateway test instances.
+    """Manager for gateway test instances.
 
-    Starts a V2 gateway on a dedicated test port, waits for it to be ready,
+    Starts a gateway on a dedicated test port, waits for it to be ready,
     and ensures cleanup when done. Does not interfere with dev environment.
     """
 
@@ -73,12 +73,12 @@ class V2GatewayManager:
         self._process: multiprocessing.Process | None = None
 
     def start(self) -> None:
-        """Start the V2 gateway subprocess."""
+        """Start the gateway subprocess."""
         if self._process is not None:
-            raise RuntimeError("V2 gateway already started")
+            raise RuntimeError("Gateway already started")
 
         if self.verbose:
-            print(f"[v2-gateway] Starting V2 gateway on port {self.port}")
+            print(f"[gateway] Starting gateway on port {self.port}")
 
         # Start gateway in subprocess
         self._process = multiprocessing.Process(
@@ -97,7 +97,7 @@ class V2GatewayManager:
                 response = httpx.get(f"{self.base_url}/health", timeout=1.0)
                 response.raise_for_status()
                 if self.verbose:
-                    print("[v2-gateway] Gateway is ready")
+                    print("[gateway] Gateway is ready")
                 return
             except Exception as exc:
                 last_error = exc
@@ -106,16 +106,16 @@ class V2GatewayManager:
         # Cleanup on failure
         self.stop()
         raise RuntimeError(
-            f"V2 gateway failed to start within {self.startup_timeout}s" + (f": {last_error}" if last_error else "")
+            f"Gateway failed to start within {self.startup_timeout}s" + (f": {last_error}" if last_error else "")
         )
 
     def stop(self) -> None:
-        """Stop the V2 gateway subprocess."""
+        """Stop the gateway subprocess."""
         if self._process is None:
             return
 
         if self.verbose:
-            print("[v2-gateway] Stopping V2 gateway")
+            print("[gateway] Stopping gateway")
 
         # Terminate process
         if self._process.is_alive():
@@ -131,7 +131,7 @@ class V2GatewayManager:
 
     @contextmanager
     def running(self):
-        """Context manager for V2 gateway lifecycle."""
+        """Context manager for gateway lifecycle."""
         try:
             self.start()
             yield self
@@ -144,7 +144,7 @@ async def wait_for_v2_gateway(
     timeout: float = 10.0,
     verbose: bool = False,
 ) -> None:
-    """Wait for V2 gateway to become healthy.
+    """Wait for gateway to become healthy.
 
     Args:
         base_url: Base URL of the gateway (e.g., "http://localhost:8888")
@@ -160,17 +160,16 @@ async def wait_for_v2_gateway(
                 response = await client.get(f"{base_url}/health")
                 response.raise_for_status()
                 if verbose:
-                    print(f"[v2-gateway] Gateway at {base_url} is healthy")
+                    print(f"[gateway] Gateway at {base_url} is healthy")
                 return
             except Exception as exc:
                 last_error = exc
                 if verbose:
-                    print(f"[v2-gateway] Waiting for gateway: {exc}")
+                    print(f"[gateway] Waiting for gateway: {exc}")
                 await asyncio.sleep(0.2)
 
     raise RuntimeError(
-        f"V2 gateway at {base_url} failed to become healthy within {timeout}s"
-        + (f": {last_error}" if last_error else "")
+        f"Gateway at {base_url} failed to become healthy within {timeout}s" + (f": {last_error}" if last_error else "")
     )
 
 

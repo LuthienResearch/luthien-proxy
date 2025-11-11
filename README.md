@@ -121,15 +121,15 @@ Copy `.env.example` to `.env` and add your API keys:
 OPENAI_API_KEY=your_openai_api_key_here
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
-# V2 Gateway configuration
+# Gateway configuration
 PROXY_API_KEY=sk-luthien-dev-key  # API key for accessing the gateway
-V2_GATEWAY_PORT=8000               # Gateway port
+GATEWAY_PORT=8000               # Gateway port
 POLICY_CONFIG=/app/config/policy_config.yaml  # Policy configuration
 ```
 
 ### Policy Configuration
 
-The V2 gateway loads policies from `POLICY_CONFIG` (defaults to `config/policy_config.yaml`).
+The gateway loads policies from `POLICY_CONFIG` (defaults to `config/policy_config.yaml`).
 
 Example policy configuration:
 

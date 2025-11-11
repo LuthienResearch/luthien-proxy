@@ -160,7 +160,7 @@ if __name__ == "__main__":
         raise ValueError("DATABASE_URL environment variable required")
 
     # Load policy from YAML configuration
-    # Set V2_POLICY_CONFIG env var to override default (config/v2_config.yaml)
+    # Set POLICY_CONFIG env var to override default (config/policy_config.yaml)
     policy_handler = load_policy_from_yaml()
 
     # Create app with factory function

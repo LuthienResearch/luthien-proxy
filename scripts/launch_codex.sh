@@ -15,7 +15,7 @@ else
   exit 1
 fi
 
-V2_PORT=${V2_GATEWAY_PORT:-8000}
+V2_PORT=${GATEWAY_PORT:-8000}
 
 set -euo pipefail
 

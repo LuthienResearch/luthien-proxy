@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-GATEWAY_URL="${V2_GATEWAY_URL:-http://localhost:8000}"
+GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
 API_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
 
 # Colors for output

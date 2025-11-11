@@ -13,30 +13,25 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - Always run `./scripts/dev_checks.sh` before committing - formats, lints, type-checks, and tests
 - **OTel disabled in tests**: Set `OTEL_ENABLED=false` in test environment to avoid connection errors to Tempo endpoint. Module-level `tracer = trace.get_tracer()` calls trigger OTel initialization at import time.
 - **LiteLLM type warnings**: When working with `ModelResponse`, use proper typed objects (`Choices`, `StreamingChoices`, `Message`, `Delta`) to avoid Pydantic serialization warnings from LiteLLM's `Union` types. See test fixtures for examples.
-- **V1 e2e tests removed**: Only V2 e2e tests remain (test_v2_api_compatibility.py). V1 tests tested deleted infrastructure and were removed.
+- **E2E tests**: E2E tests remain (test_gateway_matrix.py, test_streaming_chunk_structure.py).
 
-## Docker Development (2025-10-08, updated 2025-10-24)
+## Docker Development (2025-10-08, updated 2025-11-11)
 
-- Use `docker compose restart v2-gateway` to iterate on code changes
-- Check logs with `docker compose logs -f v2-gateway` when debugging
+- Use `docker compose restart gateway` to iterate on code changes
+- Check logs with `docker compose logs -f gateway` when debugging
 - Long-running compose or `uv` commands can hang the CLI; launch them via `scripts/run_bg_command.sh` so you can poll logs (`tail -f`) and terminate with the recorded PID if needed.
-- **V1 services removed**: control-plane, litellm-proxy, and dummy-provider services are deleted. Only v2-gateway, local-llm, db, and redis remain.
+- **Services**: gateway, local-llm, db, and redis
 
-## Observability Checks (2025-10-08, updated 2025-10-24)
+## Observability Checks (2025-10-08, updated 2025-11-11)
 
-- **V1 e2e helpers removed**: V1 e2e test helpers (policy_assertions.py, infra.py, etc.) were deleted along with V1 infrastructure
-- V2 uses OpenTelemetry for observability - see `dev/observability-v2.md` and `dev/VIEWING_TRACES_GUIDE.md`
-- Live activity monitoring available at `/activity/monitor` on the V2 gateway
+- Uses OpenTelemetry for observability - see `dev/observability-v2.md` and `dev/VIEWING_TRACES_GUIDE.md`
+- Live activity monitoring available at `/activity/monitor` on the gateway
 
-## Documentation Structure (2025-10-10, updated 2025-10-24)
+## Documentation Structure (2025-10-10, updated 2025-11-11)
 
-**Gotcha**: V1 documentation archived, V2 documentation is canonical
-
-- **V1 docs archived**: docs/archive/ contains v1-ARCHITECTURE.md, v1-developer-onboarding.md, v1-diagrams.md, v1-reading-guide.md
-- **V2 docs active**: dev/ARCHITECTURE.md, dev/event_driven_policy_guide.md, dev/observability-v2.md, dev/VIEWING_TRACES_GUIDE.md
-- **Public docs location changed**: Main documentation moved from docs/ to dev/ for V2
+- **Active docs**: dev/ARCHITECTURE.md, dev/event_driven_policy_guide.md, dev/observability-v2.md, dev/VIEWING_TRACES_GUIDE.md
 - **Common places to check**: README.md, CLAUDE.md, AGENTS.md, dev planning docs, inline code comments
-- **Streaming behavior (V2)**: V2 emits conversation events via `v2/storage/events.py` using background queue for non-blocking persistence
+- **Streaming behavior**: Emits conversation events via `storage/events.py` using background queue for non-blocking persistence
 
 ## Queue Shutdown for Stream Termination (2025-01-20, updated 2025-10-20)
 

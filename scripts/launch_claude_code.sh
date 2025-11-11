@@ -23,12 +23,12 @@ fi
 # Source only the variables we need from .env
 if [ -f .env ]; then
     export PROXY_API_KEY=$(grep -E '^PROXY_API_KEY=' .env | cut -d '=' -f2-)
-    export V2_GATEWAY_PORT=$(grep -E '^V2_GATEWAY_PORT=' .env | cut -d '=' -f2-)
-    export V2_GATEWAY_HOST=$(grep -E '^V2_GATEWAY_HOST=' .env | cut -d '=' -f2-)
+    export GATEWAY_PORT=$(grep -E '^GATEWAY_PORT=' .env | cut -d '=' -f2-)
+    export GATEWAY_HOST=$(grep -E '^GATEWAY_HOST=' .env | cut -d '=' -f2-)
 fi
 
 # Check if V2 gateway is running
-V2_PORT="${V2_GATEWAY_PORT:-8000}"
+V2_PORT="${GATEWAY_PORT:-8000}"
 
 echo -e "${YELLOW}🔍 Checking V2 gateway status...${NC}"
 
