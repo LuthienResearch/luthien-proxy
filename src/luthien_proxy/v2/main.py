@@ -19,6 +19,7 @@ from luthien_proxy.utils import db
 from luthien_proxy.v2.config import load_policy_from_yaml
 from luthien_proxy.v2.debug import router as debug_router
 from luthien_proxy.v2.gateway_routes import router as gateway_router
+from luthien_proxy.v2.middleware import RequestSizeLimitMiddleware, get_max_request_size
 from luthien_proxy.v2.observability import RedisEventPublisher
 from luthien_proxy.v2.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.v2.telemetry import setup_telemetry
@@ -112,6 +113,11 @@ def create_app(
         version="2.0.0",
         lifespan=lifespan,
     )
+
+    # Add security middleware
+    max_request_size = get_max_request_size()
+    app.add_middleware(RequestSizeLimitMiddleware, max_size=max_request_size)
+    logger.info(f"Added RequestSizeLimitMiddleware with max_size={max_request_size:,} bytes")
 
     # Mount static files for activity monitor UI
     static_dir = os.path.join(os.path.dirname(__file__), "static")
