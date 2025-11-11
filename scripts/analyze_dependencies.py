@@ -44,9 +44,9 @@ def generate_dot(src_root: Path, output_path: Path):
     for py_file in src_root.rglob("*.py"):
         rel_path = py_file.relative_to(src_root.parent)
         if rel_path.name == "__init__.py":
-            module_name = str(rel_path.parent).replace("/", ".")
+            module_name = str(Path(rel_path.parent).as_posix().replace("/", "."))
         else:
-            module_name = str(rel_path.with_suffix("")).replace("/", ".")
+            module_name = str(Path(rel_path).as_posix().with_suffix("").replace("/", "."))
 
         all_modules.add(module_name)
         imports = analyze_imports(py_file)
