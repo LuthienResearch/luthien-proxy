@@ -14,11 +14,11 @@ Redwood-style AI Control as an LLM proxy for production agentic deployments.
 
 You now have:
 
-- **V2 Gateway** (OpenAI-compatible) at <http://localhost:8000>
+- **Gateway** (OpenAI-compatible) at <http://localhost:8000>
 - **PostgreSQL** and **Redis** fully configured
 - **Local LLM** (Ollama) at <http://localhost:11434>
 
-The V2 gateway provides:
+The gateway provides:
 
 - OpenAI Chat Completions API (`/v1/chat/completions`)
 - Anthropic Messages API (`/v1/messages`)
@@ -34,8 +34,8 @@ The V2 gateway provides:
 ## Development
 
 ```bash
-# After code changes, restart the V2 gateway
-docker compose restart v2-gateway
+# After code changes, restart the gateway
+docker compose restart gateway
 
 # Run unit tests
 uv run pytest tests/unit_tests
@@ -46,8 +46,8 @@ uv run pytest tests/integration_tests
 # Run e2e tests (slow, use sparingly)
 uv run pytest -m e2e
 
-# Test the V2 gateway
-./scripts/test_v2_gateway.sh
+# Test the gateway
+./scripts/test_gateway.sh
 
 # Format and lint
 ./scripts/format_all.sh
@@ -61,15 +61,15 @@ uv run pyright
 
 ## Observability (Optional)
 
-The V2 gateway supports **OpenTelemetry** for distributed tracing and log correlation.
+The gateway supports **OpenTelemetry** for distributed tracing and log correlation.
 
-By default, the V2 gateway runs **without** the observability stack. To enable it:
+By default, the gateway runs **without** the observability stack. To enable it:
 
 ```bash
 # Start observability stack (Tempo, Loki, Promtail, Grafana)
 ./scripts/observability.sh up -d
 
-# The V2 gateway will automatically detect and use the observability stack
+# The gateway will automatically detect and use the observability stack
 
 # Access Grafana
 open http://localhost:3000
@@ -93,7 +93,7 @@ Enable OpenTelemetry in `.env`:
 ```bash
 OTEL_ENABLED=true
 OTEL_ENDPOINT=http://tempo:4317
-SERVICE_NAME=luthien-proxy-v2
+SERVICE_NAME=luthien-proxy
 SERVICE_VERSION=2.0.0
 ENVIRONMENT=development
 ```
@@ -145,7 +145,7 @@ policy:
     max_tokens: 256
 ```
 
-Available policies in `src/luthien_proxy/v2/policies/`:
+Available policies in `src/luthien_proxy/policies/`:
 
 - `noop.py` - Pass-through (no filtering)
 - `event_based_noop.py` - Event-driven no-op (demonstrates DSL)
@@ -165,26 +165,26 @@ Editor setup (VS Code)
 
 ## Architecture
 
-The V2 architecture integrates everything into a single FastAPI application:
+The gateway integrates everything into a single FastAPI application:
 
-- **V2 Gateway** (`src/luthien_proxy/v2/`): Unified FastAPI + LiteLLM integration
+- **Gateway** (`src/luthien_proxy/`): Unified FastAPI + LiteLLM integration
   - OpenAI Chat Completions API compatibility
   - Anthropic Messages API compatibility
   - Integrated control plane for policy enforcement
   - Event-driven policy system with streaming support
   - OpenTelemetry instrumentation for observability
 
-- **Control Plane** (`src/luthien_proxy/v2/control/`): Synchronous policy orchestration
+- **Control Plane** (`src/luthien_proxy/control/`): Synchronous policy orchestration
   - Processes requests through configured policies
   - Real-time event publishing for UI updates
   - Trace context propagation
 
-- **Policy System** (`src/luthien_proxy/v2/policies/`): Event-driven policy framework
+- **Policy System** (`src/luthien_proxy/policies/`): Event-driven policy framework
   - Stream-aware policy interface
   - Buffering and transformation capabilities
   - Examples: NoOp, ToolCallJudge, UppercaseNthWord
 
-- **UI** (`src/luthien_proxy/v2/ui/`): Real-time monitoring and debugging
+- **UI** (`src/luthien_proxy/ui/`): Real-time monitoring and debugging
   - `/activity/monitor` - Live activity feed
   - `/activity/live` - WebSocket activity stream
   - Debug endpoints for inspection
@@ -199,7 +199,7 @@ The V2 architecture integrates everything into a single FastAPI application:
 
 ## Endpoints
 
-### V2 Gateway (<http://localhost:8000>)
+### Gateway (<http://localhost:8000>)
 
 **API Endpoints:**
 
@@ -217,15 +217,15 @@ The V2 architecture integrates everything into a single FastAPI application:
 
 All API requests require the `Authorization: Bearer <PROXY_API_KEY>` header.
 
-## V2 Policy System
+## Policy System
 
-The V2 gateway uses an event-driven policy architecture with streaming support.
+The gateway uses an event-driven policy architecture with streaming support.
 
 ### Key Components
 
-- `src/luthien_proxy/v2/policies/base.py` - Abstract policy interface
-- `src/luthien_proxy/v2/control/synchronous_control_plane.py` - Policy orchestration
-- `src/luthien_proxy/v2/gateway_routes.py` - API endpoint handlers with policy integration
+- `src/luthien_proxy/policies/base.py` - Abstract policy interface
+- `src/luthien_proxy/control/synchronous_control_plane.py` - Policy orchestration
+- `src/luthien_proxy/gateway_routes.py` - API endpoint handlers with policy integration
 - `config/policy_config.yaml` - Policy configuration
 
 ### Creating Custom Policies
@@ -241,7 +241,7 @@ class MyPolicy(EventDrivenPolicy):
         await context.send(raw_chunk)  # Forward or transform
 ```
 
-See `src/luthien_proxy/v2/policies/` for examples:
+See `src/luthien_proxy/policies/` for examples:
 
 - `noop.py` - Simple pass-through
 - `uppercase_nth_word.py` - Content transformation
@@ -254,10 +254,10 @@ See `src/luthien_proxy/v2/policies/` for examples:
 ./scripts/quick_start.sh
 
 # Run automated tests
-./scripts/test_v2_gateway.sh
+./scripts/test_gateway.sh
 
 # View logs
-docker compose logs -f v2-gateway
+docker compose logs -f gateway
 ```
 
 ## Troubleshooting
@@ -269,10 +269,10 @@ docker compose logs -f v2-gateway
 docker compose ps
 
 # View gateway logs
-docker compose logs v2-gateway
+docker compose logs gateway
 
 # Restart gateway
-docker compose restart v2-gateway
+docker compose restart gateway
 
 # Full restart
 docker compose down && ./scripts/quick_start.sh
@@ -282,7 +282,7 @@ docker compose down && ./scripts/quick_start.sh
 
 1. **Check API key**: Ensure `Authorization: Bearer <PROXY_API_KEY>` header is set
 2. **Check upstream credentials**: Verify `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in `.env`
-3. **Check logs**: `docker compose logs -f v2-gateway`
+3. **Check logs**: `docker compose logs -f gateway`
 
 ### Tests failing
 
@@ -294,7 +294,7 @@ docker compose ps
 curl http://localhost:8000/health
 
 # View detailed logs
-docker compose logs v2-gateway | tail -50
+docker compose logs gateway | tail -50
 ```
 
 ### Database connection issues
