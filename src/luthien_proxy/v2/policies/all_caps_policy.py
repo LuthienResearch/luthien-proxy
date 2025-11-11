@@ -18,17 +18,16 @@ Example config:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse, StreamingChoices
 
+    from luthien_proxy.v2.messages import Request
     from luthien_proxy.v2.policies.policy_context import PolicyContext
     from luthien_proxy.v2.streaming.streaming_policy_context import (
         StreamingPolicyContext,
     )
-
-from litellm.types.utils import Choices
 
 from luthien_proxy.v2.policies.policy import PolicyProtocol
 
@@ -47,6 +46,32 @@ class AllCapsPolicy(PolicyProtocol):
         self._total_chars_converted = 0
         logger.info("AllCapsPolicy initialized")
 
+    async def on_request(self, request: Request, context: PolicyContext) -> Request:
+        """Pass through request without modification.
+
+        Args:
+            request: The incoming request
+            context: Policy context
+
+        Returns:
+            Unmodified request
+        """
+        return request
+
+    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
+        """Forward modified chunks to egress queue.
+
+        This is called after on_content_delta has modified the chunk in place,
+        so we forward the modified chunk to the client.
+
+        Args:
+            ctx: Streaming policy context
+        """
+        # Get the most recent chunk (which has been modified by on_content_delta if applicable)
+        if ctx.original_streaming_response_state.raw_chunks:
+            chunk = ctx.original_streaming_response_state.raw_chunks[-1]
+            ctx.egress_queue.put_nowait(chunk)
+
     async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
         """Convert content delta to uppercase.
 
@@ -61,7 +86,6 @@ class AllCapsPolicy(PolicyProtocol):
             return
 
         choice = current_chunk.choices[0]
-        choice = cast(StreamingChoices, choice)
         delta = choice.delta
 
         # Check if there's text content in the delta
@@ -106,8 +130,6 @@ class AllCapsPolicy(PolicyProtocol):
         modified_count = 0
 
         for choice in response.choices:
-            # Cast to Choices (non-streaming) since this is process_full_response
-            choice = cast(Choices, choice)
             message = choice.message
             if not message.content:
                 continue
@@ -134,6 +156,26 @@ class AllCapsPolicy(PolicyProtocol):
             logger.info(f"Converted non-streaming response content to uppercase: {total_chars} chars")
 
         return response
+
+    async def on_content_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Called when content block completes - no action needed."""
+        pass
+
+    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
+        """Called when tool call delta received - no action needed."""
+        pass
+
+    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Called when tool call block completes - no action needed."""
+        pass
+
+    async def on_finish_reason(self, ctx: StreamingPolicyContext) -> None:
+        """Called when finish_reason received - no action needed."""
+        pass
+
+    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Called when stream completes - no action needed."""
+        pass
 
 
 __all__ = ["AllCapsPolicy"]
