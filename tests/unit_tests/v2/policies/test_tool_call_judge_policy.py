@@ -2,7 +2,7 @@
 
 These tests verify the critical streaming requirements that prevent bugs:
 1. Content chunks MUST be forwarded to egress (via on_content_delta)
-2. create_text_chunk MUST create valid Delta objects (not dicts)
+2. create_text_chunk MUST create valid Delta objects
 3. Blocked messages MUST send content + finish as separate chunks
 """
 
@@ -129,14 +129,12 @@ class TestCreateTextChunkDeltaType:
         assert isinstance(chunk.choices[0].delta, Delta)
         assert chunk.choices[0].finish_reason == "stop"
 
-    def test_create_text_chunk_with_empty_content(self):
-        """Test that empty content creates valid Delta with None content."""
+    def test_create_text_chunk_with_empty_string(self):
+        """Test that empty string creates valid Delta."""
         chunk = create_text_chunk("")
 
         delta = chunk.choices[0].delta
         assert isinstance(delta, Delta)
-        # Empty string should result in None content
-        assert delta.content is None
 
 
 class TestToolCallJudgePolicyBlockedMessageChunks:

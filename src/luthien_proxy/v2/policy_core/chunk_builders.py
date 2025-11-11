@@ -13,30 +13,32 @@ from __future__ import annotations
 
 import time
 from typing import Any
+from uuid import uuid4
 
 from litellm.types.utils import Choices, Delta, ModelResponse, StreamingChoices
 
 
-def create_text_response(text: str, model: str = "luthien-policy") -> ModelResponse:
+def create_text_response(
+    text: str, model: str = "luthien-policy", response_id: str | None = None, finish_reason: str = "stop"
+) -> ModelResponse:
     """Create a complete (non-streaming) text response.
 
     Args:
-        text: The text content for the response
-        model: Model name to include in response (default: "luthien-policy")
+        text (str): The text content for the response
+        model (str): Model name to include in response (default: "luthien-policy")
+        response_id (str): Optional custom ID for the response (default: 'response-{uuid4()}')
+        finish_reason (str): Finish reason for the response (default: "stop")
 
     Returns:
         A complete ModelResponse with the text content
     """
-    # Use time + random for unique IDs
-    import random
-
-    unique_id = f"policy-{int(time.time() * 1000)}-{random.randint(1000, 9999)}"
+    unique_id = response_id or f"response-{uuid4()}"
 
     return ModelResponse(
         id=unique_id,
         choices=[
             Choices(
-                finish_reason="stop",
+                finish_reason=finish_reason,
                 index=0,
                 message={"content": text, "role": "assistant"},
             )
@@ -47,23 +49,22 @@ def create_text_response(text: str, model: str = "luthien-policy") -> ModelRespo
     )
 
 
-def create_text_chunk(text: str, model: str = "luthien-policy", finish_reason: str | None = None) -> ModelResponse:
+def create_text_chunk(
+    text: str, model: str = "luthien-policy", response_id: str | None = None, finish_reason: str | None = None
+) -> ModelResponse:
     """Create a streaming text chunk.
 
     Args:
-        text: The text content for the chunk
-        model: Model name to include in chunk (default: "luthien-policy")
-        finish_reason: Optional finish reason (e.g., "stop", "tool_calls")
+        text (str): The text content for the chunk
+        model (str): Model name to include in chunk (default: "luthien-policy")
+        response_id (str): Optional custom ID for the chunk (default: 'response-chunk-{uuid4()}')
+        finish_reason (str): Optional finish reason (e.g., "stop", "tool_calls")
 
     Returns:
         A ModelResponse chunk with the text content
     """
-    # Use time + monotonic counter for unique IDs
-    import random
+    unique_id = response_id or f"response-chunk-{uuid4()}"
 
-    unique_id = f"policy-chunk-{int(time.time() * 1000)}-{random.randint(1000, 9999)}"
-
-    # Create proper Delta object instead of dict for compatibility
     delta = Delta(content=text if text else None)
 
     # Use StreamingChoices for streaming chunks (not Choices which is for non-streaming)
