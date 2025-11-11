@@ -131,3 +131,26 @@ def test_openai_non_streaming():
         assert len(data["choices"]) > 0
         assert "message" in data["choices"][0]
         assert "content" in data["choices"][0]["message"]
+
+
+@pytest.mark.parametrize("endpoint", ["/v1/chat/completions", "/v1/messages"])
+def test_request_size_limit(endpoint):
+    """Test that oversized requests are rejected."""
+    app = create_app(
+        api_key="test-key",
+        database_url="",
+        redis_url="",
+        policy=SimplePolicy(),
+    )
+
+    with TestClient(app) as client:
+        # Create a payload larger than 10MB
+        large_content = "x" * (11 * 1024 * 1024)  # 11MB
+        response = client.post(
+            endpoint,
+            json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": large_content}]},
+            headers={"Authorization": "Bearer test-key"},
+        )
+
+        assert response.status_code == 413
+        assert "too large" in response.json()["detail"].lower()
