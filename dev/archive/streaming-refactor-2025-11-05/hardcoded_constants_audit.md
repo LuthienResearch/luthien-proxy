@@ -60,7 +60,7 @@ timeout_seconds: float = 30.0  # Hardcoded default
 
 **Impact:** May be too short for slow LLMs or too long for fast responses.
 
-**Recommendation:** Add to `v2_config.yaml`:
+**Recommendation:** Add to `policy_config.yaml`:
 ```yaml
 streaming:
   default_timeout_seconds: 30.0
@@ -250,6 +250,6 @@ class V2Config:
 ## Next Steps
 
 1. **Immediate:** Fix the global `litellm.drop_params` side effect
-2. **Short-term:** Add timeout and queue size configuration to `v2_config.yaml`
+2. **Short-term:** Add timeout and queue size configuration to `policy_config.yaml`
 3. **Medium-term:** Create centralized defaults module
 4. **Long-term:** Refactor model capability detection to use config-driven approach

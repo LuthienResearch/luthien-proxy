@@ -83,7 +83,7 @@ The observability stack is completely optional and does not affect core function
 - **Distributed tracing** with OpenTelemetry → Grafana Tempo
 - **Structured logging** with trace context (trace_id, span_id)
 - **Log-trace correlation** in Grafana
-- **Real-time activity feed** at `/v2/activity/monitor`
+- **Real-time activity feed** at `/activity/monitor`
 - **Pre-built dashboard** for traces and logs
 
 ### Configuration
@@ -124,18 +124,18 @@ ANTHROPIC_API_KEY=your_anthropic_api_key_here
 # V2 Gateway configuration
 PROXY_API_KEY=sk-luthien-dev-key  # API key for accessing the gateway
 V2_GATEWAY_PORT=8000               # Gateway port
-V2_POLICY_CONFIG=/app/config/v2_config.yaml  # Policy configuration
+POLICY_CONFIG=/app/config/policy_config.yaml  # Policy configuration
 ```
 
 ### Policy Configuration
 
-The V2 gateway loads policies from `V2_POLICY_CONFIG` (defaults to `config/v2_config.yaml`).
+The V2 gateway loads policies from `POLICY_CONFIG` (defaults to `config/policy_config.yaml`).
 
 Example policy configuration:
 
 ```yaml
 policy:
-  class: "luthien_proxy.v2.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
+  class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
   config:
     model: "ollama/gemma2:2b"
     api_base: "http://local-llm:11434"
@@ -185,8 +185,8 @@ The V2 architecture integrates everything into a single FastAPI application:
   - Examples: NoOp, ToolCallJudge, UppercaseNthWord
 
 - **UI** (`src/luthien_proxy/v2/ui/`): Real-time monitoring and debugging
-  - `/v2/activity/monitor` - Live activity feed
-  - `/v2/activity/live` - WebSocket activity stream
+  - `/activity/monitor` - Live activity feed
+  - `/activity/live` - WebSocket activity stream
   - Debug endpoints for inspection
 
 **Documentation**:
@@ -209,9 +209,9 @@ The V2 architecture integrates everything into a single FastAPI application:
 
 **UI Endpoints:**
 
-- `GET /v2/activity/monitor` — Real-time activity monitor (HTML)
-- `GET /v2/activity/live` — WebSocket activity stream (JSON)
-- `GET /v2/debug` — Debug information viewer
+- `GET /activity/monitor` — Real-time activity monitor (HTML)
+- `GET /activity/live` — WebSocket activity stream (JSON)
+- `GET /debug` — Debug information viewer
 
 **Authentication:**
 
@@ -226,14 +226,14 @@ The V2 gateway uses an event-driven policy architecture with streaming support.
 - `src/luthien_proxy/v2/policies/base.py` - Abstract policy interface
 - `src/luthien_proxy/v2/control/synchronous_control_plane.py` - Policy orchestration
 - `src/luthien_proxy/v2/gateway_routes.py` - API endpoint handlers with policy integration
-- `config/v2_config.yaml` - Policy configuration
+- `config/policy_config.yaml` - Policy configuration
 
 ### Creating Custom Policies
 
 Policies implement the `LuthienPolicy` interface or use the event-driven DSL:
 
 ```python
-from luthien_proxy.v2.streaming import EventDrivenPolicy, StreamingContext
+from luthien_proxy.streaming import EventDrivenPolicy, StreamingContext
 
 class MyPolicy(EventDrivenPolicy):
     async def on_content_chunk(self, content: str, raw_chunk, state, context: StreamingContext):

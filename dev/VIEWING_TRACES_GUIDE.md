@@ -187,7 +187,7 @@ For V2 activity:
 
 ```bash
 # Access the real-time monitor
-open http://localhost:8000/v2/activity/monitor
+open http://localhost:8000/activity/monitor
 ```
 
 This shows live events from Redis pub/sub (separate from traces).

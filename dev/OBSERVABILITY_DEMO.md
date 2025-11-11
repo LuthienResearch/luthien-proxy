@@ -116,7 +116,7 @@ Watch as every 3rd word gets uppercased!
 While requests are flowing, open the **Activity Monitor**:
 
 ```bash
-open http://localhost:8000/v2/activity/monitor
+open http://localhost:8000/activity/monitor
 ```
 
 ### What You'll See:
@@ -150,7 +150,7 @@ open http://localhost:8000/v2/activity/monitor
 Now let's see **exactly** what the policy changed. Open the **Diff Viewer**:
 
 ```bash
-open http://localhost:8000/v2/debug/diff
+open http://localhost:8000/debug/diff
 ```
 
 ### Viewing a Specific Call:

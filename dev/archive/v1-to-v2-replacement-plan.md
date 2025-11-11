@@ -159,9 +159,9 @@ In `docker-compose.yaml`:
 
 ### 2.6 Update Configuration Files
 
-**Rename v2_config.yaml to luthien_config.yaml:**
+**Rename policy_config.yaml to luthien_config.yaml:**
 ```bash
-mv config/v2_config.yaml config/luthien_config.yaml
+mv config/policy_config.yaml config/luthien_config.yaml
 ```
 
 **Delete litellm_config.yaml:**
@@ -184,7 +184,7 @@ mv config/v2_config.yaml config/luthien_config.yaml
 ```bash
 ./scripts/quick_start.sh
 uv run python scripts/test_proxy.py
-# Verify UI at http://localhost:8000/v2/activity/monitor
+# Verify UI at http://localhost:8000/activity/monitor
 ```
 
 **Validate observability (if enabled):**
@@ -208,7 +208,7 @@ uv run python scripts/test_proxy.py
 - Single `proxy` service replaces separate `control-plane` + `litellm-proxy` services
 - Queue-based policy interface (cleaner, more composable)
 - Built-in OpenTelemetry observability
-- Flattened `luthien_proxy.v2.*` namespace to `luthien_proxy.*`
+- Flattened `luthien_proxy.*` namespace to `luthien_proxy.*`
 
 ### Added
 - ToolCallJudge policy ported to V2 architecture
@@ -235,7 +235,7 @@ echo "" > dev/NOTES.md
 
 **Phase 2 Complete:**
 - [ ] No v1 code remaining in repository
-- [ ] All imports updated (no `luthien_proxy.v2.*`)
+- [ ] All imports updated (no `luthien_proxy.*`)
 - [ ] `docker compose up` starts single proxy service
 - [ ] `./scripts/quick_start.sh` works end-to-end
 - [ ] `./scripts/test_proxy.py` passes

@@ -178,7 +178,7 @@ class DefaultObservabilityContext(ObservabilityContext):
         }
 
         if self.db_pool:
-            from luthien_proxy.v2.storage.events import emit_custom_event
+            from luthien_proxy.storage.events import emit_custom_event
 
             await emit_custom_event(
                 call_id=self._transaction_id,
@@ -236,8 +236,8 @@ class DefaultObservabilityContext(ObservabilityContext):
 ```python
 from abc import ABC, abstractmethod
 from litellm.types.utils import ModelResponse
-from luthien_proxy.v2.types import RequestMessage
-from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.types import RequestMessage
+from luthien_proxy.observability.context import ObservabilityContext
 
 
 class TransactionRecorder(ABC):
@@ -328,7 +328,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
 
     async def finalize_streaming(self) -> None:
         """Reconstruct full responses from chunks and emit."""
-        from luthien_proxy.v2.storage.events import (
+        from luthien_proxy.storage.events import (
             reconstruct_full_response_from_chunks,
         )
 
@@ -459,7 +459,7 @@ async def process(
 ```python
 from dataclasses import dataclass
 from typing import Any
-from luthien_proxy.v2.observability.context import ObservabilityContext
+from luthien_proxy.observability.context import ObservabilityContext
 
 
 @dataclass
@@ -497,10 +497,10 @@ class StreamingResponseContext:
 
 ```python
 from litellm.types.utils import ModelResponse
-from luthien_proxy.v2.streaming.streaming_response_context import (
+from luthien_proxy.streaming.streaming_response_context import (
     StreamingResponseContext,
 )
-from luthien_proxy.v2.policies.utils import create_text_chunk, create_tool_call_chunk
+from luthien_proxy.policies.utils import create_text_chunk, create_tool_call_chunk
 
 
 async def send_text(ctx: StreamingResponseContext, text: str) -> None:
@@ -572,8 +572,8 @@ async def send_tool_call(
 ```python
 from abc import ABC
 from litellm.types.utils import ModelResponse
-from luthien_proxy.v2.types import RequestMessage
-from luthien_proxy.v2.streaming.streaming_response_context import (
+from luthien_proxy.types import RequestMessage
+from luthien_proxy.streaming.streaming_response_context import (
     StreamingResponseContext,
 )
 
@@ -644,12 +644,12 @@ class Policy(ABC):
 **File:** `src/luthien_proxy/v2/policies/simple_policy.py`
 
 ```python
-from luthien_proxy.v2.policies.policy import Policy
-from luthien_proxy.v2.types import RequestMessage
-from luthien_proxy.v2.streaming.streaming_response_context import (
+from luthien_proxy.policies.policy import Policy
+from luthien_proxy.types import RequestMessage
+from luthien_proxy.streaming.streaming_response_context import (
     StreamingResponseContext,
 )
-from luthien_proxy.v2.streaming.helpers import (
+from luthien_proxy.streaming.helpers import (
     send_text,
     send_chunk,
     passthrough_accumulated_chunks,
@@ -697,7 +697,7 @@ class SimplePolicy(Policy):
         if not ctx.ingress_state.just_completed:
             return
 
-        from luthien_proxy.v2.streaming.stream_blocks import ContentStreamBlock
+        from luthien_proxy.streaming.stream_blocks import ContentStreamBlock
 
         block = ctx.ingress_state.just_completed
         if not isinstance(block, ContentStreamBlock):
@@ -716,7 +716,7 @@ class SimplePolicy(Policy):
         if not ctx.ingress_state.just_completed:
             return
 
-        from luthien_proxy.v2.streaming.stream_blocks import ToolCallStreamBlock
+        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
 
         block = ctx.ingress_state.just_completed
         if not isinstance(block, ToolCallStreamBlock):
@@ -778,7 +778,7 @@ class SimplePolicy(Policy):
 from abc import ABC, abstractmethod
 from typing import AsyncIterator
 from litellm.types.utils import ModelResponse
-from luthien_proxy.v2.types import RequestMessage
+from luthien_proxy.types import RequestMessage
 
 
 class LLMClient(ABC):
@@ -809,8 +809,8 @@ class LLMClient(ABC):
 from typing import AsyncIterator, cast
 import litellm
 from litellm.types.utils import ModelResponse
-from luthien_proxy.v2.llm.client import LLMClient
-from luthien_proxy.v2.types import RequestMessage
+from luthien_proxy.llm.client import LLMClient
+from luthien_proxy.types import RequestMessage
 
 
 class LiteLLMClient(LLMClient):
@@ -857,20 +857,20 @@ from opentelemetry import trace
 from opentelemetry.trace import Span
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.v2.types import RequestMessage
-from luthien_proxy.v2.policies.policy import Policy, PolicyContext
-from luthien_proxy.v2.llm.client import LLMClient
-from luthien_proxy.v2.observability.context import ObservabilityContext
-from luthien_proxy.v2.observability.transaction_recorder import TransactionRecorder
-from luthien_proxy.v2.streaming.streaming_orchestrator import StreamingOrchestrator
-from luthien_proxy.v2.streaming.streaming_chunk_assembler import (
+from luthien_proxy.types import RequestMessage
+from luthien_proxy.policies.policy import Policy, PolicyContext
+from luthien_proxy.llm.client import LLMClient
+from luthien_proxy.observability.context import ObservabilityContext
+from luthien_proxy.observability.transaction_recorder import TransactionRecorder
+from luthien_proxy.streaming.streaming_orchestrator import StreamingOrchestrator
+from luthien_proxy.streaming.streaming_chunk_assembler import (
     StreamingChunkAssembler,
 )
-from luthien_proxy.v2.streaming.streaming_response_context import (
+from luthien_proxy.streaming.streaming_response_context import (
     StreamingResponseContext,
 )
-from luthien_proxy.v2.streaming.stream_state import StreamState
-from luthien_proxy.v2.streaming.stream_blocks import (
+from luthien_proxy.streaming.stream_state import StreamState
+from luthien_proxy.streaming.stream_blocks import (
     ContentStreamBlock,
     ToolCallStreamBlock,
 )
@@ -1077,17 +1077,17 @@ Break into separate test files:
 
 ```python
 from opentelemetry.trace import Span
-from luthien_proxy.v2.policies.policy import Policy
-from luthien_proxy.v2.llm.client import LLMClient
-from luthien_proxy.v2.observability.context import (
+from luthien_proxy.policies.policy import Policy
+from luthien_proxy.llm.client import LLMClient
+from luthien_proxy.observability.context import (
     ObservabilityContext,
     DefaultObservabilityContext,
 )
-from luthien_proxy.v2.observability.transaction_recorder import (
+from luthien_proxy.observability.transaction_recorder import (
     TransactionRecorder,
     DefaultTransactionRecorder,
 )
-from luthien_proxy.v2.orchestration.policy_orchestrator import PolicyOrchestrator
+from luthien_proxy.orchestration.policy_orchestrator import PolicyOrchestrator
 
 
 def create_default_orchestrator(
@@ -1158,10 +1158,10 @@ Create comprehensive e2e tests that validate:
 
 ```python
 import pytest
-from luthien_proxy.v2.policies.simple_policy import SimplePolicy
-from luthien_proxy.v2.llm.litellm_client import LiteLLMClient
-from luthien_proxy.v2.orchestration.factory import create_default_orchestrator
-from luthien_proxy.v2.types import RequestMessage
+from luthien_proxy.policies.simple_policy import SimplePolicy
+from luthien_proxy.llm.litellm_client import LiteLLMClient
+from luthien_proxy.orchestration.factory import create_default_orchestrator
+from luthien_proxy.types import RequestMessage
 
 
 class UppercasePolicy(SimplePolicy):

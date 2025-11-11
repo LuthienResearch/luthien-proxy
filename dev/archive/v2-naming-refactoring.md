@@ -258,8 +258,8 @@ v2/
    - Update exports for all renamed modules and classes
 
 2. **`src/luthien_proxy/v2/main.py`**
-   - `from luthien_proxy.v2.control.local import ControlPlaneLocal`
-     → `from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane`
+   - `from luthien_proxy.control.local import ControlPlaneLocal`
+     → `from luthien_proxy.control.synchronous_control_plane import SynchronousControlPlane`
    - `ControlPlaneLocal(...)` → `SynchronousControlPlane(...)`
    - Update observability imports for `RedisEventPublisher`
 
@@ -267,19 +267,19 @@ v2/
    - Update all exports
 
 4. **`src/luthien_proxy/v2/control/synchronous_control_plane.py`** (renamed from `local.py`)
-   - `from luthien_proxy.v2.control.streaming import StreamingOrchestrator`
-     → `from luthien_proxy.v2.control.streaming_orchestrator import StreamingOrchestrator`
-   - `from luthien_proxy.v2.policies.context import PolicyContext`
-     → `from luthien_proxy.v2.policies.policy_call_context import PolicyCallContext`
+   - `from luthien_proxy.control.streaming import StreamingOrchestrator`
+     → `from luthien_proxy.control.streaming_orchestrator import StreamingOrchestrator`
+   - `from luthien_proxy.policies.context import PolicyContext`
+     → `from luthien_proxy.policies.policy_call_context import PolicyCallContext`
    - Update all class references and documentation
 
 5. **`src/luthien_proxy/v2/control/streaming_orchestrator.py`** (renamed from `streaming.py`)
-   - `from luthien_proxy.v2.queue_utils import get_available`
-     → `from luthien_proxy.v2.control.queue_utils import get_available`
+   - `from luthien_proxy.queue_utils import get_available`
+     → `from luthien_proxy.control.queue_utils import get_available`
 
 6. **`src/luthien_proxy/v2/policies/base.py`**
-   - `from luthien_proxy.v2.policies.context import PolicyContext`
-     → `from luthien_proxy.v2.policies.policy_call_context import PolicyCallContext`
+   - `from luthien_proxy.policies.context import PolicyContext`
+     → `from luthien_proxy.policies.policy_call_context import PolicyCallContext`
    - Update all method signatures and docstrings
    - Update `async def process_request(self, request: Request, context: PolicyCallContext)`
 
@@ -309,32 +309,32 @@ v2/
 
 ```python
 # Control plane implementations
-from luthien_proxy.v2.control.local import ControlPlaneLocal
-→ from luthien_proxy.v2.control.synchronous_control_plane import SynchronousControlPlane
+from luthien_proxy.control.local import ControlPlaneLocal
+→ from luthien_proxy.control.synchronous_control_plane import SynchronousControlPlane
 
 # Control plane protocol definition
-from luthien_proxy.v2.control.interface import ControlPlaneService
-→ from luthien_proxy.v2.control.control_plane_protocol import ControlPlaneProtocol
+from luthien_proxy.control.interface import ControlPlaneService
+→ from luthien_proxy.control.control_plane_protocol import ControlPlaneProtocol
 
 # Streaming orchestrator
-from luthien_proxy.v2.control.streaming import StreamingOrchestrator
-→ from luthien_proxy.v2.control.streaming_orchestrator import StreamingOrchestrator
+from luthien_proxy.control.streaming import StreamingOrchestrator
+→ from luthien_proxy.control.streaming_orchestrator import StreamingOrchestrator
 
 # Queue utilities
-from luthien_proxy.v2.queue_utils import get_available
-→ from luthien_proxy.v2.control.queue_utils import get_available
+from luthien_proxy.queue_utils import get_available
+→ from luthien_proxy.control.queue_utils import get_available
 
 # Policy call context (used across all policy methods)
-from luthien_proxy.v2.policies.context import PolicyContext
-→ from luthien_proxy.v2.policies.policy_call_context import PolicyCallContext
+from luthien_proxy.policies.context import PolicyContext
+→ from luthien_proxy.policies.policy_call_context import PolicyCallContext
 
 # Real-time event publisher
-from luthien_proxy.v2.observability.bridge import SimpleEventPublisher
-→ from luthien_proxy.v2.observability.redis_event_publisher import RedisEventPublisher
+from luthien_proxy.observability.bridge import SimpleEventPublisher
+→ from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 
 # Activity streaming (Server-Sent Events)
-from luthien_proxy.v2.observability.bridge import stream_activity_events
-→ from luthien_proxy.v2.observability.redis_event_publisher import stream_activity_events_sse
+from luthien_proxy.observability.bridge import stream_activity_events
+→ from luthien_proxy.observability.redis_event_publisher import stream_activity_events_sse
 ```
 
 ---

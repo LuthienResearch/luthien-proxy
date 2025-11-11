@@ -3,11 +3,11 @@
 ## High Priority
 
 - [ ] **Verify UI monitoring endpoints functionality** - Check which UI endpoints are working and refactor as needed:
-  - Test `/v2/debug/diff` - diff viewer with side-by-side comparisons
-  - Test `/v2/activity/monitor` - real-time activity stream
-  - Test `/v2/debug/calls/{call_id}/diff` - API endpoint for diffs
-  - Test `/v2/debug/calls` - recent calls listing
-  - Test `/v2/activity/stream` - SSE endpoint
+  - Test `/debug/diff` - diff viewer with side-by-side comparisons
+  - Test `/activity/monitor` - real-time activity stream
+  - Test `/debug/calls/{call_id}/diff` - API endpoint for diffs
+  - Test `/debug/calls` - recent calls listing
+  - Test `/activity/stream` - SSE endpoint
   - Verify transaction recorder is storing both original and final requests/responses
   - Check if debug routes are properly mounted in main.py
   - Refactor/fix any broken endpoints
@@ -28,7 +28,7 @@
   - Pretty-print JSON tool arguments
   - Add proper line breaks in explanations
   - Consider terminal/web formatting differences
-- [ ] Add security documentation for dynamic policy loading mechanism (V2_POLICY_CONFIG) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
+- [ ] Add security documentation for dynamic policy loading mechanism (POLICY_CONFIG) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
 - [ ] Verify all environment variables are documented in README and .env.example ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
 - [ ] Add input validation: max request size and message count limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] **Fix assertion usage in production code** - Replace `assert` statements with proper error handling:
@@ -94,7 +94,7 @@
   - Validate log-trace correlation
   - Consider consolidating the three observability docs (OBSERVABILITY_DEMO, VIEWING_TRACES_GUIDE, observability-v2) if there's significant overlap
 - [ ] 99% unit test coverage (currently 81%, focus on critical paths first) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Add config schema validation (Pydantic model for v2_config.yaml) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
+- [ ] Add config schema validation (Pydantic model for policy_config.yaml) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add request/response size limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Implement adaptive timeout based on model type ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add policy composition (chaining multiple policies) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))

@@ -79,13 +79,13 @@ python -c "import opentelemetry; print('OK')"  # Imports work
 ```bash
 # Import tests
 uv run python -c "from luthien_proxy.v2 import telemetry; print('OK')"
-uv run python -c "from luthien_proxy.v2.observability import SimpleEventPublisher; print('OK')"
+uv run python -c "from luthien_proxy.observability import SimpleEventPublisher; print('OK')"
 
 # Function tests
 uv run python -c "
 import os
 os.environ['OTEL_ENABLED'] = 'false'
-from luthien_proxy.v2.telemetry import setup_telemetry
+from luthien_proxy.telemetry import setup_telemetry
 tracer = setup_telemetry()
 print('Telemetry setup OK')
 "
@@ -211,8 +211,8 @@ uv run pytest tests/unit_tests/v2/test_control_local.py -v
 
 **What was done:**
 - **DELETED FILES:**
-  - `src/luthien_proxy/v2/activity/events.py` (ActivityEvent classes)
-  - `src/luthien_proxy/v2/activity/publisher.py` (ActivityPublisher)
+  - `src/luthien_proxy/activity/events.py` (ActivityEvent classes)
+  - `src/luthien_proxy/activity/publisher.py` (ActivityPublisher)
 
 - **Updated files:**
   - `src/luthien_proxy/v2/control/models.py` - Removed PolicyEvent class (25 lines deleted)
@@ -237,7 +237,7 @@ uv run pytest tests/unit_tests/v2/
 
 **What was done:**
 - Fixed import errors after deleting files:
-  - Updated `src/luthien_proxy/v2/activity/__init__.py` - Removed deleted module imports
+  - Updated `src/luthien_proxy/activity/__init__.py` - Removed deleted module imports
   - Moved `V2_ACTIVITY_CHANNEL` constant to `stream.py`
   - Removed PolicyEvent from `control/interface.py` and deleted `get_events()` method
 
@@ -341,7 +341,7 @@ The OpenTelemetry migration is complete. All phases have been successfully imple
 
 ## Important Design Decisions
 
-1. **Real-time UI:** Keeping `/v2/activity/monitor` working with simplified events via Redis bridge
+1. **Real-time UI:** Keeping `/activity/monitor` working with simplified events via Redis bridge
 2. **Breaking changes:** Acceptable - only NoOpPolicy affected currently
 3. **Test deletion:** Delete ~15 event-checking tests (test behavior, not implementation)
 4. **Implementation:** Incremental with small commits per phase
@@ -453,8 +453,8 @@ Commits ahead of origin: 6
 
 **To be deleted (Phase 8):**
 
-- `src/luthien_proxy/v2/activity/events.py`
-- `src/luthien_proxy/v2/activity/publisher.py`
+- `src/luthien_proxy/activity/events.py`
+- `src/luthien_proxy/activity/publisher.py`
 - PolicyEvent from `src/luthien_proxy/v2/control/models.py`
 
 ---

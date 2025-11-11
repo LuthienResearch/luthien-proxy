@@ -2,7 +2,7 @@
 # Uses EventBasedPolicy architecture for clean, simple implementation
 
 policy:
-  class: "luthien_proxy.v2.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
+  class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
   config:
     model: "openai/judge-scorer"
     api_base: "http://dummy-provider:8080/v1"

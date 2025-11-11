@@ -72,17 +72,17 @@
   - OTLP gRPC exporter to Tempo
 
 - **Real-Time Monitoring**:
-  - Activity stream via Server-Sent Events (SSE) at `/v2/activity/stream`
-  - Live activity monitor web UI at `/v2/activity/monitor` with filtering by call_id/model/event_type
+  - Activity stream via Server-Sent Events (SSE) at `/activity/stream`
+  - Live activity monitor web UI at `/activity/monitor` with filtering by call_id/model/event_type
   - Redis pub/sub for real-time event distribution
   - Automatic event publishing for gateway, streaming, and policy lifecycle
 
 - **Debug & Analysis Tools**:
-  - Debug API at `/v2/debug/`:
+  - Debug API at `/debug/`:
     - `/calls` - List recent calls
     - `/calls/{call_id}` - Get call details
     - `/calls/{call_id}/diff` - Compare original vs transformed content
-  - Diff viewer UI at `/v2/debug/diff` with side-by-side JSON comparison
+  - Diff viewer UI at `/debug/diff` with side-by-side JSON comparison
   - Links to Grafana Tempo traces from all UIs
 
 - **Grafana Dashboards**:
@@ -122,7 +122,7 @@
 - **Removed infrastructure**:
   - `docker/Dockerfile.litellm` - V1 LiteLLM proxy image
   - 8 environment variables (LITELLM_MASTER_KEY, CONTROL_PLANE_URL, LUTHIEN_POLICY_CONFIG, etc.)
-  - Replaced `LUTHIEN_POLICY_CONFIG` → `V2_POLICY_CONFIG`
+  - Replaced `LUTHIEN_POLICY_CONFIG` → `POLICY_CONFIG`
 
 - **Updated documentation**:
   - Migrated policy configuration examples to EventDrivenPolicy DSL
@@ -153,7 +153,7 @@
 
 #### Configuration
 
-- Single V2 config file: `config/v2_config.yaml`
+- Single V2 config file: `config/policy_config.yaml`
 - Policy selection via class path + config dict
 - Environment variables consolidated in `.env.example`
 - Docker Compose profiles for optional services (observability)

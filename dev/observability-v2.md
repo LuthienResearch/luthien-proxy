@@ -136,9 +136,9 @@ Each event contains:
 **Goal**: Build REST API to query conversation events and compute diffs
 
 #### Phase 2.1: Query Endpoints ✅
-- [x] `GET /v2/debug/calls/{call_id}` - Retrieve all events for a call
-- [x] `GET /v2/debug/calls/{call_id}/diff` - Compute structured diff of original vs final
-- [x] `GET /v2/debug/calls` - List recent calls with filters
+- [x] `GET /debug/calls/{call_id}` - Retrieve all events for a call
+- [x] `GET /debug/calls/{call_id}/diff` - Compute structured diff of original vs final
+- [x] `GET /debug/calls` - List recent calls with filters
 
 #### Phase 2.2: Diff Computation ✅
 - [x] Implement message-level diff for requests (added/removed/modified messages)
@@ -147,8 +147,8 @@ Each event contains:
 - [x] Return Tempo trace link in response (`luthien.call_id` correlation)
 
 **Files Created**:
-- `src/luthien_proxy/v2/debug/__init__.py` - Debug module exports
-- `src/luthien_proxy/v2/debug/routes.py` - Debug REST endpoints (430 lines)
+- `src/luthien_proxy/debug/__init__.py` - Debug module exports
+- `src/luthien_proxy/debug/routes.py` - Debug REST endpoints (430 lines)
 - `tests/unit_tests/v2/test_debug_routes.py` - Unit tests for debug endpoints (260 lines)
 
 **Files Modified**:
@@ -168,7 +168,7 @@ Each event contains:
 
 **Files Created**:
 - `src/luthien_proxy/v2/static/diff_viewer.html` - Diff viewer UI (680 lines)
-- Route: `/v2/debug/diff` - Serves the diff viewer
+- Route: `/debug/diff` - Serves the diff viewer
 
 **Features**:
 - Side-by-side comparison of original vs final requests/responses

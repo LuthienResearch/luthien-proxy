@@ -167,12 +167,12 @@ echo "✅ Ollama OpenAI API is ready"
 
 # Start V2 gateway (integrated FastAPI + LiteLLM)
 echo "🚀 Starting V2 gateway (integrated proxy)..."
-docker compose up -d v2-gateway
+docker compose up -d gateway
 
 # Wait for services to be healthy
 echo "⏳ Waiting for services to be healthy..."
 services_healthy=true
-for service in v2-gateway local-llm; do
+for service in gateway local-llm; do
     if ! wait_for_service "$service" 60; then
         services_healthy=false
     fi
@@ -189,7 +189,7 @@ if [ "$services_healthy" = true ]; then
     echo "   • Ollama OpenAI API: http://localhost:${ollama_port} (OpenAI-compatible)"
     echo ""
     echo "📊 To view logs:"
-    echo "   docker compose logs -f v2-gateway"
+    echo "   docker compose logs -f gateway"
     echo ""
     echo "🛑 To stop all services:"
     echo "   docker compose down"

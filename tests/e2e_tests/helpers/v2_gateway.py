@@ -13,9 +13,9 @@ from contextlib import contextmanager
 import httpx
 import uvicorn
 
-from luthien_proxy.v2.main import create_app
-from luthien_proxy.v2.policies.base import LuthienPolicy
-from luthien_proxy.v2.policies.noop import NoOpPolicy
+from luthien_proxy.main import create_app
+from luthien_proxy.policies.base import LuthienPolicy
+from luthien_proxy.policies.noop import NoOpPolicy
 
 
 def _run_v2_gateway(port: int, api_key: str) -> None:

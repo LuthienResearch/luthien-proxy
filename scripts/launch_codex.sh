@@ -48,7 +48,7 @@ echo "📊 Monitor at: http://localhost:${V2_PORT}/v2/activity/monitor"
 export LITELLM_MASTER_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
 
 codex \
-  -c model_providers.litellm.name=v2-gateway \
+  -c model_providers.litellm.name=gateway \
   -c model_providers.litellm.base_url=http://localhost:${V2_PORT}/v1 \
   -c model_providers.litellm.env_key=LITELLM_MASTER_KEY \
   -c model_providers.litellm.wire_api=chat \

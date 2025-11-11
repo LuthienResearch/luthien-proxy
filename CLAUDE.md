@@ -5,8 +5,8 @@
 - Core goal: implement AI Control for LLMs with integrated V2 gateway architecture.
 - Architecture: FastAPI gateway with integrated control plane and LiteLLM, using event-driven policies.
 - Configure upstream LLM models in `config/local_llm_config.yaml`.
-- Select a policy via `V2_POLICY_CONFIG` that points to a YAML file (defaults to `config/v2_config.yaml`).
-  - Example: `export V2_POLICY_CONFIG=./config/v2_config.yaml`
+- Select a policy via `POLICY_CONFIG` that points to a YAML file (defaults to `config/policy_config.yaml`).
+  - Example: `export POLICY_CONFIG=./config/policy_config.yaml`
 
 ## Development Workflow
 
@@ -95,7 +95,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
     - `ui/`: Real-time monitoring interfaces
     - `debug/`: Debug and inspection endpoints
   - `utils/`: Shared utilities (db, redis, validation)
-- `config/`: `v2_config.yaml`, `local_llm_config.yaml`
+- `config/`: `policy_config.yaml`, `local_llm_config.yaml`
 - `scripts/`: developer helpers (`quick_start.sh`, `test_v2_gateway.sh`)
 - `docker/` + `docker-compose.yaml`: local stack (db, redis, v2-gateway, local-llm)
 - `migrations/`, `prisma/`: database setup
@@ -136,17 +136,17 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
 - Copy `.env.example` to `.env`; never commit secrets.
-- Key env vars: `DATABASE_URL`, `REDIS_URL`, `V2_POLICY_CONFIG`, `PROXY_API_KEY`.
-- Update `config/v2_config.yaml` rather than hardcoding.
+- Key env vars: `DATABASE_URL`, `REDIS_URL`, `POLICY_CONFIG`, `PROXY_API_KEY`.
+- Update `config/policy_config.yaml` rather than hardcoding.
 - Validate setup with test requests to the V2 gateway at `http://localhost:8000`.
 
 ## Policy Selection
 
-- Policies are loaded from the YAML file pointed to by `V2_POLICY_CONFIG` (default `config/v2_config.yaml`).
+- Policies are loaded from the YAML file pointed to by `POLICY_CONFIG` (default `config/policy_config.yaml`).
 - Minimal YAML:
 
   ```yaml
   policy:
-    class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
+    class: "luthien_proxy.policies.event_based_noop:EventBasedNoOpPolicy"
     config: {}
   ```

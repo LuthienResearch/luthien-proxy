@@ -715,7 +715,7 @@ The V3 design interfaces cleanly with the existing gateway architecture:
 3. **Create chunk builder utilities**
    - `build_text_chunk(text, model, finish_reason)`
    - `build_block_chunk(block, model, finish_reason)`
-   - Place in `luthien_proxy.v2.streaming.utils` module
+   - Place in `luthien_proxy.streaming.utils` module
 
 4. **Update `EventBasedPolicy` with completion hooks and better docstrings**
    - **Ensure `EventBasedPolicy` inherits from `LuthienPolicy`** (implements required interface)

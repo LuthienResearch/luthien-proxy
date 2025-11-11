@@ -26,7 +26,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 - **V1 e2e helpers removed**: V1 e2e test helpers (policy_assertions.py, infra.py, etc.) were deleted along with V1 infrastructure
 - V2 uses OpenTelemetry for observability - see `dev/observability-v2.md` and `dev/VIEWING_TRACES_GUIDE.md`
-- Live activity monitoring available at `/v2/activity/monitor` on the V2 gateway
+- Live activity monitoring available at `/activity/monitor` on the V2 gateway
 
 ## Documentation Structure (2025-10-10, updated 2025-10-24)
 
