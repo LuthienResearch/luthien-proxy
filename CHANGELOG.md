@@ -136,7 +136,7 @@
 - **Updated documentation**:
   - Migrated policy configuration examples to EventDrivenPolicy DSL
   - Updated port references (8081 → 8000, removed 4000)
-  - Fixed service name references (control-plane → v2-gateway)
+  - Fixed service name references (control-plane → gateway)
   - Created `dev/ARCHITECTURE.md` with V2 core principles
 
 #### Testing & Quality
@@ -144,25 +144,25 @@
 - Comprehensive unit test coverage for policies, control plane, streaming orchestration
 - Integration tests for V2 gateway endpoints
 - End-to-end tests with real LLM providers (OpenAI, Anthropic, local Ollama)
-- Docker-based testing with `./scripts/test_v2_gateway.sh`
+- Docker-based testing with `./scripts/test_gateway.sh`
 - Type safety with Pyright across all V2 modules
 
 #### Developer Experience
 
 - Single-command setup: `./scripts/quick_start.sh`
-- Simplified service architecture: v2-gateway, local-llm, db, redis
+- Simplified service architecture: gateway, local-llm, db, redis
 - Observability stack: `./scripts/observability.sh up -d`
 - Live development with hot reload
-- Launch scripts for Claude Code and Codex routing through V2 gateway
+- Launch scripts for Claude Code and Codex routing through gateway
 - Comprehensive documentation:
   - `dev/event_driven_policy_guide.md` - Policy development guide
-  - `dev/observability-v2.md` - Observability features
+  - `dev/observability.md` - Observability features
   - `dev/VIEWING_TRACES_GUIDE.md` - Trace analysis walkthrough
   - `dev/OBSERVABILITY_DEMO.md` - Step-by-step demonstration
 
 #### Configuration
 
-- Single V2 config file: `config/policy_config.yaml`
+- Single config file: `config/policy_config.yaml`
 - Policy selection via class path + config dict
 - Environment variables consolidated in `.env.example`
 - Docker Compose profiles for optional services (observability)

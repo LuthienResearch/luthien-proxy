@@ -2,6 +2,7 @@
 
 ## High Priority
 
+- [ ] Update README post v2-migration
 - [ ] **Verify UI monitoring endpoints functionality** - Check which UI endpoints are working and refactor as needed:
   - Test `/debug/diff` - diff viewer with side-by-side comparisons
   - Test `/activity/monitor` - real-time activity stream

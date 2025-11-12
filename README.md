@@ -9,7 +9,7 @@ Redwood-style AI Control as an LLM proxy for production agentic deployments.
 ./scripts/quick_start.sh
 
 # 2. Test it works
-./scripts/test_v2_gateway.sh
+./scripts/test_gateway.sh
 ```
 
 You now have:
@@ -100,7 +100,7 @@ ENVIRONMENT=development
 
 ### Documentation
 
-- **Usage guide:** [dev/observability-v2.md](dev/observability-v2.md)
+- **Usage guide:** [dev/observability.md](dev/observability.md)
 - **Conventions:** [dev/context/otel-conventions.md](dev/context/otel-conventions.md)
 - **Dashboard:** Import `observability/grafana-dashboards/luthien-traces.json` in Grafana
 
@@ -193,7 +193,7 @@ The gateway integrates everything into a single FastAPI application:
 
 - **Start here**: [Development docs index](dev/README.md) - Guide to all documentation
 - Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
-- Observability: [dev/observability-v2.md](dev/observability-v2.md) - Tracing and monitoring
+- Observability: [dev/observability.md](dev/observability.md) - Tracing and monitoring
 - Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](dev/VIEWING_TRACES_GUIDE.md) - Using Grafana/Tempo
 - Context files: [dev/context/](dev/context/) - Architectural patterns, decisions, and gotchas
 
@@ -230,22 +230,7 @@ The gateway uses an event-driven policy architecture with streaming support.
 
 ### Creating Custom Policies
 
-Policies implement the `LuthienPolicy` interface or use the event-driven DSL:
-
-```python
-from luthien_proxy.streaming import EventDrivenPolicy, StreamingContext
-
-class MyPolicy(EventDrivenPolicy):
-    async def on_content_chunk(self, content: str, raw_chunk, state, context: StreamingContext):
-        # Process content chunks
-        await context.send(raw_chunk)  # Forward or transform
-```
-
-See `src/luthien_proxy/policies/` for examples:
-
-- `noop.py` - Simple pass-through
-- `uppercase_nth_word.py` - Content transformation
-- `tool_call_judge_v3.py` - AI-based safety evaluation
+!!! WE NEED TO UPDATE THIS !!!
 
 ### Testing
 

@@ -247,4 +247,4 @@ class TestCreateApp:
 
         # Check that /v2/static route exists
         routes = [getattr(route, "path", None) for route in app.routes]
-        assert "/v2/static" in routes or any("static" in str(r).lower() for r in routes if r)
+        assert any("static" in str(r).lower() for r in routes if r)
