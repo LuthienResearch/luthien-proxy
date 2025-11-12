@@ -77,6 +77,11 @@ class ToolCallJudgePolicy(PolicyProtocol):
             {tool_name}, {tool_arguments}, {probability}, {explanation}
     """
 
+    @property
+    def short_policy_name(self) -> str:
+        """Short human-readable name for the policy."""
+        return "ToolJudge"
+
     def __init__(
         self,
         model: str = "openai/gpt-4",

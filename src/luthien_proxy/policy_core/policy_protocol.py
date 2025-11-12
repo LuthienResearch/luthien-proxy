@@ -21,6 +21,11 @@ if TYPE_CHECKING:
 class PolicyProtocol(Protocol):
     """Protocol defining the policy interface. Not every method needs to be implemented."""
 
+    @property
+    def short_policy_name(self) -> str:
+        """Short human-readable name for the policy (e.g., 'NoOp', 'AllCaps', 'ToolJudge')."""
+        ...
+
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
         """Process request before sending to LLM."""
         ...

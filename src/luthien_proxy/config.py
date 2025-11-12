@@ -47,7 +47,6 @@ def load_policy_from_yaml(config_path: str | None = None) -> PolicyProtocol:
     Raises:
         FileNotFoundError: If config file doesn't exist
         ValueError: If config is missing required fields or has invalid structure
-        TypeError: If specified class is not a Policy subclass
         ImportError: If policy module cannot be imported
         yaml.YAMLError: If YAML syntax is invalid
     """
@@ -78,13 +77,8 @@ def load_policy_from_yaml(config_path: str | None = None) -> PolicyProtocol:
 
         policy_config = policy_section.get("config", {})
 
-        # Import and validate policy class
+        # Import policy class (note: we can't use issubclass() with Protocol that has properties)
         policy_class = _import_policy_class(policy_class_ref)
-        if not issubclass(policy_class, PolicyProtocol):
-            raise TypeError(
-                f"Class '{policy_class_ref}' from {config_path} is not a Policy subclass. "
-                f"All policy classes must inherit from luthien_proxy.policy_core.policy_protocol.PolicyProtocol"
-            )
 
         # Instantiate and return policy
         policy = _instantiate_policy(policy_class, policy_config)

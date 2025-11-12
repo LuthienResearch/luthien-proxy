@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 class DebugLoggingPolicy(PolicyProtocol):
     """Debug policy that logs ModelResponse chunks and passes them through."""
 
+    @property
+    def short_policy_name(self) -> str:
+        """Short human-readable name for the policy."""
+        return "DebugLogging"
+
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
         """Process request before sending to LLM."""
         return request

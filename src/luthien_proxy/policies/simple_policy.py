@@ -30,6 +30,11 @@ class SimplePolicy(PolicyProtocol):
     Buffers streaming content and applies transformations when complete.
     """
 
+    @property
+    def short_policy_name(self) -> str:
+        """Short human-readable name for the policy. Defaults to class name."""
+        return self.__class__.__name__
+
     # ===== Simple methods that subclasses override =====
 
     async def on_request_simple(self, request: Request) -> Request:

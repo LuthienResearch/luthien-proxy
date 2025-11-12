@@ -14,12 +14,12 @@ if TYPE_CHECKING:
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
+from luthien_proxy.policies.base_policy import BasePolicy
 
 logger = logging.getLogger(__name__)
 
 
-class NoOpPolicy(PolicyProtocol):
+class NoOpPolicy(BasePolicy):
     """No-op policy that does nothing."""
 
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
@@ -32,4 +32,4 @@ class NoOpPolicy(PolicyProtocol):
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
         """Called on every chunk."""
-        ctx.egress_queue.put_nowait(ctx.original_streaming_response_state.raw_chunks[-1])
+        ctx.push_chunk(ctx.last_chunk_received)

@@ -118,7 +118,11 @@ policy:
             load_policy_from_yaml(str(config_path))
 
     def test_non_policy_class_raises_exception(self, tmp_path: Path):
-        """Test that class not inheriting from Policy raises TypeError."""
+        """Test that class not inheriting from Policy can be loaded (validation happens at runtime).
+
+        Note: We can't use issubclass() with Protocols that have properties, so we allow
+        any class to be loaded and validation happens when policy methods are called.
+        """
         config_path = tmp_path / "non_policy.yaml"
         config_path.write_text(
             """
@@ -128,8 +132,9 @@ policy:
 """
         )
 
-        with pytest.raises(TypeError):
-            load_policy_from_yaml(str(config_path))
+        # This now succeeds - validation will happen at runtime when methods are called
+        policy = load_policy_from_yaml(str(config_path))
+        assert policy is not None
 
     def test_uses_policy_config_env_var(self, tmp_path: Path, monkeypatch):
         """Test that function respects POLICY_CONFIG environment variable."""
