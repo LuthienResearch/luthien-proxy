@@ -2,11 +2,11 @@
 
 ## Purpose & Scope
 
-- Core goal: implement AI Control for LLMs with integrated V2 gateway architecture.
+- Core goal: implement AI Control for LLMs with integrated gateway architecture.
 - Architecture: FastAPI gateway with integrated control plane and LiteLLM, using event-driven policies.
 - Configure upstream LLM models in `config/local_llm_config.yaml`.
-- Select a policy via `V2_POLICY_CONFIG` that points to a YAML file (defaults to `config/v2_config.yaml`).
-  - Example: `export V2_POLICY_CONFIG=./config/v2_config.yaml`
+- Select a policy via `POLICY_CONFIG` that points to a YAML file (defaults to `config/policy_config.yaml`).
+  - Example: `export POLICY_CONFIG=./config/policy_config.yaml`
 
 ## Development Workflow
 
@@ -87,17 +87,16 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
     - `gotchas.md`: Non-obvious behaviors, edge cases, things that are easy to get wrong
 - `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
 - `src/luthien_proxy/`: core package
-  - `v2/`: V2 gateway with integrated control plane and policy system
-    - `control/`: Control plane for policy orchestration
-    - `policies/`: Event-driven policy implementations
-    - `streaming/`: Streaming pipeline and orchestration
-    - `storage/`: Conversation event persistence
-    - `ui/`: Real-time monitoring interfaces
-    - `debug/`: Debug and inspection endpoints
+  - `control/`: Control plane for policy orchestration
+  - `policies/`: Event-driven policy implementations
+  - `streaming/`: Streaming pipeline and orchestration
+  - `storage/`: Conversation event persistence
+  - `ui/`: Real-time monitoring interfaces
+  - `debug/`: Debug and inspection endpoints
   - `utils/`: Shared utilities (db, redis, validation)
-- `config/`: `v2_config.yaml`, `local_llm_config.yaml`
-- `scripts/`: developer helpers (`quick_start.sh`, `test_v2_gateway.sh`)
-- `docker/` + `docker-compose.yaml`: local stack (db, redis, v2-gateway, local-llm)
+- `config/`: `policy_config.yaml`, `local_llm_config.yaml`
+- `scripts/`: developer helpers (`quick_start.sh`, `test_gateway.sh`)
+- `docker/` + `docker-compose.yaml`: local stack (db, redis, gateway, local-llm)
 - `migrations/`, `prisma/`: database setup
 - `tests/`: unit/integration tests
 
@@ -108,7 +107,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
 - Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
 - Type check: `uv run pyright`
-- Docker iterate: `docker compose restart v2-gateway`
+- Docker iterate: `docker compose restart gateway`
 
 ## Tooling
 
@@ -129,24 +128,24 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - Framework: `pytest`
 - Location: under `tests/unit_tests/`, `tests/integration_tests/`, `tests/e2e_tests/`
 - Name files `test_*.py` and mirror package paths within the test-type directory.
-- Prefer fast unit tests for policies; add integration tests against V2 gateway endpoints.
+- Prefer fast unit tests for policies; add integration tests against gateway endpoints.
 - Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.
 
 ## Security & Configuration
 
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
 - Copy `.env.example` to `.env`; never commit secrets.
-- Key env vars: `DATABASE_URL`, `REDIS_URL`, `V2_POLICY_CONFIG`, `PROXY_API_KEY`.
-- Update `config/v2_config.yaml` rather than hardcoding.
-- Validate setup with test requests to the V2 gateway at `http://localhost:8000`.
+- Key env vars: `DATABASE_URL`, `REDIS_URL`, `POLICY_CONFIG`, `PROXY_API_KEY`.
+- Update `config/policy_config.yaml` rather than hardcoding.
+- Validate setup with test requests to the gateway at `http://localhost:8000`.
 
 ## Policy Selection
 
-- Policies are loaded from the YAML file pointed to by `V2_POLICY_CONFIG` (default `config/v2_config.yaml`).
+- Policies are loaded from the YAML file pointed to by `POLICY_CONFIG` (default `config/policy_config.yaml`).
 - Minimal YAML:
 
   ```yaml
   policy:
-    class: "luthien_proxy.v2.policies.event_based_noop:EventBasedNoOpPolicy"
+    class: "luthien_proxy.policies.event_based_noop:EventBasedNoOpPolicy"
     config: {}
   ```

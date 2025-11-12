@@ -2,6 +2,15 @@
 
 ## Unreleased | TBA
 
+- Remove "v2" concept and consolidate architecture (#55)
+  - Moved all code from `src/luthien_proxy/v2/*` to `src/luthien_proxy/*`
+  - Updated all imports from `luthien_proxy.v2.*` to `luthien_proxy.*`
+  - Renamed `V2_POLICY_CONFIG` env var to `POLICY_CONFIG`
+  - Renamed `config/v2_config.yaml` to `config/policy_config.yaml`
+  - Updated route prefixes: `/v2/debug` → `/debug`, `/v2/activity` → `/activity`
+  - Renamed docker service from `v2-gateway` to `gateway`
+  - Moved test directories from `tests/**/v2/` to `tests/**/`
+
 - Cleanup and refactoring (#50)
   - introduced `policy_core` for common streaming/policy utilities
     - moved core abstractions (`PolicyProtocol`, `PolicyContext`, `StreamingPolicyContext` to `policy_core`)
@@ -72,17 +81,17 @@
   - OTLP gRPC exporter to Tempo
 
 - **Real-Time Monitoring**:
-  - Activity stream via Server-Sent Events (SSE) at `/v2/activity/stream`
-  - Live activity monitor web UI at `/v2/activity/monitor` with filtering by call_id/model/event_type
+  - Activity stream via Server-Sent Events (SSE) at `/activity/stream`
+  - Live activity monitor web UI at `/activity/monitor` with filtering by call_id/model/event_type
   - Redis pub/sub for real-time event distribution
   - Automatic event publishing for gateway, streaming, and policy lifecycle
 
 - **Debug & Analysis Tools**:
-  - Debug API at `/v2/debug/`:
+  - Debug API at `/debug/`:
     - `/calls` - List recent calls
     - `/calls/{call_id}` - Get call details
     - `/calls/{call_id}/diff` - Compare original vs transformed content
-  - Diff viewer UI at `/v2/debug/diff` with side-by-side JSON comparison
+  - Diff viewer UI at `/debug/diff` with side-by-side JSON comparison
   - Links to Grafana Tempo traces from all UIs
 
 - **Grafana Dashboards**:
@@ -122,12 +131,12 @@
 - **Removed infrastructure**:
   - `docker/Dockerfile.litellm` - V1 LiteLLM proxy image
   - 8 environment variables (LITELLM_MASTER_KEY, CONTROL_PLANE_URL, LUTHIEN_POLICY_CONFIG, etc.)
-  - Replaced `LUTHIEN_POLICY_CONFIG` → `V2_POLICY_CONFIG`
+  - Replaced `LUTHIEN_POLICY_CONFIG` → `POLICY_CONFIG`
 
 - **Updated documentation**:
   - Migrated policy configuration examples to EventDrivenPolicy DSL
   - Updated port references (8081 → 8000, removed 4000)
-  - Fixed service name references (control-plane → v2-gateway)
+  - Fixed service name references (control-plane → gateway)
   - Created `dev/ARCHITECTURE.md` with V2 core principles
 
 #### Testing & Quality
@@ -135,25 +144,25 @@
 - Comprehensive unit test coverage for policies, control plane, streaming orchestration
 - Integration tests for V2 gateway endpoints
 - End-to-end tests with real LLM providers (OpenAI, Anthropic, local Ollama)
-- Docker-based testing with `./scripts/test_v2_gateway.sh`
+- Docker-based testing with `./scripts/test_gateway.sh`
 - Type safety with Pyright across all V2 modules
 
 #### Developer Experience
 
 - Single-command setup: `./scripts/quick_start.sh`
-- Simplified service architecture: v2-gateway, local-llm, db, redis
+- Simplified service architecture: gateway, local-llm, db, redis
 - Observability stack: `./scripts/observability.sh up -d`
 - Live development with hot reload
-- Launch scripts for Claude Code and Codex routing through V2 gateway
+- Launch scripts for Claude Code and Codex routing through gateway
 - Comprehensive documentation:
   - `dev/event_driven_policy_guide.md` - Policy development guide
-  - `dev/observability-v2.md` - Observability features
+  - `dev/observability.md` - Observability features
   - `dev/VIEWING_TRACES_GUIDE.md` - Trace analysis walkthrough
   - `dev/OBSERVABILITY_DEMO.md` - Step-by-step demonstration
 
 #### Configuration
 
-- Single V2 config file: `config/v2_config.yaml`
+- Single config file: `config/policy_config.yaml`
 - Policy selection via class path + config dict
 - Environment variables consolidated in `.env.example`
 - Docker Compose profiles for optional services (observability)

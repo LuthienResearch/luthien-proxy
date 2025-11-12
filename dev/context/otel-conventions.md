@@ -461,7 +461,7 @@ OpenTelemetry baggage could propagate:
 ### Gateway Span
 
 ```python
-from luthien_proxy.v2.telemetry import tracer
+from luthien_proxy.telemetry import tracer
 
 with tracer.start_as_current_span("gateway.chat_completions") as span:
     span.set_attribute("luthien.call_id", call_id)

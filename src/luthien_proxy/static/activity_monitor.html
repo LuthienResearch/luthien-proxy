@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activity Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        header {
+            margin-bottom: 32px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #888;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+            padding: 16px;
+            background: #141414;
+            border-radius: 8px;
+            border: 1px solid #262626;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .status.connected {
+            background: #0a3d0a;
+            color: #4ade80;
+        }
+
+        .status.disconnected {
+            background: #3d0a0a;
+            color: #f87171;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-group label {
+            font-size: 13px;
+            color: #888;
+            white-space: nowrap;
+        }
+
+        input[type="text"] {
+            padding: 6px 12px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
+            font-size: 13px;
+            width: 200px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #4ade80;
+        }
+
+        .event-type-filter {
+            position: relative;
+        }
+
+        .filter-button {
+            padding: 6px 12px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 140px;
+        }
+
+        .filter-button:hover {
+            border-color: #4ade80;
+        }
+
+        .filter-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            background: #141414;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 8px;
+            min-width: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+
+        .filter-dropdown.open {
+            display: block;
+        }
+
+        .filter-option {
+            padding: 6px 8px;
+            font-size: 13px;
+            cursor: pointer;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-option:hover {
+            background: #1a1a1a;
+        }
+
+        .filter-option input[type="checkbox"] {
+            cursor: pointer;
+        }
+
+        .filter-option.category-header {
+            font-weight: 600;
+            background: #1a1a1a;
+            margin-top: 4px;
+        }
+
+        .filter-option.category-header:first-child {
+            margin-top: 0;
+        }
+
+        .filter-option.filter-subtype {
+            padding-left: 32px;
+            font-size: 12px;
+        }
+
+        button {
+            padding: 6px 16px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            border-color: #4ade80;
+            background: #141414;
+        }
+
+        .events {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .event {
+            background: #141414;
+            border: 1px solid #262626;
+            border-left: 3px solid #4ade80;
+            border-radius: 6px;
+            padding: 16px;
+            transition: all 0.2s;
+        }
+
+        .event.hidden {
+            display: none;
+        }
+
+        .event:hover {
+            border-color: #333;
+            background: #161616;
+        }
+
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 12px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .event-main {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+        }
+
+        .event-type {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4ade80;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        }
+
+        .event-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .event-id {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            color: #888;
+        }
+
+        .event-time {
+            color: #666;
+        }
+
+        .expand-icon {
+            color: #666;
+            font-size: 18px;
+            transition: transform 0.2s;
+        }
+
+        .event.expanded .expand-icon {
+            transform: rotate(180deg);
+        }
+
+        .event-payload {
+            display: none;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #262626;
+        }
+
+        .event.expanded .event-payload {
+            display: block;
+        }
+
+        .event-payload pre {
+            background: #0a0a0a;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #1a1a1a;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.5;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            color: #a3a3a3;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        /* Event type colors */
+        .event[data-type*="request"] {
+            border-left-color: #3b82f6;
+        }
+
+        .event[data-type*="response"] {
+            border-left-color: #10b981;
+        }
+
+        .event[data-type*="streaming"] {
+            border-left-color: #06b6d4;
+        }
+
+        .event[data-type*="policy"] {
+            border-left-color: #f59e0b;
+        }
+
+        .event[data-type*="transaction"] {
+            border-left-color: #a78bfa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Activity Monitor</h1>
+            <p class="subtitle">Live stream of gateway events</p>
+        </header>
+
+        <div class="toolbar">
+            <div class="status disconnected" id="status">
+                <span class="status-dot"></span>
+                <span id="status-text">Disconnected</span>
+            </div>
+
+            <div class="filter-group">
+                <label>ID Filter:</label>
+                <input type="text" id="id-filter" placeholder="call_id or transaction_id...">
+            </div>
+
+            <div class="filter-group">
+                <label>Event Types:</label>
+                <div class="event-type-filter">
+                    <div class="filter-button" id="type-filter-btn">
+                        <span id="type-filter-label">All Events</span>
+                        <span>▼</span>
+                    </div>
+                    <div class="filter-dropdown" id="type-filter-dropdown">
+                        <!-- Filter options will be dynamically populated as events arrive -->
+                    </div>
+                </div>
+            </div>
+
+            <button id="clear-btn">Clear</button>
+            <button id="reconnect-btn">Reconnect</button>
+        </div>
+
+        <div class="events" id="events">
+            <div class="empty-state">Waiting for events...</div>
+        </div>
+    </div>
+
+    <script src="/static/activity_monitor.js"></script>
+</body>
+</html>

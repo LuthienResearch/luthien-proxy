@@ -9,16 +9,16 @@ Redwood-style AI Control as an LLM proxy for production agentic deployments.
 ./scripts/quick_start.sh
 
 # 2. Test it works
-./scripts/test_v2_gateway.sh
+./scripts/test_gateway.sh
 ```
 
 You now have:
 
-- **V2 Gateway** (OpenAI-compatible) at <http://localhost:8000>
+- **Gateway** (OpenAI-compatible) at <http://localhost:8000>
 - **PostgreSQL** and **Redis** fully configured
 - **Local LLM** (Ollama) at <http://localhost:11434>
 
-The V2 gateway provides:
+The gateway provides:
 
 - OpenAI Chat Completions API (`/v1/chat/completions`)
 - Anthropic Messages API (`/v1/messages`)
@@ -34,8 +34,8 @@ The V2 gateway provides:
 ## Development
 
 ```bash
-# After code changes, restart the V2 gateway
-docker compose restart v2-gateway
+# After code changes, restart the gateway
+docker compose restart gateway
 
 # Run unit tests
 uv run pytest tests/unit_tests
@@ -46,8 +46,8 @@ uv run pytest tests/integration_tests
 # Run e2e tests (slow, use sparingly)
 uv run pytest -m e2e
 
-# Test the V2 gateway
-./scripts/test_v2_gateway.sh
+# Test the gateway
+./scripts/test_gateway.sh
 
 # Format and lint
 ./scripts/format_all.sh
@@ -61,15 +61,15 @@ uv run pyright
 
 ## Observability (Optional)
 
-The V2 gateway supports **OpenTelemetry** for distributed tracing and log correlation.
+The gateway supports **OpenTelemetry** for distributed tracing and log correlation.
 
-By default, the V2 gateway runs **without** the observability stack. To enable it:
+By default, the gateway runs **without** the observability stack. To enable it:
 
 ```bash
 # Start observability stack (Tempo, Loki, Promtail, Grafana)
 ./scripts/observability.sh up -d
 
-# The V2 gateway will automatically detect and use the observability stack
+# The gateway will automatically detect and use the observability stack
 
 # Access Grafana
 open http://localhost:3000
@@ -83,7 +83,7 @@ The observability stack is completely optional and does not affect core function
 - **Distributed tracing** with OpenTelemetry → Grafana Tempo
 - **Structured logging** with trace context (trace_id, span_id)
 - **Log-trace correlation** in Grafana
-- **Real-time activity feed** at `/v2/activity/monitor`
+- **Real-time activity feed** at `/activity/monitor`
 - **Pre-built dashboard** for traces and logs
 
 ### Configuration
@@ -93,14 +93,14 @@ Enable OpenTelemetry in `.env`:
 ```bash
 OTEL_ENABLED=true
 OTEL_ENDPOINT=http://tempo:4317
-SERVICE_NAME=luthien-proxy-v2
+SERVICE_NAME=luthien-proxy
 SERVICE_VERSION=2.0.0
 ENVIRONMENT=development
 ```
 
 ### Documentation
 
-- **Usage guide:** [dev/observability-v2.md](dev/observability-v2.md)
+- **Usage guide:** [dev/observability.md](dev/observability.md)
 - **Conventions:** [dev/context/otel-conventions.md](dev/context/otel-conventions.md)
 - **Dashboard:** Import `observability/grafana-dashboards/luthien-traces.json` in Grafana
 
@@ -121,21 +121,21 @@ Copy `.env.example` to `.env` and add your API keys:
 OPENAI_API_KEY=your_openai_api_key_here
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
-# V2 Gateway configuration
+# Gateway configuration
 PROXY_API_KEY=sk-luthien-dev-key  # API key for accessing the gateway
-V2_GATEWAY_PORT=8000               # Gateway port
-V2_POLICY_CONFIG=/app/config/v2_config.yaml  # Policy configuration
+GATEWAY_PORT=8000               # Gateway port
+POLICY_CONFIG=/app/config/policy_config.yaml  # Policy configuration
 ```
 
 ### Policy Configuration
 
-The V2 gateway loads policies from `V2_POLICY_CONFIG` (defaults to `config/v2_config.yaml`).
+The gateway loads policies from `POLICY_CONFIG` (defaults to `config/policy_config.yaml`).
 
 Example policy configuration:
 
 ```yaml
 policy:
-  class: "luthien_proxy.v2.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
+  class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
   config:
     model: "ollama/gemma2:2b"
     api_base: "http://local-llm:11434"
@@ -145,7 +145,7 @@ policy:
     max_tokens: 256
 ```
 
-Available policies in `src/luthien_proxy/v2/policies/`:
+Available policies in `src/luthien_proxy/policies/`:
 
 - `noop.py` - Pass-through (no filtering)
 - `event_based_noop.py` - Event-driven no-op (demonstrates DSL)
@@ -165,41 +165,41 @@ Editor setup (VS Code)
 
 ## Architecture
 
-The V2 architecture integrates everything into a single FastAPI application:
+The gateway integrates everything into a single FastAPI application:
 
-- **V2 Gateway** (`src/luthien_proxy/v2/`): Unified FastAPI + LiteLLM integration
+- **Gateway** (`src/luthien_proxy/`): Unified FastAPI + LiteLLM integration
   - OpenAI Chat Completions API compatibility
   - Anthropic Messages API compatibility
   - Integrated control plane for policy enforcement
   - Event-driven policy system with streaming support
   - OpenTelemetry instrumentation for observability
 
-- **Control Plane** (`src/luthien_proxy/v2/control/`): Synchronous policy orchestration
+- **Control Plane** (`src/luthien_proxy/control/`): Synchronous policy orchestration
   - Processes requests through configured policies
   - Real-time event publishing for UI updates
   - Trace context propagation
 
-- **Policy System** (`src/luthien_proxy/v2/policies/`): Event-driven policy framework
+- **Policy System** (`src/luthien_proxy/policies/`): Event-driven policy framework
   - Stream-aware policy interface
   - Buffering and transformation capabilities
   - Examples: NoOp, ToolCallJudge, UppercaseNthWord
 
-- **UI** (`src/luthien_proxy/v2/ui/`): Real-time monitoring and debugging
-  - `/v2/activity/monitor` - Live activity feed
-  - `/v2/activity/live` - WebSocket activity stream
+- **UI** (`src/luthien_proxy/ui/`): Real-time monitoring and debugging
+  - `/activity/monitor` - Live activity feed
+  - `/activity/live` - WebSocket activity stream
   - Debug endpoints for inspection
 
 **Documentation**:
 
 - **Start here**: [Development docs index](dev/README.md) - Guide to all documentation
 - Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
-- Observability: [dev/observability-v2.md](dev/observability-v2.md) - Tracing and monitoring
+- Observability: [dev/observability.md](dev/observability.md) - Tracing and monitoring
 - Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](dev/VIEWING_TRACES_GUIDE.md) - Using Grafana/Tempo
 - Context files: [dev/context/](dev/context/) - Architectural patterns, decisions, and gotchas
 
 ## Endpoints
 
-### V2 Gateway (<http://localhost:8000>)
+### Gateway (<http://localhost:8000>)
 
 **API Endpoints:**
 
@@ -209,43 +209,28 @@ The V2 architecture integrates everything into a single FastAPI application:
 
 **UI Endpoints:**
 
-- `GET /v2/activity/monitor` — Real-time activity monitor (HTML)
-- `GET /v2/activity/live` — WebSocket activity stream (JSON)
-- `GET /v2/debug` — Debug information viewer
+- `GET /activity/monitor` — Real-time activity monitor (HTML)
+- `GET /activity/live` — WebSocket activity stream (JSON)
+- `GET /debug` — Debug information viewer
 
 **Authentication:**
 
 All API requests require the `Authorization: Bearer <PROXY_API_KEY>` header.
 
-## V2 Policy System
+## Policy System
 
-The V2 gateway uses an event-driven policy architecture with streaming support.
+The gateway uses an event-driven policy architecture with streaming support.
 
 ### Key Components
 
-- `src/luthien_proxy/v2/policies/base.py` - Abstract policy interface
-- `src/luthien_proxy/v2/control/synchronous_control_plane.py` - Policy orchestration
-- `src/luthien_proxy/v2/gateway_routes.py` - API endpoint handlers with policy integration
-- `config/v2_config.yaml` - Policy configuration
+- `src/luthien_proxy/policies/base.py` - Abstract policy interface
+- `src/luthien_proxy/control/synchronous_control_plane.py` - Policy orchestration
+- `src/luthien_proxy/gateway_routes.py` - API endpoint handlers with policy integration
+- `config/policy_config.yaml` - Policy configuration
 
 ### Creating Custom Policies
 
-Policies implement the `LuthienPolicy` interface or use the event-driven DSL:
-
-```python
-from luthien_proxy.v2.streaming import EventDrivenPolicy, StreamingContext
-
-class MyPolicy(EventDrivenPolicy):
-    async def on_content_chunk(self, content: str, raw_chunk, state, context: StreamingContext):
-        # Process content chunks
-        await context.send(raw_chunk)  # Forward or transform
-```
-
-See `src/luthien_proxy/v2/policies/` for examples:
-
-- `noop.py` - Simple pass-through
-- `uppercase_nth_word.py` - Content transformation
-- `tool_call_judge_v3.py` - AI-based safety evaluation
+!!! WE NEED TO UPDATE THIS !!!
 
 ### Testing
 
@@ -254,10 +239,10 @@ See `src/luthien_proxy/v2/policies/` for examples:
 ./scripts/quick_start.sh
 
 # Run automated tests
-./scripts/test_v2_gateway.sh
+./scripts/test_gateway.sh
 
 # View logs
-docker compose logs -f v2-gateway
+docker compose logs -f gateway
 ```
 
 ## Troubleshooting
@@ -269,10 +254,10 @@ docker compose logs -f v2-gateway
 docker compose ps
 
 # View gateway logs
-docker compose logs v2-gateway
+docker compose logs gateway
 
 # Restart gateway
-docker compose restart v2-gateway
+docker compose restart gateway
 
 # Full restart
 docker compose down && ./scripts/quick_start.sh
@@ -282,7 +267,7 @@ docker compose down && ./scripts/quick_start.sh
 
 1. **Check API key**: Ensure `Authorization: Bearer <PROXY_API_KEY>` header is set
 2. **Check upstream credentials**: Verify `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in `.env`
-3. **Check logs**: `docker compose logs -f v2-gateway`
+3. **Check logs**: `docker compose logs -f gateway`
 
 ### Tests failing
 
@@ -294,7 +279,7 @@ docker compose ps
 curl http://localhost:8000/health
 
 # View detailed logs
-docker compose logs v2-gateway | tail -50
+docker compose logs gateway | tail -50
 ```
 
 ### Database connection issues

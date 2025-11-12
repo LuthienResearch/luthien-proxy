@@ -39,7 +39,7 @@ services:
   db-migrations:
     build:
       context: .
-      dockerfile: docker/Dockerfile.v2-gateway
+      dockerfile: docker/Dockerfile.gateway
     command: ["uv", "run", "prisma", "migrate", "deploy", "--schema", "prisma/control_plane/schema.prisma"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -70,24 +70,24 @@ services:
       timeout: 5s
       retries: 5
 
-  # V2 Gateway (integrated FastAPI + LiteLLM architecture)
-  v2-gateway:
+  # Gateway (integrated FastAPI + LiteLLM architecture)
+  gateway:
     build:
       context: .
-      dockerfile: docker/Dockerfile.v2-gateway
+      dockerfile: docker/Dockerfile.gateway
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - PROXY_API_KEY=${PROXY_API_KEY}
-      - V2_GATEWAY_PORT=${V2_GATEWAY_PORT:-8000}
-      - V2_POLICY_CONFIG=${V2_POLICY_CONFIG:-/app/config/v2_config.yaml}
+      - GATEWAY_PORT=${GATEWAY_PORT:-8000}
+      - POLICY_CONFIG=${POLICY_CONFIG:-/app/config/policy_config.yaml}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      - OTEL_SERVICE_NAME=luthien-v2-gateway
+      - OTEL_SERVICE_NAME=luthien-gateway
     ports:
-      - "${V2_GATEWAY_PORT:-8000}:8000"
+      - "${GATEWAY_PORT:-8000}:8000"
     volumes:
       - ./src:/app/src:ro
       - ./config:/app/config:ro

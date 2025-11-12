@@ -57,7 +57,7 @@
          │ Click "Debug Request abc123"
          ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│          GET /v2/debug/request/<call_id>                         │
+│          GET /debug/request/<call_id>                         │
 │  Unified debug view combining:                                   │
 │  1. Full trace from Tempo (timing breakdown)                     │
 │  2. Payloads from PostgreSQL (diff view)                         │
@@ -74,7 +74,7 @@
 
 ┌──────────────────────────────────────────────────────────────────┐
 │  OPTIONAL: Redis + SSE (for live development only)               │
-│  - /v2/activity/stream endpoint (existing)                       │
+│  - /activity/stream endpoint (existing)                       │
 │  - Lightweight events for "what's happening NOW"                 │
 │  - Use during active policy development                          │
 │  - NOT trying to replace other tools                             │
@@ -138,8 +138,8 @@ with tracer.start_as_current_span("gateway.chat_completions") as span:
 ### Querying for Debugging
 
 ```python
-# GET /v2/debug/request/<call_id>
-@app.get("/v2/debug/request/{call_id}")
+# GET /debug/request/<call_id>
+@app.get("/debug/request/{call_id}")
 async def debug_request(call_id: str):
     # 1. Fetch payloads from PostgreSQL
     trace_data = await db.query(
@@ -267,14 +267,14 @@ async def query_request_traces(
 ### Phase 2: Diff View & Debug Endpoint (2-3 hours)
 
 **Files to create:**
-- `src/luthien_proxy/v2/debug/diff.py` - Diff computation
-- `src/luthien_proxy/v2/debug/endpoint.py` - Debug endpoint handler
+- `src/luthien_proxy/debug/diff.py` - Diff computation
+- `src/luthien_proxy/debug/endpoint.py` - Debug endpoint handler
 - `src/luthien_proxy/v2/templates/debug_request.html` - Debug UI template
 - `src/luthien_proxy/v2/static/debug.css` - Styling for diff view
 
 **What it does:**
 ```python
-# src/luthien_proxy/v2/debug/diff.py
+# src/luthien_proxy/debug/diff.py
 
 def compute_diff(original: dict, final: dict) -> DiffResult:
     """Compute structured diff between two JSON objects.
@@ -310,7 +310,7 @@ def summarize_diff(original: dict, final: dict) -> str:
 **Changes:**
 ```python
 # In main.py
-from luthien_proxy.v2.storage.traces import store_request_trace, update_request_trace
+from luthien_proxy.storage.traces import store_request_trace, update_request_trace
 
 # In chat_completions endpoint:
 # After process_request():

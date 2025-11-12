@@ -1,6 +1,6 @@
-# ABOUTME: Main package initialization for Luthien Control proxy
-# ABOUTME: Exposes version and core components for AI control implementation
+# ABOUTME: V2 architecture - integrated FastAPI + LiteLLM with network-ready control plane
+# ABOUTME: Uses LiteLLM as library instead of proxy, cleaner separation of concerns
 
-"""Luthien Control - Redwood-style AI Control as an LLM proxy."""
+"""Luthien V2 - integrated architecture with network-ready control plane."""
 
-__version__ = "0.1.0"
+__all__ = []

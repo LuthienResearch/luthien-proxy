@@ -92,7 +92,7 @@ sequenceDiagram
 
 ```mermaid
 graph TB
-    A[User clicks 'Debug Request abc123'] --> B[GET /v2/debug/request/abc123]
+    A[User clicks 'Debug Request abc123'] --> B[GET /debug/request/abc123]
     B --> C[Query Postgres]
     B --> D[Query Tempo via Grafana API]
 
@@ -306,9 +306,9 @@ Timing:
 ### Phase 2: Diff View & Debug Endpoint (2-3 hours)
 
 #### Task 2.1: Create diff computation module (1 hour)
-- [ ] Create `src/luthien_proxy/v2/debug/` directory
-- [ ] Create `src/luthien_proxy/v2/debug/__init__.py`
-- [ ] Create `src/luthien_proxy/v2/debug/diff.py` with:
+- [ ] Create `src/luthien_proxy/debug/` directory
+- [ ] Create `src/luthien_proxy/debug/__init__.py`
+- [ ] Create `src/luthien_proxy/debug/diff.py` with:
   - `DiffResult` dataclass (added, removed, modified, unchanged, summary)
   - `compute_diff(original: dict, final: dict, path: str = "") -> DiffResult`
     - Recursive structural diff for nested dicts
@@ -317,8 +317,8 @@ Timing:
     - Short summary for OTel attributes
 
 **Files to create:**
-- `src/luthien_proxy/v2/debug/__init__.py`
-- `src/luthien_proxy/v2/debug/diff.py`
+- `src/luthien_proxy/debug/__init__.py`
+- `src/luthien_proxy/debug/diff.py`
 
 **Test cases to support:**
 - Flat dict diff
@@ -327,17 +327,17 @@ Timing:
 - Type changes (e.g., string → int)
 
 #### Task 2.2: Create debug endpoint (1 hour)
-- [ ] Create `src/luthien_proxy/v2/debug/endpoint.py` with:
+- [ ] Create `src/luthien_proxy/debug/endpoint.py` with:
   - `query_conversation_events(call_id: str, db_pool) -> dict`
   - `query_tempo_via_grafana(call_id: str) -> list`
   - `build_timing_waterfall(spans: list) -> dict`
   - `debug_request_handler(call_id: str)` - main endpoint logic
 - [ ] Modify `src/luthien_proxy/v2/main.py`:
-  - Add route: `@app.get("/v2/debug/request/{call_id}")`
+  - Add route: `@app.get("/debug/request/{call_id}")`
   - Wire to debug_request_handler
 
 **Files to create:**
-- `src/luthien_proxy/v2/debug/endpoint.py`
+- `src/luthien_proxy/debug/endpoint.py`
 
 **Files to modify:**
 - `src/luthien_proxy/v2/main.py`
@@ -414,7 +414,7 @@ Timing:
   - Fix Prisma path: `prisma/control_plane/schema.prisma`
 - [ ] Create `docs/POLICY_DEBUGGING.md`:
   - Overview of debugging workflow
-  - How to use `/v2/debug/request/<call_id>`
+  - How to use `/debug/request/<call_id>`
   - Examples for 3 use cases:
     1. Policy development (testing new policy)
     2. API compatibility (OpenAI vs Anthropic)

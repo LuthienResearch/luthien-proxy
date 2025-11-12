@@ -1,12 +1,12 @@
-# V2 Observability Demonstration Guide
+# Observability Demonstration Guide
 
 **When to use this guide:** You're new to the observability system and want a hands-on walkthrough of all features.
 
-This guide walks through testing the UppercaseNthWordPolicy and exploring all V2 observability features.
+This guide walks through testing the UppercaseNthWordPolicy and exploring all observability features.
 
 **Other observability docs:**
 - Need to view a specific trace? See [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md)
-- Understanding the architecture? Read [observability-v2.md](observability-v2.md)
+- Understanding the architecture? Read [observability.md](observability.md)
 
 ## Prerequisites
 
@@ -16,12 +16,12 @@ This guide walks through testing the UppercaseNthWordPolicy and exploring all V2
    # Edit .env to add your OPENAI_API_KEY and/or ANTHROPIC_API_KEY
    ```
 
-2. **Start the full observability stack** (includes V2 gateway):
+2. **Start the full observability stack** (includes gateway):
    ```bash
    ./scripts/observability.sh up -d
    ```
    This starts:
-   - V2 Gateway (with UppercaseNthWordPolicy)
+   - Gateway (with UppercaseNthWordPolicy)
    - PostgreSQL and Redis
    - Tempo (traces), Loki (logs), Promtail (log collector), and Grafana
 
@@ -29,15 +29,15 @@ This guide walks through testing the UppercaseNthWordPolicy and exploring all V2
    ```bash
    docker compose --profile observability ps
    ```
-   Should show: v2-gateway, db, redis, tempo, loki, promtail, grafana all running and healthy.
+   Should show: gateway, db, redis, tempo, loki, promtail, grafana all running and healthy.
 
-## Part 1: Verify V2 Gateway
+## Part 1: Verify Gateway
 
-The V2 gateway is now running in Docker with `UppercaseNthWordPolicy(n=3)` which will uppercase every 3rd word in responses.
+The gateway is now running in Docker with `UppercaseNthWordPolicy(n=3)` which will uppercase every 3rd word in responses.
 
 ```bash
 # Check gateway logs
-docker compose logs v2-gateway --tail 20
+docker compose logs gateway --tail 20
 ```
 
 You should see logs indicating:
@@ -116,7 +116,7 @@ Watch as every 3rd word gets uppercased!
 While requests are flowing, open the **Activity Monitor**:
 
 ```bash
-open http://localhost:8000/v2/activity/monitor
+open http://localhost:8000/activity/monitor
 ```
 
 ### What You'll See:
@@ -150,7 +150,7 @@ open http://localhost:8000/v2/activity/monitor
 Now let's see **exactly** what the policy changed. Open the **Diff Viewer**:
 
 ```bash
-open http://localhost:8000/v2/debug/diff
+open http://localhost:8000/debug/diff
 ```
 
 ### Viewing a Specific Call:
@@ -196,7 +196,7 @@ Open Grafana:
 open http://localhost:3000
 ```
 
-Navigate to **"V2 Metrics & Performance"** dashboard (should auto-provision).
+Navigate to **"Metrics & Performance"** dashboard (should auto-provision).
 
 ### Panels to Explore:
 
@@ -213,7 +213,7 @@ Navigate to **"V2 Metrics & Performance"** dashboard (should auto-provision).
   - `control_plane.process_streaming_response` (streaming policies)
 - **Question**: Is the uppercase policy adding latency? Check the graph!
 
-**3. Total V2 Requests** (Middle Left)
+**3. Total Requests** (Middle Left)
 - Gauge showing total request count
 - Color changes: Green → Yellow (50+) → Red (100+)
 
@@ -348,7 +348,7 @@ Back to the **Activity Monitor**, filter to show only **Policy Events**:
 
 **Activity Monitor not showing events?**
 - Check Redis is running: `docker compose ps redis`
-- Check V2 gateway logs for Redis connection errors
+- Check gateway logs for Redis connection errors
 
 **Diff Viewer returns 404?**
 - Check PostgreSQL is running: `docker compose ps postgres`
@@ -360,7 +360,7 @@ Back to the **Activity Monitor**, filter to show only **Policy Events**:
 - Check traces: `curl http://localhost:3200/api/search`
 
 **Policy not transforming text?**
-- Check V2 gateway logs for policy initialization
+- Check gateway logs for policy initialization
 - Verify UppercaseNthWordPolicy is configured in main.py
 - Test with non-streaming first (easier to debug)
 
@@ -372,12 +372,12 @@ When you're done exploring:
 ./scripts/observability.sh down
 ```
 
-This stops all services (V2 gateway, databases, observability stack).
+This stops all services (gateway, databases, observability stack).
 
 ## Next Steps
 
-- Try changing `n` to a different value in [main.py:78](../src/luthien_proxy/v2/main.py#L78) (e.g., n=2 for every other word, n=1 for all words)
-- Create your own policy by copying [UppercaseNthWordPolicy](../src/luthien_proxy/v2/policies/uppercase_nth_word.py)
+- Try changing `n` to a different value in [main.py:78](../src/luthien_proxy/main.py#L78) (e.g., n=2 for every other word, n=1 for all words)
+- Create your own policy by copying [UppercaseNthWordPolicy](../src/luthien_proxy/policies/uppercase_nth_word.py)
 - Add more complex transformations (e.g., word filtering, content moderation)
 - Set up alerting rules in Grafana for policy failures or high latency
 - Export interesting traces and diffs for documentation

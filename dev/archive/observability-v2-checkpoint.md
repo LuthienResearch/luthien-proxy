@@ -87,7 +87,7 @@ Before continuing to Phase 1.3:
 
 ```bash
 # 1. Start V2 gateway
-DATABASE_URL="postgresql://..." PROXY_API_KEY="test-key" REDIS_URL="redis://localhost:6379" uv run python -m luthien_proxy.v2.main
+DATABASE_URL="postgresql://..." PROXY_API_KEY="test-key" REDIS_URL="redis://localhost:6379" uv run python -m luthien_proxy.main
 
 # 2. Make test request
 curl -X POST http://localhost:8000/v1/chat/completions \

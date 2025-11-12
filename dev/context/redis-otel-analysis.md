@@ -19,8 +19,8 @@ We currently maintain two separate observability channels:
 
 2. **Redis Pub/Sub** - Real-time activity stream
    - Lightweight JSON events published to `luthien:activity` channel
-   - Consumed by `/v2/activity/stream` (SSE endpoint)
-   - Rendered in `/v2/activity/monitor` (HTML UI)
+   - Consumed by `/activity/stream` (SSE endpoint)
+   - Rendered in `/activity/monitor` (HTML UI)
    - Near-instant delivery (milliseconds)
    - Minimal data, fire-and-forget
 
@@ -405,7 +405,7 @@ async def emit_event(
 ```python
 # src/luthien_proxy/v2/policies/context.py
 
-from luthien_proxy.v2.observability.events import emit_event
+from luthien_proxy.observability.events import emit_event
 
 class PolicyContext:
     def emit(self, event_type: str, summary: str, details: dict | None, severity: str):
@@ -428,7 +428,7 @@ class PolicyContext:
 ```python
 # src/luthien_proxy/v2/main.py
 
-from luthien_proxy.v2.observability.events import emit_event
+from luthien_proxy.observability.events import emit_event
 
 # Replace all manual publishing with:
 await emit_event(

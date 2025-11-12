@@ -54,8 +54,8 @@ if model_specific_params:
 **Usage pattern**:
 ```python
 @pytest.fixture(scope="module")
-def v2_gateway():
-    manager = V2GatewayManager(port=8888, api_key="sk-test-v2-gateway")
+def gateway():
+    manager = V2GatewayManager(port=8888, api_key="sk-test-gateway")
     with manager.running():
         yield manager
 ```

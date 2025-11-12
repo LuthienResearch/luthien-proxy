@@ -1,0 +1,36 @@
+# Luthien Policy Configuration
+#
+# This file specifies the active policy for the integrated architecture.
+# Set the POLICY_CONFIG environment variable to point to this file.
+
+
+# Default Policy (pass-through)
+policy:
+  class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
+  config: {}
+
+# Simple Policy - allows all requests without modification, but no streaming
+# policy:
+#   class: "luthien_proxy.policies.simple_policy:SimplePolicy"
+#   config: {}
+
+# All Caps Policy - converts all response content to uppercase
+# policy:
+#   class: "luthien_proxy.policies.all_caps_policy:AllCapsPolicy"
+#   config: {}
+
+# Tool Call Judge Policy - evaluates tool calls with a judge LLM
+# policy:
+#   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+#   config:
+#     model: "openai/gpt-4o-mini"  # Use gpt-4o-mini for JSON mode support (gpt-4 base doesn't support it)
+#     api_base: null  # Uses default OpenAI API
+#     api_key: null  # Falls back to OPENAI_API_KEY env var
+#     probability_threshold: 0.01
+#     temperature: 0.0
+#     max_tokens: 256
+#     blocked_message_template: "⛔ Tool '{tool_name}' with args {tool_arguments} blocked: {explanation}"
+#     # Optional: Customize judge system prompt
+#     # judge_instructions: "You are a security analyst. Evaluate tool calls for risk..."
+#     # Optional: Customize blocked message template
+#     # Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}

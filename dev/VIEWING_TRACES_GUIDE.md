@@ -6,7 +6,7 @@
 
 **Other observability docs:**
 - New to observability? Start with [OBSERVABILITY_DEMO.md](OBSERVABILITY_DEMO.md)
-- Understanding the system? Read [observability-v2.md](observability-v2.md)
+- Understanding the system? Read [observability.md](observability.md)
 
 ---
 
@@ -28,7 +28,7 @@ All services should show "Up" status.
 
 ## Step 1: Make Test Requests
 
-Generate some trace data by making requests to the **V2 gateway** at port 8000:
+Generate some trace data by making requests to the **gateway** at port 8000:
 
 ```bash
 # Simple non-streaming request
@@ -54,7 +54,7 @@ curl -s "http://localhost:8000/v1/chat/completions" \
   }'
 ```
 
-**Note:** The V2 gateway (port 8000) provides an integrated LiteLLM proxy with OpenTelemetry instrumentation built-in.
+**Note:** The gateway (port 8000) provides an integrated LiteLLM proxy with OpenTelemetry instrumentation built-in.
 
 ---
 
@@ -132,7 +132,7 @@ gateway.chat_completions (root span)
 2. Select **Loki** from the datasource dropdown
 3. In the query builder, enter:
    ```
-   {service_name="luthien-proxy-v2"}
+   {service_name="luthien-proxy"}
    ```
 4. Click **Run query** (or press Shift+Enter)
 5. You should see logs with trace_id and span_id
@@ -144,9 +144,9 @@ gateway.chat_completions (root span)
 ```
 
 **Filter logs:**
-- By level: `{service_name="luthien-proxy-v2"} |= "ERROR"`
-- By call_id: `{service_name="luthien-proxy-v2"} |= "call_id=abc123"`
-- By policy: `{service_name="luthien-proxy-v2"} |= "NoOpPolicy"`
+- By level: `{service_name="luthien-proxy"} |= "ERROR"`
+- By call_id: `{service_name="luthien-proxy"} |= "call_id=abc123"`
+- By policy: `{service_name="luthien-proxy"} |= "NoOpPolicy"`
 
 ---
 
@@ -183,11 +183,11 @@ If you have a specific `call_id` from your application:
 
 ## Step 6: Real-Time Activity Monitor
 
-For V2 activity:
+For activity:
 
 ```bash
 # Access the real-time monitor
-open http://localhost:8000/v2/activity/monitor
+open http://localhost:8000/activity/monitor
 ```
 
 This shows live events from Redis pub/sub (separate from traces).
@@ -198,14 +198,14 @@ This shows live events from Redis pub/sub (separate from traces).
 
 ### "No traces found"
 
-**Check 1:** Are you making requests to the V2 gateway?
+**Check 1:** Are you making requests to the gateway?
 
-The V2 gateway with OpenTelemetry is at **port 8000**:
+The gateway with OpenTelemetry is at **port 8000**:
 - `POST /v1/chat/completions` (OpenAI format)
 - `POST /v1/messages` (Anthropic format)
 
 ```bash
-# Test V2 gateway endpoint (CORRECT - will create traces)
+# Test gateway endpoint (CORRECT - will create traces)
 curl -s "http://localhost:8000/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-luthien-dev-key" \
@@ -219,7 +219,7 @@ curl -s "http://localhost:8000/v1/chat/completions" \
 
 **Check 2:** Is OTEL_ENABLED set?
 
-OpenTelemetry is always enabled for the V2 gateway. No configuration needed!
+OpenTelemetry is always enabled for the gateway. No configuration needed!
 
 **Check 3:** Is Tempo receiving data?
 
@@ -228,10 +228,10 @@ OpenTelemetry is always enabled for the V2 gateway. No configuration needed!
 docker compose logs tempo --tail 50 | grep -i "spans"
 ```
 
-**Check 4:** Can the V2 gateway reach Tempo?
+**Check 4:** Can the gateway reach Tempo?
 
 ```bash
-docker compose exec v2-gateway curl -v http://tempo:4317
+docker compose exec gateway curl -v http://tempo:4317
 # Should connect (even if it returns an error, connection works)
 ```
 
@@ -250,7 +250,7 @@ The datasources should auto-configure. If not:
 Check that telemetry is initialized:
 
 ```bash
-docker compose logs v2-gateway | grep -i "opentelemetry initialized"
+docker compose logs gateway | grep -i "opentelemetry initialized"
 # Should see: "OpenTelemetry initialized"
 ```
 
@@ -275,10 +275,10 @@ Find traces by attributes:
 Filter logs:
 
 ```logql
-{service_name="luthien-proxy-v2"} |= "ERROR"
-{service_name="luthien-proxy-v2"} |= "call_id=abc123"
-{service_name="luthien-proxy-v2"} | json | level="error"
-{service_name="luthien-proxy-v2"} | json | duration_ms > 1000
+{service_name="luthien-proxy"} |= "ERROR"
+{service_name="luthien-proxy"} |= "call_id=abc123"
+{service_name="luthien-proxy"} | json | level="error"
+{service_name="luthien-proxy"} | json | duration_ms > 1000
 ```
 
 ---
@@ -301,8 +301,8 @@ RESPONSE=$(curl -s "http://localhost:8000/v1/chat/completions" \
 # 2. Extract the response
 echo "$RESPONSE" | jq '.'
 
-# 3. Check V2 gateway logs for trace_id
-docker compose logs v2-gateway --tail 20 | grep -i trace_id
+# 3. Check gateway logs for trace_id
+docker compose logs gateway --tail 20 | grep -i trace_id
 
 # 4. Open Grafana and search for traces in last 5 minutes
 open "http://localhost:3000/explore?orgId=1&left=%7B%22datasource%22%3A%22tempo%22%7D"

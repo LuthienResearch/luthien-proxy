@@ -33,9 +33,9 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 **Example policies**: NoOpPolicy, UppercaseNthWord, ToolCallJudgeV3
 
-## Configuration: V2_POLICY_CONFIG (2025-10-24)
+## Configuration: POLICY_CONFIG (2025-10-24)
 
-**Decision**: Use `V2_POLICY_CONFIG` environment variable pointing to YAML file for policy configuration.
+**Decision**: Use `POLICY_CONFIG` environment variable pointing to YAML file for policy configuration.
 
 **Rationale**:
 - Load policy class dynamically without code changes
@@ -45,7 +45,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 **Example**:
 ```yaml
 policy:
-  class: "luthien_proxy.v2.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
+  class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
   config:
     model: "ollama/gemma2:2b"
     api_base: "http://local-llm:11434"

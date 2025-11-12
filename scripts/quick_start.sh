@@ -165,14 +165,14 @@ while ! curl -sf "http://localhost:${ollama_port}/v1/models" > /dev/null 2>&1; d
 done
 echo "✅ Ollama OpenAI API is ready"
 
-# Start V2 gateway (integrated FastAPI + LiteLLM)
-echo "🚀 Starting V2 gateway (integrated proxy)..."
-docker compose up -d v2-gateway
+# Start gateway (integrated FastAPI + LiteLLM)
+echo "🚀 Starting gateway (integrated proxy)..."
+docker compose up -d gateway
 
 # Wait for services to be healthy
 echo "⏳ Waiting for services to be healthy..."
 services_healthy=true
-for service in v2-gateway local-llm; do
+for service in gateway local-llm; do
     if ! wait_for_service "$service" 60; then
         services_healthy=false
     fi
@@ -180,16 +180,16 @@ done
 
 if [ "$services_healthy" = true ]; then
     echo ""
-    echo "🎉 Luthien V2 is ready!"
+    echo "🎉 Luthien is ready!"
     echo ""
     echo "📋 Service URLs:"
-    echo "   • V2 Gateway (OpenAI-compatible): http://localhost:${V2_GATEWAY_PORT:-8000}"
+    echo "   • Gateway (OpenAI-compatible): http://localhost:${GATEWAY_PORT:-8000}"
     echo "   • PostgreSQL:     localhost:${POSTGRES_PORT:-5432}"
     echo "   • Redis:          localhost:${REDIS_PORT:-6379}"
     echo "   • Ollama OpenAI API: http://localhost:${ollama_port} (OpenAI-compatible)"
     echo ""
     echo "📊 To view logs:"
-    echo "   docker compose logs -f v2-gateway"
+    echo "   docker compose logs -f gateway"
     echo ""
     echo "🛑 To stop all services:"
     echo "   docker compose down"
