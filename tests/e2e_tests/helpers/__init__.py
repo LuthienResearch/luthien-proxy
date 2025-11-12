@@ -1,8 +1,8 @@
-"""E2E test helpers for V2 gateway."""
+"""E2E test helpers for gateway."""
 
-from .v2_gateway import V2GatewayManager, wait_for_v2_gateway
+from .gateway import GatewayManager, wait_for_gateway
 
 __all__ = [
-    "V2GatewayManager",
-    "wait_for_v2_gateway",
+    "GatewayManager",
+    "wait_for_gateway",
 ]

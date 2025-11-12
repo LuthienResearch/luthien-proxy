@@ -18,7 +18,7 @@ from luthien_proxy.policies.base import LuthienPolicy
 from luthien_proxy.policies.noop import NoOpPolicy
 
 
-def _run_v2_gateway(port: int, api_key: str) -> None:
+def _run_gateway(port: int, api_key: str) -> None:
     """Run gateway in a subprocess.
 
     This function is the target for multiprocessing.Process.
@@ -51,7 +51,7 @@ def _run_v2_gateway(port: int, api_key: str) -> None:
     )
 
 
-class V2GatewayManager:
+class GatewayManager:
     """Manager for gateway test instances.
 
     Starts a gateway on a dedicated test port, waits for it to be ready,
@@ -61,7 +61,7 @@ class V2GatewayManager:
     def __init__(
         self,
         port: int = 8888,
-        api_key: str = "sk-test-v2-gateway",
+        api_key: str = "sk-test-gateway",
         startup_timeout: float = 10.0,
         verbose: bool = False,
     ):
@@ -82,7 +82,7 @@ class V2GatewayManager:
 
         # Start gateway in subprocess
         self._process = multiprocessing.Process(
-            target=_run_v2_gateway,
+            target=_run_gateway,
             args=(self.port, self.api_key),
             daemon=True,
         )
@@ -139,7 +139,7 @@ class V2GatewayManager:
             self.stop()
 
 
-async def wait_for_v2_gateway(
+async def wait_for_gateway(
     base_url: str,
     timeout: float = 10.0,
     verbose: bool = False,
@@ -174,6 +174,6 @@ async def wait_for_v2_gateway(
 
 
 __all__ = [
-    "V2GatewayManager",
-    "wait_for_v2_gateway",
+    "GatewayManager",
+    "wait_for_gateway",
 ]

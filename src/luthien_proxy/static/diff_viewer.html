@@ -370,7 +370,7 @@
             diffContainer.innerHTML = '<div class="loading">Loading diff...</div>';
 
             try {
-                const response = await fetch(`/v2/debug/calls/${callId}/diff`);
+                const response = await fetch(`/debug/calls/${callId}/diff`);
 
                 if (!response.ok) {
                     const error = await response.json();
@@ -570,7 +570,7 @@
             diffContainer.innerHTML = '<div class="loading">Loading recent calls...</div>';
 
             try {
-                const response = await fetch('/v2/debug/calls?limit=20');
+                const response = await fetch('/debug/calls?limit=20');
 
                 if (!response.ok) {
                     const error = await response.json();
