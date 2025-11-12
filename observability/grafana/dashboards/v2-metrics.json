@@ -8,15 +8,15 @@
   "id": null,
   "links": [
     {
-      "title": "V2 Debug Diff Viewer",
-      "url": "http://localhost:8000/v2/debug/diff",
+      "title": "Debug Diff Viewer",
+      "url": "http://localhost:8000/debug/diff",
       "type": "link",
       "icon": "external link",
       "targetBlank": true
     },
     {
-      "title": "V2 Activity Monitor",
-      "url": "http://localhost:8000/v2/activity/monitor",
+      "title": "Activity Monitor",
+      "url": "http://localhost:8000/activity/monitor",
       "type": "link",
       "icon": "external link",
       "targetBlank": true
@@ -92,7 +92,7 @@
           "refId": "A"
         }
       ],
-      "title": "V2 Request Rate by Model",
+      "title": "Request Rate by Model",
       "type": "timeseries"
     },
     {
@@ -235,7 +235,7 @@
           "refId": "A"
         }
       ],
-      "title": "Total V2 Requests",
+      "title": "Total Requests",
       "type": "gauge"
     },
     {
@@ -347,7 +347,7 @@
           "tableType": "traces"
         }
       ],
-      "title": "Recent V2 Traces (with call_id)",
+      "title": "Recent Traces (with call_id)",
       "transformations": [
         {
           "id": "organize",
@@ -365,7 +365,7 @@
         "type": "loki",
         "uid": "loki-uid"
       },
-      "description": "Errors and warnings from V2 gateway",
+      "description": "Errors and warnings from gateway",
       "gridPos": {
         "h": 10,
         "w": 12,
@@ -390,12 +390,12 @@
             "uid": "loki-uid"
           },
           "editorMode": "code",
-          "expr": "{service_name=\"luthien-proxy-v2\"} |~ \"ERROR|WARNING|error|warning\"",
+          "expr": "{service_name=\"luthien-proxy\"} |~ \"ERROR|WARNING|error|warning\"",
           "queryType": "range",
           "refId": "A"
         }
       ],
-      "title": "V2 Errors & Warnings",
+      "title": "Errors & Warnings",
       "type": "logs"
     },
     {
@@ -474,7 +474,6 @@
   "schemaVersion": 39,
   "tags": [
     "luthien",
-    "v2",
     "metrics",
     "traces"
   ],
@@ -495,8 +494,8 @@
     ]
   },
   "timezone": "browser",
-  "title": "V2 Metrics & Performance",
-  "uid": "v2-metrics",
+  "title": "Metrics & Performance",
+  "uid": "luthien-metrics",
   "version": 1,
   "weekStart": ""
 }

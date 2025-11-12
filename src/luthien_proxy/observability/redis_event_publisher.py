@@ -26,7 +26,7 @@ from redis.asyncio.client import PubSub
 logger = logging.getLogger(__name__)
 
 # Redis channel for activity events (used by both publisher and streamer)
-V2_ACTIVITY_CHANNEL = "luthien:activity"
+ACTIVITY_CHANNEL = "luthien:activity"
 
 
 def build_activity_event(
@@ -82,7 +82,7 @@ class RedisEventPublisher:
             redis_client: Async Redis client for pub/sub
         """
         self.redis = redis_client
-        self.channel = V2_ACTIVITY_CHANNEL
+        self.channel = ACTIVITY_CHANNEL
 
     async def publish_event(
         self,
@@ -168,10 +168,10 @@ async def stream_activity_events(
         SSE-formatted strings (data: {...}\\n\\n)
     """
     async with redis_client.pubsub() as pubsub:
-        await pubsub.subscribe(V2_ACTIVITY_CHANNEL)
+        await pubsub.subscribe(ACTIVITY_CHANNEL)
         last_heartbeat = time.monotonic()
 
-        logger.info("Started streaming V2 activity events")
+        logger.info("Started streaming activity events")
 
         try:
             while True:

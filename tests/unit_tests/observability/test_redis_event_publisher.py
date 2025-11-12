@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from luthien_proxy.observability.redis_event_publisher import (
-    V2_ACTIVITY_CHANNEL,
+    ACTIVITY_CHANNEL,
     RedisEventPublisher,
     build_activity_event,
     create_event_publisher,
@@ -248,7 +248,7 @@ class TestStreamActivityEvents:
 
     @pytest.mark.asyncio
     async def test_subscribes_to_correct_channel(self) -> None:
-        """Test that stream subscribes to the V2_ACTIVITY_CHANNEL."""
+        """Test that stream subscribes to the ACTIVITY_CHANNEL."""
         redis = FakeRedis()
         redis.messages = [{"type": "message", "data": b'{"test": "event"}'}]
 
@@ -258,7 +258,7 @@ class TestStreamActivityEvents:
             if len(chunks) >= 1:
                 break
 
-        assert V2_ACTIVITY_CHANNEL in redis.subscribed_channels
+        assert ACTIVITY_CHANNEL in redis.subscribed_channels
 
     @pytest.mark.asyncio
     async def test_yields_sse_formatted_messages(self) -> None:
@@ -514,7 +514,7 @@ class TestRedisEventPublisher:
         # Verify Redis publish was called
         mock_redis.publish.assert_called_once()
         call_args = mock_redis.publish.call_args
-        assert call_args[0][0] == V2_ACTIVITY_CHANNEL
+        assert call_args[0][0] == ACTIVITY_CHANNEL
 
         # Verify the published message structure
         published_data = json.loads(call_args[0][1])
@@ -568,7 +568,7 @@ class TestRedisEventPublisher:
 
         # Verify channel is correct
         call_args = mock_redis.publish.call_args
-        assert call_args[0][0] == V2_ACTIVITY_CHANNEL
+        assert call_args[0][0] == ACTIVITY_CHANNEL
         assert call_args[0][0] == "luthien:activity"
 
     @pytest.mark.asyncio
@@ -602,7 +602,7 @@ class TestRedisEventPublisher:
         publisher = RedisEventPublisher(mock_redis)
 
         assert publisher.redis is mock_redis
-        assert publisher.channel == V2_ACTIVITY_CHANNEL
+        assert publisher.channel == ACTIVITY_CHANNEL
 
     @pytest.mark.asyncio
     async def test_multiple_publish_events(self) -> None:
@@ -622,7 +622,7 @@ class TestRedisEventPublisher:
 
         # Verify each call was to the correct channel
         for call in mock_redis.publish.call_args_list:
-            assert call[0][0] == V2_ACTIVITY_CHANNEL
+            assert call[0][0] == ACTIVITY_CHANNEL
 
 
 class TestCreateEventPublisher:
@@ -673,4 +673,4 @@ class TestCreateEventPublisher:
         with patch("redis.asyncio.from_url", new=AsyncMock(return_value=mock_redis_client)):
             publisher = await create_event_publisher("redis://localhost:6379")
 
-            assert publisher.channel == V2_ACTIVITY_CHANNEL
+            assert publisher.channel == ACTIVITY_CHANNEL
