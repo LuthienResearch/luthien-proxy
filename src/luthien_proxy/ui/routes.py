@@ -75,4 +75,14 @@ async def diff_viewer():
     return FileResponse(os.path.join(STATIC_DIR, "diff_viewer.html"))
 
 
+@router.get("/policy-config")
+async def policy_config():
+    """Policy configuration UI.
+
+    Returns the HTML page for configuring, enabling, and testing policies
+    through a guided wizard interface.
+    """
+    return FileResponse(os.path.join(STATIC_DIR, "policy_config.html"))
+
+
 __all__ = ["router"]
