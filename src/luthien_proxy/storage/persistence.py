@@ -1,11 +1,7 @@
-# ABOUTME: Database persistence for conversation events in V2
-# ABOUTME: Self-contained module extracted from V1 control_plane to minimize dependencies
+# ABOUTME: Database persistence for conversation events
+# ABOUTME: ConversationEvent and friends.
 
-"""V2 Conversation Event Persistence.
-
-This module provides database persistence for V2 conversation events.
-It's a minimal extraction from the V1 control_plane conversation infrastructure,
-containing only what V2 needs for storing request/response pairs.
+"""Conversation Event Persistence.
 
 Key components:
 - ConversationEvent model
@@ -149,11 +145,7 @@ def build_conversation_events(
     timestamp_ns_fallback: int,
     timestamp: datetime,
 ) -> list[ConversationEvent]:
-    """Translate a hook invocation (V1) or V2 request/response into conversation events.
-
-    This function handles multiple hook types from V1, but V2 primarily uses:
-    - "v2_request" for request events
-    - "v2_response" for response events
+    """Translate a hook invocation request/response into conversation events.
 
     Args:
         hook: Hook name identifying the event source
@@ -173,8 +165,8 @@ def build_conversation_events(
     sequence_ns = derive_sequence_ns(timestamp_ns_fallback, original, result)
     events: list[ConversationEvent] = []
 
-    # V2 request event (from emit_request_event in v2/storage/events.py)
-    if hook == "v2_request":
+    # request event (from emit_request_event in storage/events.py)
+    if hook == "request":
         if not isinstance(original, dict) or not isinstance(result, dict):
             return []
 
@@ -229,8 +221,8 @@ def build_conversation_events(
         )
         return events
 
-    # V2 response event (from emit_response_event in v2/storage/events.py)
-    if hook == "v2_response":
+    # response event (from emit_response_event in v2/storage/events.py)
+    if hook == "response":
         if not isinstance(original, dict) or not isinstance(result, dict):
             return []
 
@@ -248,7 +240,7 @@ def build_conversation_events(
             "model": final_response.get("model"),
             "usage": final_response.get("usage"),
             "finish_reason": final_response.get("finish_reason"),
-            "status": "success",  # V2 only emits successful responses
+            "status": "success",
         }
 
         events.append(
@@ -263,12 +255,6 @@ def build_conversation_events(
             )
         )
         return events
-
-    # Legacy V1 hooks (keep minimal support for backward compatibility)
-    # These are not used by V2 but kept to avoid breaking existing data
-    if hook in ("async_pre_call_hook", "async_post_call_success_hook"):
-        logger.debug(f"Skipping V1 hook: {hook} (V1 infrastructure removed)")
-        return []
 
     return events
 
