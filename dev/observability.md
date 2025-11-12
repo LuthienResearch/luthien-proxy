@@ -218,7 +218,7 @@ Each event contains:
 - [x] Add links to diff viewer and activity monitor in dashboard
 
 **Files Created**:
-- `observability/grafana/dashboards/v2-metrics.json` - V2 Metrics & Performance dashboard
+- `observability/grafana/dashboards/metrics.json` - Metrics & Performance dashboard
 
 **Features**:
 - **Request Rate by Model**: Time series showing requests/sec grouped by model (TraceQL rate query)

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# ABOUTME: Automated test script for V2 gateway health and API compatibility
+# ABOUTME: Automated test script for gateway health and API compatibility
 # ABOUTME: Tests OpenAI and Anthropic APIs with streaming and non-streaming modes
 
 set -e
@@ -19,7 +19,7 @@ NC='\033[0m' # No Color
 TESTS_PASSED=0
 TESTS_FAILED=0
 
-echo "🧪 Testing V2 Gateway at $GATEWAY_URL"
+echo "🧪 Testing Gateway at $GATEWAY_URL"
 echo ""
 
 # Helper function to test endpoint
