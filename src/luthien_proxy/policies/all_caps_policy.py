@@ -41,12 +41,12 @@ class AllCapsPolicy(BasePolicy):
     """Policy that converts all response content to uppercase.
 
     This is a simple example policy that demonstrates basic content transformation.
-    It operates on both streaming and non-streaming responses.
+    It operates on both streaming and non-streaming responses. All content is converted
+    to ALLCAPS, while tool calls are unmodified.
     """
 
     async def on_chunk_received(self, ctx):
-        """Called on every chunk. Pass through chunks that aren't handled by specialized hooks."""
-        # Don't push here - let the specialized hooks (on_content_delta, on_tool_call_delta) handle their chunks
+        """Because AllCapsPolicy capitalizes content but not tool call deltas, we handle logic in specialized hooks; no-op here."""
         pass
 
     async def on_tool_call_delta(self, ctx):
