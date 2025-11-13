@@ -27,7 +27,16 @@ logger = logging.getLogger(__name__)
 class SimplePolicy(BasePolicy):
     """Convenience base class for content-level transformations.
 
-    Buffers streaming content and applies transformations when complete.
+    This class simplifies policy authoring by buffering streaming content, effectively trading
+    off streaming responsiveness for ease of implementation. To implement a SimplePolicy, you
+    only need to implement three simple methods:
+    - simple_on_request (request str->str)
+    - simple_on_response_content (complete content str->str)
+    - simple_on_response_tool_call (complete tool call -> tool call)
+
+    You still have access to PolicyContext for observability, scratchpad, etc, enabling you to
+    do everything a full PolicyProtocol implementation can do, just with less complexity (and no
+    streaming responsiveness).
     """
 
     @property
@@ -46,7 +55,7 @@ class SimplePolicy(BasePolicy):
         """
         return request_str
 
-    async def on_response_content(self, content: str, context: PolicyContext) -> str:
+    async def simple_on_response_content(self, content: str, context: PolicyContext) -> str:
         """Transform complete response content. Override to implement content transformations.
 
         Args:
@@ -56,7 +65,7 @@ class SimplePolicy(BasePolicy):
         """
         return content
 
-    async def on_response_tool_call(
+    async def simple_on_response_tool_call(
         self, tool_call: ChatCompletionMessageToolCall, context: PolicyContext
     ) -> ChatCompletionMessageToolCall:
         """Transform/validate a complete tool call. Override to implement tool call transformations.
@@ -109,7 +118,7 @@ class SimplePolicy(BasePolicy):
             return
 
         content = block.content
-        transformed = await self.on_response_content(content, ctx.policy_ctx)
+        transformed = await self.simple_on_response_content(content, ctx.policy_ctx)
         await send_text(ctx, transformed)
 
     async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
@@ -126,7 +135,7 @@ class SimplePolicy(BasePolicy):
             return
 
         tool_call = block.tool_call
-        transformed = await self.on_response_tool_call(tool_call, ctx.policy_ctx)
+        transformed = await self.simple_on_response_tool_call(tool_call, ctx.policy_ctx)
         await send_tool_call(ctx, transformed)
 
     async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
