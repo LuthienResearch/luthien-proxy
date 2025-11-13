@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policy_core.streaming_utils import passthrough_accumulated_chunks, send_text, send_tool_call
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
@@ -16,6 +15,7 @@ if TYPE_CHECKING:
     from litellm.types.utils import ChatCompletionMessageToolCall
 
     from luthien_proxy.messages import Request
+    from luthien_proxy.policies.base_policy import BasePolicy
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
@@ -76,17 +76,8 @@ class SimplePolicy(BasePolicy):
             request (Request): The original request
             context (PolicyContext): Policy context (includes observability, scratchpad)
         """
-        transformed_str = await self.simple_on_request(request.last_message, context)
-        # If the transformation changed the last message, we need to update the request
-        if transformed_str != request.last_message:
-            # Create a new request with the transformed last message
-            new_messages = request.messages[:-1] + [
-                type(request.messages[-1])(
-                    role=request.messages[-1].role,
-                    content=transformed_str,
-                )
-            ]
-            return request.model_copy(update={"messages": new_messages})
+        response_str: str = await self.simple_on_request(request.last_message, context)
+        request.messages[-1].content = response_str
         return request
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
