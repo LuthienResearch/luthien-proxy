@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Luthien Proxy Gateway</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #007bff;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #555;
+            margin-top: 30px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .endpoint {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+            border-radius: 4px;
+        }
+        .endpoint a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .endpoint a:hover {
+            text-decoration: underline;
+        }
+        .endpoint .description {
+            color: #666;
+            margin-top: 5px;
+            font-size: 14px;
+        }
+        .method {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #28a745;
+            color: white;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .method.post {
+            background: #ffc107;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #6c757d;
+            color: white;
+            border-radius: 3px;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+        .badge.ui {
+            background: #17a2b8;
+        }
+        .badge.api {
+            background: #28a745;
+        }
+        code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+        .version {
+            color: #999;
+            font-size: 14px;
+        }
+        .quickstart {
+            background: #e7f3ff;
+            border-left: 4px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛡️ Luthien Proxy Gateway <span class="version">v2.0.0</span></h1>
+
+    <div class="section">
+        <h2>🖥️ Debug & Monitoring UIs</h2>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
+            <a href="/activity/monitor" target="_blank">/activity/monitor</a>
+            <span class="badge ui">UI</span>
+            <div class="description">Real-time activity monitor - view all gateway requests, policy events, and responses as they happen</div>
+        </div>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
+            <a href="/debug/diff" target="_blank">/debug/diff</a>
+            <span class="badge ui">UI</span>
+            <div class="description">Policy diff viewer - compare original vs modified requests/responses with side-by-side diff visualization</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🔍 Debug API Endpoints</h2>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
+            <a href="/debug/calls" target="_blank">/debug/calls</a>
+            <span class="badge api">API</span>
+            <div class="description">List recent calls with event counts (supports <code>?limit=N</code> parameter, default 50)</div>
+        </div>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
+            <span>/debug/calls/{call_id}</span>
+            <span class="badge api">API</span>
+            <div class="description">Retrieve all conversation events for a specific call (includes Tempo trace URL)</div>
+        </div>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
+            <span>/debug/calls/{call_id}/diff</span>
+            <span class="badge api">API</span>
+            <div class="description">Get JSON diff showing what the policy changed (requests, responses, messages)</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>📡 Real-time Streaming</h2>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
+            <a href="/activity/stream" target="_blank">/activity/stream</a>
+            <span class="badge api">SSE</span>
+            <div class="description">Server-Sent Events stream of all gateway activity (used by activity monitor)</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🤖 LLM Gateway Endpoints</h2>
+
+        <div class="endpoint">
+            <span class="method post">POST</span>
+            <span>/v1/chat/completions</span>
+            <span class="badge">Auth Required</span>
+            <div class="description">OpenAI-compatible chat completions endpoint with policy orchestration</div>
+        </div>
+
+        <div class="endpoint">
+            <span class="method post">POST</span>
+            <span>/v1/messages</span>
+            <span class="badge">Auth Required</span>
+            <div class="description">Anthropic Messages API endpoint (auto-converts to OpenAI format)</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>⚙️ Utility Endpoints</h2>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
+            <a href="/health" target="_blank">/health</a>
+            <span class="badge">Public</span>
+            <div class="description">Health check endpoint</div>
+        </div>
+    </div>
+
+    <div class="section quickstart">
+        <h2>💡 Quick Start</h2>
+        <p><strong>View real-time activity:</strong> <a href="/activity/monitor" target="_blank">Open Activity Monitor</a></p>
+        <p><strong>Inspect policy changes:</strong> <a href="/debug/diff" target="_blank">Open Diff Viewer</a></p>
+        <p><strong>List recent calls:</strong> <a href="/debug/calls" target="_blank">Browse Call History</a></p>
+    </div>
+</body>
+</html>
