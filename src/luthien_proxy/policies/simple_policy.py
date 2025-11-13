@@ -113,11 +113,7 @@ class SimplePolicy(BasePolicy):
         await send_text(ctx, transformed)
 
     async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
-        """Transform tool call and emit.
-
-        Raises:
-            RuntimeError: If just_completed is None (indicates orchestrator bug)
-        """
+        """Transform tool call and emit."""
         block = ctx.original_streaming_response_state.just_completed
         if not isinstance(block, ToolCallStreamBlock):
             ctx.observability.emit_event_nonblocking(

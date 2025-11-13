@@ -25,7 +25,7 @@ from litellm.types.utils import Choices, StreamingChoices
 from luthien_proxy.policy_core import PolicyContext
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ModelResponse, StreamingChoices
+    from litellm.types.utils import ModelResponse
 
     from luthien_proxy.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
@@ -43,10 +43,6 @@ class AllCapsPolicy(BasePolicy):
     This is a simple example policy that demonstrates basic content transformation.
     It operates on both streaming and non-streaming responses.
     """
-
-    def __init__(self):
-        """Initialize AllCapsPolicy."""
-        pass
 
     async def on_chunk_received(self, ctx):
         """Called on every chunk. Pass through chunks that aren't handled by specialized hooks."""
