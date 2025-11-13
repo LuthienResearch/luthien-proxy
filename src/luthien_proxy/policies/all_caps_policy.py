@@ -87,7 +87,6 @@ class AllCapsPolicy(BasePolicy):
 
             if choice.delta.content is None:
                 # No content to modify
-                ctx.push_chunk(last_chunk)
                 continue
 
             original = choice.delta.content

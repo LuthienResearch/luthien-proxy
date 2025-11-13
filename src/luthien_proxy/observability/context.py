@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
@@ -12,11 +13,16 @@ from opentelemetry.trace import Span
 
 logger = logging.getLogger(__name__)
 
-logging._nameToLevel
-
 if TYPE_CHECKING:
     from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
     from luthien_proxy.utils.db import DatabasePool
+
+
+def _check_level(level: str) -> str:
+    valid_levels = logging._nameToLevel.keys()
+    if level not in valid_levels:
+        raise ValueError(f"Invalid level '{level}'. Must be one of {valid_levels}.")
+    return level
 
 
 class ObservabilityContext(ABC):
@@ -92,8 +98,7 @@ class DefaultObservabilityContext(ObservabilityContext):
 
     async def emit_event(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:
         """Emit to DB, Redis, and OTel span."""
-        import time
-
+        _check_level(level)
         enriched_data = {
             "call_id": self._transaction_id,
             "timestamp": time.time(),
@@ -114,7 +119,6 @@ class DefaultObservabilityContext(ObservabilityContext):
 
         if self.event_publisher:
             await self.event_publisher.publish_event(call_id=self._transaction_id, event_type=event_type, data=data)
-        logger.log(logging._nameToLevel.get(level.upper(), logging.INFO), f"Emitted event {event_type}")
 
         self.add_span_event(event_type, data)
 

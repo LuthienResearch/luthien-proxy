@@ -43,6 +43,8 @@ class StreamingPolicyContext:
     @property
     def last_chunk_received(self) -> ModelResponse:
         """Get the most recent chunk received from the LLM."""
+        if len(self.original_streaming_response_state.raw_chunks) == 0:
+            raise RuntimeError("Can't return last chunk received, no chunks have been received yet")
         return self.original_streaming_response_state.raw_chunks[-1]
 
     @property
