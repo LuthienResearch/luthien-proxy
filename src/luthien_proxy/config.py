@@ -29,6 +29,7 @@ from typing import Any, cast
 
 import yaml
 
+from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,9 @@ def _import_policy_class(class_ref: str) -> type[PolicyProtocol]:
     # Validate it's a class
     if not isinstance(cls, type):
         raise TypeError(f"{class_name} is not a class")
+
+    if not issubclass(cls, BasePolicy):
+        raise TypeError(f"{class_name} does not inherit from BasePolicy")
 
     return cast(type[PolicyProtocol], cls)
 

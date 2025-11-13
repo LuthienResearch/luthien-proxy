@@ -12,6 +12,8 @@ from opentelemetry.trace import Span
 
 logger = logging.getLogger(__name__)
 
+logging._nameToLevel
+
 if TYPE_CHECKING:
     from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
     from luthien_proxy.utils.db import DatabasePool
@@ -21,10 +23,10 @@ class ObservabilityContext(ABC):
     """Unified interface for observability operations."""
 
     @abstractmethod
-    async def emit_event(self, event_type: str, data: dict[str, Any]) -> None:
+    async def emit_event(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:
         """Emit event with automatic context enrichment."""
 
-    def emit_event_nonblocking(self, event_type: str, data: dict[str, Any]) -> None:  # noqa: ARG002
+    def emit_event_nonblocking(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:  # noqa: ARG002
         """Emit event without blocking (fire-and-forget).
 
         This schedules the emit_event coroutine as a background task. Use this when
@@ -36,6 +38,7 @@ class ObservabilityContext(ABC):
         Args:
             event_type: Type of event to emit
             data: Event data dictionary
+            level: Logging level emission (default: "INFO")
         """
         pass
 
@@ -59,7 +62,7 @@ class NoOpObservabilityContext(ObservabilityContext):
         """Initialize NoOpObservabilityContext."""
         # Span, db_pool, and event_publisher are accepted for signature compatibility but unused
 
-    async def emit_event(self, event_type: str, data: dict[str, Any]) -> None:  # noqa: D102
+    async def emit_event(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:  # noqa: D102
         pass
 
     def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:  # noqa: D102
@@ -87,7 +90,7 @@ class DefaultObservabilityContext(ObservabilityContext):
         self.db_pool = db_pool
         self.event_publisher = event_publisher
 
-    async def emit_event(self, event_type: str, data: dict[str, Any]) -> None:
+    async def emit_event(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:
         """Emit to DB, Redis, and OTel span."""
         import time
 
@@ -111,10 +114,11 @@ class DefaultObservabilityContext(ObservabilityContext):
 
         if self.event_publisher:
             await self.event_publisher.publish_event(call_id=self._transaction_id, event_type=event_type, data=data)
+        logger.log(logging._nameToLevel.get(level.upper(), logging.INFO), f"Emitted event {event_type}")
 
         self.add_span_event(event_type, data)
 
-    def emit_event_nonblocking(self, event_type: str, data: dict[str, Any]) -> None:
+    def emit_event_nonblocking(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:
         """Emit event without blocking (fire-and-forget).
 
         This schedules the emit_event coroutine as a background task. Use this when
@@ -124,7 +128,7 @@ class DefaultObservabilityContext(ObservabilityContext):
 
         async def _emit_with_error_handling() -> None:
             try:
-                await self.emit_event(event_type, data)
+                await self.emit_event(event_type, data, level)
             except Exception as exc:
                 logger.warning(
                     f"Nonblocking emit_event failed for event_type='{event_type}': {exc}",

@@ -35,7 +35,7 @@ class NoTransformPolicy(SimplePolicy):
 class UppercasePolicy(SimplePolicy):
     """SimplePolicy subclass that uppercases content."""
 
-    async def on_response_content(self, content: str, request: Request) -> str:
+    async def on_response_content(self, content: str, context: PolicyContext) -> str:
         """Transform content to uppercase."""
         return content.upper()
 
@@ -44,7 +44,7 @@ class ToolBlockerPolicy(SimplePolicy):
     """SimplePolicy subclass that blocks tool calls."""
 
     async def on_response_tool_call(
-        self, tool_call: ChatCompletionMessageToolCall, request: Request
+        self, tool_call: ChatCompletionMessageToolCall, context: PolicyContext
     ) -> ChatCompletionMessageToolCall:
         """Transform tool call to blocked function."""
         return ChatCompletionMessageToolCall(

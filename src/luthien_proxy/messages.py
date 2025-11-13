@@ -11,8 +11,7 @@ Policies operate on:
 
 from __future__ import annotations
 
-from typing import Any
-
+from litellm.types.utils import Message
 from pydantic import BaseModel, Field
 
 
@@ -27,13 +26,18 @@ class Request(BaseModel):
     """
 
     model: str = Field(description="Model identifier (e.g., 'gpt-4', 'claude-3-5-sonnet-20241022')")
-    messages: list[dict[str, Any]] = Field(description="Conversation messages in OpenAI format")
+    messages: list[Message] = Field(description="Conversation messages in OpenAI format")
     max_tokens: int | None = Field(default=None, description="Maximum tokens to generate")
     temperature: float | None = Field(default=None, description="Sampling temperature")
     stream: bool = Field(default=False, description="Whether to stream the response")
 
     # Allow additional fields for provider-specific parameters
     model_config = {"extra": "allow"}
+
+    @property
+    def last_message(self) -> str:
+        """Get the last message in the conversation."""
+        return self.messages[-1].content or ""
 
 
 __all__ = ["Request"]

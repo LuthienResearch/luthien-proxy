@@ -60,8 +60,9 @@ class AllCapsPolicy(BasePolicy):
             ctx.observability.emit_event_nonblocking(
                 "policy.all_caps.tool_call_delta_warning",
                 {
-                    "summary": f"on_tool_call_delta most recent chunk does not appear to be a tool call delta:\n {last_chunk}"
+                    "summary": f"on_tool_call_delta most recent chunk does not appear to be a tool call delta:\n {last_chunk}; dropping chunk"
                 },
+                level="ERROR",
             )
             return
         ctx.push_chunk(last_chunk)
