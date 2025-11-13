@@ -37,11 +37,12 @@ A standalone web page that allows Luthien users to enable, test, and configure p
 
 ### File Structure
 ```
-src/luthien_proxy/v2/static/
+src/luthien_proxy/static/
 ├── activity_monitor.html      (existing)
 ├── activity_monitor.js         (existing)
 ├── diff_viewer.html           (existing)
-└── policy_config.html         (NEW - single file with embedded CSS & JS)
+├── policy_config.html         (NEW - single file with embedded CSS & JS)
+└── policy_config.js           (NEW - JavaScript for policy config UI)
 ```
 
 ### Route
@@ -70,7 +71,7 @@ src/luthien_proxy/v2/static/
 └─────────────────────────────────────────────────────────────┘
 ```
 - Dark theme header matching Activity Monitor
-- Three navigation links: Activity Monitor, Policy Config (current/active), Diff Viewer
+- Three navigation links: `/activity/monitor`, `/policy-config` (current/active), `/debug/diff`
 - Current page indicated with bullet or highlight
 
 #### 2. Page Title & Subtitle
@@ -360,7 +361,7 @@ unit tests" policy)
 
 ```javascript
 // Connect to activity stream
-const eventSource = new EventSource('/v2/activity/stream');
+const eventSource = new EventSource('/activity/stream');
 
 // Track policy enable timestamp
 let policyEnabledAt = Date.now();
@@ -383,8 +384,8 @@ function showTestDetected(callId) {
         <p>Call ID: ${callId}</p>
         <br>
         <p>View your results:</p>
-        <a href="/v2/activity/monitor">View in Activity Monitor →</a>
-        <a href="/v2/debug/diff?call_id=${callId}">View Diff for ${callId} →</a>
+        <a href="/activity/monitor">View in Activity Monitor →</a>
+        <a href="/debug/diff?call_id=${callId}">View Diff for ${callId} →</a>
     `;
 }
 ```
@@ -611,7 +612,7 @@ button:disabled {
 
 **Request:**
 ```http
-POST /v2/policy/enable
+POST /policy/enable
 Content-Type: application/json
 
 {
@@ -648,7 +649,7 @@ Content-Type: application/json
 
 **Request:**
 ```http
-GET /v2/policy/list
+GET /policy/list
 ```
 
 **Response:**
@@ -675,7 +676,7 @@ GET /v2/policy/list
 
 **Request:**
 ```http
-GET /v2/policy/current
+GET /policy/current
 ```
 
 **Response:**
@@ -691,7 +692,7 @@ GET /v2/policy/current
 
 ## SSE Event Format (For Step 3 Detection)
 
-The page should listen to existing `/v2/activity/stream` endpoint:
+The page should listen to existing `/activity/stream` endpoint:
 
 **Event to detect:**
 ```json
@@ -897,19 +898,19 @@ The page should listen to existing `/v2/activity/stream` endpoint:
 4. **Diff Viewer Link:**
    - Current diff viewer expects `call_id` as query param
    - May need to check actual implementation in `diff_viewer.html`
-   - Link format: `/v2/debug/diff?call_id=call_abc123`
+   - Link format: `/debug/diff?call_id=call_abc123`
 
 5. **Policy Details:**
    - All 3 policies are hardcoded in HTML for v1
-   - Future: Fetch from `/v2/policy/list` endpoint
+   - Future: Fetch from `/policy/list` endpoint
    - Policy config schema not implemented in v1 (all empty config: {})
 
 6. **Route Setup:**
-   - Add route in `src/luthien_proxy/v2/ui/routes.py`:
+   - Add route in `src/luthien_proxy/ui/routes.py`:
      ```python
      @router.get("/policy-config")
      async def policy_config():
-         return FileResponse("src/luthien_proxy/v2/static/policy_config.html")
+         return FileResponse("src/luthien_proxy/static/policy_config.html")
      ```
 
 ---
