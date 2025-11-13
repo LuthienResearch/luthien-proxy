@@ -181,7 +181,7 @@ class TestCreateApp:
                 assert data["version"] == "2.0.0"
 
     def test_create_app_root_endpoint(self):
-        """Test root endpoint returns API information."""
+        """Test root endpoint returns HTML landing page."""
         app = create_app(
             api_key="test-key",
             database_url="postgresql://test:test@localhost/test",
@@ -197,13 +197,11 @@ class TestCreateApp:
             with TestClient(app) as client:
                 response = client.get("/")
                 assert response.status_code == 200
-                data = response.json()
-                assert data["name"] == "Luthien Proxy Gateway"
-                assert data["version"] == "2.0.0"
-                assert "endpoints" in data
-                assert data["endpoints"]["openai"] == "/v1/chat/completions"
-                assert data["endpoints"]["anthropic"] == "/v1/messages"
-                assert data["endpoints"]["health"] == "/health"
+                # Verify it's HTML content
+                assert response.headers["content-type"].startswith("text/html")
+                # Basic sanity checks on content
+                content = response.text
+                assert "Luthien" in content
 
     @pytest.mark.asyncio
     async def test_create_app_with_custom_policy(self):

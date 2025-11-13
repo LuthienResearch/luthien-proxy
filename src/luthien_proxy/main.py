@@ -128,20 +128,6 @@ def create_app(
         """Health check endpoint."""
         return {"status": "healthy", "version": "2.0.0"}
 
-    @app.get("/")
-    async def root():
-        """Root endpoint with API info."""
-        return {
-            "name": "Luthien Proxy Gateway",
-            "version": "2.0.0",
-            "endpoints": {
-                "openai": "/v1/chat/completions",
-                "anthropic": "/v1/messages",
-                "health": "/health",
-                "activity_stream": "/activity/stream",
-            },
-        }
-
     return app
 
 

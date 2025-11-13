@@ -48,6 +48,15 @@ async def activity_stream(request: Request):
     )
 
 
+@router.get("/")
+async def landing_page():
+    """Gateway landing page with links to all endpoints.
+
+    Returns the HTML page with organized links to all debug, UI, and API endpoints.
+    """
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+
 @router.get("/activity/monitor")
 async def activity_monitor():
     """Activity monitor UI.
