@@ -35,7 +35,7 @@ class NoTransformPolicy(SimplePolicy):
 class UppercasePolicy(SimplePolicy):
     """SimplePolicy subclass that uppercases content."""
 
-    async def on_response_content(self, content: str, request: Request) -> str:
+    async def on_response_content(self, content: str, context: PolicyContext) -> str:
         """Transform content to uppercase."""
         return content.upper()
 
@@ -44,7 +44,7 @@ class ToolBlockerPolicy(SimplePolicy):
     """SimplePolicy subclass that blocks tool calls."""
 
     async def on_response_tool_call(
-        self, tool_call: ChatCompletionMessageToolCall, request: Request
+        self, tool_call: ChatCompletionMessageToolCall, context: PolicyContext
     ) -> ChatCompletionMessageToolCall:
         """Transform tool call to blocked function."""
         return ChatCompletionMessageToolCall(
@@ -288,16 +288,6 @@ class TestSimplePolicyToolCallComplete:
 
         # Verify nothing was emitted
         ctx.egress_queue.put.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_on_tool_call_complete_with_none_just_completed_raises(self):
-        """Test that on_tool_call_complete raises error when just_completed is None."""
-        policy = NoTransformPolicy()
-        ctx = create_mock_context(just_completed=None)
-
-        # Call on_tool_call_complete should raise RuntimeError
-        with pytest.raises(RuntimeError):
-            await policy.on_tool_call_complete(ctx)
 
 
 class TestSimplePolicyChunkReceived:

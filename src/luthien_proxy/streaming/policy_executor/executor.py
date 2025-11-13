@@ -209,6 +209,12 @@ class PolicyExecutor(PolicyExecutorProtocol):
     ):
         """Create callback for assembler to invoke on each chunk.
 
+        When each chunk arrives, callbacks (if they are called for this chunk) run in this order:
+        1. on_chunk_received
+        2. on_content_delta or on_tool_call_delta (if in a block)
+        3. on_content_complete or on_tool_call_complete (if block just completed)
+        4. on_finish_reason (if finish_reason is present)
+
         Args:
             streaming_ctx: Streaming policy context for hook invocations
             output_queue: Queue to write chunks to after policy processing

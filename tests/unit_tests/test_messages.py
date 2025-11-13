@@ -14,7 +14,9 @@ class TestRequest:
         req = Request(model="gpt-4", messages=[{"role": "user", "content": "Hello"}])
 
         assert req.model == "gpt-4"
-        assert req.messages == [{"role": "user", "content": "Hello"}]
+        assert len(req.messages) == 1
+        assert req.messages[0].role == "user"
+        assert req.messages[0].content == "Hello"
         assert req.stream is False
         assert req.max_tokens is None
         assert req.temperature is None
@@ -58,7 +60,10 @@ class TestRequest:
 
         data = req.model_dump(exclude_none=True)
         assert data["model"] == "gpt-4"
-        assert data["messages"] == [{"role": "user", "content": "Hello"}]
+        # Messages are converted to Message objects, so check the serialized structure
+        assert len(data["messages"]) == 1
+        assert data["messages"][0]["role"] == "user"
+        assert data["messages"][0]["content"] == "Hello"
         assert data["max_tokens"] == 50
         assert data["stream"] is False
         # None values should be excluded
@@ -76,3 +81,27 @@ class TestRequest:
         assert req.model == "gpt-3.5-turbo"
         assert len(req.messages) == 1
         assert req.max_tokens == 200
+
+    def test_last_message_property(self):
+        """Test that last_message property returns the content of the last message."""
+        req = Request(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are helpful"},
+                {"role": "user", "content": "Hello there"},
+            ],
+        )
+
+        assert req.last_message == "Hello there"
+
+    def test_last_message_with_none_content(self):
+        """Test that last_message handles None content gracefully."""
+        req = Request(
+            model="gpt-4",
+            messages=[
+                {"role": "user", "content": "First message"},
+                {"role": "assistant", "content": None},
+            ],
+        )
+
+        assert req.last_message == ""
