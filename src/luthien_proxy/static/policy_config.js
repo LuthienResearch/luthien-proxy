@@ -234,8 +234,8 @@ function showTestDetected(callId) {
 
         <div class="result-links">
             <h4>View your results:</h4>
-            <a href="/v2/activity/monitor">View in Activity Monitor</a>
-            <a href="/v2/debug/diff?call_id=${callId}">View Diff for ${callId}</a>
+            <a href="/activity/monitor">View in Activity Monitor</a>
+            <a href="/debug/diff?call_id=${callId}">View Diff for ${callId}</a>
         </div>
     `;
 }
@@ -251,7 +251,7 @@ function sleep(ms) {
 let eventSource = null;
 
 function connectToActivityStream() {
-    eventSource = new EventSource('/v2/activity/stream');
+    eventSource = new EventSource('/activity/stream');
 
     eventSource.onmessage = (e) => {
         const event = JSON.parse(e.data);
