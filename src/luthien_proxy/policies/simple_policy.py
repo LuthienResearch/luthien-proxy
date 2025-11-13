@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from luthien_proxy.policies.base_policy import BasePolicy
-from luthien_proxy.policy_core.streaming_utils import passthrough_accumulated_chunks, send_text, send_tool_call
+from luthien_proxy.policy_core.streaming_utils import send_text, send_tool_call
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
 if TYPE_CHECKING:
@@ -130,14 +130,8 @@ class SimplePolicy(BasePolicy):
             return
 
         tool_call = block.tool_call
-        # Request is always set by gateway before streaming begins
-        assert ctx.policy_ctx.request is not None, "Request must be set in policy context"
         transformed = await self.on_response_tool_call(tool_call, ctx.policy_ctx)
-
-        if transformed != tool_call:
-            await send_tool_call(ctx, transformed)
-        else:
-            await passthrough_accumulated_chunks(ctx)
+        await send_tool_call(ctx, transformed)
 
     async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
         """Buffer deltas, don't emit yet."""

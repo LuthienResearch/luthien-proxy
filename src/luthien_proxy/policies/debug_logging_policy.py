@@ -15,12 +15,12 @@ if TYPE_CHECKING:
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
+from luthien_proxy.policies.base_policy import BasePolicy
 
 logger = logging.getLogger(__name__)
 
 
-class DebugLoggingPolicy(PolicyProtocol):
+class DebugLoggingPolicy(BasePolicy):
     """Debug policy that logs ModelResponse chunks and passes them through."""
 
     @property

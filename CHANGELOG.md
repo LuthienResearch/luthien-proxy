@@ -2,6 +2,11 @@
 
 ## Unreleased | TBA
 
+- Policy authoring improvements (#57)
+  - Add `BasePolicy` class with default implementations and convenience methods
+  - Add convenience properties to `StreamingPolicyContext` (`last_chunk_received`, `push_chunk()`, `transaction_id`, `request`, `scratchpad`)
+  - Comprehensive test coverage for policy callbacks and streaming behavior (1100+ new test lines)
+
 - Remove "v2" concept and consolidate architecture (#55)
   - Moved all code from `src/luthien_proxy/v2/*` to `src/luthien_proxy/*`
   - Updated all imports from `luthien_proxy.v2.*` to `luthien_proxy.*`
