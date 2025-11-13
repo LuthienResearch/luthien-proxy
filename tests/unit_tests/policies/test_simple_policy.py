@@ -289,16 +289,6 @@ class TestSimplePolicyToolCallComplete:
         # Verify nothing was emitted
         ctx.egress_queue.put.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_on_tool_call_complete_with_none_just_completed_raises(self):
-        """Test that on_tool_call_complete raises error when just_completed is None."""
-        policy = NoTransformPolicy()
-        ctx = create_mock_context(just_completed=None)
-
-        # Call on_tool_call_complete should raise RuntimeError
-        with pytest.raises(RuntimeError):
-            await policy.on_tool_call_complete(ctx)
-
 
 class TestSimplePolicyChunkReceived:
     """Test that SimplePolicy buffers all chunks in on_chunk_received."""

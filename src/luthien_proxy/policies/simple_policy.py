@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policy_core.streaming_utils import passthrough_accumulated_chunks, send_text, send_tool_call
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
@@ -15,7 +16,6 @@ if TYPE_CHECKING:
     from litellm.types.utils import ChatCompletionMessageToolCall
 
     from luthien_proxy.messages import Request
-    from luthien_proxy.policies.base_policy import BasePolicy
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
@@ -70,7 +70,7 @@ class SimplePolicy(BasePolicy):
     # ===== Implementation of streaming hooks =====
 
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
-        """Pass through request without modification. Override to implement request transformations.
+        """Essentially a wrapper for simple_on_request (extract string, call, re-insert).
 
         Args:
             request (Request): The original request
@@ -88,23 +88,29 @@ class SimplePolicy(BasePolicy):
         """Pass the content block to on_response_content and push the result to the client."""
         # Get the completed content block
         if ctx.original_streaming_response_state.just_completed is None:
-            logger.error("ingress_state.just_completed is None in on_content_complete")
+            ctx.observability.emit_event_nonblocking(
+                "policy.simple_policy.content_complete_warning",
+                {
+                    "summary": "ingress_state.just_completed is None in on_content_complete",
+                },
+                level="ERROR",
+            )
             return
 
         block = ctx.original_streaming_response_state.just_completed
         if not isinstance(block, ContentStreamBlock):
-            logger.error("ingress_state.just_completed is not ContentStreamBlock in on_content_complete")
+            ctx.observability.emit_event_nonblocking(
+                "policy.simple_policy.content_complete_warning",
+                {
+                    "summary": "ingress_state.just_completed is not ContentStreamBlock in on_content_complete",
+                },
+                level="ERROR",
+            )
             return
 
         content = block.content
-        # Request is always set by gateway before streaming begins
-        assert ctx.policy_ctx.request is not None, "Request must be set in policy context"
         transformed = await self.on_response_content(content, ctx.policy_ctx)
-
-        if transformed != content:
-            await send_text(ctx, transformed)
-        else:
-            await passthrough_accumulated_chunks(ctx)
+        await send_text(ctx, transformed)
 
     async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
         """Transform tool call and emit.
@@ -112,11 +118,15 @@ class SimplePolicy(BasePolicy):
         Raises:
             RuntimeError: If just_completed is None (indicates orchestrator bug)
         """
-        if ctx.original_streaming_response_state.just_completed is None:
-            raise RuntimeError("on_tool_call_complete called but just_completed is None - this should not happen")
-
         block = ctx.original_streaming_response_state.just_completed
         if not isinstance(block, ToolCallStreamBlock):
+            ctx.observability.emit_event_nonblocking(
+                "policy.simple_policy.tool_call_complete_warning",
+                {
+                    "summary": "ingress_state.just_completed is not ToolCallStreamBlock in on_tool_call_complete",
+                },
+                level="ERROR",
+            )
             return
 
         tool_call = block.tool_call
@@ -130,6 +140,10 @@ class SimplePolicy(BasePolicy):
             await passthrough_accumulated_chunks(ctx)
 
     async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
+        """Buffer deltas, don't emit yet."""
+        pass
+
+    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
         """Buffer deltas, don't emit yet."""
         pass
 

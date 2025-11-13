@@ -37,6 +37,8 @@ class Request(BaseModel):
     @property
     def last_message(self) -> str:
         """Get the last message in the conversation."""
+        if not self.messages:
+            return ""
         return self.messages[-1].content or ""
 
 
