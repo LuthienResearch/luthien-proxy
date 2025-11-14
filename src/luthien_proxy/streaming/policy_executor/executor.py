@@ -256,23 +256,14 @@ class PolicyExecutor(PolicyExecutorProtocol):
                 await policy.on_finish_reason(streaming_ctx)
 
             # Drain egress queue (policy-approved chunks) to output
-            # If policy didn't write anything, forward the original chunk
-            emitted_count = 0
             while not streaming_ctx.egress_queue.empty():
                 try:
                     policy_chunk = streaming_ctx.egress_queue.get_nowait()
                     # Record egress chunk (after policy processing)
                     self.recorder.add_egress_chunk(policy_chunk)
                     await self._safe_put(output_queue, policy_chunk)
-                    emitted_count += 1
                 except asyncio.QueueEmpty:
                     break
-
-            # If policy didn't emit anything, forward original chunk
-            if emitted_count == 0:
-                # Record egress chunk (original chunk forwarded)
-                self.recorder.add_egress_chunk(chunk)
-                await self._safe_put(output_queue, chunk)
 
         return on_chunk
 

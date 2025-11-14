@@ -95,6 +95,7 @@ class AnthropicClientFormatter:
                         },
                     }
                     sse_line = f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
+                    # logger.info(f"[ClientFormatter] Sending message_start: {repr(sse_line[:200])}")
                     await self._safe_put(output_queue, sse_line)
 
                 # Convert chunk to Anthropic events using stateful assembler
@@ -102,14 +103,33 @@ class AnthropicClientFormatter:
 
                 # Emit all events in Anthropic SSE format: "event: <type>\ndata: <json>\n\n"
                 for event in events:
-                    event_type = event.get("type", "content_block_delta")
-                    sse_line = f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
+                    # event_type = event.get("type", "content_block_delta")
+                    # json_str = json.dumps(event)
+                    # sse_line = f"event: {event_type}\ndata: {json_str}\n\n"
+
+                    # Comprehensive logging for debugging
+                    # logger.info(f"[ClientFormatter] Event type: {event_type}")
+                    # logger.info(f"[ClientFormatter] JSON string length: {len(json_str)}")
+                    # logger.info(f"[ClientFormatter] JSON first 100 chars: {json_str[:100]}")
+                    # logger.info(f"[ClientFormatter] JSON last 100 chars: {json_str[-100:]}")
+
+                    # Validate JSON is parseable
+                    # try:
+                    #     json.loads(json_str)
+                    #     logger.info("[ClientFormatter] ✓ JSON is valid")
+                    # except json.JSONDecodeError as e:
+                    #     logger.error(f"[ClientFormatter] ✗ JSON PARSE ERROR: {e}")
+                    #     logger.error(f"[ClientFormatter] Full JSON: {json_str}")
+
+                    # Log the actual SSE line to check format
+                    # logger.info(f"[ClientFormatter] SSE line (repr): {repr(sse_line[:300])}")
                     await self._safe_put(output_queue, sse_line)
 
             # Send message_stop at end (only if we started)
             if message_started:
                 message_stop = {"type": "message_stop"}
                 sse_line = f"event: message_stop\ndata: {json.dumps(message_stop)}\n\n"
+                logger.info(f"[ClientFormatter] Sending message_stop: {repr(sse_line)}")
                 await self._safe_put(output_queue, sse_line)
         finally:
             # Signal end of stream to output queue
