@@ -7,7 +7,7 @@ import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from opentelemetry.trace import Span
 
@@ -16,6 +16,68 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
     from luthien_proxy.utils.db import DatabasePool
+
+
+# ===== Structured Records =====
+
+
+class LuthienRecord(ABC):
+    """Base class for structured observability records.
+
+    Each subclass defines:
+    - record_type: Class-level constant identifying the record type
+    - to_dict(): Serialization to JSON-compatible dict for logging
+
+    Records are emitted via ObservabilityContext and flow to:
+    - Loki (structured logs)
+    - Database (persistent storage)
+    - Redis (real-time event stream)
+    - OTel spans (trace correlation)
+    """
+
+    record_type: ClassVar[str]
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize record to JSON-compatible dict.
+
+        This is what gets logged to Loki/DB/Redis.
+        Include all data needed for debugging and analysis.
+        """
+        ...
+
+
+class LuthienPayloadRecord(LuthienRecord):
+    """Record for tracking data at any point in the pipeline.
+
+    Simple atomic record: just a stage name and arbitrary JSON data.
+    Use this to log payloads, decisions, transformations, etc.
+
+    Examples:
+        - Request/response payloads at transformation points
+        - Policy decisions and modifications
+        - Format conversions
+        - Performance metrics
+    """
+
+    record_type = "payload"
+
+    def __init__(self, stage: str, data: dict[str, Any]):
+        """Initialize payload record.
+
+        Args:
+            stage: Pipeline stage identifier (e.g., "client.request", "policy.modified", "backend.response")
+            data: Arbitrary JSON-serializable data to log
+        """
+        self.stage = stage
+        self.data = data
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dict for logging."""
+        return {
+            "stage": self.stage,
+            **self.data,
+        }
 
 
 def _check_level(level: str) -> str:
@@ -59,6 +121,28 @@ class ObservabilityContext(ABC):
     @abstractmethod
     def add_span_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
         """Add event to current span."""
+
+    def record(self, record: LuthienRecord) -> None:
+        """Record a structured LuthienRecord (non-blocking).
+
+        Args:
+            record: Structured record to emit
+        """
+        self.emit_event_nonblocking(
+            event_type=f"luthien.{record.record_type}",
+            data=record.to_dict(),
+        )
+
+    async def record_blocking(self, record: LuthienRecord) -> None:
+        """Record a structured LuthienRecord (blocking variant).
+
+        Args:
+            record: Structured record to emit
+        """
+        await self.emit_event(
+            event_type=f"luthien.{record.record_type}",
+            data=record.to_dict(),
+        )
 
 
 class NoOpObservabilityContext(ObservabilityContext):
@@ -157,3 +241,14 @@ class DefaultObservabilityContext(ObservabilityContext):
     def add_span_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
         """Add event to current span."""
         self.span.add_event(name, attributes or {})
+
+
+__all__ = [
+    # Core types
+    "ObservabilityContext",
+    "NoOpObservabilityContext",
+    "DefaultObservabilityContext",
+    # Structured records
+    "LuthienRecord",
+    "LuthienPayloadRecord",
+]

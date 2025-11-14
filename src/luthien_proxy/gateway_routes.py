@@ -21,7 +21,10 @@ from luthien_proxy.llm.llm_format_utils import (
     openai_to_anthropic_response,
 )
 from luthien_proxy.messages import Request as RequestMessage
-from luthien_proxy.observability.context import DefaultObservabilityContext
+from luthien_proxy.observability.context import (
+    DefaultObservabilityContext,
+    LuthienPayloadRecord,
+)
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.transaction import LuthienTransaction
 from luthien_proxy.observability.transaction_recorder import (
@@ -114,6 +117,18 @@ async def chat_completions(
             event_publisher=event_publisher,
         )
 
+        # Log incoming request
+        obs_ctx.record(
+            LuthienPayloadRecord(
+                stage="client.request",
+                data={
+                    "endpoint": "/v1/chat/completions",
+                    "format": "openai",
+                    "payload": body,
+                },
+            )
+        )
+
         # Create transaction tracker
         transaction = LuthienTransaction(transaction_id=call_id, obs_ctx=obs_ctx)
 
@@ -143,6 +158,16 @@ async def chat_completions(
         # Process request through policy
         final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
 
+        # Log request after policy processing
+        obs_ctx.record(
+            LuthienPayloadRecord(
+                stage="backend.request",
+                data={
+                    "payload": final_request.model_dump(exclude_none=True),
+                },
+            )
+        )
+
         # Track final request sent to backend
         await transaction.track_backend_request(final_request)
 
@@ -167,6 +192,17 @@ async def chat_completions(
             # Non-streaming response
             response = await llm_client.complete(final_request)
             processed_response = await orchestrator.process_full_response(response, policy_ctx)
+
+            # Log final response
+            obs_ctx.record(
+                LuthienPayloadRecord(
+                    stage="client.response",
+                    data={
+                        "format": "openai",
+                        "payload": processed_response.model_dump(),
+                    },
+                )
+            )
 
             return JSONResponse(
                 content=processed_response.model_dump(),
@@ -211,6 +247,18 @@ async def anthropic_messages(
             event_publisher=event_publisher,
         )
 
+        # Log incoming Anthropic request
+        obs_ctx.record(
+            LuthienPayloadRecord(
+                stage="client.request",
+                data={
+                    "endpoint": "/v1/messages",
+                    "format": "anthropic",
+                    "payload": anthropic_body,
+                },
+            )
+        )
+
         # Create transaction tracker
         transaction = LuthienTransaction(transaction_id=call_id, obs_ctx=obs_ctx)
 
@@ -224,6 +272,19 @@ async def anthropic_messages(
         # Convert Anthropic request to OpenAI format
         logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
         openai_body = anthropic_to_openai_request(anthropic_body)
+
+        # Log format conversion
+        obs_ctx.record(
+            LuthienPayloadRecord(
+                stage="format.conversion",
+                data={
+                    "from_format": "anthropic",
+                    "to_format": "openai",
+                    "input_payload": anthropic_body,
+                    "output_payload": openai_body,
+                },
+            )
+        )
 
         # Track format conversion
         await transaction.track_format_conversion(
@@ -263,6 +324,16 @@ async def anthropic_messages(
         # Process request through policy
         final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
 
+        # Log request after policy processing
+        obs_ctx.record(
+            LuthienPayloadRecord(
+                stage="backend.request",
+                data={
+                    "payload": final_request.model_dump(exclude_none=True),
+                },
+            )
+        )
+
         # Track final request sent to backend
         await transaction.track_backend_request(final_request)
 
@@ -290,6 +361,18 @@ async def anthropic_messages(
 
             # Convert back to Anthropic format
             anthropic_response = openai_to_anthropic_response(processed_response)
+
+            # Log final response
+            obs_ctx.record(
+                LuthienPayloadRecord(
+                    stage="client.response",
+                    data={
+                        "format": "anthropic",
+                        "payload": anthropic_response,
+                    },
+                )
+            )
+
             return JSONResponse(
                 content=anthropic_response,
                 headers={"X-Call-ID": call_id},
