@@ -178,6 +178,9 @@ async def enable_policy(
                 troubleshooting=result.troubleshooting,
             )
 
+        # Update app.state.policy to the newly enabled policy
+        request.app.state.policy = manager.current_policy
+
         return PolicyEnableResponse(
             success=True,
             message=f"Successfully enabled {result.policy}",
