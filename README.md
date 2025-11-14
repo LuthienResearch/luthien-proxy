@@ -11,37 +11,31 @@ Redwood-style AI Control as an LLM proxy for production agentic deployments.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone and start everything
-git clone https://github.com/LuthienResearch/luthien-proxy
+git clone <repo-url>
 cd luthien-proxy
-git checkout user-testing  # For now, use the user-testing branch
-
-# Configure API keys
-cp .env.example .env
-# Edit .env and add your keys:
-#   OPENAI_API_KEY=sk-proj-...
-#   ANTHROPIC_API_KEY=sk-ant-...
-
-# Start the stack
+cp .env.example .env  # Add your OPENAI_API_KEY and ANTHROPIC_API_KEY
 ./scripts/quick_start.sh
 ```
 
 ### 2. Use Claude Code or Codex through the Proxy
 
-Launch your AI assistant through the proxy using the built-in scripts:
+Set your AI assistant to use the proxy at `http://localhost:8000`:
 
 **Claude Code:**
 
 ```bash
-./scripts/launch_claude_code.sh
+export ANTHROPIC_BASE_URL=http://localhost:8000
+export ANTHROPIC_API_KEY=sk-luthien-dev-key  # From .env PROXY_API_KEY
 ```
 
 **Codex:**
 
 ```bash
-./scripts/launch_codex.sh
+codex config set anthropic_base_url http://localhost:8000
+codex config set anthropic_api_key sk-luthien-dev-key
 ```
 
-These scripts automatically configure the proxy settings. All requests now flow through the policy enforcement layer!
+All requests now flow through the policy enforcement layer!
 
 ### 3. Monitor Activity
 
