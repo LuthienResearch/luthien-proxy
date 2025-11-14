@@ -23,6 +23,7 @@ from luthien_proxy.llm.llm_format_utils import (
 from luthien_proxy.messages import Request as RequestMessage
 from luthien_proxy.observability.context import DefaultObservabilityContext
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
+from luthien_proxy.observability.transaction import LuthienTransaction
 from luthien_proxy.observability.transaction_recorder import (
     DefaultTransactionRecorder,
 )
@@ -113,6 +114,16 @@ async def chat_completions(
             event_publisher=event_publisher,
         )
 
+        # Create transaction tracker
+        transaction = LuthienTransaction(transaction_id=call_id, obs_ctx=obs_ctx)
+
+        # Track incoming OpenAI request (no conversion needed)
+        await transaction.track_incoming_request(
+            endpoint="/v1/chat/completions",
+            body=body,
+            client_format="openai",
+        )
+
         # Create policy context (shared across request/response)
         policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
 
@@ -132,7 +143,8 @@ async def chat_completions(
         # Process request through policy
         final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
 
-        # Record original and final request
+        # Track final request sent to backend
+        await transaction.track_backend_request(final_request)
 
         # Call backend LLM
         llm_client = LiteLLMClient()
@@ -182,26 +194,13 @@ async def anthropic_messages(
         raise HTTPException(status_code=500, detail="Policy not configured in application state")
     policy: PolicyProtocol = request.app.state.policy
 
-    # Convert Anthropic request to OpenAI format
-    logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
-    openai_body = anthropic_to_openai_request(anthropic_body)
-
-    # Create request message
-    request_message = RequestMessage(**openai_body)
-    is_streaming = request_message.stream
-
-    logger.info(
-        f"[{call_id}] /v1/messages: Converted to OpenAI format, model={request_message.model}, stream={is_streaming}"
-    )
-
-    # Start span
+    # Start span early for tracking
     with tracer.start_as_current_span(
         "gateway.anthropic_messages",
         attributes={
             "luthien.call_id": call_id,
             "luthien.endpoint": "/v1/messages",
-            "luthien.model": request_message.model,
-            "luthien.stream": is_streaming,
+            "luthien.model": anthropic_body.get("model"),
         },
     ) as span:
         # Create observability context
@@ -211,6 +210,39 @@ async def anthropic_messages(
             db_pool=db_pool,
             event_publisher=event_publisher,
         )
+
+        # Create transaction tracker
+        transaction = LuthienTransaction(transaction_id=call_id, obs_ctx=obs_ctx)
+
+        # Track incoming Anthropic request
+        await transaction.track_incoming_request(
+            endpoint="/v1/messages",
+            body=anthropic_body,
+            client_format="anthropic",
+        )
+
+        # Convert Anthropic request to OpenAI format
+        logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
+        openai_body = anthropic_to_openai_request(anthropic_body)
+
+        # Track format conversion
+        await transaction.track_format_conversion(
+            conversion="anthropic_to_openai",
+            input_format="anthropic",
+            output_format="openai",
+            result=openai_body,
+        )
+
+        # Create request message
+        request_message = RequestMessage(**openai_body)
+        is_streaming = request_message.stream
+
+        logger.info(
+            f"[{call_id}] /v1/messages: Converted to OpenAI format, model={request_message.model}, stream={is_streaming}"
+        )
+
+        # Update span attributes
+        span.set_attribute("luthien.stream", is_streaming)
 
         # Create policy context (shared across request/response)
         policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
@@ -230,6 +262,9 @@ async def anthropic_messages(
 
         # Process request through policy
         final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
+
+        # Track final request sent to backend
+        await transaction.track_backend_request(final_request)
 
         # Call backend LLM
         llm_client = LiteLLMClient()

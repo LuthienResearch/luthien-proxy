@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from luthien_proxy.policies.base_policy import BasePolicy
-from luthien_proxy.policy_core.streaming_utils import send_text, send_tool_call
+from luthien_proxy.policy_core.streaming_utils import get_last_ingress_chunk, send_chunk, send_text, send_tool_call
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
 if TYPE_CHECKING:
@@ -121,6 +121,26 @@ class SimplePolicy(BasePolicy):
         transformed = await self.simple_on_response_content(content, ctx.policy_ctx)
         await send_text(ctx, transformed)
 
+        # After sending content, send finish_reason chunk
+        # This ensures the finish_reason comes after all content, before message_stop
+        # TODO: We should be crafting our own finish_reason chunk here based on content outcome
+        last_chunk = get_last_ingress_chunk(ctx)
+        if last_chunk and last_chunk.choices and last_chunk.choices[0].finish_reason:
+            from litellm.types.utils import Delta, ModelResponse, StreamingChoices
+
+            finish_chunk = ModelResponse(
+                id=last_chunk.id,
+                model=last_chunk.model,
+                choices=[
+                    StreamingChoices(
+                        finish_reason=last_chunk.choices[0].finish_reason,
+                        index=0,
+                        delta=Delta(content=None, role=None),
+                    )
+                ],
+            )
+            await send_chunk(ctx, finish_chunk)
+
     async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
         """Transform tool call and emit."""
         block = ctx.original_streaming_response_state.just_completed
@@ -138,12 +158,45 @@ class SimplePolicy(BasePolicy):
         transformed = await self.simple_on_response_tool_call(tool_call, ctx.policy_ctx)
         await send_tool_call(ctx, transformed)
 
+        # After sending tool call, send finish_reason chunk if present
+        # TODO: We should be crafting our own finish_reason chunk here based on tool call outcome
+        # Not using the original finish_reason from the LLM
+        last_chunk = get_last_ingress_chunk(ctx)
+        if last_chunk and last_chunk.choices and last_chunk.choices[0].finish_reason:
+            from litellm.types.utils import Delta, ModelResponse, StreamingChoices
+
+            finish_chunk = ModelResponse(
+                id=last_chunk.id,
+                model=last_chunk.model,
+                choices=[
+                    StreamingChoices(
+                        finish_reason=last_chunk.choices[0].finish_reason,
+                        index=0,
+                        delta=Delta(content=None, role=None),
+                    )
+                ],
+            )
+            await send_chunk(ctx, finish_chunk)
+
     async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
-        """Buffer deltas, don't emit yet."""
+        """Buffer deltas, don't emit yet.
+
+        SimplePolicy buffers all content deltas and emits the full transformed content
+        in on_content_complete instead of forwarding individual deltas.
+        """
         pass
 
     async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
-        """Buffer deltas, don't emit yet."""
+        """Buffer deltas, don't emit yet.
+
+        SimplePolicy buffers all tool call deltas and emits the full transformed tool call
+        in on_tool_call_complete instead of forwarding individual deltas.
+        """
+        pass
+
+    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Stream complete hook."""
+        # No-op: finish_reason is already sent in on_content_complete
         pass
 
 
