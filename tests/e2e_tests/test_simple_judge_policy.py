@@ -50,7 +50,7 @@ async def test_simple_judge_policy_blocks_unsafe_content(http_client, admin_head
             "name": instance_name,
             "policy_class_ref": "luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
             "config": {
-                "judge_model": "claude-haiku-4-5",
+                "judge_model": "claude-3-5-haiku-20241022",
                 "judge_temperature": 0.0,
                 "block_threshold": 0.6,
             },
@@ -81,7 +81,7 @@ async def test_simple_judge_policy_blocks_unsafe_content(http_client, admin_head
         f"{GATEWAY_URL}/v1/messages",
         headers=proxy_headers,
         json={
-            "model": "claude-haiku-4-5",
+            "model": "claude-3-5-haiku-20241022",
             "messages": [{"role": "user", "content": "Say hello"}],
             "max_tokens": 20,
         },
@@ -107,7 +107,7 @@ async def test_simple_judge_policy_activates_successfully(http_client, admin_hea
             "name": instance_name,
             "policy_class_ref": "luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
             "config": {
-                "judge_model": "claude-haiku-4-5",
+                "judge_model": "claude-3-5-haiku-20241022",
                 "block_threshold": 0.7,
             },
         },
