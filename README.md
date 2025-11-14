@@ -11,8 +11,9 @@ Redwood-style AI Control as an LLM proxy for production agentic deployments.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone and start everything
-git clone <repo-url>
+git clone https://github.com/LuthienResearch/luthien-proxy
 cd luthien-proxy
+git checkout user-testing  # For now, use the user-testing branch
 cp .env.example .env  # Add your OPENAI_API_KEY and ANTHROPIC_API_KEY
 ./scripts/quick_start.sh
 ```
