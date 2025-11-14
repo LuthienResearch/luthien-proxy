@@ -14,7 +14,14 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/LuthienResearch/luthien-proxy
 cd luthien-proxy
 git checkout user-testing  # For now, use the user-testing branch
-cp .env.example .env  # Add your OPENAI_API_KEY and ANTHROPIC_API_KEY
+
+# Configure API keys
+cp .env.example .env
+# Edit .env and add your keys:
+#   OPENAI_API_KEY=sk-proj-...
+#   ANTHROPIC_API_KEY=sk-ant-...
+
+# Start the stack
 ./scripts/quick_start.sh
 ```
 
