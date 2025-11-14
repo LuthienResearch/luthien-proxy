@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse
@@ -66,3 +66,12 @@ class BasePolicy(PolicyProtocol):
     async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
         """Default - do nothing. Implement this to act when the stream completes."""
         pass
+
+    def get_config(self) -> dict[str, Any]:
+        """Return the configuration parameters for this policy instance.
+
+        Returns:
+            Dictionary of configuration parameters. Subclasses can override
+            to return their specific configuration.
+        """
+        return {}
