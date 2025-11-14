@@ -4,19 +4,94 @@ Redwood-style AI Control as an LLM proxy for production agentic deployments.
 
 ## Quick Start
 
-```bash
-# 1. Start everything
-./scripts/quick_start.sh
+### 1. Install and Start
 
-# 2. Test it works
-./scripts/test_gateway.sh
+```bash
+# Install uv (if needed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and start everything
+git clone <repo-url>
+cd luthien-proxy
+cp .env.example .env  # Add your OPENAI_API_KEY and ANTHROPIC_API_KEY
+./scripts/quick_start.sh
 ```
 
-You now have:
+### 2. Use Claude Code or Codex through the Proxy
 
-- **Gateway** (OpenAI-compatible) at <http://localhost:8000>
+Set your AI assistant to use the proxy at `http://localhost:8000`:
+
+**Claude Code:**
+
+```bash
+export ANTHROPIC_BASE_URL=http://localhost:8000
+export ANTHROPIC_API_KEY=sk-luthien-dev-key  # From .env PROXY_API_KEY
+```
+
+**Codex:**
+
+```bash
+codex config set anthropic_base_url http://localhost:8000
+codex config set anthropic_api_key sk-luthien-dev-key
+```
+
+All requests now flow through the policy enforcement layer!
+
+### 3. Monitor Activity
+
+Open the Activity Monitor to see requests in real-time:
+
+```bash
+open http://localhost:8000/activity/monitor
+```
+
+Watch as requests flow through, see policy decisions, and inspect before/after diffs.
+
+### 4. Select a Policy
+
+Use the Policy Configuration UI to change policies without restart:
+
+```bash
+open http://localhost:8000/policy-config
+```
+
+1. Browse available policies (NoOp, AllCaps, DebugLogging, etc.)
+2. Click to select and activate
+3. Test immediately - changes take effect instantly
+
+### 5. Create Your Own Policy
+
+Create a new policy by subclassing `SimplePolicy`:
+
+```python
+# src/luthien_proxy/policies/my_custom_policy.py
+
+from luthien_proxy.policies.simple_policy import SimplePolicy
+
+class MyCustomPolicy(SimplePolicy):
+    """Block dangerous commands before they execute."""
+
+    RULES = [
+        "Never allow 'rm -rf' commands",
+        "Block requests to delete production data",
+        "Prevent executing untrusted code"
+    ]
+
+    # SimplePolicy handles the LLM judge logic for you!
+    # Just define your rules above.
+```
+
+Restart the gateway and your policy appears in the Policy Config UI automatically.
+
+---
+
+## What You Get
+
+- **Gateway** (OpenAI/Anthropic-compatible) at <http://localhost:8000>
 - **PostgreSQL** and **Redis** fully configured
 - **Local LLM** (Ollama) at <http://localhost:11434>
+- **Real-time monitoring** at <http://localhost:8000/activity/monitor>
+- **Policy management UI** at <http://localhost:8000/policy-config>
 
 The gateway provides:
 
@@ -24,6 +99,7 @@ The gateway provides:
 - Anthropic Messages API (`/v1/messages`)
 - Integrated policy enforcement via control plane
 - Support for streaming and non-streaming requests
+- Hot-reload policy switching (no restart needed)
 
 ## Prerequisites
 
