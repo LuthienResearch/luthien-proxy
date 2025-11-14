@@ -137,7 +137,8 @@ class PolicyManager:
             Policy instance or None if not found (when required=False)
         """
         try:
-            row = await self.db.fetchrow(  # type: ignore
+            pool = await self.db.get_pool()
+            row = await pool.fetchrow(
                 """
                 SELECT policy_class_ref, config
                 FROM policy_config
@@ -152,8 +153,10 @@ class PolicyManager:
                     raise RuntimeError("No active policy found in database")
                 return None
 
-            policy_class = _import_policy_class(row["policy_class_ref"])
-            config = row["config"] if isinstance(row["config"], dict) else json.loads(row["config"])
+            policy_class_ref = str(row["policy_class_ref"])
+            policy_class = _import_policy_class(policy_class_ref)
+            config_value = row["config"]
+            config = config_value if isinstance(config_value, dict) else json.loads(str(config_value))
             return _instantiate_policy(policy_class, config)
 
         except Exception as e:
@@ -194,20 +197,22 @@ class PolicyManager:
         config = self._current_policy.get_config() if hasattr(self._current_policy, "get_config") else {}  # type: ignore
 
         try:
-            async with self.db.transaction():  # type: ignore
-                # Deactivate existing policies
-                await self.db.execute("UPDATE policy_config SET is_active = false")  # type: ignore
+            pool = await self.db.get_pool()
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    # Deactivate existing policies
+                    await conn.execute("UPDATE policy_config SET is_active = false")
 
-                # Insert file-based policy
-                await self.db.execute(  # type: ignore
-                    """
-                    INSERT INTO policy_config
-                    (policy_class_ref, config, enabled_at, enabled_by, is_active)
-                    VALUES ($1, $2, NOW(), 'file-sync', true)
-                """,
-                    policy_class_ref,
-                    json.dumps(config),
-                )
+                    # Insert file-based policy
+                    await conn.execute(
+                        """
+                        INSERT INTO policy_config
+                        (policy_class_ref, config, enabled_at, enabled_by, is_active)
+                        VALUES ($1, $2, NOW(), 'file-sync', true)
+                    """,
+                        policy_class_ref,
+                        json.dumps(config),
+                    )
 
             logger.info(f"Synced policy from file to database: {policy_class_ref}")
         except Exception as e:
@@ -278,18 +283,20 @@ class PolicyManager:
 
     async def _persist_to_db(self, policy_class_ref: str, config: dict[str, Any], enabled_by: str) -> None:
         """Persist policy configuration to database."""
-        async with self.db.transaction():  # type: ignore
-            await self.db.execute("UPDATE policy_config SET is_active = false")  # type: ignore
-            await self.db.execute(  # type: ignore
-                """
-                INSERT INTO policy_config
-                (policy_class_ref, config, enabled_at, enabled_by, is_active)
-                VALUES ($1, $2, NOW(), $3, true)
-            """,
-                policy_class_ref,
-                json.dumps(config),
-                enabled_by,
-            )
+        pool = await self.db.get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute("UPDATE policy_config SET is_active = false")
+                await conn.execute(
+                    """
+                    INSERT INTO policy_config
+                    (policy_class_ref, config, enabled_at, enabled_by, is_active)
+                    VALUES ($1, $2, NOW(), $3, true)
+                """,
+                    policy_class_ref,
+                    json.dumps(config),
+                    enabled_by,
+                )
 
     async def _persist_to_file(self, policy_class_ref: str, config: dict[str, Any]) -> None:
         """Persist policy configuration to YAML file (atomic write)."""
@@ -323,7 +330,8 @@ class PolicyManager:
         enabled_by = None
 
         try:
-            row = await self.db.fetchrow(  # type: ignore
+            pool = await self.db.get_pool()
+            row = await pool.fetchrow(
                 """
                 SELECT enabled_at, enabled_by
                 FROM policy_config
@@ -331,8 +339,14 @@ class PolicyManager:
             """
             )
             if row:
-                enabled_at = row["enabled_at"].isoformat() if row["enabled_at"] else None
-                enabled_by = row["enabled_by"]
+                enabled_at_value = row["enabled_at"]
+                enabled_at = (
+                    enabled_at_value.isoformat()
+                    if enabled_at_value and hasattr(enabled_at_value, "isoformat")
+                    else None
+                )  # type: ignore[union-attr]
+                enabled_by_value = row["enabled_by"]
+                enabled_by = str(enabled_by_value) if enabled_by_value else None
         except Exception as e:
             logger.warning(f"Could not fetch policy metadata from DB: {e}")
 
