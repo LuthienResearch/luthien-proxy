@@ -2,6 +2,22 @@
 
 ## High Priority
 
+- [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
+  - Update `policy_config.js` to call `/admin/policy/enable` instead of mocking
+  - Add admin key input/storage (prompt on first use, store in sessionStorage)
+  - Fetch current policy from `/admin/policy/current` on page load
+  - Implement policy discovery by fetching from `/admin/policy/list` (requires implementation)
+  - Connect SSE to real `/activity/stream` for test detection
+  - Add error handling UI for failed policy changes
+  - Note: Backend APIs for policy management are now implemented (PolicyManager, admin routes)
+- [ ] **Run Database Migration** - Apply the new policy_config table migration:
+  - Run `migrations/001_add_policy_config_table.sql` against luthien_control database
+  - Verify table creation and indexes
+  - Test policy persistence by enabling a policy via admin API
+- [ ] **Policy Discovery/Listing** - Implement `/admin/policy/list` endpoint:
+  - Add metadata to policy classes (name, description, example, use_case)
+  - Implement policy scanning/registration in PolicyManager
+  - Return list of available policies with metadata for UI
 - [ ] Update README post v2-migration
 - [ ] **Verify UI monitoring endpoints functionality** - Check which UI endpoints are working and refactor as needed:
   - Test `/debug/diff` - diff viewer with side-by-side comparisons
