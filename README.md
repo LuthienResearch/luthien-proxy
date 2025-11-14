@@ -27,23 +27,21 @@ cp .env.example .env
 
 ### 2. Use Claude Code or Codex through the Proxy
 
-Set your AI assistant to use the proxy at `http://localhost:8000`:
+Launch your AI assistant through the proxy using the built-in scripts:
 
 **Claude Code:**
 
 ```bash
-export ANTHROPIC_BASE_URL=http://localhost:8000
-export ANTHROPIC_API_KEY=sk-luthien-dev-key  # From .env PROXY_API_KEY
+./scripts/launch_claude_code.sh
 ```
 
 **Codex:**
 
 ```bash
-codex config set anthropic_base_url http://localhost:8000
-codex config set anthropic_api_key sk-luthien-dev-key
+./scripts/launch_codex.sh
 ```
 
-All requests now flow through the policy enforcement layer!
+These scripts automatically configure the proxy settings. All requests now flow through the policy enforcement layer!
 
 ### 3. Monitor Activity
 
