@@ -103,26 +103,9 @@ class AnthropicClientFormatter:
 
                 # Emit all events in Anthropic SSE format: "event: <type>\ndata: <json>\n\n"
                 for event in events:
-                    # event_type = event.get("type", "content_block_delta")
-                    # json_str = json.dumps(event)
-                    # sse_line = f"event: {event_type}\ndata: {json_str}\n\n"
-
-                    # Comprehensive logging for debugging
-                    # logger.info(f"[ClientFormatter] Event type: {event_type}")
-                    # logger.info(f"[ClientFormatter] JSON string length: {len(json_str)}")
-                    # logger.info(f"[ClientFormatter] JSON first 100 chars: {json_str[:100]}")
-                    # logger.info(f"[ClientFormatter] JSON last 100 chars: {json_str[-100:]}")
-
-                    # Validate JSON is parseable
-                    # try:
-                    #     json.loads(json_str)
-                    #     logger.info("[ClientFormatter] ✓ JSON is valid")
-                    # except json.JSONDecodeError as e:
-                    #     logger.error(f"[ClientFormatter] ✗ JSON PARSE ERROR: {e}")
-                    #     logger.error(f"[ClientFormatter] Full JSON: {json_str}")
-
-                    # Log the actual SSE line to check format
-                    # logger.info(f"[ClientFormatter] SSE line (repr): {repr(sse_line[:300])}")
+                    event_type = event.get("type", "content_block_delta")
+                    json_str = json.dumps(event)
+                    sse_line = f"event: {event_type}\ndata: {json_str}\n\n"
                     await self._safe_put(output_queue, sse_line)
 
             # Send message_stop at end (only if we started)
