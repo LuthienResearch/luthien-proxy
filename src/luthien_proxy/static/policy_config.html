@@ -562,34 +562,8 @@
 
         <!-- Step 1: Select Policy -->
         <div class="step-content active" id="step-1">
-            <div class="policy-card" data-policy="AllCapsPolicy">
-                <h3>All Caps Policy</h3>
-                <p class="policy-description">Converts all LLM responses to uppercase</p>
-                <p class="policy-example">Example: Input: 'Hello' → Output: 'HELLO'</p>
-                <p class="policy-usecase">Use case: Good for testing basic policy functionality</p>
-                <div class="policy-card-footer">
-                    <button class="primary select-policy-btn">Select Policy →</button>
-                </div>
-            </div>
-
-            <div class="policy-card" data-policy="BlockToolCallsPolicy">
-                <h3>Block Tool Calls Policy</h3>
-                <p class="policy-description">Prevents execution of specified tools (execute_code, Bash)</p>
-                <p class="policy-example">Example: Input: 'Run ls command' → Output: [Tool blocked]</p>
-                <p class="policy-usecase">Use case: Prevent code execution in sensitive contexts</p>
-                <div class="policy-card-footer">
-                    <button class="primary select-policy-btn">Select Policy →</button>
-                </div>
-            </div>
-
-            <div class="policy-card" data-policy="NaturalLanguagePolicy">
-                <h3>Natural Language Policy</h3>
-                <p class="policy-description">Enforces custom rules defined in natural language</p>
-                <p class="policy-example">Example: "Don't cheat on unit tests" → Policy enforced</p>
-                <p class="policy-usecase">Use case: Domain-specific safety constraints</p>
-                <div class="policy-card-footer">
-                    <button class="primary select-policy-btn">Select Policy →</button>
-                </div>
+            <div class="policy-grid">
+                <!-- Policies loaded dynamically from /admin/policy/list -->
             </div>
         </div>
 
@@ -609,7 +583,7 @@
                 <div id="status-container"></div>
 
                 <div class="button-group">
-                    <button class="primary" id="enable-test-btn">Enable & Test</button>
+                    <button class="primary" id="create-activate-btn">Create & Activate</button>
                 </div>
             </div>
         </div>
