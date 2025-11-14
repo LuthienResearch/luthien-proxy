@@ -67,14 +67,14 @@ open http://localhost:8000/policy-config
 
 ### 5. Create Your Own Policy
 
-Create a new policy by subclassing `SimplePolicy`:
+Create a new policy by subclassing `SimpleJudgePolicy`:
 
 ```python
 # src/luthien_proxy/policies/my_custom_policy.py
 
-from luthien_proxy.policies.simple_policy import SimplePolicy
+from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
 
-class MyCustomPolicy(SimplePolicy):
+class MyCustomPolicy(SimpleJudgePolicy):
     """Block dangerous commands before they execute."""
 
     RULES = [
@@ -83,8 +83,8 @@ class MyCustomPolicy(SimplePolicy):
         "Prevent executing untrusted code"
     ]
 
-    # SimplePolicy handles the LLM judge logic for you!
-    # Just define your rules above.
+    # That's it! SimpleJudgePolicy handles the LLM judge logic for you.
+    # It evaluates both requests, responses, and tool calls against your rules.
 ```
 
 Restart the gateway and your policy appears in the Policy Config UI automatically.
