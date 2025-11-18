@@ -2,6 +2,13 @@
 
 ## High Priority
 
+- [ ] **Fix broken test_main.py tests** - 4 tests failing due to PolicyManager initialization during create_app:
+  - Tests need to mock PolicyManager before create_app is called (PolicyManager loads policy during `__init__`)
+  - Failing tests: test_create_app_database_failure_graceful, test_create_app_redis_failure_graceful, test_create_app_health_endpoint, test_create_app_root_endpoint
+  - Root cause: Tests were updated to use new create_app(policy_source, policy_config_path) signature but mocking infrastructure (db, redis) happens too late
+  - PolicyManager.`__init__` tries to load policy from file/db before mocks are in place
+  - Solution: Refactor tests to either (1) mock PolicyManager entirely or (2) set up infrastructure mocks before calling create_app
+  - See commit 00567e8 for partial fix (5/9 tests now passing)
 - [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
   - Update `policy_config.js` to call `/admin/policy/enable` instead of mocking
   - Add admin key input/storage (prompt on first use, store in sessionStorage)
