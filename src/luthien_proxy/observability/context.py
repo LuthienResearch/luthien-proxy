@@ -28,8 +28,8 @@ class LuthienRecord(ABC):
     - record_type: Class-level constant identifying the record type
     - __init__: Must call super().__init__(transaction_id) to set transaction_id
 
-    Records are emitted via ObservabilityContext and flow to:
-    - Loki (structured logs)
+    Records are emitted via ObservabilityContext and flow to configured sinks:
+    - Stdout (JSON logs for collection by log aggregators)
     - Database (persistent storage)
     - Redis (real-time event stream)
     - OTel spans (trace correlation)
@@ -78,14 +78,14 @@ class PipelineRecord(LuthienRecord):
 # ===== Observability Configuration =====
 
 # Define valid sink names as a type-safe literal
-SinkName = Literal["loki", "db", "redis", "otel"]
+SinkName = Literal["stdout", "db", "redis", "otel"]
 
 
 class ObservabilityConfig(TypedDict, total=False):
     """Configuration for observability sink routing.
 
     Attributes:
-        loki_sink: Optional LokiSink instance (default created if not provided)
+        stdout_sink: Optional StdoutSink instance (default created if not provided)
         db_sink: Optional DatabaseSink instance (default created if not provided)
         redis_sink: Optional RedisSink instance (default created if not provided)
         otel_sink: Optional OTelSink instance (default created if not provided)
@@ -93,7 +93,7 @@ class ObservabilityConfig(TypedDict, total=False):
         default_sinks: Sink names to use for unspecified record types
     """
 
-    loki_sink: "LuthienRecordSink | None"
+    stdout_sink: "LuthienRecordSink | None"
     db_sink: "LuthienRecordSink | None"
     redis_sink: "LuthienRecordSink | None"
     otel_sink: "LuthienRecordSink | None"
@@ -192,13 +192,13 @@ class DefaultObservabilityContext(ObservabilityContext):
         # Build sink registry with defaults
         from luthien_proxy.observability.sinks import (
             DatabaseSink,
-            LokiSink,
             OTelSink,
             RedisSink,
+            StdoutSink,
         )
 
         self._sinks: dict[SinkName, "LuthienRecordSink"] = {
-            "loki": self._config.get("loki_sink") or LokiSink(),
+            "stdout": self._config.get("stdout_sink") or StdoutSink(),
             "db": self._config.get("db_sink") or DatabaseSink(None),  # type: ignore
             "redis": self._config.get("redis_sink") or RedisSink(None),  # type: ignore
             "otel": self._config.get("otel_sink") or OTelSink(span),
@@ -206,7 +206,7 @@ class DefaultObservabilityContext(ObservabilityContext):
 
         # Routing configuration
         self._routing: dict[type[LuthienRecord], list[SinkName]] = self._config.get("routing", {})
-        self._default_sink_names: list[SinkName] = self._config.get("default_sinks", ["loki"])
+        self._default_sink_names: list[SinkName] = self._config.get("default_sinks", ["stdout"])
 
     @property
     def span(self) -> Span:

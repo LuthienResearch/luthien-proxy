@@ -4,7 +4,7 @@
 """Observability sinks for multi-destination event emission.
 
 This module provides sink implementations for writing LuthienRecords to:
-- Loki (via stdout → Promtail)
+- Stdout (for collection by log aggregators like Promtail → Loki)
 - PostgreSQL (for persistent storage)
 - Redis (for real-time event streaming)
 - OpenTelemetry (for distributed tracing attributes)
@@ -14,9 +14,14 @@ Each sink encapsulates its dependencies and formatting logic.
 
 from __future__ import annotations
 
+import json
 import logging
+import sys
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import TYPE_CHECKING
+
+from opentelemetry import trace
 
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
@@ -52,22 +57,39 @@ class LuthienRecordSink(ABC):
         pass
 
 
-class LokiSink(LuthienRecordSink):
-    """Sink that writes LuthienRecords to Loki via stdout.
+class StdoutSink(LuthienRecordSink):
+    """Sink that writes LuthienRecords to stdout as JSON.
 
-    Uses write_json_to_stdout() to emit JSON logs that Promtail collects.
+    Outputs structured JSON logs with trace context to stdout for collection
+    by log aggregators (e.g., Promtail → Loki, Fluent Bit, etc.).
     """
 
     async def write(self, record: LuthienRecord) -> None:
-        """Write record to stdout for Loki collection."""
-        from luthien_proxy.telemetry import write_json_to_stdout
-
+        """Write record to stdout as JSON with trace context."""
         try:
-            # Convert record to dict for JSON emission
-            data = vars(record)
-            write_json_to_stdout(data)
+            # Get current span context for trace correlation
+            span = trace.get_current_span()
+            ctx = span.get_span_context()
+
+            if ctx.is_valid:
+                trace_id = format(ctx.trace_id, "032x")
+                span_id = format(ctx.span_id, "016x")
+            else:
+                trace_id = "0" * 32
+                span_id = "0" * 16
+
+            # Build structured log entry
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "trace_id": trace_id,
+                "span_id": span_id,
+                **vars(record),  # Include all record fields
+            }
+
+            # Write to stdout (log aggregators collect this)
+            print(json.dumps(log_entry), file=sys.stdout, flush=True)
         except Exception as e:
-            logger.warning(f"LokiSink failed to write record: {e}", exc_info=True)
+            logger.warning(f"StdoutSink failed to write record: {e}", exc_info=True)
 
 
 class DatabaseSink(LuthienRecordSink):
@@ -164,7 +186,7 @@ class OTelSink(LuthienRecordSink):
 
 __all__ = [
     "LuthienRecordSink",
-    "LokiSink",
+    "StdoutSink",
     "DatabaseSink",
     "RedisSink",
     "OTelSink",
