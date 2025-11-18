@@ -3,26 +3,47 @@
 
 """Tests for V2 main FastAPI application."""
 
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from luthien_proxy.main import create_app
-from luthien_proxy.policies.noop_policy import NoOpPolicy
+
+
+@pytest.fixture
+def policy_config_file():
+    """Create a temporary policy config file for testing."""
+    config_content = """
+policy:
+  class: "luthien_proxy.policies.simple_noop_policy:SimpleNoOpPolicy"
+  config: {}
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(config_content)
+        config_path = f.name
+
+    yield config_path
+
+    # Cleanup
+    Path(config_path).unlink(missing_ok=True)
 
 
 class TestCreateApp:
     """Test create_app factory function."""
 
     @pytest.mark.asyncio
-    async def test_create_app_basic(self):
+    async def test_create_app_basic(self, policy_config_file):
         """Test basic app creation with minimal config."""
         app = create_app(
             api_key="test-key",
+            admin_key=None,
             database_url="postgresql://test:test@localhost/test",
             redis_url="redis://localhost:6379",
-            policy=NoOpPolicy(),
+            policy_source="file",
+            policy_config_path=policy_config_file,
         )
 
         assert app.title == "Luthien Proxy Gateway"
@@ -30,14 +51,15 @@ class TestCreateApp:
         assert app.description == "Multi-provider LLM proxy with integrated control plane"
 
     @pytest.mark.asyncio
-    async def test_create_app_lifespan_initialization(self):
+    async def test_create_app_lifespan_initialization(self, policy_config_file):
         """Test that lifespan properly initializes app.state."""
-        policy = NoOpPolicy()
         app = create_app(
             api_key="test-api-key",
+            admin_key=None,
             database_url="postgresql://user:pass@localhost/db",
             redis_url="redis://localhost:6379",
-            policy=policy,
+            policy_source="file",
+            policy_config_path=policy_config_file,
         )
 
         # Mock dependencies to avoid real connections
@@ -64,7 +86,7 @@ class TestCreateApp:
 
                 # Verify app state was initialized
                 assert app.state.api_key == "test-api-key"
-                assert app.state.policy == policy
+                assert app.state.policy_manager is not None
                 assert app.state.db_pool == mock_db_instance
                 assert app.state.redis_client == mock_redis_instance
                 assert app.state.event_publisher is not None
@@ -74,16 +96,8 @@ class TestCreateApp:
             mock_redis_instance.close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_create_app_database_failure_graceful(self):
+    async def test_create_app_database_failure_graceful(self, policy_config_file):
         """Test that app handles database connection failure gracefully."""
-        policy = NoOpPolicy()
-        app = create_app(
-            api_key="test-api-key",
-            database_url="postgresql://invalid:invalid@localhost/invalid",
-            redis_url="redis://localhost:6379",
-            policy=policy,
-        )
-
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
@@ -100,23 +114,24 @@ class TestCreateApp:
             mock_redis_instance.close = AsyncMock()
             mock_redis_class.from_url.return_value = mock_redis_instance
 
+            app = create_app(
+                api_key="test-api-key",
+                admin_key=None,
+                database_url="postgresql://invalid:invalid@localhost/invalid",
+                redis_url="redis://localhost:6379",
+                policy_source="file",
+                policy_config_path=policy_config_file,
+            )
+
             with TestClient(app):
                 # App should still start with db_pool = None
                 assert app.state.db_pool is None
                 assert app.state.redis_client == mock_redis_instance
-                assert app.state.policy is not None
+                assert app.state.policy_manager is not None
 
     @pytest.mark.asyncio
-    async def test_create_app_redis_failure_graceful(self):
+    async def test_create_app_redis_failure_graceful(self, policy_config_file):
         """Test that app handles Redis connection failure gracefully."""
-        policy = NoOpPolicy()
-        app = create_app(
-            api_key="test-api-key",
-            database_url="postgresql://user:pass@localhost/db",
-            redis_url="redis://invalid:6379",
-            policy=policy,
-        )
-
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
@@ -133,21 +148,32 @@ class TestCreateApp:
             mock_redis_instance.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
             mock_redis_class.from_url.return_value = mock_redis_instance
 
+            app = create_app(
+                api_key="test-api-key",
+                admin_key=None,
+                database_url="postgresql://user:pass@localhost/db",
+                redis_url="redis://invalid:6379",
+                policy_source="file",
+                policy_config_path=policy_config_file,
+            )
+
             with TestClient(app):
                 # App should still start with redis_client = None
                 assert app.state.db_pool == mock_db_instance
                 assert app.state.redis_client is None
                 assert app.state.event_publisher is None  # No publisher without Redis
-                assert app.state.policy is not None
+                assert app.state.policy_manager is not None
 
     @pytest.mark.asyncio
-    async def test_create_app_routes_included(self):
+    async def test_create_app_routes_included(self, policy_config_file):
         """Test that all expected routes are included."""
         app = create_app(
             api_key="test-key",
+            admin_key=None,
             database_url="postgresql://test:test@localhost/test",
             redis_url="redis://localhost:6379",
-            policy=NoOpPolicy(),
+            policy_source="file",
+            policy_config_path=policy_config_file,
         )
 
         routes = [getattr(route, "path", None) for route in app.routes]
@@ -159,20 +185,22 @@ class TestCreateApp:
         assert "/v1/chat/completions" in routes or any("/v1/chat/completions" in str(r) for r in routes if r)
         assert "/v1/messages" in routes or any("/v1/messages" in str(r) for r in routes if r)
 
-    def test_create_app_health_endpoint(self):
+    def test_create_app_health_endpoint(self, policy_config_file):
         """Test health endpoint returns correct response."""
-        app = create_app(
-            api_key="test-key",
-            database_url="postgresql://test:test@localhost/test",
-            redis_url="redis://localhost:6379",
-            policy=NoOpPolicy(),
-        )
-
         with (
             patch("luthien_proxy.main.db.DatabasePool"),
             patch("luthien_proxy.main.Redis"),
             patch("luthien_proxy.main.setup_telemetry"),
         ):
+            app = create_app(
+                api_key="test-key",
+                admin_key=None,
+                database_url="postgresql://test:test@localhost/test",
+                redis_url="redis://localhost:6379",
+                policy_source="file",
+                policy_config_path=policy_config_file,
+            )
+
             with TestClient(app) as client:
                 response = client.get("/health")
                 assert response.status_code == 200
@@ -180,20 +208,22 @@ class TestCreateApp:
                 assert data["status"] == "healthy"
                 assert data["version"] == "2.0.0"
 
-    def test_create_app_root_endpoint(self):
+    def test_create_app_root_endpoint(self, policy_config_file):
         """Test root endpoint returns HTML landing page."""
-        app = create_app(
-            api_key="test-key",
-            database_url="postgresql://test:test@localhost/test",
-            redis_url="redis://localhost:6379",
-            policy=NoOpPolicy(),
-        )
-
         with (
             patch("luthien_proxy.main.db.DatabasePool"),
             patch("luthien_proxy.main.Redis"),
             patch("luthien_proxy.main.setup_telemetry"),
         ):
+            app = create_app(
+                api_key="test-key",
+                admin_key=None,
+                database_url="postgresql://test:test@localhost/test",
+                redis_url="redis://localhost:6379",
+                policy_source="file",
+                policy_config_path=policy_config_file,
+            )
+
             with TestClient(app) as client:
                 response = client.get("/")
                 assert response.status_code == 200
@@ -204,15 +234,15 @@ class TestCreateApp:
                 assert "Luthien" in content
 
     @pytest.mark.asyncio
-    async def test_create_app_with_custom_policy(self):
-        """Test app creation with custom policy."""
-
-        policy = NoOpPolicy()
+    async def test_create_app_with_custom_policy(self, policy_config_file):
+        """Test app creation with custom policy config."""
         app = create_app(
             api_key="test-key",
+            admin_key=None,
             database_url="postgresql://test:test@localhost/test",
             redis_url="redis://localhost:6379",
-            policy=policy,
+            policy_source="file",
+            policy_config_path=policy_config_file,
         )
 
         with (
@@ -231,16 +261,18 @@ class TestCreateApp:
             mock_redis_class.from_url.return_value = mock_redis_instance
 
             with TestClient(app):
-                # Verify the control plane was initialized with our custom policy
-                assert app.state.policy == policy
+                # Verify the policy manager was initialized
+                assert app.state.policy_manager is not None
 
-    def test_create_app_static_files_mounted(self):
+    def test_create_app_static_files_mounted(self, policy_config_file):
         """Test that static files are properly mounted."""
         app = create_app(
             api_key="test-key",
+            admin_key=None,
             database_url="postgresql://test:test@localhost/test",
             redis_url="redis://localhost:6379",
-            policy=NoOpPolicy(),
+            policy_source="file",
+            policy_config_path=policy_config_file,
         )
 
         # Check that /v2/static route exists
