@@ -6,7 +6,7 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypedDict
+from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict
 
 from opentelemetry.trace import Span
 
@@ -128,18 +128,6 @@ class ObservabilityContext(ABC):
         """
         pass
 
-    async def record_blocking(self, record: LuthienRecord) -> None:
-        """Record a structured LuthienRecord (blocking).
-
-        Waits for all sinks to complete before returning.
-        Useful for tests or critical logging where completion must be guaranteed.
-
-        Args:
-            record: Structured record to emit
-        """
-        # Default implementation: just call non-blocking version
-        self.record(record)
-
     # TODO: Remove these compatibility methods once all code migrates to LuthienRecords
     def emit_event_nonblocking(self, event_type: str, data: dict, level: str = "INFO") -> None:  # noqa: ARG002
         """Deprecated: Use record() with LuthienRecord instead."""
@@ -154,10 +142,6 @@ class ObservabilityContext(ABC):
     def add_span_attribute(self, key: str, value: str | int | float | bool) -> None:  # noqa: ARG002
         """Deprecated: Use obs_ctx.span.set_attribute() instead."""
         logger.warning(f"add_span_attribute is deprecated, use obs_ctx.span.set_attribute() instead (key={key})")
-
-    def add_span_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:  # noqa: ARG002
-        """Deprecated: Use obs_ctx.span.add_event() instead."""
-        logger.warning(f"add_span_event is deprecated, use obs_ctx.span.add_event() instead (name={name})")
 
     def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:  # noqa: ARG002
         """Deprecated: Use OpenTelemetry metrics directly."""
@@ -259,21 +243,6 @@ class DefaultObservabilityContext(ObservabilityContext):
         # Fire and forget - don't block on sink writes
         asyncio.create_task(_write_to_sinks())
 
-    async def record_blocking(self, record: LuthienRecord) -> None:
-        """Record a structured LuthienRecord (blocking).
-
-        Waits for all sinks to complete before returning.
-        """
-        # Determine which sinks should receive this record
-        sink_names = self._routing.get(type(record), self._default_sink_names)
-
-        # Write to all sinks and wait for completion
-        for name in sink_names:
-            try:
-                await self._sinks[name].write(record)
-            except Exception as e:
-                logger.warning(f"Sink {name} failed to write record: {e}", exc_info=True)
-
     # Override deprecated methods to provide actual implementations for backward compatibility
     def emit_event_nonblocking(self, event_type: str, data: dict, level: str = "INFO") -> None:
         """Deprecated: Use record() with LuthienRecord instead."""
@@ -314,7 +283,6 @@ class DefaultObservabilityContext(ObservabilityContext):
                 call_id=self._transaction_id,
                 event_type=event_type,
                 data=enriched_data,
-                level=level,
             )
 
         # Publish to Redis if event_publisher provided
@@ -329,11 +297,6 @@ class DefaultObservabilityContext(ObservabilityContext):
         """Deprecated: Use obs_ctx.span.set_attribute() instead."""
         logger.warning(f"add_span_attribute is deprecated, use obs_ctx.span.set_attribute() instead (key={key})")
         self._span.set_attribute(key, value)
-
-    def add_span_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
-        """Deprecated: Use obs_ctx.span.add_event() instead."""
-        logger.warning(f"add_span_event is deprecated, use obs_ctx.span.add_event() instead (name={name})")
-        self._span.add_event(name, attributes or {})
 
     def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
         """Deprecated: Use OpenTelemetry metrics directly."""
