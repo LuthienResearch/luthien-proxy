@@ -6,14 +6,16 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypedDict
 
 from opentelemetry.trace import Span
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
     from luthien_proxy.observability.sinks import LuthienRecordSink
+    from luthien_proxy.utils.db import DatabasePool
 
 
 # ===== Structured Records =====
@@ -126,6 +128,18 @@ class ObservabilityContext(ABC):
         """
         pass
 
+    async def record_blocking(self, record: LuthienRecord) -> None:
+        """Record a structured LuthienRecord (blocking).
+
+        Waits for all sinks to complete before returning.
+        Useful for tests or critical logging where completion must be guaranteed.
+
+        Args:
+            record: Structured record to emit
+        """
+        # Default implementation: just call non-blocking version
+        self.record(record)
+
     # TODO: Remove these compatibility methods once all code migrates to LuthienRecords
     def emit_event_nonblocking(self, event_type: str, data: dict, level: str = "INFO") -> None:  # noqa: ARG002
         """Deprecated: Use record() with LuthienRecord instead."""
@@ -140,6 +154,10 @@ class ObservabilityContext(ABC):
     def add_span_attribute(self, key: str, value: str | int | float | bool) -> None:  # noqa: ARG002
         """Deprecated: Use obs_ctx.span.set_attribute() instead."""
         logger.warning(f"add_span_attribute is deprecated, use obs_ctx.span.set_attribute() instead (key={key})")
+
+    def add_span_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:  # noqa: ARG002
+        """Deprecated: Use obs_ctx.span.add_event() instead."""
+        logger.warning(f"add_span_event is deprecated, use obs_ctx.span.add_event() instead (name={name})")
 
     def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:  # noqa: ARG002
         """Deprecated: Use OpenTelemetry metrics directly."""
@@ -174,6 +192,9 @@ class DefaultObservabilityContext(ObservabilityContext):
         transaction_id: str,
         span: Span,
         config: ObservabilityConfig | None = None,
+        # Backward compatibility parameters (DEPRECATED)
+        db_pool: "DatabasePool | None" = None,  # type: ignore
+        event_publisher: "RedisEventPublisher | None" = None,  # type: ignore
     ):
         """Initialize DefaultObservabilityContext.
 
@@ -181,10 +202,16 @@ class DefaultObservabilityContext(ObservabilityContext):
             transaction_id: Unique identifier for this transaction
             span: OpenTelemetry span for distributed tracing
             config: Optional sink configuration (uses defaults if not provided)
+            db_pool: DEPRECATED - pass DatabaseSink in config instead
+            event_publisher: DEPRECATED - pass RedisSink in config instead
         """
         self._transaction_id = transaction_id
         self._span = span
         self._config = config or {}
+
+        # Store deprecated parameters for backward compatibility
+        self._db_pool = db_pool
+        self._event_publisher = event_publisher
 
         # Build sink registry with defaults
         from luthien_proxy.observability.sinks import (
@@ -231,6 +258,93 @@ class DefaultObservabilityContext(ObservabilityContext):
 
         # Fire and forget - don't block on sink writes
         asyncio.create_task(_write_to_sinks())
+
+    async def record_blocking(self, record: LuthienRecord) -> None:
+        """Record a structured LuthienRecord (blocking).
+
+        Waits for all sinks to complete before returning.
+        """
+        # Determine which sinks should receive this record
+        sink_names = self._routing.get(type(record), self._default_sink_names)
+
+        # Write to all sinks and wait for completion
+        for name in sink_names:
+            try:
+                await self._sinks[name].write(record)
+            except Exception as e:
+                logger.warning(f"Sink {name} failed to write record: {e}", exc_info=True)
+
+    # Override deprecated methods to provide actual implementations for backward compatibility
+    def emit_event_nonblocking(self, event_type: str, data: dict, level: str = "INFO") -> None:
+        """Deprecated: Use record() with LuthienRecord instead."""
+        logger.warning(
+            f"emit_event_nonblocking is deprecated, use record(LuthienRecord) instead (event_type={event_type})"
+        )
+        # Delegate to async version but don't await (fire and forget)
+        asyncio.create_task(self.emit_event(event_type, data, level))
+
+    async def emit_event(self, event_type: str, data: dict, level: str = "INFO") -> None:
+        """Deprecated: Use record() with LuthienRecord instead."""
+        logger.warning(f"emit_event is deprecated, use record(LuthienRecord) instead (event_type={event_type})")
+
+        # Enrich data with standard fields
+        import time
+
+        enriched_data = {
+            "call_id": self._transaction_id,
+            "timestamp": time.time(),
+            **data,
+        }
+
+        # Add trace context if span is recording
+        if self._span.is_recording():
+            span_context = self._span.get_span_context()
+            enriched_data["trace_id"] = format(span_context.trace_id, "032x")
+            enriched_data["span_id"] = format(span_context.span_id, "016x")
+
+        # Add to span as event
+        self._span.add_event(event_type, enriched_data)
+
+        # Emit to database if db_pool provided
+        if self._db_pool:
+            from luthien_proxy.storage.events import emit_custom_event
+
+            await emit_custom_event(
+                db_pool=self._db_pool,
+                call_id=self._transaction_id,
+                event_type=event_type,
+                data=enriched_data,
+                level=level,
+            )
+
+        # Publish to Redis if event_publisher provided
+        if self._event_publisher:
+            await self._event_publisher.publish_event(
+                call_id=self._transaction_id,
+                event_type=event_type,
+                data=data,  # Redis gets unenriched data (matches old behavior)
+            )
+
+    def add_span_attribute(self, key: str, value: str | int | float | bool) -> None:
+        """Deprecated: Use obs_ctx.span.set_attribute() instead."""
+        logger.warning(f"add_span_attribute is deprecated, use obs_ctx.span.set_attribute() instead (key={key})")
+        self._span.set_attribute(key, value)
+
+    def add_span_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
+        """Deprecated: Use obs_ctx.span.add_event() instead."""
+        logger.warning(f"add_span_event is deprecated, use obs_ctx.span.add_event() instead (name={name})")
+        self._span.add_event(name, attributes or {})
+
+    def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
+        """Deprecated: Use OpenTelemetry metrics directly."""
+        logger.warning(f"record_metric is deprecated (name={name})")
+        # Delegate to OTel metrics
+        from opentelemetry import metrics
+
+        meter = metrics.get_meter(__name__)
+        counter = meter.create_counter(name)
+        enriched_labels = {"call_id": self._transaction_id, **(labels or {})}
+        counter.add(value, enriched_labels)
 
 
 __all__ = [
