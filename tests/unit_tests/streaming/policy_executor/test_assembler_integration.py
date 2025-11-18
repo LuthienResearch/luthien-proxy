@@ -30,10 +30,15 @@ def obs_ctx():
 
 @pytest.fixture
 def mock_policy():
-    """Create a mock policy with async hook methods."""
+    """Create a mock policy with async hook methods that forwards chunks."""
     policy = Mock()
-    # For now, these are just placeholders - we'll test actual invocation in Step 3
-    policy.on_chunk_received = AsyncMock()
+
+    # Create async mock that forwards chunks to egress queue (like NoOpPolicy)
+    async def forward_chunk(ctx):
+        """Forward the last chunk received to the egress queue."""
+        ctx.push_chunk(ctx.last_chunk_received)
+
+    policy.on_chunk_received = AsyncMock(side_effect=forward_chunk)
     policy.on_content_delta = AsyncMock()
     policy.on_content_complete = AsyncMock()
     policy.on_tool_call_delta = AsyncMock()
