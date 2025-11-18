@@ -21,9 +21,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
-    from luthien_proxy.observability.luthien_records import LuthienRecord
+    from luthien_proxy.observability.context import LuthienRecord
+    from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
     from luthien_proxy.utils.db import DatabasePool
-    from luthien_proxy.utils.redis_utils import EventPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ class RedisSink(LuthienRecordSink):
     to monitoring UIs and other consumers.
     """
 
-    def __init__(self, event_publisher: "EventPublisher | None"):
+    def __init__(self, event_publisher: "RedisEventPublisher | None"):
         """Initialize RedisSink.
 
         Args:
