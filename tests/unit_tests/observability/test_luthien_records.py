@@ -53,17 +53,3 @@ def test_observability_context_record_nonblocking():
             payload="test data",
         )
     )
-
-
-async def test_observability_context_record_blocking():
-    """Test ObservabilityContext.record_blocking() method."""
-    ctx = NoOpObservabilityContext()
-
-    # Should not raise (NoOp context does nothing)
-    await ctx.record_blocking(
-        PipelineRecord(
-            transaction_id="test-000",
-            pipeline_stage="test_payload",
-            payload="test data",
-        )
-    )

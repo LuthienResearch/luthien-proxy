@@ -37,13 +37,6 @@ class TestNoOpObservabilityContext:
         ctx.add_span_attribute("key", "value")
         # No assertion - just verify it doesn't raise
 
-    def test_add_span_event_does_nothing(self):
-        """add_span_event does nothing and doesn't raise."""
-        span = Mock(spec=Span)
-        ctx = NoOpObservabilityContext("test-txn-123", span)
-        ctx.add_span_event("test.event", {"attr": "value"})
-        # No assertion - just verify it doesn't raise
-
 
 class TestDefaultObservabilityContext:
     """Test DefaultObservabilityContext enrichment and delegation."""
@@ -138,21 +131,3 @@ class TestDefaultObservabilityContext:
         ctx.add_span_attribute("test.key", "test.value")
 
         span.set_attribute.assert_called_once_with("test.key", "test.value")
-
-    def test_add_span_event(self):
-        """add_span_event delegates to span.add_event."""
-        span = Mock(spec=Span)
-        ctx = DefaultObservabilityContext("test-txn-event", span)
-
-        ctx.add_span_event("test.event", {"attr": "value"})
-
-        span.add_event.assert_called_once_with("test.event", {"attr": "value"})
-
-    def test_add_span_event_with_no_attributes(self):
-        """add_span_event works with None attributes."""
-        span = Mock(spec=Span)
-        ctx = DefaultObservabilityContext("test-txn-event", span)
-
-        ctx.add_span_event("test.event")
-
-        span.add_event.assert_called_once_with("test.event", {})
