@@ -65,6 +65,8 @@ class TestDefaultTransactionRecorder:
         """record_request emits event with correct data."""
         observability = Mock(spec=ObservabilityContext)
         observability.emit_event = AsyncMock()
+        observability.span = Mock()
+        observability.span.set_attribute = Mock()
         recorder = DefaultTransactionRecorder(observability)
 
         original = Request(model="gpt-4", messages=[{"role": "user", "content": "hi"}])
@@ -82,9 +84,9 @@ class TestDefaultTransactionRecorder:
         assert call_args[1]["data"]["final_request"]["model"] == "gpt-4-turbo"
 
         # Verify span attributes added
-        assert observability.add_span_attribute.call_count == 2
-        observability.add_span_attribute.assert_any_call("request.model", "gpt-4-turbo")
-        observability.add_span_attribute.assert_any_call("request.message_count", 1)
+        assert observability.span.set_attribute.call_count == 2
+        observability.span.set_attribute.assert_any_call("request.model", "gpt-4-turbo")
+        observability.span.set_attribute.assert_any_call("request.message_count", 1)
 
     @pytest.mark.asyncio
     async def test_ingress_chunks_within_limit_are_included(self):
@@ -295,16 +297,15 @@ class TestDefaultTransactionRecorder:
         assert final_response["model"] == "gpt-4-turbo"
         assert "Hi" in final_response["choices"][0]["message"]["content"]
 
-        # Verify metrics recorded
-        assert observability.record_metric.call_count == 2
-        observability.record_metric.assert_any_call("response.chunks.ingress", 1)
-        observability.record_metric.assert_any_call("response.chunks.egress", 1)
+        # Note: Metrics are now recorded directly via OTel, not through observability context
 
     @pytest.mark.asyncio
     async def test_record_response_emits_responses(self):
         """record_response emits both responses."""
         observability = Mock(spec=ObservabilityContext)
         observability.emit_event = AsyncMock()
+        observability.span = Mock()
+        observability.span.set_attribute = Mock()
         recorder = DefaultTransactionRecorder(observability)
 
         # Create mock responses with finish_reason
@@ -343,13 +344,15 @@ class TestDefaultTransactionRecorder:
         assert "final_response" in call_args[1]["data"]
 
         # Verify span attribute added
-        observability.add_span_attribute.assert_called_once_with("response.finish_reason", "length")
+        observability.span.set_attribute.assert_called_once_with("response.finish_reason", "length")
 
     @pytest.mark.asyncio
     async def test_record_response_handles_missing_finish_reason(self):
         """record_response handles responses without finish_reason."""
         observability = Mock(spec=ObservabilityContext)
         observability.emit_event = AsyncMock()
+        observability.span = Mock()
+        observability.span.set_attribute = Mock()
         recorder = DefaultTransactionRecorder(observability)
 
         # Create mock responses without finish_reason
@@ -373,7 +376,7 @@ class TestDefaultTransactionRecorder:
         assert call_args[1]["data"]["final_finish_reason"] is None
 
         # Verify span attribute NOT added (because finish_reason is None)
-        observability.add_span_attribute.assert_not_called()
+        observability.span.set_attribute.assert_not_called()
 
     def test_get_finish_reason_extracts_correctly(self):
         """_get_finish_reason extracts finish_reason from response."""
