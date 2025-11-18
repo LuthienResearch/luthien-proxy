@@ -180,17 +180,20 @@ async def emit_event(self, event_type: str, data: dict, level: str = "INFO") -> 
 
 **Also added:**
 
-- `record_blocking()` - Blocking version of record() that waits for all sinks to complete
-- `add_span_event()` - Delegated to span.add_event()
-- All methods accept deprecated `db_pool` and `event_publisher` constructor parameters
+- All methods accept deprecated `db_pool` and `event_publisher` constructor parameters for backward compatibility
 
-**Status**: All 72 observability unit tests passing (previously ~20 were failing)
+**Status**: All 68 observability unit tests passing (previously ~20 were failing)
+
+**Removed test-only code** (commit aac978a):
+
+- `record_blocking()` - Only used in one smoke test, no production usage
+- `add_span_event()` - Only tested, never used in production
 
 ## What Remains
 
 ### 1. Fix Remaining Test Failures (MEDIUM PRIORITY)
 
-**Current Status**: 72/72 observability tests passing ✓, but some other tests need updates
+**Current Status**: 68/68 observability tests passing ✓, but some other tests need updates
 
 **Remaining test failures:**
 
@@ -378,6 +381,7 @@ obs_ctx = DefaultObservabilityContext(
 - `f64cedc` - Simplify telemetry, clarify observability strategy
 - `4dd4c36` - Implement sink-based architecture with configurable routing
 - `863dda4` - Implement backward-compatible deprecated methods for ObservabilityContext
+- `aac978a` - Remove test-only code from ObservabilityContext
 
 ## Next Steps (Recommended Priority Order)
 
