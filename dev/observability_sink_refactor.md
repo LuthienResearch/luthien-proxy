@@ -189,16 +189,11 @@ async def emit_event(self, event_type: str, data: dict, level: str = "INFO") -> 
 - `record_blocking()` - Only used in one smoke test, no production usage
 - `add_span_event()` - Only tested, never used in production
 
-**Removed wrapper methods** (commit 5b6a8fa):
-
-- `add_span_attribute()` - Replaced with direct `obs_ctx.span.set_attribute()` access
-- `record_metric()` - Replaced with direct OpenTelemetry metrics API
-
 ## What Remains
 
 ### 1. Fix Remaining Test Failures (MEDIUM PRIORITY)
 
-**Current Status**: 64/64 observability tests passing ✓, but some other tests need updates
+**Current Status**: 68/68 observability tests passing ✓, but some other tests need updates
 
 **Remaining test failures:**
 
@@ -387,7 +382,6 @@ obs_ctx = DefaultObservabilityContext(
 - `4dd4c36` - Implement sink-based architecture with configurable routing
 - `863dda4` - Implement backward-compatible deprecated methods for ObservabilityContext
 - `aac978a` - Remove test-only code from ObservabilityContext
-- `5b6a8fa` - Remove ObservabilityContext wrapper methods, expose span directly
 
 ## Next Steps (Recommended Priority Order)
 
