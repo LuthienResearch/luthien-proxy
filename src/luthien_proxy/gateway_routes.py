@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import uuid
 
@@ -23,7 +24,7 @@ from luthien_proxy.llm.llm_format_utils import (
 from luthien_proxy.messages import Request as RequestMessage
 from luthien_proxy.observability.context import (
     DefaultObservabilityContext,
-    LuthienPayloadRecord,
+    PipelineRecord,
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.transaction import LuthienTransaction
@@ -119,13 +120,10 @@ async def chat_completions(
 
         # Log incoming request
         obs_ctx.record(
-            LuthienPayloadRecord(
-                stage="client.request",
-                data={
-                    "endpoint": "/v1/chat/completions",
-                    "format": "openai",
-                    "payload": body,
-                },
+            PipelineRecord(
+                transaction_id=call_id,
+                pipeline_stage="client_request",
+                payload=json.dumps(body),
             )
         )
 
@@ -160,11 +158,10 @@ async def chat_completions(
 
         # Log request after policy processing
         obs_ctx.record(
-            LuthienPayloadRecord(
-                stage="backend.request",
-                data={
-                    "payload": final_request.model_dump(exclude_none=True),
-                },
+            PipelineRecord(
+                transaction_id=call_id,
+                pipeline_stage="backend_request",
+                payload=json.dumps(final_request.model_dump(exclude_none=True)),
             )
         )
 
@@ -195,12 +192,10 @@ async def chat_completions(
 
             # Log final response
             obs_ctx.record(
-                LuthienPayloadRecord(
-                    stage="client.response",
-                    data={
-                        "format": "openai",
-                        "payload": processed_response.model_dump(),
-                    },
+                PipelineRecord(
+                    transaction_id=call_id,
+                    pipeline_stage="client_response",
+                    payload=json.dumps(processed_response.model_dump()),
                 )
             )
 
@@ -249,13 +244,10 @@ async def anthropic_messages(
 
         # Log incoming Anthropic request
         obs_ctx.record(
-            LuthienPayloadRecord(
-                stage="client.request",
-                data={
-                    "endpoint": "/v1/messages",
-                    "format": "anthropic",
-                    "payload": anthropic_body,
-                },
+            PipelineRecord(
+                transaction_id=call_id,
+                pipeline_stage="client_request",
+                payload=json.dumps(anthropic_body),
             )
         )
 
@@ -275,14 +267,16 @@ async def anthropic_messages(
 
         # Log format conversion
         obs_ctx.record(
-            LuthienPayloadRecord(
-                stage="format.conversion",
-                data={
-                    "from_format": "anthropic",
-                    "to_format": "openai",
-                    "input_payload": anthropic_body,
-                    "output_payload": openai_body,
-                },
+            PipelineRecord(
+                transaction_id=call_id,
+                pipeline_stage="format_conversion",
+                payload=json.dumps(
+                    {
+                        "from_format": "anthropic",
+                        "to_format": "openai",
+                        "openai_body": openai_body,
+                    }
+                ),
             )
         )
 
@@ -326,11 +320,10 @@ async def anthropic_messages(
 
         # Log request after policy processing
         obs_ctx.record(
-            LuthienPayloadRecord(
-                stage="backend.request",
-                data={
-                    "payload": final_request.model_dump(exclude_none=True),
-                },
+            PipelineRecord(
+                transaction_id=call_id,
+                pipeline_stage="backend_request",
+                payload=json.dumps(final_request.model_dump(exclude_none=True)),
             )
         )
 
@@ -364,12 +357,10 @@ async def anthropic_messages(
 
             # Log final response
             obs_ctx.record(
-                LuthienPayloadRecord(
-                    stage="client.response",
-                    data={
-                        "format": "anthropic",
-                        "payload": anthropic_response,
-                    },
+                PipelineRecord(
+                    transaction_id=call_id,
+                    pipeline_stage="client_response",
+                    payload=json.dumps(anthropic_response),
                 )
             )
 

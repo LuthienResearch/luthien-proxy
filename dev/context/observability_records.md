@@ -1,6 +1,7 @@
-# LuthienRecord System for Structured Observability
+# PipelineRecord System for Structured Observability
 
 **Added:** 2025-01-14
+**Updated:** 2025-01-14 - Renamed from LuthienPayloadRecord to PipelineRecord, simplified interface
 
 ## Overview
 
@@ -10,141 +11,150 @@ Simple, extensible system for logging structured data at any point in the reques
 
 ### LuthienRecord
 
-Abstract base class for structured observability records. Each record type has:
-- `record_type`: Class-level constant (e.g., "payload")
-- `to_dict()`: Method to serialize to JSON for logging
+Abstract base class for structured observability records. Each record:
+- Has a `record_type` class-level constant (e.g., "pipeline")
+- Includes `transaction_id` to track which transaction it belongs to
+- Serializes automatically via `vars()` (no `to_dict()` method needed)
 
-### LuthienPayloadRecord
+### PipelineRecord
 
-Simple atomic record: `(stage, data)` tuple.
+Records payload data as it flows through the pipeline.
 
-- **stage**: String identifier for where in the pipeline this is logged (e.g., `"client.request"`, `"policy.modified"`)
-- **data**: Arbitrary JSON-serializable dict containing whatever you want to log
+**Simple interface:**
+- `transaction_id`: str - Which transaction this belongs to
+- `pipeline_stage`: str - Identifier for this stage (e.g., "client_request", "backend_response")
+- `payload`: str - String representation of the data
 
 ## Usage
 
 ```python
-from luthien_proxy.observability.context import LuthienPayloadRecord
+import json
+from luthien_proxy.observability.context import PipelineRecord
 
-# Log a request payload
-obs_ctx.record(LuthienPayloadRecord(
-    stage="client.request",
-    data={
-        "payload": request_body,
-        "format": "anthropic",
-        "endpoint": "/v1/messages"
-    }
+# Log incoming client request
+obs_ctx.record(PipelineRecord(
+    transaction_id=call_id,
+    pipeline_stage="client_request",
+    payload=json.dumps(request_body)
 ))
 
-# Log a policy decision
-obs_ctx.record(LuthienPayloadRecord(
-    stage="policy.decision",
-    data={
-        "policy": "SimpleJudgePolicy",
-        "decision": "modify",
-        "modifications": {"added_system_message": True}
-    }
+# Log request after policy modification
+obs_ctx.record(PipelineRecord(
+    transaction_id=call_id,
+    pipeline_stage="backend_request",
+    payload=json.dumps(modified_request)
 ))
 
-# Log a format conversion
-obs_ctx.record(LuthienPayloadRecord(
-    stage="format.conversion",
-    data={
+# Log format conversion
+obs_ctx.record(PipelineRecord(
+    transaction_id=call_id,
+    pipeline_stage="format_conversion",
+    payload=json.dumps({
         "from_format": "anthropic",
         "to_format": "openai",
-        "input_payload": anthropic_body,
-        "output_payload": openai_body
-    }
+        "result": openai_body
+    })
 ))
 ```
 
 ## Integration with Existing Infrastructure
 
-Records flow through `ObservabilityContext.emit_event()` to:
-- **Loki**: Structured logs indexed by `stage`, `transaction_id`, `trace_id`
+Records flow through `ObservabilityContext.record()` → `emit_event()` to:
+- **Loki**: Structured logs with labels for `record_type`, `pipeline_stage`, `trace_id`
 - **Database**: Persistent storage via `emit_custom_event()`
 - **Redis**: Real-time event stream via `RedisEventPublisher`
 - **OTel Spans**: Trace correlation via `span.add_event()`
 
-Event type is automatically set to `"luthien.{record.record_type}"` (e.g., `"luthien.payload"`).
+Event type is automatically set to `"luthien.{record.record_type}"` (e.g., `"luthien.pipeline"`).
 
-## Querying in Loki
+## Querying in Grafana/Loki
 
 ```logql
-# All records for a transaction
-{service_name="luthien-proxy"} | json | transaction_id="abc-123"
+# All pipeline records
+{app="luthien-gateway", record_type="pipeline"}
 
-# Just policy stages
-{service_name="luthien-proxy"} | json | stage=~"policy.*"
+# Just client requests
+{app="luthien-gateway", record_type="pipeline", pipeline_stage="client_request"}
 
-# Compare before/after policy
-{service_name="luthien-proxy"} | json
-  | transaction_id="abc-123"
-  | stage=~"policy.request.(before|after)"
+# All records for a specific transaction (use line filter for transaction_id)
+{app="luthien-gateway", record_type="pipeline"} | json | transaction_id="abc-123"
 
-# Format conversions
-{service_name="luthien-proxy"} | json | stage="format.conversion"
+# Compare before/after for a transaction
+{app="luthien-gateway", record_type="pipeline", pipeline_stage=~"client_request|backend_request"}
+  | json | transaction_id="abc-123"
 ```
 
-## Recommended Stage Names
+**Note:** `transaction_id` is NOT a Loki label (too high cardinality). Use line filters as shown above.
 
-Use a dotted naming convention for clarity:
+## Standard pipeline_stage Values
+
+Use these consistent names across the codebase:
 
 ### Request Flow
-- `client.request` - Raw request from client
-- `format.conversion` - Format transformation (Anthropic ↔ OpenAI)
-- `policy.request.before` - Request before policy modification
-- `policy.request.after` - Request after policy modification
-- `backend.request` - Final request sent to LLM backend
+- `client_request` - Raw request from client
+- `format_conversion` - Format transformation (Anthropic ↔ OpenAI)
+- `backend_request` - Final request sent to LLM backend (after policy)
 
 ### Response Flow
-- `backend.response` - Raw response from LLM backend
-- `policy.response.before` - Response before policy modification
-- `policy.response.after` - Response after policy modification
-- `client.response` - Final response sent to client
+- `backend_response` - Raw response from LLM backend
+- `client_response` - Final response sent to client (after policy)
 
 ### Streaming
-- `stream.chunk.received` - Chunk received from backend
-- `stream.chunk.sent` - Chunk sent to client
-
-### Decisions
-- `policy.decision` - Policy decision point
-- `policy.intervention` - Policy intervention/blocking
+- `stream_chunk` - Individual chunks during streaming
 
 ## Design Rationale
 
-### Why Not Ambient Context (ContextVars)?
+### Why "PipelineRecord"?
 
-Initially considered using `contextvars` to avoid passing `obs_ctx` everywhere, but decided against it:
-- **Explicit > Implicit**: Passing `obs_ctx` makes dependencies clear
-- **No Global State**: Avoids spooky action at a distance
-- **Simpler**: One less abstraction layer to reason about
+Clearer than "PayloadRecord" - emphasizes that this tracks data flowing through the pipeline.
 
-### Why Simple (stage, data) Design?
+### Why Simple (transaction_id, pipeline_stage, payload) Design?
 
-- **Atomic**: Just log something at a stage - no complex structure
-- **Flexible**: Can log anything - payloads, decisions, metrics, etc.
-- **Extensible**: Easy to add new record types later if needed
-- **Queryable**: `stage` becomes indexed field in Loki
+- **All primitives**: No nested dicts, no serialization issues
+- **Flexible**: Payload is just a string - serialize whatever you need
+- **Queryable**: Both `record_type` and `pipeline_stage` are Loki labels
+- **Transaction-aware**: Every record knows which transaction it belongs to
+
+### Why Include transaction_id in Record?
+
+- Makes each record self-contained
+- Ensures transaction context can't be lost/forgotten
+- Simplifies code - don't need to track transaction separately
+
+### Why vars() Instead of to_dict()?
+
+- Simpler - no boilerplate methods
+- Python's built-in `vars()` just returns `__dict__`
+- Easy to serialize: `json.dumps(vars(record))`
+- Extensible - new fields automatically included
+
+## Changes from Original LuthienPayloadRecord
+
+1. **Renamed**: `LuthienPayloadRecord` → `PipelineRecord`
+2. **Added transaction_id**: Now required in constructor
+3. **Simplified data format**:
+   - Old: `stage` + arbitrary `data` dict
+   - New: `pipeline_stage` + string `payload`
+4. **Removed to_dict()**: Use `vars(record)` instead
+5. **record_type changed**: `"payload"` → `"pipeline"`
 
 ## Future Extensions
 
-If we need more structure later, easy to add new record types:
+Easy to add new record types by subclassing `LuthienRecord`:
 
 ```python
-class LuthienPolicyDecisionRecord(LuthienRecord):
-    record_type = "policy.decision"
+class PolicyDecisionRecord(LuthienRecord):
+    record_type = "policy_decision"
 
-    def __init__(self, policy_name: str, decision: str, ...):
+    def __init__(self, transaction_id: str, policy_name: str, decision: str, rationale: str):
+        super().__init__(transaction_id)
         self.policy_name = policy_name
         self.decision = decision
-        # ...
+        self.rationale = rationale
 ```
-
-But start simple with just `LuthienPayloadRecord` and see what we actually need.
 
 ## See Also
 
 - [observability/context.py](../../src/luthien_proxy/observability/context.py) - Implementation
 - [examples/observability_usage.py](../../examples/observability_usage.py) - Usage examples
-- [observability/README.md](../../observability/README.md) - Grafana/Loki/Tempo stack
+- [observability/GRAFANA_QUERIES.md](../../observability/GRAFANA_QUERIES.md) - Query examples

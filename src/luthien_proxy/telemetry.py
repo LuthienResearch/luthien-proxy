@@ -109,38 +109,84 @@ def instrument_redis() -> None:
     logger.info("Redis instrumented with OpenTelemetry")
 
 
+def write_json_to_stdout(data: dict) -> None:
+    """Write JSON log line to stdout with trace context.
+
+    This is a low-level telemetry sink that writes directly to stdout,
+    bypassing Python's logging framework. Promtail collects these logs.
+
+    Use this for structured observability events. For regular log messages,
+    use Python's logging (logger.info, logger.warning, etc.).
+
+    Args:
+        data: Dictionary of fields to include in the JSON log line
+    """
+    import json
+    import sys
+    from datetime import datetime
+
+    # Get current span context
+    span = trace.get_current_span()
+    ctx = span.get_span_context()
+
+    if ctx.is_valid:
+        trace_id = format(ctx.trace_id, "032x")
+        span_id = format(ctx.span_id, "016x")
+    else:
+        trace_id = "0" * 32
+        span_id = "0" * 16
+
+    # Build structured log entry
+    log_entry = {
+        "timestamp": datetime.now().isoformat(),
+        "trace_id": trace_id,
+        "span_id": span_id,
+        **data,
+    }
+
+    # Write to stdout (promtail will collect this)
+    print(json.dumps(log_entry), file=sys.stdout, flush=True)
+
+
 def configure_logging() -> None:
     """Configure structured logging with trace correlation.
 
-    Adds trace_id and span_id to all log records when inside a trace context.
-    This enables correlation between logs and traces in Grafana.
+    This is for regular log messages (logger.info, logger.warning, etc.).
+    For observability events, use emit_structured_log() instead.
     """
 
-    # Custom formatter that includes trace context
-    class TraceContextFormatter(logging.Formatter):
-        """Log formatter that adds trace_id and span_id."""
+    # Simple JSON formatter for regular log messages
+    class SimpleJSONFormatter(logging.Formatter):
+        """Format regular log messages as JSON with trace context."""
 
         def format(self, record: logging.LogRecord) -> str:
-            """Add trace context to log record."""
+            """Format log record as JSON."""
+            import json
+
             # Get current span context
             span = trace.get_current_span()
             ctx = span.get_span_context()
 
             if ctx.is_valid:
-                record.trace_id = format(ctx.trace_id, "032x")  # type: ignore[attr-defined]
-                record.span_id = format(ctx.span_id, "016x")  # type: ignore[attr-defined]
+                trace_id = format(ctx.trace_id, "032x")
+                span_id = format(ctx.span_id, "016x")
             else:
-                record.trace_id = "0" * 32  # type: ignore[attr-defined]
-                record.span_id = "0" * 16  # type: ignore[attr-defined]
+                trace_id = "0" * 32
+                span_id = "0" * 16
 
-            return super().format(record)
+            # Simple structure for regular logs
+            log_data = {
+                "timestamp": self.formatTime(record, self.datefmt),
+                "level": record.levelname,
+                "logger": record.name,
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "message": record.getMessage(),
+            }
 
-    # JSON-like format for Loki to parse
-    formatter = TraceContextFormatter(
-        '{"timestamp":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s",'
-        '"trace_id":"%(trace_id)s","span_id":"%(span_id)s",'
-        '"message":"%(message)s"}'
-    )
+            return json.dumps(log_data)
+
+    formatter = SimpleJSONFormatter()
 
     # Apply to root logger
     handler = logging.StreamHandler()
@@ -183,4 +229,5 @@ __all__ = [
     "configure_logging",
     "instrument_app",
     "instrument_redis",
+    "write_json_to_stdout",
 ]

@@ -1,16 +1,18 @@
-"""Example usage of LuthienPayloadRecord for observability.
+"""Example usage of PipelineRecord for observability.
 
 This shows how to use the structured record system to log payloads
 at different stages of the pipeline.
 """
 
+import json
+
 from luthien_proxy.observability.context import (
     DefaultObservabilityContext,
-    LuthienPayloadRecord,
+    PipelineRecord,
 )
 
 
-async def example_request_flow(obs_ctx: DefaultObservabilityContext):
+async def example_request_flow(obs_ctx: DefaultObservabilityContext, transaction_id: str):
     """Example showing how to log payloads through the request lifecycle."""
     # 1. Log raw client request
     client_request = {
@@ -20,13 +22,10 @@ async def example_request_flow(obs_ctx: DefaultObservabilityContext):
     }
 
     obs_ctx.record(
-        LuthienPayloadRecord(
-            stage="client.request",
-            data={
-                "payload": client_request,
-                "format": "anthropic",
-                "endpoint": "/v1/messages",
-            },
+        PipelineRecord(
+            transaction_id=transaction_id,
+            pipeline_stage="client_request",
+            payload=json.dumps(client_request),
         )
     )
 
@@ -38,28 +37,14 @@ async def example_request_flow(obs_ctx: DefaultObservabilityContext):
     }
 
     obs_ctx.record(
-        LuthienPayloadRecord(
-            stage="format.converted",
-            data={
-                "from_format": "anthropic",
-                "to_format": "openai",
-                "payload": openai_request,
-            },
+        PipelineRecord(
+            transaction_id=transaction_id,
+            pipeline_stage="format_conversion",
+            payload=json.dumps(openai_request),
         )
     )
 
-    # 3. Log before policy
-    obs_ctx.record(
-        LuthienPayloadRecord(
-            stage="policy.request.before",
-            data={
-                "policy": "SimpleJudgePolicy",
-                "payload": openai_request,
-            },
-        )
-    )
-
-    # 4. Log after policy modification
+    # 3. Log backend request (after policy modification)
     modified_request = {
         "model": "claude-3-5-sonnet-20241022",
         "messages": [
@@ -70,30 +55,14 @@ async def example_request_flow(obs_ctx: DefaultObservabilityContext):
     }
 
     obs_ctx.record(
-        LuthienPayloadRecord(
-            stage="policy.request.after",
-            data={
-                "policy": "SimpleJudgePolicy",
-                "payload": modified_request,
-                "modifications": {
-                    "added_system_message": True,
-                },
-            },
+        PipelineRecord(
+            transaction_id=transaction_id,
+            pipeline_stage="backend_request",
+            payload=json.dumps(modified_request),
         )
     )
 
-    # 5. Log backend request
-    obs_ctx.record(
-        LuthienPayloadRecord(
-            stage="backend.request",
-            data={
-                "payload": modified_request,
-                "backend": "anthropic",
-            },
-        )
-    )
-
-    # 6. Log backend response
+    # 4. Log backend response
     backend_response = {
         "id": "msg_123",
         "type": "message",
@@ -102,23 +71,19 @@ async def example_request_flow(obs_ctx: DefaultObservabilityContext):
     }
 
     obs_ctx.record(
-        LuthienPayloadRecord(
-            stage="backend.response",
-            data={
-                "payload": backend_response,
-                "backend": "anthropic",
-            },
+        PipelineRecord(
+            transaction_id=transaction_id,
+            pipeline_stage="backend_response",
+            payload=json.dumps(backend_response),
         )
     )
 
-    # 7. Log final client response
+    # 5. Log final client response
     obs_ctx.record(
-        LuthienPayloadRecord(
-            stage="client.response",
-            data={
-                "payload": backend_response,
-                "format": "anthropic",
-            },
+        PipelineRecord(
+            transaction_id=transaction_id,
+            pipeline_stage="client_response",
+            payload=json.dumps(backend_response),
         )
     )
 
@@ -127,12 +92,14 @@ async def example_request_flow(obs_ctx: DefaultObservabilityContext):
 """
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, ...):
-    obs_ctx = DefaultObservabilityContext(...)
+    call_id = str(uuid.uuid4())
+    obs_ctx = DefaultObservabilityContext(transaction_id=call_id, ...)
 
     # Log incoming request
-    obs_ctx.record(LuthienPayloadRecord(
-        stage="client.request",
-        data={"payload": body, "format": "openai"}
+    obs_ctx.record(PipelineRecord(
+        transaction_id=call_id,
+        pipeline_stage="client_request",
+        payload=json.dumps(body)
     ))
 
     # ... process through pipeline ...
@@ -140,16 +107,21 @@ async def chat_completions(request: Request, ...):
     # Log at each transformation stage using obs_ctx.record()
 """
 
-# Query in Loki:
+# Query in Grafana/Loki:
 """
-# All records for a transaction:
-{service_name="luthien-proxy"} | json | transaction_id="abc-123"
+# All pipeline records:
+{app="luthien-gateway", record_type="pipeline"}
 
-# Just policy modifications:
-{service_name="luthien-proxy"} | json | stage=~"policy.*"
+# Just client requests:
+{app="luthien-gateway", record_type="pipeline", pipeline_stage="client_request"}
 
-# Compare before/after:
-{service_name="luthien-proxy"} | json
-  | transaction_id="abc-123"
-  | stage=~"policy.request.(before|after)"
+# Just backend responses:
+{app="luthien-gateway", record_type="pipeline", pipeline_stage="backend_response"}
+
+# All records for a specific transaction (use line filter for transaction_id):
+{app="luthien-gateway", record_type="pipeline"} | json | transaction_id="abc-123"
+
+# Compare before/after for a transaction:
+{app="luthien-gateway", record_type="pipeline", pipeline_stage=~"client_request|backend_request"}
+  | json | transaction_id="abc-123"
 """
