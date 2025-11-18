@@ -24,9 +24,11 @@ from luthien_proxy.llm.llm_format_utils import (
 from luthien_proxy.messages import Request as RequestMessage
 from luthien_proxy.observability.context import (
     DefaultObservabilityContext,
+    ObservabilityConfig,
     PipelineRecord,
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
+from luthien_proxy.observability.sinks import DatabaseSink, OTelSink, RedisSink
 from luthien_proxy.observability.transaction import LuthienTransaction
 from luthien_proxy.observability.transaction_recorder import (
     DefaultTransactionRecorder,
@@ -110,12 +112,20 @@ async def chat_completions(
             "luthien.stream": is_streaming,
         },
     ) as span:
-        # Create observability context
+        # Create observability context with sink configuration
+        config: ObservabilityConfig = {
+            "db_sink": DatabaseSink(db_pool) if db_pool else None,
+            "redis_sink": RedisSink(event_publisher) if event_publisher else None,
+            "otel_sink": OTelSink(span),
+            "routing": {
+                PipelineRecord: ["loki", "db", "redis", "otel"],
+            },
+            "default_sinks": ["loki"],
+        }
         obs_ctx = DefaultObservabilityContext(
             transaction_id=call_id,
             span=span,
-            db_pool=db_pool,
-            event_publisher=event_publisher,
+            config=config,
         )
 
         # Log incoming request
@@ -234,12 +244,20 @@ async def anthropic_messages(
             "luthien.model": anthropic_body.get("model"),
         },
     ) as span:
-        # Create observability context
+        # Create observability context with sink configuration
+        config: ObservabilityConfig = {
+            "db_sink": DatabaseSink(db_pool) if db_pool else None,
+            "redis_sink": RedisSink(event_publisher) if event_publisher else None,
+            "otel_sink": OTelSink(span),
+            "routing": {
+                PipelineRecord: ["loki", "db", "redis", "otel"],
+            },
+            "default_sinks": ["loki"],
+        }
         obs_ctx = DefaultObservabilityContext(
             transaction_id=call_id,
             span=span,
-            db_pool=db_pool,
-            event_publisher=event_publisher,
+            config=config,
         )
 
         # Log incoming Anthropic request

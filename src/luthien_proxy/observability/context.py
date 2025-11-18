@@ -5,17 +5,15 @@
 
 import asyncio
 import logging
-import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict
 
 from opentelemetry.trace import Span
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
-    from luthien_proxy.utils.db import DatabasePool
+    from luthien_proxy.observability.sinks import LuthienRecordSink
 
 
 # ===== Structured Records =====
@@ -75,69 +73,77 @@ class PipelineRecord(LuthienRecord):
         self.payload = payload
 
 
-def _check_level(level: str) -> str:
-    valid_levels = logging._nameToLevel.keys()
-    if level not in valid_levels:
-        raise ValueError(f"Invalid level '{level}'. Must be one of {valid_levels}.")
-    return level
+# ===== Observability Configuration =====
+
+# Define valid sink names as a type-safe literal
+SinkName = Literal["loki", "db", "redis", "otel"]
+
+
+class ObservabilityConfig(TypedDict, total=False):
+    """Configuration for observability sink routing.
+
+    Attributes:
+        loki_sink: Optional LokiSink instance (default created if not provided)
+        db_sink: Optional DatabaseSink instance (default created if not provided)
+        redis_sink: Optional RedisSink instance (default created if not provided)
+        otel_sink: Optional OTelSink instance (default created if not provided)
+        routing: Maps LuthienRecord types to list of sink names
+        default_sinks: Sink names to use for unspecified record types
+    """
+
+    loki_sink: "LuthienRecordSink | None"
+    db_sink: "LuthienRecordSink | None"
+    redis_sink: "LuthienRecordSink | None"
+    otel_sink: "LuthienRecordSink | None"
+    routing: dict[type[LuthienRecord], list[SinkName]]
+    default_sinks: list[SinkName]
+
+
+# ===== Observability Context Interface =====
 
 
 class ObservabilityContext(ABC):
     """Unified interface for observability operations."""
 
+    @property
     @abstractmethod
-    async def emit_event(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:
-        """Emit event with automatic context enrichment."""
+    def span(self) -> Span:
+        """Get the current OpenTelemetry span.
 
-    def emit_event_nonblocking(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:  # noqa: ARG002
-        """Emit event without blocking (fire-and-forget).
-
-        This schedules the emit_event coroutine as a background task. Use this when
-        you don't want to block on event emission (e.g., in hot paths where observability
-        shouldn't impact performance).
-
-        Default implementation is a no-op. Override in subclasses that need actual emission.
-
-        Args:
-            event_type: Type of event to emit
-            data: Event data dictionary
-            level: Logging level emission (default: "INFO")
+        Use this to directly add span attributes, events, etc. without wrappers.
+        Example: obs_ctx.span.set_attribute("key", "value")
         """
         pass
 
     @abstractmethod
-    def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
-        """Record metric with automatic labels."""
-
-    @abstractmethod
-    def add_span_attribute(self, key: str, value: Any) -> None:
-        """Add attribute to current span."""
-
-    @abstractmethod
-    def add_span_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
-        """Add event to current span."""
-
     def record(self, record: LuthienRecord) -> None:
         """Record a structured LuthienRecord (non-blocking).
 
-        Args:
-            record: Structured record to emit
-        """
-        self.emit_event_nonblocking(
-            event_type=f"luthien.{record.record_type}",
-            data=vars(record),
-        )
-
-    async def record_blocking(self, record: LuthienRecord) -> None:
-        """Record a structured LuthienRecord (blocking variant).
+        Routes the record to configured sinks based on routing configuration.
 
         Args:
             record: Structured record to emit
         """
-        await self.emit_event(
-            event_type=f"luthien.{record.record_type}",
-            data=vars(record),
+        pass
+
+    # TODO: Remove these compatibility methods once all code migrates to LuthienRecords
+    def emit_event_nonblocking(self, event_type: str, data: dict, level: str = "INFO") -> None:  # noqa: ARG002
+        """Deprecated: Use record() with LuthienRecord instead."""
+        logger.warning(
+            f"emit_event_nonblocking is deprecated, use record(LuthienRecord) instead (event_type={event_type})"
         )
+
+    async def emit_event(self, event_type: str, data: dict, level: str = "INFO") -> None:  # noqa: ARG002
+        """Deprecated: Use record() with LuthienRecord instead."""
+        logger.warning(f"emit_event is deprecated, use record(LuthienRecord) instead (event_type={event_type})")
+
+    def add_span_attribute(self, key: str, value: str | int | float | bool) -> None:  # noqa: ARG002
+        """Deprecated: Use obs_ctx.span.set_attribute() instead."""
+        logger.warning(f"add_span_attribute is deprecated, use obs_ctx.span.set_attribute() instead (key={key})")
+
+    def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:  # noqa: ARG002
+        """Deprecated: Use OpenTelemetry metrics directly."""
+        logger.warning(f"record_metric is deprecated (name={name})")
 
 
 class NoOpObservabilityContext(ObservabilityContext):
@@ -145,118 +151,86 @@ class NoOpObservabilityContext(ObservabilityContext):
 
     def __init__(self, *args, **kwargs):
         """Initialize NoOpObservabilityContext."""
-        # Span, db_pool, and event_publisher are accepted for signature compatibility but unused
+        # Arguments accepted for signature compatibility but unused
+        from opentelemetry.trace import INVALID_SPAN
 
-    async def emit_event(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:  # noqa: D102
-        pass
+        self._span = INVALID_SPAN
 
-    def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:  # noqa: D102
-        pass
+    @property
+    def span(self) -> Span:
+        """Return invalid span (no-op)."""
+        return self._span
 
-    def add_span_attribute(self, key: str, value: Any) -> None:  # noqa: D102
-        pass
-
-    def add_span_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:  # noqa: D102
+    def record(self, record: LuthienRecord) -> None:  # noqa: D102, ARG002
+        """No-op record implementation."""
         pass
 
 
 class DefaultObservabilityContext(ObservabilityContext):
-    """Default implementation using OTel + DB + Redis."""
+    """Default implementation with configurable sink-based routing."""
 
-    def __init__(  # noqa: D107
+    def __init__(
         self,
         transaction_id: str,
         span: Span,
-        db_pool: "DatabasePool | None" = None,
-        event_publisher: "RedisEventPublisher | None" = None,
+        config: ObservabilityConfig | None = None,
     ):
-        self._transaction_id = transaction_id
-        self.span = span
-        self.db_pool = db_pool
-        self.event_publisher = event_publisher
+        """Initialize DefaultObservabilityContext.
 
-    async def emit_event(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:
-        """Emit to DB, Redis, OTel span, and structured logs."""
-        _check_level(level)
-        enriched_data = {
-            "call_id": self._transaction_id,  # DB uses call_id, will migrate later
-            "timestamp": time.time(),
-            "trace_id": format(self.span.get_span_context().trace_id, "032x"),
-            "span_id": format(self.span.get_span_context().span_id, "016x"),
-            **data,
-        }
-
-        # Write structured log to stdout for Loki collection
-        # Extract record_type from event_type if it follows "luthien.{record_type}" pattern
-        record_type = event_type.removeprefix("luthien.") if event_type.startswith("luthien.") else None
-
-        # Build structured fields for observability
-        # Don't include call_id or event_type (use transaction_id; event_type is redundant with record_type)
-        from luthien_proxy.telemetry import write_json_to_stdout
-
-        log_data = {
-            "level": level,
-            "logger": "luthien.observability",
-            "message": "Observability event",
-            "transaction_id": self._transaction_id,
-            "timestamp": enriched_data["timestamp"],
-            **data,
-        }
-        if record_type:
-            log_data["record_type"] = record_type
-
-        write_json_to_stdout(log_data)
-
-        if self.db_pool:
-            from luthien_proxy.storage.events import emit_custom_event
-
-            await emit_custom_event(
-                call_id=self._transaction_id,
-                event_type=event_type,
-                data=enriched_data,
-                db_pool=self.db_pool,
-            )
-
-        if self.event_publisher:
-            await self.event_publisher.publish_event(call_id=self._transaction_id, event_type=event_type, data=data)
-
-        self.add_span_event(event_type, data)
-
-    def emit_event_nonblocking(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:
-        """Emit event without blocking (fire-and-forget).
-
-        This schedules the emit_event coroutine as a background task. Use this when
-        you don't want to block on event emission (e.g., in hot paths where observability
-        shouldn't impact performance).
+        Args:
+            transaction_id: Unique identifier for this transaction
+            span: OpenTelemetry span for distributed tracing
+            config: Optional sink configuration (uses defaults if not provided)
         """
+        self._transaction_id = transaction_id
+        self._span = span
+        self._config = config or {}
 
-        async def _emit_with_error_handling() -> None:
-            try:
-                await self.emit_event(event_type, data, level)
-            except Exception as exc:
-                logger.warning(
-                    f"Nonblocking emit_event failed for event_type='{event_type}': {exc}",
-                    exc_info=True,
-                )
+        # Build sink registry with defaults
+        from luthien_proxy.observability.sinks import (
+            DatabaseSink,
+            LokiSink,
+            OTelSink,
+            RedisSink,
+        )
 
-        asyncio.create_task(_emit_with_error_handling())
+        self._sinks: dict[SinkName, "LuthienRecordSink"] = {
+            "loki": self._config.get("loki_sink") or LokiSink(),
+            "db": self._config.get("db_sink") or DatabaseSink(None),  # type: ignore
+            "redis": self._config.get("redis_sink") or RedisSink(None),  # type: ignore
+            "otel": self._config.get("otel_sink") or OTelSink(span),
+        }
 
-    def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
-        """Record metric with automatic labels."""
-        from opentelemetry import metrics
+        # Routing configuration
+        self._routing: dict[type[LuthienRecord], list[SinkName]] = self._config.get("routing", {})
+        self._default_sink_names: list[SinkName] = self._config.get("default_sinks", ["loki"])
 
-        all_labels = {"call_id": self._transaction_id, **(labels or {})}
-        meter = metrics.get_meter(__name__)
-        counter = meter.create_counter(name)
-        counter.add(value, all_labels)
+    @property
+    def span(self) -> Span:
+        """Get the current OpenTelemetry span."""
+        return self._span
 
-    def add_span_attribute(self, key: str, value: Any) -> None:
-        """Add attribute to current span."""
-        self.span.set_attribute(key, value)
+    def record(self, record: LuthienRecord) -> None:
+        """Record a structured LuthienRecord (non-blocking).
 
-    def add_span_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
-        """Add event to current span."""
-        self.span.add_event(name, attributes or {})
+        Routes the record to configured sinks based on record type.
+
+        Args:
+            record: Structured record to emit
+        """
+        # Determine which sinks should receive this record
+        sink_names = self._routing.get(type(record), self._default_sink_names)
+
+        async def _write_to_sinks() -> None:
+            """Write record to all configured sinks."""
+            for name in sink_names:
+                try:
+                    await self._sinks[name].write(record)
+                except Exception as e:
+                    logger.warning(f"Sink {name} failed to write record: {e}", exc_info=True)
+
+        # Fire and forget - don't block on sink writes
+        asyncio.create_task(_write_to_sinks())
 
 
 __all__ = [
@@ -264,6 +238,9 @@ __all__ = [
     "ObservabilityContext",
     "NoOpObservabilityContext",
     "DefaultObservabilityContext",
+    # Configuration
+    "ObservabilityConfig",
+    "SinkName",
     # Structured records
     "LuthienRecord",
     "PipelineRecord",
