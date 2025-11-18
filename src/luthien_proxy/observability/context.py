@@ -139,14 +139,6 @@ class ObservabilityContext(ABC):
         """Deprecated: Use record() with LuthienRecord instead."""
         logger.warning(f"emit_event is deprecated, use record(LuthienRecord) instead (event_type={event_type})")
 
-    def add_span_attribute(self, key: str, value: str | int | float | bool) -> None:  # noqa: ARG002
-        """Deprecated: Use obs_ctx.span.set_attribute() instead."""
-        logger.warning(f"add_span_attribute is deprecated, use obs_ctx.span.set_attribute() instead (key={key})")
-
-    def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:  # noqa: ARG002
-        """Deprecated: Use OpenTelemetry metrics directly."""
-        logger.warning(f"record_metric is deprecated (name={name})")
-
 
 class NoOpObservabilityContext(ObservabilityContext):
     """No-op implementation for testing."""
@@ -292,22 +284,6 @@ class DefaultObservabilityContext(ObservabilityContext):
                 event_type=event_type,
                 data=data,  # Redis gets unenriched data (matches old behavior)
             )
-
-    def add_span_attribute(self, key: str, value: str | int | float | bool) -> None:
-        """Deprecated: Use obs_ctx.span.set_attribute() instead."""
-        logger.warning(f"add_span_attribute is deprecated, use obs_ctx.span.set_attribute() instead (key={key})")
-        self._span.set_attribute(key, value)
-
-    def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
-        """Deprecated: Use OpenTelemetry metrics directly."""
-        logger.warning(f"record_metric is deprecated (name={name})")
-        # Delegate to OTel metrics
-        from opentelemetry import metrics
-
-        meter = metrics.get_meter(__name__)
-        counter = meter.create_counter(name)
-        enriched_labels = {"call_id": self._transaction_id, **(labels or {})}
-        counter.add(value, enriched_labels)
 
 
 __all__ = [

@@ -88,8 +88,8 @@ class DefaultTransactionRecorder(TransactionRecorder):
             },
         )
 
-        self.observability.add_span_attribute("request.model", final.model)
-        self.observability.add_span_attribute("request.message_count", len(final.messages))
+        self.observability.span.set_attribute("request.model", final.model)
+        self.observability.span.set_attribute("request.message_count", len(final.messages))
 
     def add_ingress_chunk(self, chunk: ModelResponse) -> None:
         """Buffer ingress chunk."""
@@ -125,7 +125,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
 
         finish_reason = self._get_finish_reason(final_response)
         if finish_reason:
-            self.observability.add_span_attribute("response.finish_reason", finish_reason)
+            self.observability.span.set_attribute("response.finish_reason", finish_reason)
 
     async def finalize_streaming_response(self) -> None:
         """Reconstruct full responses from chunks and emit."""
@@ -142,8 +142,15 @@ class DefaultTransactionRecorder(TransactionRecorder):
             },
         )
 
-        self.observability.record_metric("response.chunks.ingress", len(self._ingress_chunks))
-        self.observability.record_metric("response.chunks.egress", len(self._egress_chunks))
+        # Record chunk counts as OTel metrics
+        from opentelemetry import metrics
+
+        meter = metrics.get_meter(__name__)
+        ingress_counter = meter.create_counter("response.chunks.ingress")
+        egress_counter = meter.create_counter("response.chunks.egress")
+        # Note: observability context should expose transaction_id, but for now just record counts
+        ingress_counter.add(len(self._ingress_chunks))
+        egress_counter.add(len(self._egress_chunks))
 
     def _get_finish_reason(self, response: ModelResponse) -> str | None:
         """Extract finish_reason from response."""

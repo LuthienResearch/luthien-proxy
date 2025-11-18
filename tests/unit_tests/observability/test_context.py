@@ -23,20 +23,6 @@ class TestNoOpObservabilityContext:
         await ctx.emit_event("test.event", {"key": "value"})
         # No assertion - just verify it doesn't raise
 
-    def test_record_metric_does_nothing(self):
-        """record_metric does nothing and doesn't raise."""
-        span = Mock(spec=Span)
-        ctx = NoOpObservabilityContext("test-txn-123", span)
-        ctx.record_metric("test.metric", 42.0, {"label": "value"})
-        # No assertion - just verify it doesn't raise
-
-    def test_add_span_attribute_does_nothing(self):
-        """add_span_attribute does nothing and doesn't raise."""
-        span = Mock(spec=Span)
-        ctx = NoOpObservabilityContext("test-txn-123", span)
-        ctx.add_span_attribute("key", "value")
-        # No assertion - just verify it doesn't raise
-
 
 class TestDefaultObservabilityContext:
     """Test DefaultObservabilityContext enrichment and delegation."""
@@ -106,28 +92,3 @@ class TestDefaultObservabilityContext:
         event_publisher.publish_event.assert_called_once_with(
             call_id="test-txn-redis", event_type="test.event", data={"data": "value"}
         )
-
-    def test_record_metric_creates_counter(self):
-        """record_metric creates counter with enriched labels."""
-        span = Mock(spec=Span)
-        ctx = DefaultObservabilityContext("test-txn-metric", span)
-
-        with patch("opentelemetry.metrics.get_meter") as mock_get_meter:
-            mock_meter = Mock()
-            mock_counter = Mock()
-            mock_get_meter.return_value = mock_meter
-            mock_meter.create_counter.return_value = mock_counter
-
-            ctx.record_metric("test.counter", 42.0, {"custom": "label"})
-
-            mock_meter.create_counter.assert_called_once_with("test.counter")
-            mock_counter.add.assert_called_once_with(42.0, {"call_id": "test-txn-metric", "custom": "label"})
-
-    def test_add_span_attribute(self):
-        """add_span_attribute delegates to span.set_attribute."""
-        span = Mock(spec=Span)
-        ctx = DefaultObservabilityContext("test-txn-attr", span)
-
-        ctx.add_span_attribute("test.key", "test.value")
-
-        span.set_attribute.assert_called_once_with("test.key", "test.value")
