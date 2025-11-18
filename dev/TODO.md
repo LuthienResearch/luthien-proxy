@@ -78,6 +78,14 @@
 
 ## Medium Priority
 
+- [ ] **Convert Loki validation scripts to e2e tests** - The manual validation scripts should be proper automated tests:
+  - Convert [scripts/query_loki_fields.py](../scripts/query_loki_fields.py) to automated test
+  - Convert [scripts/test_line_format.py](../scripts/test_line_format.py) to automated test
+  - Convert [scripts/test_event_type.py](../scripts/test_event_type.py) to automated test
+  - Tests should verify that observability events flow correctly through Promtail to Loki
+  - Verify labels are correctly set (app, record_type, pipeline_stage, logger, trace_id)
+  - Verify structured metadata is correctly set (transaction_id, payload)
+  - Verify LogQL queries work as expected
 - [ ] **Add missing integration tests for error recovery paths**:
   - Database failure scenarios (what happens when db_pool connection fails mid-request?)
   - Redis failure scenarios (event_publisher connection errors during event emission)
@@ -89,7 +97,11 @@
   - Follow pattern from well-documented modules like `anthropic_sse_assembler.py`
 - [ ] **Audit all tests for unjustified conditional logic** - Review all test files (unit, integration, e2e) and remove conditional logic that checks for optional behavior. Tests should assert expected behavior, not conditionally validate. Exceptions: helper functions for parsing, format validation logic, legitimate expected variance in responses. Reference: test_streaming_chunk_structure.py cleanup as example.
 - [ ] remove unnecessary string-matching test conditions (e.g. matching exception messages)
-- [ ] call_id -> transaction_id (rename throughout codebase for consistency)
+- [ ] **DB Migration: call_id -> transaction_id** - Rename database columns for consistency:
+  - Create migration to rename `call_id` to `transaction_id` in all tables (conversation_calls, conversation_events, policy_events, etc.)
+  - Update Prisma schema to use `transactionId` (maps to `transaction_id`)
+  - Update all storage layer code to use `transaction_id` parameter
+  - Note: Logs already use `transaction_id` (high cardinality, not a Loki label)
 - [ ] Revisit ignored pyright issues
 - [ ] Make filtering on the activity monitor easier and more intuitive
 - [ ] Add rate limiting middleware (slowapi or custom FastAPI middleware) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))

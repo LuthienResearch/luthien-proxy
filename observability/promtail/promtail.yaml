@@ -19,12 +19,42 @@ scrape_configs:
         regex: '/(.*)'
         target_label: 'container_name'
 
-      # Extract service name from compose service
+      # Add app label for gateway service
       - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
-        target_label: 'service'
+        regex: 'gateway'
+        target_label: 'app'
+        replacement: 'luthien-gateway'
 
-      # Add service_name label for V2 control plane
-      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
-        regex: 'control-plane'
-        target_label: 'service_name'
-        replacement: 'luthien-proxy-v2'
+      # Drop the auto-generated service label to avoid confusion
+      - action: labeldrop
+        regex: 'service.*'
+
+    # Extract structured fields from JSON logs
+    pipeline_stages:
+      - json:
+          expressions:
+            # Note: 'level' is auto-detected by promtail as 'detected_level'
+            logger: logger
+            trace_id: trace_id
+            span_id: span_id
+            transaction_id: transaction_id  # Will be promoted to structured metadata
+            payload: payload  # Will be promoted to structured metadata
+            record_type: record_type
+            pipeline_stage: pipeline_stage
+
+      # Promote extracted fields to labels for easy filtering
+      - labels:
+          logger:
+          trace_id:
+          record_type:
+          pipeline_stage:
+
+      # Promote high-cardinality fields to structured metadata (not labels)
+      # These are available as top-level fields without parsing JSON
+      - structured_metadata:
+          transaction_id:
+          payload:
+
+      # Drop unwanted labels (service_name is redundant with 'app')
+      - labeldrop:
+          - service_name

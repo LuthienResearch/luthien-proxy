@@ -26,58 +26,53 @@ class LuthienRecord(ABC):
 
     Each subclass defines:
     - record_type: Class-level constant identifying the record type
-    - to_dict(): Serialization to JSON-compatible dict for logging
+    - __init__: Must call super().__init__(transaction_id) to set transaction_id
 
     Records are emitted via ObservabilityContext and flow to:
     - Loki (structured logs)
     - Database (persistent storage)
     - Redis (real-time event stream)
     - OTel spans (trace correlation)
+
+    Serialization is automatic via __dict__, no need for to_dict() methods.
     """
 
     record_type: ClassVar[str]
 
-    @abstractmethod
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize record to JSON-compatible dict.
-
-        This is what gets logged to Loki/DB/Redis.
-        Include all data needed for debugging and analysis.
-        """
-        ...
-
-
-class LuthienPayloadRecord(LuthienRecord):
-    """Record for tracking data at any point in the pipeline.
-
-    Simple atomic record: just a stage name and arbitrary JSON data.
-    Use this to log payloads, decisions, transformations, etc.
-
-    Examples:
-        - Request/response payloads at transformation points
-        - Policy decisions and modifications
-        - Format conversions
-        - Performance metrics
-    """
-
-    record_type = "payload"
-
-    def __init__(self, stage: str, data: dict[str, Any]):
-        """Initialize payload record.
+    def __init__(self, transaction_id: str):
+        """Initialize record with transaction context.
 
         Args:
-            stage: Pipeline stage identifier (e.g., "client.request", "policy.modified", "backend.response")
-            data: Arbitrary JSON-serializable data to log
+            transaction_id: Unique identifier for the transaction this record belongs to
         """
-        self.stage = stage
-        self.data = data
+        self.transaction_id = transaction_id
 
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to dict for logging."""
-        return {
-            "stage": self.stage,
-            **self.data,
-        }
+
+class PipelineRecord(LuthienRecord):
+    """Record of a payload at a point in the pipeline.
+
+    Tracks request/response data as it flows through transformations.
+
+    Examples:
+        - Client request (before processing)
+        - Backend request (after policy modification)
+        - Backend response (raw from upstream)
+        - Client response (after formatting)
+    """
+
+    record_type = "pipeline"
+
+    def __init__(self, transaction_id: str, pipeline_stage: str, payload: str):
+        """Initialize pipeline record.
+
+        Args:
+            transaction_id: Unique identifier for this transaction
+            pipeline_stage: Identifier for this stage (e.g., "client_request", "backend_response")
+            payload: String representation of the data
+        """
+        super().__init__(transaction_id)
+        self.pipeline_stage = pipeline_stage
+        self.payload = payload
 
 
 def _check_level(level: str) -> str:
@@ -130,7 +125,7 @@ class ObservabilityContext(ABC):
         """
         self.emit_event_nonblocking(
             event_type=f"luthien.{record.record_type}",
-            data=record.to_dict(),
+            data=vars(record),
         )
 
     async def record_blocking(self, record: LuthienRecord) -> None:
@@ -141,7 +136,7 @@ class ObservabilityContext(ABC):
         """
         await self.emit_event(
             event_type=f"luthien.{record.record_type}",
-            data=record.to_dict(),
+            data=vars(record),
         )
 
 
@@ -181,15 +176,36 @@ class DefaultObservabilityContext(ObservabilityContext):
         self.event_publisher = event_publisher
 
     async def emit_event(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> None:
-        """Emit to DB, Redis, and OTel span."""
+        """Emit to DB, Redis, OTel span, and structured logs."""
         _check_level(level)
         enriched_data = {
-            "call_id": self._transaction_id,
+            "call_id": self._transaction_id,  # DB uses call_id, will migrate later
             "timestamp": time.time(),
             "trace_id": format(self.span.get_span_context().trace_id, "032x"),
             "span_id": format(self.span.get_span_context().span_id, "016x"),
             **data,
         }
+
+        # Write structured log to stdout for Loki collection
+        # Extract record_type from event_type if it follows "luthien.{record_type}" pattern
+        record_type = event_type.removeprefix("luthien.") if event_type.startswith("luthien.") else None
+
+        # Build structured fields for observability
+        # Don't include call_id or event_type (use transaction_id; event_type is redundant with record_type)
+        from luthien_proxy.telemetry import write_json_to_stdout
+
+        log_data = {
+            "level": level,
+            "logger": "luthien.observability",
+            "message": "Observability event",
+            "transaction_id": self._transaction_id,
+            "timestamp": enriched_data["timestamp"],
+            **data,
+        }
+        if record_type:
+            log_data["record_type"] = record_type
+
+        write_json_to_stdout(log_data)
 
         if self.db_pool:
             from luthien_proxy.storage.events import emit_custom_event
@@ -250,5 +266,5 @@ __all__ = [
     "DefaultObservabilityContext",
     # Structured records
     "LuthienRecord",
-    "LuthienPayloadRecord",
+    "PipelineRecord",
 ]

@@ -1,31 +1,44 @@
 """Tests for LuthienRecord."""
 
+import json
+
 from luthien_proxy.observability.context import (
-    LuthienPayloadRecord,
     NoOpObservabilityContext,
+    PipelineRecord,
 )
 
 
-def test_luthien_payload_record_to_dict():
-    """Test LuthienPayloadRecord serialization."""
-    rec = LuthienPayloadRecord(
-        stage="client.request",
-        data={
-            "payload": {"model": "gpt-4", "messages": []},
-            "format": "openai",
-        },
+def test_pipeline_record_basic():
+    """Test PipelineRecord initialization and attributes."""
+    rec = PipelineRecord(
+        transaction_id="test-123",
+        pipeline_stage="client_request",
+        payload=json.dumps({"model": "gpt-4", "messages": []}),
     )
 
-    result = rec.to_dict()
-
-    assert result["stage"] == "client.request"
-    assert result["payload"] == {"model": "gpt-4", "messages": []}
-    assert result["format"] == "openai"
+    assert rec.transaction_id == "test-123"
+    assert rec.pipeline_stage == "client_request"
+    assert json.loads(rec.payload) == {"model": "gpt-4", "messages": []}
 
 
-def test_luthien_payload_record_type():
-    """Test LuthienPayloadRecord has correct record_type."""
-    assert LuthienPayloadRecord.record_type == "payload"
+def test_pipeline_record_type():
+    """Test PipelineRecord has correct record_type."""
+    assert PipelineRecord.record_type == "pipeline"
+
+
+def test_pipeline_record_vars():
+    """Test PipelineRecord serialization via vars()."""
+    rec = PipelineRecord(
+        transaction_id="test-456",
+        pipeline_stage="backend_response",
+        payload="test payload string",
+    )
+
+    result = vars(rec)
+
+    assert result["transaction_id"] == "test-456"
+    assert result["pipeline_stage"] == "backend_response"
+    assert result["payload"] == "test payload string"
 
 
 def test_observability_context_record_nonblocking():
@@ -34,9 +47,10 @@ def test_observability_context_record_nonblocking():
 
     # Should not raise (NoOp context does nothing)
     ctx.record(
-        LuthienPayloadRecord(
-            stage="test.stage",
-            data={"test_data": "value"},
+        PipelineRecord(
+            transaction_id="test-789",
+            pipeline_stage="test_payload",
+            payload="test data",
         )
     )
 
@@ -47,8 +61,9 @@ async def test_observability_context_record_blocking():
 
     # Should not raise (NoOp context does nothing)
     await ctx.record_blocking(
-        LuthienPayloadRecord(
-            stage="test.stage",
-            data={"test_data": "value"},
+        PipelineRecord(
+            transaction_id="test-000",
+            pipeline_stage="test_payload",
+            payload="test data",
         )
     )

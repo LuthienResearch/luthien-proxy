@@ -2,6 +2,13 @@
 
 ## Unreleased | TBA
 
+- Observability improvements (#observability-refactor)
+  - Refactored `LuthienPayloadRecord` → `PipelineRecord` with simplified all-primitive interface
+  - Renamed `payload_type` → `pipeline_stage` for better semantics
+  - Optimized label structure for efficient querying (only low-cardinality fields as labels, high-cardinality fields are structured metadata)
+  - clarified observability functions; simplified implementations
+  - Added utility scripts for Loki validation ([query_loki_fields.py](scripts/query_loki_fields.py), [test_line_format.py](scripts/test_line_format.py))
+
 - Policy authoring improvements (#57)
   - Add `BasePolicy` class with default implementations and convenience methods
   - Add convenience properties to `StreamingPolicyContext` (`last_chunk_received`, `push_chunk()`, `transaction_id`, `request`, `scratchpad`)
