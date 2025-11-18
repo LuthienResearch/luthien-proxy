@@ -1,7 +1,7 @@
 # Observability Sink-Based Architecture Refactor
 
 **Date Started**: 2025-11-18
-**Status**: Partially Complete (architecture implemented, tests need updating)
+**Status**: Architecture Complete (deprecated methods working, some test updates needed)
 **Related Decision**: [dev/context/decisions.md](context/decisions.md#observability-strategy-custom-observabilitycontext-2025-11-18)
 
 ## Overview
@@ -139,9 +139,11 @@ obs_ctx = DefaultObservabilityContext(
 )
 ```
 
-### 6. Backward Compatibility
+### 6. Backward Compatibility (COMPLETED)
 
-Added deprecated methods to `ObservabilityContext` base class for gradual migration:
+Added deprecated methods to `ObservabilityContext` base class with full delegation in `DefaultObservabilityContext`:
+
+**Base class (warnings only):**
 
 ```python
 # TODO: Remove these compatibility methods once all code migrates to LuthienRecords
@@ -152,45 +154,61 @@ def emit_event_nonblocking(self, event_type: str, data: dict, level: str = "INFO
 async def emit_event(self, event_type: str, data: dict, level: str = "INFO") -> None:
     """Deprecated: Use record() with LuthienRecord instead."""
     logger.warning(f"emit_event is deprecated...")
-
-def add_span_attribute(self, key: str, value: str | int | float | bool) -> None:
-    """Deprecated: Use obs_ctx.span.set_attribute() instead."""
-    logger.warning(f"add_span_attribute is deprecated...")
-
-def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
-    """Deprecated: Use OpenTelemetry metrics directly."""
-    logger.warning(f"record_metric is deprecated...")
 ```
 
-These currently just log warnings but don't actually perform the operations. This is intentional - forces callers to migrate.
+**DefaultObservabilityContext (actual implementations):**
+
+```python
+async def emit_event(self, event_type: str, data: dict, level: str = "INFO") -> None:
+    """Deprecated: Use record() with LuthienRecord instead."""
+    logger.warning(f"emit_event is deprecated, use record(LuthienRecord) instead")
+
+    # Enrich data with standard fields
+    enriched_data = {"call_id": self._transaction_id, "timestamp": time.time(), **data}
+
+    # Add to span as event
+    self._span.add_event(event_type, enriched_data)
+
+    # Emit to database if db_pool provided
+    if self._db_pool:
+        await emit_custom_event(db_pool=self._db_pool, call_id=self._transaction_id, ...)
+
+    # Publish to Redis if event_publisher provided
+    if self._event_publisher:
+        await self._event_publisher.publish_event(call_id=self._transaction_id, ...)
+```
+
+**Also added:**
+
+- `record_blocking()` - Blocking version of record() that waits for all sinks to complete
+- `add_span_event()` - Delegated to span.add_event()
+- All methods accept deprecated `db_pool` and `event_publisher` constructor parameters
+
+**Status**: All 72 observability unit tests passing (previously ~20 were failing)
 
 ## What Remains
 
-### 1. Fix Tests (HIGH PRIORITY)
+### 1. Fix Remaining Test Failures (MEDIUM PRIORITY)
 
-**Current Status**: ~20 unit tests failing because they use the old API
+**Current Status**: 72/72 observability tests passing ✓, but some other tests need updates
 
-**Failing test categories:**
+**Remaining test failures:**
 
-1. **tests/unit_tests/observability/test_context.py**
-   - Tests expect deprecated methods to actually work (call span.set_attribute, etc.)
-   - Need to either:
-     - Update tests to use new API (`obs_ctx.span.set_attribute()` instead of `obs_ctx.add_span_attribute()`)
-     - Make deprecated methods actually delegate (but then add deprecation warnings)
+1. **tests/unit_tests/test_main.py** (9 tests failing)
+   - Tests use old `create_app(policy=...)` signature
+   - Current signature: `create_app(..., policy_source, policy_config_path)`
+   - Need to update all test_main.py tests to use new signature
+   - Out of scope for observability refactor - separate issue
 
-2. **tests/unit_tests/test_main.py**
-   - App initialization tests likely fail due to signature changes
-   - Need to update how DefaultObservabilityContext is instantiated
+2. **tests/unit_tests/streaming/** (several tests failing)
+   - Some streaming/policy executor tests may be using old ObservabilityContext API
+   - Need to investigate and update as needed
 
-3. **Policy and streaming tests**
-   - Various tests may be creating DefaultObservabilityContext with old signature
-   - Search for `DefaultObservabilityContext(` calls in test files
+3. **tests/unit_tests/policies/test_tool_call_judge_policy.py** (1 test timing out)
+   - One test hanging during execution
+   - Need to investigate root cause
 
-**Recommended approach:**
-
-1. Make deprecated compatibility methods actually work (delegate to real implementation) to unblock tests
-2. Update tests gradually to use new API
-3. Remove deprecated methods once all tests migrated
+**Status**: Observability-specific tests all passing. Remaining failures are in other subsystems.
 
 ### 2. Implement Database and Redis Sinks (MEDIUM PRIORITY)
 
@@ -359,17 +377,19 @@ obs_ctx = DefaultObservabilityContext(
 
 - `f64cedc` - Simplify telemetry, clarify observability strategy
 - `4dd4c36` - Implement sink-based architecture with configurable routing
+- `863dda4` - Implement backward-compatible deprecated methods for ObservabilityContext
 
 ## Next Steps (Recommended Priority Order)
 
-1. **Make deprecated methods work** - Quick fix to unblock tests (add delegation logic)
-2. **Fix failing tests** - Get test suite green again
-3. **Implement DatabaseSink** - Complete DB persistence
-4. **Implement RedisSink** - Complete Redis pub/sub
-5. **Migrate transaction.py** - Remove deprecated API usage
-6. **Migrate transaction_recorder.py** - Remove deprecated API usage
-7. **Add sink unit tests** - Ensure sink implementations work correctly
-8. **Remove deprecated methods** - Clean up after migration complete
+1. ✅ **DONE: Make deprecated methods work** - Delegation logic implemented, all observability tests passing
+2. **Fix test_main.py** - Update tests to use new create_app signature (separate from observability work)
+3. **Investigate streaming test failures** - Fix any tests using old ObservabilityContext API
+4. **Implement DatabaseSink** - Complete DB persistence
+5. **Implement RedisSink** - Complete Redis pub/sub
+6. **Migrate transaction.py** - Remove deprecated API usage
+7. **Migrate transaction_recorder.py** - Remove deprecated API usage
+8. **Add sink unit tests** - Ensure sink implementations work correctly
+9. **Remove deprecated methods** - Clean up after migration complete
 
 ## Questions?
 
