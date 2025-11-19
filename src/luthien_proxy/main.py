@@ -92,33 +92,23 @@ def create_app(
             logger.info("Event publisher disabled (no Redis)")
 
         # Initialize PolicyManager with configured source precedence
-        _policy_manager: PolicyManager | None = None
-        if _db_pool and _redis_client:
-            try:
-                _policy_manager = PolicyManager(
-                    db_pool=_db_pool,
-                    redis_client=_redis_client,
-                    yaml_path=policy_config_path,
-                    policy_source=policy_source,  # type: ignore
-                )
-                await _policy_manager.initialize()
-                logger.info(
-                    f"PolicyManager initialized (source: {policy_source}, "
-                    f"policy: {_policy_manager.current_policy.__class__.__name__})"
-                )
-            except Exception as exc:
-                logger.error(f"Failed to initialize PolicyManager: {exc}", exc_info=True)
-                raise RuntimeError(f"Failed to initialize PolicyManager: {exc}")
-        else:
-            logger.error("Cannot initialize PolicyManager without database and Redis")
-            raise RuntimeError("Database and Redis required for PolicyManager")
+        _policy_manager = PolicyManager(
+            yaml_path=policy_config_path,
+            policy_source=policy_source,  # type: ignore
+            db_pool=_db_pool,
+        )
+        await _policy_manager.initialize()
+        logger.info(
+            f"PolicyManager initialized (source: {policy_source}, "
+            f"policy: {_policy_manager.current_policy.__class__.__name__})"
+        )
 
         # Store everything in app state for dependency injection
         app.state.db_pool = _db_pool
         app.state.redis_client = _redis_client
         app.state.event_publisher = _event_publisher
         app.state.policy_manager = _policy_manager
-        app.state.policy = _policy_manager.current_policy  # For backward compat with gateway routes
+        app.state.policy = _policy_manager.current_policy  # Gateway routes use this
         app.state.api_key = api_key
         app.state.admin_key = admin_key
         logger.info("App state initialized")

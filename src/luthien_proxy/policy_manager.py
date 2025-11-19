@@ -13,6 +13,7 @@ Manages policy lifecycle including:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -22,7 +23,6 @@ from datetime import datetime
 from typing import Any, Literal
 
 import yaml
-from redis.asyncio import Redis
 
 from luthien_proxy.config import _import_policy_class, _instantiate_policy, load_policy_from_yaml
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
@@ -61,25 +61,22 @@ class PolicyManager:
 
     def __init__(
         self,
-        db_pool: db.DatabasePool,
-        redis_client: Redis,
         yaml_path: str,
         policy_source: PolicySource = "db-fallback-file",
+        db_pool: db.DatabasePool | None = None,
     ):
         """Initialize PolicyManager.
 
         Args:
-            db_pool: Database connection pool
-            redis_client: Redis client for locking and caching
             yaml_path: Path to YAML policy configuration file
             policy_source: Source precedence mode
+            db_pool: Database connection pool (optional, required for DB-based policies)
         """
         self.db = db_pool
-        self.redis = redis_client
         self.yaml_path = yaml_path
         self.policy_source = policy_source
         self._current_policy: PolicyProtocol | None = None
-        self.lock_key = "luthien:policy:lock"
+        self._lock = asyncio.Lock()  # In-process lock for policy changes
 
         logger.info(f"PolicyManager initialized with source precedence: {policy_source}")
 
@@ -136,6 +133,11 @@ class PolicyManager:
         Returns:
             Policy instance or None if not found (when required=False)
         """
+        if not self.db:
+            if required:
+                raise RuntimeError("Database pool not available for policy loading")
+            return None
+
         try:
             pool = await self.db.get_pool()
             row = await pool.fetchrow(
@@ -191,6 +193,10 @@ class PolicyManager:
     async def _sync_file_to_db(self) -> None:
         """Sync current file-based policy to database."""
         if not self._current_policy:
+            return
+
+        if not self.db:
+            logger.debug("Database not available, skipping sync to DB")
             return
 
         policy_class_ref = f"{self._current_policy.__module__}:{self._current_policy.__class__.__name__}"
@@ -283,6 +289,9 @@ class PolicyManager:
 
     async def _persist_to_db(self, policy_class_ref: str, config: dict[str, Any], enabled_by: str) -> None:
         """Persist policy configuration to database."""
+        if not self.db:
+            raise RuntimeError("Database pool not available")
+
         pool = await self.db.get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -329,24 +338,25 @@ class PolicyManager:
         enabled_at = None
         enabled_by = None
 
-        try:
-            pool = await self.db.get_pool()
-            row = await pool.fetchrow(
+        if self.db:
+            try:
+                pool = await self.db.get_pool()
+                row = await pool.fetchrow(
+                    """
+                    SELECT enabled_at, enabled_by
+                    FROM policy_config
+                    WHERE is_active = true
                 """
-                SELECT enabled_at, enabled_by
-                FROM policy_config
-                WHERE is_active = true
-            """
-            )
-            if row:
-                enabled_at_value = row["enabled_at"]
-                if not isinstance(enabled_at_value, datetime):
-                    raise TypeError(f"enabled_at must be datetime, got {type(enabled_at_value)}")
-                enabled_at = enabled_at_value.isoformat()
-                enabled_by_value = row["enabled_by"]
-                enabled_by = str(enabled_by_value) if enabled_by_value else None
-        except Exception as e:
-            logger.warning(f"Could not fetch policy metadata from DB: {e}")
+                )
+                if row:
+                    enabled_at_value = row["enabled_at"]
+                    if not isinstance(enabled_at_value, datetime):
+                        raise TypeError(f"enabled_at must be datetime, got {type(enabled_at_value)}")
+                    enabled_at = enabled_at_value.isoformat()
+                    enabled_by_value = row["enabled_by"]
+                    enabled_by = str(enabled_by_value) if enabled_by_value else None
+            except Exception as e:
+                logger.warning(f"Could not fetch policy metadata from DB: {e}")
 
         return PolicyInfo(
             policy=self._current_policy.__class__.__name__,
@@ -388,10 +398,10 @@ class PolicyManager:
 
     @asynccontextmanager
     async def _acquire_lock(self, timeout: int = 30):
-        """Acquire distributed lock via Redis.
+        """Acquire in-process lock for policy changes.
 
         Args:
-            timeout: Lock timeout in seconds
+            timeout: Lock timeout in seconds (for future use with timeout support)
 
         Yields:
             None when lock is acquired
@@ -399,19 +409,11 @@ class PolicyManager:
         Raises:
             Exception: If lock cannot be acquired
         """
-        from fastapi import HTTPException
-
-        lock = self.redis.lock(self.lock_key, timeout=timeout)
-        acquired = await lock.acquire(blocking=True, blocking_timeout=10)
-        if not acquired:
-            raise HTTPException(status_code=503, detail="Another policy change in progress, please try again")
-        try:
+        # Use asyncio.Lock for in-process synchronization
+        # For distributed locking across multiple processes, we would need Redis
+        # but for now, single-process locking is sufficient
+        async with self._lock:
             yield
-        finally:
-            try:
-                await lock.release()
-            except Exception as e:
-                logger.warning(f"Failed to release lock: {e}")
 
     def _generate_troubleshooting(self, error: Exception) -> list[str]:
         """Generate troubleshooting steps based on error type."""
