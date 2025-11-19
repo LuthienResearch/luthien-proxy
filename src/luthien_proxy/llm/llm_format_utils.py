@@ -11,9 +11,12 @@ see anthropic_sse_assembler.py.
 from __future__ import annotations
 
 import json
+import logging
 from typing import cast
 
 from litellm.types.utils import Choices, ModelResponse, Usage
+
+logger = logging.getLogger(__name__)
 
 
 def anthropic_to_openai_request(data: dict) -> dict:
@@ -54,6 +57,8 @@ def anthropic_to_openai_request(data: dict) -> dict:
                     tool_uses.append(block)
                 elif block_type == "text":
                     text_parts.append(block.get("text", ""))
+                else:
+                    logger.debug(f"Unknown content block type: {block_type}")
 
             # Handle tool results (user sending results back)
             if tool_results:
@@ -65,6 +70,17 @@ def anthropic_to_openai_request(data: dict) -> dict:
                             "content": block.get("content", ""),
                         }
                     )
+                # This is a hacky bit of logic that fails to address the tool-rejection-message case properly.
+                # Maintaining it here for the moment so we can keep iterating on it.
+                # But it's broken and bad and needs to be fixed properly soon.
+                if text_parts:
+                    openai_messages.append(
+                        {
+                            "role": role,
+                            "content": " ".join(text_parts),
+                        }
+                    )
+                # end of hacky bit
 
             # Handle tool uses (assistant requesting tool calls)
             # These stay in the message as we're passing through Anthropic format for assistant messages
@@ -101,6 +117,15 @@ def anthropic_to_openai_request(data: dict) -> dict:
                         "content": " ".join(text_parts),
                     }
                 )
+            # If we only have unknown block types, create an error message
+            else:
+                unknown_types = [block.get("type", "unknown") for block in content if isinstance(block, dict)]
+                openai_messages.append(
+                    {
+                        "role": role,
+                        "content": f"Error: Response included only unknown block types {unknown_types}",
+                    }
+                )
         else:
             # Unknown content format - pass through
             openai_messages.append({"role": role, "content": content})
@@ -119,11 +144,21 @@ def anthropic_to_openai_request(data: dict) -> dict:
 
     # Handle Anthropic's system parameter
     if "system" in data:
+        system_content = data["system"]
+        # System can be a string or array of content blocks
+        if isinstance(system_content, list):
+            # Extract text from content blocks
+            text_parts = []
+            for block in system_content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+            system_content = " ".join(text_parts) if text_parts else ""
+
         openai_data["messages"].insert(
             0,
             {
                 "role": "system",
-                "content": data["system"],
+                "content": system_content,
             },
         )
 

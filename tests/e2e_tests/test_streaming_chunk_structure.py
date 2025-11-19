@@ -14,6 +14,7 @@ Based on reference data in _scratch/ showing actual API responses.
 
 import json
 import os
+import time
 
 import httpx
 import pytest
@@ -22,6 +23,7 @@ import pytest
 
 GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
 API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
+ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
 
 
 @pytest.fixture
@@ -29,6 +31,58 @@ async def http_client():
     """Provide async HTTP client for e2e tests."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         yield client
+
+
+@pytest.fixture
+def admin_headers():
+    """Provide admin authentication headers."""
+    return {"Authorization": f"Bearer {ADMIN_API_KEY}"}
+
+
+@pytest.fixture(scope="module")
+async def noop_policy_active():
+    """Ensure NoOpPolicy is active for streaming structure tests.
+
+    These tests validate that the gateway preserves the original streaming
+    format from upstream providers. NoOpPolicy is required because it passes
+    chunks through unchanged, preserving original IDs and structure.
+    """
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
+        instance_name = f"test-noop-streaming-{int(time.time())}"
+
+        # Create NoOp policy instance
+        create_response = await client.post(
+            f"{GATEWAY_URL}/admin/policy/create",
+            headers=admin_headers,
+            json={
+                "name": instance_name,
+                "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
+                "config": {},
+                "created_by": "e2e-streaming-tests",
+            },
+        )
+
+        if create_response.status_code != 200:
+            raise RuntimeError(f"Failed to create NoOp policy: {create_response.text}")
+
+        # Activate the policy
+        activate_response = await client.post(
+            f"{GATEWAY_URL}/admin/policy/activate",
+            headers=admin_headers,
+            json={
+                "name": instance_name,
+                "activated_by": "e2e-streaming-tests",
+            },
+        )
+
+        if activate_response.status_code != 200:
+            raise RuntimeError(f"Failed to activate NoOp policy: {activate_response.text}")
+
+        # Give the policy a moment to activate
+        time.sleep(0.5)
+
+        yield instance_name
 
 
 # === Helper Functions ===
@@ -133,7 +187,7 @@ async def test_openai_streaming_sse_format(http_client):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_openai_streaming_chunk_structure(http_client):
+async def test_openai_streaming_chunk_structure(http_client, noop_policy_active):
     """Validate OpenAI chunk structure and required fields."""
     async with http_client.stream(
         "POST",
@@ -182,7 +236,7 @@ async def test_openai_streaming_chunk_structure(http_client):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_openai_streaming_chunk_ordering(http_client):
+async def test_openai_streaming_chunk_ordering(http_client, noop_policy_active):
     """Validate that OpenAI chunks maintain proper ordering."""
     async with http_client.stream(
         "POST",
@@ -531,7 +585,7 @@ async def test_anthropic_client_openai_backend_preserves_anthropic_format(http_c
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_openai_streaming_tool_call_structure(http_client):
+async def test_openai_streaming_tool_call_structure(http_client, noop_policy_active):
     """Validate OpenAI streaming tool call chunk structure.
 
     Reference: _scratch/openai_tool_call_chunks.json shows:
@@ -633,7 +687,7 @@ async def test_openai_streaming_tool_call_structure(http_client):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_anthropic_streaming_tool_use_structure(http_client):
+async def test_anthropic_streaming_tool_use_structure(http_client, noop_policy_active):
     """Validate Anthropic streaming tool use event structure.
 
     Reference: _scratch/anthropic_raw_sse.txt shows:

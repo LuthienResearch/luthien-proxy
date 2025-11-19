@@ -95,6 +95,7 @@ class AnthropicClientFormatter:
                         },
                     }
                     sse_line = f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
+                    # logger.info(f"[ClientFormatter] Sending message_start: {repr(sse_line[:200])}")
                     await self._safe_put(output_queue, sse_line)
 
                 # Convert chunk to Anthropic events using stateful assembler
@@ -103,13 +104,15 @@ class AnthropicClientFormatter:
                 # Emit all events in Anthropic SSE format: "event: <type>\ndata: <json>\n\n"
                 for event in events:
                     event_type = event.get("type", "content_block_delta")
-                    sse_line = f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
+                    json_str = json.dumps(event)
+                    sse_line = f"event: {event_type}\ndata: {json_str}\n\n"
                     await self._safe_put(output_queue, sse_line)
 
             # Send message_stop at end (only if we started)
             if message_started:
                 message_stop = {"type": "message_stop"}
                 sse_line = f"event: message_stop\ndata: {json.dumps(message_stop)}\n\n"
+                logger.info(f"[ClientFormatter] Sending message_stop: {repr(sse_line)}")
                 await self._safe_put(output_queue, sse_line)
         finally:
             # Signal end of stream to output queue
