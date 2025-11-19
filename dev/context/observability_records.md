@@ -69,22 +69,73 @@ Event type is automatically set to `"luthien.{record.record_type}"` (e.g., `"lut
 
 ## Querying in Grafana/Loki
 
+### Available Labels
+
+Promtail automatically extracts these labels from logs (no need for `| json` filters):
+
+- `app` - Application name (always `luthien-gateway`)
+- `detected_level` - Log level (`INFO`, `WARNING`, `ERROR`, etc.)
+- `logger` - Python logger name (e.g., `luthien_proxy.gateway_routes`)
+- `trace_id` - OpenTelemetry trace ID for correlation
+- `record_type` - Record type (e.g., `pipeline`) - query by LuthienRecord type
+- `payload_type` - Payload identifier (e.g., `client_request`, `backend_response`)
+
+**Note:** `transaction_id` is NOT a label (too high cardinality). Use line filters: `| json | transaction_id="abc-123"`
+
+### Common Queries
+
+**All pipeline records:**
 ```logql
-# All pipeline records
 {app="luthien-gateway", record_type="pipeline"}
+```
 
-# Just client requests
-{app="luthien-gateway", record_type="pipeline", pipeline_stage="client_request"}
+**Pipeline records by stage:**
+```logql
+{app="luthien-gateway", record_type="pipeline", payload_type="client_request"}
+{app="luthien-gateway", record_type="pipeline", payload_type="backend_request"}
+{app="luthien-gateway", record_type="pipeline", payload_type="client_response"}
+```
 
-# All records for a specific transaction (use line filter for transaction_id)
+**Follow a specific transaction:**
+```logql
 {app="luthien-gateway", record_type="pipeline"} | json | transaction_id="abc-123"
+```
 
-# Compare before/after for a transaction
-{app="luthien-gateway", record_type="pipeline", pipeline_stage=~"client_request|backend_request"}
+**Compare before/after for a transaction:**
+```logql
+{app="luthien-gateway", record_type="pipeline", payload_type=~"client_request|backend_request"}
   | json | transaction_id="abc-123"
 ```
 
-**Note:** `transaction_id` is NOT a Loki label (too high cardinality). Use line filters as shown above.
+**Follow a trace across all logs:**
+```logql
+{app="luthien-gateway", trace_id="e6e35cf6ea70b9e6429ad656e2653b56"}
+```
+
+**Filter by log level:**
+```logql
+{app="luthien-gateway", detected_level="ERROR"}
+{app="luthien-gateway", detected_level="WARNING"}
+```
+
+### Advanced Queries
+
+**Rate of errors:**
+```logql
+rate({app="luthien-gateway", detected_level="ERROR"}[5m])
+```
+
+**Exclude certain loggers:**
+```logql
+{app="luthien-gateway", logger!~"opentelemetry.*"}
+```
+
+### Query Tips
+
+1. **Use the Label Browser**: In Grafana Explore, click "Label browser" to see all available labels
+2. **Start broad, then filter**: Begin with `{app="luthien-gateway"}` and add filters as needed
+3. **Labels are faster**: Use labels (indexed) instead of line filters when possible
+4. **Autocomplete works**: Type `{app="luthien-gateway", ` to see available labels
 
 ## Standard pipeline_stage Values
 
@@ -156,5 +207,4 @@ class PolicyDecisionRecord(LuthienRecord):
 ## See Also
 
 - [observability/context.py](../../src/luthien_proxy/observability/context.py) - Implementation
-- [examples/observability_usage.py](../../examples/observability_usage.py) - Usage examples
-- [observability/GRAFANA_QUERIES.md](../../observability/GRAFANA_QUERIES.md) - Query examples
+- [gateway_routes.py](../../src/luthien_proxy/gateway_routes.py) - Real-world usage examples
