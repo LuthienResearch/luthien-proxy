@@ -57,7 +57,12 @@ async function loadPolicies() {
         renderPolicyCards();
     } catch (err) {
         console.error('Failed to load policies:', err);
-        document.getElementById('step-1').innerHTML = `<p class="error">Failed to load policies: ${err.message}</p>`;
+        const step1 = document.getElementById('step-1');
+        step1.innerHTML = ''; // Clear existing
+        const errorP = document.createElement('p');
+        errorP.className = 'error';
+        errorP.textContent = `Failed to load policies: ${err.message}`; // XSS-safe
+        step1.appendChild(errorP);
     }
 }
 
@@ -72,19 +77,28 @@ async function loadInstances() {
 
 function renderPolicyCards() {
     const container = document.querySelector('.policy-grid');
-    container.innerHTML = state.availablePolicies.map(policy => `
-        <div class="policy-card" data-policy="${policy.class_ref}">
-            <h3>${policy.name}</h3>
-            <p>${policy.description}</p>
-            <button class="select-policy-btn">Select</button>
-        </div>
-    `).join('');
+    container.innerHTML = ''; // Clear existing content
 
-    document.querySelectorAll('.select-policy-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const card = e.target.closest('.policy-card');
-            selectPolicy(card.dataset.policy);
-        });
+    state.availablePolicies.forEach(policy => {
+        const card = document.createElement('div');
+        card.className = 'policy-card';
+        card.dataset.policy = policy.class_ref;
+
+        const title = document.createElement('h3');
+        title.textContent = policy.name; // textContent is XSS-safe
+
+        const desc = document.createElement('p');
+        desc.textContent = policy.description; // textContent is XSS-safe
+
+        const btn = document.createElement('button');
+        btn.className = 'select-policy-btn';
+        btn.textContent = 'Select';
+        btn.addEventListener('click', () => selectPolicy(policy.class_ref));
+
+        card.appendChild(title);
+        card.appendChild(desc);
+        card.appendChild(btn);
+        container.appendChild(card);
     });
 }
 
@@ -152,7 +166,18 @@ async function handleCreateActivate() {
         // Generate instance name
         state.instanceName = `${state.selectedPolicyName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
 
-        statusContainer.innerHTML = `<div class="status-box"><p><span class="status-icon spinner">⏳</span> Creating policy instance...</p></div>`;
+        // Show creating status
+        statusContainer.innerHTML = ''; // Clear
+        const creatingBox = document.createElement('div');
+        creatingBox.className = 'status-box';
+        const creatingP = document.createElement('p');
+        const creatingIcon = document.createElement('span');
+        creatingIcon.className = 'status-icon spinner';
+        creatingIcon.textContent = '⏳';
+        creatingP.appendChild(creatingIcon);
+        creatingP.appendChild(document.createTextNode(' Creating policy instance...'));
+        creatingBox.appendChild(creatingP);
+        statusContainer.appendChild(creatingBox);
 
         // Create instance
         await apiCall('/admin/policy/create', {
@@ -165,7 +190,25 @@ async function handleCreateActivate() {
             })
         });
 
-        statusContainer.innerHTML = `<div class="status-box"><p><span class="status-icon">✓</span> Instance created</p><p><span class="status-icon spinner">⏳</span> Activating...</p></div>`;
+        // Show activating status
+        statusContainer.innerHTML = ''; // Clear
+        const activatingBox = document.createElement('div');
+        activatingBox.className = 'status-box';
+        const createdP = document.createElement('p');
+        const checkIcon = document.createElement('span');
+        checkIcon.className = 'status-icon';
+        checkIcon.textContent = '✓';
+        createdP.appendChild(checkIcon);
+        createdP.appendChild(document.createTextNode(' Instance created'));
+        activatingBox.appendChild(createdP);
+        const activatingP = document.createElement('p');
+        const activatingIcon = document.createElement('span');
+        activatingIcon.className = 'status-icon spinner';
+        activatingIcon.textContent = '⏳';
+        activatingP.appendChild(activatingIcon);
+        activatingP.appendChild(document.createTextNode(' Activating...'));
+        activatingBox.appendChild(activatingP);
+        statusContainer.appendChild(activatingBox);
 
         // Activate instance
         await apiCall('/admin/policy/activate', {
@@ -176,7 +219,18 @@ async function handleCreateActivate() {
             })
         });
 
-        statusContainer.innerHTML = `<div class="status-box success"><p><span class="status-icon">✓</span> ${state.selectedPolicyName} activated!</p></div>`;
+        // Show success status
+        statusContainer.innerHTML = ''; // Clear
+        const successBox = document.createElement('div');
+        successBox.className = 'status-box success';
+        const successP = document.createElement('p');
+        const successIcon = document.createElement('span');
+        successIcon.className = 'status-icon';
+        successIcon.textContent = '✓';
+        successP.appendChild(successIcon);
+        successP.appendChild(document.createTextNode(' ' + state.selectedPolicyName + ' activated!')); // XSS-safe
+        successBox.appendChild(successP);
+        statusContainer.appendChild(successBox);
 
         btn.textContent = 'Continue to Testing →';
         btn.className = 'success';
@@ -185,7 +239,13 @@ async function handleCreateActivate() {
 
         state.policyEnabledAt = Date.now();
     } catch (err) {
-        statusContainer.innerHTML = `<div class="status-box error"><p>Error: ${err.message}</p></div>`;
+        statusContainer.innerHTML = ''; // Clear
+        const errorBox = document.createElement('div');
+        errorBox.className = 'status-box error';
+        const errorP = document.createElement('p');
+        errorP.textContent = `Error: ${err.message}`; // XSS-safe
+        errorBox.appendChild(errorP);
+        statusContainer.appendChild(errorBox);
         btn.textContent = 'Retry';
         btn.disabled = false;
     }
@@ -197,7 +257,14 @@ function goToStep3() {
 
     const testStatus = document.getElementById('test-status');
     testStatus.className = 'test-status waiting';
-    testStatus.innerHTML = `<p><span class="status-icon spinner">⏳</span> Waiting for test request...</p>`;
+    testStatus.innerHTML = ''; // Clear
+    const waitingP = document.createElement('p');
+    const waitingIcon = document.createElement('span');
+    waitingIcon.className = 'status-icon spinner';
+    waitingIcon.textContent = '⏳';
+    waitingP.appendChild(waitingIcon);
+    waitingP.appendChild(document.createTextNode(' Waiting for test request...'));
+    testStatus.appendChild(waitingP);
 
     goToStep(3);
     connectToActivityStream();
@@ -269,13 +336,43 @@ function showTestDetected(callId) {
 
     const testStatus = document.getElementById('test-status');
     testStatus.className = 'test-status detected';
-    testStatus.innerHTML = `
-        <p><span class="status-icon">✓</span> Test detected! Policy was applied</p>
-        <p>Call ID: <span class="call-id">${callId}</span></p>
-        <div class="result-links">
-            <h4>View results:</h4>
-            <a href="/activity/monitor">Activity Monitor</a>
-            <a href="/debug/diff?call_id=${callId}">View Diff</a>
-        </div>
-    `;
+    testStatus.innerHTML = ''; // Clear existing content
+
+    // First paragraph
+    const p1 = document.createElement('p');
+    const icon = document.createElement('span');
+    icon.className = 'status-icon';
+    icon.textContent = '✓';
+    p1.appendChild(icon);
+    p1.appendChild(document.createTextNode(' Test detected! Policy was applied'));
+
+    // Second paragraph with call ID
+    const p2 = document.createElement('p');
+    p2.appendChild(document.createTextNode('Call ID: '));
+    const callIdSpan = document.createElement('span');
+    callIdSpan.className = 'call-id';
+    callIdSpan.textContent = callId; // XSS-safe
+    p2.appendChild(callIdSpan);
+
+    // Result links div
+    const linksDiv = document.createElement('div');
+    linksDiv.className = 'result-links';
+
+    const h4 = document.createElement('h4');
+    h4.textContent = 'View results:';
+    linksDiv.appendChild(h4);
+
+    const monitorLink = document.createElement('a');
+    monitorLink.href = '/activity/monitor';
+    monitorLink.textContent = 'Activity Monitor';
+    linksDiv.appendChild(monitorLink);
+
+    const diffLink = document.createElement('a');
+    diffLink.href = `/debug/diff?call_id=${encodeURIComponent(callId)}`; // URL-encode for safety
+    diffLink.textContent = 'View Diff';
+    linksDiv.appendChild(diffLink);
+
+    testStatus.appendChild(p1);
+    testStatus.appendChild(p2);
+    testStatus.appendChild(linksDiv);
 }

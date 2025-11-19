@@ -245,10 +245,19 @@ async def activate_policy(
         if not row:
             raise HTTPException(status_code=404, detail=f"Policy instance '{body.name}' not found")
 
+        # Validate config
+        config = row["config"]
+        if not isinstance(config, dict):
+            logger.error(f"Invalid config type for policy '{body.name}': {type(config)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Policy instance '{body.name}' has corrupted config (expected dict, got {type(config).__name__})",
+            )
+
         # Activate it
         result: PolicyEnableResult = await manager.enable_policy(
             policy_class_ref=str(row["policy_class_ref"]),
-            config=row["config"] if isinstance(row["config"], dict) else {},
+            config=config,
             enabled_by=body.activated_by,
         )
 
@@ -263,12 +272,14 @@ async def activate_policy(
         # Update app.state.policy
         request.app.state.policy = manager.current_policy
 
-        # Mark as active in database
-        await pool.execute("UPDATE policy_config SET is_active = false")
-        await pool.execute(
-            "UPDATE policy_config SET is_active = true WHERE name = $1",
-            body.name,
-        )
+        # Mark as active in database (atomic transaction)
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute("UPDATE policy_config SET is_active = false")
+                await conn.execute(
+                    "UPDATE policy_config SET is_active = true WHERE name = $1",
+                    body.name,
+                )
 
         return PolicyEnableResponse(
             success=True,

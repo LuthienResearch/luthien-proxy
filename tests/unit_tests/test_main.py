@@ -18,7 +18,7 @@ def policy_config_file():
     """Create a temporary policy config file for testing."""
     config_content = """
 policy:
-  class: "luthien_proxy.policies.simple_noop_policy:SimpleNoOpPolicy"
+  class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
   config: {}
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
@@ -97,7 +97,7 @@ class TestCreateApp:
 
     @pytest.mark.asyncio
     async def test_create_app_database_failure_graceful(self, policy_config_file):
-        """Test that app handles database connection failure gracefully."""
+        """Test that app raises RuntimeError when database connection fails (PolicyManager requires DB)."""
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
@@ -123,15 +123,14 @@ class TestCreateApp:
                 policy_config_path=policy_config_file,
             )
 
-            with TestClient(app):
-                # App should still start with db_pool = None
-                assert app.state.db_pool is None
-                assert app.state.redis_client == mock_redis_instance
-                assert app.state.policy_manager is not None
+            # App startup (lifespan) should raise RuntimeError since PolicyManager requires both DB and Redis
+            with pytest.raises(RuntimeError, match="Database and Redis required for PolicyManager"):
+                with TestClient(app):
+                    pass
 
     @pytest.mark.asyncio
     async def test_create_app_redis_failure_graceful(self, policy_config_file):
-        """Test that app handles Redis connection failure gracefully."""
+        """Test that app raises RuntimeError when Redis connection fails (PolicyManager requires Redis)."""
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
@@ -157,12 +156,10 @@ class TestCreateApp:
                 policy_config_path=policy_config_file,
             )
 
-            with TestClient(app):
-                # App should still start with redis_client = None
-                assert app.state.db_pool == mock_db_instance
-                assert app.state.redis_client is None
-                assert app.state.event_publisher is None  # No publisher without Redis
-                assert app.state.policy_manager is not None
+            # App startup (lifespan) should raise RuntimeError since PolicyManager requires both DB and Redis
+            with pytest.raises(RuntimeError, match="Database and Redis required for PolicyManager"):
+                with TestClient(app):
+                    pass
 
     @pytest.mark.asyncio
     async def test_create_app_routes_included(self, policy_config_file):
@@ -188,10 +185,21 @@ class TestCreateApp:
     def test_create_app_health_endpoint(self, policy_config_file):
         """Test health endpoint returns correct response."""
         with (
-            patch("luthien_proxy.main.db.DatabasePool"),
-            patch("luthien_proxy.main.Redis"),
+            patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
+            patch("luthien_proxy.main.Redis") as mock_redis_class,
             patch("luthien_proxy.main.setup_telemetry"),
         ):
+            # Setup successful mocks for both DB and Redis
+            mock_db_instance = AsyncMock()
+            mock_db_instance.get_pool = AsyncMock()
+            mock_db_instance.close = AsyncMock()
+            mock_db_pool_class.return_value = mock_db_instance
+
+            mock_redis_instance = AsyncMock()
+            mock_redis_instance.ping = AsyncMock()
+            mock_redis_instance.close = AsyncMock()
+            mock_redis_class.from_url.return_value = mock_redis_instance
+
             app = create_app(
                 api_key="test-key",
                 admin_key=None,
@@ -211,10 +219,21 @@ class TestCreateApp:
     def test_create_app_root_endpoint(self, policy_config_file):
         """Test root endpoint returns HTML landing page."""
         with (
-            patch("luthien_proxy.main.db.DatabasePool"),
-            patch("luthien_proxy.main.Redis"),
+            patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
+            patch("luthien_proxy.main.Redis") as mock_redis_class,
             patch("luthien_proxy.main.setup_telemetry"),
         ):
+            # Setup successful mocks for both DB and Redis
+            mock_db_instance = AsyncMock()
+            mock_db_instance.get_pool = AsyncMock()
+            mock_db_instance.close = AsyncMock()
+            mock_db_pool_class.return_value = mock_db_instance
+
+            mock_redis_instance = AsyncMock()
+            mock_redis_instance.ping = AsyncMock()
+            mock_redis_instance.close = AsyncMock()
+            mock_redis_class.from_url.return_value = mock_redis_instance
+
             app = create_app(
                 api_key="test-key",
                 admin_key=None,
