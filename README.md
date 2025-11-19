@@ -45,10 +45,10 @@ These scripts automatically configure the proxy settings. All requests now flow 
 
 ### 3. Monitor Activity
 
-Open the Activity Monitor to see requests in real-time:
+Open the Activity Monitor in your browser to see requests in real-time:
 
-```bash
-open http://localhost:8000/activity/monitor
+```
+http://localhost:8000/activity/monitor
 ```
 
 Watch as requests flow through, see policy decisions, and inspect before/after diffs.
@@ -57,8 +57,8 @@ Watch as requests flow through, see policy decisions, and inspect before/after d
 
 Use the Policy Configuration UI to change policies without restart:
 
-```bash
-open http://localhost:8000/policy-config
+```
+http://localhost:8000/policy-config
 ```
 
 1. Browse available policies (NoOp, AllCaps, DebugLogging, etc.)
@@ -150,8 +150,7 @@ By default, the gateway runs **without** the observability stack. To enable it:
 
 # The gateway will automatically detect and use the observability stack
 
-# Access Grafana
-open http://localhost:3000
+# Access Grafana at http://localhost:3000
 # Username: admin, Password: admin
 ```
 
