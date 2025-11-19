@@ -66,10 +66,10 @@ A log of successfully completed debugging and implementation tasks.
 - Split blocked message into two chunks: content chunk + finish chunk
 
 **Files modified**:
-- `src/luthien_proxy/v2/policies/tool_call_judge_policy.py` (added on_content_delta, fixed two-chunk pattern)
-- `src/luthien_proxy/v2/policies/utils.py` (fixed Delta object type and Choices type)
+- `src/luthien_proxy/policies/tool_call_judge_policy.py` (added on_content_delta, fixed two-chunk pattern)
+- `src/luthien_proxy/policies/utils.py` (fixed Delta object type and Choices type)
 
 **Tests added**:
-- `tests/unit_tests/v2/policies/test_tool_call_judge_policy.py` - 8 regression tests covering all 4 bugs
+- `tests/unit_tests/policies/test_tool_call_judge_policy.py` - 8 regression tests covering all 4 bugs
 
 **Result**: Streaming works with complete Anthropic SSE event sequences. Blocked tool calls display explanation messages. All bugs would have been caught by the new unit tests.

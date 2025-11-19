@@ -271,28 +271,28 @@ Policies can intercept at these points:
 
 ### Core Pipeline
 
-- **Gateway Routes**: `src/luthien_proxy/v2/gateway_routes.py`
-- **PolicyOrchestrator**: `src/luthien_proxy/v2/orchestration/policy_orchestrator.py`
-- **PolicyExecutor**: `src/luthien_proxy/v2/streaming/policy_executor/default.py`
-- **ClientFormatter**: `src/luthien_proxy/v2/streaming/client_formatter/{openai,anthropic}.py`
+- **Gateway Routes**: `src/luthien_proxy/gateway_routes.py`
+- **PolicyOrchestrator**: `src/luthien_proxy/orchestration/policy_orchestrator.py`
+- **PolicyExecutor**: `src/luthien_proxy/streaming/policy_executor/default.py`
+- **ClientFormatter**: `src/luthien_proxy/streaming/client_formatter/{openai,anthropic}.py`
 
 ### Supporting Components
 
-- **StreamingChunkAssembler**: `src/luthien_proxy/v2/streaming/streaming_chunk_assembler.py`
-- **PolicyContext**: `src/luthien_proxy/v2/policy_core/policy_context.py`
-- **ObservabilityContext**: `src/luthien_proxy/v2/observability/context.py`
-- **TransactionRecorder**: `src/luthien_proxy/v2/observability/transaction_recorder.py`
+- **StreamingChunkAssembler**: `src/luthien_proxy/streaming/streaming_chunk_assembler.py`
+- **PolicyContext**: `src/luthien_proxy/policy_core/policy_context.py`
+- **ObservabilityContext**: `src/luthien_proxy/observability/context.py`
+- **TransactionRecorder**: `src/luthien_proxy/observability/transaction_recorder.py`
 
 ### Policies
 
-- **Policy Protocol**: `src/luthien_proxy/v2/policy_core/policy_protocol.py`
-- **Example Policies**: `src/luthien_proxy/v2/policies/{noop,simple,debug_logging,tool_call_judge}_policy.py`
+- **Policy Protocol**: `src/luthien_proxy/policy_core/policy_protocol.py`
+- **Example Policies**: `src/luthien_proxy/policies/{noop,simple,debug_logging,tool_call_judge}_policy.py`
 
 ### Tests
 
-- **PolicyExecutor tests**: `tests/unit_tests/v2/streaming/policy_executor/` (55 tests)
-- **ClientFormatter tests**: `tests/unit_tests/v2/streaming/client_formatter/` (12 tests)
-- **E2E tests**: `tests/e2e_tests/test_v2_api_compatibility.py`
+- **PolicyExecutor tests**: `tests/unit_tests/streaming/policy_executor/` (55 tests)
+- **ClientFormatter tests**: `tests/unit_tests/streaming/client_formatter/` (12 tests)
+- **E2E tests**: `tests/e2e_tests/test_api_compatibility.py`
 
 ---
 

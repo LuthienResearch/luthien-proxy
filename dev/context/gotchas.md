@@ -46,7 +46,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 ## Anthropic SSE Requires Stateful Block Index Tracking (2025-11-03)
 
 - OpenAI chunks lack block indices; Anthropic clients need sequential indices (0,1,2...) + lifecycle events (start/delta/stop)
-- Use `AnthropicSSEAssembler` to maintain state across chunks (v2/llm/anthropic_sse_assembler.py)
+- Use `AnthropicSSEAssembler` to maintain state across chunks (llm/anthropic_sse_assembler.py)
 
 ## Policies Must Forward Content Chunks (2025-11-04)
 

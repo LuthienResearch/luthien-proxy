@@ -70,7 +70,7 @@
 - [ ] **Add timeout configuration documentation** - Document why no timeout is set in gateway routes or make it configurable:
   - `PolicyExecutor(recorder=recorder)` uses default timeout of `None` (gateway_routes.py:117)
   - Either document rationale or add environment variable configuration
-- [ ] Move "v2" code out of v2/
+
 - [ ] Consolidate/organize utility/helper functions (see policies/utils.py)
 - [ ] thinking and verbosity model flags not respected
 - [ ] write SimpleToolCallJudge policy for pedagogical purposes

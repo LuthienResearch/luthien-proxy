@@ -27,7 +27,7 @@ We currently maintain two separate observability channels:
 ### How They Work Together (Current)
 
 ```python
-# In PolicyContext.emit() - src/luthien_proxy/v2/policies/context.py:48-104
+# In PolicyContext.emit() - src/luthien_proxy/policy_core/policy_context.py:48-104
 def emit(self, event_type: str, summary: str, details: dict | None, severity: str):
     # 1. Add to OpenTelemetry span (always)
     self.span.add_event(event_type, attributes={...})
@@ -179,7 +179,7 @@ Current `PolicyContext.emit()` already does this! The issue is the *gateway* lay
 **Improvement**: Move all event publishing through a centralized helper:
 
 ```python
-# New: src/luthien_proxy/v2/observability/events.py
+# New: src/luthien_proxy/observability/events.py
 async def emit_gateway_event(
     span: Span,
     call_id: str,
@@ -334,7 +334,7 @@ If we go with **Option 4** (centralized helper), here's the implementation plan:
 ### Step 1: Create centralized event emitter
 
 ```python
-# src/luthien_proxy/v2/observability/events.py
+# src/luthien_proxy/observability/events.py
 
 from opentelemetry.trace import Span
 from typing import Any, Optional
@@ -403,7 +403,7 @@ async def emit_event(
 ### Step 2: Update PolicyContext to use it
 
 ```python
-# src/luthien_proxy/v2/policies/context.py
+# src/luthien_proxy/policy_core/policy_context.py
 
 from luthien_proxy.observability.events import emit_event
 
@@ -426,7 +426,7 @@ class PolicyContext:
 ### Step 3: Refactor gateway code
 
 ```python
-# src/luthien_proxy/v2/main.py
+# src/luthien_proxy/main.py
 
 from luthien_proxy.observability.events import emit_event
 
@@ -448,7 +448,7 @@ await emit_event(
 ### Step 4: Add tests
 
 ```python
-# tests/unit_tests/v2/test_observability_events.py
+# tests/unit_tests/test_observability_events.py
 
 async def test_emit_event_adds_to_span_and_redis():
     """Verify emit_event() publishes to both OTel and Redis."""

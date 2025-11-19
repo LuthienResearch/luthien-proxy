@@ -97,16 +97,15 @@ Each event contains:
 **Goal**: Wire V2 gateway to emit conversation events for all requests/responses
 
 #### Phase 1.1: Non-Streaming Events ✅
-- [x] Create `src/luthien_proxy/v2/storage/events.py` with `emit_request_event()` and `emit_response_event()`
-- [x] Wire database pool into V2 gateway (`main.py`)
-- [x] Emit request events (original + final) in `/v1/chat/completions`
-- [x] Emit response events (original + final) for non-streaming responses
-- [x] Write unit tests for event emission helpers
+- [x] Create `src/luthien_proxy/storage/events.py` with `emit_request_event()` and `emit_response_event()`
+- [x] Create `src/luthien_proxy/storage/__init__.py`
+- [x] Create `tests/unit_tests/test_storage_events.py`
+- [x] Wire into `main.py` (startup/shutdown)
 
-**Files Modified**:
-- `src/luthien_proxy/v2/storage/events.py` - Event emission helpers
-- `src/luthien_proxy/v2/main.py` - Wired db_pool, added event emission
-- `tests/unit_tests/v2/test_storage_events.py` - Unit tests
+**Files**:
+- `src/luthien_proxy/storage/events.py` - Event emission helpers
+- `src/luthien_proxy/main.py` - Wired db_pool, added event emission
+- `tests/unit_tests/test_storage_events.py` - Unit tests
 
 #### Phase 1.2: OpenTelemetry Integration ✅
 - [x] Add `call_id` as span attribute in all control plane operations
@@ -114,8 +113,8 @@ Each event contains:
 - [x] Test trace correlation via Grafana
 
 **Files Modified**:
-- `src/luthien_proxy/v2/control/local.py` - Added call_id to all spans
-- `src/luthien_proxy/v2/telemetry.py` - Verified OTel setup
+- `src/luthien_proxy/control/local.py` - Added call_id to all spans
+- `src/luthien_proxy/telemetry.py` - Verified OTel setup
 
 #### Phase 1.3: Streaming Event Emission ✅
 - [x] Implement `reconstruct_full_response_from_chunks()` to build full response from streaming chunks
@@ -125,11 +124,11 @@ Each event contains:
 - [x] Write comprehensive unit tests for chunk reconstruction
 
 **Files Modified**:
-- `src/luthien_proxy/v2/storage/events.py` - Added `reconstruct_full_response_from_chunks()`
-- `src/luthien_proxy/v2/control/streaming.py` - Added `on_complete` callback
-- `src/luthien_proxy/v2/control/local.py` - Added streaming event emission
-- `src/luthien_proxy/v2/main.py` - Passed db_pool/redis_conn to streaming
-- `tests/unit_tests/v2/test_storage_events.py` - Added 5 reconstruction tests
+- `src/luthien_proxy/storage/events.py` - Added `reconstruct_full_response_from_chunks()`
+- `src/luthien_proxy/control/streaming.py` - Added `on_complete` callback
+- `src/luthien_proxy/control/local.py` - Added streaming event emission
+- `src/luthien_proxy/main.py` - Passed db_pool/redis_conn to streaming
+- `tests/unit_tests/test_storage_events.py` - Added 5 reconstruction tests
 
 ### ✅ Phase 2: Query & Debug Endpoints (COMPLETE)
 
@@ -149,10 +148,10 @@ Each event contains:
 **Files Created**:
 - `src/luthien_proxy/debug/__init__.py` - Debug module exports
 - `src/luthien_proxy/debug/routes.py` - Debug REST endpoints (430 lines)
-- `tests/unit_tests/v2/test_debug_routes.py` - Unit tests for debug endpoints (260 lines)
+- `tests/unit_tests/test_debug_routes.py` - Unit tests for debug endpoints (260 lines)
 
-**Files Modified**:
-- `src/luthien_proxy/v2/main.py` - Mounted debug router, wired db_pool
+**Files**:
+- `src/luthien_proxy/main.py` - Mounted debug router, wired db_pool
 
 **Actual Time**: ~3 hours
 
@@ -167,7 +166,7 @@ Each event contains:
 - [x] Query param support for direct links (`?call_id=...`)
 
 **Files Created**:
-- `src/luthien_proxy/v2/static/diff_viewer.html` - Diff viewer UI (680 lines)
+- `src/luthien_proxy/static/diff_viewer.html` - Diff viewer UI (680 lines)
 - Route: `/debug/diff` - Serves the diff viewer
 
 **Features**:
@@ -193,7 +192,7 @@ Each event contains:
 - [x] Retroactive filtering on stored events
 
 **Files Modified**:
-- `src/luthien_proxy/v2/static/activity_monitor.html` - Added filter UI and logic
+- `src/luthien_proxy/static/activity_monitor.html` - Added filter UI and logic
 
 **Features**:
 - Filter by call_id (substring match)
