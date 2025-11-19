@@ -43,7 +43,7 @@ def test_pipeline_record_vars():
 
 def test_observability_context_record_nonblocking():
     """Test ObservabilityContext.record() method."""
-    ctx = NoOpObservabilityContext()
+    ctx = NoOpObservabilityContext("test-txn")
 
     # Should not raise (NoOp context does nothing)
     ctx.record(
