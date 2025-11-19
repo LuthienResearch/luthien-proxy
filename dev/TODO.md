@@ -110,6 +110,50 @@
   - Check diff viewer functionality
   - Validate log-trace correlation
   - Consider consolidating the three observability docs (OBSERVABILITY_DEMO, VIEWING_TRACES_GUIDE, observability-v2) if there's significant overlap
+
+### Policy Configuration UI Enhancements
+
+- [ ] **Unit tests for frontend JavaScript** (`policy_config.js`) - Add Jest/Vitest tests:
+  - Test state management functions (`selectPolicy`, `goToStep`)
+  - Test SSE timeout calculation (`getSSEDetectionTimeout`)
+  - Test error handling and cleanup (`connectToActivityStream`)
+  - Test clipboard operations (`handleCopyPrompt`)
+  - Mock DOM elements and async operations
+- [ ] **Dynamic policy discovery** - Replace hardcoded policy list with automatic discovery:
+  - Add metadata to policy classes (name, description, config schema)
+  - Use importlib or registry pattern to discover available policies
+  - Remove hardcoded list in `admin/routes.py:373-464`
+- [ ] **Policy config validation before activation** - Add schema validation:
+  - Add `validate_config()` method to PolicyProtocol
+  - Return list of validation errors before enabling policy
+  - Prevents runtime failures from invalid configs
+- [ ] **Audit trail query endpoint** - Add endpoint to view policy change history:
+  - `GET /admin/policy/history` to query historical changes
+  - Show who enabled what policy when
+  - Reference: `policy_config` table tracks `enabled_at`, `enabled_by`
+- [ ] **UI tests with Playwright/Cypress** - Add browser-based E2E tests:
+  - Test complete wizard flow (select → enable → test)
+  - Test error states and recovery
+  - Test SSE connection and detection
+  - Accessibility audit
+- [ ] **Adaptive timeout v2** - Enhance SSE detection timeout with actual response time tracking:
+  - Track rolling average of last N response times per policy
+  - Calculate timeout as: avg + (3 * standard_deviation) for 99.7% coverage
+  - Current: Fixed estimates per policy type (good enough for v1)
+  - Future: Learn from actual usage patterns
+
+### Security Improvements for Policy UI
+
+- [ ] **Replace sessionStorage with httpOnly cookies** - Improve admin auth security:
+  - Current: Admin key in sessionStorage (vulnerable to XSS)
+  - Better: httpOnly cookies (requires CSRF protection)
+  - Alternative: Prompt for key on each admin action
+  - Reference: `policy_config.js:27`
+- [ ] **Add module allowlist for dynamic policy imports** - Defense-in-depth:
+  - Validate `policy_class_ref` against `ALLOWED_POLICY_MODULES`
+  - Prevent arbitrary module imports via admin API
+  - Reference: `policy_manager.py:245`
+
 - [ ] 99% unit test coverage (currently 81%, focus on critical paths first) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add config schema validation (Pydantic model for policy_config.yaml) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
 - [ ] Add request/response size limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
