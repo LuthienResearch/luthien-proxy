@@ -4,19 +4,97 @@ Redwood-style AI Control as an LLM proxy for production agentic deployments.
 
 ## Quick Start
 
-```bash
-# 1. Start everything
-./scripts/quick_start.sh
+### 1. Install and Start
 
-# 2. Test it works
-./scripts/test_gateway.sh
+```bash
+# Install uv (if needed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and start everything
+git clone https://github.com/LuthienResearch/luthien-proxy
+cd luthien-proxy
+git checkout user-testing  # For now, use the user-testing branch
+
+# Configure API keys
+cp .env.example .env
+# Edit .env and add your keys:
+#   OPENAI_API_KEY=sk-proj-...
+#   ANTHROPIC_API_KEY=sk-ant-...
+
+# Start the stack
+./scripts/quick_start.sh
 ```
 
-You now have:
+### 2. Use Claude Code or Codex through the Proxy
 
-- **Gateway** (OpenAI-compatible) at <http://localhost:8000>
+Launch your AI assistant through the proxy using the built-in scripts:
+
+**Claude Code:**
+
+```bash
+./scripts/launch_claude_code.sh
+```
+
+**Codex:**
+
+```bash
+./scripts/launch_codex.sh
+```
+
+These scripts automatically configure the proxy settings. All requests now flow through the policy enforcement layer!
+
+### 3. Monitor Activity
+
+Open the Activity Monitor in your browser to see requests in real-time:
+
+```
+http://localhost:8000/activity/monitor
+```
+
+Watch as requests flow through, see policy decisions, and inspect before/after diffs.
+
+### 4. Select a Policy
+
+Use the Policy Configuration UI to change policies without restart:
+
+```
+http://localhost:8000/policy-config
+```
+
+1. Browse available policies (NoOp, AllCaps, DebugLogging, etc.)
+2. Click to select and activate
+3. Test immediately - changes take effect instantly
+
+### 5. Create Your Own Policy
+
+Create a new policy by subclassing `SimplePolicy`:
+
+```python
+# src/luthien_proxy/policies/my_custom_policy.py
+
+from luthien_proxy.policies.simple_policy import SimplePolicy
+
+class MyCustomPolicy(SimplePolicy):
+    """Block dangerous commands before they execute."""
+
+    async def simple_on_response_content(self, content: str, context) -> str:
+        # Implement your custom logic here
+        if "rm -rf" in content:
+            return "⛔ BLOCKED: Dangerous command detected"
+        return content
+```
+
+Restart the gateway and your policy appears in the Policy Config UI automatically.
+
+---
+
+## What You Get
+
+- **Gateway** (OpenAI/Anthropic-compatible) at <http://localhost:8000>
 - **PostgreSQL** and **Redis** fully configured
 - **Local LLM** (Ollama) at <http://localhost:11434>
+- **Real-time monitoring** at <http://localhost:8000/activity/monitor>
+- **Policy management UI** at <http://localhost:8000/policy-config>
 
 The gateway provides:
 
@@ -24,6 +102,7 @@ The gateway provides:
 - Anthropic Messages API (`/v1/messages`)
 - Integrated policy enforcement via control plane
 - Support for streaming and non-streaming requests
+- Hot-reload policy switching (no restart needed)
 
 ## Prerequisites
 
@@ -71,8 +150,7 @@ By default, the gateway runs **without** the observability stack. To enable it:
 
 # The gateway will automatically detect and use the observability stack
 
-# Access Grafana
-open http://localhost:3000
+# Access Grafana at http://localhost:3000
 # Username: admin, Password: admin
 ```
 
