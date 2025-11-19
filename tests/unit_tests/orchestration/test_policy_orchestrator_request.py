@@ -84,8 +84,8 @@ async def test_process_request_calls_policy(orchestrator, setup_tracing):
         temperature=1.0,
     )
 
-    with tracer.start_as_current_span("test") as span:
-        obs_ctx = NoOpObservabilityContext(transaction_id="test-123", span=span)
+    with tracer.start_as_current_span("test"):
+        obs_ctx = NoOpObservabilityContext(transaction_id="test-123")
         policy_ctx = PolicyContext(transaction_id="test-123", request=request, observability=obs_ctx)
         final_request = await orch.process_request(request, policy_ctx, obs_ctx)
 
@@ -114,8 +114,8 @@ async def test_process_request_preserves_request_fields(orchestrator, setup_trac
         top_p=0.9,
     )
 
-    with tracer.start_as_current_span("test") as span:
-        obs_ctx = NoOpObservabilityContext(transaction_id="test-123", span=span)
+    with tracer.start_as_current_span("test"):
+        obs_ctx = NoOpObservabilityContext(transaction_id="test-123")
         policy_ctx = PolicyContext(transaction_id="test-123", request=request, observability=obs_ctx)
         final_request = await orch.process_request(request, policy_ctx, obs_ctx)
 
@@ -172,8 +172,8 @@ async def test_process_request_records_transaction(orchestrator_with_recording, 
         temperature=1.0,
     )
 
-    with tracer.start_as_current_span("test") as span:
-        obs_ctx = NoOpObservabilityContext(transaction_id="test-123", span=span)
+    with tracer.start_as_current_span("test"):
+        obs_ctx = NoOpObservabilityContext(transaction_id="test-123")
         policy_ctx = PolicyContext(transaction_id="test-123", request=original_request, observability=obs_ctx)
         final_request = await orch.process_request(original_request, policy_ctx, obs_ctx)
 
@@ -204,8 +204,8 @@ async def test_process_full_response_records_transaction(orchestrator_with_recor
         ],
     )
 
-    with tracer.start_as_current_span("test") as span:
-        obs_ctx = NoOpObservabilityContext(transaction_id="test-123", span=span)
+    with tracer.start_as_current_span("test"):
+        obs_ctx = NoOpObservabilityContext(transaction_id="test-123")
         policy_ctx = PolicyContext(transaction_id="test-123", request=None, observability=obs_ctx)
         final_response = await orch.process_full_response(original_response, policy_ctx)
 

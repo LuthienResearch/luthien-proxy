@@ -1,11 +1,9 @@
 """Unit tests for streaming helper functions."""
 
 import asyncio
-from unittest.mock import Mock
 
 import pytest
 from litellm.types.utils import ChatCompletionMessageToolCall, ModelResponse
-from opentelemetry.trace import Span
 
 from luthien_proxy.messages import Request
 from luthien_proxy.observability.context import NoOpObservabilityContext
@@ -38,8 +36,6 @@ def streaming_context():
     """Create a streaming context."""
     from luthien_proxy.streaming.stream_state import StreamState
 
-    mock_span = Mock(spec=Span)
-
     # Create PolicyContext
     policy_ctx = PolicyContext(
         transaction_id="test-123",
@@ -51,7 +47,7 @@ def streaming_context():
         policy_ctx=policy_ctx,
         egress_queue=asyncio.Queue(),
         original_streaming_response_state=StreamState(),
-        observability=NoOpObservabilityContext("test-123", mock_span),
+        observability=NoOpObservabilityContext("test-123"),
         keepalive=lambda: None,  # No-op keepalive for tests
     )
     return ctx

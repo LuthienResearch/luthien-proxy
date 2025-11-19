@@ -48,7 +48,7 @@ def streaming_context():
         policy_ctx=policy_ctx,
         egress_queue=egress_queue,
         original_streaming_response_state=stream_state,
-        observability=NoOpObservabilityContext(),
+        observability=NoOpObservabilityContext("test-txn-123"),
         keepalive=lambda: None,
     )
 

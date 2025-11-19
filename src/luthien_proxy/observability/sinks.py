@@ -7,7 +7,6 @@ This module provides sink implementations for writing LuthienRecords to:
 - Stdout (for collection by log aggregators like Promtail → Loki)
 - PostgreSQL (for persistent storage)
 - Redis (for real-time event streaming)
-- OpenTelemetry (for distributed tracing attributes)
 
 Each sink encapsulates its dependencies and formatting logic.
 """
@@ -24,8 +23,6 @@ from typing import TYPE_CHECKING
 from opentelemetry import trace
 
 if TYPE_CHECKING:
-    from opentelemetry.trace import Span
-
     from luthien_proxy.observability.context import LuthienRecord
     from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
     from luthien_proxy.utils.db import DatabasePool
@@ -148,46 +145,9 @@ class RedisSink(LuthienRecordSink):
             logger.warning(f"RedisSink failed to write record: {e}", exc_info=True)
 
 
-class OTelSink(LuthienRecordSink):
-    """Sink that writes LuthienRecords to OpenTelemetry spans.
-
-    Adds record attributes to the current OTel span for distributed tracing.
-    """
-
-    def __init__(self, span: Span):
-        """Initialize OTelSink.
-
-        Args:
-            span: OpenTelemetry span to add attributes to
-        """
-        self._span = span
-
-    async def write(self, record: LuthienRecord) -> None:
-        """Write record attributes to OTel span."""
-        try:
-            if not self._span.is_recording():
-                return
-
-            # Add record type as span attribute
-            self._span.set_attribute(f"luthien.record.{record.record_type}", True)
-
-            # Add transaction_id if present
-            if hasattr(record, "transaction_id"):
-                self._span.set_attribute("luthien.transaction_id", record.transaction_id)
-
-            # TODO: Add more record-specific attributes as needed
-            logger.debug(
-                f"OTelSink added {record.record_type} record to span "
-                f"(transaction_id={getattr(record, 'transaction_id', 'N/A')})"
-            )
-        except Exception as e:
-            logger.warning(f"OTelSink failed to write record: {e}", exc_info=True)
-
-
 __all__ = [
     "LuthienRecordSink",
     "StdoutSink",
     "DatabaseSink",
     "RedisSink",
-    "OTelSink",
 ]
