@@ -45,10 +45,17 @@ These scripts automatically configure the proxy settings. All requests now flow 
 
 ### 3. Monitor Activity
 
+<<<<<<< HEAD
 Open the Activity Monitor in your browser to see requests in real-time:
 
 ```
 http://localhost:8000/activity/monitor
+=======
+Open the Activity Monitor to see requests in real-time:
+
+```bash
+open http://localhost:8000/activity/monitor
+>>>>>>> 4567320 (Add SimpleJudgePolicy for easy custom judges)
 ```
 
 Watch as requests flow through, see policy decisions, and inspect before/after diffs.
@@ -67,21 +74,24 @@ http://localhost:8000/policy-config
 
 ### 5. Create Your Own Policy
 
-Create a new policy by subclassing `SimplePolicy`:
+Create a new policy by subclassing `SimpleJudgePolicy`:
 
 ```python
 # src/luthien_proxy/policies/my_custom_policy.py
 
-from luthien_proxy.policies.simple_policy import SimplePolicy
+from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
 
-class MyCustomPolicy(SimplePolicy):
+class MyCustomPolicy(SimpleJudgePolicy):
     """Block dangerous commands before they execute."""
 
-    async def simple_on_response_content(self, content: str, context) -> str:
-        # Implement your custom logic here
-        if "rm -rf" in content:
-            return "⛔ BLOCKED: Dangerous command detected"
-        return content
+    RULES = [
+        "Never allow 'rm -rf' commands",
+        "Block requests to delete production data",
+        "Prevent executing untrusted code"
+    ]
+
+    # That's it! SimpleJudgePolicy handles the LLM judge logic for you.
+    # It evaluates both requests, responses, and tool calls against your rules.
 ```
 
 Restart the gateway and your policy appears in the Policy Config UI automatically.
