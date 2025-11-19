@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 # ===== Structured Records =====
 
 
+# TODO: make these dataclasses or similar for better serialization; DON'T USE __dict__ FOR SERIALIZATION IN PRODUCTION
 class LuthienRecord(ABC):
     """Base class for structured observability records.
 
@@ -75,10 +76,31 @@ class PipelineRecord(LuthienRecord):
         self.payload = payload
 
 
+class GenericLuthienRecord(LuthienRecord):
+    """Generic record for arbitrary observability events.
+
+    Use this for custom events that don't fit predefined record types.
+    """
+
+    record_type = "generic"
+
+    def __init__(self, transaction_id: str, event_type: str, data: dict):
+        """Initialize generic record.
+
+        Args:
+            transaction_id: Unique identifier for this transaction
+            event_type: Type of the event (e.g., "policy_decision", "llm_call")
+            data: Arbitrary key-value data associated with the event
+        """
+        super().__init__(transaction_id)
+        self.event_type = event_type
+        self.data = data
+
+
 # ===== Observability Configuration =====
 
 # Define valid sink names as a type-safe literal
-SinkName = Literal["stdout", "db", "redis", "otel"]
+SinkName = Literal["stdout", "db", "redis"]
 
 
 class ObservabilityConfig(TypedDict, total=False):
@@ -88,7 +110,6 @@ class ObservabilityConfig(TypedDict, total=False):
         stdout_sink: Optional StdoutSink instance (default created if not provided)
         db_sink: Optional DatabaseSink instance (default created if not provided)
         redis_sink: Optional RedisSink instance (default created if not provided)
-        otel_sink: Optional OTelSink instance (default created if not provided)
         routing: Maps LuthienRecord types to list of sink names
         default_sinks: Sink names to use for unspecified record types
     """
@@ -96,7 +117,6 @@ class ObservabilityConfig(TypedDict, total=False):
     stdout_sink: "LuthienRecordSink | None"
     db_sink: "LuthienRecordSink | None"
     redis_sink: "LuthienRecordSink | None"
-    otel_sink: "LuthienRecordSink | None"
     routing: dict[type[LuthienRecord], list[SinkName]]
     default_sinks: list[SinkName]
 
@@ -143,9 +163,13 @@ class ObservabilityContext(ABC):
 class NoOpObservabilityContext(ObservabilityContext):
     """No-op implementation for testing."""
 
-    def __init__(self, *args, **kwargs):
-        """Initialize NoOpObservabilityContext."""
-        # Arguments accepted for signature compatibility but unused
+    def __init__(self, transaction_id: str, config: "ObservabilityConfig | None" = None):
+        """Initialize NoOpObservabilityContext.
+
+        Args:
+            transaction_id: Unique identifier (unused in no-op implementation)
+            config: Optional sink configuration (unused in no-op implementation)
+        """
         from opentelemetry.trace import INVALID_SPAN
 
         self._span = INVALID_SPAN
@@ -166,23 +190,23 @@ class DefaultObservabilityContext(ObservabilityContext):
     def __init__(
         self,
         transaction_id: str,
-        span: Span,
         config: ObservabilityConfig | None = None,
         # Backward compatibility parameters (DEPRECATED)
-        db_pool: "DatabasePool | None" = None,  # type: ignore
-        event_publisher: "RedisEventPublisher | None" = None,  # type: ignore
+        db_pool: "DatabasePool | None" = None,
+        event_publisher: "RedisEventPublisher | None" = None,
     ):
         """Initialize DefaultObservabilityContext.
 
         Args:
             transaction_id: Unique identifier for this transaction
-            span: OpenTelemetry span for distributed tracing
             config: Optional sink configuration (uses defaults if not provided)
             db_pool: DEPRECATED - pass DatabaseSink in config instead
             event_publisher: DEPRECATED - pass RedisSink in config instead
         """
+        from opentelemetry import trace
+
         self._transaction_id = transaction_id
-        self._span = span
+        self._span = trace.get_current_span()  # Get auto-instrumented span
         self._config = config or {}
 
         # Store deprecated parameters for backward compatibility
@@ -192,7 +216,6 @@ class DefaultObservabilityContext(ObservabilityContext):
         # Build sink registry with defaults
         from luthien_proxy.observability.sinks import (
             DatabaseSink,
-            OTelSink,
             RedisSink,
             StdoutSink,
         )
@@ -201,7 +224,6 @@ class DefaultObservabilityContext(ObservabilityContext):
             "stdout": self._config.get("stdout_sink") or StdoutSink(),
             "db": self._config.get("db_sink") or DatabaseSink(None),  # type: ignore
             "redis": self._config.get("redis_sink") or RedisSink(None),  # type: ignore
-            "otel": self._config.get("otel_sink") or OTelSink(span),
         }
 
         # Routing configuration
@@ -220,6 +242,11 @@ class DefaultObservabilityContext(ObservabilityContext):
 
         Args:
             record: Structured record to emit
+
+        Note:
+            Span enrichment should be done at strategic points (policy decisions,
+            LLM calls, errors) rather than on every record emission. See telemetry.py
+            for span usage patterns.
         """
         # Determine which sinks should receive this record
         sink_names = self._routing.get(type(record), self._default_sink_names)
