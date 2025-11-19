@@ -340,23 +340,25 @@ class PolicyManager:
             )
             if row:
                 enabled_at_value = row["enabled_at"]
-                # Type checker doesn't know row values are datetime objects
-                # Use hasattr check and explicit cast for type safety
-                if enabled_at_value and hasattr(enabled_at_value, "isoformat"):
-                    enabled_at = enabled_at_value.isoformat()  # type: ignore[union-attr]
-                else:
-                    enabled_at = None
+                if not isinstance(enabled_at_value, datetime):
+                    raise TypeError(f"enabled_at must be datetime, got {type(enabled_at_value)}")
+                enabled_at = enabled_at_value.isoformat()
                 enabled_by_value = row["enabled_by"]
                 enabled_by = str(enabled_by_value) if enabled_by_value else None
         except Exception as e:
             logger.warning(f"Could not fetch policy metadata from DB: {e}")
+
+        # Get config if the policy has a get_config method
+        config = {}
+        if hasattr(self._current_policy, "get_config") and callable(getattr(self._current_policy, "get_config")):
+            config = getattr(self._current_policy, "get_config")()
 
         return PolicyInfo(
             policy=self._current_policy.__class__.__name__,
             class_ref=f"{self._current_policy.__module__}:{self._current_policy.__class__.__name__}",
             enabled_at=enabled_at,
             enabled_by=enabled_by,
-            config=self._current_policy.get_config() if hasattr(self._current_policy, "get_config") else {},  # type: ignore
+            config=config,
             source_info=await self.get_policy_source_info(),
         )
 
