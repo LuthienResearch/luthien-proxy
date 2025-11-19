@@ -146,29 +146,10 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ## Observability Strategy: Custom ObservabilityContext (2025-11-18)
 
-**Decision**: Keep custom `ObservabilityContext` abstraction for multi-destination event emission, but simplify and clarify the architecture.
-
-**Current architecture**:
-- **Layer 1 (Application)**: Code calls `obs_ctx.record(PipelineRecord(...))` or `logger.info()`
-- **Layer 2 (ObservabilityContext)**: Routes events to multiple sinks (Loki, PostgreSQL, Redis, OTel)
-- **Layer 3 (Sinks)**: Write to specific destinations (never called directly from app code)
-
-**Key principles**:
-1. **Sinks should be configurable** - Not hardcoded to "send to all 4 sinks", make routing configurable per environment
-2. **Don't wrap OTel** - Expose span directly (`obs_ctx.span.set_attribute()`) rather than wrapping OTel's API
-3. **Structured events via LuthienRecord** - Standard format for business events (e.g., `PipelineRecord`)
-4. **Regular logs via Python logging** - Operational logs use standard `logger.info/warning/error`
-
-**Rationale**:
-- Custom solution justified: Multi-destination requirement, transaction context threading, typed structured records
-- Close to a clean solution: ObservabilityContext is lightweight facade, not heavy abstraction
-- Alternative considered: `structlog` with custom processors - would reduce maintenance burden but requires migration
-- Decision: Keep custom approach for now, revisit `structlog` if complexity grows
+**Decision** `ObservabilityContext.record` + `trace.get_current_span()`
 
 **Next steps** (deferred):
 - Make sinks configurable (env-based: dev uses fewer sinks than prod)
-- Remove OTel wrappers, expose span directly
-- Document clear rules: when to use `obs_ctx.record()` vs `logger.info()` vs `obs_ctx.span`
 - Consider `structlog` migration if observability logic becomes harder to maintain
 
 ---
