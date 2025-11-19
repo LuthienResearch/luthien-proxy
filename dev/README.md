@@ -108,7 +108,7 @@ Client Response
 
 **Key directories**:
 
-- `src/luthien_proxy/v2/` - V2 gateway implementation
+- `src/luthien_proxy/` - Gateway implementation
   - `control/` - Policy orchestration
   - `policies/` - Event-driven policy implementations
   - `streaming/` - Streaming pipeline components

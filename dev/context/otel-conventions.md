@@ -530,11 +530,11 @@ async def process_request(self, request: Request, ctx: PolicyContext) -> Request
 
 See these files for reference implementations:
 
-- [src/luthien_proxy/v2/telemetry.py](../../src/luthien_proxy/v2/telemetry.py) - OTel setup
-- [src/luthien_proxy/v2/main.py](../../src/luthien_proxy/v2/main.py) - Gateway spans
-- [src/luthien_proxy/v2/control/local.py](../../src/luthien_proxy/v2/control/local.py) - Control plane spans
-- [src/luthien_proxy/v2/policies/context.py](../../src/luthien_proxy/v2/policies/context.py) - PolicyContext.emit()
-- [src/luthien_proxy/v2/observability/bridge.py](../../src/luthien_proxy/v2/observability/bridge.py) - Redis events
+- [src/luthien_proxy/telemetry.py](../../src/luthien_proxy/telemetry.py) - OTel setup
+- [src/luthien_proxy/main.py](../../src/luthien_proxy/main.py) - Gateway spans
+- [src/luthien_proxy/control/local.py](../../src/luthien_proxy/control/local.py) - Control plane spans
+- [src/luthien_proxy/policy_core/policy_context.py](../../src/luthien_proxy/policy_core/policy_context.py) - PolicyContext.emit()
+- [src/luthien_proxy/observability/redis_event_publisher.py](../../src/luthien_proxy/observability/redis_event_publisher.py) - Redis events
 
 ---
 

@@ -9,12 +9,12 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ## V2 Architecture Overview (2025-10-24)
 
-- **V2 Gateway** (`src/luthien_proxy/v2/`): Integrated FastAPI + LiteLLM application with built-in policy enforcement
-- **Control Plane** (`src/luthien_proxy/v2/control/`): Policy orchestration for request/response processing
-- **Policies** (`src/luthien_proxy/v2/policies/`): Event-driven policy implementations
-- **Storage** (`src/luthien_proxy/v2/storage/`): Conversation event persistence with background queue
-- **Streaming** (`src/luthien_proxy/v2/streaming/`): Streaming pipeline and orchestration
-- **Observability** (`src/luthien_proxy/v2/observability/`): OpenTelemetry integration for tracing
+- **Gateway** (`src/luthien_proxy/`): Integrated FastAPI + LiteLLM application with built-in policy enforcement
+- **Control Plane** (`src/luthien_proxy/control/`): Policy orchestration for request/response processing
+- **Policies** (`src/luthien_proxy/policies/`): Event-driven policy implementations
+- **Storage** (`src/luthien_proxy/storage/`): Conversation event persistence with background queue
+- **Streaming** (`src/luthien_proxy/streaming/`): Streaming pipeline and orchestration
+- **Observability** (`src/luthien_proxy/observability/`): OpenTelemetry integration for tracing
 
 Integrated architecture - everything runs in single V2 gateway process.
 
