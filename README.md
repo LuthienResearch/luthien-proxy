@@ -77,14 +77,11 @@ from luthien_proxy.policies.simple_policy import SimplePolicy
 class MyCustomPolicy(SimplePolicy):
     """Block dangerous commands before they execute."""
 
-    RULES = [
-        "Never allow 'rm -rf' commands",
-        "Block requests to delete production data",
-        "Prevent executing untrusted code"
-    ]
-
-    # SimplePolicy handles the LLM judge logic for you!
-    # Just define your rules above.
+    async def simple_on_response_content(self, content: str, context) -> str:
+        # Implement your custom logic here
+        if "rm -rf" in content:
+            return "⛔ BLOCKED: Dangerous command detected"
+        return content
 ```
 
 Restart the gateway and your policy appears in the Policy Config UI automatically.
