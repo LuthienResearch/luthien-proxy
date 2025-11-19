@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Policy Configuration - Luthien Proxy</title>
+    <style>
+        /* Theme Variables */
+        :root {
+            /* Backgrounds */
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #141414;
+            --bg-tertiary: #1a1a1a;
+
+            /* Text */
+            --text-primary: #e5e5e5;
+            --text-secondary: #888;
+            --text-tertiary: #666;
+
+            /* Borders */
+            --border-color: #262626;
+            --border-light: #333;
+
+            /* Status Colors */
+            --color-success: #4ade80;
+            --color-error: #f87171;
+            --color-warning: #f59e0b;
+            --color-info: #2563eb;
+            --color-neutral: #06b6d4;
+
+            /* Spacing */
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 12px;
+            --spacing-lg: 16px;
+            --spacing-xl: 24px;
+            --spacing-2xl: 32px;
+
+            /* Border Radius */
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 8px;
+        }
+
+        /* Base Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            font-size: 13px;
+        }
+
+        /* Navigation Header */
+        .nav-header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: var(--spacing-lg) var(--spacing-xl);
+        }
+
+        .nav-header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: var(--spacing-lg);
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 13px;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-primary);
+        }
+
+        .nav-links a.active {
+            color: var(--color-info);
+            font-weight: 600;
+        }
+
+        .nav-links a.active::after {
+            content: " ●";
+            font-size: 8px;
+            vertical-align: middle;
+        }
+
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: var(--spacing-2xl);
+        }
+
+        /* Page Title */
+        .page-title {
+            margin-bottom: var(--spacing-2xl);
+        }
+
+        .page-title h2 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .page-title .subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* Stepper */
+        .stepper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: var(--spacing-2xl) 0;
+            gap: var(--spacing-md);
+        }
+
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: var(--spacing-sm);
+            cursor: pointer;
+        }
+
+        .step.disabled {
+            cursor: not-allowed;
+        }
+
+        .step-circle {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: 2px solid var(--border-light);
+            background: var(--bg-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 16px;
+            color: var(--text-secondary);
+            transition: all 0.3s;
+        }
+
+        .step.active .step-circle {
+            background: var(--color-info);
+            border-color: var(--color-info);
+            color: white;
+        }
+
+        .step.completed .step-circle {
+            background: var(--color-success);
+            border-color: var(--color-success);
+            color: white;
+        }
+
+        .step.completed .step-circle::before {
+            content: "✓";
+        }
+
+        .step-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-align: center;
+            max-width: 120px;
+        }
+
+        .step.active .step-label {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .step-line {
+            width: 100px;
+            height: 2px;
+            background: var(--border-light);
+            margin: 0 var(--spacing-md);
+        }
+
+        .step-line.completed {
+            background: var(--color-success);
+        }
+
+        /* Step Content */
+        .step-content {
+            display: none;
+        }
+
+        .step-content.active {
+            display: block;
+        }
+
+        /* Policy Card */
+        .policy-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            margin-bottom: var(--spacing-lg);
+            transition: all 0.2s;
+        }
+
+        .policy-card:hover {
+            border-color: var(--border-light);
+        }
+
+        .policy-card.selected {
+            border-color: var(--color-success);
+            border-width: 2px;
+            background: #0a1f0a;
+        }
+
+        .policy-card h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: var(--spacing-md);
+            color: var(--text-primary);
+        }
+
+        .policy-description {
+            font-size: 14px;
+            color: var(--text-primary);
+            margin-bottom: var(--spacing-md);
+        }
+
+        .policy-example {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-sm);
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        }
+
+        .policy-usecase {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-style: italic;
+            margin-bottom: var(--spacing-lg);
+        }
+
+        .policy-card-footer {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        /* Buttons */
+        button {
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        button:hover:not(:disabled) {
+            border-color: var(--color-info);
+            background: var(--bg-tertiary);
+        }
+
+        button.primary {
+            background: var(--color-info);
+            border-color: var(--color-info);
+            color: white;
+        }
+
+        button.primary:hover:not(:disabled) {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        button.success {
+            background: var(--color-success);
+            border-color: var(--color-success);
+            color: white;
+        }
+
+        /* Confirmation Box */
+        .confirmation-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .confirmation-box h3 {
+            font-size: 18px;
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .confirmation-box .description {
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .what-happens {
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .what-happens h4 {
+            font-size: 14px;
+            margin-bottom: var(--spacing-md);
+            color: var(--text-primary);
+        }
+
+        .what-happens ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .what-happens li {
+            padding-left: var(--spacing-lg);
+            margin-bottom: var(--spacing-sm);
+            position: relative;
+        }
+
+        .what-happens li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: var(--color-info);
+        }
+
+        /* Status Box */
+        .status-box {
+            background: #1e3a5f;
+            border: 1px solid var(--color-info);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-lg);
+            color: #60a5fa;
+        }
+
+        .status-box.error {
+            background: #4d1a1a;
+            border-color: var(--color-error);
+            color: #fca5a5;
+        }
+
+        .status-box.success {
+            background: #0a3d0a;
+            border-color: var(--color-success);
+            color: var(--color-success);
+        }
+
+        .status-box p {
+            margin-bottom: var(--spacing-sm);
+            line-height: 1.8;
+        }
+
+        .status-box p:last-child {
+            margin-bottom: 0;
+        }
+
+        .status-icon {
+            margin-right: var(--spacing-sm);
+        }
+
+        .button-group {
+            display: flex;
+            justify-content: center;
+            gap: var(--spacing-md);
+        }
+
+        /* Test Prompt Box */
+        .test-prompt-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+        }
+
+        .test-prompt-box h3 {
+            font-size: 18px;
+            margin-bottom: var(--spacing-md);
+        }
+
+        .test-prompt-box .instructions {
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-lg);
+        }
+
+        .prompt-textarea {
+            width: 100%;
+            min-height: 100px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+            resize: vertical;
+        }
+
+        .prompt-textarea:focus {
+            outline: none;
+            border-color: var(--color-info);
+        }
+
+        .copy-button-container {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .test-status {
+            margin-top: var(--spacing-xl);
+            padding: var(--spacing-lg);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+        }
+
+        .test-status.waiting {
+            color: var(--text-secondary);
+        }
+
+        .test-status.detected {
+            background: #0a3d0a;
+            border-color: var(--color-success);
+            color: var(--text-primary);
+        }
+
+        .call-id {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            color: var(--color-info);
+            font-size: 12px;
+        }
+
+        .result-links {
+            margin-top: var(--spacing-lg);
+        }
+
+        .result-links h4 {
+            font-size: 14px;
+            margin-bottom: var(--spacing-md);
+        }
+
+        .result-links a {
+            display: block;
+            color: var(--color-info);
+            text-decoration: none;
+            margin-bottom: var(--spacing-sm);
+            transition: color 0.2s;
+        }
+
+        .result-links a:hover {
+            color: #60a5fa;
+        }
+
+        .result-links a::after {
+            content: " →";
+        }
+
+        /* Loading Animation */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .spinner {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+        }
+
+        /* Troubleshooting */
+        .troubleshooting {
+            margin-top: var(--spacing-lg);
+        }
+
+        .troubleshooting h4 {
+            font-size: 14px;
+            margin-bottom: var(--spacing-md);
+        }
+
+        .troubleshooting ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .troubleshooting li {
+            padding-left: var(--spacing-lg);
+            margin-bottom: var(--spacing-sm);
+            position: relative;
+        }
+
+        .troubleshooting li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+        }
+
+        .troubleshooting code {
+            background: var(--bg-primary);
+            padding: 2px 6px;
+            border-radius: var(--radius-sm);
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Header -->
+    <div class="nav-header">
+        <h1>Luthien Proxy</h1>
+        <div class="nav-links">
+            <a href="/activity/monitor">Activity Monitor</a>
+            <a href="/policy-config" class="active">Policy Config</a>
+            <a href="/debug/diff">Diff Viewer</a>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Page Title -->
+        <div class="page-title">
+            <h2>Policy Configuration</h2>
+            <p class="subtitle">Live configuration and testing of Luthien policies</p>
+        </div>
+
+        <!-- Stepper -->
+        <div class="stepper">
+            <div class="step active" data-step="1" id="step-indicator-1">
+                <div class="step-circle">1</div>
+                <div class="step-label">Select Policy</div>
+            </div>
+            <div class="step-line" id="line-1"></div>
+            <div class="step" data-step="2" id="step-indicator-2">
+                <div class="step-circle">2</div>
+                <div class="step-label">Enable & Test</div>
+            </div>
+            <div class="step-line" id="line-2"></div>
+            <div class="step" data-step="3" id="step-indicator-3">
+                <div class="step-circle">3</div>
+                <div class="step-label">Try out Policy</div>
+            </div>
+        </div>
+
+        <!-- Step 1: Select Policy -->
+        <div class="step-content active" id="step-1">
+            <div class="policy-grid">
+                <!-- Policies loaded dynamically from /admin/policy/list -->
+            </div>
+        </div>
+
+        <!-- Step 2: Enable & Test -->
+        <div class="step-content" id="step-2">
+            <div class="confirmation-box">
+                <h3>You selected: <span id="selected-policy-name"></span></h3>
+                <p class="description" id="selected-policy-description"></p>
+
+                <div class="what-happens">
+                    <h4>What happens next:</h4>
+                    <ul>
+                        <li>Policy instance will be created and saved</li>
+                        <li>Policy will become active immediately</li>
+                    </ul>
+                </div>
+
+                <div id="status-container"></div>
+
+                <div class="button-group">
+                    <button class="primary" id="create-activate-btn">Create & Activate</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Try out Policy -->
+        <div class="step-content" id="step-3">
+            <div class="test-prompt-box">
+                <h3>Test the <span id="test-policy-name"></span></h3>
+                <p class="instructions">Copy this test prompt and paste it into your Claude Code terminal:</p>
+
+                <textarea class="prompt-textarea" id="test-prompt" readonly></textarea>
+
+                <div class="copy-button-container">
+                    <button id="copy-prompt-btn">Copy Prompt</button>
+                </div>
+
+                <div class="test-status waiting" id="test-status">
+                    <p><span class="status-icon spinner">⏳</span> Waiting for test request...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/policy_config.js"></script>
+</body>
+</html>

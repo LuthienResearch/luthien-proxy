@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import AsyncContextManager, AsyncIterator, Awaitable, Callable, Mapping, Protocol, Sequence
+from typing import AsyncContextManager, AsyncIterator, Awaitable, Callable, Mapping, Protocol, Sequence, cast
 
 import asyncpg
 
@@ -18,11 +18,19 @@ class ConnectionProtocol(Protocol):
 
     async def execute(self, query: str, *args: object) -> object: ...
 
+    def transaction(self) -> AsyncContextManager[None]: ...
+
 
 class PoolProtocol(Protocol):
     def acquire(self) -> AsyncContextManager[ConnectionProtocol]: ...
 
     async def close(self) -> None: ...
+
+    async def fetch(self, query: str, *args: object) -> Sequence[Mapping[str, object]]: ...
+
+    async def fetchrow(self, query: str, *args: object) -> Mapping[str, object] | None: ...
+
+    async def execute(self, query: str, *args: object) -> object: ...
 
 
 ConnectFn = Callable[[str], Awaitable[ConnectionProtocol]]
@@ -35,8 +43,20 @@ def get_connector() -> ConnectFn:
 
 
 def get_pool_factory() -> PoolFactory:
-    """Return the default asyncpg pool factory."""
-    return asyncpg.create_pool
+    """Return the default asyncpg pool factory.
+
+    Note: asyncpg.create_pool returns a Pool object that implements __await__,
+    making it compatible with Awaitable[PoolProtocol]. The type checker may not
+    recognize this due to incomplete type stubs.
+    """
+
+    # asyncpg.create_pool returns Pool which implements __await__
+    # Cast to satisfy type checker while maintaining runtime correctness
+    async def _pool_factory(*args: object, **kwargs: object) -> PoolProtocol:
+        pool = await asyncpg.create_pool(*args, **kwargs)
+        return cast(PoolProtocol, pool)
+
+    return _pool_factory
 
 
 async def open_connection(connect: ConnectFn | None = None, url: str | None = None) -> ConnectionProtocol:
