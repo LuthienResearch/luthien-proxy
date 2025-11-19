@@ -382,13 +382,13 @@ async def list_available_policies(
             example_config={},
         ),
         PolicyClassInfo(
-            name="SimplePolicy",
-            class_ref="luthien_proxy.policies.simple_policy:SimplePolicy",
-            description="LLM-based tool call judge that evaluates safety before allowing tool execution",
+            name="SimpleJudgePolicy",
+            class_ref="luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
+            description="Easy-to-customize LLM judge for content and tool calls - just define RULES in a subclass",
             config_schema={
                 "judge_model": {
                     "type": "string",
-                    "description": "Model to use for judging tool calls",
+                    "description": "Model to use for judging",
                     "default": "claude-3-5-sonnet-20241022",
                 },
                 "judge_temperature": {
@@ -398,17 +398,18 @@ async def list_available_policies(
                     "minimum": 0.0,
                     "maximum": 2.0,
                 },
-                "allowed_tools": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of tool names that are allowed (empty = all allowed)",
-                    "default": [],
+                "block_threshold": {
+                    "type": "number",
+                    "description": "Confidence threshold for blocking (0-1)",
+                    "default": 0.7,
+                    "minimum": 0.0,
+                    "maximum": 1.0,
                 },
             },
             example_config={
                 "judge_model": "claude-3-5-sonnet-20241022",
                 "judge_temperature": 0.0,
-                "allowed_tools": ["read_file", "write_file"],
+                "block_threshold": 0.7,
             },
         ),
         PolicyClassInfo(
