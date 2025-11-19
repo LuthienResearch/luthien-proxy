@@ -340,11 +340,12 @@ class PolicyManager:
             )
             if row:
                 enabled_at_value = row["enabled_at"]
-                enabled_at = (
-                    enabled_at_value.isoformat()
-                    if enabled_at_value and hasattr(enabled_at_value, "isoformat")
-                    else None
-                )  # type: ignore[union-attr]
+                # Type checker doesn't know row values are datetime objects
+                # Use hasattr check and explicit cast for type safety
+                if enabled_at_value and hasattr(enabled_at_value, "isoformat"):
+                    enabled_at = enabled_at_value.isoformat()  # type: ignore[union-attr]
+                else:
+                    enabled_at = None
                 enabled_by_value = row["enabled_by"]
                 enabled_by = str(enabled_by_value) if enabled_by_value else None
         except Exception as e:
