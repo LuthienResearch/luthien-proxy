@@ -144,6 +144,14 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 **Key separation**: ObservabilityContext is immutable (tracing), PolicyContext is mutable (scratchpad for policy state).
 
+## Observability Strategy: Custom ObservabilityContext (2025-11-18)
+
+**Decision** `ObservabilityContext.record` + `trace.get_current_span()`
+
+**Next steps** (deferred):
+- Make sinks configurable (env-based: dev uses fewer sinks than prod)
+- Consider `structlog` migration if observability logic becomes harder to maintain
+
 ---
 
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)
