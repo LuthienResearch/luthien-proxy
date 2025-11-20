@@ -124,15 +124,6 @@ def create_app(
 
         # Store dependencies container in app state
         app.state.dependencies = _dependencies
-
-        # Also store individual items for backward compatibility during transition
-        app.state.db_pool = _db_pool
-        app.state.redis_client = _redis_client
-        app.state.event_publisher = _dependencies.event_publisher
-        app.state.policy_manager = _policy_manager
-        app.state.policy = _policy_manager.current_policy
-        app.state.api_key = api_key
-        app.state.admin_key = admin_key
         logger.info("Dependencies container initialized")
 
         yield

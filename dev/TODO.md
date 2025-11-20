@@ -2,7 +2,6 @@
 
 ## High Priority
 
-- [ ] **Remove backward compatibility app.state assignments** - Now that admin routes use DI, remove duplicate `app.state.*` assignments in `main.py` (lines that set db_pool, redis_client, etc. on app.state)
 - [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
   - Update `policy_config.js` to call `/admin/policy/enable` instead of mocking
   - Add admin key input/storage (prompt on first use, store in sessionStorage)
