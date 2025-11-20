@@ -230,6 +230,7 @@ async def create_policy(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# TODO: the actual logic here should be farmed out to a policy manager module
 @router.post("/policy/activate", response_model=PolicyEnableResponse)
 async def activate_policy(
     body: PolicyActivateRequest,
@@ -251,14 +252,9 @@ async def activate_policy(
         if not row:
             raise HTTPException(status_code=404, detail=f"Policy instance '{body.name}' not found")
 
-        # Validate config
-        config = row["config"]
-        if not isinstance(config, dict):
-            logger.error(f"Invalid config type for policy '{body.name}': {type(config)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Policy instance '{body.name}' has corrupted config (expected dict, got {type(config).__name__})",
-            )
+        # Parse config (handle both dict from JSONB and string from JSON)
+        config_value = row["config"]
+        config = config_value if isinstance(config_value, dict) else json.loads(str(config_value))
 
         # Activate it
         result: PolicyEnableResult = await manager.enable_policy(
