@@ -2,6 +2,9 @@
 
 ## High Priority
 
+- [ ] **Migrate admin routes to use DI pattern** - Update `admin/routes.py` to use `Depends()` instead of `request.app.state`:
+  - Lines 134, 171, 195, 235-236, 273, 309, 325 still use `getattr(request.app.state, ...)`
+  - Once migrated, remove backward compatibility `app.state.*` assignments in `main.py`
 - [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
   - Update `policy_config.js` to call `/admin/policy/enable` instead of mocking
   - Add admin key input/storage (prompt on first use, store in sessionStorage)
