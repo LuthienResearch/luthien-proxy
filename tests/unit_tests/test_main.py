@@ -91,6 +91,14 @@ class TestCreateApp:
                 assert app.state.redis_client == mock_redis_instance
                 assert app.state.event_publisher is not None
 
+                # Verify dependencies container is set up
+                from luthien_proxy.dependencies import Dependencies
+
+                assert hasattr(app.state, "dependencies")
+                assert isinstance(app.state.dependencies, Dependencies)
+                assert app.state.dependencies.llm_client is not None
+                assert app.state.dependencies.api_key == "test-api-key"
+
             # Verify cleanup was called
             mock_db_instance.close.assert_called_once()
             mock_redis_instance.close.assert_called_once()
