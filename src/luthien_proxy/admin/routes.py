@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from datetime import datetime
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from luthien_proxy.dependencies import get_admin_key, get_db_pool, get_policy_manager
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
@@ -20,6 +22,7 @@ from luthien_proxy.policy_manager import (
     _import_policy_class,
     _instantiate_policy,
 )
+from luthien_proxy.utils import db
 
 logger = logging.getLogger(__name__)
 
@@ -118,12 +121,14 @@ class PolicyInstancesResponse(BaseModel):
 async def verify_admin_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    admin_key: str | None = Depends(get_admin_key),
 ) -> str:
     """Verify admin API key from Authorization header.
 
     Args:
         request: FastAPI request object
         credentials: HTTP Bearer credentials
+        admin_key: Admin API key from dependencies
 
     Returns:
         Admin API key if valid
@@ -131,8 +136,6 @@ async def verify_admin_token(
     Raises:
         HTTPException: 403 if admin key is invalid or missing
     """
-    admin_key = getattr(request.app.state, "admin_key", None)
-
     if not admin_key:
         raise HTTPException(
             status_code=500,
@@ -158,8 +161,8 @@ async def verify_admin_token(
 
 @router.get("/policy/current", response_model=PolicyCurrentResponse)
 async def get_current_policy(
-    request: Request,
     _: str = Depends(verify_admin_token),
+    manager: PolicyManager = Depends(get_policy_manager),
 ):
     """Get currently active policy with metadata.
 
@@ -168,8 +171,6 @@ async def get_current_policy(
 
     Requires admin authentication.
     """
-    manager: PolicyManager = request.app.state.policy_manager
-
     try:
         policy_info: PolicyInfo = await manager.get_current_policy()
         return PolicyCurrentResponse(
@@ -187,12 +188,13 @@ async def get_current_policy(
 
 @router.post("/policy/create", response_model=PolicyEnableResponse)
 async def create_policy(
-    request: Request,
     body: PolicyCreateRequest,
     _: str = Depends(verify_admin_token),
+    db_pool: db.DatabasePool | None = Depends(get_db_pool),
 ):
     """Create a named policy instance without activating it."""
-    db_pool = request.app.state.db_pool
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database not available")
 
     try:
         # Validate policy can be instantiated
@@ -215,6 +217,9 @@ async def create_policy(
                 body.created_by,
             )
 
+        if row is None:
+            raise HTTPException(status_code=500, detail="Failed to create policy instance")
+
         return PolicyEnableResponse(
             success=True,
             message=f"Created policy instance '{body.name}' (ID: {row['id']})",
@@ -227,13 +232,14 @@ async def create_policy(
 
 @router.post("/policy/activate", response_model=PolicyEnableResponse)
 async def activate_policy(
-    request: Request,
     body: PolicyActivateRequest,
     _: str = Depends(verify_admin_token),
+    manager: PolicyManager = Depends(get_policy_manager),
+    db_pool: db.DatabasePool | None = Depends(get_db_pool),
 ):
     """Activate a saved policy instance by name."""
-    manager: PolicyManager = request.app.state.policy_manager
-    db_pool = request.app.state.db_pool
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database not available")
 
     try:
         # Load instance from database
@@ -269,9 +275,6 @@ async def activate_policy(
                 troubleshooting=result.troubleshooting,
             )
 
-        # Update app.state.policy
-        request.app.state.policy = manager.current_policy
-
         # Mark as active in database (atomic transaction)
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -296,8 +299,8 @@ async def activate_policy(
 
 @router.get("/policy/source-info", response_model=PolicySourceInfoResponse)
 async def get_policy_source_info(
-    request: Request,
     _: str = Depends(verify_admin_token),
+    manager: PolicyManager = Depends(get_policy_manager),
 ):
     """Get information about policy source configuration.
 
@@ -306,8 +309,6 @@ async def get_policy_source_info(
 
     Requires admin authentication.
     """
-    manager: PolicyManager = request.app.state.policy_manager
-
     try:
         source_info = await manager.get_policy_source_info()
         return PolicySourceInfoResponse(**source_info)
@@ -318,11 +319,12 @@ async def get_policy_source_info(
 
 @router.get("/policy/instances", response_model=PolicyInstancesResponse)
 async def list_policy_instances(
-    request: Request,
     _: str = Depends(verify_admin_token),
+    db_pool: db.DatabasePool | None = Depends(get_db_pool),
 ):
     """List all saved policy instances."""
-    db_pool = request.app.state.db_pool
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database not available")
     pool = await db_pool.get_pool()
 
     rows = await pool.fetch(
@@ -335,12 +337,12 @@ async def list_policy_instances(
 
     instances = [
         PolicyInstanceInfo(
-            id=row["id"],
+            id=cast(int, row["id"]),
             name=str(row["name"]) if row["name"] else f"policy-{row['id']}",
             policy_class_ref=str(row["policy_class_ref"]),
             config=row["config"] if isinstance(row["config"], dict) else {},
             description=str(row["description"]) if row["description"] else None,
-            created_at=row["created_at"].isoformat()
+            created_at=cast(datetime, row["created_at"]).isoformat()
             if hasattr(row["created_at"], "isoformat")
             else str(row["created_at"]),
             is_active=bool(row["is_active"]),
