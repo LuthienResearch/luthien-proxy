@@ -61,10 +61,9 @@ security = HTTPBearer(auto_error=False)
 def verify_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    api_key: str = Depends(get_api_key),
 ) -> str:
     """Verify API key from either Authorization header or x-api-key header."""
-    api_key = get_api_key(request)
-
     if credentials and credentials.credentials == api_key:
         return credentials.credentials
 

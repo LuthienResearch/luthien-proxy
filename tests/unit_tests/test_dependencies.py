@@ -8,7 +8,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from redis.asyncio import Redis
 
@@ -187,7 +187,7 @@ class TestFastAPIDependsFunctions:
         app, expected_deps = app_with_dependencies
 
         @app.get("/test")
-        def test_endpoint(deps: Dependencies = pytest.importorskip("fastapi").Depends(get_dependencies)):
+        def test_endpoint(deps: Dependencies = Depends(get_dependencies)):
             return {"has_deps": deps is not None}
 
         with TestClient(app) as client:
@@ -200,7 +200,7 @@ class TestFastAPIDependsFunctions:
         app = app_without_dependencies
 
         @app.get("/test")
-        def test_endpoint(deps: Dependencies = pytest.importorskip("fastapi").Depends(get_dependencies)):
+        def test_endpoint(deps: Dependencies = Depends(get_dependencies)):
             return {"deps": deps}
 
         with TestClient(app) as client:
@@ -213,7 +213,7 @@ class TestFastAPIDependsFunctions:
         app, deps = app_with_dependencies
 
         @app.get("/test")
-        def test_endpoint(pool=pytest.importorskip("fastapi").Depends(get_db_pool)):
+        def test_endpoint(pool=Depends(get_db_pool)):
             return {"has_pool": pool is not None}
 
         with TestClient(app) as client:
@@ -226,7 +226,7 @@ class TestFastAPIDependsFunctions:
         app, deps = app_with_dependencies
 
         @app.get("/test")
-        def test_endpoint(redis=pytest.importorskip("fastapi").Depends(get_redis_client)):
+        def test_endpoint(redis=Depends(get_redis_client)):
             return {"has_redis": redis is not None}
 
         with TestClient(app) as client:
@@ -239,7 +239,7 @@ class TestFastAPIDependsFunctions:
         app, deps = app_with_dependencies
 
         @app.get("/test")
-        def test_endpoint(llm=pytest.importorskip("fastapi").Depends(get_llm_client)):
+        def test_endpoint(llm=Depends(get_llm_client)):
             return {"has_llm": llm is not None}
 
         with TestClient(app) as client:
@@ -252,7 +252,7 @@ class TestFastAPIDependsFunctions:
         app, deps = app_with_dependencies
 
         @app.get("/test")
-        def test_endpoint(publisher=pytest.importorskip("fastapi").Depends(get_event_publisher)):
+        def test_endpoint(publisher=Depends(get_event_publisher)):
             return {"has_publisher": publisher is not None}
 
         with TestClient(app) as client:
@@ -265,7 +265,7 @@ class TestFastAPIDependsFunctions:
         app, deps = app_with_dependencies
 
         @app.get("/test")
-        def test_endpoint(policy=pytest.importorskip("fastapi").Depends(get_policy)):
+        def test_endpoint(policy=Depends(get_policy)):
             return {"policy_type": type(policy).__name__}
 
         with TestClient(app) as client:
@@ -278,7 +278,7 @@ class TestFastAPIDependsFunctions:
         app, deps = app_with_dependencies
 
         @app.get("/test")
-        def test_endpoint(manager=pytest.importorskip("fastapi").Depends(get_policy_manager)):
+        def test_endpoint(manager=Depends(get_policy_manager)):
             return {"has_manager": manager is not None}
 
         with TestClient(app) as client:
@@ -291,7 +291,7 @@ class TestFastAPIDependsFunctions:
         app, deps = app_with_dependencies
 
         @app.get("/test")
-        def test_endpoint(key=pytest.importorskip("fastapi").Depends(get_api_key)):
+        def test_endpoint(key=Depends(get_api_key)):
             return {"key": key}
 
         with TestClient(app) as client:
@@ -304,7 +304,7 @@ class TestFastAPIDependsFunctions:
         app, deps = app_with_dependencies
 
         @app.get("/test")
-        def test_endpoint(key=pytest.importorskip("fastapi").Depends(get_admin_key)):
+        def test_endpoint(key=Depends(get_admin_key)):
             return {"key": key}
 
         with TestClient(app) as client:
