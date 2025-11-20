@@ -111,7 +111,7 @@ test_endpoint "claude-sonnet-4-5 (non-streaming)" \
 
 # Test claude-sonnet-4-5 streaming
 test_endpoint "claude-sonnet-4-5 (streaming)" \
-    "curl -sf $GATEWAY_URL/v1/messages -H 'Content-Type: application/json' -H 'Authorization: Bearer $API_KEY' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"claude-sonnet-4-5\",\"messages\":[{\"role\":\"user\",\"content\":\"Count to 3\"}],\"max_tokens\":50,\"stream\":true}' | head -5" \
+    "curl -sf $GATEWAY_URL/v1/messages -H 'Content-Type: application/json' -H 'Authorization: Bearer $API_KEY' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"claude-sonnet-4-5\",\"messages\":[{\"role\":\"user\",\"content\":\"Count to 3\"}],\"max_tokens\":50,\"stream\":true}' | head -10" \
     "validate_anthropic_streaming"
 
 echo ""
