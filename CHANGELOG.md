@@ -2,6 +2,10 @@
 
 ## Unreleased | TBA
 
+- Fix ToolCallJudgePolicy inheritance to use BasePolicy instead of PolicyProtocol (#62)
+  - Resolves gateway startup failure when ToolCallJudgePolicy is configured
+  - Override `on_chunk_received()` to prevent duplicate token streaming bug
+  - Fix test mock signature to match `call_judge()` parameters
 - Dependency injection improvements (#dependency-injection)
   - Add `Dependencies` container class for centralized service management
   - Create FastAPI `Depends()` functions for type-safe dependency access
