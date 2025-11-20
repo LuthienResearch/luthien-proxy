@@ -47,6 +47,7 @@ from luthien_proxy.policies.tool_call_judge_utils import (
 from luthien_proxy.policy_core import (
     create_text_chunk,
     create_text_response,
+    create_tool_call_chunk,
     extract_tool_calls_from_response,
 )
 
@@ -294,10 +295,24 @@ class ToolCallJudgePolicy(BasePolicy):
 
                 return
             else:
-                # PASSED - forward the tool call by reconstructing it in the current chunk
+                # PASSED - forward the tool call by reconstructing it
                 logger.debug(f"Passed tool call '{tool_call['name']}' for call {call_id}")
-                # Note: In a real implementation, we'd need to reconstruct the tool call chunks
-                # For simplicity, we'll just let it pass through by not blocking
+
+                # Create a simple object that create_tool_call_chunk can use
+                class ToolCallObj:
+                    def __init__(self, tc_dict: dict[str, Any]):
+                        self.id = tc_dict.get("id", "")
+
+                        class FunctionObj:
+                            def __init__(self, name: str, arguments: str):
+                                self.name = name
+                                self.arguments = arguments
+
+                        self.function = FunctionObj(tc_dict.get("name", ""), tc_dict.get("arguments", ""))
+
+                tool_call_obj = ToolCallObj(tool_call)
+                tool_chunk = create_tool_call_chunk(tool_call_obj)
+                await ctx.egress_queue.put(tool_chunk)
 
         # Clean up buffered data
         for key in keys_to_judge:
@@ -425,6 +440,7 @@ class ToolCallJudgePolicy(BasePolicy):
                     "probability": judge_result.probability,
                 },
             )
+            return None  # Tool call allowed
 
         # Blocked! Create blocked response
         logger.warning(
