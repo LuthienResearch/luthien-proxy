@@ -2,6 +2,13 @@
 
 ## Unreleased | TBA
 
+- Dependency injection improvements (#dependency-injection)
+  - Add `Dependencies` container class for centralized service management
+  - Create FastAPI `Depends()` functions for type-safe dependency access
+  - Derive `event_publisher` lazily from `redis_client` (no duplicate storage)
+  - Create `LLMClient` once at startup instead of per-request instantiation
+  - Replace `getattr(app.state, ...)` pattern with proper DI
+
 - Observability improvements (#observability-refactor)
   - Refactored `LuthienPayloadRecord` → `PipelineRecord` with simplified all-primitive interface
   - Renamed `payload_type` → `pipeline_stage` for better semantics
