@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
+from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policies.tool_call_judge_utils import (
     JudgeConfig,
     call_judge,
@@ -48,12 +49,11 @@ from luthien_proxy.policy_core import (
     create_text_response,
     extract_tool_calls_from_response,
 )
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 
 logger = logging.getLogger(__name__)
 
 
-class ToolCallJudgePolicy(PolicyProtocol):
+class ToolCallJudgePolicy(BasePolicy):
     """Policy that evaluates tool calls with a judge LLM and blocks harmful ones.
 
     This policy demonstrates buffering, external LLM calls, and content replacement.
@@ -143,6 +143,15 @@ class ToolCallJudgePolicy(PolicyProtocol):
             f"threshold={self._config.probability_threshold}, "
             f"api_base={self._config.api_base}"
         )
+
+    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
+        """Don't push chunks here - specific delta handlers handle it.
+
+        This overrides BasePolicy.on_chunk_received() which would push every chunk,
+        causing duplicates since our delta handlers (on_content_delta, on_tool_call_delta)
+        also push chunks.
+        """
+        pass  # Intentionally empty - let on_content_delta and on_tool_call_delta handle pushing
 
     async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
         """Forward content deltas as-is.

@@ -187,7 +187,7 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
         ctx.original_streaming_response_state.just_completed = block
 
         # Mock the judge to always return high probability (block)
-        async def mock_call_judge(name, arguments):
+        async def mock_call_judge(name, arguments, config, judge_instructions):
             from luthien_proxy.policies.tool_call_judge_utils import JudgeResult
 
             return JudgeResult(
