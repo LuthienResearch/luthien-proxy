@@ -63,7 +63,7 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra -m 'not e2e and not integration' --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal --disable-socket --allow-unix-socket"
+addopts = "-q -ra -m 'not e2e and not integration' --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
@@ -96,5 +96,4 @@ dev = [
     "ruff>=0.12.10",
     "pyright",
     "radon>=6.0.1",
-    "pytest-socket>=0.7.0",
 ]
