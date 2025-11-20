@@ -45,18 +45,12 @@ These scripts automatically configure the proxy settings. All requests now flow 
 
 ### 3. Monitor Activity
 
-<<<<<<< HEAD
 Open the Activity Monitor in your browser to see requests in real-time:
 
 ```
 http://localhost:8000/activity/monitor
-=======
-Open the Activity Monitor to see requests in real-time:
-
-```bash
-open http://localhost:8000/activity/monitor
->>>>>>> 4567320 (Add SimpleJudgePolicy for easy custom judges)
 ```
+
 
 Watch as requests flow through, see policy decisions, and inspect before/after diffs.
 
