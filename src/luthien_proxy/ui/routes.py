@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from redis.asyncio import Redis
 
+from luthien_proxy.dependencies import get_redis_client
 from luthien_proxy.observability import stream_activity_events
 
 router = APIRouter(prefix="", tags=["ui"])
@@ -21,7 +22,9 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 
 
 @router.get("/activity/stream")
-async def activity_stream(request: Request):
+async def activity_stream(
+    redis_client: Redis | None = Depends(get_redis_client),
+):
     """Server-Sent Events stream of activity events.
 
     This endpoint streams all gateway activity in real-time for debugging.
@@ -30,7 +33,6 @@ async def activity_stream(request: Request):
     Returns:
         StreamingResponse with Server-Sent Events (text/event-stream)
     """
-    redis_client: Redis | None = request.app.state.redis_client
     if not redis_client:
         raise HTTPException(
             status_code=503,

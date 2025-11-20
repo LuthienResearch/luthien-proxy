@@ -84,12 +84,20 @@ class TestCreateApp:
                 # Verify telemetry was setup
                 mock_setup_telemetry.assert_called_once_with(app)
 
-                # Verify app state was initialized
-                assert app.state.api_key == "test-api-key"
-                assert app.state.policy_manager is not None
-                assert app.state.db_pool == mock_db_instance
-                assert app.state.redis_client == mock_redis_instance
-                assert app.state.event_publisher is not None
+                # Verify dependencies container is set up
+                from luthien_proxy.dependencies import Dependencies
+
+                assert hasattr(app.state, "dependencies")
+                assert isinstance(app.state.dependencies, Dependencies)
+
+                # Verify all dependencies are properly initialized via container
+                deps = app.state.dependencies
+                assert deps.api_key == "test-api-key"
+                assert deps.policy_manager is not None
+                assert deps.db_pool == mock_db_instance
+                assert deps.redis_client == mock_redis_instance
+                assert deps.event_publisher is not None
+                assert deps.llm_client is not None
 
             # Verify cleanup was called
             mock_db_instance.close.assert_called_once()
@@ -281,7 +289,7 @@ class TestCreateApp:
 
             with TestClient(app):
                 # Verify the policy manager was initialized
-                assert app.state.policy_manager is not None
+                assert app.state.dependencies.policy_manager is not None
 
     def test_create_app_static_files_mounted(self, policy_config_file):
         """Test that static files are properly mounted."""

@@ -1,7 +1,11 @@
 # ABOUTME: LLMClient abstract interface for LLM backend communication
 # ABOUTME: Defines stream() and complete() methods for streaming and non-streaming responses
 
-"""Module docstring."""
+"""Abstract LLM client interface for backend communication.
+
+Defines the LLMClient abstract base class with stream() and complete() methods
+for streaming and non-streaming LLM responses respectively.
+"""
 
 from __future__ import annotations
 

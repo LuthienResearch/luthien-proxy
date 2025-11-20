@@ -16,7 +16,14 @@ from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from opentelemetry import trace
 
-from luthien_proxy.llm.litellm_client import LiteLLMClient
+from luthien_proxy.dependencies import (
+    get_api_key,
+    get_db_pool,
+    get_event_publisher,
+    get_llm_client,
+    get_policy,
+)
+from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.llm.llm_format_utils import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
@@ -54,10 +61,9 @@ security = HTTPBearer(auto_error=False)
 def verify_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    api_key: str = Depends(get_api_key),
 ) -> str:
     """Verify API key from either Authorization header or x-api-key header."""
-    api_key = request.app.state.api_key
-
     if credentials and credentials.credentials == api_key:
         return credentials.credentials
 
@@ -80,6 +86,10 @@ def hash_api_key(key: str) -> str:
 async def chat_completions(
     request: Request,
     _: str = Depends(verify_token),
+    db_pool: db.DatabasePool | None = Depends(get_db_pool),
+    event_publisher: RedisEventPublisher | None = Depends(get_event_publisher),
+    policy: PolicyProtocol = Depends(get_policy),
+    llm_client: LLMClient = Depends(get_llm_client),
 ):
     """OpenAI-compatible chat completions endpoint."""
     # Check request size (default 10MB limit)
@@ -88,13 +98,6 @@ async def chat_completions(
 
     body = await request.json()
     call_id = str(uuid.uuid4())
-
-    # Get dependencies from app state
-    db_pool: db.DatabasePool | None = getattr(request.app.state, "db_pool", None)
-    event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
-    if not hasattr(request.app.state, "policy"):
-        raise HTTPException(status_code=500, detail="Policy not configured in application state")
-    policy: PolicyProtocol = request.app.state.policy
 
     # Create request message
     request_message = RequestMessage(**body)
@@ -175,9 +178,7 @@ async def chat_completions(
     # Track final request sent to backend
     await transaction.track_backend_request(final_request)
 
-    # Call backend LLM
-    llm_client = LiteLLMClient()
-
+    # Call backend LLM (llm_client injected via Depends)
     if is_streaming:
         # Get backend stream and process through pipeline
         backend_stream = await llm_client.stream(final_request)
@@ -216,6 +217,10 @@ async def chat_completions(
 async def anthropic_messages(
     request: Request,
     _: str = Depends(verify_token),
+    db_pool: db.DatabasePool | None = Depends(get_db_pool),
+    event_publisher: RedisEventPublisher | None = Depends(get_event_publisher),
+    policy: PolicyProtocol = Depends(get_policy),
+    llm_client: LLMClient = Depends(get_llm_client),
 ):
     """Anthropic Messages API endpoint."""
     # Check request size (default 10MB limit)
@@ -224,13 +229,6 @@ async def anthropic_messages(
 
     anthropic_body = await request.json()
     call_id = str(uuid.uuid4())
-
-    # Get dependencies from app state
-    db_pool: db.DatabasePool | None = getattr(request.app.state, "db_pool", None)
-    event_publisher: RedisEventPublisher | None = getattr(request.app.state, "event_publisher", None)
-    if not hasattr(request.app.state, "policy"):
-        raise HTTPException(status_code=500, detail="Policy not configured in application state")
-    policy: PolicyProtocol = request.app.state.policy
 
     # Get auto-instrumented span (created by FastAPIInstrumentor)
     span = trace.get_current_span()
@@ -342,9 +340,7 @@ async def anthropic_messages(
     # Track final request sent to backend
     await transaction.track_backend_request(final_request)
 
-    # Call backend LLM
-    llm_client = LiteLLMClient()
-
+    # Call backend LLM (llm_client injected via Depends)
     if is_streaming:
         # Get backend stream and process through pipeline
         backend_stream = await llm_client.stream(final_request)

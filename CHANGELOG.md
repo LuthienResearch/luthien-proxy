@@ -6,6 +6,12 @@
   - Resolves gateway startup failure when ToolCallJudgePolicy is configured
   - Override `on_chunk_received()` to prevent duplicate token streaming bug
   - Fix test mock signature to match `call_judge()` parameters
+- Dependency injection improvements (#dependency-injection)
+  - Add `Dependencies` container class for centralized service management
+  - Create FastAPI `Depends()` functions for type-safe dependency access
+  - Derive `event_publisher` lazily from `redis_client` (no duplicate storage)
+  - Create `LLMClient` once at startup instead of per-request instantiation
+  - Replace `getattr(app.state, ...)` pattern with proper DI
 
 - Observability improvements (#observability-refactor)
   - Refactored `LuthienPayloadRecord` → `PipelineRecord` with simplified all-primitive interface
