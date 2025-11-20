@@ -134,12 +134,20 @@ class RedisSink(LuthienRecordSink):
 
     async def write(self, record: LuthienRecord) -> None:
         """Write record to Redis pub/sub."""
+        if not self._event_publisher:
+            return
+
         try:
-            # TODO: Implement Redis pub/sub logic
-            # For now, just log that we would publish to Redis
-            logger.debug(
-                f"RedisSink would publish {record.record_type} record "
-                f"(transaction_id={getattr(record, 'transaction_id', 'N/A')})"
+            transaction_id = getattr(record, "transaction_id", "unknown")
+            event_type = f"record.{record.record_type}"
+
+            # Build event data from record fields
+            data = {k: v for k, v in vars(record).items() if not k.startswith("_")}
+
+            await self._event_publisher.publish_event(
+                call_id=transaction_id,
+                event_type=event_type,
+                data=data,
             )
         except Exception as e:
             logger.warning(f"RedisSink failed to write record: {e}", exc_info=True)
