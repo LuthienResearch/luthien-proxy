@@ -163,21 +163,22 @@ def create_app(
     return app
 
 
-__all__ = ["create_app"]
+def load_config_from_env() -> dict:
+    """Load and validate configuration from environment variables.
 
+    Returns:
+        Dictionary with configuration values ready for create_app()
 
-if __name__ == "__main__":
-    # === CONFIGURATION ===
-    # Get configuration from environment
+    Raises:
+        ValueError: If required environment variables are missing or invalid
+    """
     api_key = os.getenv("PROXY_API_KEY")
     if api_key is None:
         raise ValueError("PROXY_API_KEY environment variable required")
 
     admin_key = os.getenv("ADMIN_API_KEY")
-    if admin_key:
-        logger.info("Admin API key configured (policy management enabled)")
-    else:
-        logger.warning("ADMIN_API_KEY not set - admin endpoints will return 500")
+    if admin_key is None:
+        raise ValueError("ADMIN_API_KEY environment variable required")
 
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
     database_url = os.getenv("DATABASE_URL", "")
@@ -193,16 +194,22 @@ if __name__ == "__main__":
     if policy_source not in valid_sources:
         raise ValueError(f"Invalid POLICY_SOURCE={policy_source}. Must be one of: {', '.join(valid_sources)}")
 
-    logger.info(f"Policy configuration: source={policy_source}, path={policy_config_path}")
+    return {
+        "api_key": api_key,
+        "admin_key": admin_key,
+        "database_url": database_url,
+        "redis_url": redis_url,
+        "policy_source": policy_source,
+        "policy_config_path": policy_config_path,
+    }
 
-    # Create app with factory function
-    app = create_app(
-        api_key=api_key,
-        admin_key=admin_key,
-        database_url=database_url,
-        redis_url=redis_url,
-        policy_source=policy_source,
-        policy_config_path=policy_config_path,
-    )
 
+__all__ = ["create_app", "load_config_from_env"]
+
+
+if __name__ == "__main__":
+    config = load_config_from_env()
+    logger.info(f"Policy configuration: source={config['policy_source']}, path={config['policy_config_path']}")
+
+    app = create_app(**config)
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug")

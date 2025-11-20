@@ -10,7 +10,66 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from luthien_proxy.main import create_app
+from luthien_proxy.main import create_app, load_config_from_env
+
+
+class TestLoadConfigFromEnv:
+    """Test load_config_from_env function for environment variable validation."""
+
+    def test_missing_admin_api_key_raises_error(self, monkeypatch):
+        """Test that missing ADMIN_API_KEY raises ValueError."""
+        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+        monkeypatch.delenv("ADMIN_API_KEY", raising=False)
+
+        with pytest.raises(ValueError, match="ADMIN_API_KEY environment variable required"):
+            load_config_from_env()
+
+    def test_missing_proxy_api_key_raises_error(self, monkeypatch):
+        """Test that missing PROXY_API_KEY raises ValueError."""
+        monkeypatch.delenv("PROXY_API_KEY", raising=False)
+        monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+
+        with pytest.raises(ValueError, match="PROXY_API_KEY environment variable required"):
+            load_config_from_env()
+
+    def test_missing_database_url_raises_error(self, monkeypatch):
+        """Test that missing DATABASE_URL raises ValueError."""
+        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+
+        with pytest.raises(ValueError, match="DATABASE_URL environment variable required"):
+            load_config_from_env()
+
+    def test_invalid_policy_source_raises_error(self, monkeypatch):
+        """Test that invalid POLICY_SOURCE raises ValueError."""
+        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+        monkeypatch.setenv("POLICY_SOURCE", "invalid-source")
+
+        with pytest.raises(ValueError, match="Invalid POLICY_SOURCE"):
+            load_config_from_env()
+
+    def test_valid_config_returns_dict(self, monkeypatch):
+        """Test that valid configuration returns expected dictionary."""
+        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6380")
+        monkeypatch.setenv("POLICY_SOURCE", "file")
+        monkeypatch.setenv("POLICY_CONFIG", "custom/path.yaml")
+
+        config = load_config_from_env()
+
+        assert config["api_key"] == "test-proxy-key"
+        assert config["admin_key"] == "test-admin-key"
+        assert config["database_url"] == "postgresql://test:test@localhost/test"
+        assert config["redis_url"] == "redis://localhost:6380"
+        assert config["policy_source"] == "file"
+        assert config["policy_config_path"] == "custom/path.yaml"
 
 
 @pytest.fixture
