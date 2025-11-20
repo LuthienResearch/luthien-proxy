@@ -17,12 +17,15 @@ from redis.asyncio import Redis
 
 from luthien_proxy.admin import router as admin_router
 from luthien_proxy.debug import router as debug_router
+from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.gateway_routes import router as gateway_router
-from luthien_proxy.observability import RedisEventPublisher
+from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.telemetry import setup_telemetry
 from luthien_proxy.ui import router as ui_router
 from luthien_proxy.utils import db
+
+# Note: RedisEventPublisher is created inside Dependencies container
 
 logger = logging.getLogger(__name__)
 
@@ -83,14 +86,6 @@ def create_app(
             logger.warning(f"Failed to connect to Redis: {exc}. Event publisher will be disabled.")
             _redis_client = None
 
-        # Initialize event publisher for real-time UI
-        _event_publisher: RedisEventPublisher | None = None
-        if _redis_client:
-            _event_publisher = RedisEventPublisher(_redis_client)
-            logger.info("Event publisher initialized for real-time UI")
-        else:
-            logger.info("Event publisher disabled (no Redis)")
-
         # Initialize PolicyManager with configured source precedence
         _policy_manager: PolicyManager | None = None
         if _db_pool and _redis_client:
@@ -113,15 +108,32 @@ def create_app(
             logger.error("Cannot initialize PolicyManager without database and Redis")
             raise RuntimeError("Database and Redis required for PolicyManager")
 
-        # Store everything in app state for dependency injection
+        # Create LLM client (singleton for the app lifetime)
+        _llm_client = LiteLLMClient()
+        logger.info("LLM client initialized")
+
+        # Create Dependencies container with all services
+        _dependencies = Dependencies(
+            db_pool=_db_pool,
+            redis_client=_redis_client,
+            llm_client=_llm_client,
+            policy_manager=_policy_manager,
+            api_key=api_key,
+            admin_key=admin_key,
+        )
+
+        # Store dependencies container in app state
+        app.state.dependencies = _dependencies
+
+        # Also store individual items for backward compatibility during transition
         app.state.db_pool = _db_pool
         app.state.redis_client = _redis_client
-        app.state.event_publisher = _event_publisher
+        app.state.event_publisher = _dependencies.event_publisher
         app.state.policy_manager = _policy_manager
-        app.state.policy = _policy_manager.current_policy  # For backward compat with gateway routes
+        app.state.policy = _policy_manager.current_policy
         app.state.api_key = api_key
         app.state.admin_key = admin_key
-        logger.info("App state initialized")
+        logger.info("Dependencies container initialized")
 
         yield
 
