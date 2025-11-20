@@ -2,6 +2,11 @@
 
 ## Unreleased | TBA
 
+- Fix ToolCallJudgePolicy inheritance to use BasePolicy instead of PolicyProtocol (#62)
+  - Resolves gateway startup failure when ToolCallJudgePolicy is configured
+  - Override `on_chunk_received()` to prevent duplicate token streaming bug
+  - Fix test mock signature to match `call_judge()` parameters
+
 - Observability improvements (#observability-refactor)
   - Refactored `LuthienPayloadRecord` → `PipelineRecord` with simplified all-primitive interface
   - Renamed `payload_type` → `pipeline_stage` for better semantics
