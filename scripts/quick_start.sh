@@ -144,21 +144,22 @@ done
 echo "✅ Redis is ready"
 
 # Start single-container local-llm (Ollama with native OpenAI API)
-echo "🧰 Starting local-llm (Ollama with built-in OpenAI API)..."
-docker compose up -d local-llm
-
-echo "⏳ Waiting for Ollama OpenAI API to be ready..."
-ollama_port="${OLLAMA_PORT:-11434}"
-timeout=120
-while ! curl -sf "http://localhost:${ollama_port}/v1/models" > /dev/null 2>&1; do
-    sleep 2
-    timeout=$((timeout - 2))
-    if [ $timeout -le 0 ]; then
-        echo "❌ Ollama OpenAI API failed to start within expected time"
-        exit 1
-    fi
-done
-echo "✅ Ollama OpenAI API is ready"
+# Commented out for faster startup - uncomment if you need local models
+# echo "🧰 Starting local-llm (Ollama with built-in OpenAI API)..."
+# docker compose up -d local-llm
+#
+# echo "⏳ Waiting for Ollama OpenAI API to be ready..."
+# ollama_port="${OLLAMA_PORT:-11434}"
+# timeout=120
+# while ! curl -sf "http://localhost:${ollama_port}/v1/models" > /dev/null 2>&1; do
+#     sleep 2
+#     timeout=$((timeout - 2))
+#     if [ $timeout -le 0 ]; then
+#         echo "❌ Ollama OpenAI API failed to start within expected time"
+#         exit 1
+#     fi
+# done
+# echo "✅ Ollama OpenAI API is ready"
 
 # Start gateway (integrated FastAPI + LiteLLM)
 echo "🚀 Starting gateway (integrated proxy)..."
@@ -167,7 +168,7 @@ docker compose up -d gateway
 # Wait for services to be healthy
 echo "⏳ Waiting for services to be healthy..."
 services_healthy=true
-for service in gateway local-llm; do
+for service in gateway; do
     if ! wait_for_service "$service" 60; then
         services_healthy=false
     fi
