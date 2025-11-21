@@ -35,23 +35,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # DB migrations (runs once before services start)
-  db-migrations:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.gateway
-    command: ["uv", "run", "prisma", "migrate", "deploy", "--schema", "prisma/control_plane/schema.prisma"]
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-    volumes:
-      - ./src:/app/src:ro
-      - ./config:/app/config:ro
-      - ./prisma:/app/prisma:ro
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: "no"
-
   # Single-container local LLM gateway (Ollama + LiteLLM)
   local-llm:
     build:
@@ -98,8 +81,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      db-migrations:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

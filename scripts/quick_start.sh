@@ -117,10 +117,6 @@ docker compose down --remove-orphans
 echo "🐳 Starting core services..."
 docker compose up -d db redis
 
-# Run database migrations
-echo "🔄 Running database migrations..."
-docker compose up db-migrations
-
 # Wait for database to be ready
 echo "⏳ Waiting for PostgreSQL to be ready..."
 timeout=30
