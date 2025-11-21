@@ -167,6 +167,36 @@ class TestCreateToolCallChunk:
 
         assert chunk1.id != chunk2.id
 
+    def test_uses_streaming_choices_not_choices(self):
+        """Test that tool call chunks use StreamingChoices for proper streaming format.
+
+        This ensures the chunk only has 'delta' field, not 'message' field,
+        which is required for OpenAI streaming format compatibility.
+        """
+        from litellm.types.utils import StreamingChoices
+
+        tool_call = ChatCompletionMessageToolCall(
+            id="call-123",
+            type="function",
+            function=Function(
+                name="get_weather",
+                arguments='{"location": "NYC"}',
+            ),
+        )
+
+        chunk = create_tool_call_chunk(tool_call)
+
+        # Verify it's a StreamingChoices, not Choices
+        assert isinstance(chunk.choices[0], StreamingChoices)
+
+        # StreamingChoices has delta but not message
+        assert hasattr(chunk.choices[0], "delta")
+        # When serialized, should not have 'message' key at top level of choice
+        choice_dict = chunk.choices[0].model_dump()
+        assert "delta" in choice_dict
+        # message should be None or not present for streaming
+        assert choice_dict.get("message") is None
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

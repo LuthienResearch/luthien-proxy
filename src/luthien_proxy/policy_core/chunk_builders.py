@@ -110,7 +110,7 @@ def create_tool_call_chunk(tool_call: Any, model: str = "luthien-policy") -> Mod
     return ModelResponse(
         id=unique_id,
         choices=[
-            Choices(
+            StreamingChoices(
                 index=0,
                 delta=Delta(tool_calls=[tool_call_dict]),
                 finish_reason="tool_calls",
