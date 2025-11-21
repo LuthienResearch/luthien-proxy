@@ -12,10 +12,16 @@ chunks without needing to understand the full ModelResponse structure.
 from __future__ import annotations
 
 import time
-from typing import Any
 from uuid import uuid4
 
-from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
+from litellm.types.utils import (
+    ChatCompletionMessageToolCall,
+    Choices,
+    Delta,
+    Message,
+    ModelResponse,
+    StreamingChoices,
+)
 
 
 def create_text_response(
@@ -83,7 +89,7 @@ def create_text_chunk(
     )
 
 
-def create_tool_call_chunk(tool_call: Any, model: str = "luthien-policy") -> ModelResponse:
+def create_tool_call_chunk(tool_call: ChatCompletionMessageToolCall, model: str = "luthien-policy") -> ModelResponse:
     """Create a streaming chunk with a complete tool call.
 
     Args:

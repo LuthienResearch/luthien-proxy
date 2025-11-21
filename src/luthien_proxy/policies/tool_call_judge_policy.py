@@ -31,7 +31,13 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, cast
 
-from litellm.types.utils import Choices, ModelResponse, StreamingChoices
+from litellm.types.utils import (
+    ChatCompletionMessageToolCall,
+    Choices,
+    Function,
+    ModelResponse,
+    StreamingChoices,
+)
 
 if TYPE_CHECKING:
     from luthien_proxy.observability.context import ObservabilityContext
@@ -298,19 +304,14 @@ class ToolCallJudgePolicy(BasePolicy):
                 # PASSED - forward the tool call by reconstructing it
                 logger.debug(f"Passed tool call '{tool_call['name']}' for call {call_id}")
 
-                # Create a simple object that create_tool_call_chunk can use
-                class ToolCallObj:
-                    def __init__(self, tc_dict: dict[str, Any]):
-                        self.id = tc_dict.get("id", "")
-
-                        class FunctionObj:
-                            def __init__(self, name: str, arguments: str):
-                                self.name = name
-                                self.arguments = arguments
-
-                        self.function = FunctionObj(tc_dict.get("name", ""), tc_dict.get("arguments", ""))
-
-                tool_call_obj = ToolCallObj(tool_call)
+                # Create proper ChatCompletionMessageToolCall object
+                tool_call_obj = ChatCompletionMessageToolCall(
+                    id=tool_call.get("id", ""),
+                    function=Function(
+                        name=tool_call.get("name", ""),
+                        arguments=tool_call.get("arguments", ""),
+                    ),
+                )
                 tool_chunk = create_tool_call_chunk(tool_call_obj)
                 await ctx.egress_queue.put(tool_chunk)
 
