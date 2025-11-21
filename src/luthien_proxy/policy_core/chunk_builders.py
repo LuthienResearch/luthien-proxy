@@ -99,9 +99,7 @@ def create_tool_call_chunk(tool_call: ChatCompletionMessageToolCall, model: str 
     Returns:
         A ModelResponse chunk with the tool call
     """
-    import random
-
-    unique_id = f"policy-tool-{int(time.time() * 1000)}-{random.randint(1000, 9999)}"
+    unique_id = f"policy-tool-{uuid4()}"
 
     # Convert tool call to dict format expected in delta
     tool_call_dict = {
