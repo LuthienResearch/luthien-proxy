@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
-from luthien_proxy.llm.anthropic_sse_assembler import AnthropicSSEAssembler
+from luthien_proxy.streaming.client_formatter.anthropic_sse_assembler import AnthropicSSEAssembler
 
 
 class TestAnthropicSSEAssembler:

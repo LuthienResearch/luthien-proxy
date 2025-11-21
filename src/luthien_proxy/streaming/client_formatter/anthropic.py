@@ -9,9 +9,9 @@ import logging
 
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.llm.anthropic_sse_assembler import AnthropicSSEAssembler
 from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.policy_core.policy_context import PolicyContext
+from luthien_proxy.streaming.client_formatter.anthropic_sse_assembler import AnthropicSSEAssembler
 
 logger = logging.getLogger(__name__)
 
