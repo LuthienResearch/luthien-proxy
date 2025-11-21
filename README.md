@@ -13,7 +13,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Clone and start everything
 git clone https://github.com/LuthienResearch/luthien-proxy
 cd luthien-proxy
-git checkout user-testing  # For now, use the user-testing branch
 
 # Configure API keys
 cp .env.example .env
