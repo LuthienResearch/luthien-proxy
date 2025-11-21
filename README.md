@@ -299,6 +299,58 @@ The gateway integrates everything into a single FastAPI application:
 
 All API requests require the `Authorization: Bearer <PROXY_API_KEY>` header.
 
+### Admin API
+
+Admin endpoints manage policies at runtime without requiring a restart. All admin requests require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+**Get current policy:**
+
+```bash
+curl http://localhost:8000/admin/policy/current \
+  -H "Authorization: Bearer admin-dev-key"
+```
+
+**Create a named policy instance:**
+
+```bash
+curl -X POST http://localhost:8000/admin/policy/create \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer admin-dev-key" \
+  -d '{
+    "name": "my-policy",
+    "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
+    "config": {
+      "model": "openai/gpt-4o-mini",
+      "probability_threshold": 0.99,
+      "temperature": 0.0,
+      "max_tokens": 256
+    }
+  }'
+```
+
+**Activate a policy:**
+
+```bash
+curl -X POST http://localhost:8000/admin/policy/activate \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer admin-dev-key" \
+  -d '{"name": "my-policy"}'
+```
+
+**List available policy classes:**
+
+```bash
+curl http://localhost:8000/admin/policy/list \
+  -H "Authorization: Bearer admin-dev-key"
+```
+
+**List saved policy instances:**
+
+```bash
+curl http://localhost:8000/admin/policy/instances \
+  -H "Authorization: Bearer admin-dev-key"
+```
+
 ## Policy System
 
 The gateway uses an event-driven policy architecture with streaming support.
