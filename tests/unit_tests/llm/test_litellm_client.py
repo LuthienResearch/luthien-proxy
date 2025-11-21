@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.llm.litellm_client import LiteLLMClient, _normalize_model_name
+from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.messages import Request
 
 
@@ -173,36 +173,3 @@ async def test_stream_excludes_none_values(sample_request, sample_chunks):
         call_kwargs = mock_completion.call_args.kwargs
         assert "max_tokens" not in call_kwargs
         assert call_kwargs["temperature"] == 0.7
-
-
-class TestNormalizeModelName:
-    """Tests for _normalize_model_name function."""
-
-    def test_gpt_models_get_openai_prefix(self):
-        """Test that GPT models get openai/ prefix."""
-        assert _normalize_model_name("gpt-4") == "openai/gpt-4"
-        assert _normalize_model_name("gpt-3.5-turbo") == "openai/gpt-3.5-turbo"
-        assert _normalize_model_name("gpt-5.1-codex-max") == "openai/gpt-5.1-codex-max"
-
-    def test_o1_o3_models_get_openai_prefix(self):
-        """Test that o1/o3 models get openai/ prefix."""
-        assert _normalize_model_name("o1-preview") == "openai/o1-preview"
-        assert _normalize_model_name("o1-mini") == "openai/o1-mini"
-        assert _normalize_model_name("o3-mini") == "openai/o3-mini"
-
-    def test_legacy_models_get_openai_prefix(self):
-        """Test that legacy OpenAI models get openai/ prefix."""
-        assert _normalize_model_name("davinci-002") == "openai/davinci-002"
-        assert _normalize_model_name("babbage-002") == "openai/babbage-002"
-
-    def test_already_prefixed_models_unchanged(self):
-        """Test that models with provider prefix are unchanged."""
-        assert _normalize_model_name("openai/gpt-4") == "openai/gpt-4"
-        assert _normalize_model_name("anthropic/claude-3-opus") == "anthropic/claude-3-opus"
-        assert _normalize_model_name("ollama/llama2") == "ollama/llama2"
-
-    def test_non_openai_models_unchanged(self):
-        """Test that non-OpenAI models without prefix are unchanged."""
-        assert _normalize_model_name("claude-3-opus") == "claude-3-opus"
-        assert _normalize_model_name("llama2") == "llama2"
-        assert _normalize_model_name("gemma2:2b") == "gemma2:2b"
