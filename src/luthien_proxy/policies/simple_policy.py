@@ -157,26 +157,8 @@ class SimplePolicy(BasePolicy):
         tool_call = block.tool_call
         transformed = await self.simple_on_response_tool_call(tool_call, ctx.policy_ctx)
         await send_tool_call(ctx, transformed)
-
-        # After sending tool call, send finish_reason chunk if present
-        # TODO: We should be crafting our own finish_reason chunk here based on tool call outcome
-        # Not using the original finish_reason from the LLM
-        last_chunk = get_last_ingress_chunk(ctx)
-        if last_chunk and last_chunk.choices and last_chunk.choices[0].finish_reason:
-            from litellm.types.utils import Delta, ModelResponse, StreamingChoices
-
-            finish_chunk = ModelResponse(
-                id=last_chunk.id,
-                model=last_chunk.model,
-                choices=[
-                    StreamingChoices(
-                        finish_reason=last_chunk.choices[0].finish_reason,
-                        index=0,
-                        delta=Delta(content=None, role=None),
-                    )
-                ],
-            )
-            await send_chunk(ctx, finish_chunk)
+        # Note: send_tool_call already includes finish_reason="tool_calls" in the chunk,
+        # so we don't need to send a separate finish_reason chunk here
 
     async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
         """Buffer deltas, don't emit yet.

@@ -255,6 +255,56 @@ class TestSimplePolicyToolCallComplete:
         assert ctx.egress_queue.put.called
 
     @pytest.mark.asyncio
+    async def test_on_tool_call_complete_emits_only_one_chunk(self):
+        """Regression test: on_tool_call_complete should emit exactly ONE chunk.
+
+        Previously, SimplePolicy was emitting both the tool call chunk AND a separate
+        finish_reason chunk, causing duplicate message_delta events in Anthropic SSE output.
+        The tool call chunk already includes finish_reason="tool_calls", so no separate
+        finish_reason chunk should be emitted.
+        """
+        policy = NoTransformPolicy()
+
+        # Create a completed tool call block
+        block = ToolCallStreamBlock(id="call-123", index=0, name="get_weather", arguments='{"location": "NYC"}')
+        block.is_complete = True
+
+        # Create raw chunks including one with finish_reason (simulating real stream)
+        raw_chunks = [
+            ModelResponse(
+                id="test",
+                object="chat.completion.chunk",
+                created=123,
+                model="test",
+                choices=[
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call-123",
+                                    "type": "function",
+                                    "function": {"name": "get_weather", "arguments": '{"location": "NYC"}'},
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",  # finish_reason present
+                    }
+                ],
+            ),
+        ]
+
+        ctx = create_mock_context(just_completed=block, raw_chunks=raw_chunks)
+
+        # Call on_tool_call_complete
+        await policy.on_tool_call_complete(ctx)
+
+        # Verify exactly ONE chunk was emitted (the tool call chunk with embedded finish_reason)
+        # NOT two chunks (tool call + separate finish_reason)
+        assert ctx.egress_queue.put.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_on_tool_call_complete_with_transform(self):
         """Test that transformed tool call is emitted when transformation occurs."""
         policy = ToolBlockerPolicy()
