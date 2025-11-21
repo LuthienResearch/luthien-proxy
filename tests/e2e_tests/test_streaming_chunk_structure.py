@@ -12,6 +12,7 @@ These tests verify that the gateway produces properly structured streaming respo
 Based on reference data in _scratch/ showing actual API responses.
 """
 
+import asyncio
 import json
 import os
 import time
@@ -78,6 +79,9 @@ async def noop_policy_active():
 
         if activate_response.status_code != 200:
             raise RuntimeError(f"Failed to activate NoOp policy: {activate_response.text}")
+
+        # Give the policy a moment to activate
+        await asyncio.sleep(0.1)
 
         yield instance_name
 
@@ -727,7 +731,7 @@ async def tool_call_judge_policy_active():
             raise RuntimeError(f"Failed to activate ToolCallJudgePolicy: {activate_response.text}")
 
         # Give the policy a moment to activate
-        time.sleep(0.5)
+        await asyncio.sleep(0.1)
 
         yield instance_name
 
