@@ -78,6 +78,26 @@ class AnthropicSSEAssembler:
             )
             events.append({"type": "content_block_stop", "index": self.block_index})
             self.block_index += 1
+
+            # Check if chunk also has finish_reason and emit message_delta
+            finish_reason = chunk.choices[0].finish_reason
+            if finish_reason:
+                stop_reason_map = {
+                    "stop": "end_turn",
+                    "tool_calls": "tool_use",
+                    "length": "max_tokens",
+                }
+                events.append(
+                    {
+                        "type": "message_delta",
+                        "delta": {
+                            "stop_reason": stop_reason_map.get(finish_reason, finish_reason),
+                            "stop_sequence": None,
+                        },
+                        "usage": {"output_tokens": 0},
+                    }
+                )
+
             return events
 
         # Handle explicit content_block_start from converter

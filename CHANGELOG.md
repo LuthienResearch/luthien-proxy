@@ -2,6 +2,13 @@
 
 ## Unreleased | TBA
 
+- Streaming and Anthropic client fixes (#75)
+  - Fix streaming tool calls missing `message_delta` for Anthropic clients
+  - Refactor `AnthropicSSEAssembler` to `streaming/client_formatter`
+  - Explicitly implement `ClientFormatter` protocol
+  - Fix `ChatCompletionMessageToolCall` typing
+  - Remove model registration logic
+
 - Fix ToolCallJudgePolicy inheritance to use BasePolicy instead of PolicyProtocol (#62)
   - Resolves gateway startup failure when ToolCallJudgePolicy is configured
   - Override `on_chunk_received()` to prevent duplicate token streaming bug

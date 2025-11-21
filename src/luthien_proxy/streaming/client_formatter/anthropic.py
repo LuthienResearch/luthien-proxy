@@ -9,9 +9,10 @@ import logging
 
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.llm.anthropic_sse_assembler import AnthropicSSEAssembler
 from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.policy_core.policy_context import PolicyContext
+from luthien_proxy.streaming.client_formatter.anthropic_sse_assembler import AnthropicSSEAssembler
+from luthien_proxy.streaming.client_formatter.interface import ClientFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 QUEUE_PUT_TIMEOUT = 30.0
 
 
-class AnthropicClientFormatter:
+class AnthropicClientFormatter(ClientFormatter):
     """Converts common format chunks to Anthropic SSE events."""
 
     def __init__(self, model_name: str):

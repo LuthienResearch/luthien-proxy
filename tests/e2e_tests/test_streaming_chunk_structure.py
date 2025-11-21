@@ -12,6 +12,7 @@ These tests verify that the gateway produces properly structured streaming respo
 Based on reference data in _scratch/ showing actual API responses.
 """
 
+import asyncio
 import json
 import os
 import time
@@ -80,7 +81,7 @@ async def noop_policy_active():
             raise RuntimeError(f"Failed to activate NoOp policy: {activate_response.text}")
 
         # Give the policy a moment to activate
-        time.sleep(0.5)
+        await asyncio.sleep(0.1)
 
         yield instance_name
 
@@ -685,6 +686,56 @@ async def test_openai_streaming_tool_call_structure(http_client, noop_policy_act
         )
 
 
+@pytest.fixture(scope="module")
+async def tool_call_judge_policy_active():
+    """Ensure ToolCallJudgePolicy is active for testing buffered tool call emission.
+
+    This policy buffers tool calls and re-emits them using create_tool_call_chunk,
+    which tests the policy-generated streaming format (not passthrough from LiteLLM).
+    """
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
+        instance_name = f"test-tool-judge-streaming-{int(time.time())}"
+
+        # Create ToolCallJudgePolicy instance
+        create_response = await client.post(
+            f"{GATEWAY_URL}/admin/policy/create",
+            headers=admin_headers,
+            json={
+                "name": instance_name,
+                "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
+                "config": {
+                    "model": "openai/gpt-4o-mini",
+                    "probability_threshold": 0.99,  # High threshold = allow most tool calls
+                    "temperature": 0.0,
+                    "max_tokens": 256,
+                },
+                "created_by": "e2e-streaming-tests",
+            },
+        )
+
+        if create_response.status_code != 200:
+            raise RuntimeError(f"Failed to create ToolCallJudgePolicy: {create_response.text}")
+
+        # Activate the policy
+        activate_response = await client.post(
+            f"{GATEWAY_URL}/admin/policy/activate",
+            headers=admin_headers,
+            json={
+                "name": instance_name,
+                "activated_by": "e2e-streaming-tests",
+            },
+        )
+
+        if activate_response.status_code != 200:
+            raise RuntimeError(f"Failed to activate ToolCallJudgePolicy: {activate_response.text}")
+
+        # Give the policy a moment to activate
+        await asyncio.sleep(0.1)
+
+        yield instance_name
+
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_anthropic_streaming_tool_use_structure(http_client, noop_policy_active):
@@ -801,4 +852,112 @@ async def test_anthropic_streaming_tool_use_structure(http_client, noop_policy_a
         assert "stop_reason" in last_message_delta["delta"]
         assert last_message_delta["delta"]["stop_reason"] == "tool_use", (
             "Final message_delta must have stop_reason='tool_use'"
+        )
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_anthropic_buffered_tool_call_emits_message_delta(http_client, tool_call_judge_policy_active):
+    """Test that policy-buffered tool calls emit proper message_delta with stop_reason.
+
+    This test specifically validates the fix for the bug where create_tool_call_chunk
+    was using Choices instead of StreamingChoices, and the AnthropicSSEAssembler
+    wasn't emitting message_delta after complete tool calls.
+
+    The ToolCallJudgePolicy buffers tool calls and re-emits them using
+    create_tool_call_chunk, which exercises the fixed code path.
+    """
+    async with http_client.stream(
+        "POST",
+        f"{GATEWAY_URL}/v1/messages",
+        json={
+            "model": "claude-haiku-4-5",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "What's the weather in San Francisco? Use the get_weather tool.",
+                }
+            ],
+            "tools": [
+                {
+                    "name": "get_weather",
+                    "description": "Get current weather for a location",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "location": {"type": "string", "description": "City name"},
+                        },
+                        "required": ["location"],
+                    },
+                }
+            ],
+            "max_tokens": 150,
+            "stream": True,
+        },
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    ) as response:
+        assert response.status_code == 200
+
+        lines = []
+        async for line in response.aiter_lines():
+            lines.append(line)
+
+        events = parse_anthropic_sse_stream(lines)
+        assert len(events) > 0, "Should have events"
+
+        event_types = [event_type for event_type, _ in events]
+
+        # Should have standard message lifecycle
+        assert event_types[0] == "message_start", "Must start with message_start"
+        assert event_types[-1] == "message_stop", "Must end with message_stop"
+
+        # Find tool_use content_block_start
+        tool_start_events = [
+            (event_type, data)
+            for event_type, data in events
+            if event_type == "content_block_start" and data.get("content_block", {}).get("type") == "tool_use"
+        ]
+
+        assert len(tool_start_events) >= 1, "Should have at least one tool_use content_block_start"
+
+        # Validate tool call structure
+        event_type, tool_start = tool_start_events[0]
+        content_block = tool_start["content_block"]
+        assert content_block["type"] == "tool_use"
+        assert "id" in content_block, "Tool use must have id"
+        assert "name" in content_block, "Tool use must have name"
+        assert content_block["name"] == "get_weather"
+
+        # Find input_json_delta events
+        tool_delta_events = [
+            (event_type, data)
+            for event_type, data in events
+            if event_type == "content_block_delta" and data.get("delta", {}).get("type") == "input_json_delta"
+        ]
+
+        assert len(tool_delta_events) > 0, "Should have input_json_delta events"
+
+        # Accumulate and validate JSON
+        all_json = "".join(data["delta"]["partial_json"] for event_type, data in tool_delta_events)
+        assert len(all_json) > 0, "Tool input JSON must not be empty"
+        tool_input = json.loads(all_json)
+        assert "location" in tool_input, "Tool input must have location parameter"
+
+        # CRITICAL: Find message_delta with stop_reason=tool_use
+        # This is the specific bug we fixed - without this, Claude Code doesn't recognize the tool call
+        message_delta_events = [(event_type, data) for event_type, data in events if event_type == "message_delta"]
+
+        assert len(message_delta_events) >= 1, (
+            "Must have message_delta event - this was the bug! "
+            "Policy-buffered tool calls were not emitting message_delta with stop_reason"
+        )
+
+        # Validate the message_delta has proper stop_reason
+        last_message_delta = message_delta_events[-1][1]
+        assert "delta" in last_message_delta, "message_delta must have delta field"
+        assert "stop_reason" in last_message_delta["delta"], (
+            "message_delta must have stop_reason - clients like Claude Code require this"
+        )
+        assert last_message_delta["delta"]["stop_reason"] == "tool_use", (
+            f"stop_reason must be 'tool_use', got: {last_message_delta['delta'].get('stop_reason')}"
         )

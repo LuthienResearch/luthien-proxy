@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
-from luthien_proxy.llm.anthropic_sse_assembler import AnthropicSSEAssembler
+from luthien_proxy.streaming.client_formatter.anthropic_sse_assembler import AnthropicSSEAssembler
 
 
 class TestAnthropicSSEAssembler:
@@ -262,6 +262,52 @@ class TestAnthropicSSEAssembler:
         assert events2[2]["delta"]["partial_json"] == '{"query":"test"}'
         assert events2[3]["type"] == "content_block_stop"
         assert events2[3]["index"] == 1
+
+    def test_complete_tool_call_with_finish_reason_emits_message_delta(self):
+        """Test that complete tool call with finish_reason emits message_delta.
+
+        This is critical for clients like Claude Code that rely on message_delta
+        with stop_reason='tool_use' to know the tool call stream is complete.
+        """
+        tracker = AnthropicSSEAssembler()
+
+        # Complete tool call with finish_reason in the same chunk
+        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
+
+        chunk = ModelResponse(
+            id="msg_123",
+            choices=[
+                StreamingChoices(
+                    index=0,
+                    delta=Delta(
+                        tool_calls=[
+                            ChatCompletionDeltaToolCall(
+                                id="toolu_789",
+                                function=Function(name="get_weather", arguments='{"location":"NYC"}'),
+                                type="function",
+                                index=0,
+                            )
+                        ],
+                    ),
+                    finish_reason="tool_calls",
+                )
+            ],
+            model="claude-3-5-haiku-20241022",
+        )
+
+        events = tracker.process_chunk(chunk)
+
+        # Should emit: content_block_start, content_block_delta, content_block_stop, message_delta
+        assert len(events) == 4
+        assert events[0]["type"] == "content_block_start"
+        assert events[0]["content_block"]["type"] == "tool_use"
+        assert events[0]["content_block"]["id"] == "toolu_789"
+        assert events[1]["type"] == "content_block_delta"
+        assert events[1]["delta"]["type"] == "input_json_delta"
+        assert events[2]["type"] == "content_block_stop"
+        assert events[3]["type"] == "message_delta"
+        assert events[3]["delta"]["stop_reason"] == "tool_use"
+        assert events[3]["delta"]["stop_sequence"] is None
 
     def test_multiple_content_blocks(self):
         """Test that indices increment correctly for multiple blocks."""

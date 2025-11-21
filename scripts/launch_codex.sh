@@ -47,8 +47,10 @@ echo "📊 Monitor at: http://localhost:${GATEWAY_PORT_VAR}/activity/monitor"
 # Use PROXY_API_KEY for gateway authentication
 export LITELLM_MASTER_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
 
+# TODO: Right now we hardcode gpt-5 model for Codex because 5-1 isn't available on the API yet.
+
 codex \
-  -m gpt-5 \  # temp while 5-1 isn't available via API
+  -m gpt-5 \
   -c model_providers.litellm.name=gateway \
   -c model_providers.litellm.base_url=http://localhost:${GATEWAY_PORT_VAR}/v1 \
   -c model_providers.litellm.env_key=LITELLM_MASTER_KEY \
