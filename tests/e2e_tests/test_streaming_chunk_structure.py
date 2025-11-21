@@ -79,9 +79,6 @@ async def noop_policy_active():
         if activate_response.status_code != 200:
             raise RuntimeError(f"Failed to activate NoOp policy: {activate_response.text}")
 
-        # Give the policy a moment to activate
-        time.sleep(0.5)
-
         yield instance_name
 
 
