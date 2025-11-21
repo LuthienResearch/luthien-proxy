@@ -48,6 +48,12 @@
 - [ ] Add security documentation for dynamic policy loading mechanism (POLICY_CONFIG) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
 - [ ] Verify all environment variables are documented in README and .env.example ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
 - [ ] Add input validation: max request size and message count limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
+- [ ] **Remove Prisma from codebase** - Prisma migrations conflict with SQL migrations in `./migrations/`:
+  - Remove `prisma/` directory
+  - Remove `db-migrations` service from docker-compose.yaml
+  - Remove prisma from pyproject.toml dependencies
+  - Remove prisma migrate steps from CI (.github/workflows/dev-checks.yaml)
+  - SQL migrations in `./migrations/` already handle schema setup via docker-entrypoint-initdb.d
 - [ ] **Fix assertion usage in production code** - Replace `assert` statements with proper error handling:
   - `simple_policy.py:69, 92` - Replace assertions with explicit `if` checks and raise proper exceptions
   - Assertions can be disabled with Python's `-O` flag, making them unreliable for production
