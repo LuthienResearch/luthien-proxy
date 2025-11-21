@@ -96,7 +96,7 @@ async def test_complete_success(sample_request, sample_response):
         assert result == sample_response
         mock_completion.assert_called_once()
         call_kwargs = mock_completion.call_args.kwargs
-        assert call_kwargs["model"] == "openai/gpt-4"  # Normalized with openai/ prefix
+        assert call_kwargs["model"] == "gpt-4"
         assert call_kwargs["stream"] is False
         assert len(call_kwargs["messages"]) == 1
 
