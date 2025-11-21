@@ -275,6 +275,7 @@ The gateway integrates everything into a single FastAPI application:
 
 - **Start here**: [Development docs index](dev/README.md) - Guide to all documentation
 - Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
+- Live policy updates: [dev/LIVE_POLICY_DEMO.md](dev/LIVE_POLICY_DEMO.md) - Switching policies without restart in Claude Code
 - Observability: [dev/observability.md](dev/observability.md) - Tracing and monitoring
 - Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](dev/VIEWING_TRACES_GUIDE.md) - Using Grafana/Tempo
 - Context files: [dev/context/](dev/context/) - Architectural patterns, decisions, and gotchas
