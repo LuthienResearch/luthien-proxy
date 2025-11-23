@@ -13,6 +13,7 @@
   - Test first tool call content is preserved (not empty)
   - Consider using actual Claude Code or Codex as test clients if feasible
   - These tests would have caught the duplicate response and empty first tool call bugs
+- [ ] **Test mixed content + tool calls edge case** - Currently on_content_complete emits finish_reason for content and on_stream_complete emits for tool calls. Need to investigate if LLM APIs ever return both content and tool calls in a single response, and if so, ensure we don't emit duplicate finish_reason chunks.
 - [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
   - Update `policy_config.js` to call `/admin/policy/enable` instead of mocking
   - Add admin key input/storage (prompt on first use, store in sessionStorage)

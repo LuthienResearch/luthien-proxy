@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from luthien_proxy.policies.base_policy import BasePolicy
+from luthien_proxy.policy_core import create_finish_chunk
 from luthien_proxy.policy_core.streaming_utils import get_last_ingress_chunk, send_chunk, send_text, send_tool_call
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
@@ -126,18 +127,10 @@ class SimplePolicy(BasePolicy):
         # TODO: We should be crafting our own finish_reason chunk here based on content outcome
         last_chunk = get_last_ingress_chunk(ctx)
         if last_chunk and last_chunk.choices and last_chunk.choices[0].finish_reason:
-            from litellm.types.utils import Delta, ModelResponse, StreamingChoices
-
-            finish_chunk = ModelResponse(
-                id=last_chunk.id,
+            finish_chunk = create_finish_chunk(
+                finish_reason=last_chunk.choices[0].finish_reason,
                 model=last_chunk.model,
-                choices=[
-                    StreamingChoices(
-                        finish_reason=last_chunk.choices[0].finish_reason,
-                        index=0,
-                        delta=Delta(content=None, role=None),
-                    )
-                ],
+                chunk_id=last_chunk.id,
             )
             await send_chunk(ctx, finish_chunk)
 
@@ -188,22 +181,14 @@ class SimplePolicy(BasePolicy):
         has_tool_calls = any(isinstance(b, ToolCallStreamBlock) for b in blocks)
 
         if has_tool_calls:
-            from litellm.types.utils import Delta, ModelResponse, StreamingChoices
-
             last_chunk = get_last_ingress_chunk(ctx)
-            chunk_id = last_chunk.id if last_chunk else "finish"
+            chunk_id = last_chunk.id if last_chunk else None
             model = last_chunk.model if last_chunk else "luthien-policy"
 
-            finish_chunk = ModelResponse(
-                id=chunk_id,
+            finish_chunk = create_finish_chunk(
+                finish_reason=finish_reason,
                 model=model,
-                choices=[
-                    StreamingChoices(
-                        finish_reason=finish_reason,
-                        index=0,
-                        delta=Delta(content=None, role=None),
-                    )
-                ],
+                chunk_id=chunk_id,
             )
             await send_chunk(ctx, finish_chunk)
 

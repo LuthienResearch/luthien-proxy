@@ -6,6 +6,7 @@ circular dependencies.
 """
 
 from luthien_proxy.policy_core.chunk_builders import (
+    create_finish_chunk,
     create_text_chunk,
     create_text_response,
     create_tool_call_chunk,
@@ -25,6 +26,7 @@ __all__ = [
     "PolicyContext",
     "PolicyProtocol",
     "StreamingPolicyContext",
+    "create_finish_chunk",
     "create_text_chunk",
     "create_text_response",
     "create_tool_call_chunk",

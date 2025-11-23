@@ -51,6 +51,7 @@ from luthien_proxy.policies.tool_call_judge_utils import (
     create_blocked_response,
 )
 from luthien_proxy.policy_core import (
+    create_finish_chunk,
     create_text_chunk,
     create_text_response,
     create_tool_call_chunk,
@@ -366,8 +367,6 @@ class ToolCallJudgePolicy(BasePolicy):
         This is needed because tool call chunks no longer include finish_reason,
         so we must emit it separately at the end of the stream.
         """
-        from litellm.types.utils import Delta
-
         # Get the finish_reason from the original stream
         finish_reason = ctx.original_streaming_response_state.finish_reason
         if not finish_reason:
@@ -388,19 +387,13 @@ class ToolCallJudgePolicy(BasePolicy):
         if has_tool_calls:
             raw_chunks = ctx.original_streaming_response_state.raw_chunks
             last_chunk = raw_chunks[-1] if raw_chunks else None
-            chunk_id = last_chunk.id if last_chunk else "finish"
+            chunk_id = last_chunk.id if last_chunk else None
             model = last_chunk.model if last_chunk else "luthien-policy"
 
-            finish_chunk = ModelResponse(
-                id=chunk_id,
+            finish_chunk = create_finish_chunk(
+                finish_reason=finish_reason,
                 model=model,
-                choices=[
-                    StreamingChoices(
-                        finish_reason=finish_reason,
-                        index=0,
-                        delta=Delta(content=None, role=None),
-                    )
-                ],
+                chunk_id=chunk_id,
             )
             await ctx.egress_queue.put(finish_chunk)
 

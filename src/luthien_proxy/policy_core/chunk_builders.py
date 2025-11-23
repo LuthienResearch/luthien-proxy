@@ -89,6 +89,42 @@ def create_text_chunk(
     )
 
 
+def create_finish_chunk(
+    finish_reason: str,
+    model: str | None = "luthien-policy",
+    chunk_id: str | None = None,
+) -> ModelResponse:
+    """Create a streaming chunk with only a finish_reason (empty delta).
+
+    This is used to properly terminate tool call streams where individual tool call
+    chunks should not have finish_reason set, and the final finish_reason="tool_calls"
+    must be emitted as a separate chunk with an empty delta.
+
+    Args:
+        finish_reason: The finish reason (e.g., "stop", "tool_calls")
+        model: Model name to include in chunk (default: "luthien-policy")
+        chunk_id: Optional custom ID for the chunk (default: 'finish-{uuid4()}')
+
+    Returns:
+        A ModelResponse chunk with empty delta and the finish_reason set
+    """
+    unique_id = chunk_id or f"finish-{uuid4()}"
+
+    return ModelResponse(
+        id=unique_id,
+        choices=[
+            StreamingChoices(
+                index=0,
+                delta=Delta(content=None, role=None),
+                finish_reason=finish_reason,
+            )
+        ],
+        created=int(time.time()),
+        model=model,
+        object="chat.completion.chunk",
+    )
+
+
 def create_tool_call_chunk(
     tool_call: ChatCompletionMessageToolCall,
     model: str = "luthien-policy",
@@ -135,5 +171,6 @@ def create_tool_call_chunk(
 __all__ = [
     "create_text_response",
     "create_text_chunk",
+    "create_finish_chunk",
     "create_tool_call_chunk",
 ]

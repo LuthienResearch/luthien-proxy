@@ -9,6 +9,7 @@ import pytest
 from litellm.types.utils import ChatCompletionMessageToolCall, Delta, Function
 
 from luthien_proxy.policy_core.chunk_builders import (
+    create_finish_chunk,
     create_text_chunk,
     create_text_response,
     create_tool_call_chunk,
@@ -213,6 +214,73 @@ class TestCreateToolCallChunk:
         assert "delta" in choice_dict
         # message should be None or not present for streaming
         assert choice_dict.get("message") is None
+
+
+class TestCreateFinishChunk:
+    """Test create_finish_chunk utility."""
+
+    def test_creates_valid_finish_chunk(self):
+        """Test that create_finish_chunk creates a valid chunk with empty delta."""
+        chunk = create_finish_chunk("tool_calls")
+
+        assert len(chunk.choices) == 1
+        assert chunk.choices[0].finish_reason == "tool_calls"
+        assert chunk.choices[0].index == 0
+
+        # Delta should be empty (no content, no role)
+        delta = chunk.choices[0].delta
+        assert delta.get("content") is None
+        assert delta.get("role") is None
+
+    def test_creates_stop_finish_chunk(self):
+        """Test creating finish chunk with stop reason."""
+        chunk = create_finish_chunk("stop")
+        assert chunk.choices[0].finish_reason == "stop"
+
+    def test_uses_default_model(self):
+        """Test default model name."""
+        chunk = create_finish_chunk("stop")
+        assert chunk.model == "luthien-policy"
+
+    def test_uses_custom_model(self):
+        """Test custom model name."""
+        chunk = create_finish_chunk("stop", model="custom-model")
+        assert chunk.model == "custom-model"
+
+    def test_uses_custom_chunk_id(self):
+        """Test custom chunk ID."""
+        chunk = create_finish_chunk("stop", chunk_id="my-custom-id")
+        assert chunk.id == "my-custom-id"
+
+    def test_has_unique_id_by_default(self):
+        """Test that each chunk has a unique ID when not specified."""
+        chunk1 = create_finish_chunk("stop")
+        chunk2 = create_finish_chunk("stop")
+
+        assert chunk1.id != chunk2.id
+        assert chunk1.id.startswith("finish-")
+        assert chunk2.id.startswith("finish-")
+
+    def test_uses_streaming_choices(self):
+        """Test that finish chunks use StreamingChoices for proper streaming format."""
+        from litellm.types.utils import StreamingChoices
+
+        chunk = create_finish_chunk("tool_calls")
+
+        # Verify it's a StreamingChoices, not Choices
+        assert isinstance(chunk.choices[0], StreamingChoices)
+
+        # StreamingChoices has delta but not message
+        assert hasattr(chunk.choices[0], "delta")
+        choice_dict = chunk.choices[0].model_dump()
+        assert "delta" in choice_dict
+        assert choice_dict.get("message") is None
+
+    def test_has_timestamp(self):
+        """Test that chunk has a created timestamp."""
+        chunk = create_finish_chunk("stop")
+        assert chunk.created > 0
+        assert isinstance(chunk.created, int)
 
 
 if __name__ == "__main__":
