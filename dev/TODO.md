@@ -93,6 +93,7 @@
 - [ ] thinking and verbosity model flags not respected
 - [ ] write SimpleToolCallJudge policy for pedagogical purposes
 - [ ] improve docstrings for SimplePolicy
+- [ ] **Audit tool_call_judge_policy.py coverage** - Currently at 64% coverage with significant gaps (lines 303-311, 346-362, 371-398, 466-512). Either add tests for untested paths or remove dead code.
 
 ## Medium Priority
 
