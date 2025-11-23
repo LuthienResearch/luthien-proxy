@@ -128,15 +128,15 @@ def create_finish_chunk(
 def create_tool_call_chunk(
     tool_call: ChatCompletionMessageToolCall,
     model: str = "luthien-policy",
-    finish_reason: str | None = None,
 ) -> ModelResponse:
     """Create a streaming chunk with a complete tool call.
+
+    Tool call chunks should NOT include finish_reason - use create_finish_chunk()
+    at the end of the stream instead.
 
     Args:
         tool_call: ChatCompletionMessageToolCall object from litellm
         model: Model name to include in chunk (default: "luthien-policy")
-        finish_reason: Optional finish reason. Should only be set on the last tool call
-            in a multi-tool-call response (e.g., "tool_calls").
 
     Returns:
         A ModelResponse chunk with the tool call
@@ -159,7 +159,7 @@ def create_tool_call_chunk(
             StreamingChoices(
                 index=0,
                 delta=Delta(tool_calls=[tool_call_dict]),
-                finish_reason=finish_reason,
+                finish_reason=None,
             )
         ],
         created=int(time.time()),

@@ -137,8 +137,11 @@ class TestCreateToolCallChunk:
         assert tool_calls[0]["function"]["name"] == "get_weather"
         assert tool_calls[0]["function"]["arguments"] == '{"location": "NYC"}'
 
-    def test_creates_tool_call_chunk_with_finish_reason(self):
-        """Test that create_tool_call_chunk can include finish_reason."""
+    def test_finish_reason_always_none(self):
+        """Test that create_tool_call_chunk always has finish_reason=None.
+
+        Tool call chunks should never have finish_reason set - use create_finish_chunk() instead.
+        """
         tool_call = ChatCompletionMessageToolCall(
             id="call-123",
             type="function",
@@ -148,10 +151,10 @@ class TestCreateToolCallChunk:
             ),
         )
 
-        chunk = create_tool_call_chunk(tool_call, finish_reason="tool_calls")
+        chunk = create_tool_call_chunk(tool_call)
 
         assert len(chunk.choices) == 1
-        assert chunk.choices[0].finish_reason == "tool_calls"
+        assert chunk.choices[0].finish_reason is None
 
     def test_uses_default_model(self):
         """Test default model name."""
