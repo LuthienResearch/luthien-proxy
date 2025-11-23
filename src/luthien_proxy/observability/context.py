@@ -5,10 +5,12 @@
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict
 
-from opentelemetry.trace import Span
+from opentelemetry import trace
+from opentelemetry.trace import INVALID_SPAN, Span
 
 logger = logging.getLogger(__name__)
 
@@ -170,8 +172,6 @@ class NoOpObservabilityContext(ObservabilityContext):
             transaction_id: Unique identifier (unused in no-op implementation)
             config: Optional sink configuration (unused in no-op implementation)
         """
-        from opentelemetry.trace import INVALID_SPAN
-
         self._span = INVALID_SPAN
 
     @property
@@ -203,8 +203,6 @@ class DefaultObservabilityContext(ObservabilityContext):
             db_pool: DEPRECATED - pass DatabaseSink in config instead
             event_publisher: DEPRECATED - pass RedisSink in config instead
         """
-        from opentelemetry import trace
-
         self._transaction_id = transaction_id
         self._span = trace.get_current_span()  # Get auto-instrumented span
         self._config = config or {}
@@ -214,7 +212,8 @@ class DefaultObservabilityContext(ObservabilityContext):
         self._event_publisher = event_publisher
 
         # Build sink registry with defaults
-        from luthien_proxy.observability.sinks import (
+        # Import here to avoid circular imports with sinks module
+        from luthien_proxy.observability.sinks import (  # noqa: PLC0415
             DatabaseSink,
             RedisSink,
             StdoutSink,
@@ -276,8 +275,6 @@ class DefaultObservabilityContext(ObservabilityContext):
         logger.warning(f"emit_event is deprecated, use record(LuthienRecord) instead (event_type={event_type})")
 
         # Enrich data with standard fields
-        import time
-
         enriched_data = {
             "call_id": self._transaction_id,
             "timestamp": time.time(),
@@ -295,7 +292,8 @@ class DefaultObservabilityContext(ObservabilityContext):
 
         # Emit to database if db_pool provided
         if self._db_pool:
-            from luthien_proxy.storage.events import emit_custom_event
+            # Import here to avoid circular imports with storage module
+            from luthien_proxy.storage.events import emit_custom_event  # noqa: PLC0415
 
             await emit_custom_event(
                 db_pool=self._db_pool,

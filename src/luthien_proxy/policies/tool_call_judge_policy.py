@@ -251,7 +251,7 @@ class ToolCallJudgePolicy(BasePolicy):
             return
 
         # Import here to avoid circular imports
-        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
+        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock  # noqa: PLC0415
 
         if not isinstance(just_completed, ToolCallStreamBlock):
             logger.warning(f"just_completed is not ToolCallStreamBlock: {type(just_completed)}")
@@ -380,7 +380,8 @@ class ToolCallJudgePolicy(BasePolicy):
         # For tool call responses, emit the finish_reason chunk
         # (Content-only responses would have their finish_reason forwarded via on_chunk_received)
         blocks = ctx.original_streaming_response_state.blocks
-        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
+        # Import here to avoid circular imports
+        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock  # noqa: PLC0415
 
         has_tool_calls = any(isinstance(b, ToolCallStreamBlock) for b in blocks)
 

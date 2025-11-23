@@ -12,8 +12,11 @@ This module configures:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import sys
+from datetime import datetime
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -121,10 +124,6 @@ def write_json_to_stdout(data: dict) -> None:
     Args:
         data: Dictionary of fields to include in the JSON log line
     """
-    import json
-    import sys
-    from datetime import datetime
-
     # Get current span context
     span = trace.get_current_span()
     ctx = span.get_span_context()
@@ -161,8 +160,6 @@ def configure_logging() -> None:
 
         def format(self, record: logging.LogRecord) -> str:
             """Format log record as JSON."""
-            import json
-
             # Get current span context
             span = trace.get_current_span()
             ctx = span.get_span_context()
