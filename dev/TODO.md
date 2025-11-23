@@ -2,6 +2,18 @@
 
 ## High Priority
 
+- [ ] **Review Nov 21-22 commits for cleanup** - Critically review all commits from Nov 21-22 related to finish_reason and tool call fixes:
+  - Check for any unnecessary changes that were made during debugging
+  - Identify any broken code that was committed during scrambling
+  - Clean up or revert any changes that don't belong
+  - Ensure fixes are minimal and well-targeted
+- [ ] **Add Claude Code / Codex e2e tests** - Create integration tests that catch streaming tool call bugs:
+  - Test multi-tool-call responses with buffering policies (SimplePolicy, ToolCallJudgePolicy)
+  - Verify exactly one `finish_reason` chunk at end of stream
+  - Test first tool call content is preserved (not empty)
+  - Consider using actual Claude Code or Codex as test clients if feasible
+  - These tests would have caught the duplicate response and empty first tool call bugs
+- [ ] **Test mixed content + tool calls edge case** - Currently on_content_complete emits finish_reason for content and on_stream_complete emits for tool calls. Need to investigate if LLM APIs ever return both content and tool calls in a single response, and if so, ensure we don't emit duplicate finish_reason chunks.
 - [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
   - Update `policy_config.js` to call `/admin/policy/enable` instead of mocking
   - Add admin key input/storage (prompt on first use, store in sessionStorage)
@@ -81,6 +93,7 @@
 - [ ] thinking and verbosity model flags not respected
 - [ ] write SimpleToolCallJudge policy for pedagogical purposes
 - [ ] improve docstrings for SimplePolicy
+- [ ] **Audit tool_call_judge_policy.py coverage** - Currently at 64% coverage with significant gaps (lines 303-311, 346-362, 371-398, 466-512). Either add tests for untested paths or remove dead code.
 
 ## Medium Priority
 

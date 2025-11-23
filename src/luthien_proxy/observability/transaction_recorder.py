@@ -6,6 +6,7 @@
 from abc import ABC, abstractmethod
 
 from litellm.types.utils import ModelResponse
+from opentelemetry import metrics
 
 from luthien_proxy.messages import Request
 from luthien_proxy.observability.context import ObservabilityContext
@@ -143,8 +144,6 @@ class DefaultTransactionRecorder(TransactionRecorder):
         )
 
         # Record chunk counts as OTel metrics
-        from opentelemetry import metrics
-
         meter = metrics.get_meter(__name__)
         ingress_counter = meter.create_counter("response.chunks.ingress")
         egress_counter = meter.create_counter("response.chunks.egress")

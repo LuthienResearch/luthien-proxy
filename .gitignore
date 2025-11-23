@@ -28,3 +28,7 @@ dev/litellm_replay_logs/
 
 # Observability runtime data
 observability/data/
+
+# Debug script outputs
+debug_multitool_streaming.json
+debug_multitool_nonstreaming.json

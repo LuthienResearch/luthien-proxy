@@ -49,10 +49,18 @@ src = ["src", "tests"]
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "D"]
+select = [
+    "E",        # pycodestyle errors
+    "F",        # pyflakes
+    "I",        # isort (import sorting)
+    "D",        # pydocstyle (docstrings)
+    "PLC0415",  # import-outside-toplevel: disallow imports inside functions
+]
 ignore = []
-extend-ignore = ["E501"]
-per-file-ignores = { "migrations/**" = ["ALL"], "scripts/**" = ["D"], "tests/**" = ["D"] }
+extend-ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+per-file-ignores = { "migrations/**" = ["ALL"], "scripts/**" = ["D"], "tests/**" = ["D", "PLC0415"] }
 
 [tool.ruff.format]
 quote-style = "double"
