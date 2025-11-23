@@ -125,7 +125,8 @@ class TestCreateToolCallChunk:
         chunk = create_tool_call_chunk(tool_call)
 
         assert len(chunk.choices) == 1
-        assert chunk.choices[0].finish_reason == "tool_calls"
+        # Default is no finish_reason (it should be sent separately at end of stream)
+        assert chunk.choices[0].finish_reason is None
 
         delta = chunk.choices[0].delta
         tool_calls = delta["tool_calls"]
@@ -134,6 +135,22 @@ class TestCreateToolCallChunk:
         assert tool_calls[0]["type"] == "function"
         assert tool_calls[0]["function"]["name"] == "get_weather"
         assert tool_calls[0]["function"]["arguments"] == '{"location": "NYC"}'
+
+    def test_creates_tool_call_chunk_with_finish_reason(self):
+        """Test that create_tool_call_chunk can include finish_reason."""
+        tool_call = ChatCompletionMessageToolCall(
+            id="call-123",
+            type="function",
+            function=Function(
+                name="get_weather",
+                arguments='{"location": "NYC"}',
+            ),
+        )
+
+        chunk = create_tool_call_chunk(tool_call, finish_reason="tool_calls")
+
+        assert len(chunk.choices) == 1
+        assert chunk.choices[0].finish_reason == "tool_calls"
 
     def test_uses_default_model(self):
         """Test default model name."""

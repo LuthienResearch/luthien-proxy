@@ -89,12 +89,18 @@ def create_text_chunk(
     )
 
 
-def create_tool_call_chunk(tool_call: ChatCompletionMessageToolCall, model: str = "luthien-policy") -> ModelResponse:
+def create_tool_call_chunk(
+    tool_call: ChatCompletionMessageToolCall,
+    model: str = "luthien-policy",
+    finish_reason: str | None = None,
+) -> ModelResponse:
     """Create a streaming chunk with a complete tool call.
 
     Args:
         tool_call: ChatCompletionMessageToolCall object from litellm
         model: Model name to include in chunk (default: "luthien-policy")
+        finish_reason: Optional finish reason. Should only be set on the last tool call
+            in a multi-tool-call response (e.g., "tool_calls").
 
     Returns:
         A ModelResponse chunk with the tool call
@@ -117,7 +123,7 @@ def create_tool_call_chunk(tool_call: ChatCompletionMessageToolCall, model: str 
             StreamingChoices(
                 index=0,
                 delta=Delta(tool_calls=[tool_call_dict]),
-                finish_reason="tool_calls",
+                finish_reason=finish_reason,
             )
         ],
         created=int(time.time()),

@@ -2,6 +2,17 @@
 
 ## High Priority
 
+- [ ] **Review Nov 21-22 commits for cleanup** - Critically review all commits from Nov 21-22 related to finish_reason and tool call fixes:
+  - Check for any unnecessary changes that were made during debugging
+  - Identify any broken code that was committed during scrambling
+  - Clean up or revert any changes that don't belong
+  - Ensure fixes are minimal and well-targeted
+- [ ] **Add Claude Code / Codex e2e tests** - Create integration tests that catch streaming tool call bugs:
+  - Test multi-tool-call responses with buffering policies (SimplePolicy, ToolCallJudgePolicy)
+  - Verify exactly one `finish_reason` chunk at end of stream
+  - Test first tool call content is preserved (not empty)
+  - Consider using actual Claude Code or Codex as test clients if feasible
+  - These tests would have caught the duplicate response and empty first tool call bugs
 - [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
   - Update `policy_config.js` to call `/admin/policy/enable` instead of mocking
   - Add admin key input/storage (prompt on first use, store in sessionStorage)

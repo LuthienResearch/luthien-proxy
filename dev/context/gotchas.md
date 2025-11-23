@@ -55,6 +55,37 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - Use `Delta(content=text)` not `{"content": text}` - dicts break SSE assembly
 - Use `StreamingChoices` not `Choices` for streaming (utils.py create_text_chunk)
 
+## finish_reason Must Be in Separate Final Chunk for Tool Calls (2025-11-21)
+
+**The Bug**: When `SimplePolicy` or `ToolCallJudgePolicy` buffered multiple tool calls and emitted them via `create_tool_call_chunk()`, Claude Code would interpret the response as **multiple separate responses** instead of one response with multiple tool calls.
+
+**Root Cause**: `create_tool_call_chunk()` was hardcoding `finish_reason="tool_calls"` in every tool call chunk. When there were 4 tool calls, Claude Code saw 4 chunks with `finish_reason="tool_calls"` and interpreted each as a complete response.
+
+**The Correct Pattern** (from actual Anthropic API responses):
+- All intermediate chunks have `finish_reason=null`
+- Only the final chunk has `finish_reason="tool_calls"` with an **empty delta**
+
+```
+Chunk   1: finish_reason=None         content=True  tool_calls=False
+Chunk   2: finish_reason=None         content=False tool_calls=True  | tool[0]
+...
+Chunk  24: finish_reason=None         content=False tool_calls=True  | tool[3]
+Chunk  25: finish_reason=tool_calls   content=False tool_calls=False  <- Final chunk, empty delta
+```
+
+**The Fix**:
+1. `create_tool_call_chunk()` now defaults `finish_reason=None`
+2. Policies that buffer tool calls must emit the `finish_reason` in `on_stream_complete()`
+3. `PolicyExecutor` drains the egress queue after `on_stream_complete()` to ensure the finish chunk is sent
+
+**Impact**: Any policy that buffers tool calls and uses `create_tool_call_chunk()` must now implement `on_stream_complete()` to emit the final `finish_reason` chunk. See `SimplePolicy.on_stream_complete()` or `ToolCallJudgePolicy.on_stream_complete()` for the pattern.
+
+**Related Files**:
+- `src/luthien_proxy/policy_core/chunk_builders.py` - `create_tool_call_chunk()`
+- `src/luthien_proxy/policies/simple_policy.py` - `on_stream_complete()`
+- `src/luthien_proxy/policies/tool_call_judge_policy.py` - `on_stream_complete()`
+- `src/luthien_proxy/streaming/policy_executor/executor.py` - egress queue drain after `on_stream_complete()`
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

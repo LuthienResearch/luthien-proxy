@@ -243,82 +243,93 @@ class ToolCallJudgePolicy(BasePolicy):
             logger.debug(f"Skipping tool call judgment for already-blocked call {call_id}")
             return
 
-        # Find all buffered tool calls for this call_id
-        keys_to_judge = [key for key in self._buffered_tool_calls.keys() if key[0] == call_id]
-
-        if not keys_to_judge:
-            logger.debug(f"No buffered tool calls found for call {call_id}")
+        # Get the just-completed tool call from the stream state
+        just_completed = ctx.original_streaming_response_state.just_completed
+        if not just_completed:
+            logger.debug(f"No just_completed block in on_tool_call_complete for call {call_id}")
             return
 
-        # Judge each tool call
-        for key in keys_to_judge:
-            tool_call = self._buffered_tool_calls[key]
+        # Import here to avoid circular imports
+        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
 
-            # Skip if tool call is incomplete
-            if not tool_call.get("name") or not tool_call.get("id"):
-                logger.warning(f"Skipping incomplete tool call: {tool_call}")
-                continue
+        if not isinstance(just_completed, ToolCallStreamBlock):
+            logger.warning(f"just_completed is not ToolCallStreamBlock: {type(just_completed)}")
+            return
 
-            # Judge the tool call
-            blocked_response = await self._evaluate_and_maybe_block(tool_call, ctx.observability)
+        # Get the tool call index from the completed block
+        tc_index = just_completed.index
+        key = (call_id, tc_index)
 
-            if blocked_response is not None:
-                # BLOCKED! Mark this call as blocked and inject blocked message
-                self._blocked_calls.add(call_id)
+        # Get the buffered tool call data
+        if key not in self._buffered_tool_calls:
+            logger.warning(f"No buffered data for tool call {key}")
+            return
 
-                # Extract blocked message from response
-                if blocked_response.choices:
-                    # Cast to Choices (non-streaming) since this is from judge LLM response
-                    first_choice = cast(Choices, blocked_response.choices[0])
-                    message = first_choice.message
-                    blocked_text = message.content if hasattr(message, "content") else ""
+        tool_call = self._buffered_tool_calls[key]
 
-                    if blocked_text:
-                        # Inject blocked text as content chunk (without finish_reason)
-                        blocked_content_chunk = create_text_chunk(str(blocked_text), finish_reason=None)
-                        await ctx.egress_queue.put(blocked_content_chunk)
+        # Skip if tool call is incomplete
+        if not tool_call.get("name") or not tool_call.get("id"):
+            logger.warning(f"Skipping incomplete tool call: {tool_call}")
+            del self._buffered_tool_calls[key]
+            return
 
-                        # Then send finish chunk to properly close the stream
-                        finish_chunk = create_text_chunk("", finish_reason="stop")
-                        await ctx.egress_queue.put(finish_chunk)
+        # Judge the tool call
+        blocked_response = await self._evaluate_and_maybe_block(tool_call, ctx.observability)
 
-                        logger.info(f"Blocked tool call '{tool_call['name']}' for call {call_id}")
-                else:
-                    # Fallback - send blocked message then finish
-                    blocked_content_chunk = create_text_chunk(
-                        f"⛔ BLOCKED: Tool call '{tool_call['name']}' rejected by policy",
-                        finish_reason=None,
-                    )
+        if blocked_response is not None:
+            # BLOCKED! Mark this call as blocked and inject blocked message
+            self._blocked_calls.add(call_id)
+
+            # Extract blocked message from response
+            if blocked_response.choices:
+                # Cast to Choices (non-streaming) since this is from judge LLM response
+                first_choice = cast(Choices, blocked_response.choices[0])
+                message = first_choice.message
+                blocked_text = message.content if hasattr(message, "content") else ""
+
+                if blocked_text:
+                    # Inject blocked text as content chunk (without finish_reason)
+                    blocked_content_chunk = create_text_chunk(str(blocked_text), finish_reason=None)
                     await ctx.egress_queue.put(blocked_content_chunk)
 
-                    # Then send finish chunk
+                    # Then send finish chunk to properly close the stream
                     finish_chunk = create_text_chunk("", finish_reason="stop")
                     await ctx.egress_queue.put(finish_chunk)
 
-                # Clean up buffered data for this call
-                for k in keys_to_judge:
-                    del self._buffered_tool_calls[k]
-
-                return
+                    logger.info(f"Blocked tool call '{tool_call['name']}' for call {call_id}")
             else:
-                # PASSED - forward the tool call by reconstructing it
-                logger.debug(f"Passed tool call '{tool_call['name']}' for call {call_id}")
-
-                # Create proper ChatCompletionMessageToolCall object
-                tool_call_obj = ChatCompletionMessageToolCall(
-                    id=tool_call.get("id", ""),
-                    function=Function(
-                        name=tool_call.get("name", ""),
-                        arguments=tool_call.get("arguments", ""),
-                    ),
+                # Fallback - send blocked message then finish
+                blocked_content_chunk = create_text_chunk(
+                    f"⛔ BLOCKED: Tool call '{tool_call['name']}' rejected by policy",
+                    finish_reason=None,
                 )
-                tool_chunk = create_tool_call_chunk(tool_call_obj)
-                await ctx.egress_queue.put(tool_chunk)
+                await ctx.egress_queue.put(blocked_content_chunk)
 
-        # Clean up buffered data
-        for key in keys_to_judge:
-            if key in self._buffered_tool_calls:
-                del self._buffered_tool_calls[key]
+                # Then send finish chunk
+                finish_chunk = create_text_chunk("", finish_reason="stop")
+                await ctx.egress_queue.put(finish_chunk)
+
+            # Clean up buffered data for this tool call
+            del self._buffered_tool_calls[key]
+            return
+        else:
+            # PASSED - forward the tool call by reconstructing it
+            logger.debug(f"Passed tool call '{tool_call['name']}' for call {call_id}")
+
+            # Create proper ChatCompletionMessageToolCall object
+            tool_call_obj = ChatCompletionMessageToolCall(
+                id=tool_call.get("id", ""),
+                function=Function(
+                    name=tool_call.get("name", ""),
+                    arguments=tool_call.get("arguments", ""),
+                ),
+            )
+            tool_chunk = create_tool_call_chunk(tool_call_obj)
+            await ctx.egress_queue.put(tool_chunk)
+
+        # Clean up buffered data for this tool call
+        if key in self._buffered_tool_calls:
+            del self._buffered_tool_calls[key]
 
     async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
         """Evaluate non-streaming tool calls and block if necessary.
@@ -348,6 +359,50 @@ class ToolCallJudgePolicy(BasePolicy):
         # All tool calls passed
         logger.debug("All tool calls passed judge evaluation in non-streaming response")
         return response
+
+    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Emit final finish_reason chunk for tool call responses.
+
+        This is needed because tool call chunks no longer include finish_reason,
+        so we must emit it separately at the end of the stream.
+        """
+        from litellm.types.utils import Delta
+
+        # Get the finish_reason from the original stream
+        finish_reason = ctx.original_streaming_response_state.finish_reason
+        if not finish_reason:
+            return
+
+        # Check if this call was blocked - if so, we already sent finish_reason="stop"
+        call_id = ctx.policy_ctx.transaction_id
+        if call_id in self._blocked_calls:
+            return
+
+        # For tool call responses, emit the finish_reason chunk
+        # (Content-only responses would have their finish_reason forwarded via on_chunk_received)
+        blocks = ctx.original_streaming_response_state.blocks
+        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
+
+        has_tool_calls = any(isinstance(b, ToolCallStreamBlock) for b in blocks)
+
+        if has_tool_calls:
+            raw_chunks = ctx.original_streaming_response_state.raw_chunks
+            last_chunk = raw_chunks[-1] if raw_chunks else None
+            chunk_id = last_chunk.id if last_chunk else "finish"
+            model = last_chunk.model if last_chunk else "luthien-policy"
+
+            finish_chunk = ModelResponse(
+                id=chunk_id,
+                model=model,
+                choices=[
+                    StreamingChoices(
+                        finish_reason=finish_reason,
+                        index=0,
+                        delta=Delta(content=None, role=None),
+                    )
+                ],
+            )
+            await ctx.egress_queue.put(finish_chunk)
 
     async def _evaluate_and_maybe_block(
         self,
