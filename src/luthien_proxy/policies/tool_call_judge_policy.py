@@ -39,6 +39,8 @@ from litellm.types.utils import (
     StreamingChoices,
 )
 
+from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
+
 if TYPE_CHECKING:
     from luthien_proxy.observability.context import ObservabilityContext
     from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -250,9 +252,6 @@ class ToolCallJudgePolicy(BasePolicy):
             logger.debug(f"No just_completed block in on_tool_call_complete for call {call_id}")
             return
 
-        # Import here to avoid circular imports
-        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock  # noqa: PLC0415
-
         if not isinstance(just_completed, ToolCallStreamBlock):
             logger.warning(f"just_completed is not ToolCallStreamBlock: {type(just_completed)}")
             return
@@ -380,8 +379,6 @@ class ToolCallJudgePolicy(BasePolicy):
         # For tool call responses, emit the finish_reason chunk
         # (Content-only responses would have their finish_reason forwarded via on_chunk_received)
         blocks = ctx.original_streaming_response_state.blocks
-        # Import here to avoid circular imports
-        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock  # noqa: PLC0415
 
         has_tool_calls = any(isinstance(b, ToolCallStreamBlock) for b in blocks)
 

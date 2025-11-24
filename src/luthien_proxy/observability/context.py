@@ -12,6 +12,13 @@ from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict
 from opentelemetry import trace
 from opentelemetry.trace import INVALID_SPAN, Span
 
+from luthien_proxy.observability.sinks import (
+    DatabaseSink,
+    RedisSink,
+    StdoutSink,
+)
+from luthien_proxy.storage.events import emit_custom_event
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -212,12 +219,6 @@ class DefaultObservabilityContext(ObservabilityContext):
         self._event_publisher = event_publisher
 
         # Build sink registry with defaults
-        # Import here to avoid circular imports with sinks module
-        from luthien_proxy.observability.sinks import (  # noqa: PLC0415
-            DatabaseSink,
-            RedisSink,
-            StdoutSink,
-        )
 
         self._sinks: dict[SinkName, "LuthienRecordSink"] = {
             "stdout": self._config.get("stdout_sink") or StdoutSink(),
@@ -292,9 +293,6 @@ class DefaultObservabilityContext(ObservabilityContext):
 
         # Emit to database if db_pool provided
         if self._db_pool:
-            # Import here to avoid circular imports with storage module
-            from luthien_proxy.storage.events import emit_custom_event  # noqa: PLC0415
-
             await emit_custom_event(
                 db_pool=self._db_pool,
                 call_id=self._transaction_id,
