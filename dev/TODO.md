@@ -97,6 +97,7 @@
 
 ## Medium Priority
 
+- [ ] Move debug scripts to scripts/debug/
 - [ ] **Convert Loki validation scripts to e2e tests** - The manual validation scripts should be proper automated tests:
   - Convert [scripts/query_loki_fields.py](../scripts/query_loki_fields.py) to automated test
   - Convert [scripts/test_line_format.py](../scripts/test_line_format.py) to automated test
