@@ -1,14 +1,18 @@
-"""Unit tests for ToolCallJudgePolicy streaming behavior.
+"""Unit tests for ToolCallJudgePolicy.
 
-These tests verify the critical streaming requirements that prevent bugs:
-1. Content chunks MUST be forwarded to egress (via on_content_delta)
-2. create_text_chunk MUST create valid Delta objects
-3. Blocked messages MUST send content + finish as separate chunks
+Tests the policy's behavior including:
+- Streaming chunk forwarding and buffering
+- Tool call blocking/allowing based on judge evaluation
+- Non-streaming response handling
+- Error handling and fail-secure behavior
+- Stream completion and finish_reason handling
+- Configuration and initialization
+
+Note: Utility function tests are in test_tool_call_judge_utils.py
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -27,9 +31,6 @@ from luthien_proxy.policy_core.chunk_builders import create_text_chunk
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
 from luthien_proxy.streaming.stream_state import StreamState
-
-if TYPE_CHECKING:
-    pass
 
 
 def create_mock_context(
@@ -220,8 +221,8 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
         assert not second_chunk.choices[0].delta.content, "Second chunk should have empty/None content"
 
     @pytest.mark.asyncio
-    async def test_allowed_tool_call_cleans_up_buffer(self):
-        """Test that allowed tool calls clean up buffered data."""
+    async def test_allowed_tool_call_cleanup_deferred(self):
+        """Test that allowed tool calls defer cleanup to on_streaming_policy_complete."""
         policy = ToolCallJudgePolicy(probability_threshold=1.0)  # Allow everything
 
         # Buffer a tool call first using proper Delta object
@@ -273,7 +274,13 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
         with patch.object(policy, "_evaluate_and_maybe_block", side_effect=mock_evaluate):
             await policy.on_tool_call_complete(ctx)
 
-        # Verify buffer was cleaned up
+        # Verify buffer is NOT yet cleaned up
+        assert ("test-call", 0) in policy._buffered_tool_calls
+
+        # Now call cleanup
+        await policy.on_streaming_policy_complete(ctx)
+
+        # Verify buffer is NOW cleaned up
         assert ("test-call", 0) not in policy._buffered_tool_calls
 
 
@@ -360,6 +367,471 @@ class TestToolCallJudgePolicyToolCallBuffering:
         assert buffered["id"] == "call-123"
         assert buffered["name"] == "test_tool"
         assert buffered["arguments"] == '{"key":"value"}'
+
+
+class TestToolCallJudgePolicyNonStreaming:
+    """Test non-streaming response handling."""
+
+    @pytest.mark.asyncio
+    async def test_on_response_with_no_tool_calls(self):
+        """Test that on_response passes through responses with no tool calls."""
+        from luthien_proxy.policies import PolicyContext
+
+        policy = ToolCallJudgePolicy()
+
+        # Create response with just text content
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hello world"},
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+
+        ctx = PolicyContext(
+            transaction_id="test",
+            request=Request(model="test", messages=[{"role": "user", "content": "hi"}]),
+            observability=Mock(),
+        )
+
+        result = await policy.on_response(response, ctx)
+
+        # Should pass through unchanged
+        assert result is response
+
+    @pytest.mark.asyncio
+    async def test_on_response_blocks_harmful_tool_call(self):
+        """Test that on_response blocks tool calls judged as harmful."""
+        from litellm.types.utils import ChatCompletionMessageToolCall
+
+        from luthien_proxy.policies import PolicyContext
+
+        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+
+        # Create response with tool call
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            ChatCompletionMessageToolCall(
+                                id="call-123",
+                                function=Function(name="rm_rf", arguments='{"path": "/"}'),
+                            )
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        )
+
+        ctx = PolicyContext(
+            transaction_id="test",
+            request=Request(model="test", messages=[{"role": "user", "content": "hi"}]),
+            observability=Mock(),
+        )
+        ctx.observability.emit_event_nonblocking = Mock()
+
+        # Mock judge to block
+        async def mock_call_judge(name, arguments, config, judge_instructions):
+            from luthien_proxy.policies.tool_call_judge_utils import JudgeResult
+
+            return JudgeResult(
+                probability=0.9,  # High probability = block
+                explanation="dangerous operation",
+                prompt=[],
+                response_text="",
+            )
+
+        with patch("luthien_proxy.policies.tool_call_judge_policy.call_judge", side_effect=mock_call_judge):
+            result = await policy.on_response(response, ctx)
+
+        # Should return a blocked response, not the original
+        assert result is not response
+        assert result.choices[0].message.content is not None
+        assert "BLOCKED" in result.choices[0].message.content
+
+    @pytest.mark.asyncio
+    async def test_on_response_allows_safe_tool_call(self):
+        """Test that on_response allows tool calls judged as safe."""
+        from litellm.types.utils import ChatCompletionMessageToolCall
+
+        from luthien_proxy.policies import PolicyContext
+
+        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+
+        # Create response with tool call
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            ChatCompletionMessageToolCall(
+                                id="call-123",
+                                function=Function(name="get_weather", arguments='{"city": "SF"}'),
+                            )
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        )
+
+        ctx = PolicyContext(
+            transaction_id="test",
+            request=Request(model="test", messages=[{"role": "user", "content": "hi"}]),
+            observability=Mock(),
+        )
+        ctx.observability.emit_event_nonblocking = Mock()
+
+        # Mock judge to allow
+        async def mock_call_judge(name, arguments, config, judge_instructions):
+            from luthien_proxy.policies.tool_call_judge_utils import JudgeResult
+
+            return JudgeResult(
+                probability=0.2,  # Low probability = allow
+                explanation="safe operation",
+                prompt=[],
+                response_text="",
+            )
+
+        with patch("luthien_proxy.policies.tool_call_judge_policy.call_judge", side_effect=mock_call_judge):
+            result = await policy.on_response(response, ctx)
+
+        # Should pass through unchanged
+        assert result is response
+
+
+class TestToolCallJudgeErrorHandling:
+    """Test error handling in tool call judging."""
+
+    @pytest.mark.asyncio
+    async def test_judge_failure_blocks_tool_call(self):
+        """Test that judge failures result in blocking (fail-secure)."""
+        from luthien_proxy.policies import PolicyContext
+
+        policy = ToolCallJudgePolicy()
+
+        # Create response with tool call
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-123",
+                                "type": "function",
+                                "function": {
+                                    "name": "test_tool",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        )
+
+        ctx = PolicyContext(
+            transaction_id="test",
+            request=Request(model="test", messages=[{"role": "user", "content": "hi"}]),
+            observability=Mock(),
+        )
+        ctx.observability.emit_event_nonblocking = Mock()
+
+        # Mock judge to raise an exception
+        async def mock_call_judge(*args, **kwargs):
+            raise Exception("Judge service unavailable")
+
+        with patch("luthien_proxy.policies.tool_call_judge_policy.call_judge", side_effect=mock_call_judge):
+            result = await policy.on_response(response, ctx)
+
+        # Should block (fail-secure)
+        assert result is not response
+        assert "SECURITY BLOCK" in result.choices[0].message.content
+
+    @pytest.mark.asyncio
+    async def test_streaming_judge_failure_blocks_tool_call(self):
+        """Test that judge failures in streaming also block (fail-secure)."""
+        policy = ToolCallJudgePolicy()
+
+        # Buffer a tool call first
+        tc = ChatCompletionDeltaToolCall(
+            id="call-123",
+            type="function",
+            index=0,
+            function=Function(name="test_tool", arguments="{}"),
+        )
+        chunk = ModelResponse(
+            id="test",
+            object="chat.completion.chunk",
+            created=123,
+            model="test",
+            choices=[
+                StreamingChoices(
+                    index=0,
+                    delta=Delta(tool_calls=[tc]),
+                    finish_reason=None,
+                )
+            ],
+        )
+
+        ctx = create_mock_context(transaction_id="test-call", raw_chunks=[chunk])
+        await policy.on_tool_call_delta(ctx)
+
+        # Create completed block
+        block = ToolCallStreamBlock(
+            id="call-123",
+            index=0,
+            name="test_tool",
+            arguments="{}",
+        )
+        block.is_complete = True
+        ctx.original_streaming_response_state.just_completed = block
+
+        # Mock judge to fail
+        async def mock_evaluate(*args, **kwargs):
+            raise Exception("Judge failure")
+
+        with patch("luthien_proxy.policies.tool_call_judge_utils.call_judge", side_effect=mock_evaluate):
+            await policy.on_tool_call_complete(ctx)
+
+        # Should have blocked by sending content + finish chunks
+        assert ctx.egress_queue.put.call_count >= 1
+        first_call = ctx.egress_queue.put.call_args_list[0]
+        first_chunk = first_call[0][0]
+        assert "SECURITY BLOCK" in str(first_chunk.choices[0].delta.content)
+
+
+class TestToolCallJudgeStreamComplete:
+    """Test on_stream_complete hook."""
+
+    @pytest.mark.asyncio
+    async def test_on_stream_complete_emits_finish_for_tool_calls(self):
+        """Test that on_stream_complete emits finish_reason for tool call responses."""
+        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
+
+        policy = ToolCallJudgePolicy()
+
+        # Create context with tool call blocks
+        ctx = create_mock_context()
+        ctx.original_streaming_response_state.finish_reason = "tool_calls"
+        ctx.original_streaming_response_state.blocks = [
+            ToolCallStreamBlock(id="call-1", index=0, name="test", arguments="{}")
+        ]
+        ctx.original_streaming_response_state.raw_chunks = [
+            ModelResponse(id="chunk-1", object="chat.completion.chunk", created=123, model="test-model", choices=[])
+        ]
+
+        await policy.on_stream_complete(ctx)
+
+        # Should have emitted finish chunk
+        ctx.egress_queue.put.assert_called_once()
+        finish_chunk = ctx.egress_queue.put.call_args[0][0]
+        assert finish_chunk.choices[0].finish_reason == "tool_calls"
+
+    @pytest.mark.asyncio
+    async def test_on_stream_complete_skips_if_no_finish_reason(self):
+        """Test that on_stream_complete does nothing if no finish_reason."""
+        policy = ToolCallJudgePolicy()
+
+        ctx = create_mock_context()
+        ctx.original_streaming_response_state.finish_reason = None
+
+        await policy.on_stream_complete(ctx)
+
+        # Should not emit anything
+        ctx.egress_queue.put.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_on_stream_complete_skips_if_blocked(self):
+        """Test that on_stream_complete skips emitting finish if call was blocked."""
+        from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
+
+        policy = ToolCallJudgePolicy()
+
+        # Mark this call as blocked
+        ctx = create_mock_context(transaction_id="blocked-call")
+        policy._blocked_calls.add("blocked-call")
+
+        ctx.original_streaming_response_state.finish_reason = "tool_calls"
+        ctx.original_streaming_response_state.blocks = [
+            ToolCallStreamBlock(id="call-1", index=0, name="test", arguments="{}")
+        ]
+
+        await policy.on_stream_complete(ctx)
+
+        # Should not emit finish chunk (already sent stop in blocking logic)
+        ctx.egress_queue.put.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_on_stream_complete_skips_for_content_only(self):
+        """Test that on_stream_complete doesn't emit for content-only responses."""
+        from luthien_proxy.streaming.stream_blocks import ContentStreamBlock
+
+        policy = ToolCallJudgePolicy()
+
+        ctx = create_mock_context()
+        ctx.original_streaming_response_state.finish_reason = "stop"
+        # Only content blocks, no tool calls
+        content_block = ContentStreamBlock(id="content")
+        content_block.content = "hello world"
+        ctx.original_streaming_response_state.blocks = [content_block]
+
+        await policy.on_stream_complete(ctx)
+
+        # Should not emit anything (content responses handle finish_reason themselves)
+        ctx.egress_queue.put.assert_not_called()
+
+
+class TestToolCallJudgePolicyConfiguration:
+    """Test policy configuration and initialization."""
+
+    def test_init_with_defaults(self):
+        """Test initialization with default configuration."""
+        policy = ToolCallJudgePolicy()
+
+        assert policy._config.model == "openai/gpt-4"
+        assert policy._config.probability_threshold == 0.6
+        assert policy._config.temperature == 0.0
+        assert policy._config.max_tokens == 256
+
+    def test_init_with_custom_config(self):
+        """Test initialization with custom configuration."""
+        policy = ToolCallJudgePolicy(
+            model="claude-3-5-sonnet-20241022",
+            api_base="http://custom:8000",
+            api_key="test-key",
+            probability_threshold=0.8,
+            temperature=0.5,
+            max_tokens=512,
+            judge_instructions="Custom instructions",
+            blocked_message_template="Custom template: {tool_name}",
+        )
+
+        assert policy._config.model == "claude-3-5-sonnet-20241022"
+        assert policy._config.api_base == "http://custom:8000"
+        assert policy._config.api_key == "test-key"
+        assert policy._config.probability_threshold == 0.8
+        assert policy._config.temperature == 0.5
+        assert policy._config.max_tokens == 512
+        assert policy._judge_instructions == "Custom instructions"
+        assert "Custom template" in policy._blocked_message_template
+
+    def test_init_invalid_threshold_raises(self):
+        """Test that invalid probability threshold raises ValueError."""
+        with pytest.raises(ValueError, match="probability_threshold must be between 0 and 1"):
+            ToolCallJudgePolicy(probability_threshold=1.5)
+
+        with pytest.raises(ValueError, match="probability_threshold must be between 0 and 1"):
+            ToolCallJudgePolicy(probability_threshold=-0.1)
+
+    def test_short_policy_name(self):
+        """Test that short_policy_name returns expected value."""
+        policy = ToolCallJudgePolicy()
+        assert policy.short_policy_name == "ToolJudge"
+
+
+class TestStreamingPolicyComplete:
+    """Test on_streaming_policy_complete cleanup behavior."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_clears_buffered_tool_calls(self):
+        """Test that cleanup removes buffered tool calls for the request."""
+        policy = ToolCallJudgePolicy()
+        ctx = create_mock_context(transaction_id="test-call-1")
+
+        # Manually add some buffered tool calls
+        policy._buffered_tool_calls[("test-call-1", 0)] = {
+            "id": "call_abc",
+            "type": "function",
+            "name": "test_tool",
+            "arguments": '{"arg": "value"}',
+        }
+        policy._buffered_tool_calls[("test-call-1", 1)] = {
+            "id": "call_def",
+            "type": "function",
+            "name": "another_tool",
+            "arguments": "{}",
+        }
+        # Add a buffer for a different call (should not be removed)
+        policy._buffered_tool_calls[("other-call", 0)] = {
+            "id": "call_xyz",
+            "type": "function",
+            "name": "other_tool",
+            "arguments": "{}",
+        }
+
+        assert len(policy._buffered_tool_calls) == 3
+
+        # Call cleanup
+        await policy.on_streaming_policy_complete(ctx)
+
+        # Only the current call's buffers should be removed
+        assert len(policy._buffered_tool_calls) == 1
+        assert ("other-call", 0) in policy._buffered_tool_calls
+        assert ("test-call-1", 0) not in policy._buffered_tool_calls
+        assert ("test-call-1", 1) not in policy._buffered_tool_calls
+
+    @pytest.mark.asyncio
+    async def test_cleanup_clears_blocked_calls(self):
+        """Test that cleanup removes blocked call tracking for the request."""
+        policy = ToolCallJudgePolicy()
+        ctx = create_mock_context(transaction_id="test-call-1")
+
+        # Mark some calls as blocked
+        policy._blocked_calls.add("test-call-1")
+        policy._blocked_calls.add("other-call")
+
+        assert len(policy._blocked_calls) == 2
+
+        # Call cleanup
+        await policy.on_streaming_policy_complete(ctx)
+
+        # Only the current call should be removed
+        assert len(policy._blocked_calls) == 1
+        assert "other-call" in policy._blocked_calls
+        assert "test-call-1" not in policy._blocked_calls
+
+    @pytest.mark.asyncio
+    async def test_cleanup_handles_empty_buffers(self):
+        """Test that cleanup handles case where there's nothing to clean up."""
+        policy = ToolCallJudgePolicy()
+        ctx = create_mock_context(transaction_id="test-call-1")
+
+        # Should not raise any errors
+        await policy.on_streaming_policy_complete(ctx)
+
+        assert len(policy._buffered_tool_calls) == 0
+        assert len(policy._blocked_calls) == 0
 
 
 if __name__ == "__main__":

@@ -75,6 +75,7 @@ class ToolCallStreamBlock(StreamBlock):
     def tool_call(self) -> ChatCompletionMessageToolCall:
         """Get tool call as ChatCompletionMessageToolCall object."""
         return ChatCompletionMessageToolCall(
+            id=self.id,
             function=Function(name=self.name, arguments=self.arguments),
         )
 

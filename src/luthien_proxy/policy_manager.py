@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 import yaml
+from fastapi import HTTPException
 from redis.asyncio import Redis
 
 from luthien_proxy.config import _import_policy_class, _instantiate_policy, load_policy_from_yaml
@@ -231,8 +232,6 @@ class PolicyManager:
         Returns:
             PolicyEnableResult with success status and error details
         """
-        from fastapi import HTTPException
-
         # Check if policy changes are allowed
         if self.policy_source == "file":
             raise HTTPException(status_code=403, detail="Policy changes disabled: POLICY_SOURCE=file (read-only mode)")
@@ -404,8 +403,6 @@ class PolicyManager:
         Raises:
             Exception: If lock cannot be acquired
         """
-        from fastapi import HTTPException
-
         lock = self.redis.lock(self.lock_key, timeout=timeout)
         acquired = await lock.acquire(blocking=True, blocking_timeout=10)
         if not acquired:

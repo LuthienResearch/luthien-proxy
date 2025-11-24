@@ -55,6 +55,15 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - Use `Delta(content=text)` not `{"content": text}` - dicts break SSE assembly
 - Use `StreamingChoices` not `Choices` for streaming (utils.py create_text_chunk)
 
+## finish_reason Must Be in Separate Final Chunk for Tool Calls (2025-11-21)
+
+**Gotcha**: Multiple tool calls streamed with `finish_reason` on each chunk causes clients to interpret them as separate responses.
+
+- **Wrong**: `create_tool_call_chunk(tool, finish_reason="tool_calls")` for each tool
+- **Right**: `create_tool_call_chunk(tool)` for each tool, then `create_finish_chunk("tool_calls")` once at end in `on_stream_complete()`
+
+See `SimplePolicy.on_stream_complete()` for the pattern.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

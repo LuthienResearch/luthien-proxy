@@ -2,6 +2,13 @@
 
 ## High Priority
 
+- [ ] **Add Claude Code / Codex e2e tests** - Create integration tests that catch streaming tool call bugs:
+  - Test multi-tool-call responses with buffering policies (SimplePolicy, ToolCallJudgePolicy)
+  - Verify exactly one `finish_reason` chunk at end of stream
+  - Test first tool call content is preserved (not empty)
+  - Consider using actual Claude Code or Codex as test clients if feasible
+  - These tests would have caught the duplicate response and empty first tool call bugs
+- [ ] **Test mixed content + tool calls edge case** - Currently on_content_complete emits finish_reason for content and on_stream_complete emits for tool calls. Need to investigate if LLM APIs ever return both content and tool calls in a single response, and if so, ensure we don't emit duplicate finish_reason chunks.
 - [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
   - Update `policy_config.js` to call `/admin/policy/enable` instead of mocking
   - Add admin key input/storage (prompt on first use, store in sessionStorage)
@@ -84,6 +91,13 @@
 
 ## Medium Priority
 
+- [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety and reduce conversions:
+  - Currently buffers tool calls as `dict[str, Any]` during streaming, then converts to `ChatCompletionMessageToolCall` for output
+  - `ToolCallStreamBlock` already exists with typed fields (id, name, arguments, index) and `.tool_call` property
+  - Would eliminate dict key typo risk, improve type checking, and remove unnecessary conversions
+  - Consider using `ToolCallStreamBlock` directly in buffer instead of dicts
+  - Also affects `create_blocked_response` in tool_call_judge_utils.py which currently expects dict
+- [ ] Move debug scripts to scripts/debug/
 - [ ] **Convert Loki validation scripts to e2e tests** - The manual validation scripts should be proper automated tests:
   - Convert [scripts/query_loki_fields.py](../scripts/query_loki_fields.py) to automated test
   - Convert [scripts/test_line_format.py](../scripts/test_line_format.py) to automated test

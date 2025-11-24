@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from luthien_proxy.policies.base_policy import BasePolicy
+from luthien_proxy.policy_core import create_finish_chunk
 from luthien_proxy.policy_core.streaming_utils import get_last_ingress_chunk, send_chunk, send_text, send_tool_call
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
@@ -126,18 +127,10 @@ class SimplePolicy(BasePolicy):
         # TODO: We should be crafting our own finish_reason chunk here based on content outcome
         last_chunk = get_last_ingress_chunk(ctx)
         if last_chunk and last_chunk.choices and last_chunk.choices[0].finish_reason:
-            from litellm.types.utils import Delta, ModelResponse, StreamingChoices
-
-            finish_chunk = ModelResponse(
-                id=last_chunk.id,
+            finish_chunk = create_finish_chunk(
+                finish_reason=last_chunk.choices[0].finish_reason,
                 model=last_chunk.model,
-                choices=[
-                    StreamingChoices(
-                        finish_reason=last_chunk.choices[0].finish_reason,
-                        index=0,
-                        delta=Delta(content=None, role=None),
-                    )
-                ],
+                chunk_id=last_chunk.id,
             )
             await send_chunk(ctx, finish_chunk)
 
@@ -157,8 +150,7 @@ class SimplePolicy(BasePolicy):
         tool_call = block.tool_call
         transformed = await self.simple_on_response_tool_call(tool_call, ctx.policy_ctx)
         await send_tool_call(ctx, transformed)
-        # Note: send_tool_call already includes finish_reason="tool_calls" in the chunk,
-        # so we don't need to send a separate finish_reason chunk here
+        # Note: finish_reason is emitted separately in on_stream_complete
 
     async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
         """Buffer deltas, don't emit yet.
@@ -177,9 +169,28 @@ class SimplePolicy(BasePolicy):
         pass
 
     async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
-        """Stream complete hook."""
-        # No-op: finish_reason is already sent in on_content_complete
-        pass
+        """Stream complete hook - emit final finish_reason chunk."""
+        # Get the finish_reason from the original stream
+        finish_reason = ctx.original_streaming_response_state.finish_reason
+        if not finish_reason:
+            return
+
+        # Content blocks already emit their own finish_reason in on_content_complete
+        # Only emit here for tool call responses
+        blocks = ctx.original_streaming_response_state.blocks
+        has_tool_calls = any(isinstance(b, ToolCallStreamBlock) for b in blocks)
+
+        if has_tool_calls:
+            last_chunk = get_last_ingress_chunk(ctx)
+            chunk_id = last_chunk.id if last_chunk else None
+            model = last_chunk.model if last_chunk else "luthien-policy"
+
+            finish_chunk = create_finish_chunk(
+                finish_reason=finish_reason,
+                model=model,
+                chunk_id=chunk_id,
+            )
+            await send_chunk(ctx, finish_chunk)
 
 
 __all__ = ["SimplePolicy"]

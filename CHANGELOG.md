@@ -2,6 +2,12 @@
 
 ## Unreleased | TBA
 
+- Add `on_streaming_policy_complete()` lifecycle hook for cleanup (#76)
+  - New policy hook called in finally block after all streaming policy processing completes
+  - Guarantees cleanup runs even if errors occurred during policy processing
+  - Implement buffer cleanup in ToolCallJudgePolicy using new hook
+  - Simplify `_validate_tool_call_for_judging()` to return just the tool_call dict
+
 - Streaming and Anthropic client fixes (#75)
   - Fix streaming tool calls missing `message_delta` for Anthropic clients
   - Refactor `AnthropicSSEAssembler` to `streaming/client_formatter`
