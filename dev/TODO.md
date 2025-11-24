@@ -91,6 +91,12 @@
 
 ## Medium Priority
 
+- [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety and reduce conversions:
+  - Currently buffers tool calls as `dict[str, Any]` during streaming, then converts to `ChatCompletionMessageToolCall` for output
+  - `ToolCallStreamBlock` already exists with typed fields (id, name, arguments, index) and `.tool_call` property
+  - Would eliminate dict key typo risk, improve type checking, and remove unnecessary conversions
+  - Consider using `ToolCallStreamBlock` directly in buffer instead of dicts
+  - Also affects `create_blocked_response` in tool_call_judge_utils.py which currently expects dict
 - [ ] Move debug scripts to scripts/debug/
 - [ ] **Convert Loki validation scripts to e2e tests** - The manual validation scripts should be proper automated tests:
   - Convert [scripts/query_loki_fields.py](../scripts/query_loki_fields.py) to automated test

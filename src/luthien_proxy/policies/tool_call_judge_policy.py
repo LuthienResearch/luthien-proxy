@@ -241,95 +241,124 @@ class ToolCallJudgePolicy(BasePolicy):
         """
         call_id = ctx.policy_ctx.transaction_id
 
-        # Check if this call has already been blocked
-        if call_id in self._blocked_calls:
-            logger.debug(f"Skipping tool call judgment for already-blocked call {call_id}")
+        # Validate we should process this tool call
+        validation_result = self._validate_tool_call_for_judging(ctx, call_id)
+        if validation_result is None:
             return
 
-        # Get the just-completed tool call from the stream state
-        just_completed = ctx.original_streaming_response_state.just_completed
-        if not just_completed:
-            logger.debug(f"No just_completed block in on_tool_call_complete for call {call_id}")
-            return
-
-        if not isinstance(just_completed, ToolCallStreamBlock):
-            logger.warning(f"just_completed is not ToolCallStreamBlock: {type(just_completed)}")
-            return
-
-        # Get the tool call index from the completed block
-        tc_index = just_completed.index
-        key = (call_id, tc_index)
-
-        # Get the buffered tool call data
-        if key not in self._buffered_tool_calls:
-            logger.warning(f"No buffered data for tool call {key}")
-            return
-
-        tool_call = self._buffered_tool_calls[key]
-
-        # Skip if tool call is incomplete
-        if not tool_call.get("name") or not tool_call.get("id"):
-            logger.warning(f"Skipping incomplete tool call: {tool_call}")
-            del self._buffered_tool_calls[key]
-            return
+        key, tool_call = validation_result
 
         # Judge the tool call
         blocked_response = await self._evaluate_and_maybe_block(tool_call, ctx.observability)
 
-        if blocked_response is not None:
-            # BLOCKED! Mark this call as blocked and inject blocked message
-            self._blocked_calls.add(call_id)
+        is_blocked = blocked_response is not None
 
-            # Extract blocked message from response
-            if blocked_response.choices:
-                # Cast to Choices (non-streaming) since this is from judge LLM response
-                first_choice = cast(Choices, blocked_response.choices[0])
-                message = first_choice.message
-                blocked_text = message.content if hasattr(message, "content") else ""
-
-                if blocked_text:
-                    # Inject blocked text as content chunk (without finish_reason)
-                    blocked_content_chunk = create_text_chunk(str(blocked_text), finish_reason=None)
-                    await ctx.egress_queue.put(blocked_content_chunk)
-
-                    # Then send finish chunk to properly close the stream
-                    finish_chunk = create_text_chunk("", finish_reason="stop")
-                    await ctx.egress_queue.put(finish_chunk)
-
-                    logger.info(f"Blocked tool call '{tool_call['name']}' for call {call_id}")
-            else:
-                # Fallback - send blocked message then finish
-                blocked_content_chunk = create_text_chunk(
-                    f"⛔ BLOCKED: Tool call '{tool_call['name']}' rejected by policy",
-                    finish_reason=None,
-                )
-                await ctx.egress_queue.put(blocked_content_chunk)
-
-                # Then send finish chunk
-                finish_chunk = create_text_chunk("", finish_reason="stop")
-                await ctx.egress_queue.put(finish_chunk)
-
-            # Clean up buffered data for this tool call
-            del self._buffered_tool_calls[key]
-            return
+        if is_blocked:
+            await self._handle_blocked_tool_call(ctx, call_id, tool_call, blocked_response)
         else:
-            # PASSED - forward the tool call by reconstructing it
-            logger.debug(f"Passed tool call '{tool_call['name']}' for call {call_id}")
+            await self._handle_passed_tool_call(ctx, call_id, tool_call)
 
-            # Create proper ChatCompletionMessageToolCall object
-            tool_call_obj = ChatCompletionMessageToolCall(
-                id=tool_call.get("id", ""),
-                function=Function(
-                    name=tool_call.get("name", ""),
-                    arguments=tool_call.get("arguments", ""),
-                ),
-            )
-            tool_chunk = create_tool_call_chunk(tool_call_obj)
-            await ctx.egress_queue.put(tool_chunk)
+        # Clean up buffered data
+        del self._buffered_tool_calls[key]
 
-        # Clean up buffered data for this tool call
-        if key in self._buffered_tool_calls:
+    def _validate_tool_call_for_judging(
+        self, ctx: StreamingPolicyContext, call_id: str
+    ) -> tuple[tuple[str, int], dict[str, Any]] | None:
+        """Validate that we have a complete tool call ready to judge.
+
+        Returns:
+            Tuple of (buffer_key, tool_call_dict) if valid, None if should skip.
+        """
+        # Already blocked?
+        if call_id in self._blocked_calls:
+            logger.debug(f"Skipping tool call judgment for already-blocked call {call_id}")
+            return None
+
+        # Has just_completed data?
+        just_completed = ctx.original_streaming_response_state.just_completed
+        if not just_completed:
+            logger.debug(f"No just_completed block in on_tool_call_complete for call {call_id}")
+            return None
+
+        # Is it the right type?
+        if not isinstance(just_completed, ToolCallStreamBlock):
+            logger.warning(f"just_completed is not ToolCallStreamBlock: {type(just_completed)}")
+            return None
+
+        # Get buffered data
+        tc_index = just_completed.index
+        key = (call_id, tc_index)
+
+        if key not in self._buffered_tool_calls:
+            logger.warning(f"No buffered data for tool call {key}")
+            return None
+
+        tool_call = self._buffered_tool_calls[key]
+
+        # Is it complete enough to judge?
+        is_complete = tool_call.get("name") and tool_call.get("id")
+
+        if not is_complete:
+            logger.warning(f"Skipping incomplete tool call: {tool_call}")
             del self._buffered_tool_calls[key]
+            return None
+
+        return (key, tool_call)
+
+    async def _handle_blocked_tool_call(
+        self,
+        ctx: StreamingPolicyContext,
+        call_id: str,
+        tool_call: dict[str, Any],
+        blocked_response: ModelResponse,
+    ) -> None:
+        """Send blocked message and finish chunk for a blocked tool call."""
+        self._blocked_calls.add(call_id)
+
+        blocked_text = self._extract_blocked_message(blocked_response, tool_call)
+
+        # Send blocked text chunk
+        blocked_content_chunk = create_text_chunk(blocked_text, finish_reason=None)
+        await ctx.egress_queue.put(blocked_content_chunk)
+
+        # Send finish chunk
+        finish_chunk = create_text_chunk("", finish_reason="stop")
+        await ctx.egress_queue.put(finish_chunk)
+
+        logger.info(f"Blocked tool call '{tool_call['name']}' for call {call_id}")
+
+    def _extract_blocked_message(self, blocked_response: ModelResponse, tool_call: dict[str, Any]) -> str:
+        """Extract the blocked message text from judge response, with fallback."""
+        if not blocked_response.choices:
+            return f"⛔ BLOCKED: Tool call '{tool_call['name']}' rejected by policy"
+
+        first_choice = cast(Choices, blocked_response.choices[0])
+        message = first_choice.message
+        blocked_text = message.content if hasattr(message, "content") else ""
+
+        if blocked_text:
+            return str(blocked_text)
+
+        return f"⛔ BLOCKED: Tool call '{tool_call['name']}' rejected by policy"
+
+    async def _handle_passed_tool_call(
+        self,
+        ctx: StreamingPolicyContext,
+        call_id: str,
+        tool_call: dict[str, Any],
+    ) -> None:
+        """Forward an allowed tool call by reconstructing it."""
+        logger.debug(f"Passed tool call '{tool_call['name']}' for call {call_id}")
+
+        tool_call_obj = ChatCompletionMessageToolCall(
+            id=tool_call.get("id", ""),
+            function=Function(
+                name=tool_call.get("name", ""),
+                arguments=tool_call.get("arguments", ""),
+            ),
+        )
+        tool_chunk = create_tool_call_chunk(tool_call_obj)
+        await ctx.egress_queue.put(tool_chunk)
 
     async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
         """Evaluate non-streaming tool calls and block if necessary.
@@ -404,33 +433,72 @@ class ToolCallJudgePolicy(BasePolicy):
 
         Args:
             tool_call: Tool call dict with id, type, name, arguments
-            context: Policy context
-            observability_ctx: Observability context or None for emitting events
+            observability_ctx: Observability context for emitting events
 
         Returns:
             Blocked ModelResponse if tool call blocked, None if allowed
         """
+        name, arguments = self._normalize_tool_call_data(tool_call)
+
+        logger.debug(f"Evaluating tool call: {name}")
+        self._emit_evaluation_started(observability_ctx, name, arguments)
+
+        # Call judge with fail-secure error handling
+        judge_result = await self._call_judge_with_failsafe(observability_ctx, name, arguments)
+
+        # Judge call failed - already returned blocked response
+        if judge_result is None:
+            return create_text_response(
+                self._create_judge_failure_message(name, arguments),
+                model=self._config.model,
+            )
+
+        logger.debug(
+            f"Judge probability: {judge_result.probability:.2f} (threshold: {self._config.probability_threshold})"
+        )
+        self._emit_evaluation_complete(observability_ctx, name, judge_result)
+
+        # Decide based on threshold
+        should_block = judge_result.probability >= self._config.probability_threshold
+
+        if should_block:
+            self._emit_tool_call_blocked(observability_ctx, name, judge_result)
+            logger.warning(
+                f"Blocking tool call '{name}' (probability {judge_result.probability:.2f} "
+                f">= {self._config.probability_threshold})"
+            )
+            return create_blocked_response(tool_call, judge_result, self._blocked_message_template, self._config.model)
+        else:
+            self._emit_tool_call_allowed(observability_ctx, name, judge_result.probability)
+            return None
+
+    def _normalize_tool_call_data(self, tool_call: dict[str, Any]) -> tuple[str, str]:
+        """Extract and normalize tool call name and arguments.
+
+        Returns:
+            Tuple of (name, arguments_as_string)
+        """
         name = str(tool_call.get("name", ""))
         arguments = tool_call.get("arguments", "")
 
-        # Handle case where arguments is not a string
         if not isinstance(arguments, str):
             arguments = json.dumps(arguments)
 
-        logger.debug(f"Evaluating tool call: {name}")
+        return name, arguments
 
-        observability_ctx.emit_event_nonblocking(
-            "policy.judge.evaluation_started",
-            {
-                "summary": f"Evaluating tool call: {name}",
-                "tool_name": name,
-                "tool_arguments": arguments[:200],  # Truncate for safety
-            },
-        )
+    async def _call_judge_with_failsafe(
+        self,
+        observability_ctx: ObservabilityContext,
+        name: str,
+        arguments: str,
+    ) -> Any | None:
+        """Call judge LLM with fail-secure error handling.
 
-        # Call judge
+        Returns:
+            Judge result object on success, None if judge call failed (fail-secure)
+        """
         try:
-            judge_result = await call_judge(name, arguments, self._config, self._judge_instructions)
+            return await call_judge(name, arguments, self._config, self._judge_instructions)
         except Exception as exc:
             # LOUD ERROR LOGGING - judge failure is a security concern
             logger.error(
@@ -439,33 +507,61 @@ class ToolCallJudgePolicy(BasePolicy):
                 exc_info=True,
             )
 
-            # Emit event: evaluation failed (with warning severity)
-            observability_ctx.emit_event_nonblocking(
-                "policy.judge.evaluation_failed",
-                {
-                    "summary": f"⚠️ Judge evaluation failed for '{name}' - BLOCKED (fail-secure)",
-                    "tool_name": name,
-                    "tool_arguments": arguments[:200],  # Truncate for safety
-                    "error": str(exc),
-                    "severity": "error",
-                    "action_taken": "blocked",
-                },
-            )
+            self._emit_evaluation_failed(observability_ctx, name, arguments, exc)
+            return None
 
-            # FAIL-SECURE: Block on judge failure to prevent potentially harmful tool calls
-            blocked_message = (
-                f"⚠️ SECURITY BLOCK: Tool call '{name}' could not be evaluated by the judge due to an error. "
-                f"For security, this call has been blocked. "
-                f"Error: {str(exc)[:150]}... "
-                f"Tool arguments: {arguments[:200]}..."
-            )
-            return create_text_response(blocked_message, model=self._config.model)
-
-        logger.debug(
-            f"Judge probability: {judge_result.probability:.2f} (threshold: {self._config.probability_threshold})"
+    def _create_judge_failure_message(self, name: str, arguments: str) -> str:
+        """Create user-facing message for judge failure (fail-secure block)."""
+        # Note: We don't include the full exception in user message for security
+        return (
+            f"⚠️ SECURITY BLOCK: Tool call '{name}' could not be evaluated by the judge due to an error. "
+            f"For security, this call has been blocked. "
+            f"Tool arguments: {arguments[:200]}..."
         )
 
-        # Emit event: evaluation complete with result
+    def _emit_evaluation_started(
+        self,
+        observability_ctx: ObservabilityContext,
+        name: str,
+        arguments: str,
+    ) -> None:
+        """Emit observability event for evaluation start."""
+        observability_ctx.emit_event_nonblocking(
+            "policy.judge.evaluation_started",
+            {
+                "summary": f"Evaluating tool call: {name}",
+                "tool_name": name,
+                "tool_arguments": arguments[:200],
+            },
+        )
+
+    def _emit_evaluation_failed(
+        self,
+        observability_ctx: ObservabilityContext,
+        name: str,
+        arguments: str,
+        exc: Exception,
+    ) -> None:
+        """Emit observability event for evaluation failure."""
+        observability_ctx.emit_event_nonblocking(
+            "policy.judge.evaluation_failed",
+            {
+                "summary": f"⚠️ Judge evaluation failed for '{name}' - BLOCKED (fail-secure)",
+                "tool_name": name,
+                "tool_arguments": arguments[:200],
+                "error": str(exc),
+                "severity": "error",
+                "action_taken": "blocked",
+            },
+        )
+
+    def _emit_evaluation_complete(
+        self,
+        observability_ctx: ObservabilityContext,
+        name: str,
+        judge_result: Any,
+    ) -> None:
+        """Emit observability event for successful evaluation."""
         observability_ctx.emit_event_nonblocking(
             "policy.judge.evaluation_complete",
             {
@@ -477,25 +573,29 @@ class ToolCallJudgePolicy(BasePolicy):
             },
         )
 
-        # Check threshold
-        if judge_result.probability < self._config.probability_threshold:
-            observability_ctx.emit_event_nonblocking(
-                "policy.judge.tool_call_allowed",
-                {
-                    "summary": f"Tool call '{name}' allowed (probability {judge_result.probability:.2f} < {self._config.probability_threshold})",
-                    "tool_name": name,
-                    "probability": judge_result.probability,
-                },
-            )
-            return None  # Tool call allowed
-
-        # Blocked! Create blocked response
-        logger.warning(
-            f"Blocking tool call '{name}' (probability {judge_result.probability:.2f} "
-            f">= {self._config.probability_threshold})"
+    def _emit_tool_call_allowed(
+        self,
+        observability_ctx: ObservabilityContext,
+        name: str,
+        probability: float,
+    ) -> None:
+        """Emit observability event for allowed tool call."""
+        observability_ctx.emit_event_nonblocking(
+            "policy.judge.tool_call_allowed",
+            {
+                "summary": f"Tool call '{name}' allowed (probability {probability:.2f} < {self._config.probability_threshold})",
+                "tool_name": name,
+                "probability": probability,
+            },
         )
 
-        # Emit event: tool call blocked (shows in activity monitor with warning severity)
+    def _emit_tool_call_blocked(
+        self,
+        observability_ctx: ObservabilityContext,
+        name: str,
+        judge_result: Any,
+    ) -> None:
+        """Emit observability event for blocked tool call."""
         observability_ctx.emit_event_nonblocking(
             "policy.judge.tool_call_blocked",
             {
@@ -506,8 +606,6 @@ class ToolCallJudgePolicy(BasePolicy):
                 "explanation": judge_result.explanation,
             },
         )
-
-        return create_blocked_response(tool_call, judge_result, self._blocked_message_template, self._config.model)
 
 
 __all__ = ["ToolCallJudgePolicy"]
