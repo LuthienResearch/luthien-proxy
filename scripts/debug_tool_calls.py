@@ -4,6 +4,7 @@
 
 import json
 import os
+import traceback
 from pathlib import Path
 
 import anthropic
@@ -170,8 +171,6 @@ def main():
         direct_chunks, final_message = test_anthropic_direct()
     except Exception as e:
         print(f"❌ Error testing direct Anthropic API: {e}")
-        import traceback
-
         traceback.print_exc()
         direct_chunks = None
 
@@ -180,8 +179,6 @@ def main():
         proxy_chunks, proxy_raw = test_proxy()
     except Exception as e:
         print(f"❌ Error testing proxy: {e}")
-        import traceback
-
         traceback.print_exc()
         proxy_chunks = None
 

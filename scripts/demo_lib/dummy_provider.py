@@ -8,6 +8,7 @@ import time
 from typing import Any, Mapping
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -292,8 +293,6 @@ class DeterministicLLMProvider:
 
 def create_dummy_provider_app(provider: DeterministicLLMProvider | None = None) -> FastAPI:
     """Create a FastAPI app exposing the deterministic provider."""
-    from fastapi.responses import StreamingResponse
-
     provider = provider or DeterministicLLMProvider()
     app = FastAPI(title="Luthien Demo Dummy Provider")
 
