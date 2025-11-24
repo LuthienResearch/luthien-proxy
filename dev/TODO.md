@@ -2,11 +2,6 @@
 
 ## High Priority
 
-- [ ] **Review Nov 21-22 commits for cleanup** - Critically review all commits from Nov 21-22 related to finish_reason and tool call fixes:
-  - Check for any unnecessary changes that were made during debugging
-  - Identify any broken code that was committed during scrambling
-  - Clean up or revert any changes that don't belong
-  - Ensure fixes are minimal and well-targeted
 - [ ] **Add Claude Code / Codex e2e tests** - Create integration tests that catch streaming tool call bugs:
   - Test multi-tool-call responses with buffering policies (SimplePolicy, ToolCallJudgePolicy)
   - Verify exactly one `finish_reason` chunk at end of stream
@@ -93,7 +88,6 @@
 - [ ] thinking and verbosity model flags not respected
 - [ ] write SimpleToolCallJudge policy for pedagogical purposes
 - [ ] improve docstrings for SimplePolicy
-- [ ] **Audit tool_call_judge_policy.py coverage** - Currently at 64% coverage with significant gaps (lines 303-311, 346-362, 371-398, 466-512). Either add tests for untested paths or remove dead code.
 
 ## Medium Priority
 
