@@ -163,13 +163,13 @@ class PolicyExecutor(PolicyExecutorProtocol):
             await policy.on_stream_complete(streaming_ctx)
 
             # Drain any chunks added by on_stream_complete
-            while not streaming_ctx.egress_queue.empty():
-                try:
+            try:
+                while True:
                     policy_chunk = streaming_ctx.egress_queue.get_nowait()
                     self.recorder.add_egress_chunk(policy_chunk)
                     await self._safe_put(output_queue, policy_chunk)
-                except asyncio.QueueEmpty:
-                    break
+            except asyncio.QueueEmpty:
+                pass
 
         # Create tasks for stream processing and timeout monitoring
         stream_task = asyncio.create_task(process_stream())
