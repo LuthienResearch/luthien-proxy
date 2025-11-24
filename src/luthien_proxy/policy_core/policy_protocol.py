@@ -61,3 +61,17 @@ class PolicyProtocol(Protocol):
     async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
         """Called when stream completes."""
         ...
+
+    async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Called after all streaming policy processing completes for this request.
+
+        This hook is guaranteed to run even if errors occurred during policy processing.
+        Common uses include cleaning up buffers, caches, or other per-request state.
+
+        IMPORTANT: This method should NOT emit any chunks or modify responses.
+        It is called after all response processing is complete.
+
+        Args:
+            ctx: The streaming policy context for this request.
+        """
+        ...

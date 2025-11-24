@@ -221,8 +221,8 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
         assert not second_chunk.choices[0].delta.content, "Second chunk should have empty/None content"
 
     @pytest.mark.asyncio
-    async def test_allowed_tool_call_cleans_up_buffer(self):
-        """Test that allowed tool calls clean up buffered data."""
+    async def test_allowed_tool_call_cleanup_deferred(self):
+        """Test that allowed tool calls defer cleanup to on_streaming_policy_complete."""
         policy = ToolCallJudgePolicy(probability_threshold=1.0)  # Allow everything
 
         # Buffer a tool call first using proper Delta object
@@ -274,7 +274,13 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
         with patch.object(policy, "_evaluate_and_maybe_block", side_effect=mock_evaluate):
             await policy.on_tool_call_complete(ctx)
 
-        # Verify buffer was cleaned up
+        # Verify buffer is NOT yet cleaned up
+        assert ("test-call", 0) in policy._buffered_tool_calls
+
+        # Now call cleanup
+        await policy.on_streaming_policy_complete(ctx)
+
+        # Verify buffer is NOW cleaned up
         assert ("test-call", 0) not in policy._buffered_tool_calls
 
 
@@ -752,6 +758,80 @@ class TestToolCallJudgePolicyConfiguration:
         """Test that short_policy_name returns expected value."""
         policy = ToolCallJudgePolicy()
         assert policy.short_policy_name == "ToolJudge"
+
+
+class TestStreamingPolicyComplete:
+    """Test on_streaming_policy_complete cleanup behavior."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_clears_buffered_tool_calls(self):
+        """Test that cleanup removes buffered tool calls for the request."""
+        policy = ToolCallJudgePolicy()
+        ctx = create_mock_context(transaction_id="test-call-1")
+
+        # Manually add some buffered tool calls
+        policy._buffered_tool_calls[("test-call-1", 0)] = {
+            "id": "call_abc",
+            "type": "function",
+            "name": "test_tool",
+            "arguments": '{"arg": "value"}',
+        }
+        policy._buffered_tool_calls[("test-call-1", 1)] = {
+            "id": "call_def",
+            "type": "function",
+            "name": "another_tool",
+            "arguments": "{}",
+        }
+        # Add a buffer for a different call (should not be removed)
+        policy._buffered_tool_calls[("other-call", 0)] = {
+            "id": "call_xyz",
+            "type": "function",
+            "name": "other_tool",
+            "arguments": "{}",
+        }
+
+        assert len(policy._buffered_tool_calls) == 3
+
+        # Call cleanup
+        await policy.on_streaming_policy_complete(ctx)
+
+        # Only the current call's buffers should be removed
+        assert len(policy._buffered_tool_calls) == 1
+        assert ("other-call", 0) in policy._buffered_tool_calls
+        assert ("test-call-1", 0) not in policy._buffered_tool_calls
+        assert ("test-call-1", 1) not in policy._buffered_tool_calls
+
+    @pytest.mark.asyncio
+    async def test_cleanup_clears_blocked_calls(self):
+        """Test that cleanup removes blocked call tracking for the request."""
+        policy = ToolCallJudgePolicy()
+        ctx = create_mock_context(transaction_id="test-call-1")
+
+        # Mark some calls as blocked
+        policy._blocked_calls.add("test-call-1")
+        policy._blocked_calls.add("other-call")
+
+        assert len(policy._blocked_calls) == 2
+
+        # Call cleanup
+        await policy.on_streaming_policy_complete(ctx)
+
+        # Only the current call should be removed
+        assert len(policy._blocked_calls) == 1
+        assert "other-call" in policy._blocked_calls
+        assert "test-call-1" not in policy._blocked_calls
+
+    @pytest.mark.asyncio
+    async def test_cleanup_handles_empty_buffers(self):
+        """Test that cleanup handles case where there's nothing to clean up."""
+        policy = ToolCallJudgePolicy()
+        ctx = create_mock_context(transaction_id="test-call-1")
+
+        # Should not raise any errors
+        await policy.on_streaming_policy_complete(ctx)
+
+        assert len(policy._buffered_tool_calls) == 0
+        assert len(policy._blocked_calls) == 0
 
 
 if __name__ == "__main__":

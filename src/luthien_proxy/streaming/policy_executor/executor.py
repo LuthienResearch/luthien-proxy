@@ -204,6 +204,12 @@ class PolicyExecutor(PolicyExecutorProtocol):
             await self._cancel_task(monitor_task)
             raise
         finally:
+            # Call cleanup hook regardless of success/failure
+            try:
+                await policy.on_streaming_policy_complete(streaming_ctx)
+            except Exception:
+                logger.exception("Error in on_streaming_policy_complete - ignoring")
+
             # Ensure both tasks are cancelled if still running
             await self._cancel_task(stream_task)
             await self._cancel_task(monitor_task)

@@ -242,11 +242,9 @@ class ToolCallJudgePolicy(BasePolicy):
         call_id = ctx.policy_ctx.transaction_id
 
         # Validate we should process this tool call
-        validation_result = self._validate_tool_call_for_judging(ctx, call_id)
-        if validation_result is None:
+        tool_call = self._validate_tool_call_for_judging(ctx, call_id)
+        if tool_call is None:
             return
-
-        key, tool_call = validation_result
 
         # Judge the tool call
         blocked_response = await self._evaluate_and_maybe_block(tool_call, ctx.observability)
@@ -258,16 +256,13 @@ class ToolCallJudgePolicy(BasePolicy):
         else:
             await self._handle_passed_tool_call(ctx, call_id, tool_call)
 
-        # Clean up buffered data
-        del self._buffered_tool_calls[key]
+        # Note: Cleanup happens in on_streaming_policy_complete()
 
-    def _validate_tool_call_for_judging(
-        self, ctx: StreamingPolicyContext, call_id: str
-    ) -> tuple[tuple[str, int], dict[str, Any]] | None:
+    def _validate_tool_call_for_judging(self, ctx: StreamingPolicyContext, call_id: str) -> dict[str, Any] | None:
         """Validate that we have a complete tool call ready to judge.
 
         Returns:
-            Tuple of (buffer_key, tool_call_dict) if valid, None if should skip.
+            Tool call dict if valid, None if should skip.
         """
         # Already blocked?
         if call_id in self._blocked_calls:
@@ -300,10 +295,9 @@ class ToolCallJudgePolicy(BasePolicy):
 
         if not is_complete:
             logger.warning(f"Skipping incomplete tool call: {tool_call}")
-            del self._buffered_tool_calls[key]
             return None
 
-        return (key, tool_call)
+        return tool_call
 
     async def _handle_blocked_tool_call(
         self,
@@ -606,6 +600,21 @@ class ToolCallJudgePolicy(BasePolicy):
                 "explanation": judge_result.explanation,
             },
         )
+
+    async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Clean up per-request state after all streaming policy processing completes.
+
+        This ensures buffers are cleared even if errors occurred during processing.
+        """
+        call_id = ctx.policy_ctx.transaction_id
+
+        # Clear any buffered tool calls for this request
+        keys_to_remove = [key for key in self._buffered_tool_calls if key[0] == call_id]
+        for key in keys_to_remove:
+            del self._buffered_tool_calls[key]
+
+        # Clear blocked call tracking for this request
+        self._blocked_calls.discard(call_id)
 
 
 __all__ = ["ToolCallJudgePolicy"]

@@ -67,6 +67,10 @@ class BasePolicy(PolicyProtocol):
         """Default - do nothing. Implement this to act when the stream completes."""
         pass
 
+    async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Default - do nothing. Implement this to clean up per-request state after all processing completes."""
+        pass
+
     def get_config(self) -> dict[str, Any]:
         """Return the configuration parameters for this policy instance.
 
