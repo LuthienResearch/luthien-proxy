@@ -64,6 +64,14 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 See `SimplePolicy.on_stream_complete()` for the pattern.
 
+## Claude Code --tools Flag Restricts Available Tools (2025-11-24)
+
+**Gotcha**: Using `--tools "Bash(echo:*)"` or similar permission patterns in Claude Code's `-p` mode unexpectedly restricts the tool list to only MCP tools, removing built-in tools like `Bash`, `Read`, `Edit`.
+
+- **Wrong**: `claude -p --tools "Bash(echo:*)" "run echo hello"` - Bash tool not available
+- **Right**: `claude -p "run echo hello"` - uses default tool set including Bash
+- **Why**: The `--tools` flag with permission patterns appears to filter the tool list differently than expected. When testing Claude Code through the gateway, omit `--tools` to get the full default tool set.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
