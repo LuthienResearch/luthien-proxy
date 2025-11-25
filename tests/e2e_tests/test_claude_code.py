@@ -279,7 +279,7 @@ async def test_claude_code_tool_use_read(claude_available, gateway_healthy, tmp_
 
     # Don't restrict tools - use default tool set which includes Read
     result = await run_claude_code(
-        prompt=f"Read the file at {test_file} and tell me what it says. Be brief.",
+        prompt=f"Read the file at {test_file} and tell me exactly what it says without paraphrasing. Be brief.",
         tools=None,  # Use default tools
         max_turns=3,
         working_dir=str(tmp_path),
@@ -556,6 +556,7 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
             "probability_threshold": 0.01,  # Very low - should block most calls
             "temperature": 0.0,
             "max_tokens": 256,
+            "blocked_message_template": "⛔ TEST_BLOCK: Tool '{tool_name}' rejected by judge",
         },
     ):
         test_file = tmp_path / "judge_block_test.txt"
@@ -572,21 +573,10 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
         # but the tool call should be blocked by the policy
         assert result.is_success, f"Request failed: {result.stderr}"
 
-        # Check that tool was blocked - look for blocked message or no successful tool results
-        tool_results_content = " ".join(str(r) for r in result.tool_results)
-        final_and_results = result.final_result.lower() + tool_results_content.lower()
+        # Check that no tool calls were made (blocked before execution)
+        assert len(result.tool_results) == 0, f"Expected no tool results (blocked), got {len(result.tool_results)}"
 
-        # Either we see "blocked" in the response, or the Read tool wasn't successfully used
-        tool_was_blocked = (
-            "blocked" in final_and_results
-            or "denied" in final_and_results
-            or "not allowed" in final_and_results
-            or "Read" not in result.tools_used()
-            or "content that should be blocked" not in result.final_result.lower()
-        )
-
-        assert tool_was_blocked, (
-            f"Expected tool call to be blocked with threshold=0.01. "
-            f"Final result: {result.final_result[:200]}... "
-            f"Tools used: {result.tools_used()}"
+        # Check that the configured block message appears in output
+        assert "⛔ TEST_BLOCK" in result.final_result, (
+            f"Expected block message '⛔ TEST_BLOCK' in output, got: {result.final_result[:200]}"
         )
