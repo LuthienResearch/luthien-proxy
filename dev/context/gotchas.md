@@ -55,6 +55,13 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - Use `Delta(content=text)` not `{"content": text}` - dicts break SSE assembly
 - Use `StreamingChoices` not `Choices` for streaming (utils.py create_text_chunk)
 
+## Database Migrations Don't Auto-Apply to Existing Databases (2025-12-01)
+
+- `docker-entrypoint-initdb.d` only runs on initial Postgres volume creation, not on restarts
+- Pulling new migrations won't apply them to existing databases - causes `relation does not exist` errors
+- **Fix**: `docker compose down -v && ./scripts/quick_start.sh` (wipes data) or apply manually via `docker compose exec -T db psql`
+- See [#78](https://github.com/LuthienResearch/luthien-proxy/issues/78) for root cause and long-term fix
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

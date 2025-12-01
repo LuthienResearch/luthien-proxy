@@ -14,6 +14,10 @@
   - Run `migrations/001_add_policy_config_table.sql` against luthien_control database
   - Verify table creation and indexes
   - Test policy persistence by enabling a policy via admin API
+- [ ] **Fix Migration Strategy** - Resolve docker-entrypoint-initdb.d footgun ([#78](https://github.com/LuthienResearch/luthien-proxy/issues/78)):
+  - Decide between Pure Prisma vs Pure SQL + tracking
+  - Currently have conflicting systems causing incremental migrations to be skipped
+  - Blocks anyone with existing DB who pulls new migrations
 - [ ] **Policy Discovery/Listing** - Implement `/admin/policy/list` endpoint:
   - Add metadata to policy classes (name, description, example, use_case)
   - Implement policy scanning/registration in PolicyManager
