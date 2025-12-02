@@ -13,12 +13,12 @@ These functions are designed to be easily testable without FastAPI dependencies.
 
 from __future__ import annotations
 
+import urllib.parse
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from luthien_proxy.utils.db import DatabasePool
-
-from datetime import datetime
 
 from .models import (
     CallDiffResponse,
@@ -29,6 +29,9 @@ from .models import (
     MessageDiff,
     RequestDiff,
     ResponseDiff,
+    SpanData,
+    TimelineEvent,
+    TraceResponse,
 )
 
 # === URL Building ===
@@ -352,12 +355,371 @@ async def fetch_recent_calls(limit: int, db_pool: DatabasePool) -> CallListRespo
     )
 
 
+# === Trace Viewer Functions ===
+
+
+def build_grafana_logs_url(
+    call_id: str,
+    grafana_url: str = "http://localhost:3000",
+    start_time: str | None = None,
+    end_time: str | None = None,
+) -> str:
+    """Build Grafana Loki logs URL for a call_id.
+
+    Args:
+        call_id: Unique identifier for the request/response cycle
+        grafana_url: Base URL for Grafana instance
+        start_time: Optional start time for log query
+        end_time: Optional end time for log query
+
+    Returns:
+        URL-encoded Grafana Loki explore URL
+    """
+    # Loki query to find logs with call_id in message or json fields
+    query = f'{{service_name="luthien-proxy"}} |= "{call_id}"'
+    encoded_query = urllib.parse.quote(query)
+    return f"{grafana_url}/explore?left=%5B%22now-1h%22,%22now%22,%22Loki%22,%7B%22expr%22:%22{encoded_query}%22%7D%5D"
+
+
+def _categorize_event_type(event_type: str) -> str:
+    """Categorize an event type for timeline grouping.
+
+    Args:
+        event_type: Raw event type from database
+
+    Returns:
+        Category string: request, response, policy, streaming, or system
+    """
+    event_lower = event_type.lower()
+    if "request" in event_lower:
+        return "request"
+    if "response" in event_lower:
+        return "response"
+    if "policy" in event_lower:
+        return "policy"
+    if "stream" in event_lower:
+        return "streaming"
+    return "system"
+
+
+def _format_event_title(event_type: str, payload: dict[str, Any]) -> str:
+    """Generate a human-readable title for a timeline event.
+
+    Args:
+        event_type: Event type from database
+        payload: Event payload containing details
+
+    Returns:
+        Human-readable title string
+    """
+    # Map common event types to readable titles
+    title_map = {
+        "v2_request": "Request Received",
+        "v2_response": "Response Generated",
+        "request": "Request",
+        "response": "Response",
+    }
+
+    if event_type in title_map:
+        title = title_map[event_type]
+        # Add model info if available
+        data = payload.get("data", {})
+        if isinstance(data, dict):
+            model = data.get("final", {}).get("model") or data.get("original", {}).get("model")
+            if model:
+                title = f"{title} ({model})"
+        return title
+
+    # For policy events, extract policy name
+    if "policy" in event_type.lower():
+        policy_class = payload.get("policy_class", "")
+        if policy_class:
+            # Extract just the class name
+            policy_name = policy_class.split(":")[-1] if ":" in policy_class else policy_class.split(".")[-1]
+            return f"Policy: {policy_name}"
+
+    # Default: convert event_type to title case
+    return event_type.replace("_", " ").title()
+
+
+def _extract_event_description(event_type: str, payload: dict[str, Any]) -> str | None:
+    """Extract a brief description from event payload.
+
+    Args:
+        event_type: Event type from database
+        payload: Event payload
+
+    Returns:
+        Description string or None
+    """
+    if event_type == "v2_request":
+        data = payload.get("data", {})
+        if isinstance(data, dict):
+            original = data.get("original", {})
+            if isinstance(original, dict):
+                messages = original.get("messages", [])
+                if messages and isinstance(messages, list):
+                    # Get last user message preview
+                    for msg in reversed(messages):
+                        if isinstance(msg, dict) and msg.get("role") == "user":
+                            content = msg.get("content", "")
+                            if isinstance(content, str) and content:
+                                return content[:100] + ("..." if len(content) > 100 else "")
+    elif event_type == "v2_response":
+        response = payload.get("response", {})
+        if isinstance(response, dict):
+            final = response.get("final", {})
+            if isinstance(final, dict):
+                choices = final.get("choices", [])
+                if choices and isinstance(choices, list):
+                    first_choice = choices[0]
+                    if isinstance(first_choice, dict):
+                        message = first_choice.get("message", {})
+                        if isinstance(message, dict):
+                            content = message.get("content", "")
+                            if isinstance(content, str) and content:
+                                return content[:100] + ("..." if len(content) > 100 else "")
+    return None
+
+
+async def fetch_call_trace(call_id: str, db_pool: DatabasePool) -> TraceResponse:
+    """Fetch complete trace data for a call from database.
+
+    This function queries the database for conversation events and policy events,
+    then builds a hierarchical trace structure suitable for timeline visualization.
+
+    Args:
+        call_id: Unique identifier for the request/response cycle
+        db_pool: Database connection pool
+
+    Returns:
+        Complete trace data including spans, logs, and timeline events
+
+    Raises:
+        ValueError: If no events found for call_id
+    """
+    # Fetch conversation events
+    async with db_pool.connection() as conn:
+        conv_rows = await conn.fetch(
+            """
+            SELECT id, call_id, event_type, sequence, payload, created_at
+            FROM conversation_events
+            WHERE call_id = $1
+            ORDER BY sequence ASC
+            """,
+            call_id,
+        )
+
+        # Fetch policy events
+        policy_rows = await conn.fetch(
+            """
+            SELECT id, call_id, policy_class, policy_config, event_type,
+                   metadata, created_at
+            FROM policy_events
+            WHERE call_id = $1
+            ORDER BY created_at ASC
+            """,
+            call_id,
+        )
+
+        # Fetch call metadata
+        call_row = await conn.fetchrow(
+            """
+            SELECT call_id, model_name, provider, status, created_at, completed_at
+            FROM conversation_calls
+            WHERE call_id = $1
+            """,
+            call_id,
+        )
+
+    if not conv_rows and not policy_rows:
+        raise ValueError(f"No events found for call_id: {call_id}")
+
+    # Build timeline events from conversation events
+    timeline_events: list[TimelineEvent] = []
+    timestamps: list[datetime] = []
+
+    for row in conv_rows:
+        event_id = str(row["id"])
+        event_type = str(row["event_type"])
+        payload = row["payload"] if isinstance(row["payload"], dict) else {}
+        created_at = row["created_at"]
+
+        if isinstance(created_at, datetime):
+            timestamps.append(created_at)
+            timestamp_str = created_at.isoformat()
+        else:
+            timestamp_str = str(created_at)
+
+        timeline_events.append(
+            TimelineEvent(
+                id=event_id,
+                timestamp=timestamp_str,
+                event_type=event_type,
+                category=_categorize_event_type(event_type),
+                title=_format_event_title(event_type, payload),
+                description=_extract_event_description(event_type, payload),
+                payload=payload,
+            )
+        )
+
+    # Build timeline events from policy events
+    for row in policy_rows:
+        event_id = str(row["id"])
+        event_type = str(row["event_type"])
+        policy_class = str(row["policy_class"]) if row["policy_class"] else ""
+        metadata = row["metadata"] if isinstance(row["metadata"], dict) else {}
+        created_at = row["created_at"]
+
+        if isinstance(created_at, datetime):
+            timestamps.append(created_at)
+            timestamp_str = created_at.isoformat()
+        else:
+            timestamp_str = str(created_at)
+
+        # Extract policy name from class path
+        policy_name = policy_class.split(":")[-1] if ":" in policy_class else policy_class.split(".")[-1]
+
+        timeline_events.append(
+            TimelineEvent(
+                id=event_id,
+                timestamp=timestamp_str,
+                event_type=event_type,
+                category="policy",
+                title=f"Policy: {policy_name}",
+                description=metadata.get("action") or metadata.get("result"),
+                payload={"policy_class": policy_class, "metadata": metadata},
+            )
+        )
+
+    # Sort all timeline events by timestamp
+    timeline_events.sort(key=lambda e: e.timestamp)
+
+    # Calculate trace timing
+    start_time: str | None = None
+    end_time: str | None = None
+    duration_ms: float | None = None
+
+    if timestamps:
+        min_ts = min(timestamps)
+        max_ts = max(timestamps)
+        start_time = min_ts.isoformat()
+        end_time = max_ts.isoformat()
+        duration_ms = (max_ts - min_ts).total_seconds() * 1000
+
+    # Build synthetic spans representing the request lifecycle
+    spans: list[SpanData] = []
+
+    # Root span for the entire call
+    root_span_id = f"root-{call_id[:8]}"
+    spans.append(
+        SpanData(
+            span_id=root_span_id,
+            parent_span_id=None,
+            name="API Request",
+            start_time=start_time or "",
+            end_time=end_time,
+            duration_ms=duration_ms,
+            status="ok",
+            kind="server",
+            attributes={"call_id": call_id},
+        )
+    )
+
+    # Request processing span
+    request_events = [e for e in timeline_events if e.category == "request"]
+    if request_events:
+        req_span_id = f"request-{call_id[:8]}"
+        spans.append(
+            SpanData(
+                span_id=req_span_id,
+                parent_span_id=root_span_id,
+                name="Request Processing",
+                start_time=request_events[0].timestamp,
+                end_time=request_events[-1].timestamp if len(request_events) > 1 else request_events[0].timestamp,
+                status="ok",
+                kind="internal",
+                attributes={"event_count": len(request_events)},
+            )
+        )
+
+    # Policy processing span (if there are policy events)
+    policy_events = [e for e in timeline_events if e.category == "policy"]
+    if policy_events:
+        policy_span_id = f"policy-{call_id[:8]}"
+        policy_start = min(e.timestamp for e in policy_events)
+        policy_end = max(e.timestamp for e in policy_events)
+        spans.append(
+            SpanData(
+                span_id=policy_span_id,
+                parent_span_id=root_span_id,
+                name="Policy Evaluation",
+                start_time=policy_start,
+                end_time=policy_end,
+                status="ok",
+                kind="internal",
+                attributes={
+                    "policy_count": len(policy_events),
+                    "policies": list({e.title for e in policy_events}),
+                },
+            )
+        )
+
+    # Response processing span
+    response_events = [e for e in timeline_events if e.category == "response"]
+    if response_events:
+        resp_span_id = f"response-{call_id[:8]}"
+        spans.append(
+            SpanData(
+                span_id=resp_span_id,
+                parent_span_id=root_span_id,
+                name="Response Generation",
+                start_time=response_events[0].timestamp,
+                end_time=response_events[-1].timestamp if len(response_events) > 1 else response_events[0].timestamp,
+                status="ok",
+                kind="internal",
+                attributes={"event_count": len(response_events)},
+            )
+        )
+
+    # Extract metadata from call row
+    model_name: str | None = None
+    provider: str | None = None
+    status: str = "unknown"
+
+    if call_row:
+        raw_model = call_row["model_name"]
+        raw_provider = call_row["provider"]
+        raw_status = call_row["status"]
+        model_name = str(raw_model) if raw_model else None
+        provider = str(raw_provider) if raw_provider else None
+        status = str(raw_status) if raw_status else "unknown"
+
+    return TraceResponse(
+        call_id=call_id,
+        trace_id=None,  # Would need actual trace ID from OpenTelemetry
+        start_time=start_time,
+        end_time=end_time,
+        duration_ms=duration_ms,
+        status=status,
+        model=model_name,
+        provider=provider,
+        spans=spans,
+        logs=[],  # Logs would come from Loki in production
+        timeline_events=timeline_events,
+        tempo_trace_url=build_tempo_url(call_id),
+        grafana_logs_url=build_grafana_logs_url(call_id),
+    )
+
+
 __all__ = [
     "build_tempo_url",
+    "build_grafana_logs_url",
     "extract_message_content",
     "compute_request_diff",
     "compute_response_diff",
     "fetch_call_events",
     "fetch_call_diff",
     "fetch_recent_calls",
+    "fetch_call_trace",
 ]

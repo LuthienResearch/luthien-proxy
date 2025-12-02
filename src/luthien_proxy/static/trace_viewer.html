@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Request Trace Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f0f0f;
+            color: #e0e0e0;
+            padding: 20px;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid #333;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+        }
+
+        /* Input section */
+        .call-id-input {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        input {
+            flex: 1;
+            padding: 10px 16px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-size: 14px;
+            font-family: "Monaco", "Menlo", monospace;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #60a5fa;
+        }
+
+        button {
+            padding: 10px 24px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: #252525;
+            border-color: #555;
+        }
+
+        button.primary {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: white;
+        }
+
+        button.primary:hover {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+        }
+
+        .error {
+            background: #4d1a1a;
+            color: #f87171;
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+            font-size: 16px;
+        }
+
+        /* Trace metadata */
+        .trace-header {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+
+        .trace-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+
+        .trace-id {
+            font-family: "Monaco", "Menlo", monospace;
+            font-size: 16px;
+            color: #60a5fa;
+        }
+
+        .trace-links {
+            display: flex;
+            gap: 12px;
+        }
+
+        .trace-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: #1e3a5f;
+            border: 1px solid #2563eb;
+            border-radius: 4px;
+            color: #60a5fa;
+            text-decoration: none;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .trace-link:hover {
+            background: #1e40af;
+            color: #93c5fd;
+        }
+
+        .trace-link.logs {
+            background: #1f2937;
+            border-color: #4b5563;
+            color: #9ca3af;
+        }
+
+        .trace-link.logs:hover {
+            background: #374151;
+            color: #d1d5db;
+        }
+
+        .trace-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+        }
+
+        .meta-item {
+            background: #0f0f0f;
+            padding: 12px;
+            border-radius: 6px;
+        }
+
+        .meta-label {
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .meta-value {
+            font-family: "Monaco", "Menlo", monospace;
+            font-size: 14px;
+        }
+
+        .meta-value.success {
+            color: #4ade80;
+        }
+
+        .meta-value.error {
+            color: #f87171;
+        }
+
+        .meta-value.unknown {
+            color: #888;
+        }
+
+        /* Spans timeline */
+        .timeline-section {
+            margin-bottom: 32px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-title .icon {
+            font-size: 20px;
+        }
+
+        .spans-container {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .span-row {
+            display: flex;
+            border-bottom: 1px solid #262626;
+            transition: background 0.15s;
+        }
+
+        .span-row:last-child {
+            border-bottom: none;
+        }
+
+        .span-row:hover {
+            background: #1f1f1f;
+        }
+
+        .span-name {
+            width: 250px;
+            min-width: 250px;
+            padding: 12px 16px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-right: 1px solid #333;
+        }
+
+        .span-indent {
+            width: 20px;
+            display: inline-block;
+        }
+
+        .span-icon {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4ade80;
+        }
+
+        .span-icon.error {
+            background: #f87171;
+        }
+
+        .span-bar-container {
+            flex: 1;
+            padding: 12px 16px;
+            position: relative;
+        }
+
+        .span-bar {
+            height: 24px;
+            border-radius: 4px;
+            position: absolute;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            font-size: 11px;
+            color: white;
+            min-width: 2px;
+        }
+
+        .span-bar.root {
+            background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+        }
+
+        .span-bar.request {
+            background: linear-gradient(90deg, #10b981, #059669);
+        }
+
+        .span-bar.policy {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+        }
+
+        .span-bar.response {
+            background: linear-gradient(90deg, #8b5cf6, #7c3aed);
+        }
+
+        .span-duration {
+            font-family: "Monaco", "Menlo", monospace;
+            font-size: 11px;
+            color: #888;
+            margin-left: auto;
+            padding-left: 8px;
+        }
+
+        /* Timeline events */
+        .events-container {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+        }
+
+        .event-row {
+            display: flex;
+            padding: 12px 16px;
+            border-bottom: 1px solid #262626;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .event-row:last-child {
+            border-bottom: none;
+        }
+
+        .event-row:hover {
+            background: #1f1f1f;
+        }
+
+        .event-row.expanded {
+            background: #1f1f1f;
+        }
+
+        .event-time {
+            width: 180px;
+            min-width: 180px;
+            font-family: "Monaco", "Menlo", monospace;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .event-category {
+            width: 100px;
+            min-width: 100px;
+        }
+
+        .category-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .category-badge.request {
+            background: #0d3320;
+            color: #4ade80;
+        }
+
+        .category-badge.response {
+            background: #1e1b4b;
+            color: #a78bfa;
+        }
+
+        .category-badge.policy {
+            background: #451a03;
+            color: #fbbf24;
+        }
+
+        .category-badge.streaming {
+            background: #083344;
+            color: #22d3ee;
+        }
+
+        .category-badge.system {
+            background: #27272a;
+            color: #a1a1aa;
+        }
+
+        .event-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .event-title {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .event-description {
+            font-size: 12px;
+            color: #888;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .event-expand {
+            width: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 12px;
+            transition: transform 0.2s;
+        }
+
+        .event-row.expanded .event-expand {
+            transform: rotate(180deg);
+        }
+
+        .event-payload {
+            display: none;
+            padding: 16px;
+            background: #0f0f0f;
+            border-top: 1px solid #262626;
+        }
+
+        .event-row.expanded + .event-payload {
+            display: block;
+        }
+
+        .event-payload pre {
+            background: #1a1a1a;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.5;
+            font-family: "Monaco", "Menlo", monospace;
+            color: #a3a3a3;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        /* JSON syntax highlighting */
+        .json-key { color: #60a5fa; }
+        .json-string { color: #34d399; }
+        .json-number { color: #f59e0b; }
+        .json-boolean { color: #c084fc; }
+        .json-null { color: #888; }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .empty-state .icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        /* View toggle */
+        .view-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .view-toggle button {
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+
+        .view-toggle button.active {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: white;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .span-name {
+                width: 150px;
+                min-width: 150px;
+            }
+
+            .event-time {
+                width: 100px;
+                min-width: 100px;
+                font-size: 10px;
+            }
+
+            .event-category {
+                width: 80px;
+                min-width: 80px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Request Trace Viewer</h1>
+            <p class="subtitle">Visualize API request flow with hierarchical spans and timeline events</p>
+        </header>
+
+        <div class="call-id-input">
+            <input
+                type="text"
+                id="callIdInput"
+                placeholder="Enter call_id to view trace..."
+                autocomplete="off"
+            />
+            <button class="primary" onclick="loadTrace()">Load Trace</button>
+            <button onclick="loadRecentCalls()">Browse Recent</button>
+        </div>
+
+        <div id="errorContainer"></div>
+        <div id="traceContainer"></div>
+    </div>
+
+    <script>
+        // Parse call_id from URL query param if present
+        const urlParams = new URLSearchParams(window.location.search);
+        const callIdFromUrl = urlParams.get('call_id');
+        if (callIdFromUrl) {
+            document.getElementById('callIdInput').value = callIdFromUrl;
+            loadTrace();
+        }
+
+        let currentView = 'timeline'; // 'timeline' or 'spans'
+
+        async function loadTrace() {
+            const callId = document.getElementById('callIdInput').value.trim();
+            const errorContainer = document.getElementById('errorContainer');
+            const traceContainer = document.getElementById('traceContainer');
+
+            errorContainer.innerHTML = '';
+
+            if (!callId) {
+                errorContainer.innerHTML = '<div class="error">Please enter a call_id</div>';
+                return;
+            }
+
+            traceContainer.innerHTML = '<div class="loading">Loading trace...</div>';
+
+            try {
+                const response = await fetch(`/debug/calls/${callId}/trace`);
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                renderTrace(data);
+            } catch (error) {
+                traceContainer.innerHTML = '';
+                errorContainer.innerHTML = `<div class="error">Failed to load trace: ${error.message}</div>`;
+            }
+        }
+
+        function renderTrace(data) {
+            const container = document.getElementById('traceContainer');
+            let html = '';
+
+            // Trace header with metadata
+            html += renderTraceHeader(data);
+
+            // View toggle
+            html += `
+                <div class="view-toggle">
+                    <button class="${currentView === 'timeline' ? 'active' : ''}" onclick="switchView('timeline')">Timeline Events</button>
+                    <button class="${currentView === 'spans' ? 'active' : ''}" onclick="switchView('spans')">Spans View</button>
+                </div>
+            `;
+
+            // Render based on view
+            if (currentView === 'spans') {
+                html += renderSpansView(data);
+            }
+            html += renderTimelineView(data);
+
+            container.innerHTML = html;
+        }
+
+        function renderTraceHeader(data) {
+            const statusClass = data.status === 'success' ? 'success' :
+                               data.status === 'error' ? 'error' : 'unknown';
+
+            let html = `
+                <div class="trace-header">
+                    <div class="trace-title">
+                        <div class="trace-id">Call ID: ${escapeHtml(data.call_id)}</div>
+                        <div class="trace-links">
+            `;
+
+            if (data.tempo_trace_url) {
+                html += `<a href="${data.tempo_trace_url}" target="_blank" class="trace-link">View in Tempo</a>`;
+            }
+
+            if (data.grafana_logs_url) {
+                html += `<a href="${data.grafana_logs_url}" target="_blank" class="trace-link logs">View Logs</a>`;
+            }
+
+            html += `
+                        </div>
+                    </div>
+                    <div class="trace-meta">
+                        <div class="meta-item">
+                            <div class="meta-label">Status</div>
+                            <div class="meta-value ${statusClass}">${escapeHtml(data.status || 'unknown')}</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-label">Duration</div>
+                            <div class="meta-value">${data.duration_ms ? data.duration_ms.toFixed(2) + ' ms' : 'N/A'}</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-label">Model</div>
+                            <div class="meta-value">${escapeHtml(data.model || 'N/A')}</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-label">Provider</div>
+                            <div class="meta-value">${escapeHtml(data.provider || 'N/A')}</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-label">Events</div>
+                            <div class="meta-value">${data.timeline_events ? data.timeline_events.length : 0}</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-label">Start Time</div>
+                            <div class="meta-value">${formatTimestamp(data.start_time)}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            return html;
+        }
+
+        function renderSpansView(data) {
+            if (!data.spans || data.spans.length === 0) {
+                return '';
+            }
+
+            let html = `
+                <div class="timeline-section">
+                    <div class="section-title"><span class="icon">&#8614;</span> Spans</div>
+                    <div class="spans-container">
+            `;
+
+            // Calculate timeline scale
+            const startTime = data.start_time ? new Date(data.start_time).getTime() : 0;
+            const endTime = data.end_time ? new Date(data.end_time).getTime() : startTime;
+            const totalDuration = Math.max(endTime - startTime, 1);
+
+            // Sort spans: root first, then by start time
+            const sortedSpans = [...data.spans].sort((a, b) => {
+                if (!a.parent_span_id) return -1;
+                if (!b.parent_span_id) return 1;
+                return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+            });
+
+            sortedSpans.forEach(span => {
+                const spanStart = span.start_time ? new Date(span.start_time).getTime() : startTime;
+                const spanEnd = span.end_time ? new Date(span.end_time).getTime() : spanStart;
+                const spanDuration = spanEnd - spanStart;
+
+                const leftPercent = ((spanStart - startTime) / totalDuration) * 100;
+                const widthPercent = Math.max((spanDuration / totalDuration) * 100, 0.5);
+
+                const isChild = span.parent_span_id !== null;
+                const spanType = span.name.toLowerCase().includes('request') ? 'request' :
+                                span.name.toLowerCase().includes('policy') ? 'policy' :
+                                span.name.toLowerCase().includes('response') ? 'response' : 'root';
+
+                html += `
+                    <div class="span-row">
+                        <div class="span-name">
+                            ${isChild ? '<span class="span-indent"></span>' : ''}
+                            <span class="span-icon ${span.status === 'error' ? 'error' : ''}"></span>
+                            ${escapeHtml(span.name)}
+                        </div>
+                        <div class="span-bar-container">
+                            <div class="span-bar ${spanType}" style="left: ${leftPercent}%; width: ${widthPercent}%;">
+                                <span class="span-duration">${span.duration_ms ? span.duration_ms.toFixed(2) + 'ms' : ''}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div></div>';
+            return html;
+        }
+
+        function renderTimelineView(data) {
+            if (!data.timeline_events || data.timeline_events.length === 0) {
+                return `
+                    <div class="timeline-section">
+                        <div class="section-title"><span class="icon">&#128203;</span> Timeline Events</div>
+                        <div class="empty-state">
+                            <div class="icon">&#128269;</div>
+                            <p>No events found for this trace</p>
+                        </div>
+                    </div>
+                `;
+            }
+
+            let html = `
+                <div class="timeline-section">
+                    <div class="section-title"><span class="icon">&#128203;</span> Timeline Events (${data.timeline_events.length})</div>
+                    <div class="events-container">
+            `;
+
+            data.timeline_events.forEach((event, index) => {
+                html += `
+                    <div class="event-row" onclick="toggleEvent(${index})">
+                        <div class="event-time">${formatTimestamp(event.timestamp)}</div>
+                        <div class="event-category">
+                            <span class="category-badge ${event.category}">${event.category}</span>
+                        </div>
+                        <div class="event-content">
+                            <div class="event-title">${escapeHtml(event.title)}</div>
+                            ${event.description ? `<div class="event-description">${escapeHtml(event.description)}</div>` : ''}
+                        </div>
+                        <div class="event-expand">&#9660;</div>
+                    </div>
+                    <div class="event-payload" id="payload-${index}">
+                        <pre>${syntaxHighlightJson(JSON.stringify(event.payload, null, 2))}</pre>
+                    </div>
+                `;
+            });
+
+            html += '</div></div>';
+            return html;
+        }
+
+        function toggleEvent(index) {
+            const rows = document.querySelectorAll('.event-row');
+            const row = rows[index];
+            if (row) {
+                row.classList.toggle('expanded');
+            }
+        }
+
+        function switchView(view) {
+            currentView = view;
+            const callId = document.getElementById('callIdInput').value.trim();
+            if (callId) {
+                loadTrace();
+            }
+        }
+
+        async function loadRecentCalls() {
+            const errorContainer = document.getElementById('errorContainer');
+            const traceContainer = document.getElementById('traceContainer');
+
+            errorContainer.innerHTML = '';
+            traceContainer.innerHTML = '<div class="loading">Loading recent calls...</div>';
+
+            try {
+                const response = await fetch('/debug/calls?limit=20');
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                renderRecentCalls(data.calls);
+            } catch (error) {
+                traceContainer.innerHTML = '';
+                errorContainer.innerHTML = `<div class="error">Failed to load recent calls: ${error.message}</div>`;
+            }
+        }
+
+        function renderRecentCalls(calls) {
+            const container = document.getElementById('traceContainer');
+
+            if (calls.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">&#128269;</div>
+                        <p>No recent calls found</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = `
+                <div class="timeline-section">
+                    <div class="section-title"><span class="icon">&#128203;</span> Recent Calls</div>
+                    <div class="events-container">
+            `;
+
+            calls.forEach(call => {
+                html += `
+                    <div class="event-row" onclick="selectCall('${call.call_id}')" style="cursor: pointer;">
+                        <div class="event-time">${formatTimestamp(call.latest_timestamp)}</div>
+                        <div class="event-category">
+                            <span class="category-badge system">${call.event_count} events</span>
+                        </div>
+                        <div class="event-content">
+                            <div class="event-title" style="font-family: Monaco, Menlo, monospace;">${call.call_id}</div>
+                        </div>
+                        <div class="event-expand">&#8594;</div>
+                    </div>
+                `;
+            });
+
+            html += '</div></div>';
+            container.innerHTML = html;
+        }
+
+        function selectCall(callId) {
+            document.getElementById('callIdInput').value = callId;
+            loadTrace();
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return 'N/A';
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleString('en-US', {
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                }) + '.' + date.getMilliseconds().toString().padStart(3, '0');
+            } catch {
+                return timestamp;
+            }
+        }
+
+        function escapeHtml(text) {
+            if (text === null || text === undefined) {
+                return '';
+            }
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        function syntaxHighlightJson(json) {
+            if (!json) return '';
+
+            // Escape HTML first
+            json = escapeHtml(json);
+
+            // Apply syntax highlighting
+            json = json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?)/g, (match) => {
+                let cls = 'json-string';
+                if (/:$/.test(match)) {
+                    cls = 'json-key';
+                }
+                return `<span class="${cls}">${match}</span>`;
+            });
+
+            json = json.replace(/\b(-?\d+\.?\d*)\b/g, '<span class="json-number">$1</span>');
+            json = json.replace(/\b(true|false)\b/g, '<span class="json-boolean">$1</span>');
+            json = json.replace(/\bnull\b/g, '<span class="json-null">null</span>');
+
+            return json;
+        }
+
+        // Allow Enter key to load trace
+        document.getElementById('callIdInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                loadTrace();
+            }
+        });
+    </script>
+</body>
+</html>

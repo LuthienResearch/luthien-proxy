@@ -87,4 +87,15 @@ async def policy_config():
     return FileResponse(os.path.join(STATIC_DIR, "policy_config.html"))
 
 
+@router.get("/debug/trace")
+async def trace_viewer():
+    """Request trace viewer UI.
+
+    Returns the HTML page for visualizing API request flow with hierarchical
+    spans and timeline events. Shows how requests move through the system
+    including policy evaluations and response generation.
+    """
+    return FileResponse(os.path.join(STATIC_DIR, "trace_viewer.html"))
+
+
 __all__ = ["router"]

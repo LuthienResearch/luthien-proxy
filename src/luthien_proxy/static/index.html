@@ -108,6 +108,13 @@
 
         <div class="endpoint">
             <span class="method">GET</span>
+            <a href="/debug/trace" target="_blank">/debug/trace</a>
+            <span class="badge ui">UI</span>
+            <div class="description">Request trace viewer - visualize API request flow with hierarchical spans and timeline events</div>
+        </div>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
             <a href="/debug/diff" target="_blank">/debug/diff</a>
             <span class="badge ui">UI</span>
             <div class="description">Policy diff viewer - compare original vs modified requests/responses with side-by-side diff visualization</div>
@@ -136,6 +143,13 @@
             <span>/debug/calls/{call_id}/diff</span>
             <span class="badge api">API</span>
             <div class="description">Get JSON diff showing what the policy changed (requests, responses, messages)</div>
+        </div>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
+            <span>/debug/calls/{call_id}/trace</span>
+            <span class="badge api">API</span>
+            <div class="description">Get hierarchical trace data with spans, timeline events, and links to Grafana</div>
         </div>
     </div>
 
@@ -182,6 +196,7 @@
     <div class="section quickstart">
         <h2>💡 Quick Start</h2>
         <p><strong>View real-time activity:</strong> <a href="/activity/monitor" target="_blank">Open Activity Monitor</a></p>
+        <p><strong>Analyze request traces:</strong> <a href="/debug/trace" target="_blank">Open Trace Viewer</a></p>
         <p><strong>Inspect policy changes:</strong> <a href="/debug/diff" target="_blank">Open Diff Viewer</a></p>
         <p><strong>List recent calls:</strong> <a href="/debug/calls" target="_blank">Browse Call History</a></p>
     </div>
