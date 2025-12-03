@@ -13,6 +13,7 @@ These functions are designed to be easily testable without FastAPI dependencies.
 
 from __future__ import annotations
 
+import json
 import urllib.parse
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -47,8 +48,20 @@ def build_tempo_url(call_id: str, grafana_url: str = "http://localhost:3000") ->
     Returns:
         URL-encoded Grafana Tempo search URL
     """
-    # Tempo search by tag: luthien.call_id=<call_id>
-    return f"{grafana_url}/explore?left=%5B%22now-1h%22,%22now%22,%22Tempo%22,%7B%22query%22:%22%7Bluthien.call_id%3D%5C%22{call_id}%5C%22%7D%22%7D%5D"
+    # TraceQL query: { span."luthien.call_id" = "call_id_value" }
+    # The attribute name contains a dot, so it must be quoted per TraceQL syntax.
+    # We also need the span. scope prefix for span attributes.
+    traceql_query = f'{{ span."luthien.call_id" = "{call_id}" }}'
+
+    # Build the Grafana Explore left pane JSON structure
+    left_pane = {
+        "datasource": "tempo",
+        "queries": [{"refId": "A", "queryType": "traceql", "query": traceql_query}],
+        "range": {"from": "now-1h", "to": "now"},
+    }
+    # URL-encode the entire JSON to avoid issues with double quotes breaking URLs
+    encoded_left = urllib.parse.quote(json.dumps(left_pane), safe="")
+    return f"{grafana_url}/explore?orgId=1&left={encoded_left}"
 
 
 # === Message Content Extraction ===

@@ -260,14 +260,14 @@ docker compose logs gateway | grep -i "opentelemetry initialized"
 
 ### TraceQL (Tempo)
 
-Find traces by attributes:
+Find traces by attributes. Note: attribute names containing dots must be quoted:
 
 ```traceql
-{luthien.call_id="abc123"}
-{luthien.policy.name="SQLProtectionPolicy"}
-{luthien.stream=true}
-{status=error}
-{duration > 1s}
+{ span."luthien.call_id" = "abc123" }
+{ span."luthien.policy.name" = "SQLProtectionPolicy" }
+{ span."luthien.stream" = true }
+{ status = error }
+{ duration > 1s }
 ```
 
 ### LogQL (Loki)
