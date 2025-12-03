@@ -13,15 +13,15 @@ CREATE TABLE IF NOT EXISTS policy_config (
 );
 
 -- Ensure only one active policy at a time
-CREATE UNIQUE INDEX idx_one_active_policy
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_policy
 ON policy_config (is_active)
 WHERE is_active = true;
 
 -- Index for querying history
-CREATE INDEX idx_policy_enabled_at ON policy_config (enabled_at DESC);
+CREATE INDEX IF NOT EXISTS idx_policy_enabled_at ON policy_config (enabled_at DESC);
 
 -- Index for querying by class reference
-CREATE INDEX idx_policy_class_ref ON policy_config (policy_class_ref);
+CREATE INDEX IF NOT EXISTS idx_policy_class_ref ON policy_config (policy_class_ref);
 
 -- Add comment for documentation
 COMMENT ON TABLE policy_config IS 'Runtime policy configuration with history and audit trail';

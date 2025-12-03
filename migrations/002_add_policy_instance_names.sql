@@ -9,7 +9,7 @@ ALTER TABLE policy_config ADD COLUMN IF NOT EXISTS description TEXT;
 
 -- Create unique index on name to prevent duplicates
 -- Allow NULL names for backward compatibility with unnamed instances
-CREATE UNIQUE INDEX idx_policy_config_name
+CREATE UNIQUE INDEX IF NOT EXISTS idx_policy_config_name
 ON policy_config (name)
 WHERE name IS NOT NULL;
 
