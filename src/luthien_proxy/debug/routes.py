@@ -17,7 +17,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from luthien_proxy.dependencies import get_db_pool
 
 from .models import CallDiffResponse, CallEventsResponse, CallListResponse, TraceResponse
 from .service import fetch_call_diff, fetch_call_events, fetch_call_trace, fetch_recent_calls
@@ -28,25 +30,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/debug", tags=["debug"])
-
-
-def get_db_pool(request: Request) -> db.DatabasePool | None:
-    """Dependency to get database pool from app state.
-
-    The db_pool is set during app startup in main.py's lifespan handler.
-
-    For testing, you can either:
-    1. Pass db_pool directly to endpoint functions (bypassing dependency injection)
-    2. Override this dependency using app.dependency_overrides[get_db_pool]
-    3. Set app.state.db_pool in test setup
-
-    Args:
-        request: FastAPI request object containing app state
-
-    Returns:
-        Database pool if configured, None otherwise
-    """
-    return getattr(request.app.state, "db_pool", None)
 
 
 # === Endpoints ===
