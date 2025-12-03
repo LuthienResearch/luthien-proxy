@@ -21,11 +21,22 @@ from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.policy_manager import PolicyManager
-from luthien_proxy.telemetry import setup_telemetry
+from luthien_proxy.telemetry import (
+    configure_logging,
+    configure_tracing,
+    instrument_app,
+    instrument_redis,
+)
 from luthien_proxy.ui import router as ui_router
 from luthien_proxy.utils import db
 
 # Note: RedisEventPublisher is created inside Dependencies container
+
+# Configure OpenTelemetry tracing and logging EARLY (before app creation)
+# This ensures the tracer provider is set up before any spans are created
+configure_tracing()
+configure_logging()
+instrument_redis()
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +72,6 @@ def create_app(
         # Configure litellm globally (moved from policy file to prevent import side effects)
         litellm.drop_params = True
         logger.info("Configured litellm: drop_params=True")
-
-        # Initialize OpenTelemetry
-        setup_telemetry(app)
-        logger.info("OpenTelemetry initialized")
 
         # Connect to database
         _db_pool: db.DatabasePool | None = None
@@ -159,6 +166,10 @@ def create_app(
     async def health():
         """Health check endpoint."""
         return {"status": "healthy", "version": "2.0.0"}
+
+    # Instrument FastAPI AFTER routes are registered
+    # This ensures all endpoints get traced
+    instrument_app(app)
 
     return app
 

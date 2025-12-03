@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 
 # Configuration from environment
 OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() == "true"
-OTEL_ENDPOINT = os.getenv("OTEL_ENDPOINT", "http://tempo:4317")
+# Use standard OTEL_EXPORTER_OTLP_ENDPOINT, fall back to legacy OTEL_ENDPOINT
+OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_ENDPOINT", "http://tempo:4317")
 SERVICE_NAME = os.getenv("SERVICE_NAME", "luthien-proxy")
 SERVICE_VERSION = os.getenv("SERVICE_VERSION", "2.0.0")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
