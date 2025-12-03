@@ -1,0 +1,10 @@
+# ABOUTME: Lightweight container for running database migrations
+# ABOUTME: Uses postgres client to apply SQL migrations idempotently
+
+FROM postgres:16-alpine
+
+COPY migrations/ /migrations/
+COPY docker/run-migrations.sh /run-migrations.sh
+RUN chmod +x /run-migrations.sh
+
+ENTRYPOINT ["/run-migrations.sh"]
