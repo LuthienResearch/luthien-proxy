@@ -18,7 +18,7 @@ import logging
 import sys
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from opentelemetry import trace
 
@@ -151,7 +151,7 @@ class DatabaseSink(LuthienRecordSink):
                         """,
                         transaction_id,
                     )
-                    next_sequence = int(next_seq_result) if next_seq_result else 1
+                    next_sequence = cast(int, next_seq_result) if next_seq_result else 1
 
                     # Insert event row
                     await conn.execute(

@@ -136,6 +136,13 @@
 
 ## Low Priority / Future Work
 
+- [ ] **Simplify db.py abstractions** - Remove redundant protocol wrappers in favor of asyncpg types:
+  - `ConnectionProtocol` and `PoolProtocol` are thin wrappers around asyncpg's actual types
+  - `ConnectFn`, `PoolFactory`, `get_connector()`, `get_pool_factory()` add indirection without clear benefit
+  - Keep `DatabasePool` class for lazy-init/connection-management logic
+  - Use asyncpg types directly; dependency injection via constructor args is sufficient for testing
+  - Original motivation unclear (likely over-engineering from earlier LLM session)
+
 - [ ] **Review and test observability functionality** - Verify observability stack is working correctly:
   - Test trace collection and visualization in Grafana
   - Verify activity monitor is receiving events
