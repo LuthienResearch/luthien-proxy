@@ -2,19 +2,15 @@
 
 ## Unreleased | TBA
 
+- Added e2e tests that actually invoke claude code running through the proxy
+
 - Codebase cleanup (#81)
   - Remove dead code: `control_plane/` (stale pycache), `streaming_aggregation.py`
   - Standardize on Python module docstrings (removed ABOUTME convention)
   - Organize and deduplicate TODO.md
   - Update CLAUDE.md and codebase_learnings.md to reflect actual module structure
 
-- Add Request Trace Viewer UI for debugging API requests (#api-request-tracing-ui)
-  - New `/debug/trace` UI endpoint for visualizing request flow
-  - New `/debug/calls/{call_id}/trace` API endpoint returning hierarchical trace data
-  - Timeline visualization with spans showing request, policy, and response phases
-  - Event details with expandable JSON payloads
-  - Links to Grafana Tempo traces and Loki logs
-  - Browse recent calls and select for trace analysis
+- Implement trace (tempo) + log (loki) observability
 
 - Add `on_streaming_policy_complete()` lifecycle hook for cleanup (#76)
   - New policy hook called in finally block after all streaming policy processing completes

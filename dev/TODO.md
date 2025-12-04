@@ -4,12 +4,6 @@
 
 ### Testing
 
-- [ ] **Add Claude Code / Codex e2e tests** - Create integration tests that catch streaming tool call bugs:
-  - Test multi-tool-call responses with buffering policies (SimplePolicy, ToolCallJudgePolicy)
-  - Verify exactly one `finish_reason` chunk at end of stream
-  - Test first tool call content is preserved (not empty)
-- [ ] **Test mixed content + tool calls edge case** - Investigate if LLM APIs ever return both content and tool calls in a single response; ensure we don't emit duplicate finish_reason chunks.
-
 ### Policy UI & Admin
 
 - [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
