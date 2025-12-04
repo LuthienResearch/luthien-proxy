@@ -8,6 +8,7 @@ import json
 import logging
 
 from litellm.types.utils import ModelResponse
+from opentelemetry import trace
 
 from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -15,6 +16,7 @@ from luthien_proxy.streaming.client_formatter.anthropic_sse_assembler import Ant
 from luthien_proxy.streaming.client_formatter.interface import ClientFormatter
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # Queue put timeout to prevent deadlock if client is slow
 QUEUE_PUT_TIMEOUT = 30.0
@@ -68,56 +70,64 @@ class AnthropicClientFormatter(ClientFormatter):
         Raises:
             Exception: On conversion errors or malformed chunks
         """
-        message_started = False
-        assembler = AnthropicSSEAssembler()
+        with tracer.start_as_current_span("streaming.client_formatter") as span:
+            span.set_attribute("formatter.type", "anthropic")
+            span.set_attribute("formatter.model", self.model_name)
+            chunk_count = 0
 
-        try:
-            while True:
-                chunk = await input_queue.get()
+            message_started = False
+            assembler = AnthropicSSEAssembler()
 
-                # None signals end of stream
-                if chunk is None:
-                    break
+            try:
+                while True:
+                    chunk = await input_queue.get()
 
-                # Send message_start before first chunk
-                if not message_started:
-                    message_started = True
-                    message_start = {
-                        "type": "message_start",
-                        "message": {
-                            "id": f"msg_{policy_ctx.transaction_id}",
-                            "type": "message",
-                            "role": "assistant",
-                            "content": [],
-                            "model": self.model_name,
-                            "stop_reason": None,
-                            "stop_sequence": None,
-                            "usage": {"input_tokens": 0, "output_tokens": 0},
-                        },
-                    }
-                    sse_line = f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
-                    # logger.info(f"[ClientFormatter] Sending message_start: {repr(sse_line[:200])}")
+                    # None signals end of stream
+                    if chunk is None:
+                        break
+
+                    chunk_count += 1
+
+                    # Send message_start before first chunk
+                    if not message_started:
+                        message_started = True
+                        message_start = {
+                            "type": "message_start",
+                            "message": {
+                                "id": f"msg_{policy_ctx.transaction_id}",
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [],
+                                "model": self.model_name,
+                                "stop_reason": None,
+                                "stop_sequence": None,
+                                "usage": {"input_tokens": 0, "output_tokens": 0},
+                            },
+                        }
+                        sse_line = f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
+                        await self._safe_put(output_queue, sse_line)
+
+                    # Convert chunk to Anthropic events using stateful assembler
+                    events = assembler.process_chunk(chunk)
+
+                    # Emit all events in Anthropic SSE format: "event: <type>\ndata: <json>\n\n"
+                    for event in events:
+                        event_type = event.get("type", "content_block_delta")
+                        json_str = json.dumps(event)
+                        sse_line = f"event: {event_type}\ndata: {json_str}\n\n"
+                        await self._safe_put(output_queue, sse_line)
+
+                # Send message_stop at end (only if we started)
+                if message_started:
+                    message_stop = {"type": "message_stop"}
+                    sse_line = f"event: message_stop\ndata: {json.dumps(message_stop)}\n\n"
+                    logger.info(f"[ClientFormatter] Sending message_stop: {repr(sse_line)}")
                     await self._safe_put(output_queue, sse_line)
 
-                # Convert chunk to Anthropic events using stateful assembler
-                events = assembler.process_chunk(chunk)
-
-                # Emit all events in Anthropic SSE format: "event: <type>\ndata: <json>\n\n"
-                for event in events:
-                    event_type = event.get("type", "content_block_delta")
-                    json_str = json.dumps(event)
-                    sse_line = f"event: {event_type}\ndata: {json_str}\n\n"
-                    await self._safe_put(output_queue, sse_line)
-
-            # Send message_stop at end (only if we started)
-            if message_started:
-                message_stop = {"type": "message_stop"}
-                sse_line = f"event: message_stop\ndata: {json.dumps(message_stop)}\n\n"
-                logger.info(f"[ClientFormatter] Sending message_stop: {repr(sse_line)}")
-                await self._safe_put(output_queue, sse_line)
-        finally:
-            # Signal end of stream to output queue
-            await self._safe_put(output_queue, None)
+                span.set_attribute("formatter.chunk_count", chunk_count)
+            finally:
+                # Signal end of stream to output queue
+                await self._safe_put(output_queue, None)
 
 
 __all__ = ["AnthropicClientFormatter"]

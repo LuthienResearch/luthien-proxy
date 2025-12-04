@@ -15,8 +15,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
-from datetime import datetime
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -113,41 +111,6 @@ def instrument_redis() -> None:
     logger.info("Redis instrumented with OpenTelemetry")
 
 
-def write_json_to_stdout(data: dict) -> None:
-    """Write JSON log line to stdout with trace context.
-
-    This is a low-level telemetry sink that writes directly to stdout,
-    bypassing Python's logging framework. Promtail collects these logs.
-
-    Use this for structured observability events. For regular log messages,
-    use Python's logging (logger.info, logger.warning, etc.).
-
-    Args:
-        data: Dictionary of fields to include in the JSON log line
-    """
-    # Get current span context
-    span = trace.get_current_span()
-    ctx = span.get_span_context()
-
-    if ctx.is_valid:
-        trace_id = format(ctx.trace_id, "032x")
-        span_id = format(ctx.span_id, "016x")
-    else:
-        trace_id = "0" * 32
-        span_id = "0" * 16
-
-    # Build structured log entry
-    log_entry = {
-        "timestamp": datetime.now().isoformat(),
-        "trace_id": trace_id,
-        "span_id": span_id,
-        **data,
-    }
-
-    # Write to stdout (promtail will collect this)
-    print(json.dumps(log_entry), file=sys.stdout, flush=True)
-
-
 def configure_logging() -> None:
     """Configure structured logging with trace correlation.
 
@@ -227,5 +190,4 @@ __all__ = [
     "configure_logging",
     "instrument_app",
     "instrument_redis",
-    "write_json_to_stdout",
 ]

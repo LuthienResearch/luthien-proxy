@@ -36,7 +36,6 @@ from luthien_proxy.observability.context import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sinks import DatabaseSink, RedisSink
-from luthien_proxy.observability.transaction import LuthienTransaction
 from luthien_proxy.observability.transaction_recorder import (
     DefaultTransactionRecorder,
 )
@@ -137,16 +136,6 @@ async def chat_completions(
         )
     )
 
-    # Create transaction tracker
-    transaction = LuthienTransaction(transaction_id=call_id, obs_ctx=obs_ctx)
-
-    # Track incoming OpenAI request (no conversion needed)
-    await transaction.track_incoming_request(
-        endpoint="/v1/chat/completions",
-        body=body,
-        client_format="openai",
-    )
-
     # Create policy context (shared across request/response)
     policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
 
@@ -174,9 +163,6 @@ async def chat_completions(
             payload=json.dumps(final_request.model_dump(exclude_none=True)),
         )
     )
-
-    # Track final request sent to backend
-    await transaction.track_backend_request(final_request)
 
     # Call backend LLM (llm_client injected via Depends)
     if is_streaming:
@@ -261,16 +247,6 @@ async def anthropic_messages(
         )
     )
 
-    # Create transaction tracker
-    transaction = LuthienTransaction(transaction_id=call_id, obs_ctx=obs_ctx)
-
-    # Track incoming Anthropic request
-    await transaction.track_incoming_request(
-        endpoint="/v1/messages",
-        body=anthropic_body,
-        client_format="anthropic",
-    )
-
     # Convert Anthropic request to OpenAI format
     logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
     openai_body = anthropic_to_openai_request(anthropic_body)
@@ -288,14 +264,6 @@ async def anthropic_messages(
                 }
             ),
         )
-    )
-
-    # Track format conversion
-    await transaction.track_format_conversion(
-        conversion="anthropic_to_openai",
-        input_format="anthropic",
-        output_format="openai",
-        result=openai_body,
     )
 
     # Create request message
@@ -336,9 +304,6 @@ async def anthropic_messages(
             payload=json.dumps(final_request.model_dump(exclude_none=True)),
         )
     )
-
-    # Track final request sent to backend
-    await transaction.track_backend_request(final_request)
 
     # Call backend LLM (llm_client injected via Depends)
     if is_streaming:

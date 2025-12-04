@@ -21,6 +21,9 @@ datasources:
         spanEndTimeShift: '1h'
         filterByTraceID: true
         filterBySpanID: false
+        # Use custom query to filter logs by call_id from span attribute
+        customQuery: true
+        query: '{app="luthien-gateway"} |= `$${__span.tags["luthien.call_id"]}`'
         tags:
           - key: 'service.name'
             value: 'service_name'
@@ -50,3 +53,12 @@ datasources:
           name: TraceID
           url: "$${__value.raw}"
           urlDisplayLabel: "View Trace"
+        # Also link by call_id to find traces via span attribute
+        - datasourceUid: tempo-uid
+          matcherRegex: "call_id[\"=:]([0-9a-f-]+)"
+          name: CallID
+          url: '$${__value.raw}'
+          urlDisplayLabel: "Find Trace by Call ID"
+          internalLink:
+            datasourceUid: tempo-uid
+            query: '{ span."luthien.call_id" = "$${__value.raw}" }'
