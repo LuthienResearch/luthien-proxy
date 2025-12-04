@@ -90,89 +90,6 @@ class CallListResponse(BaseModel):
     total: int
 
 
-# === Trace Viewer Models ===
-
-
-class SpanData(BaseModel):
-    """Represents a span in the request trace timeline.
-
-    Spans are hierarchical units of work with timing information.
-    They can be nested (parent/child relationships) and contain
-    attributes describing the operation.
-    """
-
-    span_id: str
-    parent_span_id: str | None = None
-    name: str
-    start_time: str  # ISO timestamp
-    end_time: str | None = None  # ISO timestamp
-    duration_ms: float | None = None
-    status: str = "ok"  # ok, error, unset
-    kind: str = "internal"  # server, client, internal, producer, consumer
-    attributes: dict[str, Any] = {}
-    events: list[dict[str, Any]] = []  # Span events (logs attached to span)
-
-
-class LogEntry(BaseModel):
-    """Represents a log message in the trace timeline.
-
-    Log entries are point-in-time messages that may or may not
-    be associated with a specific span.
-    """
-
-    timestamp: str  # ISO timestamp
-    level: str  # DEBUG, INFO, WARNING, ERROR, CRITICAL
-    message: str
-    logger: str | None = None
-    span_id: str | None = None
-    trace_id: str | None = None
-    attributes: dict[str, Any] = {}
-
-
-class TimelineEvent(BaseModel):
-    """A unified event in the trace timeline.
-
-    Used to represent both conversation events and policy events
-    in a consistent format for timeline visualization.
-    """
-
-    id: str
-    timestamp: str  # ISO timestamp
-    event_type: str
-    category: str  # request, response, policy, system
-    title: str
-    description: str | None = None
-    payload: dict[str, Any] = {}
-    duration_ms: float | None = None
-
-
-class TraceResponse(BaseModel):
-    """Complete trace data for a call.
-
-    Contains all the information needed to render a trace timeline:
-    - Spans showing hierarchical request flow
-    - Log entries showing messages over time
-    - Timeline events showing key milestones
-    - Metadata about the trace
-    """
-
-    call_id: str
-    trace_id: str | None = None
-    start_time: str | None = None
-    end_time: str | None = None
-    duration_ms: float | None = None
-    status: str = "unknown"  # success, error, unknown
-    model: str | None = None
-    provider: str | None = None
-
-    spans: list[SpanData] = []
-    logs: list[LogEntry] = []
-    timeline_events: list[TimelineEvent] = []
-
-    tempo_trace_url: str | None = None
-    grafana_logs_url: str | None = None
-
-
 __all__ = [
     "ConversationEventResponse",
     "CallEventsResponse",
@@ -182,8 +99,4 @@ __all__ = [
     "CallDiffResponse",
     "CallListItem",
     "CallListResponse",
-    "SpanData",
-    "LogEntry",
-    "TimelineEvent",
-    "TraceResponse",
 ]

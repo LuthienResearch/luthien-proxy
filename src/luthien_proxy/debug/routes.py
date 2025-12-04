@@ -21,8 +21,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from luthien_proxy.dependencies import get_db_pool
 
-from .models import CallDiffResponse, CallEventsResponse, CallListResponse, TraceResponse
-from .service import fetch_call_diff, fetch_call_events, fetch_call_trace, fetch_recent_calls
+from .models import CallDiffResponse, CallEventsResponse, CallListResponse
+from .service import fetch_call_diff, fetch_call_events, fetch_recent_calls
 
 if TYPE_CHECKING:
     from luthien_proxy.utils import db
@@ -119,44 +119,6 @@ async def list_recent_calls(
         return await fetch_recent_calls(limit, db_pool)
     except Exception as exc:
         logger.error(f"Failed to list recent calls: {exc}")
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
-
-
-@router.get("/calls/{call_id}/trace", response_model=TraceResponse)
-async def get_call_trace(
-    call_id: str,
-    db_pool: db.DatabasePool | None = Depends(get_db_pool),
-) -> TraceResponse:
-    """Retrieve complete trace data for a specific call_id.
-
-    This endpoint returns hierarchical trace data suitable for timeline visualization,
-    including spans, logs, and timeline events. It synthesizes data from conversation
-    events and policy events into a structured trace format.
-
-    Args:
-        call_id: Unique identifier for the request/response cycle
-        db_pool: Database connection pool (injected by FastAPI)
-
-    Returns:
-        Complete trace data including:
-        - Spans: Hierarchical timing data for request phases
-        - Timeline events: All conversation and policy events
-        - Metadata: Model, provider, status, duration
-        - Links: URLs to Grafana Tempo traces and Loki logs
-
-    Raises:
-        HTTPException: If database is not configured or query fails
-    """
-    if not db_pool:
-        raise HTTPException(status_code=503, detail="Database not configured")
-
-    try:
-        return await fetch_call_trace(call_id, db_pool)
-    except ValueError as exc:
-        # No events found
-        raise HTTPException(status_code=404, detail=str(exc))
-    except Exception as exc:
-        logger.error(f"Failed to fetch trace for call {call_id}: {exc}")
         raise HTTPException(status_code=500, detail=f"Database error: {exc}")
 
 
