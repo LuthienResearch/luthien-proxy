@@ -26,15 +26,17 @@ EOF
 for migration in /migrations/*.sql; do
     filename=$(basename "$migration")
 
-    # Check if already applied (use parameterized query to prevent SQL injection)
-    applied=$(psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -t -c \
-        "SELECT COUNT(*) FROM _migrations WHERE filename = \$1;" -v "1=$filename" | tr -d ' ')
+    # Check if already applied (use psql variable substitution to prevent SQL injection)
+    applied=$(psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -t \
+        -v filename="$filename" \
+        -c "SELECT COUNT(*) FROM _migrations WHERE filename = :'filename';" | tr -d ' ')
 
     if [ "$applied" = "0" ]; then
         echo "📦 Applying migration: $filename"
         psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -f "$migration"
-        psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -c \
-            "INSERT INTO _migrations (filename) VALUES (\$1);" -v "1=$filename"
+        psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" \
+            -v filename="$filename" \
+            -c "INSERT INTO _migrations (filename) VALUES (:'filename');"
         echo "✅ Applied: $filename"
     else
         echo "⏭️  Skipping (already applied): $filename"

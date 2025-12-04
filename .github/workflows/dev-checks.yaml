@@ -22,9 +22,10 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: ${{ env.PGUSER }}
-          POSTGRES_PASSWORD: ${{ env.PGPASSWORD }}
-          POSTGRES_DB: ${{ env.PGDATABASE }}
+          # Note: Cannot use job-level env vars here - services are created before job env is available
+          POSTGRES_USER: luthien
+          POSTGRES_PASSWORD: luthien
+          POSTGRES_DB: luthien_control
         ports:
           - 5432:5432
         options: >-
