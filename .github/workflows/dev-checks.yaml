@@ -11,21 +11,24 @@ jobs:
   dev-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: luthien
+      PGPASSWORD: luthien
+      PGDATABASE: luthien_control
+      LITELLM_DATABASE_URL: postgresql://luthien:luthien@localhost:5432/litellm_db
     services:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: luthien
-          POSTGRES_PASSWORD: luthien
-          POSTGRES_DB: luthien_control
+          POSTGRES_USER: ${{ env.PGUSER }}
+          POSTGRES_PASSWORD: ${{ env.PGPASSWORD }}
+          POSTGRES_DB: ${{ env.PGDATABASE }}
         ports:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U luthien" --health-interval 10s --health-timeout 5s --health-retries 5
-    env:
-      DATABASE_URL: postgresql://luthien:luthien@localhost:5432/luthien_control
-      LITELLM_DATABASE_URL: postgresql://luthien:luthien@localhost:5432/litellm_db
-      PGPASSWORD: luthien
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,18 +46,19 @@ jobs:
 
       - name: Prepare databases
         run: |
-          until pg_isready -h localhost -p 5432 -U luthien; do
+          until pg_isready; do
             echo "Waiting for Postgres..."
             sleep 1
           done
-          psql -h localhost -U luthien -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='litellm_db';" | grep -q 1 || \
-            psql -h localhost -U luthien -d postgres -c "CREATE DATABASE litellm_db;"
+          psql -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='litellm_db';" | grep -q 1 || \
+            psql -d postgres -c "CREATE DATABASE litellm_db;"
 
-      - name: Validate control-plane migrations
-        run: uv run prisma migrate deploy --schema prisma/control_plane/schema.prisma
-
-      - name: Validate LiteLLM schema
-        run: uv run prisma db push --schema prisma/litellm/schema.prisma
+      - name: Run SQL migrations
+        run: |
+          for migration in migrations/*.sql; do
+            echo "Applying migration: $migration"
+            psql -f "$migration"
+          done
 
       - name: Run formatting, lint, and tests
         run: ./scripts/dev_checks.sh
