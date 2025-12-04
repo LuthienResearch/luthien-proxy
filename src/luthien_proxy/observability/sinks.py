@@ -1,6 +1,3 @@
-# ABOUTME: Observability sinks for writing LuthienRecords to various destinations
-# ABOUTME: Each sink knows how to format and write records to a specific backend
-
 """Observability sinks for multi-destination event emission.
 
 This module provides sink implementations for writing LuthienRecords to:

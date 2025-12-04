@@ -1,6 +1,3 @@
-# ABOUTME: PolicyExecutorProtocol interface - handles block assembly and policy hook invocation
-# ABOUTME: Implementations can customize timeout strategies
-
 """Policy executor protocol for streaming response processing."""
 
 import asyncio

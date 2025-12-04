@@ -1,7 +1,8 @@
-# ABOUTME: TransactionRecorder provides interface for recording request/response transactions
-# ABOUTME: Includes NoOp implementation for testing and Default implementation for production
+"""Interface for recording request/response transactions.
 
-"""Module docstring."""
+Includes NoOp and Default implementations for recording and
+reconstructing streaming/non-streaming transactions.
+"""
 
 from abc import ABC, abstractmethod
 

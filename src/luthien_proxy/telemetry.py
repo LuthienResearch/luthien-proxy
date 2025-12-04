@@ -1,6 +1,3 @@
-# ABOUTME: OpenTelemetry configuration for distributed tracing and logging
-# ABOUTME: Exports traces to Tempo and correlates logs with trace context
-
 """OpenTelemetry setup for Luthien observability.
 
 This module configures:

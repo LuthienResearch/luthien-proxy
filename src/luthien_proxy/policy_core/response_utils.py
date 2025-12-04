@@ -1,6 +1,3 @@
-# ABOUTME: Utilities for inspecting and extracting data from ModelResponse objects
-# ABOUTME: General-purpose helpers for working with LiteLLM ModelResponse format
-
 """Utilities for working with LiteLLM ModelResponse objects.
 
 This module provides helper functions for extracting and inspecting data

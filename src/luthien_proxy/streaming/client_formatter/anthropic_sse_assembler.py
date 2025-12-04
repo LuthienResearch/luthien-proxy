@@ -1,6 +1,3 @@
-# ABOUTME: Assembles Anthropic SSE events from OpenAI streaming chunks
-# ABOUTME: Tracks content block state to generate proper event sequences with indices
-
 """Anthropic SSE stream assembler for OpenAI → Anthropic streaming conversion.
 
 We convert all provider streams to OpenAI format (for policy consistency), but this

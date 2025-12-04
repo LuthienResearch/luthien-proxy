@@ -1,6 +1,3 @@
-# ABOUTME: Utilities for LLM-based tool call judging
-# ABOUTME: Handles judge LLM calls, prompt building, and response parsing
-
 """Utilities for tool call judging with LLM.
 
 This module provides the core judging functionality used by ToolCallJudgePolicy:

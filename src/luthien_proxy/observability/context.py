@@ -1,6 +1,3 @@
-# ABOUTME: ObservabilityContext provides unified interface for emitting events, metrics, and traces
-# ABOUTME: Includes NoOp implementation for testing and Default implementation for production
-
 """Observability context for unified event/metric/trace emission."""
 
 import asyncio

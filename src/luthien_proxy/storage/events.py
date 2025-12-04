@@ -1,6 +1,3 @@
-# ABOUTME: Event emission helpers for V2 gateway to persist conversation events
-# ABOUTME: Non-blocking queue-based persistence for conversation events
-
 """V2 Event Emission - Background persistence of conversation events.
 
 This module provides non-blocking event emission for the V2 gateway.

@@ -1,6 +1,3 @@
-# ABOUTME: Simple policy that converts all response content to uppercase
-# ABOUTME: Demonstrates basic content transformation using the new Policy interface
-
 """AllCapsPolicy - Simple content transformation example.
 
 This policy converts all text content in responses to uppercase.

@@ -1,6 +1,3 @@
-# ABOUTME: Configuration loading - policy instantiation from YAML
-# ABOUTME: Loads policy class and config from YAML file specified by POLICY_CONFIG
-
 """Policy configuration loading.
 
 Loads policy configuration from YAML files with the format:

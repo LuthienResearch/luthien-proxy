@@ -1,6 +1,3 @@
-# ABOUTME: PolicyContext for cross-stage state management
-# ABOUTME: Shared mutable state across request/response lifecycle
-
 """Policy context for the streaming pipeline.
 
 This module defines PolicyContext, which provides shared mutable state

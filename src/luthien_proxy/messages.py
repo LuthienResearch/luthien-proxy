@@ -1,6 +1,3 @@
-# ABOUTME: Request message type definition for policy processing
-# ABOUTME: Policies work directly with LiteLLM's ModelResponse for responses
-
 """Message types for policy processing.
 
 Policies operate on:

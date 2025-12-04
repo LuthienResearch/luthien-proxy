@@ -1,6 +1,3 @@
-# ABOUTME: Storage module for V2 event persistence
-# ABOUTME: Handles conversation event emission to background queue
-
 """V2 Storage - Event emission and persistence helpers.
 
 This module provides helpers for V2 to emit conversation events

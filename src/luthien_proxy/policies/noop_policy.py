@@ -1,5 +1,3 @@
-# ABOUTME: Do nothing policy implementation
-
 """No-op policy that performs no modifications."""
 
 from __future__ import annotations

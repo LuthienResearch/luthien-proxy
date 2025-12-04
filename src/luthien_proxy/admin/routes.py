@@ -1,6 +1,3 @@
-# ABOUTME: Admin API routes for policy management
-# ABOUTME: Protected endpoints for listing, enabling, and querying policies
-
 """Admin API routes for policy management."""
 
 from __future__ import annotations

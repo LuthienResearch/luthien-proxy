@@ -1,7 +1,7 @@
-# ABOUTME: Helper functions for policies to manipulate streaming responses
-# ABOUTME: Provides send_text, send_chunk, passthrough functions for easy policy authoring
+"""Helper functions for policies to manipulate streaming responses.
 
-"""Module docstring."""
+Provides send_text, send_chunk, passthrough functions for easy policy authoring.
+"""
 
 from __future__ import annotations
 

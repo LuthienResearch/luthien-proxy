@@ -1,6 +1,3 @@
-# ABOUTME: Business logic for debug endpoints - testable functions for querying/computing diffs
-# ABOUTME: Pure functions that don't depend on FastAPI - used by routes.py
-
 """Service layer for V2 debug functionality.
 
 This module contains pure business logic for:

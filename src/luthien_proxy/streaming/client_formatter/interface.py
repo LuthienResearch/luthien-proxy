@@ -1,6 +1,3 @@
-# ABOUTME: ClientFormatter interface - converts common format to client-specific SSE
-# ABOUTME: Implemented by OpenAI and Anthropic formatters
-
 """Client formatter interface for streaming responses."""
 
 import asyncio

@@ -1,6 +1,3 @@
-# ABOUTME: General-purpose format conversion between OpenAI and Anthropic API formats
-# ABOUTME: Handles request and non-streaming response transformations
-
 """Format conversion utilities for LLM API formats.
 
 This module provides general-purpose format conversion between OpenAI and Anthropic

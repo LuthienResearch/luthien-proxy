@@ -1,6 +1,3 @@
-# ABOUTME: Policies package initialization
-# ABOUTME: Exposes various policy implementations and interfaces
-
 """Policies package initialization."""
 
 from luthien_proxy.policies.all_caps_policy import AllCapsPolicy
