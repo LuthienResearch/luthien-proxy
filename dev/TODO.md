@@ -80,6 +80,15 @@
   - Log at ERROR level when chunks are truncated (transaction_recorder.py:96-101)
   - Add metrics/alerts for frequent truncation
   - Consider circuit breaking on sustained truncation
+- [ ] **Add authentication for debug endpoints** - Debug endpoints currently have no auth:
+  - Add API key or token-based authentication to `/debug/*` routes
+  - Consider role-based access (admin-only for sensitive debug data)
+  - Document security implications of exposing debug endpoints
+- [ ] **Document a concrete data retention policy** - Define and document how long data is retained:
+  - Specify retention periods for conversation_events, debug_logs, traces
+  - Implement automated cleanup/archival for old data
+  - Document GDPR/compliance considerations for stored conversation data
+  - Add configuration options for retention periods
 - [ ] **Add timeout configuration documentation** - Document why no timeout is set in gateway routes or make it configurable:
   - `PolicyExecutor(recorder=recorder)` uses default timeout of `None` (gateway_routes.py:117)
   - Either document rationale or add environment variable configuration
