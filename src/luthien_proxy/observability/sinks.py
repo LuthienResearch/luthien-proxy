@@ -18,7 +18,7 @@ import logging
 import sys
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from opentelemetry import trace
 
@@ -142,18 +142,13 @@ class DatabaseSink(LuthienRecordSink):
                         timestamp,
                     )
 
-                    # Get next sequence number for this call
-                    next_seq_result = await conn.fetchval(
-                        """
-                        SELECT COALESCE(MAX(sequence), 0) + 1
-                        FROM conversation_events
-                        WHERE call_id = $1
-                        """,
+                    # Lock the call row to serialize concurrent inserts for same call_id
+                    await conn.execute(
+                        "SELECT 1 FROM conversation_calls WHERE call_id = $1 FOR UPDATE",
                         transaction_id,
                     )
-                    next_sequence = cast(int, next_seq_result) if next_seq_result else 1
 
-                    # Insert event row
+                    # Insert event with atomically computed sequence number
                     await conn.execute(
                         """
                         INSERT INTO conversation_events (
@@ -163,11 +158,12 @@ class DatabaseSink(LuthienRecordSink):
                             payload,
                             created_at
                         )
-                        VALUES ($1, $2, $3, $4, $5)
+                        SELECT $1, $2, COALESCE(MAX(sequence), 0) + 1, $3, $4
+                        FROM conversation_events
+                        WHERE call_id = $1
                         """,
                         transaction_id,
                         event_type,
-                        next_sequence,
                         json.dumps(record_data),
                         timestamp,
                     )
