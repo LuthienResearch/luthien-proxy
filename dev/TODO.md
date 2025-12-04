@@ -2,174 +2,98 @@
 
 ## High Priority
 
+### Testing
+
 - [ ] **Add Claude Code / Codex e2e tests** - Create integration tests that catch streaming tool call bugs:
   - Test multi-tool-call responses with buffering policies (SimplePolicy, ToolCallJudgePolicy)
   - Verify exactly one `finish_reason` chunk at end of stream
   - Test first tool call content is preserved (not empty)
-  - Consider using actual Claude Code or Codex as test clients if feasible
-  - These tests would have caught the duplicate response and empty first tool call bugs
-- [ ] **Test mixed content + tool calls edge case** - Currently on_content_complete emits finish_reason for content and on_stream_complete emits for tool calls. Need to investigate if LLM APIs ever return both content and tool calls in a single response, and if so, ensure we don't emit duplicate finish_reason chunks.
+- [ ] **Test mixed content + tool calls edge case** - Investigate if LLM APIs ever return both content and tool calls in a single response; ensure we don't emit duplicate finish_reason chunks.
+
+### Policy UI & Admin
+
 - [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
   - Update `policy_config.js` to call `/admin/policy/enable` instead of mocking
   - Add admin key input/storage (prompt on first use, store in sessionStorage)
   - Fetch current policy from `/admin/policy/current` on page load
-  - Implement policy discovery by fetching from `/admin/policy/list` (requires implementation)
   - Connect SSE to real `/activity/stream` for test detection
-  - Add error handling UI for failed policy changes
-  - Note: Backend APIs for policy management are now implemented (PolicyManager, admin routes)
-- [ ] **Run Database Migration** - Apply the new policy_config table migration:
-  - Run `migrations/001_add_policy_config_table.sql` against luthien_control database
-  - Verify table creation and indexes
-  - Test policy persistence by enabling a policy via admin API
-- [ ] **Policy Discovery/Listing** - Implement `/admin/policy/list` endpoint:
-  - Add metadata to policy classes (name, description, example, use_case)
-  - Implement policy scanning/registration in PolicyManager
-  - Return list of available policies with metadata for UI
-- [ ] Update README post v2-migration
-- [ ] **Verify UI monitoring endpoints functionality** - Check which UI endpoints are working and refactor as needed:
-  - Test `/debug/diff` - diff viewer with side-by-side comparisons
-  - Test `/activity/monitor` - real-time activity stream
-  - Test `/debug/calls/{call_id}/diff` - API endpoint for diffs
-  - Test `/debug/calls` - recent calls listing
-  - Test `/activity/stream` - SSE endpoint
-  - Verify transaction recorder is storing both original and final requests/responses
-  - Check if debug routes are properly mounted in main.py
-  - Refactor/fix any broken endpoints
-- [ ] **Factor out common gateway route logic** - `/v1/chat/completions` and `/v1/messages` endpoints have significant duplication:
-  - Both create the same pipeline dependencies (recorder, executor, formatter, orchestrator)
-  - Both call `process_request()` and `record_request()` identically
-  - Both handle streaming/non-streaming with identical patterns
-  - Extract common pipeline setup into `_create_pipeline_components()` helper function
-  - Would reduce code duplication from ~90 lines each to ~20 lines each
-  - Main differences are: request format conversion (Anthropic→OpenAI) and response format conversion (OpenAI→Anthropic)
-- [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files:
-- [ ] **Policy API: Prevent common streaming mistakes** - Make it easier for policy writers to avoid streaming bugs:
-  - Consider base class that auto-forwards chunks by default (opt-in buffering instead of opt-in forwarding)
-  - Provide better helper functions for common patterns (send_content, send_blocked_message, etc.)
-  - Add validation/warnings when policies don't forward chunks
-  - Consider dependency injection for chunk creation to ensure correct types
-- [ ] **Format blocked messages for readability** - Current blocked messages are ugly (backslashes, no newlines). Need to:
-  - Pretty-print JSON tool arguments
-  - Add proper line breaks in explanations
-  - Consider terminal/web formatting differences
-- [ ] Add security documentation for dynamic policy loading mechanism (POLICY_CONFIG) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
-- [ ] Verify all environment variables are documented in README and .env.example ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
-- [ ] Add input validation: max request size and message count limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] **Remove Prisma from codebase** - Prisma migrations conflict with SQL migrations in `./migrations/`:
+- [ ] **Policy Discovery/Listing** - Implement `/admin/policy/list` endpoint with policy metadata
+- [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files
+
+### Infrastructure (High)
+
+- [ ] **Run Database Migration** - Apply `migrations/001_add_policy_config_table.sql`
+- [ ] **Remove Prisma from codebase** - Conflicts with SQL migrations:
   - Remove `prisma/` directory
   - Remove `db-migrations` service from docker-compose.yaml
   - Remove prisma from pyproject.toml dependencies
-  - Remove prisma migrate steps from CI (.github/workflows/dev-checks.yaml)
-  - SQL migrations in `./migrations/` already handle schema setup via docker-entrypoint-initdb.d
-- [ ] **Fix assertion usage in production code** - Replace `assert` statements with proper error handling:
-  - `simple_policy.py:69, 92` - Replace assertions with explicit `if` checks and raise proper exceptions
-  - Assertions can be disabled with Python's `-O` flag, making them unreliable for production
-  - Use `ValueError` or custom exceptions instead
-- [ ] **Replace magic numbers with named constants**:
-  - `queue_size: int = 10000` (policy_orchestrator.py:49) - should be named constant `DEFAULT_QUEUE_SIZE`
-  - `max_chunks_queued: int = 4096` (transaction_recorder.py:19) - should be configurable via env var
-  - Truncation length `[:200]` (policy_orchestrator.py:188) - should be `LOG_TRUNCATION_LENGTH`
-  - Document rationale for queue sizes and benchmark for typical workloads
-- [ ] **Improve error handling for OpenTelemetry spans** - Add defensive coding for when OTEL is not configured:
-  - `DefaultObservabilityContext` assumes span is always valid (context.py:78-88)
-  - Add checks: `if self.span and self.span.is_recording(): self.span.set_attribute(...)`
-- [ ] **Review LiteLLMClient instantiation pattern** - Currently creates new instance per request (gateway_routes.py:134, 227):
-  - Check if LiteLLM needs connection pooling or has startup overhead
-  - Consider making it a singleton or FastAPI app state dependency
-- [ ] **Add logging for chunk truncation** - Silent truncation should be more visible:
-  - Log at ERROR level when chunks are truncated (transaction_recorder.py:96-101)
-  - Add metrics/alerts for frequent truncation
-  - Consider circuit breaking on sustained truncation
-- [ ] **Add authentication for debug endpoints** - Debug endpoints currently have no auth:
-  - Add API key or token-based authentication to `/debug/*` routes
-  - Consider role-based access (admin-only for sensitive debug data)
-  - Document security implications of exposing debug endpoints
-- [ ] **Document a concrete data retention policy** - Define and document how long data is retained:
-  - Specify retention periods for conversation_events, debug_logs, traces
-  - Implement automated cleanup/archival for old data
-  - Document GDPR/compliance considerations for stored conversation data
-  - Add configuration options for retention periods
-- [ ] **Add timeout configuration documentation** - Document why no timeout is set in gateway routes or make it configurable:
-  - `PolicyExecutor(recorder=recorder)` uses default timeout of `None` (gateway_routes.py:117)
-  - Either document rationale or add environment variable configuration
+  - Remove prisma migrate steps from CI
 
-- [ ] Consolidate/organize utility/helper functions (see policies/utils.py)
-- [ ] thinking and verbosity model flags not respected
-- [ ] write SimpleToolCallJudge policy for pedagogical purposes
-- [ ] improve docstrings for SimplePolicy
+### Code Quality
+
+- [ ] **Fix assertion usage in production code** - Replace `assert` statements in `simple_policy.py` with proper exceptions
+- [ ] **Replace magic numbers with named constants** - queue_size, max_chunks_queued, truncation lengths
+- [ ] **Factor out common gateway route logic** - Extract duplicate pipeline setup from `/v1/chat/completions` and `/v1/messages`
+- [ ] **Factor out env var logic into centralized config**
+
+### Documentation (High)
+
+- [ ] Update README post v2-migration
+- [ ] Add security documentation for dynamic policy loading (POLICY_CONFIG)
+- [ ] Verify all environment variables are documented in README and .env.example
+
+### Security
+
+- [ ] Add input validation: max request size and message count limits
+- [ ] Add authentication for debug endpoints
 
 ## Medium Priority
 
-- [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety and reduce conversions:
-  - Currently buffers tool calls as `dict[str, Any]` during streaming, then converts to `ChatCompletionMessageToolCall` for output
-  - `ToolCallStreamBlock` already exists with typed fields (id, name, arguments, index) and `.tool_call` property
-  - Would eliminate dict key typo risk, improve type checking, and remove unnecessary conversions
-  - Consider using `ToolCallStreamBlock` directly in buffer instead of dicts
-  - Also affects `create_blocked_response` in tool_call_judge_utils.py which currently expects dict
-- [ ] Move debug scripts to scripts/debug/
-- [ ] **Convert Loki validation scripts to e2e tests** - The manual validation scripts should be proper automated tests:
-  - Convert [scripts/query_loki_fields.py](../scripts/query_loki_fields.py) to automated test
-  - Convert [scripts/test_line_format.py](../scripts/test_line_format.py) to automated test
-  - Convert [scripts/test_event_type.py](../scripts/test_event_type.py) to automated test
-  - Tests should verify that observability events flow correctly through Promtail to Loki
-  - Verify labels are correctly set (app, record_type, pipeline_stage, logger, trace_id)
-  - Verify structured metadata is correctly set (transaction_id, payload)
-  - Verify LogQL queries work as expected
-- [ ] **Add missing integration tests for error recovery paths**:
-  - Database failure scenarios (what happens when db_pool connection fails mid-request?)
-  - Redis failure scenarios (event_publisher connection errors during event emission)
-  - Policy timeout recovery (verify system recovers gracefully after policy timeout)
-  - Network failures during LLM calls
-  - Malformed response handling from upstream providers
-- [ ] **Improve module-level docstrings** - Replace placeholder docstrings with descriptive ones:
-  - `transaction_recorder.py:4` has `"""Module docstring."""` - should describe purpose
-  - Follow pattern from well-documented modules like `anthropic_sse_assembler.py`
-- [ ] **Audit all tests for unjustified conditional logic** - Review all test files (unit, integration, e2e) and remove conditional logic that checks for optional behavior. Tests should assert expected behavior, not conditionally validate. Exceptions: helper functions for parsing, format validation logic, legitimate expected variance in responses. Reference: test_streaming_chunk_structure.py cleanup as example.
-- [ ] remove unnecessary string-matching test conditions (e.g. matching exception messages)
-- [ ] **DB Migration: call_id -> transaction_id** - Rename database columns for consistency:
-  - Create migration to rename `call_id` to `transaction_id` in all tables (conversation_calls, conversation_events, policy_events, etc.)
-  - Update Prisma schema to use `transactionId` (maps to `transaction_id`)
-  - Update all storage layer code to use `transaction_id` parameter
-  - Note: Logs already use `transaction_id` (high cardinality, not a Loki label)
-- [ ] Revisit ignored pyright issues
-- [ ] Make filtering on the activity monitor easier and more intuitive
-- [ ] Add rate limiting middleware (slowapi or custom FastAPI middleware) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Implement circuit breaker for upstream calls ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Add Prometheus metrics endpoint ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Implement proper task tracking for event publisher (replace fire-and-forget) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Add integration tests for error recovery paths ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Factor out env var logic into centralized config
-- [ ] Add OpenAPI/Swagger documentation for V2 gateway ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
-- [ ] Document production deployment best practices ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
-- [ ] Add resource limits to docker-compose.yaml (mem_limit, cpus) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
+### Code Improvements
+
+- [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety
+- [ ] **Policy API: Prevent common streaming mistakes** - Better base class defaults and helper functions
+- [ ] **Format blocked messages for readability** - Pretty-print JSON, proper line breaks
+- [ ] **Improve error handling for OpenTelemetry spans** - Add defensive checks when OTEL not configured
+- [ ] **Review LiteLLMClient instantiation pattern** - Consider singleton instead of per-request
+- [ ] thinking and verbosity model flags not respected
+
+### Testing (Medium)
+
+- [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
+- [ ] **Convert Loki validation scripts to e2e tests**
+- [ ] **Audit tests for unjustified conditional logic**
+
+### Infrastructure (Medium)
+
+- [ ] **DB Migration: call_id -> transaction_id** - Rename columns for consistency
+- [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints
+- [ ] Add rate limiting middleware
+- [ ] Implement circuit breaker for upstream calls
+- [ ] Add Prometheus metrics endpoint
+- [ ] Implement proper task tracking for event publisher (replace fire-and-forget)
+- [ ] Add resource limits to docker-compose.yaml
+
+### Documentation (Medium)
+
+- [ ] Add OpenAPI/Swagger documentation for V2 gateway
+- [ ] Document production deployment best practices
+- [ ] Document timeout configuration rationale
+- [ ] Document data retention policy
 
 ## Low Priority / Future Work
 
-- [ ] **Simplify db.py abstractions** - Remove redundant protocol wrappers in favor of asyncpg types:
-  - `ConnectionProtocol` and `PoolProtocol` are thin wrappers around asyncpg's actual types
-  - `ConnectFn`, `PoolFactory`, `get_connector()`, `get_pool_factory()` add indirection without clear benefit
-  - Keep `DatabasePool` class for lazy-init/connection-management logic
-  - Use asyncpg types directly; dependency injection via constructor args is sufficient for testing
-  - Original motivation unclear (likely over-engineering from earlier LLM session)
-
-- [ ] **Review and test observability functionality** - Verify observability stack is working correctly:
-  - Test trace collection and visualization in Grafana
-  - Verify activity monitor is receiving events
-  - Check diff viewer functionality
-  - Validate log-trace correlation
-  - Consider consolidating the three observability docs (OBSERVABILITY_DEMO, VIEWING_TRACES_GUIDE, observability-v2) if there's significant overlap
-- [ ] 99% unit test coverage (currently 81%, focus on critical paths first) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Add config schema validation (Pydantic model for policy_config.yaml) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Add request/response size limits ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Implement adaptive timeout based on model type ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Add policy composition (chaining multiple policies) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Expose database connection pooling configuration (pool size, timeout) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Add cache headers to static files mount ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Standardize on docstrings (currently mixed ABOUTME/docstrings) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Extract magic numbers to named constants (timeouts, truncation lengths) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Consider stricter type checking (pyright "standard" or "strict" mode) ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445272764))
-- [ ] Add health check endpoint with degraded state reporting ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
+- [ ] **Simplify db.py abstractions** - Remove redundant protocol wrappers
+- [ ] **Review observability stack** - Consolidate observability docs, verify Grafana/Loki integration
+- [ ] Increase unit test coverage (currently ~78%)
+- [ ] Add config schema validation (Pydantic model for policy_config.yaml)
+- [ ] Implement adaptive timeout based on model type
+- [ ] Add policy composition (chaining multiple policies)
+- [ ] Expose database connection pooling configuration
+- [ ] Add cache headers to static files mount
+- [ ] Consider stricter pyright mode
+- [ ] Add health check endpoint with degraded state reporting
 - [ ] Minimize type: ignore flags
-- [ ] Load testing with multiple concurrent streams ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
-- [ ] Memory leak detection for long-running streams ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
-- [ ] Redis pub/sub performance testing under high event volume ([review](https://github.com/LuthienResearch/luthien-proxy/pull/46#issuecomment-3445270602))
+- [ ] Load testing with multiple concurrent streams
+- [ ] Memory leak detection for long-running streams
+- [ ] Redis pub/sub performance testing under high event volume
