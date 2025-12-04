@@ -10,6 +10,13 @@ This module provides REST endpoints for debugging policy decisions:
 
 Route handlers are thin wrappers that handle HTTP concerns (dependency injection,
 error responses) and delegate business logic to the service layer.
+
+SECURITY NOTE: These debug endpoints currently do not require authentication.
+In production environments, consider:
+1. Adding authentication (e.g., using verify_admin_token like /admin routes)
+2. Restricting access via network policies (internal-only endpoints)
+3. Being aware that full request/response payloads may contain sensitive data
+   (API keys, user data, etc.) and are stored in the database unredacted.
 """
 
 from __future__ import annotations

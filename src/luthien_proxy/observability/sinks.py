@@ -130,35 +130,47 @@ class DatabaseSink(LuthienRecordSink):
             timestamp = datetime.now()
 
             async with self._db_pool.connection() as conn:
-                # Ensure call row exists
-                await conn.execute(
-                    """
-                    INSERT INTO conversation_calls (call_id, created_at)
-                    VALUES ($1, $2)
-                    ON CONFLICT (call_id) DO NOTHING
-                    """,
-                    transaction_id,
-                    timestamp,
-                )
-
-                # Insert event row
-                await conn.execute(
-                    """
-                    INSERT INTO conversation_events (
-                        call_id,
-                        event_type,
-                        sequence,
-                        payload,
-                        created_at
+                async with conn.transaction():
+                    # Ensure call row exists
+                    await conn.execute(
+                        """
+                        INSERT INTO conversation_calls (call_id, created_at)
+                        VALUES ($1, $2)
+                        ON CONFLICT (call_id) DO NOTHING
+                        """,
+                        transaction_id,
+                        timestamp,
                     )
-                    VALUES ($1, $2, $3, $4, $5)
-                    """,
-                    transaction_id,
-                    event_type,
-                    int(timestamp.timestamp() * 1_000_000_000),  # nanoseconds
-                    json.dumps(record_data),
-                    timestamp,
-                )
+
+                    # Get next sequence number for this call
+                    next_seq_result = await conn.fetchval(
+                        """
+                        SELECT COALESCE(MAX(sequence), 0) + 1
+                        FROM conversation_events
+                        WHERE call_id = $1
+                        """,
+                        transaction_id,
+                    )
+                    next_sequence = int(next_seq_result) if next_seq_result else 1
+
+                    # Insert event row
+                    await conn.execute(
+                        """
+                        INSERT INTO conversation_events (
+                            call_id,
+                            event_type,
+                            sequence,
+                            payload,
+                            created_at
+                        )
+                        VALUES ($1, $2, $3, $4, $5)
+                        """,
+                        transaction_id,
+                        event_type,
+                        next_sequence,
+                        json.dumps(record_data),
+                        timestamp,
+                    )
 
             logger.debug(
                 f"DatabaseSink wrote {record.record_type} record "

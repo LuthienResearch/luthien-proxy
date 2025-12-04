@@ -14,6 +14,7 @@ These functions are designed to be easily testable without FastAPI dependencies.
 from __future__ import annotations
 
 import json
+import os
 import urllib.parse
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -35,16 +36,18 @@ from .models import (
 # === URL Building ===
 
 
-def build_tempo_url(call_id: str, grafana_url: str = "http://localhost:3000") -> str:
+def build_tempo_url(call_id: str, grafana_url: str | None = None) -> str:
     """Build Grafana Tempo trace URL for a call_id.
 
     Args:
         call_id: Unique identifier for the request/response cycle
-        grafana_url: Base URL for Grafana instance
+        grafana_url: Base URL for Grafana instance (defaults to GRAFANA_URL env var or http://localhost:3000)
 
     Returns:
         URL-encoded Grafana Tempo search URL
     """
+    if grafana_url is None:
+        grafana_url = os.getenv("GRAFANA_URL", "http://localhost:3000")
     # TraceQL query: { span."luthien.call_id" = "call_id_value" }
     # The attribute name contains a dot, so it must be quoted per TraceQL syntax.
     # We also need the span. scope prefix for span attributes.

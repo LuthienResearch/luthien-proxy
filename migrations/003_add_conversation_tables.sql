@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS conversation_calls (
     model_name TEXT,
     provider TEXT,
     status TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    completed_at TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversation_calls_created ON conversation_calls(created_at);
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS conversation_events (
     event_type TEXT NOT NULL,
     sequence BIGINT NOT NULL,
     payload JSONB NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversation_events_call_sequence ON conversation_events(call_id, sequence);
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS policy_events (
     original_event_id UUID REFERENCES conversation_events(id) ON DELETE SET NULL,
     modified_event_id UUID REFERENCES conversation_events(id) ON DELETE SET NULL,
     metadata JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_policy_events_call_created ON policy_events(call_id, created_at);
@@ -61,7 +61,7 @@ CREATE INDEX IF NOT EXISTS idx_policy_events_created ON policy_events(created_at
 -- Judge decisions table (for LLM judge policies)
 CREATE TABLE IF NOT EXISTS conversation_judge_decisions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    call_id TEXT NOT NULL,
+    call_id TEXT NOT NULL REFERENCES conversation_calls(call_id) ON DELETE CASCADE,
     trace_id TEXT NULL,
     tool_call_id TEXT NULL,
     probability DOUBLE PRECISION NULL,
