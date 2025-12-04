@@ -2,6 +2,14 @@
 
 ## Unreleased | TBA
 
+- Add Request Trace Viewer UI for debugging API requests (#api-request-tracing-ui)
+  - New `/debug/trace` UI endpoint for visualizing request flow
+  - New `/debug/calls/{call_id}/trace` API endpoint returning hierarchical trace data
+  - Timeline visualization with spans showing request, policy, and response phases
+  - Event details with expandable JSON payloads
+  - Links to Grafana Tempo traces and Loki logs
+  - Browse recent calls and select for trace analysis
+
 - Add `on_streaming_policy_complete()` lifecycle hook for cleanup (#76)
   - New policy hook called in finally block after all streaming policy processing completes
   - Guarantees cleanup runs even if errors occurred during policy processing

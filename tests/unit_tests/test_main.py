@@ -125,7 +125,6 @@ class TestCreateApp:
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
-            patch("luthien_proxy.main.setup_telemetry") as mock_setup_telemetry,
         ):
             # Setup mocks
             mock_db_instance = AsyncMock()
@@ -140,8 +139,8 @@ class TestCreateApp:
 
             # Use TestClient to trigger lifespan
             with TestClient(app):
-                # Verify telemetry was setup
-                mock_setup_telemetry.assert_called_once_with(app)
+                # Note: Telemetry is configured at module import time, not in lifespan
+                pass
 
                 # Verify dependencies container is set up
                 from luthien_proxy.dependencies import Dependencies
@@ -168,7 +167,6 @@ class TestCreateApp:
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
-            patch("luthien_proxy.main.setup_telemetry"),
         ):
             # Make DB connection fail
             mock_db_instance = AsyncMock()
@@ -201,7 +199,6 @@ class TestCreateApp:
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
-            patch("luthien_proxy.main.setup_telemetry"),
         ):
             # DB succeeds
             mock_db_instance = AsyncMock()
@@ -254,7 +251,6 @@ class TestCreateApp:
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
-            patch("luthien_proxy.main.setup_telemetry"),
         ):
             # Setup successful mocks for both DB and Redis
             mock_db_instance = AsyncMock()
@@ -288,7 +284,6 @@ class TestCreateApp:
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
-            patch("luthien_proxy.main.setup_telemetry"),
         ):
             # Setup successful mocks for both DB and Redis
             mock_db_instance = AsyncMock()
@@ -334,7 +329,6 @@ class TestCreateApp:
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
-            patch("luthien_proxy.main.setup_telemetry"),
         ):
             mock_db_instance = AsyncMock()
             mock_db_instance.get_pool = AsyncMock()

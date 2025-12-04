@@ -7,12 +7,14 @@ import asyncio
 import logging
 
 from litellm.types.utils import ModelResponse
+from opentelemetry import trace
 
 from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.client_formatter.interface import ClientFormatter
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # Queue put timeout to prevent deadlock if client is slow
 QUEUE_PUT_TIMEOUT = 30.0
@@ -66,23 +68,30 @@ class OpenAIClientFormatter(ClientFormatter):
         Raises:
             Exception: On conversion errors or malformed chunks
         """
-        try:
-            while True:
-                chunk = await input_queue.get()
+        with tracer.start_as_current_span("streaming.client_formatter") as span:
+            span.set_attribute("formatter.type", "openai")
+            span.set_attribute("formatter.model", self.model_name)
+            chunk_count = 0
 
-                # None signals end of stream
-                if chunk is None:
-                    break
+            try:
+                while True:
+                    chunk = await input_queue.get()
 
-                # Convert ModelResponse to SSE format: "data: {json}\n\n"
-                sse_line = f"data: {chunk.model_dump_json()}\n\n"
-                await self._safe_put(output_queue, sse_line)
+                    # None signals end of stream
+                    if chunk is None:
+                        break
 
-            # Send [DONE] marker per OpenAI streaming spec
-            await self._safe_put(output_queue, "data: [DONE]\n\n")
-        finally:
-            # Signal end of stream to output queue
-            await self._safe_put(output_queue, None)
+                    chunk_count += 1
+                    # Convert ModelResponse to SSE format: "data: {json}\n\n"
+                    sse_line = f"data: {chunk.model_dump_json()}\n\n"
+                    await self._safe_put(output_queue, sse_line)
+
+                # Send [DONE] marker per OpenAI streaming spec
+                await self._safe_put(output_queue, "data: [DONE]\n\n")
+                span.set_attribute("formatter.chunk_count", chunk_count)
+            finally:
+                # Signal end of stream to output queue
+                await self._safe_put(output_queue, None)
 
 
 __all__ = ["OpenAIClientFormatter"]

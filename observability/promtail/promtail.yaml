@@ -37,7 +37,7 @@ scrape_configs:
             logger: logger
             trace_id: trace_id
             span_id: span_id
-            transaction_id: transaction_id  # Will be promoted to structured metadata
+            call_id: call_id  # Primary correlation ID with traces
             payload: payload  # Will be promoted to structured metadata
             record_type: record_type
             pipeline_stage: pipeline_stage
@@ -46,13 +46,14 @@ scrape_configs:
       - labels:
           logger:
           trace_id:
+          call_id:
           record_type:
           pipeline_stage:
 
       # Promote high-cardinality fields to structured metadata (not labels)
       # These are available as top-level fields without parsing JSON
       - structured_metadata:
-          transaction_id:
+          call_id:
           payload:
 
       # Drop unwanted labels (service_name is redundant with 'app')

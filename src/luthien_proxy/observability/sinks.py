@@ -105,13 +105,72 @@ class DatabaseSink(LuthienRecordSink):
         self._db_pool = db_pool
 
     async def write(self, record: LuthienRecord) -> None:
-        """Write record to PostgreSQL."""
+        """Write record to PostgreSQL conversation_events table."""
+        if not self._db_pool:
+            return
+
         try:
-            # TODO: Implement database persistence logic
-            # For now, just log that we would write to DB
+            transaction_id = getattr(record, "transaction_id", None)
+            if not transaction_id:
+                logger.debug("DatabaseSink: skipping record without transaction_id")
+                return
+
+            # Get record data
+            record_data = {k: v for k, v in vars(record).items() if not k.startswith("_")}
+            pipeline_stage = record_data.get("pipeline_stage", record.record_type)
+
+            # Determine event_type from pipeline_stage
+            if pipeline_stage in ("client_request", "backend_request"):
+                event_type = "request"
+            elif pipeline_stage in ("client_response", "backend_response"):
+                event_type = "response"
+            else:
+                event_type = pipeline_stage
+
+            timestamp = datetime.now()
+
+            async with self._db_pool.connection() as conn:
+                async with conn.transaction():
+                    # Ensure call row exists
+                    await conn.execute(
+                        """
+                        INSERT INTO conversation_calls (call_id, created_at)
+                        VALUES ($1, $2)
+                        ON CONFLICT (call_id) DO NOTHING
+                        """,
+                        transaction_id,
+                        timestamp,
+                    )
+
+                    # Lock the call row to serialize concurrent inserts for same call_id
+                    await conn.execute(
+                        "SELECT 1 FROM conversation_calls WHERE call_id = $1 FOR UPDATE",
+                        transaction_id,
+                    )
+
+                    # Insert event with atomically computed sequence number
+                    await conn.execute(
+                        """
+                        INSERT INTO conversation_events (
+                            call_id,
+                            event_type,
+                            sequence,
+                            payload,
+                            created_at
+                        )
+                        SELECT $1, $2, COALESCE(MAX(sequence), 0) + 1, $3, $4
+                        FROM conversation_events
+                        WHERE call_id = $1
+                        """,
+                        transaction_id,
+                        event_type,
+                        json.dumps(record_data),
+                        timestamp,
+                    )
+
             logger.debug(
-                f"DatabaseSink would write {record.record_type} record "
-                f"(transaction_id={getattr(record, 'transaction_id', 'N/A')})"
+                f"DatabaseSink wrote {record.record_type} record "
+                f"(transaction_id={transaction_id}, event_type={event_type})"
             )
         except Exception as e:
             logger.warning(f"DatabaseSink failed to write record: {e}", exc_info=True)

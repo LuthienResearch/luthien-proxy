@@ -13,12 +13,14 @@ These functions are designed to be easily testable without FastAPI dependencies.
 
 from __future__ import annotations
 
+import json
+import os
+import urllib.parse
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from luthien_proxy.utils.db import DatabasePool
-
-from datetime import datetime
 
 from .models import (
     CallDiffResponse,
@@ -34,18 +36,32 @@ from .models import (
 # === URL Building ===
 
 
-def build_tempo_url(call_id: str, grafana_url: str = "http://localhost:3000") -> str:
+def build_tempo_url(call_id: str, grafana_url: str | None = None) -> str:
     """Build Grafana Tempo trace URL for a call_id.
 
     Args:
         call_id: Unique identifier for the request/response cycle
-        grafana_url: Base URL for Grafana instance
+        grafana_url: Base URL for Grafana instance (defaults to GRAFANA_URL env var or http://localhost:3000)
 
     Returns:
         URL-encoded Grafana Tempo search URL
     """
-    # Tempo search by tag: luthien.call_id=<call_id>
-    return f"{grafana_url}/explore?left=%5B%22now-1h%22,%22now%22,%22Tempo%22,%7B%22query%22:%22%7Bluthien.call_id%3D%5C%22{call_id}%5C%22%7D%22%7D%5D"
+    if grafana_url is None:
+        grafana_url = os.getenv("GRAFANA_URL", "http://localhost:3000")
+    # TraceQL query: { span."luthien.call_id" = "call_id_value" }
+    # The attribute name contains a dot, so it must be quoted per TraceQL syntax.
+    # We also need the span. scope prefix for span attributes.
+    traceql_query = f'{{ span."luthien.call_id" = "{call_id}" }}'
+
+    # Build the Grafana Explore left pane JSON structure
+    left_pane = {
+        "datasource": "tempo",
+        "queries": [{"refId": "A", "queryType": "traceql", "query": traceql_query}],
+        "range": {"from": "now-1h", "to": "now"},
+    }
+    # URL-encode the entire JSON to avoid issues with double quotes breaking URLs
+    encoded_left = urllib.parse.quote(json.dumps(left_pane), safe="")
+    return f"{grafana_url}/explore?orgId=1&left={encoded_left}"
 
 
 # === Message Content Extraction ===

@@ -8,6 +8,7 @@ import logging
 from typing import AsyncIterator
 
 from litellm.types.utils import ModelResponse
+from opentelemetry import trace
 
 from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.observability.transaction_recorder import TransactionRecorder
@@ -28,6 +29,7 @@ from luthien_proxy.streaming.streaming_chunk_assembler import (
 )
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # Queue put timeout to prevent deadlock if downstream is slow
 QUEUE_PUT_TIMEOUT = 30.0
@@ -133,88 +135,98 @@ class PolicyExecutor(PolicyExecutorProtocol):
             PolicyTimeoutError: If processing exceeds timeout without keepalive
             Exception: On policy errors or assembly failures
         """
-        # Create egress queue for policies to write to
-        egress_queue: asyncio.Queue[ModelResponse] = asyncio.Queue()
+        with tracer.start_as_current_span("streaming.policy_executor") as span:
+            span.set_attribute("policy.class", policy.__class__.__name__)
+            chunk_count = 0
 
-        # Create assembler - we'll pass the callback shortly
-        # The assembler owns the state, so we create it first
-        async def placeholder(*args):
-            pass
+            # Create egress queue for policies to write to
+            egress_queue: asyncio.Queue[ModelResponse] = asyncio.Queue()
 
-        assembler = StreamingChunkAssembler(on_chunk_callback=placeholder)
-
-        # Create streaming policy context
-        streaming_ctx = StreamingPolicyContext(
-            policy_ctx=policy_ctx,
-            egress_queue=egress_queue,
-            original_streaming_response_state=assembler.state,
-            observability=obs_ctx,
-            keepalive=self.keepalive,  # Pass executor's keepalive to policies
-        )
-
-        # Now set the real callback that uses the context
-        assembler.on_chunk = self._create_chunk_callback(streaming_ctx, output_queue, policy)
-
-        # Define stream processing coroutine
-        async def process_stream():
-            # Feed chunks to assembler - it will call our callback for each one
-            await assembler.process(input_stream, context=streaming_ctx)
-            # Call on_stream_complete after all chunks processed
-            await policy.on_stream_complete(streaming_ctx)
-
-            # Drain any chunks added by on_stream_complete
-            try:
-                while True:
-                    policy_chunk = streaming_ctx.egress_queue.get_nowait()
-                    self.recorder.add_egress_chunk(policy_chunk)
-                    await self._safe_put(output_queue, policy_chunk)
-            except asyncio.QueueEmpty:
+            # Create assembler - we'll pass the callback shortly
+            # The assembler owns the state, so we create it first
+            async def placeholder(*args):
                 pass
 
-        # Create tasks for stream processing and timeout monitoring
-        stream_task = asyncio.create_task(process_stream())
-        monitor_task = asyncio.create_task(self._timeout_monitor.run())
+            assembler = StreamingChunkAssembler(on_chunk_callback=placeholder)
 
-        try:
-            # Wait for either task to complete
-            done, pending = await asyncio.wait({stream_task, monitor_task}, return_when=asyncio.FIRST_COMPLETED)
+            # Create streaming policy context
+            streaming_ctx = StreamingPolicyContext(
+                policy_ctx=policy_ctx,
+                egress_queue=egress_queue,
+                original_streaming_response_state=assembler.state,
+                observability=obs_ctx,
+                keepalive=self.keepalive,  # Pass executor's keepalive to policies
+            )
 
-            # Check if monitor raised timeout
-            if monitor_task in done:
-                # Monitor completed first - likely a timeout error
-                await self._cancel_task(stream_task)
-                # Re-raise the timeout error from monitor (if any)
-                await monitor_task  # This will raise PolicyTimeoutError
+            # Now set the real callback that uses the context
+            chunk_callback, get_chunk_count = self._create_chunk_callback(streaming_ctx, output_queue, policy)
+            assembler.on_chunk = chunk_callback
 
-            # Stream completed first - cancel monitor and get result
-            await self._cancel_task(monitor_task)
+            # Define stream processing coroutine
+            async def process_stream():
+                nonlocal chunk_count
+                # Feed chunks to assembler - it will call our callback for each one
+                await assembler.process(input_stream, context=streaming_ctx)
+                chunk_count = get_chunk_count()
+                # Call on_stream_complete after all chunks processed
+                await policy.on_stream_complete(streaming_ctx)
 
-            # Get result from stream task (may raise exception)
-            await stream_task
+                # Drain any chunks added by on_stream_complete
+                try:
+                    while True:
+                        policy_chunk = streaming_ctx.egress_queue.get_nowait()
+                        self.recorder.add_egress_chunk(policy_chunk)
+                        await self._safe_put(output_queue, policy_chunk)
+                except asyncio.QueueEmpty:
+                    pass
 
-            # Finalize recording (reconstruct and emit full responses)
-            await self.recorder.finalize_streaming_response()
-        except PolicyTimeoutError:
-            # Timeout occurred - clean up and re-raise
-            logger.debug("Policy timeout detected, cleaning up stream processing")
-            raise
-        except Exception:
-            # Other error - ensure both tasks are cancelled
-            await self._cancel_task(stream_task)
-            await self._cancel_task(monitor_task)
-            raise
-        finally:
-            # Call cleanup hook regardless of success/failure
+            # Create tasks for stream processing and timeout monitoring
+            stream_task = asyncio.create_task(process_stream())
+            monitor_task = asyncio.create_task(self._timeout_monitor.run())
+
             try:
-                await policy.on_streaming_policy_complete(streaming_ctx)
-            except Exception:
-                logger.exception("Error in on_streaming_policy_complete - ignoring")
+                # Wait for either task to complete
+                done, pending = await asyncio.wait({stream_task, monitor_task}, return_when=asyncio.FIRST_COMPLETED)
 
-            # Ensure both tasks are cancelled if still running
-            await self._cancel_task(stream_task)
-            await self._cancel_task(monitor_task)
-            # Signal end of stream with None sentinel
-            await self._safe_put(output_queue, None)
+                # Check if monitor raised timeout
+                if monitor_task in done:
+                    # Monitor completed first - likely a timeout error
+                    await self._cancel_task(stream_task)
+                    span.set_attribute("streaming.timeout", True)
+                    # Re-raise the timeout error from monitor (if any)
+                    await monitor_task  # This will raise PolicyTimeoutError
+
+                # Stream completed first - cancel monitor and get result
+                await self._cancel_task(monitor_task)
+
+                # Get result from stream task (may raise exception)
+                await stream_task
+
+                # Finalize recording (reconstruct and emit full responses)
+                await self.recorder.finalize_streaming_response()
+
+                span.set_attribute("streaming.chunk_count", chunk_count)
+            except PolicyTimeoutError:
+                # Timeout occurred - clean up and re-raise
+                logger.debug("Policy timeout detected, cleaning up stream processing")
+                raise
+            except Exception:
+                # Other error - ensure both tasks are cancelled
+                await self._cancel_task(stream_task)
+                await self._cancel_task(monitor_task)
+                raise
+            finally:
+                # Call cleanup hook regardless of success/failure
+                try:
+                    await policy.on_streaming_policy_complete(streaming_ctx)
+                except Exception:
+                    logger.exception("Error in on_streaming_policy_complete - ignoring")
+
+                # Ensure both tasks are cancelled if still running
+                await self._cancel_task(stream_task)
+                await self._cancel_task(monitor_task)
+                # Signal end of stream with None sentinel
+                await self._safe_put(output_queue, None)
 
     def _create_chunk_callback(
         self,
@@ -236,15 +248,21 @@ class PolicyExecutor(PolicyExecutorProtocol):
             policy: Policy instance implementing PolicyProtocol
 
         Returns:
-            Async callback function
+            Tuple of (async callback function, chunk count getter)
         """
+        ingress_chunk_count = 0
+
+        def get_chunk_count() -> int:
+            return ingress_chunk_count
 
         async def on_chunk(chunk: ModelResponse, state, context) -> None:
             """Called by assembler for each chunk after state update.
 
             Invokes policy hooks based on stream state, then drains egress queue.
             """
+            nonlocal ingress_chunk_count
             self._timeout_monitor.keepalive()  # Update activity timestamp
+            ingress_chunk_count += 1
 
             # Record ingress chunk (before policy processing)
             self.recorder.add_ingress_chunk(chunk)
@@ -280,7 +298,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
                 except asyncio.QueueEmpty:
                     break
 
-        return on_chunk
+        return on_chunk, get_chunk_count
 
 
 __all__ = ["PolicyExecutor"]

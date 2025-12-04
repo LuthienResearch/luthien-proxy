@@ -12,6 +12,7 @@ import logging
 from typing import AsyncIterator
 
 from litellm.types.utils import ModelResponse
+from opentelemetry import trace
 
 from luthien_proxy.messages import Request
 from luthien_proxy.observability.context import ObservabilityContext
@@ -22,6 +23,7 @@ from luthien_proxy.streaming.client_formatter import ClientFormatter
 from luthien_proxy.streaming.policy_executor import PolicyExecutor
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class PolicyOrchestrator:
@@ -86,13 +88,20 @@ class PolicyOrchestrator:
         Raises:
             PolicyError: If policy rejects the request
         """
-        # Set request in context for policy access
-        policy_ctx.request = request
+        with tracer.start_as_current_span("policy.process_request") as span:
+            span.set_attribute("policy.class", self.policy.__class__.__name__)
+            span.set_attribute("request.model", request.model)
+            span.set_attribute("request.message_count", len(request.messages))
 
-        # Call policy's on_request hook
-        final_request = await self.policy.on_request(request, policy_ctx)
-        await self.transaction_recorder.record_request(request, final_request)
-        return final_request
+            # Set request in context for policy access
+            policy_ctx.request = request
+
+            # Call policy's on_request hook
+            final_request = await self.policy.on_request(request, policy_ctx)
+            await self.transaction_recorder.record_request(request, final_request)
+
+            span.set_attribute("request.modified", final_request != request)
+            return final_request
 
     async def process_streaming_response(
         self,
@@ -165,10 +174,15 @@ class PolicyOrchestrator:
             response: Full ModelResponse from backend LLM
             policy_ctx: Policy context (shared with request processing)
         """
-        # Call policy's on_response hook
-        final_response = await self.policy.on_response(response, policy_ctx)
-        await self.transaction_recorder.record_response(response, final_response)
-        return final_response
+        with tracer.start_as_current_span("policy.process_response") as span:
+            span.set_attribute("policy.class", self.policy.__class__.__name__)
+
+            # Call policy's on_response hook
+            final_response = await self.policy.on_response(response, policy_ctx)
+            await self.transaction_recorder.record_response(response, final_response)
+
+            span.set_attribute("response.modified", final_response != response)
+            return final_response
 
     async def _drain_queue(self, queue: asyncio.Queue[str | None]) -> AsyncIterator[str]:
         """Drain queue until shutdown.

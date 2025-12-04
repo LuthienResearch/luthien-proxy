@@ -325,7 +325,6 @@ class TestDependenciesIntegrationWithMain:
         with (
             patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
             patch("luthien_proxy.main.Redis") as mock_redis_class,
-            patch("luthien_proxy.main.setup_telemetry"),
         ):
             # Setup mocks
             mock_db_instance = AsyncMock()

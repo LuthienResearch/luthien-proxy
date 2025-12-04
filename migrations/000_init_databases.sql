@@ -11,7 +11,9 @@ END
 $$;
 
 -- Create the litellm database owned by litellm user
-CREATE DATABASE litellm_db OWNER litellm;
+-- Note: CREATE DATABASE cannot use IF NOT EXISTS, so we use a workaround
+SELECT 'CREATE DATABASE litellm_db OWNER litellm'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'litellm_db')\gexec
 
 -- Grant all privileges on litellm_db to litellm user
 GRANT ALL PRIVILEGES ON DATABASE litellm_db TO litellm;
