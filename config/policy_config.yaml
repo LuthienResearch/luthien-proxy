@@ -9,11 +9,6 @@ policy:
   class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
   config: {}
 
-# Simple NoOp Policy - buffers streaming (like judge policy) but no transformations
-# policy:
-#   class: "luthien_proxy.policies.simple_noop_policy:SimpleNoOpPolicy"
-#   config: {}
-
 # Simple Policy - allows all requests without modification, but no streaming
 # policy:
 #   class: "luthien_proxy.policies.simple_policy:SimplePolicy"

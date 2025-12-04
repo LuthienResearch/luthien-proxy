@@ -1,6 +1,3 @@
-# ABOUTME: LLM gateway routes using PolicyOrchestrator refactored pipeline
-# ABOUTME: Handles /v1/chat/completions and /v1/messages with policy control and tracing
-
 """LLM gateway API routes with PolicyOrchestrator."""
 
 from __future__ import annotations

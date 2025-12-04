@@ -1,6 +1,3 @@
-# ABOUTME: OpenAI implementation of ClientFormatter
-# ABOUTME: Converts common format chunks to OpenAI SSE events
-
 """OpenAI client formatter implementation."""
 
 import asyncio

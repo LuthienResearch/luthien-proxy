@@ -1,6 +1,3 @@
-# ABOUTME: Debug REST endpoints for querying conversation events and computing diffs
-# ABOUTME: Thin FastAPI route handlers that delegate to service layer
-
 """Debug routes for gateway.
 
 This module provides REST endpoints for debugging policy decisions:

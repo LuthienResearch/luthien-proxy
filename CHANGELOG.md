@@ -2,6 +2,12 @@
 
 ## Unreleased | TBA
 
+- Codebase cleanup (#81)
+  - Remove dead code: `control_plane/` (stale pycache), `streaming_aggregation.py`
+  - Standardize on Python module docstrings (removed ABOUTME convention)
+  - Organize and deduplicate TODO.md
+  - Update CLAUDE.md and codebase_learnings.md to reflect actual module structure
+
 - Add Request Trace Viewer UI for debugging API requests (#api-request-tracing-ui)
   - New `/debug/trace` UI endpoint for visualizing request flow
   - New `/debug/calls/{call_id}/trace` API endpoint returning hierarchical trace data

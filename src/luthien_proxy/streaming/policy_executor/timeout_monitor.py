@@ -1,6 +1,3 @@
-# ABOUTME: TimeoutMonitor class for managing keepalive-based timeout tracking
-# ABOUTME: Uses deadline-based approach to minimize unnecessary wake-ups
-
 """Timeout monitoring for policy execution.
 
 This module provides a TimeoutMonitor class that tracks activity via keepalive

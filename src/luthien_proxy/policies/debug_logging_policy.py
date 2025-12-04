@@ -1,5 +1,3 @@
-# ABOUTME: Debug policy that logs all streaming chunks for inspection
-
 """Debug policy for logging streaming chunk contents."""
 
 from __future__ import annotations

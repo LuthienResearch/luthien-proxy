@@ -1,7 +1,10 @@
-# ABOUTME: Base Policy interface with full streaming control
-# ABOUTME: Provides hooks for request, chunk events, content/tool call completion, and non-streaming responses
+"""Protocol defining the policy interface for request/response processing.
 
-"""Module docstring."""
+This module defines PolicyProtocol with hooks for:
+- Request and response processing
+- Streaming chunk events and content/tool call completion
+- Stream lifecycle and cleanup
+"""
 
 from __future__ import annotations
 

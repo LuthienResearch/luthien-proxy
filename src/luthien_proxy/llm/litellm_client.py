@@ -1,6 +1,3 @@
-# ABOUTME: LiteLLMClient implementation using litellm library
-# ABOUTME: Provides stream() and complete() methods wrapping litellm.acompletion
-
 """LiteLLM client implementation."""
 
 from collections.abc import AsyncIterator

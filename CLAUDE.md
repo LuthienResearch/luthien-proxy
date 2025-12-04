@@ -87,12 +87,16 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
     - `gotchas.md`: Non-obvious behaviors, edge cases, things that are easy to get wrong
 - `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
 - `src/luthien_proxy/`: core package
-  - `control/`: Control plane for policy orchestration
+  - `orchestration/`: PolicyOrchestrator coordinates streaming pipeline
   - `policies/`: Event-driven policy implementations
-  - `streaming/`: Streaming pipeline and orchestration
+  - `policy_core/`: Policy protocol, contexts, and chunk builders
+  - `streaming/`: Policy executor and client formatters
   - `storage/`: Conversation event persistence
-  - `ui/`: Real-time monitoring interfaces
-  - `debug/`: Debug and inspection endpoints
+  - `observability/`: OpenTelemetry integration, transaction recording
+  - `admin/`: Runtime policy management API
+  - `debug/`: Debug endpoints for inspecting conversation events
+  - `ui/`: Activity monitoring and diff viewer interfaces
+  - `llm/`: LiteLLM client wrapper and format converters
   - `utils/`: Shared utilities (db, redis, validation)
 - `config/`: `policy_config.yaml`, `local_llm_config.yaml`
 - `scripts/`: developer helpers (`quick_start.sh`, `test_gateway.sh`)

@@ -1,6 +1,3 @@
-# ABOUTME: Simple LLM-based judge policy for content and tool calls
-# ABOUTME: Evaluates both text content and tool calls using a judge LLM with customizable rules
-
 """SimpleJudgePolicy - Easy-to-configure LLM-based safety evaluation.
 
 This policy makes it trivial to create LLM-based judges by:

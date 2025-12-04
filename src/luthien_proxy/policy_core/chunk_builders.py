@@ -1,6 +1,3 @@
-# ABOUTME: Chunk builder utilities for creating ModelResponse chunks
-# ABOUTME: Extracted from policies/utils.py to break circular dependency
-
 """Utilities for creating LiteLLM ModelResponse chunks.
 
 This module provides helper functions for creating properly formatted

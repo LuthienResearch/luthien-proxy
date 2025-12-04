@@ -1,1 +1,1 @@
-# noqa: D104
+"""Orchestration module for coordinating streaming pipeline components."""

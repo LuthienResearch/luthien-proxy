@@ -1,6 +1,3 @@
-# ABOUTME: UI routes for activity monitoring and debug diff viewing
-# ABOUTME: Provides real-time activity stream and HTML pages for observability
-
 """UI routes for gateway activity monitoring and debugging."""
 
 from __future__ import annotations

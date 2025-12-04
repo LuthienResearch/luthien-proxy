@@ -1,6 +1,3 @@
-# ABOUTME: PolicyExecutor implementation with timeout monitoring
-# ABOUTME: Handles block assembly, policy hooks, and delegates timeout tracking to TimeoutMonitor
-
 """Policy executor implementation."""
 
 import asyncio

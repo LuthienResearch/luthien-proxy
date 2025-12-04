@@ -1,7 +1,8 @@
-# ABOUTME: SimplePolicy base class. SimplePolicy sacrifices streaming support for simpler policy authoring.
-# ABOUTME: Buffers streaming content and applies transformations when blocks complete
+"""SimplePolicy base class for content-level transformations.
 
-"""SimplePolicy base class. SimplePolicy sacrifices streaming support for simpler policy authoring."""
+SimplePolicy sacrifices streaming responsiveness for simpler policy authoring
+by buffering streaming content and applying transformations when blocks complete.
+"""
 
 from __future__ import annotations
 

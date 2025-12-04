@@ -1,6 +1,3 @@
-# ABOUTME: Pydantic models for debug API responses
-# ABOUTME: Shared data models used by routes and service layers
-
 """Data models for V2 debug API.
 
 This module defines Pydantic models for:

@@ -1,6 +1,3 @@
-# ABOUTME: Simplified PolicyOrchestrator using explicit queue-based streaming pipeline
-# ABOUTME: Dependencies injected for policy execution and client formatting, recording at boundaries
-
 """Simplified policy orchestration with explicit streaming pipeline.
 
 This refactored PolicyOrchestrator uses dependency injection

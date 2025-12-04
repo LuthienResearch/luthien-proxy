@@ -1,6 +1,3 @@
-# ABOUTME: Anthropic implementation of ClientFormatter
-# ABOUTME: Converts common format chunks to Anthropic SSE events
-
 """Anthropic client formatter implementation."""
 
 import asyncio

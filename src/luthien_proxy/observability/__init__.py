@@ -1,6 +1,3 @@
-# ABOUTME: Observability utilities for Luthien proxy v2
-# ABOUTME: Provides event publishing and streaming for real-time UI compatibility
-
 """Observability utilities for Luthien proxy v2.
 
 This package provides:

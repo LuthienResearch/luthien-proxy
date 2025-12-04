@@ -1,6 +1,3 @@
-# ABOUTME: LLM-based tool call judging policy using the new Policy interface
-# ABOUTME: Buffers tool calls, evaluates them with a judge LLM, and blocks harmful ones
-
 """ToolCallJudgePolicy - LLM-based tool call evaluation.
 
 This policy demonstrates a more complex use of the new Policy interface:

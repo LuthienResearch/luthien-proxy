@@ -1,6 +1,3 @@
-# ABOUTME: Database persistence for conversation events
-# ABOUTME: ConversationEvent and friends.
-
 """Conversation Event Persistence.
 
 Key components:

@@ -1,6 +1,8 @@
-# ABOUTME: Base policy implementation with convenience methods
+"""Base policy implementation providing default pass-through behavior.
 
-"""Base policy that performs no modifications."""
+Provides convenience methods for implementing policies with default implementations
+for all protocol methods that can be overridden by subclasses.
+"""
 
 from __future__ import annotations
 

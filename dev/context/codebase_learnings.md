@@ -7,16 +7,21 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
-## V2 Architecture Overview (2025-10-24)
+## V2 Architecture Overview (2025-10-24, updated 2025-12-04)
 
 - **Gateway** (`src/luthien_proxy/`): Integrated FastAPI + LiteLLM application with built-in policy enforcement
-- **Control Plane** (`src/luthien_proxy/control/`): Policy orchestration for request/response processing
+- **Orchestration** (`src/luthien_proxy/orchestration/`): PolicyOrchestrator coordinates streaming pipeline
 - **Policies** (`src/luthien_proxy/policies/`): Event-driven policy implementations
+- **Policy Core** (`src/luthien_proxy/policy_core/`): Policy protocol, contexts, and chunk builders
 - **Storage** (`src/luthien_proxy/storage/`): Conversation event persistence with background queue
-- **Streaming** (`src/luthien_proxy/streaming/`): Streaming pipeline and orchestration
-- **Observability** (`src/luthien_proxy/observability/`): OpenTelemetry integration for tracing
+- **Streaming** (`src/luthien_proxy/streaming/`): Policy executor and client formatters
+- **Observability** (`src/luthien_proxy/observability/`): OpenTelemetry integration, transaction recording
+- **Admin** (`src/luthien_proxy/admin/`): Runtime policy management API
+- **Debug** (`src/luthien_proxy/debug/`): Debug endpoints for inspecting conversation events
+- **UI** (`src/luthien_proxy/ui/`): Activity monitoring and diff viewer interfaces
+- **LLM** (`src/luthien_proxy/llm/`): LiteLLM client wrapper and format converters
 
-Integrated architecture - everything runs in single V2 gateway process.
+Integrated architecture - everything runs in single gateway process.
 
 ## Key Patterns (2025-10-24)
 

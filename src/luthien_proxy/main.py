@@ -1,6 +1,3 @@
-# ABOUTME: Main FastAPI application for integrated architecture
-# ABOUTME: Factory function for creating gateway app with dependency injection
-
 """Luthien - integrated FastAPI + LiteLLM proxy with OpenTelemetry observability."""
 
 from __future__ import annotations

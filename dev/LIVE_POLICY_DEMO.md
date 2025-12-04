@@ -50,7 +50,7 @@ Notice that Claude Code's responses are now in ALL CAPS. The policy update took 
 curl -X POST http://localhost:8000/admin/policy/create \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
-  -d '{"name": "demo-noop", "policy_class_ref": "luthien_proxy.policies.simple_noop_policy:SimpleNoOpPolicy", "config": {}}'
+  -d '{"name": "demo-noop", "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy", "config": {}}'
 
 # Activate it
 curl -X POST http://localhost:8000/admin/policy/activate \

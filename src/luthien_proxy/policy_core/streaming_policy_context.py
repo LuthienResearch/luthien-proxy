@@ -1,6 +1,3 @@
-# ABOUTME: StreamingPolicyContext provides context for policy invocations during streaming
-# ABOUTME: Simplified context with only what policies need - no orchestrator coupling
-
 """Streaming policy context for policy hook invocations."""
 
 from __future__ import annotations

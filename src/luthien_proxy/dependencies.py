@@ -1,6 +1,3 @@
-# ABOUTME: Dependency injection container for centralized service management
-# ABOUTME: Provides type-safe access to Redis, DB, LLM client and other dependencies
-
 """Dependency injection container and FastAPI dependency functions."""
 
 from __future__ import annotations

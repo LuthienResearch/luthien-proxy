@@ -1,6 +1,3 @@
-# ABOUTME: Redis pub/sub bridge for real-time UI event monitoring
-# ABOUTME: Publishes and streams events for /activity/monitor compatibility
-
 """Event bridge for real-time UI monitoring.
 
 This module provides both publishing and streaming of activity events via Redis pub/sub:

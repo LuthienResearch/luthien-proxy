@@ -1,6 +1,3 @@
-# ABOUTME: Runtime policy management with configurable source precedence
-# ABOUTME: Supports DB, file, or hybrid policy configuration with hot-reload
-
 """Policy manager for runtime policy configuration.
 
 Manages policy lifecycle including:
