@@ -171,4 +171,43 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Dependency Injection for EventEmitter (2025-12-05)
+
+**Decision**: Remove global EventEmitter (`get_emitter()`, `record_event()`) and inject via `Dependencies` container and `PolicyContext`.
+
+**Rationale**:
+
+- **Explicit dependencies**: Functions that emit events must declare that dependency in their signature
+- **Testability**: Easy to inject `NullEventEmitter` in tests without mocking globals
+- **No hidden side effects**: Reading a function signature tells you if it can emit events
+- **Consistent with existing patterns**: Matches how Redis/DB/LLM are already injected via FastAPI Depends()
+
+**Implementation**:
+
+- `EventEmitterProtocol`: Interface for event emission
+- `NullEventEmitter`: No-op implementation for tests
+- `Dependencies.emitter`: EventEmitter instance injected at app startup
+- `PolicyContext.emitter`: Policies access emitter via context, not global
+- `PolicyContext.record_event()`: Convenience method that includes transaction_id
+- `PolicyContext.for_testing()`: Factory that creates context with null dependencies
+
+**Pattern**:
+
+```python
+# Policies use context's emitter
+async def on_response(self, response, context: PolicyContext):
+    context.record_event("policy.decision", {"action": "allow"})
+
+# Gateway injects emitter from Dependencies
+emitter: EventEmitterProtocol = Depends(get_emitter)
+emitter.record(call_id, "pipeline.request", {"payload": body})
+```
+
+**Trade-offs accepted**:
+
+- More verbose: Must pass emitter/context explicitly (but makes dependencies visible)
+- Migration effort: Updated all policies and tests (one-time cost)
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

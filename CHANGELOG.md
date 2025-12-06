@@ -2,6 +2,14 @@
 
 ## Unreleased | TBA
 
+- Remove global EventEmitter, inject via Dependencies/PolicyContext (#dependency_injection)
+  - Add `EventEmitterProtocol` and `NullEventEmitter` for testing
+  - Add `emitter` field to `Dependencies` container
+  - Add emitter to `PolicyContext` with `record_event()` convenience method
+  - Add `PolicyContext.for_testing()` factory for easy test context creation
+  - Update all policies to use `ctx.record_event()` instead of global
+  - Remove global `configure_emitter()`, `get_emitter()`, `record_event()` from emitter.py
+
 - Added e2e tests that actually invoke claude code running through the proxy
 
 - Codebase cleanup (#81)
