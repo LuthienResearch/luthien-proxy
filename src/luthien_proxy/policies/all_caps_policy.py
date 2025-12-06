@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING
 
 from litellm.types.utils import Choices, StreamingChoices
 
+from luthien_proxy.observability.emitter import record_event
+from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policy_core import PolicyContext
 
 if TYPE_CHECKING:
@@ -27,9 +29,6 @@ if TYPE_CHECKING:
     from luthien_proxy.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
     )
-
-
-from luthien_proxy.policies.base_policy import BasePolicy
 
 logger = logging.getLogger(__name__)
 
@@ -46,16 +45,16 @@ class AllCapsPolicy(BasePolicy):
         """Because AllCapsPolicy capitalizes content but not tool call deltas, we handle logic in specialized hooks; no-op here."""
         pass
 
-    async def on_tool_call_delta(self, ctx):
+    async def on_tool_call_delta(self, ctx: StreamingPolicyContext):
         """Pass through tool call deltas without modification."""
         last_chunk: ModelResponse = ctx.last_chunk_received
         if not last_chunk.choices or not isinstance(last_chunk.choices[0], StreamingChoices):
-            ctx.observability.emit_event_nonblocking(
+            record_event(
+                ctx.policy_ctx,
                 "policy.all_caps.tool_call_delta_warning",
                 {
-                    "summary": f"on_tool_call_delta most recent chunk does not appear to be a tool call delta:\n {last_chunk}; dropping chunk"
+                    "summary": "on_tool_call_delta most recent chunk does not appear to be a tool call delta; dropping chunk"
                 },
-                level="ERROR",
             )
             return
         ctx.push_chunk(last_chunk)
@@ -70,11 +69,10 @@ class AllCapsPolicy(BasePolicy):
         last_chunk: ModelResponse = ctx.last_chunk_received
         for choice in last_chunk.choices:
             if not isinstance(choice, StreamingChoices):
-                ctx.observability.emit_event_nonblocking(
+                record_event(
+                    ctx.policy_ctx,
                     "policy.all_caps.content_delta_warning",
-                    {
-                        "summary": f"on_content_delta most recent chunk does not appear to be a content delta:\n {last_chunk}"
-                    },
+                    {"summary": "on_content_delta most recent chunk does not appear to be a content delta"},
                 )
                 continue
 
@@ -88,11 +86,10 @@ class AllCapsPolicy(BasePolicy):
             choice.delta.content = uppercased
 
             # Emit event for observability
-            ctx.observability.emit_event_nonblocking(
+            record_event(
+                ctx.policy_ctx,
                 "policy.all_caps.content_transformed",
-                {
-                    "summary": f"Converted content delta {original} to {uppercased}",
-                },
+                {"original_length": len(original), "transformed_length": len(uppercased)},
             )
         ctx.push_chunk(last_chunk)
 
@@ -111,18 +108,18 @@ class AllCapsPolicy(BasePolicy):
 
         for choice in response.choices:
             if not (isinstance(choice, Choices) and isinstance(choice.message.content, str)):
-                context.observability.emit_event_nonblocking(
+                record_event(
+                    context,
                     "policy.all_caps.response_content_warning",
-                    {"summary": f"Response choice content is not a string, skipping:\n {choice}"},
+                    {"summary": "Response choice content is not a string, skipping"},
                 )
                 continue
             orig = choice.message.content
             choice.message.content = choice.message.content.upper()
-            context.observability.emit_event_nonblocking(
+            record_event(
+                context,
                 "policy.all_caps.response_content_transformed",
-                {
-                    "summary": f"Converted response {orig} to {choice.message.content}",
-                },
+                {"original_length": len(orig), "transformed_length": len(choice.message.content)},
             )
         return response
 

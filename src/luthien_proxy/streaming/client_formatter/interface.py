@@ -5,7 +5,6 @@ from typing import Protocol
 
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
@@ -21,7 +20,6 @@ class ClientFormatter(Protocol):
         input_queue: asyncio.Queue[ModelResponse | None],
         output_queue: asyncio.Queue[str | None],
         policy_ctx: PolicyContext,
-        obs_ctx: ObservabilityContext,
     ) -> None:
         """Convert common format chunks to client SSE format.
 
@@ -32,7 +30,6 @@ class ClientFormatter(Protocol):
             input_queue: Queue to read ModelResponse chunks from
             output_queue: Queue to write SSE formatted strings to
             policy_ctx: Policy context for shared state
-            obs_ctx: Observability context for tracing
 
         Raises:
             Exception: On conversion errors or malformed chunks

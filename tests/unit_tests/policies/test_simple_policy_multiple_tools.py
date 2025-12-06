@@ -17,7 +17,6 @@ import pytest
 from litellm.types.utils import Delta, ModelResponse
 
 from luthien_proxy.messages import Request
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.observability.transaction_recorder import TransactionRecorder
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.base_policy import BasePolicy
@@ -84,13 +83,6 @@ def create_mock_policy_context() -> PolicyContext:
     return ctx
 
 
-def create_mock_obs_context() -> ObservabilityContext:
-    """Create a mock ObservabilityContext for testing."""
-    ctx = Mock(spec=ObservabilityContext)
-    ctx.emit_event_nonblocking = Mock()
-    return ctx
-
-
 def create_mock_recorder() -> TransactionRecorder:
     """Create a mock TransactionRecorder for testing."""
     recorder = Mock(spec=TransactionRecorder)
@@ -115,7 +107,6 @@ async def test_simple_policy_multiple_tool_calls_finish_reason():
     # Setup
     policy = NoTransformPolicy()
     policy_ctx = create_mock_policy_context()
-    obs_ctx = create_mock_obs_context()
     recorder = create_mock_recorder()
 
     executor = PolicyExecutor(recorder=recorder, timeout_seconds=30.0)
@@ -127,7 +118,6 @@ async def test_simple_policy_multiple_tool_calls_finish_reason():
         output_queue=output_queue,
         policy=policy,
         policy_ctx=policy_ctx,
-        obs_ctx=obs_ctx,
     )
 
     # Collect all output chunks
@@ -186,7 +176,6 @@ async def test_passthrough_policy_multiple_tool_calls_finish_reason():
     # Setup with passthrough policy
     policy = PassthroughPolicy()
     policy_ctx = create_mock_policy_context()
-    obs_ctx = create_mock_obs_context()
     recorder = create_mock_recorder()
 
     executor = PolicyExecutor(recorder=recorder, timeout_seconds=30.0)
@@ -198,7 +187,6 @@ async def test_passthrough_policy_multiple_tool_calls_finish_reason():
         output_queue=output_queue,
         policy=policy,
         policy_ctx=policy_ctx,
-        obs_ctx=obs_ctx,
     )
 
     # Collect all output chunks
@@ -239,7 +227,6 @@ async def test_noop_policy_multiple_tool_calls_finish_reason():
     # Setup with NoOpPolicy
     policy = NoOpPolicy()
     policy_ctx = create_mock_policy_context()
-    obs_ctx = create_mock_obs_context()
     recorder = create_mock_recorder()
 
     executor = PolicyExecutor(recorder=recorder, timeout_seconds=30.0)
@@ -251,7 +238,6 @@ async def test_noop_policy_multiple_tool_calls_finish_reason():
         output_queue=output_queue,
         policy=policy,
         policy_ctx=policy_ctx,
-        obs_ctx=obs_ctx,
     )
 
     # Collect all output chunks

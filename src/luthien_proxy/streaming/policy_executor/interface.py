@@ -5,7 +5,6 @@ from typing import AsyncIterator, Protocol
 
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol as BasePolicyProtocol
 
@@ -38,7 +37,6 @@ class PolicyExecutorProtocol(Protocol):
         output_queue: asyncio.Queue[ModelResponse | None],
         policy: BasePolicyProtocol,
         policy_ctx: PolicyContext,
-        obs_ctx: ObservabilityContext,
     ) -> None:
         """Execute policy processing on streaming chunks.
 
@@ -55,7 +53,6 @@ class PolicyExecutorProtocol(Protocol):
             output_queue: Queue to write policy-approved chunks to (uses None as sentinel)
             policy: Policy instance implementing PolicyProtocol (on_chunk_received, etc.)
             policy_ctx: Policy context for shared state
-            obs_ctx: Observability context for tracing
 
         Raises:
             Exception: On policy errors or assembly failures

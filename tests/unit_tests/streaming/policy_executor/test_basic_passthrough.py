@@ -4,12 +4,10 @@
 """Tests for basic PolicyExecutor pass-through."""
 
 import asyncio
-from unittest.mock import Mock
 
 import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.noop_policy import NoOpPolicy
@@ -20,12 +18,6 @@ from luthien_proxy.streaming.policy_executor import PolicyExecutor
 def policy_ctx():
     """Create a PolicyContext."""
     return PolicyContext(transaction_id="test-123")
-
-
-@pytest.fixture
-def obs_ctx():
-    """Create a mock ObservabilityContext."""
-    return Mock(spec=ObservabilityContext)
 
 
 @pytest.fixture
@@ -58,7 +50,7 @@ async def async_iter_from_list(items: list):
 
 
 @pytest.mark.asyncio
-async def test_basic_passthrough_single_chunk(noop_policy, policy_ctx, obs_ctx):
+async def test_basic_passthrough_single_chunk(noop_policy, policy_ctx):
     """Test that a single chunk passes through unchanged."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -70,7 +62,7 @@ async def test_basic_passthrough_single_chunk(noop_policy, policy_ctx, obs_ctx):
     output_queue = asyncio.Queue()
 
     # Process
-    await executor.process(input_stream, output_queue, noop_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, noop_policy, policy_ctx)
 
     # Verify output
     result = await output_queue.get()
@@ -85,7 +77,7 @@ async def test_basic_passthrough_single_chunk(noop_policy, policy_ctx, obs_ctx):
 
 
 @pytest.mark.asyncio
-async def test_basic_passthrough_multiple_chunks(noop_policy, policy_ctx, obs_ctx):
+async def test_basic_passthrough_multiple_chunks(noop_policy, policy_ctx):
     """Test that multiple chunks pass through in order."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -99,7 +91,7 @@ async def test_basic_passthrough_multiple_chunks(noop_policy, policy_ctx, obs_ct
 
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, noop_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, noop_policy, policy_ctx)
 
     # Verify all chunks passed through in order
     for expected_chunk in chunks:
@@ -112,14 +104,14 @@ async def test_basic_passthrough_multiple_chunks(noop_policy, policy_ctx, obs_ct
 
 
 @pytest.mark.asyncio
-async def test_basic_passthrough_empty_stream(noop_policy, policy_ctx, obs_ctx):
+async def test_basic_passthrough_empty_stream(noop_policy, policy_ctx):
     """Test that empty stream produces only None sentinel."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     input_stream = async_iter_from_list([])
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, noop_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, noop_policy, policy_ctx)
 
     # Should only have None sentinel
     sentinel = await output_queue.get()
@@ -128,7 +120,7 @@ async def test_basic_passthrough_empty_stream(noop_policy, policy_ctx, obs_ctx):
 
 
 @pytest.mark.asyncio
-async def test_basic_passthrough_preserves_chunk_data(noop_policy, policy_ctx, obs_ctx):
+async def test_basic_passthrough_preserves_chunk_data(noop_policy, policy_ctx):
     """Test that chunk data is preserved exactly."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -137,7 +129,7 @@ async def test_basic_passthrough_preserves_chunk_data(noop_policy, policy_ctx, o
     input_stream = async_iter_from_list([original_chunk])
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, noop_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, noop_policy, policy_ctx)
 
     result = await output_queue.get()
 
@@ -149,7 +141,7 @@ async def test_basic_passthrough_preserves_chunk_data(noop_policy, policy_ctx, o
 
 
 @pytest.mark.asyncio
-async def test_basic_passthrough_finish_reason(noop_policy, policy_ctx, obs_ctx):
+async def test_basic_passthrough_finish_reason(noop_policy, policy_ctx):
     """Test that finish_reason is preserved."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -157,7 +149,7 @@ async def test_basic_passthrough_finish_reason(noop_policy, policy_ctx, obs_ctx)
     input_stream = async_iter_from_list([chunk])
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, noop_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, noop_policy, policy_ctx)
 
     result = await output_queue.get()
     assert result.choices[0].finish_reason == "stop"

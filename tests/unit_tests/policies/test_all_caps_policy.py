@@ -6,7 +6,6 @@ import pytest
 from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
 
 from luthien_proxy.messages import Request
-from luthien_proxy.observability.context import NoOpObservabilityContext
 from luthien_proxy.policies.all_caps_policy import AllCapsPolicy
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
@@ -48,7 +47,6 @@ def streaming_context():
         policy_ctx=policy_ctx,
         egress_queue=egress_queue,
         original_streaming_response_state=stream_state,
-        observability=NoOpObservabilityContext("test-txn-123"),
         keepalive=lambda: None,
     )
 

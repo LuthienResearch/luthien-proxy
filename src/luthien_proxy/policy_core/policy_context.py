@@ -8,11 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from luthien_proxy.observability.context import NoOpObservabilityContext
-
 if TYPE_CHECKING:
     from luthien_proxy.messages import Request
-    from luthien_proxy.observability.context import ObservabilityContext
 
 
 class PolicyContext:
@@ -35,21 +32,16 @@ class PolicyContext:
     def __init__(
         self,
         transaction_id: str,
-        request: Request | None = None,
-        observability: ObservabilityContext | None = None,
+        request: "Request | None" = None,
     ) -> None:
         """Initialize policy context for a request.
 
         Args:
             transaction_id: Unique identifier for this request/response cycle
-            observability: Optional observability context for logging/tracing (default to NoOpObservabilityContext)
             request: Optional original request for policies that need it
         """
         self.transaction_id: str = transaction_id
-        self.request: Request | None = request
-        self.observability: ObservabilityContext = observability or NoOpObservabilityContext(
-            transaction_id=transaction_id
-        )
+        self.request: "Request | None" = request
         self._scratchpad: dict[str, Any] = {}
 
     @property

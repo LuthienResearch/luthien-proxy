@@ -5,26 +5,18 @@
 
 import asyncio
 import json
-from unittest.mock import Mock
 
 import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.streaming.client_formatter.anthropic import AnthropicClientFormatter
 
 
 @pytest.fixture
-def obs_ctx():
-    """Create a mock ObservabilityContext."""
-    return Mock(spec=ObservabilityContext)
-
-
-@pytest.fixture
-def policy_ctx(obs_ctx):
+def policy_ctx():
     """Create a PolicyContext."""
-    return PolicyContext(transaction_id="test-123", observability=obs_ctx)
+    return PolicyContext(transaction_id="test-123")
 
 
 @pytest.fixture
@@ -51,7 +43,7 @@ def create_model_response(content: str = "Hello", finish_reason: str | None = No
 
 
 @pytest.mark.asyncio
-async def test_anthropic_formatter_sends_message_start(formatter, policy_ctx, obs_ctx):
+async def test_anthropic_formatter_sends_message_start(formatter, policy_ctx):
     """Test that formatter sends message_start before first chunk."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
@@ -60,7 +52,7 @@ async def test_anthropic_formatter_sends_message_start(formatter, policy_ctx, ob
     await input_queue.put(chunk)
     await input_queue.put(None)
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     # First event should be message_start
     first_sse = await output_queue.get()
@@ -83,7 +75,7 @@ async def test_anthropic_formatter_sends_message_start(formatter, policy_ctx, ob
 
 
 @pytest.mark.asyncio
-async def test_anthropic_formatter_sends_message_stop(formatter, policy_ctx, obs_ctx):
+async def test_anthropic_formatter_sends_message_stop(formatter, policy_ctx):
     """Test that formatter sends message_stop at the end."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
@@ -92,7 +84,7 @@ async def test_anthropic_formatter_sends_message_stop(formatter, policy_ctx, obs
     await input_queue.put(chunk)
     await input_queue.put(None)
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     # Drain queue to find last event (filter out None sentinel)
     events = []
@@ -116,7 +108,7 @@ async def test_anthropic_formatter_sends_message_stop(formatter, policy_ctx, obs
 
 
 @pytest.mark.asyncio
-async def test_anthropic_formatter_content_block_lifecycle(formatter, policy_ctx, obs_ctx):
+async def test_anthropic_formatter_content_block_lifecycle(formatter, policy_ctx):
     """Test proper content_block lifecycle: start -> delta -> stop."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
@@ -127,7 +119,7 @@ async def test_anthropic_formatter_content_block_lifecycle(formatter, policy_ctx
     await input_queue.put(create_model_response(content="!", finish_reason="stop"))
     await input_queue.put(None)
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     # Collect all events (filter out None sentinel)
     events = []
@@ -160,7 +152,7 @@ async def test_anthropic_formatter_content_block_lifecycle(formatter, policy_ctx
 
 
 @pytest.mark.asyncio
-async def test_anthropic_formatter_content_block_indices(formatter, policy_ctx, obs_ctx):
+async def test_anthropic_formatter_content_block_indices(formatter, policy_ctx):
     """Test that content blocks have proper sequential indices."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
@@ -170,7 +162,7 @@ async def test_anthropic_formatter_content_block_indices(formatter, policy_ctx, 
     await input_queue.put(create_model_response(content="", finish_reason="stop"))
     await input_queue.put(None)
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     # Find content_block_start event
     found_start = False
@@ -193,7 +185,7 @@ async def test_anthropic_formatter_content_block_indices(formatter, policy_ctx, 
 
 
 @pytest.mark.asyncio
-async def test_anthropic_formatter_sse_format_with_event_type(formatter, policy_ctx, obs_ctx):
+async def test_anthropic_formatter_sse_format_with_event_type(formatter, policy_ctx):
     """Test that Anthropic SSE format includes event type."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
@@ -202,7 +194,7 @@ async def test_anthropic_formatter_sse_format_with_event_type(formatter, policy_
     await input_queue.put(chunk)
     await input_queue.put(None)
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     # First event (message_start)
     sse_line = await output_queue.get()
@@ -219,14 +211,14 @@ async def test_anthropic_formatter_sse_format_with_event_type(formatter, policy_
 
 
 @pytest.mark.asyncio
-async def test_anthropic_formatter_empty_queue(formatter, policy_ctx, obs_ctx):
+async def test_anthropic_formatter_empty_queue(formatter, policy_ctx):
     """Test formatter handles empty input gracefully."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
 
     await input_queue.put(None)
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     # Should have only None sentinel (no events - not even message_start if no chunks)
     sentinel = await output_queue.get()
@@ -235,7 +227,7 @@ async def test_anthropic_formatter_empty_queue(formatter, policy_ctx, obs_ctx):
 
 
 @pytest.mark.asyncio
-async def test_anthropic_formatter_finish_reason_mapping(formatter, policy_ctx, obs_ctx):
+async def test_anthropic_formatter_finish_reason_mapping(formatter, policy_ctx):
     """Test that OpenAI finish reasons map to Anthropic stop reasons."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
@@ -244,7 +236,7 @@ async def test_anthropic_formatter_finish_reason_mapping(formatter, policy_ctx, 
     await input_queue.put(chunk)
     await input_queue.put(None)
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     # Find message_delta event with stop_reason
     found_delta = False
