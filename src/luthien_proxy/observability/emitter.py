@@ -201,8 +201,10 @@ def configure_emitter(
     )
 
 
-def get_emitter() -> EventEmitter | None:
-    """Get the global event emitter."""
+def get_emitter() -> EventEmitter:
+    """Get the global event emitter, initializing with defaults if needed."""
+    while _emitter is None:
+        configure_emitter()
     return _emitter
 
 
@@ -221,12 +223,8 @@ def record_event(
         event_type: Type of event (e.g., "policy.modified_request")
         data: Event payload
     """
-    if _emitter is None:
-        logger.warning(f"Event emitter not configured, dropping event: {event_type}")
-        return
-
     # Fire and forget - don't block on sink writes
-    asyncio.create_task(_emitter.emit(ctx.transaction_id, event_type, data))
+    asyncio.create_task(get_emitter().emit(ctx.transaction_id, event_type, data))
 
 
 def record_event_sync(
@@ -241,11 +239,7 @@ def record_event_sync(
         event_type: Type of event
         data: Event payload
     """
-    if _emitter is None:
-        logger.warning(f"Event emitter not configured, dropping event: {event_type}")
-        return
-
-    asyncio.create_task(_emitter.emit(transaction_id, event_type, data))
+    asyncio.create_task(get_emitter().emit(transaction_id, event_type, data))
 
 
 __all__ = [
