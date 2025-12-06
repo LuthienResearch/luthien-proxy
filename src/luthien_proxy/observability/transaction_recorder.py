@@ -11,7 +11,7 @@ from litellm.types.utils import ModelResponse
 from opentelemetry import metrics, trace
 
 from luthien_proxy.messages import Request
-from luthien_proxy.observability.emitter import record_event_sync
+from luthien_proxy.observability.emitter import EventEmitterProtocol, NullEventEmitter
 from luthien_proxy.storage.events import reconstruct_full_response_from_chunks
 
 logger = logging.getLogger(__name__)
@@ -73,17 +73,30 @@ class NoOpTransactionRecorder(TransactionRecorder):
 
 
 class DefaultTransactionRecorder(TransactionRecorder):
-    """Default implementation using global event emitter."""
+    """Default implementation using injected event emitter."""
 
-    def __init__(self, transaction_id: str, max_chunks_queued: int = 4096):  # noqa: D107
+    def __init__(
+        self,
+        transaction_id: str,
+        emitter: EventEmitterProtocol | None = None,
+        max_chunks_queued: int = 4096,
+    ):
+        """Initialize default transaction recorder.
+
+        Args:
+            transaction_id: Unique identifier for this transaction
+            emitter: Event emitter for recording events (uses NullEventEmitter if None)
+            max_chunks_queued: Maximum chunks to buffer before truncation
+        """
         self._transaction_id = transaction_id
+        self._emitter = emitter or NullEventEmitter()
         self._ingress_chunks: list[ModelResponse] = []
         self._egress_chunks: list[ModelResponse] = []
         self._max_chunks_queued = max_chunks_queued
 
     async def record_request(self, original: Request, final: Request) -> None:
-        """Record request via global emitter."""
-        record_event_sync(
+        """Record request via injected emitter."""
+        self._emitter.record(
             self._transaction_id,
             "transaction.request_recorded",
             {
@@ -103,7 +116,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
     def add_ingress_chunk(self, chunk: ModelResponse) -> None:
         """Buffer ingress chunk."""
         if len(self._ingress_chunks) >= self._max_chunks_queued:
-            record_event_sync(
+            self._emitter.record(
                 self._transaction_id,
                 "transaction.recorder.ingress_truncated",
                 {"reason": f"max_chunks_queued_exceeded {len(self._ingress_chunks)} > {self._max_chunks_queued}"},
@@ -114,7 +127,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
     def add_egress_chunk(self, chunk: ModelResponse) -> None:
         """Buffer egress chunk."""
         if len(self._egress_chunks) >= self._max_chunks_queued:
-            record_event_sync(
+            self._emitter.record(
                 self._transaction_id,
                 "transaction.recorder.egress_truncated",
                 {"reason": f"max_chunks_queued_exceeded {len(self._egress_chunks)} > {self._max_chunks_queued}"},
@@ -124,7 +137,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
 
     async def record_response(self, original_response: ModelResponse, final_response: ModelResponse) -> None:
         """Emit full responses directly."""
-        record_event_sync(
+        self._emitter.record(
             self._transaction_id,
             "transaction.non_streaming_response_recorded",
             {
@@ -146,7 +159,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
         original_response_dict = reconstruct_full_response_from_chunks(self._ingress_chunks)
         final_response_dict = reconstruct_full_response_from_chunks(self._egress_chunks)
 
-        record_event_sync(
+        self._emitter.record(
             self._transaction_id,
             "transaction.streaming_response_recorded",
             {

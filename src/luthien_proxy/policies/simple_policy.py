@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from luthien_proxy.observability.emitter import record_event
 from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policy_core import create_finish_chunk
 from luthien_proxy.policy_core.streaming_utils import get_last_ingress_chunk, send_chunk, send_text, send_tool_call
@@ -100,8 +99,7 @@ class SimplePolicy(BasePolicy):
         """Pass the content block to on_response_content and push the result to the client."""
         # Get the completed content block
         if ctx.original_streaming_response_state.just_completed is None:
-            record_event(
-                ctx.policy_ctx,
+            ctx.policy_ctx.record_event(
                 "policy.simple_policy.content_complete_warning",
                 {"summary": "ingress_state.just_completed is None in on_content_complete"},
             )
@@ -109,8 +107,7 @@ class SimplePolicy(BasePolicy):
 
         block = ctx.original_streaming_response_state.just_completed
         if not isinstance(block, ContentStreamBlock):
-            record_event(
-                ctx.policy_ctx,
+            ctx.policy_ctx.record_event(
                 "policy.simple_policy.content_complete_warning",
                 {"summary": "ingress_state.just_completed is not ContentStreamBlock in on_content_complete"},
             )
@@ -136,8 +133,7 @@ class SimplePolicy(BasePolicy):
         """Transform tool call and emit."""
         block = ctx.original_streaming_response_state.just_completed
         if not isinstance(block, ToolCallStreamBlock):
-            record_event(
-                ctx.policy_ctx,
+            ctx.policy_ctx.record_event(
                 "policy.simple_policy.tool_call_complete_warning",
                 {"summary": "ingress_state.just_completed is not ToolCallStreamBlock in on_tool_call_complete"},
             )

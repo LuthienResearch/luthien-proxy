@@ -1,9 +1,10 @@
-"""Global event emitter for observability.
+"""Event emitter for observability.
 
 Provides a simple interface for recording events to multiple sinks (stdout, db, redis).
 Events are also added to the current OTel span as span events.
 
-TODO: Convert this global pattern to dependency injection.
+The EventEmitter should be injected via PolicyContext or Dependencies, not accessed
+via global state.
 """
 
 from __future__ import annotations
@@ -13,19 +14,55 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from opentelemetry import trace
 
 if TYPE_CHECKING:
     from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
-    from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
 
-# Global emitter instance, configured at app startup
-_emitter: "EventEmitter | None" = None
+
+class EventEmitterProtocol(Protocol):
+    """Protocol for event emission.
+
+    This protocol defines the interface that event emitters must implement.
+    Use this for type hints when you need to accept any emitter implementation.
+    """
+
+    def record(
+        self,
+        transaction_id: str,
+        event_type: str,
+        data: dict[str, Any],
+    ) -> None:
+        """Record an event (fire-and-forget).
+
+        Args:
+            transaction_id: Unique identifier for this transaction
+            event_type: Type of event (e.g., "policy.modified_request")
+            data: Event payload
+        """
+        ...
+
+
+class NullEventEmitter:
+    """No-op event emitter for tests or when observability is disabled.
+
+    This implementation silently discards all events, making it safe to use
+    in unit tests without any external dependencies.
+    """
+
+    def record(
+        self,
+        transaction_id: str,  # noqa: ARG002
+        event_type: str,  # noqa: ARG002
+        data: dict[str, Any],  # noqa: ARG002
+    ) -> None:
+        """Discard the event (no-op)."""
+        pass
 
 
 class EventEmitter:
@@ -79,6 +116,24 @@ class EventEmitter:
 
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+    def record(
+        self,
+        transaction_id: str,
+        event_type: str,
+        data: dict[str, Any],
+    ) -> None:
+        """Record an event (fire-and-forget).
+
+        This method conforms to EventEmitterProtocol and is the primary interface
+        for recording events. It dispatches to emit() in a background task.
+
+        Args:
+            transaction_id: Unique identifier for this transaction
+            event_type: Type of event (e.g., "policy.modified_request")
+            data: Event payload
+        """
+        asyncio.create_task(self.emit(transaction_id, event_type, data))
 
     async def _write_stdout(
         self,
@@ -187,65 +242,8 @@ class EventEmitter:
             logger.warning(f"Failed to write event to redis: {e}", exc_info=True)
 
 
-def configure_emitter(
-    db_pool: "DatabasePool | None" = None,
-    redis_publisher: "RedisEventPublisher | None" = None,
-    stdout_enabled: bool = True,
-) -> None:
-    """Configure the global event emitter. Call this at app startup."""
-    global _emitter
-    _emitter = EventEmitter(
-        db_pool=db_pool,
-        redis_publisher=redis_publisher,
-        stdout_enabled=stdout_enabled,
-    )
-
-
-def get_emitter() -> EventEmitter:
-    """Get the global event emitter, initializing with defaults if needed."""
-    while _emitter is None:
-        configure_emitter()
-    return _emitter
-
-
-def record_event(
-    ctx: "PolicyContext",
-    event_type: str,
-    data: dict[str, Any],
-) -> None:
-    """Record an event using the global emitter.
-
-    This is the primary interface for recording observability events.
-    Events are added to the current OTel span and emitted to all configured sinks.
-
-    Args:
-        ctx: Policy context (provides transaction_id)
-        event_type: Type of event (e.g., "policy.modified_request")
-        data: Event payload
-    """
-    # Fire and forget - don't block on sink writes
-    asyncio.create_task(get_emitter().emit(ctx.transaction_id, event_type, data))
-
-
-def record_event_sync(
-    transaction_id: str,
-    event_type: str,
-    data: dict[str, Any],
-) -> None:
-    """Record an event using transaction_id directly (for use outside policy context).
-
-    Args:
-        transaction_id: Transaction identifier
-        event_type: Type of event
-        data: Event payload
-    """
-    asyncio.create_task(get_emitter().emit(transaction_id, event_type, data))
-
-
 __all__ = [
     "EventEmitter",
-    "configure_emitter",
-    "get_emitter",
-    "record_event",
-    "record_event_sync",
+    "EventEmitterProtocol",
+    "NullEventEmitter",
 ]

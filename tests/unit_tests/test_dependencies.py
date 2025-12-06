@@ -25,6 +25,7 @@ from luthien_proxy.dependencies import (
     get_redis_client,
 )
 from luthien_proxy.llm.client import LLMClient
+from luthien_proxy.observability.emitter import NullEventEmitter
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_manager import PolicyManager
@@ -53,12 +54,14 @@ class TestDependenciesContainer:
         mock_llm = MockLLMClient()
         mock_policy_manager = MagicMock(spec=PolicyManager)
         mock_policy_manager.current_policy = NoOpPolicy()
+        mock_emitter = NullEventEmitter()
 
         deps = Dependencies(
             db_pool=mock_db_pool,
             redis_client=mock_redis,
             llm_client=mock_llm,
             policy_manager=mock_policy_manager,
+            emitter=mock_emitter,
             api_key="test-api-key",
             admin_key="test-admin-key",
         )
@@ -67,6 +70,7 @@ class TestDependenciesContainer:
         assert deps.redis_client is mock_redis
         assert deps.llm_client is mock_llm
         assert deps.policy_manager is mock_policy_manager
+        assert deps.emitter is mock_emitter
         assert deps.api_key == "test-api-key"
         assert deps.admin_key == "test-admin-key"
 
@@ -81,6 +85,7 @@ class TestDependenciesContainer:
             redis_client=None,
             llm_client=mock_llm,
             policy_manager=mock_policy_manager,
+            emitter=NullEventEmitter(),
             api_key="test-key",
             admin_key=None,
         )
@@ -101,6 +106,7 @@ class TestDependenciesContainer:
             redis_client=mock_redis,
             llm_client=mock_llm,
             policy_manager=mock_policy_manager,
+            emitter=NullEventEmitter(),
             api_key="test-key",
             admin_key=None,
         )
@@ -125,6 +131,7 @@ class TestDependenciesContainer:
             redis_client=None,
             llm_client=mock_llm,
             policy_manager=mock_policy_manager,
+            emitter=NullEventEmitter(),
             api_key="test-key",
             admin_key=None,
         )
@@ -143,6 +150,7 @@ class TestDependenciesContainer:
             redis_client=None,
             llm_client=mock_llm,
             policy_manager=mock_policy_manager,
+            emitter=NullEventEmitter(),
             api_key="test-key",
             admin_key=None,
         )
@@ -169,6 +177,7 @@ class TestFastAPIDependsFunctions:
             redis_client=mock_redis,
             llm_client=mock_llm,
             policy_manager=mock_policy_manager,
+            emitter=NullEventEmitter(),
             api_key="test-api-key",
             admin_key="test-admin-key",
         )

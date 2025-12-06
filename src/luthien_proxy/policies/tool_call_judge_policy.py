@@ -36,7 +36,6 @@ from litellm.types.utils import (
     StreamingChoices,
 )
 
-from luthien_proxy.observability.emitter import record_event
 from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
 
 if TYPE_CHECKING:
@@ -170,8 +169,7 @@ class ToolCallJudgePolicy(BasePolicy):
             current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
             ctx.egress_queue.put_nowait(current_chunk)
         except IndexError:
-            record_event(
-                ctx.policy_ctx,
+            ctx.policy_ctx.record_event(
                 "policy.judge.content_delta_no_chunk",
                 {"summary": "No content chunk available to forward in on_content_delta (this shouldn't happen!)"},
             )
@@ -518,8 +516,7 @@ class ToolCallJudgePolicy(BasePolicy):
         arguments: str,
     ) -> None:
         """Emit observability event for evaluation start."""
-        record_event(
-            policy_ctx,
+        policy_ctx.record_event(
             "policy.judge.evaluation_started",
             {
                 "summary": f"Evaluating tool call: {name}",
@@ -536,8 +533,7 @@ class ToolCallJudgePolicy(BasePolicy):
         exc: Exception,
     ) -> None:
         """Emit observability event for evaluation failure."""
-        record_event(
-            policy_ctx,
+        policy_ctx.record_event(
             "policy.judge.evaluation_failed",
             {
                 "summary": f"⚠️ Judge evaluation failed for '{name}' - BLOCKED (fail-secure)",
@@ -556,8 +552,7 @@ class ToolCallJudgePolicy(BasePolicy):
         judge_result: Any,
     ) -> None:
         """Emit observability event for successful evaluation."""
-        record_event(
-            policy_ctx,
+        policy_ctx.record_event(
             "policy.judge.evaluation_complete",
             {
                 "summary": f"Judge evaluated '{name}': probability={judge_result.probability:.2f}",
@@ -575,8 +570,7 @@ class ToolCallJudgePolicy(BasePolicy):
         probability: float,
     ) -> None:
         """Emit observability event for allowed tool call."""
-        record_event(
-            policy_ctx,
+        policy_ctx.record_event(
             "policy.judge.tool_call_allowed",
             {
                 "summary": f"Tool call '{name}' allowed (probability {probability:.2f} < {self._config.probability_threshold})",
@@ -592,8 +586,7 @@ class ToolCallJudgePolicy(BasePolicy):
         judge_result: Any,
     ) -> None:
         """Emit observability event for blocked tool call."""
-        record_event(
-            policy_ctx,
+        policy_ctx.record_event(
             "policy.judge.tool_call_blocked",
             {
                 "summary": f"BLOCKED: Tool call '{name}' rejected (probability {judge_result.probability:.2f} >= {self._config.probability_threshold})",

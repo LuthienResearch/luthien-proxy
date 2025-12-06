@@ -14,6 +14,7 @@ from opentelemetry import trace
 
 from luthien_proxy.dependencies import (
     get_api_key,
+    get_emitter,
     get_llm_client,
     get_policy,
 )
@@ -23,7 +24,7 @@ from luthien_proxy.llm.llm_format_utils import (
     openai_to_anthropic_response,
 )
 from luthien_proxy.messages import Request as RequestMessage
-from luthien_proxy.observability.emitter import record_event_sync
+from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.transaction_recorder import (
     DefaultTransactionRecorder,
 )
@@ -74,6 +75,7 @@ async def chat_completions(
     _: str = Depends(verify_token),
     policy: PolicyProtocol = Depends(get_policy),
     llm_client: LLMClient = Depends(get_llm_client),
+    emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """OpenAI-compatible chat completions endpoint."""
     # Check request size (default 10MB limit)
@@ -99,13 +101,13 @@ async def chat_completions(
     span.set_attribute("luthien.stream", is_streaming)
 
     # Log incoming request
-    record_event_sync(call_id, "pipeline.client_request", {"payload": body})
+    emitter.record(call_id, "pipeline.client_request", {"payload": body})
 
     # Create policy context (shared across request/response)
-    policy_ctx = PolicyContext(transaction_id=call_id, request=request_message)
+    policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, emitter=emitter)
 
     # Create pipeline dependencies
-    recorder = DefaultTransactionRecorder(transaction_id=call_id)
+    recorder = DefaultTransactionRecorder(transaction_id=call_id, emitter=emitter)
     policy_executor = PolicyExecutor(recorder=recorder)
     client_formatter = OpenAIClientFormatter(model_name=request_message.model)
 
@@ -121,7 +123,7 @@ async def chat_completions(
     final_request = await orchestrator.process_request(request_message, policy_ctx)
 
     # Log request after policy processing
-    record_event_sync(call_id, "pipeline.backend_request", {"payload": final_request.model_dump(exclude_none=True)})
+    emitter.record(call_id, "pipeline.backend_request", {"payload": final_request.model_dump(exclude_none=True)})
 
     # Call backend LLM (llm_client injected via Depends)
     if is_streaming:
@@ -144,7 +146,7 @@ async def chat_completions(
         processed_response = await orchestrator.process_full_response(response, policy_ctx)
 
         # Log final response
-        record_event_sync(call_id, "pipeline.client_response", {"payload": processed_response.model_dump()})
+        emitter.record(call_id, "pipeline.client_response", {"payload": processed_response.model_dump()})
 
         return JSONResponse(
             content=processed_response.model_dump(),
@@ -158,6 +160,7 @@ async def anthropic_messages(
     _: str = Depends(verify_token),
     policy: PolicyProtocol = Depends(get_policy),
     llm_client: LLMClient = Depends(get_llm_client),
+    emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """Anthropic Messages API endpoint."""
     # Check request size (default 10MB limit)
@@ -176,14 +179,14 @@ async def anthropic_messages(
     span.set_attribute("luthien.model", anthropic_body.get("model"))
 
     # Log incoming Anthropic request
-    record_event_sync(call_id, "pipeline.client_request", {"payload": anthropic_body})
+    emitter.record(call_id, "pipeline.client_request", {"payload": anthropic_body})
 
     # Convert Anthropic request to OpenAI format
     logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
     openai_body = anthropic_to_openai_request(anthropic_body)
 
     # Log format conversion
-    record_event_sync(
+    emitter.record(
         call_id,
         "pipeline.format_conversion",
         {"from_format": "anthropic", "to_format": "openai", "openai_body": openai_body},
@@ -201,10 +204,10 @@ async def anthropic_messages(
     span.set_attribute("luthien.stream", is_streaming)
 
     # Create policy context (shared across request/response)
-    policy_ctx = PolicyContext(transaction_id=call_id, request=request_message)
+    policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, emitter=emitter)
 
     # Create pipeline dependencies
-    recorder = DefaultTransactionRecorder(transaction_id=call_id)
+    recorder = DefaultTransactionRecorder(transaction_id=call_id, emitter=emitter)
     policy_executor = PolicyExecutor(recorder=recorder)
     client_formatter = AnthropicClientFormatter(model_name=request_message.model)
 
@@ -220,7 +223,7 @@ async def anthropic_messages(
     final_request = await orchestrator.process_request(request_message, policy_ctx)
 
     # Log request after policy processing
-    record_event_sync(call_id, "pipeline.backend_request", {"payload": final_request.model_dump(exclude_none=True)})
+    emitter.record(call_id, "pipeline.backend_request", {"payload": final_request.model_dump(exclude_none=True)})
 
     # Call backend LLM (llm_client injected via Depends)
     if is_streaming:
@@ -246,7 +249,7 @@ async def anthropic_messages(
         anthropic_response = openai_to_anthropic_response(processed_response)
 
         # Log final response
-        record_event_sync(call_id, "pipeline.client_response", {"payload": anthropic_response})
+        emitter.record(call_id, "pipeline.client_response", {"payload": anthropic_response})
 
         return JSONResponse(
             content=anthropic_response,

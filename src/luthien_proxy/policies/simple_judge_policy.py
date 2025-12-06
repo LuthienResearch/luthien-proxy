@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, ClassVar
 
 from litellm.types.utils import ChatCompletionMessageToolCall
 
-from luthien_proxy.observability.emitter import record_event
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.policies.tool_call_judge_utils import JudgeConfig, call_judge
 
@@ -110,8 +109,7 @@ explanation: Brief explanation of your decision"""
             judge_instructions=self.judge_instructions,
         )
 
-        record_event(
-            context,
+        context.record_event(
             "policy.simple_judge.request_evaluated",
             {
                 "probability": result.probability,
@@ -140,8 +138,7 @@ explanation: Brief explanation of your decision"""
             judge_instructions=self.judge_instructions,
         )
 
-        record_event(
-            context,
+        context.record_event(
             "policy.simple_judge.response_evaluated",
             {
                 "probability": result.probability,
@@ -169,8 +166,7 @@ explanation: Brief explanation of your decision"""
             judge_instructions=self.judge_instructions,
         )
 
-        record_event(
-            context,
+        context.record_event(
             "policy.simple_judge.tool_call_evaluated",
             {
                 "tool_name": tool_call.function.name,
