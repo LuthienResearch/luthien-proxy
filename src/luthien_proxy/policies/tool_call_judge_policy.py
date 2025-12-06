@@ -36,10 +36,10 @@ from litellm.types.utils import (
     StreamingChoices,
 )
 
+from luthien_proxy.observability.emitter import record_event
 from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
 
 if TYPE_CHECKING:
-    from luthien_proxy.observability.context import ObservabilityContext
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
@@ -170,7 +170,8 @@ class ToolCallJudgePolicy(BasePolicy):
             current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
             ctx.egress_queue.put_nowait(current_chunk)
         except IndexError:
-            ctx.observability.emit_event_nonblocking(
+            record_event(
+                ctx.policy_ctx,
                 "policy.judge.content_delta_no_chunk",
                 {"summary": "No content chunk available to forward in on_content_delta (this shouldn't happen!)"},
             )
@@ -244,7 +245,7 @@ class ToolCallJudgePolicy(BasePolicy):
             return
 
         # Judge the tool call
-        blocked_response = await self._evaluate_and_maybe_block(tool_call, ctx.observability)
+        blocked_response = await self._evaluate_and_maybe_block(tool_call, ctx.policy_ctx)
 
         is_blocked = blocked_response is not None
 
@@ -370,7 +371,7 @@ class ToolCallJudgePolicy(BasePolicy):
 
         # Evaluate each tool call
         for tool_call in tool_calls:
-            blocked_response = await self._evaluate_and_maybe_block(tool_call, context.observability)
+            blocked_response = await self._evaluate_and_maybe_block(tool_call, context)
             if blocked_response is not None:
                 # Tool call was blocked - return blocked response
                 logger.info(f"Blocked tool call '{tool_call.get('name')}' in non-streaming response")
@@ -418,13 +419,13 @@ class ToolCallJudgePolicy(BasePolicy):
     async def _evaluate_and_maybe_block(
         self,
         tool_call: dict[str, Any],
-        observability_ctx: ObservabilityContext,
+        policy_ctx: PolicyContext,
     ) -> ModelResponse | None:
         """Evaluate a tool call and return blocked response if harmful.
 
         Args:
             tool_call: Tool call dict with id, type, name, arguments
-            observability_ctx: Observability context for emitting events
+            policy_ctx: Policy context for emitting events
 
         Returns:
             Blocked ModelResponse if tool call blocked, None if allowed
@@ -432,10 +433,10 @@ class ToolCallJudgePolicy(BasePolicy):
         name, arguments = self._normalize_tool_call_data(tool_call)
 
         logger.debug(f"Evaluating tool call: {name}")
-        self._emit_evaluation_started(observability_ctx, name, arguments)
+        self._emit_evaluation_started(policy_ctx, name, arguments)
 
         # Call judge with fail-secure error handling
-        judge_result = await self._call_judge_with_failsafe(observability_ctx, name, arguments)
+        judge_result = await self._call_judge_with_failsafe(policy_ctx, name, arguments)
 
         # Judge call failed - already returned blocked response
         if judge_result is None:
@@ -447,20 +448,20 @@ class ToolCallJudgePolicy(BasePolicy):
         logger.debug(
             f"Judge probability: {judge_result.probability:.2f} (threshold: {self._config.probability_threshold})"
         )
-        self._emit_evaluation_complete(observability_ctx, name, judge_result)
+        self._emit_evaluation_complete(policy_ctx, name, judge_result)
 
         # Decide based on threshold
         should_block = judge_result.probability >= self._config.probability_threshold
 
         if should_block:
-            self._emit_tool_call_blocked(observability_ctx, name, judge_result)
+            self._emit_tool_call_blocked(policy_ctx, name, judge_result)
             logger.warning(
                 f"Blocking tool call '{name}' (probability {judge_result.probability:.2f} "
                 f">= {self._config.probability_threshold})"
             )
             return create_blocked_response(tool_call, judge_result, self._blocked_message_template, self._config.model)
         else:
-            self._emit_tool_call_allowed(observability_ctx, name, judge_result.probability)
+            self._emit_tool_call_allowed(policy_ctx, name, judge_result.probability)
             return None
 
     def _normalize_tool_call_data(self, tool_call: dict[str, Any]) -> tuple[str, str]:
@@ -479,7 +480,7 @@ class ToolCallJudgePolicy(BasePolicy):
 
     async def _call_judge_with_failsafe(
         self,
-        observability_ctx: ObservabilityContext,
+        policy_ctx: PolicyContext,
         name: str,
         arguments: str,
     ) -> Any | None:
@@ -498,7 +499,7 @@ class ToolCallJudgePolicy(BasePolicy):
                 exc_info=True,
             )
 
-            self._emit_evaluation_failed(observability_ctx, name, arguments, exc)
+            self._emit_evaluation_failed(policy_ctx, name, arguments, exc)
             return None
 
     def _create_judge_failure_message(self, name: str, arguments: str) -> str:
@@ -512,12 +513,13 @@ class ToolCallJudgePolicy(BasePolicy):
 
     def _emit_evaluation_started(
         self,
-        observability_ctx: ObservabilityContext,
+        policy_ctx: PolicyContext,
         name: str,
         arguments: str,
     ) -> None:
         """Emit observability event for evaluation start."""
-        observability_ctx.emit_event_nonblocking(
+        record_event(
+            policy_ctx,
             "policy.judge.evaluation_started",
             {
                 "summary": f"Evaluating tool call: {name}",
@@ -528,13 +530,14 @@ class ToolCallJudgePolicy(BasePolicy):
 
     def _emit_evaluation_failed(
         self,
-        observability_ctx: ObservabilityContext,
+        policy_ctx: PolicyContext,
         name: str,
         arguments: str,
         exc: Exception,
     ) -> None:
         """Emit observability event for evaluation failure."""
-        observability_ctx.emit_event_nonblocking(
+        record_event(
+            policy_ctx,
             "policy.judge.evaluation_failed",
             {
                 "summary": f"⚠️ Judge evaluation failed for '{name}' - BLOCKED (fail-secure)",
@@ -548,12 +551,13 @@ class ToolCallJudgePolicy(BasePolicy):
 
     def _emit_evaluation_complete(
         self,
-        observability_ctx: ObservabilityContext,
+        policy_ctx: PolicyContext,
         name: str,
         judge_result: Any,
     ) -> None:
         """Emit observability event for successful evaluation."""
-        observability_ctx.emit_event_nonblocking(
+        record_event(
+            policy_ctx,
             "policy.judge.evaluation_complete",
             {
                 "summary": f"Judge evaluated '{name}': probability={judge_result.probability:.2f}",
@@ -566,12 +570,13 @@ class ToolCallJudgePolicy(BasePolicy):
 
     def _emit_tool_call_allowed(
         self,
-        observability_ctx: ObservabilityContext,
+        policy_ctx: PolicyContext,
         name: str,
         probability: float,
     ) -> None:
         """Emit observability event for allowed tool call."""
-        observability_ctx.emit_event_nonblocking(
+        record_event(
+            policy_ctx,
             "policy.judge.tool_call_allowed",
             {
                 "summary": f"Tool call '{name}' allowed (probability {probability:.2f} < {self._config.probability_threshold})",
@@ -582,12 +587,13 @@ class ToolCallJudgePolicy(BasePolicy):
 
     def _emit_tool_call_blocked(
         self,
-        observability_ctx: ObservabilityContext,
+        policy_ctx: PolicyContext,
         name: str,
         judge_result: Any,
     ) -> None:
         """Emit observability event for blocked tool call."""
-        observability_ctx.emit_event_nonblocking(
+        record_event(
+            policy_ctx,
             "policy.judge.tool_call_blocked",
             {
                 "summary": f"BLOCKED: Tool call '{name}' rejected (probability {judge_result.probability:.2f} >= {self._config.probability_threshold})",

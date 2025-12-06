@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse
 
-    from luthien_proxy.observability.context import ObservabilityContext
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.streaming.stream_state import StreamState
 
@@ -23,14 +22,12 @@ class StreamingPolicyContext:
     - Inspect the current stream state (blocks, finish_reason, etc.)
     - Write chunks to egress_queue for client delivery
     - Access shared policy state via policy_ctx
-    - Emit observability events
     - Call keepalive() during long-running operations to prevent timeout
     """
 
     policy_ctx: PolicyContext  # Contains transaction_id, scratchpad, request
     egress_queue: asyncio.Queue[ModelResponse]  # Where policies write chunks
     original_streaming_response_state: StreamState  # Assembler state (auto-updated)
-    observability: ObservabilityContext  # For emitting events
     keepalive: Callable[[], None]  # Reset timeout during long-running operations
 
     def push_chunk(self, chunk: ModelResponse) -> None:
@@ -58,11 +55,6 @@ class StreamingPolicyContext:
     def scratchpad(self):
         """Get the scratchpad from the policy context."""
         return self.policy_ctx.scratchpad
-
-    @property
-    def observability_context(self) -> ObservabilityContext:
-        """Get the observability context."""
-        return self.observability
 
 
 __all__ = ["StreamingPolicyContext"]

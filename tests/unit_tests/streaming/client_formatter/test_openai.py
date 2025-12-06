@@ -5,12 +5,10 @@
 
 import asyncio
 import json
-from unittest.mock import Mock
 
 import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 
@@ -19,12 +17,6 @@ from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatte
 def policy_ctx():
     """Create a PolicyContext."""
     return PolicyContext(transaction_id="test-123")
-
-
-@pytest.fixture
-def obs_ctx():
-    """Create a mock ObservabilityContext."""
-    return Mock(spec=ObservabilityContext)
 
 
 @pytest.fixture
@@ -51,7 +43,7 @@ def create_model_response(content: str = "Hello", finish_reason: str | None = No
 
 
 @pytest.mark.asyncio
-async def test_openai_formatter_basic_flow(formatter, policy_ctx, obs_ctx):
+async def test_openai_formatter_basic_flow(formatter, policy_ctx):
     """Test that OpenAI formatter converts chunks to SSE format."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
@@ -67,7 +59,7 @@ async def test_openai_formatter_basic_flow(formatter, policy_ctx, obs_ctx):
     await input_queue.put(None)  # Signal end
 
     # Process
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     # Verify output (filter out None sentinel)
     results = []
@@ -96,7 +88,7 @@ async def test_openai_formatter_basic_flow(formatter, policy_ctx, obs_ctx):
 
 
 @pytest.mark.asyncio
-async def test_openai_formatter_preserves_chunk_data(formatter, policy_ctx, obs_ctx):
+async def test_openai_formatter_preserves_chunk_data(formatter, policy_ctx):
     """Test that formatter preserves all chunk data."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
@@ -105,7 +97,7 @@ async def test_openai_formatter_preserves_chunk_data(formatter, policy_ctx, obs_
     await input_queue.put(chunk)
     await input_queue.put(None)
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     sse_line = await output_queue.get()
     json_str = sse_line[6:-2]
@@ -118,14 +110,14 @@ async def test_openai_formatter_preserves_chunk_data(formatter, policy_ctx, obs_
 
 
 @pytest.mark.asyncio
-async def test_openai_formatter_empty_queue(formatter, policy_ctx, obs_ctx):
+async def test_openai_formatter_empty_queue(formatter, policy_ctx):
     """Test formatter handles empty input gracefully."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
 
     await input_queue.put(None)  # Immediate end signal
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     # Should produce [DONE] marker even with no chunks, then None sentinel
     done_marker = await output_queue.get()
@@ -137,7 +129,7 @@ async def test_openai_formatter_empty_queue(formatter, policy_ctx, obs_ctx):
 
 
 @pytest.mark.asyncio
-async def test_openai_formatter_finish_reason(formatter, policy_ctx, obs_ctx):
+async def test_openai_formatter_finish_reason(formatter, policy_ctx):
     """Test that finish_reason is properly preserved."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
@@ -146,7 +138,7 @@ async def test_openai_formatter_finish_reason(formatter, policy_ctx, obs_ctx):
     await input_queue.put(chunk)
     await input_queue.put(None)
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     sse_line = await output_queue.get()
     json_str = sse_line[6:-2]
@@ -156,7 +148,7 @@ async def test_openai_formatter_finish_reason(formatter, policy_ctx, obs_ctx):
 
 
 @pytest.mark.asyncio
-async def test_openai_formatter_sse_format_compliance(formatter, policy_ctx, obs_ctx):
+async def test_openai_formatter_sse_format_compliance(formatter, policy_ctx):
     """Test SSE format is strictly compliant."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
@@ -165,7 +157,7 @@ async def test_openai_formatter_sse_format_compliance(formatter, policy_ctx, obs
     await input_queue.put(chunk)
     await input_queue.put(None)
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     sse_line = await output_queue.get()
 
@@ -181,7 +173,7 @@ async def test_openai_formatter_sse_format_compliance(formatter, policy_ctx, obs
 
 
 @pytest.mark.asyncio
-async def test_openai_formatter_sends_done_marker(formatter, policy_ctx, obs_ctx):
+async def test_openai_formatter_sends_done_marker(formatter, policy_ctx):
     """Test that formatter sends [DONE] marker at end of stream.
 
     Per OpenAI API spec, streaming responses must end with 'data: [DONE]'.
@@ -195,7 +187,7 @@ async def test_openai_formatter_sends_done_marker(formatter, policy_ctx, obs_ctx
     await input_queue.put(create_model_response(content=" world", finish_reason="stop"))
     await input_queue.put(None)  # End signal
 
-    await formatter.process(input_queue, output_queue, policy_ctx, obs_ctx)
+    await formatter.process(input_queue, output_queue, policy_ctx)
 
     # Collect all output
     results = []

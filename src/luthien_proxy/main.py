@@ -17,6 +17,8 @@ from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.llm.litellm_client import LiteLLMClient
+from luthien_proxy.observability.emitter import configure_emitter
+from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.telemetry import (
     configure_logging,
@@ -26,8 +28,6 @@ from luthien_proxy.telemetry import (
 )
 from luthien_proxy.ui import router as ui_router
 from luthien_proxy.utils import db
-
-# Note: RedisEventPublisher is created inside Dependencies container
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -89,6 +89,15 @@ def create_app(
         except Exception as exc:
             logger.warning(f"Failed to connect to Redis: {exc}. Event publisher will be disabled.")
             _redis_client = None
+
+        # Configure global event emitter
+        _redis_publisher = RedisEventPublisher(_redis_client) if _redis_client else None
+        configure_emitter(
+            db_pool=_db_pool,
+            redis_publisher=_redis_publisher,
+            stdout_enabled=True,
+        )
+        logger.info("Event emitter configured")
 
         # Initialize PolicyManager with configured source precedence
         _policy_manager: PolicyManager | None = None
