@@ -171,4 +171,12 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Dependency Injection for EventEmitter (2025-12-05)
+
+**Decision**: Remove global EventEmitter and inject via `Dependencies` container and `PolicyContext`.
+
+**Rationale**: Functions that emit events should declare that dependency explicitly. This matches how Redis/DB/LLM are already injected, makes tests simpler (inject `NullEventEmitter` instead of mocking globals), and eliminates hidden side effects.
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

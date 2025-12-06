@@ -7,7 +7,6 @@ import logging
 from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.client_formatter.anthropic_sse_assembler import AnthropicSSEAssembler
 from luthien_proxy.streaming.client_formatter.interface import ClientFormatter
@@ -51,7 +50,6 @@ class AnthropicClientFormatter(ClientFormatter):
         input_queue: asyncio.Queue[ModelResponse | None],
         output_queue: asyncio.Queue[str | None],
         policy_ctx: PolicyContext,
-        obs_ctx: ObservabilityContext,
     ) -> None:
         """Convert common format chunks to Anthropic SSE format.
 
@@ -62,7 +60,6 @@ class AnthropicClientFormatter(ClientFormatter):
             input_queue: Queue to read chunks from
             output_queue: Queue to write SSE events to
             policy_ctx: Policy context for shared state
-            obs_ctx: Observability context for tracing
 
         Raises:
             Exception: On conversion errors or malformed chunks

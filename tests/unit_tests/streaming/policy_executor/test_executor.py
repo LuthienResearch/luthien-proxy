@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.streaming.policy_executor import PolicyExecutor
@@ -92,11 +91,6 @@ class TestPolicyExecutorTimeoutEnforcement:
         return PolicyContext(transaction_id="test-timeout-123")
 
     @pytest.fixture
-    def obs_ctx(self):
-        """Create a mock ObservabilityContext."""
-        return Mock(spec=ObservabilityContext)
-
-    @pytest.fixture
     def mock_policy(self):
         """Create a mock policy with async hook methods."""
         policy = Mock()
@@ -162,7 +156,7 @@ class TestPolicyExecutorTimeoutEnforcement:
             await monitor_task
 
     @pytest.mark.asyncio
-    async def test_process_stream_completes_within_timeout(self, mock_policy, policy_ctx, obs_ctx):
+    async def test_process_stream_completes_within_timeout(self, mock_policy, policy_ctx):
         """Stream processing completes successfully when within timeout."""
         executor = PolicyExecutor(timeout_seconds=5.0, recorder=NoOpTransactionRecorder())
         output_queue = asyncio.Queue()
@@ -175,13 +169,13 @@ class TestPolicyExecutorTimeoutEnforcement:
         input_stream = self.async_iter_from_list(chunks)
 
         # Should complete without timeout
-        await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
+        await executor.process(input_stream, output_queue, mock_policy, policy_ctx)
 
         # Verify we got output
         assert output_queue.qsize() > 0
 
     @pytest.mark.asyncio
-    async def test_process_raises_timeout_on_stalled_stream(self, mock_policy, policy_ctx, obs_ctx):
+    async def test_process_raises_timeout_on_stalled_stream(self, mock_policy, policy_ctx):
         """Process raises PolicyTimeoutError when stream stalls."""
         executor = PolicyExecutor(timeout_seconds=0.3, recorder=NoOpTransactionRecorder())
         output_queue = asyncio.Queue()
@@ -194,12 +188,12 @@ class TestPolicyExecutorTimeoutEnforcement:
             yield self.create_content_chunk("Too late")
 
         with pytest.raises(PolicyTimeoutError) as exc_info:
-            await executor.process(stalled_stream(), output_queue, mock_policy, policy_ctx, obs_ctx)
+            await executor.process(stalled_stream(), output_queue, mock_policy, policy_ctx)
 
         assert "timed out" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_process_completes_with_slow_chunks_if_keepalive(self, mock_policy, policy_ctx, obs_ctx):
+    async def test_process_completes_with_slow_chunks_if_keepalive(self, mock_policy, policy_ctx):
         """Process completes when chunks arrive slowly but keepalive is called."""
         executor = PolicyExecutor(timeout_seconds=0.5, recorder=NoOpTransactionRecorder())
         output_queue = asyncio.Queue()
@@ -214,13 +208,13 @@ class TestPolicyExecutorTimeoutEnforcement:
             yield self.create_content_chunk("Third", finish_reason="stop")
 
         # Should complete without timeout because keepalive called on each chunk
-        await executor.process(slow_stream(), output_queue, mock_policy, policy_ctx, obs_ctx)
+        await executor.process(slow_stream(), output_queue, mock_policy, policy_ctx)
 
         # Verify completion
         assert not output_queue.empty()
 
     @pytest.mark.asyncio
-    async def test_timeout_includes_time_information(self, mock_policy, policy_ctx, obs_ctx):
+    async def test_timeout_includes_time_information(self, mock_policy, policy_ctx):
         """PolicyTimeoutError includes timing information for debugging."""
         executor = PolicyExecutor(timeout_seconds=0.2, recorder=NoOpTransactionRecorder())
         output_queue = asyncio.Queue()
@@ -231,7 +225,7 @@ class TestPolicyExecutorTimeoutEnforcement:
             yield self.create_content_chunk("End")
 
         with pytest.raises(PolicyTimeoutError) as exc_info:
-            await executor.process(stalled_stream(), output_queue, mock_policy, policy_ctx, obs_ctx)
+            await executor.process(stalled_stream(), output_queue, mock_policy, policy_ctx)
 
         error_msg = str(exc_info.value)
         # Should include actual time and threshold
@@ -239,7 +233,7 @@ class TestPolicyExecutorTimeoutEnforcement:
         assert "threshold" in error_msg.lower()
 
     @pytest.mark.asyncio
-    async def test_timeout_monitor_cancels_on_normal_completion(self, mock_policy, policy_ctx, obs_ctx):
+    async def test_timeout_monitor_cancels_on_normal_completion(self, mock_policy, policy_ctx):
         """Timeout monitor is properly cancelled when stream completes normally."""
         executor = PolicyExecutor(timeout_seconds=10.0, recorder=NoOpTransactionRecorder())
         output_queue = asyncio.Queue()
@@ -250,12 +244,12 @@ class TestPolicyExecutorTimeoutEnforcement:
         input_stream = self.async_iter_from_list(chunks)
 
         # Should complete and cancel monitor without timeout error
-        await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
+        await executor.process(input_stream, output_queue, mock_policy, policy_ctx)
 
         # If we get here, monitor was cancelled properly
 
     @pytest.mark.asyncio
-    async def test_policy_hook_errors_propagate_before_timeout(self, policy_ctx, obs_ctx):
+    async def test_policy_hook_errors_propagate_before_timeout(self, policy_ctx):
         """Policy hook errors propagate immediately, not masked by timeout."""
         executor = PolicyExecutor(timeout_seconds=10.0, recorder=NoOpTransactionRecorder())
         output_queue = asyncio.Queue()
@@ -270,10 +264,10 @@ class TestPolicyExecutorTimeoutEnforcement:
 
         # Should raise ValueError, not timeout
         with pytest.raises(ValueError, match="Policy error"):
-            await executor.process(input_stream, output_queue, failing_policy, policy_ctx, obs_ctx)
+            await executor.process(input_stream, output_queue, failing_policy, policy_ctx)
 
     @pytest.mark.asyncio
-    async def test_policy_can_call_keepalive_through_context(self, policy_ctx, obs_ctx):
+    async def test_policy_can_call_keepalive_through_context(self, policy_ctx):
         """Policy can call keepalive through StreamingPolicyContext."""
         executor = PolicyExecutor(timeout_seconds=0.5, recorder=NoOpTransactionRecorder())
         output_queue = asyncio.Queue()
@@ -302,7 +296,7 @@ class TestPolicyExecutorTimeoutEnforcement:
         input_stream = self.async_iter_from_list(chunks)
 
         # Should complete without timeout even though policy calls keepalive
-        await executor.process(input_stream, output_queue, policy, policy_ctx, obs_ctx)
+        await executor.process(input_stream, output_queue, policy, policy_ctx)
 
         # Verify keepalive was called by policy
         assert len(keepalive_called) == 2  # Once per chunk

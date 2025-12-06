@@ -1,17 +1,27 @@
 # ABOUTME: Unit tests for TransactionRecorder implementations
 # ABOUTME: Tests NoOpTransactionRecorder and DefaultTransactionRecorder behavior
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import pytest
 from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
 
 from luthien_proxy.messages import Request
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.observability.transaction_recorder import (
     DefaultTransactionRecorder,
     NoOpTransactionRecorder,
 )
+
+
+class MockEmitter:
+    """Mock emitter that records all calls for verification."""
+
+    def __init__(self):
+        self.calls: list[tuple[str, str, dict]] = []
+
+    def record(self, transaction_id: str, event_type: str, data: dict) -> None:
+        """Record the call for later verification."""
+        self.calls.append((transaction_id, event_type, data))
 
 
 class TestNoOpTransactionRecorder:
@@ -62,38 +72,30 @@ class TestDefaultTransactionRecorder:
 
     @pytest.mark.asyncio
     async def test_record_request_emits_event(self):
-        """record_request emits event with correct data."""
-        observability = Mock(spec=ObservabilityContext)
-        observability.emit_event = AsyncMock()
-        observability.span = Mock()
-        observability.span.set_attribute = Mock()
-        recorder = DefaultTransactionRecorder(observability)
+        """record_request emits event via injected emitter."""
+        mock_emitter = MockEmitter()
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn-123", emitter=mock_emitter)
 
         original = Request(model="gpt-4", messages=[{"role": "user", "content": "hi"}])
         final = Request(model="gpt-4-turbo", messages=[{"role": "user", "content": "hello"}])
 
         await recorder.record_request(original, final)
 
-        # Verify emit_event called with correct data
-        observability.emit_event.assert_called_once()
-        call_args = observability.emit_event.call_args
-        assert call_args[1]["event_type"] == "transaction.request_recorded"
-        assert call_args[1]["data"]["original_model"] == "gpt-4"
-        assert call_args[1]["data"]["final_model"] == "gpt-4-turbo"
-        assert call_args[1]["data"]["original_request"]["model"] == "gpt-4"
-        assert call_args[1]["data"]["final_request"]["model"] == "gpt-4-turbo"
-
-        # Verify span attributes added
-        assert observability.span.set_attribute.call_count == 2
-        observability.span.set_attribute.assert_any_call("request.model", "gpt-4-turbo")
-        observability.span.set_attribute.assert_any_call("request.message_count", 1)
+        # Verify emitter.record called with correct data
+        assert len(mock_emitter.calls) == 1
+        txn_id, event_type, data = mock_emitter.calls[0]
+        assert txn_id == "test-txn-123"
+        assert event_type == "transaction.request_recorded"
+        assert data["original_model"] == "gpt-4"
+        assert data["final_model"] == "gpt-4-turbo"
+        assert data["original_request"]["model"] == "gpt-4"
+        assert data["final_request"]["model"] == "gpt-4-turbo"
 
     @pytest.mark.asyncio
     async def test_ingress_chunks_within_limit_are_included(self):
         """Chunks within buffer limit are included in finalized output."""
-        observability = Mock(spec=ObservabilityContext)
-        observability.emit_event = AsyncMock()
-        recorder = DefaultTransactionRecorder(observability, max_chunks_queued=3)
+        mock_emitter = MockEmitter()
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn", emitter=mock_emitter, max_chunks_queued=3)
 
         # Add chunks within limit
         for i in range(3):
@@ -115,19 +117,19 @@ class TestDefaultTransactionRecorder:
         await recorder.finalize_streaming_response()
 
         # Verify all 3 chunks included in event
-        call_args = observability.emit_event.call_args
-        assert call_args[1]["data"]["ingress_chunks"] == 3
+        assert len(mock_emitter.calls) == 1
+        _, event_type, data = mock_emitter.calls[0]
+        assert event_type == "transaction.streaming_response_recorded"
+        assert data["ingress_chunks"] == 3
         # Verify content from all chunks present
-        original_response = call_args[1]["data"]["original_response"]
+        original_response = data["original_response"]
         assert "word0word1word2" in original_response["choices"][0]["message"]["content"]
 
     @pytest.mark.asyncio
     async def test_ingress_chunks_beyond_limit_are_truncated(self):
         """Chunks beyond buffer limit are not included in finalized output."""
-        observability = Mock(spec=ObservabilityContext)
-        observability.emit_event = AsyncMock()
-        observability.emit_event_nonblocking = Mock()
-        recorder = DefaultTransactionRecorder(observability, max_chunks_queued=2)
+        mock_emitter = MockEmitter()
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn", emitter=mock_emitter, max_chunks_queued=2)
 
         # Add chunks beyond limit
         for i in range(4):
@@ -148,11 +150,15 @@ class TestDefaultTransactionRecorder:
 
         await recorder.finalize_streaming_response()
 
+        # Find the finalize call (last call)
+        finalize_call = mock_emitter.calls[-1]
+        _, event_type, data = finalize_call
+
+        assert event_type == "transaction.streaming_response_recorded"
         # Verify only first 2 chunks included
-        call_args = observability.emit_event.call_args
-        assert call_args[1]["data"]["ingress_chunks"] == 2
+        assert data["ingress_chunks"] == 2
         # Verify only first 2 chunks' content present
-        original_response = call_args[1]["data"]["original_response"]
+        original_response = data["original_response"]
         content = original_response["choices"][0]["message"]["content"]
         assert "word0word1" in content
         assert "word2" not in content
@@ -160,9 +166,8 @@ class TestDefaultTransactionRecorder:
 
     def test_ingress_truncation_emits_event(self):
         """Truncation event is emitted when ingress buffer limit exceeded."""
-        observability = Mock(spec=ObservabilityContext)
-        observability.emit_event_nonblocking = Mock()
-        recorder = DefaultTransactionRecorder(observability, max_chunks_queued=2)
+        mock_emitter = MockEmitter()
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn", emitter=mock_emitter, max_chunks_queued=2)
 
         # Add chunks up to and beyond limit
         for i in range(3):
@@ -176,18 +181,16 @@ class TestDefaultTransactionRecorder:
             recorder.add_ingress_chunk(chunk)
 
         # Verify truncation event emitted once (for 3rd chunk)
-        observability.emit_event_nonblocking.assert_called_once()
-        call_args = observability.emit_event_nonblocking.call_args
-        assert call_args[1]["event_type"] == "transaction.recorder.ingress_truncated"
-        assert "max_chunks_queued_exceeded" in call_args[1]["data"]["reason"]
+        assert len(mock_emitter.calls) == 1
+        txn_id, event_type, data = mock_emitter.calls[0]
+        assert event_type == "transaction.recorder.ingress_truncated"
+        assert "max_chunks_queued_exceeded" in data["reason"]
 
     @pytest.mark.asyncio
     async def test_egress_chunks_beyond_limit_are_truncated(self):
         """Chunks beyond buffer limit are not included in egress output."""
-        observability = Mock(spec=ObservabilityContext)
-        observability.emit_event = AsyncMock()
-        observability.emit_event_nonblocking = Mock()
-        recorder = DefaultTransactionRecorder(observability, max_chunks_queued=2)
+        mock_emitter = MockEmitter()
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn", emitter=mock_emitter, max_chunks_queued=2)
 
         # Add egress chunks beyond limit
         for i in range(4):
@@ -208,11 +211,15 @@ class TestDefaultTransactionRecorder:
 
         await recorder.finalize_streaming_response()
 
+        # Find the finalize call (last call)
+        finalize_call = mock_emitter.calls[-1]
+        _, event_type, data = finalize_call
+
+        assert event_type == "transaction.streaming_response_recorded"
         # Verify only first 2 chunks included
-        call_args = observability.emit_event.call_args
-        assert call_args[1]["data"]["egress_chunks"] == 2
+        assert data["egress_chunks"] == 2
         # Verify only first 2 chunks' content present
-        final_response = call_args[1]["data"]["final_response"]
+        final_response = data["final_response"]
         content = final_response["choices"][0]["message"]["content"]
         assert "response0response1" in content
         assert "response2" not in content
@@ -220,9 +227,8 @@ class TestDefaultTransactionRecorder:
 
     def test_egress_truncation_emits_event(self):
         """Truncation event is emitted when egress buffer limit exceeded."""
-        observability = Mock(spec=ObservabilityContext)
-        observability.emit_event_nonblocking = Mock()
-        recorder = DefaultTransactionRecorder(observability, max_chunks_queued=2)
+        mock_emitter = MockEmitter()
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn", emitter=mock_emitter, max_chunks_queued=2)
 
         # Add chunks up to and beyond limit
         for i in range(3):
@@ -236,17 +242,16 @@ class TestDefaultTransactionRecorder:
             recorder.add_egress_chunk(chunk)
 
         # Verify truncation event emitted once (for 3rd chunk)
-        observability.emit_event_nonblocking.assert_called_once()
-        call_args = observability.emit_event_nonblocking.call_args
-        assert call_args[1]["event_type"] == "transaction.recorder.egress_truncated"
-        assert "max_chunks_queued_exceeded" in call_args[1]["data"]["reason"]
+        assert len(mock_emitter.calls) == 1
+        txn_id, event_type, data = mock_emitter.calls[0]
+        assert event_type == "transaction.recorder.egress_truncated"
+        assert "max_chunks_queued_exceeded" in data["reason"]
 
     @pytest.mark.asyncio
     async def test_finalize_streaming_response_reconstructs_and_emits(self):
         """finalize_streaming_response reconstructs responses and emits event."""
-        observability = Mock(spec=ObservabilityContext)
-        observability.emit_event = AsyncMock()
-        recorder = DefaultTransactionRecorder(observability)
+        mock_emitter = MockEmitter()
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn", emitter=mock_emitter)
 
         # Add some realistic streaming chunks using proper types
         ingress_chunk = ModelResponse(
@@ -281,15 +286,15 @@ class TestDefaultTransactionRecorder:
         await recorder.finalize_streaming_response()
 
         # Verify event emitted with reconstructed responses
-        observability.emit_event.assert_called_once()
-        call_args = observability.emit_event.call_args
-        assert call_args[1]["event_type"] == "transaction.streaming_response_recorded"
-        assert call_args[1]["data"]["ingress_chunks"] == 1
-        assert call_args[1]["data"]["egress_chunks"] == 1
+        assert len(mock_emitter.calls) == 1
+        txn_id, event_type, data = mock_emitter.calls[0]
+        assert event_type == "transaction.streaming_response_recorded"
+        assert data["ingress_chunks"] == 1
+        assert data["egress_chunks"] == 1
 
         # Verify reconstructed responses contain expected data
-        original_response = call_args[1]["data"]["original_response"]
-        final_response = call_args[1]["data"]["final_response"]
+        original_response = data["original_response"]
+        final_response = data["final_response"]
         assert original_response["id"] == "ingress-id"
         assert original_response["model"] == "gpt-4"
         assert "Hello" in original_response["choices"][0]["message"]["content"]
@@ -297,16 +302,11 @@ class TestDefaultTransactionRecorder:
         assert final_response["model"] == "gpt-4-turbo"
         assert "Hi" in final_response["choices"][0]["message"]["content"]
 
-        # Note: Metrics are now recorded directly via OTel, not through observability context
-
     @pytest.mark.asyncio
     async def test_record_response_emits_responses(self):
         """record_response emits both responses."""
-        observability = Mock(spec=ObservabilityContext)
-        observability.emit_event = AsyncMock()
-        observability.span = Mock()
-        observability.span.set_attribute = Mock()
-        recorder = DefaultTransactionRecorder(observability)
+        mock_emitter = MockEmitter()
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn", emitter=mock_emitter)
 
         # Create mock responses with finish_reason
         original = ModelResponse(
@@ -335,25 +335,19 @@ class TestDefaultTransactionRecorder:
         await recorder.record_response(original, final)
 
         # Verify event emitted
-        observability.emit_event.assert_called_once()
-        call_args = observability.emit_event.call_args
-        assert call_args[1]["event_type"] == "transaction.non_streaming_response_recorded"
-        assert call_args[1]["data"]["original_finish_reason"] == "stop"
-        assert call_args[1]["data"]["final_finish_reason"] == "length"
-        assert "original_response" in call_args[1]["data"]
-        assert "final_response" in call_args[1]["data"]
-
-        # Verify span attribute added
-        observability.span.set_attribute.assert_called_once_with("response.finish_reason", "length")
+        assert len(mock_emitter.calls) == 1
+        txn_id, event_type, data = mock_emitter.calls[0]
+        assert event_type == "transaction.non_streaming_response_recorded"
+        assert data["original_finish_reason"] == "stop"
+        assert data["final_finish_reason"] == "length"
+        assert "original_response" in data
+        assert "final_response" in data
 
     @pytest.mark.asyncio
     async def test_record_response_handles_missing_finish_reason(self):
         """record_response handles responses without finish_reason."""
-        observability = Mock(spec=ObservabilityContext)
-        observability.emit_event = AsyncMock()
-        observability.span = Mock()
-        observability.span.set_attribute = Mock()
-        recorder = DefaultTransactionRecorder(observability)
+        mock_emitter = MockEmitter()
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn", emitter=mock_emitter)
 
         # Create mock responses without finish_reason
         original = ModelResponse(
@@ -370,18 +364,14 @@ class TestDefaultTransactionRecorder:
         await recorder.record_response(original, final)
 
         # Verify event emitted with None finish_reason
-        observability.emit_event.assert_called_once()
-        call_args = observability.emit_event.call_args
-        assert call_args[1]["data"]["original_finish_reason"] is None
-        assert call_args[1]["data"]["final_finish_reason"] is None
-
-        # Verify span attribute NOT added (because finish_reason is None)
-        observability.span.set_attribute.assert_not_called()
+        assert len(mock_emitter.calls) == 1
+        _, event_type, data = mock_emitter.calls[0]
+        assert data["original_finish_reason"] is None
+        assert data["final_finish_reason"] is None
 
     def test_get_finish_reason_extracts_correctly(self):
         """_get_finish_reason extracts finish_reason from response."""
-        observability = Mock(spec=ObservabilityContext)
-        recorder = DefaultTransactionRecorder(observability)
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn")
 
         response = ModelResponse(
             id="test",
@@ -400,8 +390,7 @@ class TestDefaultTransactionRecorder:
 
     def test_get_finish_reason_returns_none_for_empty_choices(self):
         """_get_finish_reason returns None when no choices."""
-        observability = Mock(spec=ObservabilityContext)
-        recorder = DefaultTransactionRecorder(observability)
+        recorder = DefaultTransactionRecorder(transaction_id="test-txn")
 
         response = ModelResponse(id="test", choices=[], model="gpt-4")
 

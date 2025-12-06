@@ -55,13 +55,11 @@ def create_mock_context(
     ctx.original_streaming_response_state.just_completed = just_completed
     ctx.original_streaming_response_state.raw_chunks = raw_chunks or []
 
-    # Egress queue and observability
+    # Egress queue
     # Use Mock (not AsyncMock) because put_nowait is sync, but make put async
     ctx.egress_queue = Mock()
     ctx.egress_queue.put_nowait = Mock()
     ctx.egress_queue.put = AsyncMock()
-    ctx.observability = Mock()
-    ctx.observability.emit_event_nonblocking = Mock()
 
     return ctx
 
@@ -397,7 +395,6 @@ class TestToolCallJudgePolicyNonStreaming:
         ctx = PolicyContext(
             transaction_id="test",
             request=Request(model="test", messages=[{"role": "user", "content": "hi"}]),
-            observability=Mock(),
         )
 
         result = await policy.on_response(response, ctx)
@@ -441,9 +438,7 @@ class TestToolCallJudgePolicyNonStreaming:
         ctx = PolicyContext(
             transaction_id="test",
             request=Request(model="test", messages=[{"role": "user", "content": "hi"}]),
-            observability=Mock(),
         )
-        ctx.observability.emit_event_nonblocking = Mock()
 
         # Mock judge to block
         async def mock_call_judge(name, arguments, config, judge_instructions):
@@ -500,9 +495,7 @@ class TestToolCallJudgePolicyNonStreaming:
         ctx = PolicyContext(
             transaction_id="test",
             request=Request(model="test", messages=[{"role": "user", "content": "hi"}]),
-            observability=Mock(),
         )
-        ctx.observability.emit_event_nonblocking = Mock()
 
         # Mock judge to allow
         async def mock_call_judge(name, arguments, config, judge_instructions):
@@ -563,9 +556,7 @@ class TestToolCallJudgeErrorHandling:
         ctx = PolicyContext(
             transaction_id="test",
             request=Request(model="test", messages=[{"role": "user", "content": "hi"}]),
-            observability=Mock(),
         )
-        ctx.observability.emit_event_nonblocking = Mock()
 
         # Mock judge to raise an exception
         async def mock_call_judge(*args, **kwargs):

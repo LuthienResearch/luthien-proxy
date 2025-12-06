@@ -109,7 +109,7 @@ explanation: Brief explanation of your decision"""
             judge_instructions=self.judge_instructions,
         )
 
-        context.observability.emit_event_nonblocking(
+        context.record_event(
             "policy.simple_judge.request_evaluated",
             {
                 "probability": result.probability,
@@ -138,7 +138,7 @@ explanation: Brief explanation of your decision"""
             judge_instructions=self.judge_instructions,
         )
 
-        context.observability.emit_event_nonblocking(
+        context.record_event(
             "policy.simple_judge.response_evaluated",
             {
                 "probability": result.probability,
@@ -166,7 +166,7 @@ explanation: Brief explanation of your decision"""
             judge_instructions=self.judge_instructions,
         )
 
-        context.observability.emit_event_nonblocking(
+        context.record_event(
             "policy.simple_judge.tool_call_evaluated",
             {
                 "tool_name": tool_call.function.name,

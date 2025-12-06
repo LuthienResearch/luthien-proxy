@@ -12,7 +12,6 @@ from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
 from luthien_proxy.messages import Request
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.observability.transaction_recorder import TransactionRecorder
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
@@ -66,7 +65,6 @@ class PolicyOrchestrator:
         self,
         request: Request,
         policy_ctx: PolicyContext,
-        obs_ctx: ObservabilityContext,
     ) -> Request:
         """Apply policy to request before backend invocation.
 
@@ -77,7 +75,6 @@ class PolicyOrchestrator:
         Args:
             request: Incoming request from client
             policy_ctx: Policy context (shared with response processing)
-            obs_ctx: Observability context for tracing
 
         Returns:
             Policy-modified request to send to backend
@@ -104,7 +101,6 @@ class PolicyOrchestrator:
         self,
         backend_stream: AsyncIterator[ModelResponse],
         policy_ctx: PolicyContext,
-        obs_ctx: ObservabilityContext,
     ) -> AsyncIterator[str]:
         """Process streaming response through policy pipeline.
 
@@ -118,7 +114,6 @@ class PolicyOrchestrator:
         Args:
             backend_stream: Streaming ModelResponse from backend LLM (already common format)
             policy_ctx: Policy context (shared with request processing)
-            obs_ctx: Observability context for tracing
 
         Yields:
             SSE formatted strings in client-specific format
@@ -142,7 +137,6 @@ class PolicyOrchestrator:
                     policy_out_queue,
                     self.policy,  # Pass policy to executor
                     policy_ctx,
-                    obs_ctx,
                 )
             )
             # Start client formatter task
@@ -151,7 +145,6 @@ class PolicyOrchestrator:
                     policy_out_queue,
                     sse_queue,
                     policy_ctx,
-                    obs_ctx,
                 )
             )
 

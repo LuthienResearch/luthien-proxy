@@ -10,6 +10,7 @@ from fastapi import HTTPException, Request
 from redis.asyncio import Redis
 
 from luthien_proxy.llm.client import LLMClient
+from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.utils import db
@@ -31,6 +32,7 @@ class Dependencies:
     redis_client: Redis | None
     llm_client: LLMClient
     policy_manager: PolicyManager
+    emitter: EventEmitterProtocol
     api_key: str
     admin_key: str | None
 
@@ -124,6 +126,18 @@ def get_event_publisher(request: Request) -> RedisEventPublisher | None:
     return get_dependencies(request).event_publisher
 
 
+def get_emitter(request: Request) -> EventEmitterProtocol:
+    """Get event emitter from dependencies.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Event emitter instance (never None - uses NullEventEmitter if not configured)
+    """
+    return get_dependencies(request).emitter
+
+
 def get_policy(request: Request) -> PolicyProtocol:
     """Get current policy from dependencies.
 
@@ -178,6 +192,7 @@ __all__ = [
     "get_db_pool",
     "get_redis_client",
     "get_llm_client",
+    "get_emitter",
     "get_event_publisher",
     "get_policy",
     "get_policy_manager",
