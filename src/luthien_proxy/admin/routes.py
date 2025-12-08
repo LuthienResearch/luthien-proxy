@@ -7,11 +7,11 @@ import logging
 from datetime import datetime
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from luthien_proxy.dependencies import get_admin_key, get_db_pool, get_policy_manager
+from luthien_proxy.auth import verify_admin_token
+from luthien_proxy.dependencies import get_db_pool, get_policy_manager
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
@@ -24,7 +24,6 @@ from luthien_proxy.utils import db
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-security = HTTPBearer(auto_error=False)
 
 
 # === Request/Response Models ===
@@ -110,47 +109,6 @@ class PolicyInstancesResponse(BaseModel):
     """Response with list of saved policy instances."""
 
     instances: list[PolicyInstanceInfo]
-
-
-# === Auth ===
-
-
-async def verify_admin_token(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    admin_key: str | None = Depends(get_admin_key),
-) -> str:
-    """Verify admin API key from Authorization header.
-
-    Args:
-        request: FastAPI request object
-        credentials: HTTP Bearer credentials
-        admin_key: Admin API key from dependencies
-
-    Returns:
-        Admin API key if valid
-
-    Raises:
-        HTTPException: 403 if admin key is invalid or missing
-    """
-    if not admin_key:
-        raise HTTPException(
-            status_code=500,
-            detail="Admin authentication not configured (ADMIN_API_KEY not set)",
-        )
-
-    if credentials and credentials.credentials == admin_key:
-        return credentials.credentials
-
-    # Also check x-api-key header for convenience
-    x_api_key = request.headers.get("x-api-key")
-    if x_api_key and x_api_key == admin_key:
-        return x_api_key
-
-    raise HTTPException(
-        status_code=403,
-        detail="Admin access required. Provide valid admin API key via Authorization header.",
-    )
 
 
 # === Routes ===
