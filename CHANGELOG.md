@@ -2,6 +2,12 @@
 
 ## Unreleased | TBA
 
+- Centralize environment configuration with pydantic-settings (#refactor/env-config-centralize)
+  - Add `Settings` class in `src/luthien_proxy/settings.py` for typed configuration
+  - Replace scattered `os.getenv()` calls throughout codebase with centralized settings access
+  - Support `.env` file loading via pydantic-settings
+  - Add `clear_settings_cache()` for test isolation
+
 - Inject EventEmitter via DI instead of global state (#dependency_injection)
 
 - Added e2e tests that actually invoke claude code running through the proxy

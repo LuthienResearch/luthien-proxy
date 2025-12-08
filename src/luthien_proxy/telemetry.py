@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -21,15 +20,25 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+from luthien_proxy.settings import get_settings
+
 logger = logging.getLogger(__name__)
 
-# Configuration from environment
-OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() == "true"
-# Use standard OTEL_EXPORTER_OTLP_ENDPOINT, fall back to legacy OTEL_ENDPOINT
-OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_ENDPOINT", "http://tempo:4317")
-SERVICE_NAME = os.getenv("SERVICE_NAME", "luthien-proxy")
-SERVICE_VERSION = os.getenv("SERVICE_VERSION", "2.0.0")
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+def _get_otel_config() -> tuple[bool, str, str, str, str]:
+    """Get OpenTelemetry configuration from settings.
+
+    Returns:
+        Tuple of (enabled, endpoint, service_name, service_version, environment)
+    """
+    settings = get_settings()
+    return (
+        settings.otel_enabled,
+        settings.effective_otel_endpoint,
+        settings.service_name,
+        settings.service_version,
+        settings.environment,
+    )
 
 
 def configure_tracing() -> trace.Tracer:
@@ -43,16 +52,18 @@ def configure_tracing() -> trace.Tracer:
     Returns:
         Configured tracer for manual instrumentation
     """
-    if not OTEL_ENABLED:
+    otel_enabled, otel_endpoint, service_name, service_version, environment = _get_otel_config()
+
+    if not otel_enabled:
         logger.info("OpenTelemetry disabled (OTEL_ENABLED=false)")
         return trace.get_tracer(__name__)
 
     # Define resource attributes
     resource = Resource.create(
         {
-            "service.name": SERVICE_NAME,
-            "service.version": SERVICE_VERSION,
-            "deployment.environment": ENVIRONMENT,
+            "service.name": service_name,
+            "service.version": service_version,
+            "deployment.environment": environment,
         }
     )
 
@@ -61,7 +72,7 @@ def configure_tracing() -> trace.Tracer:
 
     # Configure OTLP exporter (sends to Tempo)
     otlp_exporter = OTLPSpanExporter(
-        endpoint=OTEL_ENDPOINT,
+        endpoint=otel_endpoint,
         insecure=True,  # No TLS for local dev
     )
 
@@ -72,7 +83,7 @@ def configure_tracing() -> trace.Tracer:
     # Set as global tracer provider
     trace.set_tracer_provider(provider)
 
-    logger.info(f"OpenTelemetry configured: {SERVICE_NAME} → {OTEL_ENDPOINT}")
+    logger.info(f"OpenTelemetry configured: {service_name} → {otel_endpoint}")
 
     return trace.get_tracer(__name__)
 
@@ -89,7 +100,7 @@ def instrument_app(app) -> None:
     Args:
         app: FastAPI application instance
     """
-    if not OTEL_ENABLED:
+    if not get_settings().otel_enabled:
         return
 
     FastAPIInstrumentor.instrument_app(app)
@@ -101,7 +112,7 @@ def instrument_redis() -> None:
 
     This automatically creates spans for Redis operations.
     """
-    if not OTEL_ENABLED:
+    if not get_settings().otel_enabled:
         return
 
     RedisInstrumentor().instrument()

@@ -21,13 +21,13 @@ policy:
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, cast
 
 import yaml
 
 from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
+from luthien_proxy.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,7 @@ def load_policy_from_yaml(config_path: str | None = None) -> PolicyProtocol:
     """Load a policy from YAML configuration file.
 
     Args:
-        config_path: Path to YAML config file. If None, uses POLICY_CONFIG env var.
-                    Defaults to config/policy_config.yaml if env var not set.
+        config_path: Path to YAML config file. If None, uses settings.policy_config.
 
     Returns:
         Instantiated policy object
@@ -50,7 +49,7 @@ def load_policy_from_yaml(config_path: str | None = None) -> PolicyProtocol:
     """
     # Determine config path
     if config_path is None:
-        config_path = os.getenv("POLICY_CONFIG", "config/policy_config.yaml")
+        config_path = get_settings().policy_config
 
     # Read YAML file
     try:

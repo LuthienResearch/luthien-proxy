@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import TYPE_CHECKING, Any, cast
 
 from litellm.types.utils import (
@@ -36,6 +35,7 @@ from litellm.types.utils import (
     StreamingChoices,
 )
 
+from luthien_proxy.settings import get_settings
 from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
 
 if TYPE_CHECKING:
@@ -112,9 +112,10 @@ class ToolCallJudgePolicy(BasePolicy):
             blocked_message_template: Template for blocked messages
         """
         # Resolve configuration from args + env vars
-        resolved_model = os.getenv("LLM_JUDGE_MODEL") or model
-        resolved_api_base = os.getenv("LLM_JUDGE_API_BASE") or api_base
-        resolved_api_key = api_key or os.getenv("LLM_JUDGE_API_KEY") or os.getenv("LITELLM_MASTER_KEY") or None
+        settings = get_settings()
+        resolved_model = settings.llm_judge_model or model
+        resolved_api_base = settings.llm_judge_api_base or api_base
+        resolved_api_key = api_key or settings.llm_judge_api_key or settings.litellm_master_key or None
 
         if not 0.0 <= probability_threshold <= 1.0:
             raise ValueError(f"probability_threshold must be between 0 and 1, got {probability_threshold}")

@@ -1,3 +1,3 @@
 # Current Objective
 
-(none)
+*No active objective*

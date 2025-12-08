@@ -50,7 +50,7 @@ class TestLoadConfigFromEnv:
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.setenv("POLICY_SOURCE", "invalid-source")
 
-        with pytest.raises(ValueError, match="Invalid POLICY_SOURCE"):
+        with pytest.raises(ValueError, match="Invalid configuration"):
             load_config_from_env()
 
     def test_valid_config_returns_dict(self, monkeypatch):
