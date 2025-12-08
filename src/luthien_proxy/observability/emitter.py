@@ -25,6 +25,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _log_task_exception(task: asyncio.Task[None]) -> None:
+    """Log exceptions from fire-and-forget tasks to prevent silent failures."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(f"Exception in background emit task: {exc}", exc_info=exc)
+
+
 class EventEmitterProtocol(Protocol):
     """Protocol for event emission.
 
@@ -133,7 +142,8 @@ class EventEmitter:
             event_type: Type of event (e.g., "policy.modified_request")
             data: Event payload
         """
-        asyncio.create_task(self.emit(transaction_id, event_type, data))
+        task = asyncio.create_task(self.emit(transaction_id, event_type, data))
+        task.add_done_callback(_log_task_exception)
 
     async def _write_stdout(
         self,
