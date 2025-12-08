@@ -29,7 +29,6 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
     "opentelemetry-instrumentation-fastapi>=0.41b0",
     "opentelemetry-instrumentation-redis>=0.41b0",
-    "prisma>=0.15.0",
     "psycopg>=3.2.9",
     "pydantic>=2.11.7",
     "pyright",
