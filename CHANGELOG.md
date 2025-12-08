@@ -2,6 +2,8 @@
 
 ## Unreleased | TBA
 
+- Inject EventEmitter via DI instead of global state (#dependency_injection)
+
 - Added e2e tests that actually invoke claude code running through the proxy
 
 - Codebase cleanup (#81)

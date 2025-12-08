@@ -7,7 +7,6 @@ from typing import AsyncIterator
 from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.observability.transaction_recorder import TransactionRecorder
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
@@ -110,7 +109,6 @@ class PolicyExecutor(PolicyExecutorProtocol):
         output_queue: asyncio.Queue[ModelResponse | None],
         policy: PolicyProtocol,
         policy_ctx: PolicyContext,
-        obs_ctx: ObservabilityContext,
     ) -> None:
         """Execute policy processing on streaming chunks.
 
@@ -126,7 +124,6 @@ class PolicyExecutor(PolicyExecutorProtocol):
             output_queue: Queue to write policy-approved chunks to
             policy: Policy instance implementing PolicyProtocol (on_chunk_received, etc.)
             policy_ctx: Policy context for shared state
-            obs_ctx: Observability context for tracing
 
         Raises:
             PolicyTimeoutError: If processing exceeds timeout without keepalive
@@ -151,7 +148,6 @@ class PolicyExecutor(PolicyExecutorProtocol):
                 policy_ctx=policy_ctx,
                 egress_queue=egress_queue,
                 original_streaming_response_state=assembler.state,
-                observability=obs_ctx,
                 keepalive=self.keepalive,  # Pass executor's keepalive to policies
             )
 

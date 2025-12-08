@@ -180,7 +180,6 @@ class TestFetchCallEvents:
         mock_row = {
             "call_id": "test-call-id",
             "event_type": "v2_request",
-            "sequence": 1,
             "created_at": datetime(2025, 10, 20, 10, 0, 0),
             "payload": {"data": "test"},
         }

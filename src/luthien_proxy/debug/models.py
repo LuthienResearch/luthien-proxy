@@ -16,7 +16,6 @@ class ConversationEventResponse(BaseModel):
 
     call_id: str
     event_type: str
-    sequence: int
     timestamp: str
     hook: str
     payload: dict[str, Any]

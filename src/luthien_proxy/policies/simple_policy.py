@@ -99,23 +99,17 @@ class SimplePolicy(BasePolicy):
         """Pass the content block to on_response_content and push the result to the client."""
         # Get the completed content block
         if ctx.original_streaming_response_state.just_completed is None:
-            ctx.observability.emit_event_nonblocking(
+            ctx.policy_ctx.record_event(
                 "policy.simple_policy.content_complete_warning",
-                {
-                    "summary": "ingress_state.just_completed is None in on_content_complete",
-                },
-                level="ERROR",
+                {"summary": "ingress_state.just_completed is None in on_content_complete"},
             )
             return
 
         block = ctx.original_streaming_response_state.just_completed
         if not isinstance(block, ContentStreamBlock):
-            ctx.observability.emit_event_nonblocking(
+            ctx.policy_ctx.record_event(
                 "policy.simple_policy.content_complete_warning",
-                {
-                    "summary": "ingress_state.just_completed is not ContentStreamBlock in on_content_complete",
-                },
-                level="ERROR",
+                {"summary": "ingress_state.just_completed is not ContentStreamBlock in on_content_complete"},
             )
             return
 
@@ -139,12 +133,9 @@ class SimplePolicy(BasePolicy):
         """Transform tool call and emit."""
         block = ctx.original_streaming_response_state.just_completed
         if not isinstance(block, ToolCallStreamBlock):
-            ctx.observability.emit_event_nonblocking(
+            ctx.policy_ctx.record_event(
                 "policy.simple_policy.tool_call_complete_warning",
-                {
-                    "summary": "ingress_state.just_completed is not ToolCallStreamBlock in on_tool_call_complete",
-                },
-                level="ERROR",
+                {"summary": "ingress_state.just_completed is not ToolCallStreamBlock in on_tool_call_complete"},
             )
             return
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import uuid
 
@@ -15,8 +14,7 @@ from opentelemetry import trace
 
 from luthien_proxy.dependencies import (
     get_api_key,
-    get_db_pool,
-    get_event_publisher,
+    get_emitter,
     get_llm_client,
     get_policy,
 )
@@ -26,13 +24,7 @@ from luthien_proxy.llm.llm_format_utils import (
     openai_to_anthropic_response,
 )
 from luthien_proxy.messages import Request as RequestMessage
-from luthien_proxy.observability.context import (
-    DefaultObservabilityContext,
-    ObservabilityConfig,
-    PipelineRecord,
-)
-from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
-from luthien_proxy.observability.sinks import DatabaseSink, RedisSink
+from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.transaction_recorder import (
     DefaultTransactionRecorder,
 )
@@ -44,7 +36,6 @@ from luthien_proxy.streaming.client_formatter.anthropic import (
 )
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
-from luthien_proxy.utils import db
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -82,10 +73,9 @@ def hash_api_key(key: str) -> str:
 async def chat_completions(
     request: Request,
     _: str = Depends(verify_token),
-    db_pool: db.DatabasePool | None = Depends(get_db_pool),
-    event_publisher: RedisEventPublisher | None = Depends(get_event_publisher),
     policy: PolicyProtocol = Depends(get_policy),
     llm_client: LLMClient = Depends(get_llm_client),
+    emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """OpenAI-compatible chat completions endpoint."""
     # Check request size (default 10MB limit)
@@ -110,34 +100,14 @@ async def chat_completions(
     span.set_attribute("luthien.model", request_message.model)
     span.set_attribute("luthien.stream", is_streaming)
 
-    # Create observability context with sink configuration
-    config: ObservabilityConfig = {
-        "db_sink": DatabaseSink(db_pool) if db_pool else None,
-        "redis_sink": RedisSink(event_publisher) if event_publisher else None,
-        "routing": {
-            PipelineRecord: ["stdout", "db", "redis"],
-        },
-        "default_sinks": ["stdout"],
-    }
-    obs_ctx = DefaultObservabilityContext(
-        transaction_id=call_id,
-        config=config,
-    )
-
     # Log incoming request
-    obs_ctx.record(
-        PipelineRecord(
-            transaction_id=call_id,
-            pipeline_stage="client_request",
-            payload=json.dumps(body),
-        )
-    )
+    emitter.record(call_id, "pipeline.client_request", {"payload": body})
 
     # Create policy context (shared across request/response)
-    policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
+    policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, emitter=emitter)
 
     # Create pipeline dependencies
-    recorder = DefaultTransactionRecorder(observability=obs_ctx)
+    recorder = DefaultTransactionRecorder(transaction_id=call_id, emitter=emitter)
     policy_executor = PolicyExecutor(recorder=recorder)
     client_formatter = OpenAIClientFormatter(model_name=request_message.model)
 
@@ -150,16 +120,10 @@ async def chat_completions(
     )
 
     # Process request through policy
-    final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
+    final_request = await orchestrator.process_request(request_message, policy_ctx)
 
     # Log request after policy processing
-    obs_ctx.record(
-        PipelineRecord(
-            transaction_id=call_id,
-            pipeline_stage="backend_request",
-            payload=json.dumps(final_request.model_dump(exclude_none=True)),
-        )
-    )
+    emitter.record(call_id, "pipeline.backend_request", {"payload": final_request.model_dump(exclude_none=True)})
 
     # Call backend LLM (llm_client injected via Depends)
     if is_streaming:
@@ -168,7 +132,7 @@ async def chat_completions(
 
         # Streaming response
         return FastAPIStreamingResponse(
-            orchestrator.process_streaming_response(backend_stream, policy_ctx, obs_ctx),
+            orchestrator.process_streaming_response(backend_stream, policy_ctx),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -182,13 +146,7 @@ async def chat_completions(
         processed_response = await orchestrator.process_full_response(response, policy_ctx)
 
         # Log final response
-        obs_ctx.record(
-            PipelineRecord(
-                transaction_id=call_id,
-                pipeline_stage="client_response",
-                payload=json.dumps(processed_response.model_dump()),
-            )
-        )
+        emitter.record(call_id, "pipeline.client_response", {"payload": processed_response.model_dump()})
 
         return JSONResponse(
             content=processed_response.model_dump(),
@@ -200,10 +158,9 @@ async def chat_completions(
 async def anthropic_messages(
     request: Request,
     _: str = Depends(verify_token),
-    db_pool: db.DatabasePool | None = Depends(get_db_pool),
-    event_publisher: RedisEventPublisher | None = Depends(get_event_publisher),
     policy: PolicyProtocol = Depends(get_policy),
     llm_client: LLMClient = Depends(get_llm_client),
+    emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """Anthropic Messages API endpoint."""
     # Check request size (default 10MB limit)
@@ -221,46 +178,18 @@ async def anthropic_messages(
     span.set_attribute("luthien.endpoint", "/v1/messages")
     span.set_attribute("luthien.model", anthropic_body.get("model"))
 
-    # Create observability context with sink configuration
-    config: ObservabilityConfig = {
-        "db_sink": DatabaseSink(db_pool) if db_pool else None,
-        "redis_sink": RedisSink(event_publisher) if event_publisher else None,
-        "routing": {
-            PipelineRecord: ["stdout", "db", "redis"],
-        },
-        "default_sinks": ["stdout"],
-    }
-    obs_ctx = DefaultObservabilityContext(
-        transaction_id=call_id,
-        config=config,
-    )
-
     # Log incoming Anthropic request
-    obs_ctx.record(
-        PipelineRecord(
-            transaction_id=call_id,
-            pipeline_stage="client_request",
-            payload=json.dumps(anthropic_body),
-        )
-    )
+    emitter.record(call_id, "pipeline.client_request", {"payload": anthropic_body})
 
     # Convert Anthropic request to OpenAI format
     logger.info(f"[{call_id}] /v1/messages: Incoming Anthropic request for model={anthropic_body.get('model')}")
     openai_body = anthropic_to_openai_request(anthropic_body)
 
     # Log format conversion
-    obs_ctx.record(
-        PipelineRecord(
-            transaction_id=call_id,
-            pipeline_stage="format_conversion",
-            payload=json.dumps(
-                {
-                    "from_format": "anthropic",
-                    "to_format": "openai",
-                    "openai_body": openai_body,
-                }
-            ),
-        )
+    emitter.record(
+        call_id,
+        "pipeline.format_conversion",
+        {"from_format": "anthropic", "to_format": "openai", "openai_body": openai_body},
     )
 
     # Create request message
@@ -275,10 +204,10 @@ async def anthropic_messages(
     span.set_attribute("luthien.stream", is_streaming)
 
     # Create policy context (shared across request/response)
-    policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, observability=obs_ctx)
+    policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, emitter=emitter)
 
     # Create pipeline dependencies
-    recorder = DefaultTransactionRecorder(observability=obs_ctx)
+    recorder = DefaultTransactionRecorder(transaction_id=call_id, emitter=emitter)
     policy_executor = PolicyExecutor(recorder=recorder)
     client_formatter = AnthropicClientFormatter(model_name=request_message.model)
 
@@ -291,16 +220,10 @@ async def anthropic_messages(
     )
 
     # Process request through policy
-    final_request = await orchestrator.process_request(request_message, policy_ctx, obs_ctx)
+    final_request = await orchestrator.process_request(request_message, policy_ctx)
 
     # Log request after policy processing
-    obs_ctx.record(
-        PipelineRecord(
-            transaction_id=call_id,
-            pipeline_stage="backend_request",
-            payload=json.dumps(final_request.model_dump(exclude_none=True)),
-        )
-    )
+    emitter.record(call_id, "pipeline.backend_request", {"payload": final_request.model_dump(exclude_none=True)})
 
     # Call backend LLM (llm_client injected via Depends)
     if is_streaming:
@@ -309,7 +232,7 @@ async def anthropic_messages(
 
         # Streaming response in Anthropic format
         return FastAPIStreamingResponse(
-            orchestrator.process_streaming_response(backend_stream, policy_ctx, obs_ctx),
+            orchestrator.process_streaming_response(backend_stream, policy_ctx),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -326,13 +249,7 @@ async def anthropic_messages(
         anthropic_response = openai_to_anthropic_response(processed_response)
 
         # Log final response
-        obs_ctx.record(
-            PipelineRecord(
-                transaction_id=call_id,
-                pipeline_stage="client_response",
-                payload=json.dumps(anthropic_response),
-            )
-        )
+        emitter.record(call_id, "pipeline.client_response", {"payload": anthropic_response})
 
         return JSONResponse(
             content=anthropic_response,

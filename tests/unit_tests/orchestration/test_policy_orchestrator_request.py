@@ -7,7 +7,6 @@ from opentelemetry.trace import set_tracer_provider
 
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.messages import Request
-from luthien_proxy.observability.context import NoOpObservabilityContext
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.policies import PolicyContext
@@ -85,9 +84,8 @@ async def test_process_request_calls_policy(orchestrator, setup_tracing):
     )
 
     with tracer.start_as_current_span("test"):
-        obs_ctx = NoOpObservabilityContext(transaction_id="test-123")
-        policy_ctx = PolicyContext(transaction_id="test-123", request=request, observability=obs_ctx)
-        final_request = await orch.process_request(request, policy_ctx, obs_ctx)
+        policy_ctx = PolicyContext(transaction_id="test-123", request=request)
+        final_request = await orch.process_request(request, policy_ctx)
 
     # Verify policy was called
     assert policy.on_request_called
@@ -115,9 +113,8 @@ async def test_process_request_preserves_request_fields(orchestrator, setup_trac
     )
 
     with tracer.start_as_current_span("test"):
-        obs_ctx = NoOpObservabilityContext(transaction_id="test-123")
-        policy_ctx = PolicyContext(transaction_id="test-123", request=request, observability=obs_ctx)
-        final_request = await orch.process_request(request, policy_ctx, obs_ctx)
+        policy_ctx = PolicyContext(transaction_id="test-123", request=request)
+        final_request = await orch.process_request(request, policy_ctx)
 
     # Verify unmodified fields preserved
     assert final_request.model == "gpt-4"
@@ -173,9 +170,8 @@ async def test_process_request_records_transaction(orchestrator_with_recording, 
     )
 
     with tracer.start_as_current_span("test"):
-        obs_ctx = NoOpObservabilityContext(transaction_id="test-123")
-        policy_ctx = PolicyContext(transaction_id="test-123", request=original_request, observability=obs_ctx)
-        final_request = await orch.process_request(original_request, policy_ctx, obs_ctx)
+        policy_ctx = PolicyContext(transaction_id="test-123", request=original_request)
+        final_request = await orch.process_request(original_request, policy_ctx)
 
     # Verify recorder.record_request was called
     recorder.record_request.assert_called_once()
@@ -205,8 +201,7 @@ async def test_process_full_response_records_transaction(orchestrator_with_recor
     )
 
     with tracer.start_as_current_span("test"):
-        obs_ctx = NoOpObservabilityContext(transaction_id="test-123")
-        policy_ctx = PolicyContext(transaction_id="test-123", request=None, observability=obs_ctx)
+        policy_ctx = PolicyContext(transaction_id="test-123", request=None)
         final_response = await orch.process_full_response(original_response, policy_ctx)
 
     # Verify recorder.record_response was called

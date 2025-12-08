@@ -18,7 +18,6 @@ import pytest
 from litellm.types.utils import ChatCompletionDeltaToolCall as ToolCall
 from litellm.types.utils import Delta, Function, ModelResponse, StreamingChoices
 
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.streaming.policy_executor import PolicyExecutor
@@ -28,12 +27,6 @@ from luthien_proxy.streaming.policy_executor import PolicyExecutor
 def policy_ctx():
     """Create a PolicyContext."""
     return PolicyContext(transaction_id="test-ordering-123")
-
-
-@pytest.fixture
-def obs_ctx():
-    """Create a mock ObservabilityContext."""
-    return Mock(spec=ObservabilityContext)
 
 
 def create_content_chunk(content: str, finish_reason: str | None = None) -> ModelResponse:
@@ -178,7 +171,7 @@ def assert_callback_order(chunk_calls: list[str], expected_sequence: list[str], 
 
 
 @pytest.mark.asyncio
-async def test_single_content_chunk_ordering(tracking_policy, policy_ctx, obs_ctx):
+async def test_single_content_chunk_ordering(tracking_policy, policy_ctx):
     """Test: on_chunk_received → on_content_delta for a single content chunk."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -186,14 +179,14 @@ async def test_single_content_chunk_ordering(tracking_policy, policy_ctx, obs_ct
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx)
 
     chunk_calls = tracking_policy.tracker.get_calls_for_chunk(0)
     assert_callback_order(chunk_calls, ["on_chunk_received", "on_content_delta"], "single_content_chunk")
 
 
 @pytest.mark.asyncio
-async def test_content_with_finish_reason_ordering(tracking_policy, policy_ctx, obs_ctx):
+async def test_content_with_finish_reason_ordering(tracking_policy, policy_ctx):
     """Test: on_chunk_received → on_content_complete → on_finish_reason."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -204,7 +197,7 @@ async def test_content_with_finish_reason_ordering(tracking_policy, policy_ctx, 
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx)
 
     chunk_calls = tracking_policy.tracker.get_calls_for_chunk(1)
     assert_callback_order(
@@ -213,7 +206,7 @@ async def test_content_with_finish_reason_ordering(tracking_policy, policy_ctx, 
 
 
 @pytest.mark.asyncio
-async def test_tool_call_chunk_ordering(tracking_policy, policy_ctx, obs_ctx):
+async def test_tool_call_chunk_ordering(tracking_policy, policy_ctx):
     """Test: on_chunk_received → on_tool_call_delta for tool call chunks."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -224,14 +217,14 @@ async def test_tool_call_chunk_ordering(tracking_policy, policy_ctx, obs_ctx):
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx)
 
     chunk_calls = tracking_policy.tracker.get_calls_for_chunk(0)
     assert_callback_order(chunk_calls, ["on_chunk_received", "on_tool_call_delta"], "tool_call_chunk")
 
 
 @pytest.mark.asyncio
-async def test_tool_call_complete_ordering(tracking_policy, policy_ctx, obs_ctx):
+async def test_tool_call_complete_ordering(tracking_policy, policy_ctx):
     """Test: on_tool_call_complete → on_finish_reason when tool call finishes."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -243,7 +236,7 @@ async def test_tool_call_complete_ordering(tracking_policy, policy_ctx, obs_ctx)
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx)
 
     all_calls = tracking_policy.tracker.all_callback_names()
 
@@ -254,7 +247,7 @@ async def test_tool_call_complete_ordering(tracking_policy, policy_ctx, obs_ctx)
 
 
 @pytest.mark.asyncio
-async def test_empty_chunk_with_finish_ordering(tracking_policy, policy_ctx, obs_ctx):
+async def test_empty_chunk_with_finish_ordering(tracking_policy, policy_ctx):
     """Test: on_chunk_received → on_finish_reason for empty chunk with only finish_reason."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -265,14 +258,14 @@ async def test_empty_chunk_with_finish_ordering(tracking_policy, policy_ctx, obs
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx)
 
     chunk_calls = tracking_policy.tracker.get_calls_for_chunk(1)
     assert_callback_order(chunk_calls, ["on_chunk_received", "on_finish_reason"], "empty_chunk_with_finish")
 
 
 @pytest.mark.asyncio
-async def test_stream_complete_is_last(tracking_policy, policy_ctx, obs_ctx):
+async def test_stream_complete_is_last(tracking_policy, policy_ctx):
     """Test: on_stream_complete is always the final callback invoked."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -284,7 +277,7 @@ async def test_stream_complete_is_last(tracking_policy, policy_ctx, obs_ctx):
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx)
 
     all_calls = tracking_policy.tracker.all_callback_names()
 
@@ -293,7 +286,7 @@ async def test_stream_complete_is_last(tracking_policy, policy_ctx, obs_ctx):
 
 
 @pytest.mark.asyncio
-async def test_multiple_chunks_each_start_with_on_chunk_received(tracking_policy, policy_ctx, obs_ctx):
+async def test_multiple_chunks_each_start_with_on_chunk_received(tracking_policy, policy_ctx):
     """Test: Every chunk starts with on_chunk_received."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -305,7 +298,7 @@ async def test_multiple_chunks_each_start_with_on_chunk_received(tracking_policy
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx)
 
     # For each chunk, verify on_chunk_received comes first
     for chunk_idx in range(3):
@@ -315,7 +308,7 @@ async def test_multiple_chunks_each_start_with_on_chunk_received(tracking_policy
 
 
 @pytest.mark.asyncio
-async def test_mixed_content_and_tool_calls(tracking_policy, policy_ctx, obs_ctx):
+async def test_mixed_content_and_tool_calls(tracking_policy, policy_ctx):
     """Test: Ordering holds for streams with both content and tool calls."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -329,7 +322,7 @@ async def test_mixed_content_and_tool_calls(tracking_policy, policy_ctx, obs_ctx
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx)
 
     all_calls = tracking_policy.tracker.all_callback_names()
 
@@ -344,7 +337,7 @@ async def test_mixed_content_and_tool_calls(tracking_policy, policy_ctx, obs_ctx
 
 
 @pytest.mark.asyncio
-async def test_content_deltas_before_content_complete(tracking_policy, policy_ctx, obs_ctx):
+async def test_content_deltas_before_content_complete(tracking_policy, policy_ctx):
     """Test: All on_content_delta calls come before on_content_complete."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -356,7 +349,7 @@ async def test_content_deltas_before_content_complete(tracking_policy, policy_ct
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, tracking_policy, policy_ctx)
 
     all_calls = tracking_policy.tracker.all_callback_names()
 

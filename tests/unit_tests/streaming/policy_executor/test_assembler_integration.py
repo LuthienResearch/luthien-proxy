@@ -10,7 +10,6 @@ import pytest
 from litellm.types.utils import ChatCompletionDeltaToolCall as ToolCall
 from litellm.types.utils import Delta, Function, ModelResponse, StreamingChoices
 
-from luthien_proxy.observability.context import ObservabilityContext
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.streaming.policy_executor import PolicyExecutor
@@ -20,12 +19,6 @@ from luthien_proxy.streaming.policy_executor import PolicyExecutor
 def policy_ctx():
     """Create a PolicyContext."""
     return PolicyContext(transaction_id="test-123")
-
-
-@pytest.fixture
-def obs_ctx():
-    """Create a mock ObservabilityContext."""
-    return Mock(spec=ObservabilityContext)
 
 
 @pytest.fixture
@@ -100,7 +93,7 @@ async def async_iter_from_list(items: list):
 
 
 @pytest.mark.asyncio
-async def test_assembler_processes_content_chunks(mock_policy, policy_ctx, obs_ctx):
+async def test_assembler_processes_content_chunks(mock_policy, policy_ctx):
     """Test that content chunks are processed through assembler."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -112,7 +105,7 @@ async def test_assembler_processes_content_chunks(mock_policy, policy_ctx, obs_c
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, mock_policy, policy_ctx)
 
     # All chunks should pass through
     for expected in chunks:
@@ -124,7 +117,7 @@ async def test_assembler_processes_content_chunks(mock_policy, policy_ctx, obs_c
 
 
 @pytest.mark.asyncio
-async def test_assembler_tracks_content_block(mock_policy, policy_ctx, obs_ctx):
+async def test_assembler_tracks_content_block(mock_policy, policy_ctx):
     """Test that assembler tracks content block state.
 
     This test verifies the assembler is working, but we don't inspect
@@ -140,7 +133,7 @@ async def test_assembler_tracks_content_block(mock_policy, policy_ctx, obs_ctx):
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, mock_policy, policy_ctx)
 
     # Verify chunks passed through (assembler doesn't modify them)
     results = []
@@ -158,7 +151,7 @@ async def test_assembler_tracks_content_block(mock_policy, policy_ctx, obs_ctx):
 
 
 @pytest.mark.asyncio
-async def test_assembler_handles_tool_calls(mock_policy, policy_ctx, obs_ctx):
+async def test_assembler_handles_tool_calls(mock_policy, policy_ctx):
     """Test that assembler processes tool call chunks."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -171,7 +164,7 @@ async def test_assembler_handles_tool_calls(mock_policy, policy_ctx, obs_ctx):
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, mock_policy, policy_ctx)
 
     # All chunks should pass through
     results = []
@@ -188,7 +181,7 @@ async def test_assembler_handles_tool_calls(mock_policy, policy_ctx, obs_ctx):
 
 
 @pytest.mark.asyncio
-async def test_assembler_handles_mixed_content_and_tools(mock_policy, policy_ctx, obs_ctx):
+async def test_assembler_handles_mixed_content_and_tools(mock_policy, policy_ctx):
     """Test content followed by tool call."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -202,7 +195,7 @@ async def test_assembler_handles_mixed_content_and_tools(mock_policy, policy_ctx
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, mock_policy, policy_ctx)
 
     results = []
     while True:
@@ -215,7 +208,7 @@ async def test_assembler_handles_mixed_content_and_tools(mock_policy, policy_ctx
 
 
 @pytest.mark.asyncio
-async def test_assembler_preserves_chunk_order(mock_policy, policy_ctx, obs_ctx):
+async def test_assembler_preserves_chunk_order(mock_policy, policy_ctx):
     """Test that chunk order is preserved through assembly."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
@@ -229,7 +222,7 @@ async def test_assembler_preserves_chunk_order(mock_policy, policy_ctx, obs_ctx)
     input_stream = async_iter_from_list(chunks)
     output_queue = asyncio.Queue()
 
-    await executor.process(input_stream, output_queue, mock_policy, policy_ctx, obs_ctx)
+    await executor.process(input_stream, output_queue, mock_policy, policy_ctx)
 
     # Verify exact order
     for i, expected in enumerate(chunks, 1):
