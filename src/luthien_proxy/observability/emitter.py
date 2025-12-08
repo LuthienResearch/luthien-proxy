@@ -10,6 +10,7 @@ via global state.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import sys
@@ -17,6 +18,48 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 from opentelemetry import trace
+
+
+def _safe_serialize(obj: Any) -> Any:
+    """Convert an object to a JSON-serializable form.
+
+    Handles common non-serializable types gracefully:
+    - datetime objects -> ISO format strings
+    - bytes -> base64-encoded strings (prefixed with "b64:")
+    - sets -> lists
+    - objects with __dict__ -> their __dict__
+    - other non-serializable objects -> their string representation
+
+    Returns a structure that json.dumps() can handle without raising.
+    """
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+
+    if isinstance(obj, bytes):
+        return f"b64:{base64.b64encode(obj).decode('ascii')}"
+
+    if isinstance(obj, dict):
+        return {str(k): _safe_serialize(v) for k, v in obj.items()}
+
+    if isinstance(obj, (list, tuple)):
+        return [_safe_serialize(item) for item in obj]
+
+    if isinstance(obj, set):
+        return [_safe_serialize(item) for item in sorted(obj, key=str)]
+
+    if hasattr(obj, "model_dump"):
+        # Pydantic models
+        return _safe_serialize(obj.model_dump())
+
+    if hasattr(obj, "__dict__"):
+        return _safe_serialize(obj.__dict__)
+
+    # Fallback: convert to string representation
+    return str(obj)
+
 
 if TYPE_CHECKING:
     from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
@@ -109,19 +152,22 @@ class EventEmitter:
         """
         timestamp = datetime.now(UTC)
 
+        # Ensure data is JSON-serializable before passing to sinks
+        safe_data = _safe_serialize(data)
+
         # Add to current OTel span as a span event
         span = trace.get_current_span()
         if span.is_recording():
-            span.add_event(event_type, {"transaction_id": transaction_id, **data})
+            span.add_event(event_type, {"transaction_id": transaction_id, **safe_data})
 
         # Emit to all sinks concurrently
         tasks = []
         if self._stdout_enabled:
-            tasks.append(self._write_stdout(transaction_id, event_type, data, timestamp))
+            tasks.append(self._write_stdout(transaction_id, event_type, safe_data, timestamp))
         if self._db_pool:
-            tasks.append(self._write_db(transaction_id, event_type, data, timestamp))
+            tasks.append(self._write_db(transaction_id, event_type, safe_data, timestamp))
         if self._redis_publisher:
-            tasks.append(self._write_redis(transaction_id, event_type, data, timestamp))
+            tasks.append(self._write_redis(transaction_id, event_type, safe_data, timestamp))
 
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
