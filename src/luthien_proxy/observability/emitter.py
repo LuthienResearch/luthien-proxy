@@ -189,43 +189,28 @@ class EventEmitter:
 
         try:
             async with self._db_pool.connection() as conn:
-                async with conn.transaction():
-                    # Ensure call row exists
-                    await conn.execute(
-                        """
-                        INSERT INTO conversation_calls (call_id, created_at)
-                        VALUES ($1, $2)
-                        ON CONFLICT (call_id) DO NOTHING
-                        """,
-                        transaction_id,
-                        timestamp,
-                    )
+                # Ensure call row exists
+                await conn.execute(
+                    """
+                    INSERT INTO conversation_calls (call_id, created_at)
+                    VALUES ($1, $2)
+                    ON CONFLICT (call_id) DO NOTHING
+                    """,
+                    transaction_id,
+                    timestamp,
+                )
 
-                    # Lock the call row to serialize concurrent inserts
-                    await conn.execute(
-                        "SELECT 1 FROM conversation_calls WHERE call_id = $1 FOR UPDATE",
-                        transaction_id,
-                    )
-
-                    # Insert event with atomically computed sequence number
-                    await conn.execute(
-                        """
-                        INSERT INTO conversation_events (
-                            call_id,
-                            event_type,
-                            sequence,
-                            payload,
-                            created_at
-                        )
-                        SELECT $1, $2, COALESCE(MAX(sequence), 0) + 1, $3, $4
-                        FROM conversation_events
-                        WHERE call_id = $1
-                        """,
-                        transaction_id,
-                        event_type,
-                        json.dumps(data),
-                        timestamp,
-                    )
+                # Insert event, ordering by created_at
+                await conn.execute(
+                    """
+                    INSERT INTO conversation_events (call_id, event_type, payload, created_at)
+                    VALUES ($1, $2, $3, $4)
+                    """,
+                    transaction_id,
+                    event_type,
+                    json.dumps(data),
+                    timestamp,
+                )
 
             logger.debug(f"Wrote event to db: {event_type} (transaction_id={transaction_id})")
         except Exception as e:

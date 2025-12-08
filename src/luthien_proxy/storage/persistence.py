@@ -14,7 +14,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Awaitable, Literal, Sequence, cast
+from typing import Awaitable, Literal, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -34,7 +34,6 @@ class ConversationEvent(BaseModel):
     call_id: str
     trace_id: str | None = None  # Deprecated, always None
     event_type: Literal["request", "response"]
-    sequence: int
     timestamp: datetime
     hook: str  # Source hook that created this event
     payload: JSONObject = Field(default_factory=dict)
@@ -82,53 +81,6 @@ CONVERSATION_EVENT_QUEUE = SequentialTaskQueue("conversation_events")
 
 
 # ============================================================================
-# Utility Functions for Event Building
-# ============================================================================
-
-
-def require_dict(value: object, context: str) -> JSONObject:
-    """Ensure *value* is a dict, raising a descriptive error otherwise."""
-    if not isinstance(value, dict):
-        raise ValueError(f"{context} must be a dict; saw {type(value)!r}")
-    if not all(isinstance(key, str) for key in value.keys()):
-        raise ValueError(f"{context} must use string keys; saw {list(value.keys())!r}")
-    return cast(JSONObject, value)
-
-
-def extract_post_time_ns_from_any(value: object) -> int | None:
-    """Search arbitrarily nested data for a `post_time_ns` integer."""
-    if isinstance(value, dict):
-        candidate = value.get("post_time_ns")
-        if isinstance(candidate, (int, float)):
-            return int(candidate)
-        for key in ("payload", "data", "request_data", "response", "response_obj", "raw_response", "chunk"):
-            if key in value:
-                nested = extract_post_time_ns_from_any(value.get(key))
-                if nested is not None:
-                    return nested
-        for nested_value in value.values():
-            if isinstance(nested_value, (dict, list)):
-                nested = extract_post_time_ns_from_any(nested_value)
-                if nested is not None:
-                    return nested
-    elif isinstance(value, list):
-        for item in value:
-            nested = extract_post_time_ns_from_any(item)
-            if nested is not None:
-                return nested
-    return None
-
-
-def derive_sequence_ns(fallback_ns: int, *candidates: object) -> int:
-    """Pick the first available `post_time_ns`, falling back to *fallback_ns*."""
-    for candidate in candidates:
-        ns = extract_post_time_ns_from_any(candidate)
-        if ns is not None:
-            return ns
-    return fallback_ns
-
-
-# ============================================================================
 # Event Building
 # ============================================================================
 
@@ -136,10 +88,10 @@ def derive_sequence_ns(fallback_ns: int, *candidates: object) -> int:
 def build_conversation_events(
     hook: str,
     call_id: str | None,
-    trace_id: str | None,
+    trace_id: str | None,  # noqa: ARG001
     original: JSONValue | None,
     result: JSONValue | None,
-    timestamp_ns_fallback: int,
+    timestamp_ns_fallback: int,  # noqa: ARG001
     timestamp: datetime,
 ) -> list[ConversationEvent]:
     """Translate a hook invocation request/response into conversation events.
@@ -147,10 +99,10 @@ def build_conversation_events(
     Args:
         hook: Hook name identifying the event source
         call_id: Unique identifier for the request/response pair
-        trace_id: Deprecated, always None
+        trace_id: Deprecated, unused
         original: Original (pre-policy) data
         result: Final (post-policy) data
-        timestamp_ns_fallback: Timestamp in nanoseconds for sequence ordering
+        timestamp_ns_fallback: Deprecated, unused (ordering now by timestamp)
         timestamp: Event timestamp as datetime
 
     Returns:
@@ -159,7 +111,6 @@ def build_conversation_events(
     if not isinstance(call_id, str) or not call_id:
         return []
 
-    sequence_ns = derive_sequence_ns(timestamp_ns_fallback, original, result)
     events: list[ConversationEvent] = []
 
     # request event (from emit_request_event in storage/events.py)
@@ -210,7 +161,6 @@ def build_conversation_events(
                 call_id=call_id,
                 trace_id=None,
                 event_type="request",
-                sequence=sequence_ns,
                 timestamp=timestamp,
                 hook=hook,
                 payload=request_event_payload,  # type: ignore[arg-type]
@@ -245,7 +195,6 @@ def build_conversation_events(
                 call_id=call_id,
                 trace_id=None,
                 event_type="response",
-                sequence=sequence_ns,
                 timestamp=timestamp,
                 hook=hook,
                 payload=response_event_payload,  # type: ignore[arg-type]
@@ -342,18 +291,11 @@ async def _insert_event_row(conn: db.ConnectionProtocol, event: ConversationEven
 
     await conn.execute(
         """
-        INSERT INTO conversation_events (
-            call_id,
-            event_type,
-            sequence,
-            payload,
-            created_at
-        )
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO conversation_events (call_id, event_type, payload, created_at)
+        VALUES ($1, $2, $3, $4)
         """,
         event.call_id,
         event.event_type,
-        int(event.sequence),
         json.dumps(event.payload),
         timestamp_naive,
     )

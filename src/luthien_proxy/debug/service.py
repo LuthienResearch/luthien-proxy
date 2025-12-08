@@ -222,10 +222,10 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
     async with db_pool.connection() as conn:
         rows = await conn.fetch(
             """
-            SELECT call_id, event_type, sequence, payload, created_at
+            SELECT call_id, event_type, payload, created_at
             FROM conversation_events
             WHERE call_id = $1
-            ORDER BY sequence ASC
+            ORDER BY created_at ASC
             """,
             call_id,
         )
@@ -237,7 +237,6 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
         ConversationEventResponse(
             call_id=str(row["call_id"]),
             event_type=str(row["event_type"]),
-            sequence=int(row["sequence"]),  # type: ignore[arg-type]
             timestamp=row["created_at"].isoformat()  # type: ignore[union-attr]
             if isinstance(row["created_at"], datetime)
             else str(row["created_at"]),
@@ -274,7 +273,7 @@ async def fetch_call_diff(call_id: str, db_pool: DatabasePool) -> CallDiffRespon
             SELECT call_id, event_type, payload
             FROM conversation_events
             WHERE call_id = $1 AND event_type IN ('v2_request', 'v2_response')
-            ORDER BY sequence ASC
+            ORDER BY created_at ASC
             """,
             call_id,
         )
