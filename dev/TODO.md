@@ -40,7 +40,6 @@
 ### Security
 
 - [ ] Add input validation: max request size and message count limits
-- [ ] Add authentication for debug endpoints
 
 ## Medium Priority
 

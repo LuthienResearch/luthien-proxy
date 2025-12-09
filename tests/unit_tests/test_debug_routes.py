@@ -7,6 +7,9 @@ These tests focus on the HTTP layer - ensuring routes properly:
 - Handle dependency injection
 - Convert service exceptions to appropriate HTTP status codes
 - Return correct response models
+
+Note: All debug routes require admin authentication. Tests pass an auth token
+directly since they call handlers without going through FastAPI's Depends().
 """
 
 from datetime import datetime
@@ -26,6 +29,9 @@ from luthien_proxy.debug.routes import (
     list_recent_calls,
 )
 
+# Auth token passed to route handlers (simulates successful authentication)
+AUTH_TOKEN = "test-admin-key"
+
 
 class TestGetCallEventsRoute:
     """Test get_call_events route handler."""
@@ -34,7 +40,7 @@ class TestGetCallEventsRoute:
     async def test_no_db_pool(self):
         """Test 503 error when db_pool is None."""
         with pytest.raises(HTTPException) as exc_info:
-            await get_call_events("test-call-id", db_pool=None)
+            await get_call_events("test-call-id", _=AUTH_TOKEN, db_pool=None)
 
         assert exc_info.value.status_code == 503
         assert "not configured" in exc_info.value.detail
@@ -49,7 +55,7 @@ class TestGetCallEventsRoute:
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_call_events("nonexistent-id", db_pool=mock_pool)
+            await get_call_events("nonexistent-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert exc_info.value.status_code == 404
         assert "No events found" in exc_info.value.detail
@@ -70,7 +76,7 @@ class TestGetCallEventsRoute:
         mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
-        result = await get_call_events("test-call-id", db_pool=mock_pool)
+        result = await get_call_events("test-call-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert isinstance(result, CallEventsResponse)
         assert result.call_id == "test-call-id"
@@ -86,7 +92,7 @@ class TestGetCallEventsRoute:
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_call_events("test-call-id", db_pool=mock_pool)
+            await get_call_events("test-call-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert exc_info.value.status_code == 500
         assert "Database error" in exc_info.value.detail
@@ -99,7 +105,7 @@ class TestGetCallDiffRoute:
     async def test_no_db_pool(self):
         """Test 503 error when db_pool is None."""
         with pytest.raises(HTTPException) as exc_info:
-            await get_call_diff("test-call-id", db_pool=None)
+            await get_call_diff("test-call-id", _=AUTH_TOKEN, db_pool=None)
 
         assert exc_info.value.status_code == 503
         assert "not configured" in exc_info.value.detail
@@ -114,7 +120,7 @@ class TestGetCallDiffRoute:
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_call_diff("nonexistent-id", db_pool=mock_pool)
+            await get_call_diff("nonexistent-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert exc_info.value.status_code == 404
         assert "No events found" in exc_info.value.detail
@@ -139,7 +145,7 @@ class TestGetCallDiffRoute:
         mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
-        result = await get_call_diff("test-call-id", db_pool=mock_pool)
+        result = await get_call_diff("test-call-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert isinstance(result, CallDiffResponse)
         assert result.call_id == "test-call-id"
@@ -154,7 +160,7 @@ class TestGetCallDiffRoute:
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_call_diff("test-call-id", db_pool=mock_pool)
+            await get_call_diff("test-call-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert exc_info.value.status_code == 500
         assert "Database error" in exc_info.value.detail
@@ -167,7 +173,7 @@ class TestListRecentCallsRoute:
     async def test_no_db_pool(self):
         """Test 503 error when db_pool is None."""
         with pytest.raises(HTTPException) as exc_info:
-            await list_recent_calls(limit=10, db_pool=None)
+            await list_recent_calls(limit=10, _=AUTH_TOKEN, db_pool=None)
 
         assert exc_info.value.status_code == 503
         assert "not configured" in exc_info.value.detail
@@ -181,7 +187,7 @@ class TestListRecentCallsRoute:
         mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
-        result = await list_recent_calls(limit=10, db_pool=mock_pool)
+        result = await list_recent_calls(limit=10, _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert isinstance(result, CallListResponse)
         assert result.total == 0
@@ -207,7 +213,7 @@ class TestListRecentCallsRoute:
         mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
-        result = await list_recent_calls(limit=10, db_pool=mock_pool)
+        result = await list_recent_calls(limit=10, _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert isinstance(result, CallListResponse)
         assert result.total == 2
@@ -223,7 +229,7 @@ class TestListRecentCallsRoute:
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         with pytest.raises(HTTPException) as exc_info:
-            await list_recent_calls(limit=10, db_pool=mock_pool)
+            await list_recent_calls(limit=10, _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert exc_info.value.status_code == 500
         assert "Database error" in exc_info.value.detail
