@@ -2,6 +2,13 @@
 
 ## Unreleased | TBA
 
+- Session-based login for browser access to admin/debug UIs (#88)
+  - Add `/login` page with session cookie authentication
+  - Protected UI pages (`/activity/monitor`, `/debug/diff`, `/policy-config`) redirect to login when unauthenticated
+  - Sign out links on all protected pages
+  - Backwards compatible: API endpoints still accept Bearer token and x-api-key
+  - Open redirect prevention via URL validation
+  - XSS prevention via HTML attribute escaping
 - Confirmed policy config UI backend integration already complete via PR #66 (feature/policy-ui-backend)
 - Centralize environment configuration with pydantic-settings (#refactor/env-config-centralize)
   - Add `Settings` class in `src/luthien_proxy/settings.py` for typed configuration

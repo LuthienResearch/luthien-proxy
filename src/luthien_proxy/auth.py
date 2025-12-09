@@ -11,7 +11,6 @@ from __future__ import annotations
 import secrets
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from luthien_proxy.dependencies import get_admin_key
@@ -71,62 +70,4 @@ async def verify_admin_token(
     )
 
 
-async def require_admin_or_redirect(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    admin_key: str | None = Depends(get_admin_key),
-) -> str | RedirectResponse:
-    """Verify admin auth, redirecting to login for browser requests.
-
-    For API requests (with Authorization header or x-api-key), returns 403 on failure.
-    For browser requests (no auth headers), redirects to login page.
-
-    Args:
-        request: FastAPI request object
-        credentials: HTTP Bearer credentials
-        admin_key: Admin API key from dependencies
-
-    Returns:
-        Authentication token if valid, or RedirectResponse to login
-
-    Raises:
-        HTTPException: 500 if admin key not configured, 403 for API auth failures
-    """
-    if not admin_key:
-        raise HTTPException(
-            status_code=500,
-            detail="Admin authentication not configured (ADMIN_API_KEY not set)",
-        )
-
-    # Check session cookie first
-    session_token = get_session_user(request, admin_key)
-    if session_token:
-        return session_token
-
-    # Check API auth methods
-    if credentials and secrets.compare_digest(credentials.credentials, admin_key):
-        return credentials.credentials
-
-    x_api_key = request.headers.get("x-api-key")
-    if x_api_key and secrets.compare_digest(x_api_key, admin_key):
-        return x_api_key
-
-    # If this looks like an API request, return 403
-    if credentials or x_api_key:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin access required. Provide valid admin API key.",
-        )
-
-    # Browser request without auth - redirect to login
-    next_url = str(request.url.path)
-    if request.url.query:
-        next_url += f"?{request.url.query}"
-    raise HTTPException(
-        status_code=303,
-        detail="Redirect to login",
-        headers={"Location": f"/login?error=required&next={next_url}"},
-    )
-
-
-__all__ = ["verify_admin_token", "require_admin_or_redirect", "security"]
+__all__ = ["verify_admin_token", "security"]
