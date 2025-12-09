@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -21,6 +23,8 @@ async def verify_admin_token(
     - Bearer token in Authorization header
     - x-api-key header
 
+    Uses constant-time comparison to prevent timing attacks.
+
     Args:
         request: FastAPI request object
         credentials: HTTP Bearer credentials
@@ -38,12 +42,13 @@ async def verify_admin_token(
             detail="Admin authentication not configured (ADMIN_API_KEY not set)",
         )
 
-    if credentials and credentials.credentials == admin_key:
+    # Use constant-time comparison to prevent timing attacks
+    if credentials and secrets.compare_digest(credentials.credentials, admin_key):
         return credentials.credentials
 
     # Also check x-api-key header for convenience
     x_api_key = request.headers.get("x-api-key")
-    if x_api_key and x_api_key == admin_key:
+    if x_api_key and secrets.compare_digest(x_api_key, admin_key):
         return x_api_key
 
     raise HTTPException(
