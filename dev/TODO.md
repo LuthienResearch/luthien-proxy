@@ -12,14 +12,11 @@
 
 - [ ] **create_app dependency injection** - Accept db and redis objects instead of URLs, enabling easier testing and more flexible configuration
 - [ ] **Cleaner policy config story** - Consolidate policy configuration approach (config file vs db vs runtime injection) with clear precedence rules
-- [ ] **Cleaner authentication story** - Unified auth system for API key + general authentication for sensitive endpoints (admin, debug, etc.)
 
 ### Code Quality
 
-- [ ] **Fix assertion usage in production code** - Replace `assert` statements in `simple_policy.py` with proper exceptions
 - [ ] **Replace magic numbers with named constants** - queue_size, max_chunks_queued, truncation lengths
 - [ ] **Factor out common gateway route logic** - Extract duplicate pipeline setup from `/v1/chat/completions` and `/v1/messages`
-- [ ] **Factor out env var logic into centralized config**
 
 ### Documentation (High)
 
@@ -76,7 +73,7 @@
 - [ ] Expose database connection pooling configuration
 - [ ] Add cache headers to static files mount
 - [ ] Consider stricter pyright mode
-- [ ] Add health check endpoint with degraded state reporting
+- [ ] Add degraded state reporting to /health endpoint
 - [ ] Minimize type: ignore flags
 - [ ] Load testing with multiple concurrent streams
 - [ ] Memory leak detection for long-running streams
