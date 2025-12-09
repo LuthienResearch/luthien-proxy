@@ -4,7 +4,6 @@ const state = {
     selectedPolicyClass: null,
     selectedPolicyName: null,
     instanceName: null,
-    adminKey: null,
     policyEnabledAt: null,
     detectedCallId: null,
     availablePolicies: [],
@@ -13,35 +12,22 @@ const state = {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
-    checkAdminKey();
     await loadPolicies();
     await loadInstances();
     setupEventListeners();
 });
 
-function checkAdminKey() {
-    state.adminKey = sessionStorage.getItem('admin_key');
-    if (!state.adminKey) {
-        state.adminKey = prompt('Enter admin API key:');
-        if (state.adminKey) {
-            sessionStorage.setItem('admin_key', state.adminKey);
-        }
-    }
-}
-
 async function apiCall(endpoint, options = {}) {
     const headers = {
-        'Authorization': `Bearer ${state.adminKey}`,
         'Content-Type': 'application/json',
         ...options.headers
     };
 
-    const response = await fetch(endpoint, { ...options, headers });
+    const response = await fetch(endpoint, { ...options, headers, credentials: 'same-origin' });
     if (response.status === 403) {
-        sessionStorage.removeItem('admin_key');
-        alert('Invalid admin key');
-        checkAdminKey();
-        throw new Error('Invalid admin key');
+        // Session expired or not logged in - redirect to login
+        window.location.href = '/login?error=required&next=' + encodeURIComponent(window.location.pathname);
+        throw new Error('Session expired');
     }
     if (!response.ok) {
         const error = await response.json();

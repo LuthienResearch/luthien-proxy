@@ -21,6 +21,8 @@ from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.policy_manager import PolicyManager
+from luthien_proxy.session import login_page_router
+from luthien_proxy.session import router as session_router
 from luthien_proxy.settings import Settings, get_settings
 from luthien_proxy.telemetry import (
     configure_logging,
@@ -169,6 +171,8 @@ def create_app(
     app.include_router(debug_router)  # /debug/*
     app.include_router(ui_router)  # /activity/*, /policy-config
     app.include_router(admin_router)  # /admin/* (policy management)
+    app.include_router(session_router)  # /auth/login, /auth/logout
+    app.include_router(login_page_router)  # /login (convenience redirect)
 
     # Simple utility endpoints
     @app.get("/health")
