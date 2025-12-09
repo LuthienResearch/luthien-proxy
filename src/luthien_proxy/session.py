@@ -13,20 +13,46 @@ import hashlib
 import hmac
 import secrets
 import time
-from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from luthien_proxy.dependencies import get_admin_key
 
-if TYPE_CHECKING:
-    pass
-
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 SESSION_COOKIE_NAME = "luthien_session"
 SESSION_MAX_AGE = 60 * 60 * 24  # 24 hours
+
+
+def _validate_next_url(next_url: str) -> str:
+    """Validate next_url is safe for redirect (relative path only).
+
+    Prevents open redirect attacks by ensuring the URL is a relative path
+    starting with '/' and not an absolute URL.
+
+    Args:
+        next_url: The URL to validate
+
+    Returns:
+        The validated URL if safe, otherwise '/'
+    """
+    next_url = next_url.strip()
+
+    # Block absolute URLs (including protocol-relative)
+    if next_url.startswith(("http://", "https://", "//")):
+        return "/"
+
+    # Block URLs with embedded credentials or unusual schemes
+    if "://" in next_url or "@" in next_url:
+        return "/"
+
+    # Ensure it starts with /
+    if not next_url.startswith("/"):
+        return "/"
+
+    return next_url
 
 
 def _get_session_secret(admin_key: str) -> str:
@@ -121,16 +147,19 @@ async def login(
             detail="Admin authentication not configured (ADMIN_API_KEY not set)",
         )
 
+    # Validate next_url to prevent open redirect attacks
+    safe_next_url = _validate_next_url(next_url)
+
     if not secrets.compare_digest(password, admin_key):
-        # Redirect back to login with error
+        # Redirect back to login with error (URL-encode next_url for query param)
         return RedirectResponse(
-            url=f"/login?error=invalid&next={next_url}",
+            url=f"/login?error=invalid&next={quote(safe_next_url, safe='')}",
             status_code=303,
         )
 
     # Create session and set cookie
     token = _create_session_token(admin_key)
-    redirect = RedirectResponse(url=next_url, status_code=303)
+    redirect = RedirectResponse(url=safe_next_url, status_code=303)
     redirect.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
@@ -145,7 +174,8 @@ async def login(
 @router.post("/logout")
 async def logout(next_url: str = Form(default="/login")) -> RedirectResponse:
     """Handle logout - clear session cookie."""
-    redirect = RedirectResponse(url=next_url, status_code=303)
+    safe_next_url = _validate_next_url(next_url)
+    redirect = RedirectResponse(url=safe_next_url, status_code=303)
     redirect.delete_cookie(key=SESSION_COOKIE_NAME)
     return redirect
 

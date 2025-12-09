@@ -125,6 +125,52 @@ class TestLoginPageHTML:
         assert "<script>alert(1)</script>" not in html
 
 
+class TestValidateNextUrl:
+    def test_allows_relative_paths(self):
+        from luthien_proxy.session import _validate_next_url
+
+        assert _validate_next_url("/debug/diff") == "/debug/diff"
+        assert _validate_next_url("/activity/monitor") == "/activity/monitor"
+        assert _validate_next_url("/") == "/"
+        assert _validate_next_url("/path?query=value") == "/path?query=value"
+
+    def test_blocks_absolute_http_urls(self):
+        from luthien_proxy.session import _validate_next_url
+
+        assert _validate_next_url("http://evil.com") == "/"
+        assert _validate_next_url("https://evil.com/phishing") == "/"
+
+    def test_blocks_protocol_relative_urls(self):
+        from luthien_proxy.session import _validate_next_url
+
+        assert _validate_next_url("//evil.com") == "/"
+        assert _validate_next_url("//evil.com/path") == "/"
+
+    def test_blocks_urls_without_leading_slash(self):
+        from luthien_proxy.session import _validate_next_url
+
+        assert _validate_next_url("evil.com") == "/"
+        assert _validate_next_url("path/to/page") == "/"
+
+    def test_blocks_urls_with_credentials(self):
+        from luthien_proxy.session import _validate_next_url
+
+        assert _validate_next_url("/path@evil.com") == "/"
+        assert _validate_next_url("user:pass@evil.com") == "/"
+
+    def test_blocks_unusual_schemes(self):
+        from luthien_proxy.session import _validate_next_url
+
+        assert _validate_next_url("javascript://alert(1)") == "/"
+        assert _validate_next_url("data://text/html") == "/"
+
+    def test_strips_whitespace(self):
+        from luthien_proxy.session import _validate_next_url
+
+        assert _validate_next_url("  /debug/diff  ") == "/debug/diff"
+        assert _validate_next_url("\n/path\n") == "/path"
+
+
 class TestSessionConstants:
     def test_cookie_name_is_string(self):
         assert isinstance(SESSION_COOKIE_NAME, str)
