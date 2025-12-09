@@ -317,48 +317,20 @@
             color: #888;
         }
 
-        .auth-section {
-            background: #222;
-            border: 1px solid #333;
-            border-radius: 6px;
-            padding: 16px;
-            margin-bottom: 24px;
+        .user-bar {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 16px;
         }
 
-        .auth-section.authenticated {
-            border-color: #22c55e;
-            background: #14532d;
-        }
-
-        .auth-section label {
-            display: block;
-            font-size: 12px;
+        .user-bar a {
             color: #888;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
+            text-decoration: none;
+            font-size: 14px;
         }
 
-        .auth-section .auth-input-row {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-        }
-
-        .auth-section input {
-            flex: 1;
-        }
-
-        .auth-status {
-            font-size: 13px;
-            color: #22c55e;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .auth-status.error {
-            color: #f87171;
+        .user-bar a:hover {
+            color: #60a5fa;
         }
 
         @media (max-width: 1024px) {
@@ -375,18 +347,8 @@
             <p class="subtitle">Compare original vs policy-transformed requests and responses</p>
         </header>
 
-        <div class="auth-section" id="authSection">
-            <label>Admin API Key (required)</label>
-            <div class="auth-input-row">
-                <input
-                    type="password"
-                    id="apiKeyInput"
-                    placeholder="Enter admin API key..."
-                    autocomplete="off"
-                />
-                <button onclick="saveApiKey()">Save Key</button>
-                <span id="authStatus"></span>
-            </div>
+        <div class="user-bar">
+            <a href="/auth/logout">Sign Out</a>
         </div>
 
         <div class="call-id-input">
@@ -405,68 +367,9 @@
     </div>
 
     <script>
-        // === Authentication Management ===
-
-        function getApiKey() {
-            return sessionStorage.getItem('adminApiKey') || '';
-        }
-
-        function saveApiKey() {
-            const apiKey = document.getElementById('apiKeyInput').value.trim();
-            if (apiKey) {
-                sessionStorage.setItem('adminApiKey', apiKey);
-                updateAuthStatus(true);
-            }
-        }
-
-        function updateAuthStatus(authenticated) {
-            const authSection = document.getElementById('authSection');
-            const authStatus = document.getElementById('authStatus');
-
-            if (authenticated) {
-                authSection.classList.add('authenticated');
-                authStatus.innerHTML = '✓ Key saved';
-                authStatus.className = 'auth-status';
-            } else {
-                authSection.classList.remove('authenticated');
-                authStatus.innerHTML = '';
-            }
-        }
-
-        function getAuthHeaders() {
-            const apiKey = getApiKey();
-            if (!apiKey) {
-                return {};
-            }
-            return { 'Authorization': `Bearer ${apiKey}` };
-        }
-
-        function handleAuthError(response) {
-            if (response.status === 403) {
-                const authStatus = document.getElementById('authStatus');
-                authStatus.innerHTML = '✗ Invalid or missing API key';
-                authStatus.className = 'auth-status error';
-                document.getElementById('authSection').classList.remove('authenticated');
-                return true;
-            }
-            return false;
-        }
-
-        // Initialize auth state on page load
-        function initAuth() {
-            const savedKey = getApiKey();
-            if (savedKey) {
-                document.getElementById('apiKeyInput').value = savedKey;
-                updateAuthStatus(true);
-            }
-        }
-
         // Parse call_id from URL query param if present
         const urlParams = new URLSearchParams(window.location.search);
         const callIdFromUrl = urlParams.get('call_id');
-
-        // Initialize auth state
-        initAuth();
 
         // Load diff if call_id provided in URL
         if (callIdFromUrl) {
@@ -486,21 +389,15 @@
                 return;
             }
 
-            if (!getApiKey()) {
-                errorContainer.innerHTML = '<div class="error">Please enter your admin API key first</div>';
-                return;
-            }
-
             diffContainer.innerHTML = '<div class="loading">Loading diff...</div>';
 
             try {
                 const response = await fetch(`/debug/calls/${callId}/diff`, {
-                    headers: getAuthHeaders()
+                    credentials: 'same-origin'
                 });
 
-                if (handleAuthError(response)) {
-                    diffContainer.innerHTML = '';
-                    errorContainer.innerHTML = '<div class="error">Authentication failed. Please check your API key.</div>';
+                if (response.status === 403) {
+                    window.location.href = '/login?error=required&next=' + encodeURIComponent(window.location.pathname);
                     return;
                 }
 
@@ -699,22 +596,15 @@
             const diffContainer = document.getElementById('diffContainer');
 
             errorContainer.innerHTML = '';
-
-            if (!getApiKey()) {
-                errorContainer.innerHTML = '<div class="error">Please enter your admin API key first</div>';
-                return;
-            }
-
             diffContainer.innerHTML = '<div class="loading">Loading recent calls...</div>';
 
             try {
                 const response = await fetch('/debug/calls?limit=20', {
-                    headers: getAuthHeaders()
+                    credentials: 'same-origin'
                 });
 
-                if (handleAuthError(response)) {
-                    diffContainer.innerHTML = '';
-                    errorContainer.innerHTML = '<div class="error">Authentication failed. Please check your API key.</div>';
+                if (response.status === 403) {
+                    window.location.href = '/login?error=required&next=' + encodeURIComponent(window.location.pathname);
                     return;
                 }
 

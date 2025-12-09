@@ -1,4 +1,10 @@
-"""Shared authentication utilities for admin and debug endpoints."""
+"""Shared authentication utilities for admin and debug endpoints.
+
+Supports three authentication methods:
+1. Session cookie (for browser access after login)
+2. Bearer token in Authorization header (for API access)
+3. x-api-key header (for API access)
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from luthien_proxy.dependencies import get_admin_key
+from luthien_proxy.session import get_session_user
 
 security = HTTPBearer(auto_error=False)
 
@@ -17,11 +24,12 @@ async def verify_admin_token(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     admin_key: str | None = Depends(get_admin_key),
 ) -> str:
-    """Verify admin API key from Authorization header.
+    """Verify admin authentication via session cookie or API key.
 
-    Accepts authentication via:
-    - Bearer token in Authorization header
-    - x-api-key header
+    Accepts authentication via (checked in order):
+    1. Session cookie (set by /auth/login)
+    2. Bearer token in Authorization header
+    3. x-api-key header
 
     Uses constant-time comparison to prevent timing attacks.
 
@@ -31,7 +39,7 @@ async def verify_admin_token(
         admin_key: Admin API key from dependencies
 
     Returns:
-        Admin API key if valid
+        Authentication token/key if valid
 
     Raises:
         HTTPException: 500 if admin key not configured, 403 if invalid or missing
@@ -42,11 +50,16 @@ async def verify_admin_token(
             detail="Admin authentication not configured (ADMIN_API_KEY not set)",
         )
 
-    # Use constant-time comparison to prevent timing attacks
+    # Check session cookie first (for browser access)
+    session_token = get_session_user(request, admin_key)
+    if session_token:
+        return session_token
+
+    # Check Bearer token in Authorization header
     if credentials and secrets.compare_digest(credentials.credentials, admin_key):
         return credentials.credentials
 
-    # Also check x-api-key header for convenience
+    # Check x-api-key header
     x_api_key = request.headers.get("x-api-key")
     if x_api_key and secrets.compare_digest(x_api_key, admin_key):
         return x_api_key
