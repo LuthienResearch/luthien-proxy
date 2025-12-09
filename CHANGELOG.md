@@ -2,6 +2,9 @@
 
 ## Unreleased | TBA
 
+- Replace magic numbers with named constants (queue_size, max_chunks_queued, truncation lengths, judge max_tokens)
+  - Add constants to `utils/constants.py`: `DEFAULT_QUEUE_SIZE`, `DEFAULT_MAX_CHUNKS_QUEUED`, `LOG_CHUNK_TRUNCATION_LENGTH`, `LOG_SSE_EVENT_TRUNCATION_LENGTH`, `DEFAULT_JUDGE_MAX_TOKENS`, `DEFAULT_LLM_MAX_TOKENS`
+  - Update `policy_orchestrator.py`, `transaction_recorder.py`, `streaming_chunk_assembler.py`, `simple_judge_policy.py`, `tool_call_judge_policy.py`, `llm_format_utils.py`
 - Session-based login for browser access to admin/debug UIs (#88)
   - Add `/login` page with session cookie authentication
   - Protected UI pages (`/activity/monitor`, `/debug/diff`, `/policy-config`) redirect to login when unauthenticated

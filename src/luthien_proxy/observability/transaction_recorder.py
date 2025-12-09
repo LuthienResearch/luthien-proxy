@@ -13,6 +13,7 @@ from opentelemetry import metrics, trace
 from luthien_proxy.messages import Request
 from luthien_proxy.observability.emitter import EventEmitterProtocol, NullEventEmitter
 from luthien_proxy.storage.events import reconstruct_full_response_from_chunks
+from luthien_proxy.utils.constants import DEFAULT_MAX_CHUNKS_QUEUED
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class TransactionRecorder(ABC):
     """Abstract interface for recording transactions."""
 
     @abstractmethod
-    def __init__(self, transaction_id: str, max_chunks_queued: int = 4096):
+    def __init__(self, transaction_id: str, max_chunks_queued: int = DEFAULT_MAX_CHUNKS_QUEUED):
         """Initialize transaction recorder.
 
         Args:
@@ -53,7 +54,7 @@ class TransactionRecorder(ABC):
 class NoOpTransactionRecorder(TransactionRecorder):
     """No-op recorder for testing."""
 
-    def __init__(self, transaction_id: str = "", max_chunks_queued: int = 4096):  # noqa: D107, ARG002
+    def __init__(self, transaction_id: str = "", max_chunks_queued: int = DEFAULT_MAX_CHUNKS_QUEUED):  # noqa: D107, ARG002
         pass
 
     async def record_request(self, original: Request, final: Request) -> None:  # noqa: D102, ARG002
@@ -79,7 +80,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
         self,
         transaction_id: str,
         emitter: EventEmitterProtocol | None = None,
-        max_chunks_queued: int = 4096,
+        max_chunks_queued: int = DEFAULT_MAX_CHUNKS_QUEUED,
     ):
         """Initialize default transaction recorder.
 

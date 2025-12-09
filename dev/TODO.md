@@ -15,7 +15,6 @@
 
 ### Code Quality
 
-- [ ] **Replace magic numbers with named constants** - queue_size, max_chunks_queued, truncation lengths
 - [ ] **Factor out common gateway route logic** - Extract duplicate pipeline setup from `/v1/chat/completions` and `/v1/messages`
 
 ### Documentation (High)

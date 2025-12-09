@@ -24,6 +24,7 @@ from litellm.types.utils import ChatCompletionMessageToolCall
 
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.policies.tool_call_judge_utils import JudgeConfig, call_judge
+from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
 
 if TYPE_CHECKING:
     from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -69,7 +70,7 @@ class SimpleJudgePolicy(SimplePolicy):
             api_key=judge_api_key,
             probability_threshold=block_threshold,
             temperature=judge_temperature,
-            max_tokens=256,
+            max_tokens=DEFAULT_JUDGE_MAX_TOKENS,
         )
 
     def get_config(self) -> dict:
