@@ -2,6 +2,7 @@
 
 ## Unreleased | TBA
 
+- Remove unused prisma dependency (#84)
 - Added auth to debug endpoints (#86)
 
 - Inject EventEmitter via DI instead of global state (#dependency_injection)

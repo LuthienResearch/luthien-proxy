@@ -23,11 +23,6 @@
 ### Infrastructure (High)
 
 - [ ] **Run Database Migration** - Apply `migrations/001_add_policy_config_table.sql`
-- [ ] **Remove Prisma from codebase** - Conflicts with SQL migrations:
-  - Remove `prisma/` directory
-  - Remove `db-migrations` service from docker-compose.yaml
-  - Remove prisma from pyproject.toml dependencies
-  - Remove prisma migrate steps from CI
 
 ### Code Quality
 
