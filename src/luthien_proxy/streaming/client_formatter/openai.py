@@ -8,12 +8,10 @@ from opentelemetry import trace
 
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.client_formatter.interface import ClientFormatter
+from luthien_proxy.utils.constants import QUEUE_PUT_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
-
-# Queue put timeout to prevent deadlock if client is slow
-QUEUE_PUT_TIMEOUT = 30.0
 
 
 class OpenAIClientFormatter(ClientFormatter):
@@ -38,9 +36,9 @@ class OpenAIClientFormatter(ClientFormatter):
             asyncio.TimeoutError: If queue is full and timeout is exceeded
         """
         try:
-            await asyncio.wait_for(queue.put(item), timeout=QUEUE_PUT_TIMEOUT)
+            await asyncio.wait_for(queue.put(item), timeout=QUEUE_PUT_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
-            logger.error(f"Queue put timeout after {QUEUE_PUT_TIMEOUT}s - client may be slow or disconnected")
+            logger.error(f"Queue put timeout after {QUEUE_PUT_TIMEOUT_SECONDS}s - client may be slow or disconnected")
             raise
 
     async def process(
