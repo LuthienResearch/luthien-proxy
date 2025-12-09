@@ -36,6 +36,7 @@ from luthien_proxy.streaming.client_formatter.anthropic import (
 )
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
+from luthien_proxy.utils.constants import API_KEY_HASH_LENGTH, MAX_REQUEST_PAYLOAD_BYTES
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -63,7 +64,7 @@ def verify_token(
 
 def hash_api_key(key: str) -> str:
     """Hash API key for logging."""
-    return hashlib.sha256(key.encode()).hexdigest()[:16]
+    return hashlib.sha256(key.encode()).hexdigest()[:API_KEY_HASH_LENGTH]
 
 
 # === ROUTES ===
@@ -78,8 +79,8 @@ async def chat_completions(
     emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """OpenAI-compatible chat completions endpoint."""
-    # Check request size (default 10MB limit)
-    if (content_length := request.headers.get("content-length")) and int(content_length) > 10_485_760:
+    # Check request size
+    if (content_length := request.headers.get("content-length")) and int(content_length) > MAX_REQUEST_PAYLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Request payload too large")
 
     body = await request.json()
@@ -163,8 +164,8 @@ async def anthropic_messages(
     emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """Anthropic Messages API endpoint."""
-    # Check request size (default 10MB limit)
-    if (content_length := request.headers.get("content-length")) and int(content_length) > 10_485_760:
+    # Check request size
+    if (content_length := request.headers.get("content-length")) and int(content_length) > MAX_REQUEST_PAYLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Request payload too large")
 
     anthropic_body = await request.json()

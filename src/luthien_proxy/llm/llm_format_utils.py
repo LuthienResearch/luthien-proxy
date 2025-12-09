@@ -13,6 +13,8 @@ from typing import cast
 
 from litellm.types.utils import Choices, ModelResponse, Usage
 
+from luthien_proxy.utils.constants import DEFAULT_LLM_MAX_TOKENS
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,7 +132,7 @@ def anthropic_to_openai_request(data: dict) -> dict:
     openai_data = {
         "model": data.get("model"),
         "messages": openai_messages,
-        "max_tokens": data.get("max_tokens", 1024),
+        "max_tokens": data.get("max_tokens", DEFAULT_LLM_MAX_TOKENS),
         "stream": data.get("stream", False),
     }
 

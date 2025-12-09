@@ -23,12 +23,10 @@ from luthien_proxy.streaming.stream_blocks import (
 from luthien_proxy.streaming.streaming_chunk_assembler import (
     StreamingChunkAssembler,
 )
+from luthien_proxy.utils.constants import QUEUE_PUT_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
-
-# Queue put timeout to prevent deadlock if downstream is slow
-QUEUE_PUT_TIMEOUT = 30.0
 
 
 class PolicyExecutor(PolicyExecutorProtocol):
@@ -83,9 +81,9 @@ class PolicyExecutor(PolicyExecutorProtocol):
             asyncio.TimeoutError: If queue is full and timeout is exceeded
         """
         try:
-            await asyncio.wait_for(queue.put(item), timeout=QUEUE_PUT_TIMEOUT)
+            await asyncio.wait_for(queue.put(item), timeout=QUEUE_PUT_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
-            logger.error(f"Queue put timeout after {QUEUE_PUT_TIMEOUT}s - downstream may be slow or stalled")
+            logger.error(f"Queue put timeout after {QUEUE_PUT_TIMEOUT_SECONDS}s - downstream may be slow or stalled")
             raise
 
     async def _cancel_task(self, task: asyncio.Task) -> None:

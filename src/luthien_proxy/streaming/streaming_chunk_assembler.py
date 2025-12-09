@@ -16,6 +16,7 @@ from luthien_proxy.streaming.stream_blocks import (
     ToolCallStreamBlock,
 )
 from luthien_proxy.streaming.stream_state import StreamState
+from luthien_proxy.utils.constants import LOG_CHUNK_TRUNCATION_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ class StreamingChunkAssembler:
         """
         async for chunk in incoming:
             # DEBUG: Log raw chunk from backend
-            logger.debug(f"[BACKEND IN] {str(chunk)[:300]}")  # Truncate for readability
+            logger.debug(f"[BACKEND IN] {str(chunk)[:LOG_CHUNK_TRUNCATION_LENGTH]}")  # Truncate for readability
 
             # Store raw chunk for recording
             self.state.raw_chunks.append(chunk)

@@ -2,6 +2,7 @@
 
 ## Unreleased | TBA
 
+- Replace magic numbers with named constants [constants.py](src/luthien_proxy/utils/constants.py)
 - Session-based login for browser access to admin/debug UIs (#88)
   - Add `/login` page with session cookie authentication
   - Protected UI pages (`/activity/monitor`, `/debug/diff`, `/policy-config`) redirect to login when unauthenticated

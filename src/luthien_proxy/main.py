@@ -32,6 +32,7 @@ from luthien_proxy.telemetry import (
 )
 from luthien_proxy.ui import router as ui_router
 from luthien_proxy.utils import db
+from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -232,4 +233,4 @@ if __name__ == "__main__":
     logger.info(f"Policy configuration: source={config['policy_source']}, path={config['policy_config_path']}")
 
     app = create_app(**config)
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug")
+    uvicorn.run(app, host="0.0.0.0", port=DEFAULT_GATEWAY_PORT, log_level="debug")

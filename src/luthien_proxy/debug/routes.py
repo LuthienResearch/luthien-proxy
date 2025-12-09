@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_db_pool
+from luthien_proxy.utils.constants import DEBUG_CALLS_DEFAULT_LIMIT, DEBUG_CALLS_MAX_LIMIT
 
 from .models import CallDiffResponse, CallEventsResponse, CallListResponse
 from .service import fetch_call_diff, fetch_call_events, fetch_recent_calls
@@ -99,7 +100,7 @@ async def get_call_diff(
 
 @router.get("/calls", response_model=CallListResponse)
 async def list_recent_calls(
-    limit: int = Query(default=50, ge=1, le=1000),
+    limit: int = Query(default=DEBUG_CALLS_DEFAULT_LIMIT, ge=1, le=DEBUG_CALLS_MAX_LIMIT),
     _: str = Depends(verify_admin_token),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
 ) -> CallListResponse:

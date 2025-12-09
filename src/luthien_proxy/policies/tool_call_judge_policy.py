@@ -16,7 +16,7 @@ Example config:
         api_key: null
         probability_threshold: 0.6
         temperature: 0.0
-        max_tokens: 256
+        max_tokens: 256  # see DEFAULT_JUDGE_MAX_TOKENS
         judge_instructions: "You are a security analyst..."
         blocked_message_template: "Tool '{tool_name}' blocked: {explanation}"
 """
@@ -55,6 +55,7 @@ from luthien_proxy.policy_core import (
     create_tool_call_chunk,
     extract_tool_calls_from_response,
 )
+from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ class ToolCallJudgePolicy(BasePolicy):
         api_key: str | None = None,
         probability_threshold: float = 0.6,
         temperature: float = 0.0,
-        max_tokens: int = 256,
+        max_tokens: int = DEFAULT_JUDGE_MAX_TOKENS,
         judge_instructions: str | None = None,
         blocked_message_template: str | None = None,
     ):

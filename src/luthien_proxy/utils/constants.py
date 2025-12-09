@@ -8,3 +8,91 @@ CONTENT_PREVIEW_MAX_LENGTH = 50
 # Smallest interval (in seconds) between control-plane poll attempts in the stream
 # orchestrator. Using a floor avoids busy loops while still keeping latency low.
 MIN_STREAM_POLL_INTERVAL_SECONDS = 0.01
+
+# ------------------------------------------------------------------------------
+# Streaming Pipeline Queue/Buffer Sizes
+# ------------------------------------------------------------------------------
+
+# Maximum queue size for async queues in the policy orchestrator.
+# Acts as a circuit breaker on overflow to prevent unbounded memory growth.
+DEFAULT_QUEUE_SIZE = 10000
+
+# Maximum number of chunks to buffer in the transaction recorder before truncation.
+# Prevents memory exhaustion on very long streaming responses.
+DEFAULT_MAX_CHUNKS_QUEUED = 4096
+
+# ------------------------------------------------------------------------------
+# Logging Truncation Lengths
+# ------------------------------------------------------------------------------
+
+# Maximum characters for backend chunk logging (DEBUG level).
+LOG_CHUNK_TRUNCATION_LENGTH = 300
+
+# Maximum characters for SSE event logging (DEBUG level).
+LOG_SSE_EVENT_TRUNCATION_LENGTH = 200
+
+# ------------------------------------------------------------------------------
+# LLM Judge Defaults
+# ------------------------------------------------------------------------------
+
+# Default max tokens for judge LLM responses.
+DEFAULT_JUDGE_MAX_TOKENS = 256
+
+# Default max tokens for LLM requests when not specified.
+DEFAULT_LLM_MAX_TOKENS = 1024
+
+# ------------------------------------------------------------------------------
+# Queue/Stream Timeouts
+# ------------------------------------------------------------------------------
+
+# Timeout (in seconds) for putting items in async queues to prevent deadlock.
+# Used when downstream handlers (policy executor, client formatters) are slow/stalled.
+QUEUE_PUT_TIMEOUT_SECONDS = 30.0
+
+# ------------------------------------------------------------------------------
+# Request Limits
+# ------------------------------------------------------------------------------
+
+# Maximum HTTP request payload size (10 MB).
+# Prevents OOM attacks and limits request complexity.
+MAX_REQUEST_PAYLOAD_BYTES = 10_485_760
+
+# ------------------------------------------------------------------------------
+# Debug/Admin Endpoint Defaults
+# ------------------------------------------------------------------------------
+
+# Default number of recent calls to return in debug list endpoint.
+DEBUG_CALLS_DEFAULT_LIMIT = 50
+
+# Maximum number of recent calls allowed in debug list endpoint.
+DEBUG_CALLS_MAX_LIMIT = 1000
+
+# ------------------------------------------------------------------------------
+# Event Stream Configuration
+# ------------------------------------------------------------------------------
+
+# Interval (in seconds) between SSE keepalive heartbeat events.
+# Prevents client disconnections due to inactivity.
+HEARTBEAT_INTERVAL_SECONDS = 15.0
+
+# Timeout (in seconds) for Redis pub/sub polling.
+REDIS_PUBSUB_TIMEOUT_SECONDS = 1.0
+
+# Additional buffer (in seconds) added to asyncio timeout for pub/sub operations.
+# Accounts for asyncio scheduling overhead.
+REDIS_POLL_TIMEOUT_BUFFER_SECONDS = 0.5
+
+# ------------------------------------------------------------------------------
+# Security & Hashing
+# ------------------------------------------------------------------------------
+
+# Length of API key hash to display in logs (SHA256 substring).
+# Balance between security and debugging convenience.
+API_KEY_HASH_LENGTH = 16
+
+# ------------------------------------------------------------------------------
+# Gateway Server
+# ------------------------------------------------------------------------------
+
+# Default port for gateway HTTP server.
+DEFAULT_GATEWAY_PORT = 8000

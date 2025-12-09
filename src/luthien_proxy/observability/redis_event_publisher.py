@@ -20,6 +20,12 @@ from typing import Any, AsyncGenerator
 import redis.asyncio as redis
 from redis.asyncio.client import PubSub
 
+from luthien_proxy.utils.constants import (
+    HEARTBEAT_INTERVAL_SECONDS,
+    REDIS_POLL_TIMEOUT_BUFFER_SECONDS,
+    REDIS_PUBSUB_TIMEOUT_SECONDS,
+)
+
 logger = logging.getLogger(__name__)
 
 # Redis channel for activity events (used by both publisher and streamer)
@@ -143,7 +149,7 @@ async def _poll_pubsub_message(pubsub: PubSub, timeout_seconds: float) -> dict[s
     try:
         return await asyncio.wait_for(
             pubsub.get_message(ignore_subscribe_messages=True, timeout=timeout_seconds),
-            timeout=timeout_seconds + 0.5,
+            timeout=timeout_seconds + REDIS_POLL_TIMEOUT_BUFFER_SECONDS,
         )
     except asyncio.TimeoutError:
         return None
@@ -151,8 +157,8 @@ async def _poll_pubsub_message(pubsub: PubSub, timeout_seconds: float) -> dict[s
 
 async def stream_activity_events(
     redis_client: redis.Redis,
-    heartbeat_seconds: float = 15.0,
-    timeout_seconds: float = 1.0,
+    heartbeat_seconds: float = HEARTBEAT_INTERVAL_SECONDS,
+    timeout_seconds: float = REDIS_PUBSUB_TIMEOUT_SECONDS,
 ) -> AsyncGenerator[str, None]:
     r"""Stream activity events as Server-Sent Events.
 

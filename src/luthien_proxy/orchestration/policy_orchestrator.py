@@ -17,6 +17,7 @@ from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.streaming.client_formatter import ClientFormatter
 from luthien_proxy.streaming.policy_executor import PolicyExecutor
+from luthien_proxy.utils.constants import DEFAULT_QUEUE_SIZE, LOG_SSE_EVENT_TRUNCATION_LENGTH
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -44,7 +45,7 @@ class PolicyOrchestrator:
         policy_executor: PolicyExecutor,
         client_formatter: ClientFormatter,
         transaction_recorder: TransactionRecorder,
-        queue_size: int = 10000,
+        queue_size: int = DEFAULT_QUEUE_SIZE,
     ) -> None:
         """Initialize orchestrator with injected dependencies.
 
@@ -189,7 +190,7 @@ class PolicyOrchestrator:
                 # None sentinel signals end of stream
                 break
             # DEBUG: Log raw SSE string being sent to client
-            logger.debug(f"[CLIENT OUT] {event[:200]}")  # Truncate for readability
+            logger.debug(f"[CLIENT OUT] {event[:LOG_SSE_EVENT_TRUNCATION_LENGTH]}")  # Truncate for readability
             yield event
 
 
