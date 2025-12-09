@@ -116,11 +116,13 @@
 
     <div class="section">
         <h2>🔍 Debug API Endpoints</h2>
+        <p style="color: #666; font-size: 14px; margin-bottom: 15px;">All debug endpoints require admin authentication (ADMIN_API_KEY)</p>
 
         <div class="endpoint">
             <span class="method">GET</span>
-            <a href="/debug/calls" target="_blank">/debug/calls</a>
+            <span>/debug/calls</span>
             <span class="badge api">API</span>
+            <span class="badge">Auth Required</span>
             <div class="description">List recent calls with event counts (supports <code>?limit=N</code> parameter, default 50)</div>
         </div>
 
@@ -128,6 +130,7 @@
             <span class="method">GET</span>
             <span>/debug/calls/{call_id}</span>
             <span class="badge api">API</span>
+            <span class="badge">Auth Required</span>
             <div class="description">Retrieve all conversation events for a specific call (includes Tempo trace URL)</div>
         </div>
 
@@ -135,6 +138,7 @@
             <span class="method">GET</span>
             <span>/debug/calls/{call_id}/diff</span>
             <span class="badge api">API</span>
+            <span class="badge">Auth Required</span>
             <div class="description">Get JSON diff showing what the policy changed (requests, responses, messages)</div>
         </div>
     </div>
@@ -182,8 +186,7 @@
     <div class="section quickstart">
         <h2>💡 Quick Start</h2>
         <p><strong>View real-time activity:</strong> <a href="/activity/monitor" target="_blank">Open Activity Monitor</a></p>
-        <p><strong>Inspect policy changes:</strong> <a href="/debug/diff" target="_blank">Open Diff Viewer</a></p>
-        <p><strong>List recent calls:</strong> <a href="/debug/calls" target="_blank">Browse Call History</a></p>
+        <p><strong>Inspect policy changes:</strong> <a href="/debug/diff" target="_blank">Open Diff Viewer</a> (requires admin API key)</p>
     </div>
 </body>
 </html>

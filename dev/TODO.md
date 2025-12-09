@@ -14,14 +14,6 @@
 - [ ] **Cleaner policy config story** - Consolidate policy configuration approach (config file vs db vs runtime injection) with clear precedence rules
 - [ ] **Cleaner authentication story** - Unified auth system for API key + general authentication for sensitive endpoints (admin, debug, etc.)
 
-### Infrastructure (High)
-
-- [ ] **Remove Prisma from codebase** - Conflicts with SQL migrations:
-  - Remove `prisma/` directory
-  - Remove `db-migrations` service from docker-compose.yaml
-  - Remove prisma from pyproject.toml dependencies
-  - Remove prisma migrate steps from CI
-
 ### Code Quality
 
 - [ ] **Fix assertion usage in production code** - Replace `assert` statements in `simple_policy.py` with proper exceptions
@@ -38,7 +30,6 @@
 ### Security
 
 - [ ] Add input validation: max request size and message count limits
-- [ ] Add authentication for debug endpoints
 
 ## Medium Priority
 
