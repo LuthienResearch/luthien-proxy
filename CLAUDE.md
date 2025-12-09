@@ -101,7 +101,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - `config/`: `policy_config.yaml`, `local_llm_config.yaml`
 - `scripts/`: developer helpers (`quick_start.sh`, `test_gateway.sh`)
 - `docker/` + `docker-compose.yaml`: local stack (db, redis, gateway, local-llm)
-- `migrations/`, `prisma/`: database setup
+- `migrations/`: SQL database migrations
 - `tests/`: unit/integration tests
 
 ## Build, Test, and Development Commands

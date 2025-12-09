@@ -1,3 +1,3 @@
 # Development Notes
 
-*No active notes*
+(none)

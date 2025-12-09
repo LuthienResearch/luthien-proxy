@@ -8,12 +8,7 @@ This module provides REST endpoints for debugging policy decisions:
 Route handlers are thin wrappers that handle HTTP concerns (dependency injection,
 error responses) and delegate business logic to the service layer.
 
-SECURITY NOTE: These debug endpoints currently do not require authentication.
-In production environments, consider:
-1. Adding authentication (e.g., using verify_admin_token like /admin routes)
-2. Restricting access via network policies (internal-only endpoints)
-3. Being aware that full request/response payloads may contain sensitive data
-   (API keys, user data, etc.) and are stored in the database unredacted.
+All debug endpoints require admin authentication (same as /admin routes).
 """
 
 from __future__ import annotations
@@ -23,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_db_pool
 
 from .models import CallDiffResponse, CallEventsResponse, CallListResponse
@@ -42,6 +38,7 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 @router.get("/calls/{call_id}", response_model=CallEventsResponse)
 async def get_call_events(
     call_id: str,
+    _: str = Depends(verify_admin_token),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
 ) -> CallEventsResponse:
     """Retrieve all conversation events for a specific call_id.
@@ -72,6 +69,7 @@ async def get_call_events(
 @router.get("/calls/{call_id}/diff", response_model=CallDiffResponse)
 async def get_call_diff(
     call_id: str,
+    _: str = Depends(verify_admin_token),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
 ) -> CallDiffResponse:
     """Compute diff between original and final request/response for a call.
@@ -102,6 +100,7 @@ async def get_call_diff(
 @router.get("/calls", response_model=CallListResponse)
 async def list_recent_calls(
     limit: int = Query(default=50, ge=1, le=1000),
+    _: str = Depends(verify_admin_token),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
 ) -> CallListResponse:
     """List recent calls with event counts.
