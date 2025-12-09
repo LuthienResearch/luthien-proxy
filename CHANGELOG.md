@@ -2,6 +2,7 @@
 
 ## Unreleased | TBA
 
+- Confirmed policy config UI backend integration already complete via PR #66 (feature/policy-ui-backend)
 - Centralize environment configuration with pydantic-settings (#refactor/env-config-centralize)
   - Add `Settings` class in `src/luthien_proxy/settings.py` for typed configuration
   - Replace scattered `os.getenv()` calls throughout codebase with centralized settings access
