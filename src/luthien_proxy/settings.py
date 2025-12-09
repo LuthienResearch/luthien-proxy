@@ -56,7 +56,11 @@ class Settings(BaseSettings):
 
     @property
     def effective_otel_endpoint(self) -> str:
-        """Return the effective OTEL endpoint, preferring standard env var."""
+        """Return the effective OTEL endpoint.
+
+        Prefers the standard OTEL_EXPORTER_OTLP_ENDPOINT env var over the
+        legacy OTEL_ENDPOINT for backward compatibility.
+        """
         return self.otel_exporter_otlp_endpoint or self.otel_endpoint
 
 
