@@ -6,12 +6,6 @@
 
 ### Policy UI & Admin
 
-- [ ] **Policy Config UI - Connect to Backend** - Wire up the Policy Configuration UI to use real admin API:
-  - Update `policy_config.js` to call `/admin/policy/enable` instead of mocking
-  - Add admin key input/storage (prompt on first use, store in sessionStorage)
-  - Fetch current policy from `/admin/policy/current` on page load
-  - Connect SSE to real `/activity/stream` for test detection
-- [ ] **Policy Discovery/Listing** - Implement `/admin/policy/list` endpoint with policy metadata
 - [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files
 
 ### Architecture Improvements
@@ -22,7 +16,6 @@
 
 ### Infrastructure (High)
 
-- [ ] **Run Database Migration** - Apply `migrations/001_add_policy_config_table.sql`
 - [ ] **Remove Prisma from codebase** - Conflicts with SQL migrations:
   - Remove `prisma/` directory
   - Remove `db-migrations` service from docker-compose.yaml
