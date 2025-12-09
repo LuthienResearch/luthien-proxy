@@ -2,6 +2,11 @@
 
 ## Unreleased | TBA
 
+- Centralize environment configuration with pydantic-settings (#refactor/env-config-centralize)
+  - Add `Settings` class in `src/luthien_proxy/settings.py` for typed configuration
+  - Replace scattered `os.getenv()` calls throughout codebase with centralized settings access
+  - Support `.env` file loading via pydantic-settings
+  - Add `clear_settings_cache()` for test isolation
 - Remove unused prisma dependency (#84)
 - Added auth to debug endpoints (#86)
 

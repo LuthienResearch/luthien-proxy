@@ -2,6 +2,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 # Ensure the src/ directory is importable in tests without extra tooling.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
@@ -20,6 +22,20 @@ def pytest_sessionstart(session):
     # Disable OpenTelemetry export during tests to avoid noisy errors
     # (OTel tries to export to tempo:4317 which doesn't exist in test environment)
     os.environ.setdefault("OTEL_ENABLED", "false")
+
+
+@pytest.fixture(autouse=True)
+def clear_settings_cache():
+    """Clear the settings cache before each test.
+
+    This ensures that tests that modify environment variables get fresh
+    settings instances instead of stale cached values.
+    """
+    from luthien_proxy.settings import clear_settings_cache
+
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
 
 
 def pytest_configure(config):

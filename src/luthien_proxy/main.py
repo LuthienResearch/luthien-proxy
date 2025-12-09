@@ -10,6 +10,7 @@ import litellm
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 from redis.asyncio import Redis
 
 from luthien_proxy.admin import router as admin_router
@@ -20,6 +21,7 @@ from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.policy_manager import PolicyManager
+from luthien_proxy.settings import Settings, get_settings
 from luthien_proxy.telemetry import (
     configure_logging,
     configure_tracing,
@@ -181,8 +183,11 @@ def create_app(
     return app
 
 
-def load_config_from_env() -> dict:
+def load_config_from_env(settings: Settings | None = None) -> dict:
     """Load and validate configuration from environment variables.
+
+    Args:
+        settings: Optional Settings instance for testing. Uses get_settings() if None.
 
     Returns:
         Dictionary with configuration values ready for create_app()
@@ -190,35 +195,28 @@ def load_config_from_env() -> dict:
     Raises:
         ValueError: If required environment variables are missing or invalid
     """
-    api_key = os.getenv("PROXY_API_KEY")
-    if api_key is None:
+    try:
+        if settings is None:
+            settings = get_settings()
+    except ValidationError as e:
+        raise ValueError(f"Invalid configuration: {e}")
+
+    if settings.proxy_api_key is None:
         raise ValueError("PROXY_API_KEY environment variable required")
 
-    admin_key = os.getenv("ADMIN_API_KEY")
-    if admin_key is None:
+    if settings.admin_api_key is None:
         raise ValueError("ADMIN_API_KEY environment variable required")
 
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    database_url = os.getenv("DATABASE_URL", "")
-    if not database_url:
+    if not settings.database_url:
         raise ValueError("DATABASE_URL environment variable required")
 
-    # Policy configuration
-    policy_source = os.getenv("POLICY_SOURCE", "db-fallback-file")
-    policy_config_path = os.getenv("POLICY_CONFIG", "config/policy_config.yaml")
-
-    # Validate policy source
-    valid_sources = ["db", "file", "db-fallback-file", "file-fallback-db"]
-    if policy_source not in valid_sources:
-        raise ValueError(f"Invalid POLICY_SOURCE={policy_source}. Must be one of: {', '.join(valid_sources)}")
-
     return {
-        "api_key": api_key,
-        "admin_key": admin_key,
-        "database_url": database_url,
-        "redis_url": redis_url,
-        "policy_source": policy_source,
-        "policy_config_path": policy_config_path,
+        "api_key": settings.proxy_api_key,
+        "admin_key": settings.admin_api_key,
+        "database_url": settings.database_url,
+        "redis_url": settings.redis_url,
+        "policy_source": settings.policy_source,
+        "policy_config_path": settings.policy_config,
     }
 
 
