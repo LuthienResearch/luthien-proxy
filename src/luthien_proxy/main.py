@@ -48,8 +48,7 @@ def create_app(
     admin_key: str | None,
     database_url: str,
     redis_url: str,
-    policy_source: str,
-    policy_config_path: str,
+    startup_policy_path: str | None = None,
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
 
@@ -58,8 +57,8 @@ def create_app(
         admin_key: API key for admin operations (ADMIN_API_KEY)
         database_url: PostgreSQL database URL
         redis_url: Redis URL for event publishing
-        policy_source: Policy source precedence mode
-        policy_config_path: Path to YAML policy configuration
+        startup_policy_path: Optional path to YAML policy config to load at startup
+                             (overrides DB, persists to DB). If None, loads from DB only.
 
     Returns:
         Configured FastAPI application with all routes and middleware
@@ -104,21 +103,17 @@ def create_app(
         )
         logger.info("Event emitter created")
 
-        # Initialize PolicyManager with configured source precedence
+        # Initialize PolicyManager
         _policy_manager: PolicyManager | None = None
         if _db_pool and _redis_client:
             try:
                 _policy_manager = PolicyManager(
                     db_pool=_db_pool,
                     redis_client=_redis_client,
-                    yaml_path=policy_config_path,
-                    policy_source=policy_source,  # type: ignore
+                    startup_policy_path=startup_policy_path,
                 )
                 await _policy_manager.initialize()
-                logger.info(
-                    f"PolicyManager initialized (source: {policy_source}, "
-                    f"policy: {_policy_manager.current_policy.__class__.__name__})"
-                )
+                logger.info(f"PolicyManager initialized (policy: {_policy_manager.current_policy.__class__.__name__})")
             except Exception as exc:
                 logger.error(f"Failed to initialize PolicyManager: {exc}", exc_info=True)
                 raise RuntimeError(f"Failed to initialize PolicyManager: {exc}")
@@ -220,8 +215,7 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         "admin_key": settings.admin_api_key,
         "database_url": settings.database_url,
         "redis_url": settings.redis_url,
-        "policy_source": settings.policy_source,
-        "policy_config_path": settings.policy_config,
+        "startup_policy_path": settings.policy_config if settings.policy_config else None,
     }
 
 
@@ -230,7 +224,8 @@ __all__ = ["create_app", "load_config_from_env"]
 
 if __name__ == "__main__":
     config = load_config_from_env()
-    logger.info(f"Policy configuration: source={config['policy_source']}, path={config['policy_config_path']}")
+    startup_path = config.get("startup_policy_path")
+    logger.info(f"Policy configuration: startup_policy_path={startup_path or '(load from DB)'}")
 
     app = create_app(**config)
     uvicorn.run(app, host="0.0.0.0", port=DEFAULT_GATEWAY_PORT, log_level="debug")

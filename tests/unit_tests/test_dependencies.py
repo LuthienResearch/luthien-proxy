@@ -351,8 +351,7 @@ class TestDependenciesIntegrationWithMain:
                 admin_key="test-admin-key",
                 database_url="postgresql://test:test@localhost/test",
                 redis_url="redis://localhost:6379",
-                policy_source="file",
-                policy_config_path=policy_config_file,
+                startup_policy_path=policy_config_file,
             )
 
             with TestClient(app):

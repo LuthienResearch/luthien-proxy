@@ -2,24 +2,19 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from luthien_proxy.auth import verify_admin_token
-from luthien_proxy.dependencies import get_db_pool, get_policy_manager
+from luthien_proxy.dependencies import get_policy_manager
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
     PolicyManager,
-    _import_policy_class,
-    _instantiate_policy,
 )
-from luthien_proxy.utils import db
 
 logger = logging.getLogger(__name__)
 
@@ -29,21 +24,12 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # === Request/Response Models ===
 
 
-class PolicyCreateRequest(BaseModel):
-    """Request to create a policy instance."""
+class PolicySetRequest(BaseModel):
+    """Request to set the active policy."""
 
-    name: str = Field(..., description="Unique name for this policy instance")
     policy_class_ref: str = Field(..., description="Full module path to policy class")
     config: dict[str, Any] = Field(default_factory=dict, description="Configuration for the policy")
-    description: str | None = Field(None, description="Optional description of this policy instance")
-    created_by: str = Field(default="api", description="Identifier of who created the policy")
-
-
-class PolicyActivateRequest(BaseModel):
-    """Request to activate a policy instance."""
-
-    name: str = Field(..., description="Name of policy instance to activate")
-    activated_by: str = Field(default="api", description="Identifier of who activated the policy")
+    enabled_by: str = Field(default="api", description="Identifier of who enabled the policy")
 
 
 class PolicyEnableResponse(BaseModel):
@@ -65,16 +51,6 @@ class PolicyCurrentResponse(BaseModel):
     enabled_at: str | None
     enabled_by: str | None
     config: dict[str, Any]
-    source_info: dict[str, Any]
-
-
-class PolicySourceInfoResponse(BaseModel):
-    """Response with policy source configuration info."""
-
-    policy_source: str
-    yaml_path: str
-    supports_runtime_changes: bool
-    persistence_target: str
 
 
 class PolicyClassInfo(BaseModel):
@@ -93,24 +69,6 @@ class PolicyListResponse(BaseModel):
     policies: list[PolicyClassInfo]
 
 
-class PolicyInstanceInfo(BaseModel):
-    """Information about a saved policy instance."""
-
-    id: int
-    name: str
-    policy_class_ref: str
-    config: dict[str, Any]
-    description: str | None
-    created_at: str
-    is_active: bool
-
-
-class PolicyInstancesResponse(BaseModel):
-    """Response with list of saved policy instances."""
-
-    instances: list[PolicyInstanceInfo]
-
-
 # === Routes ===
 
 
@@ -122,7 +80,7 @@ async def get_current_policy(
     """Get currently active policy with metadata.
 
     Returns information about the currently active policy including
-    its configuration, when it was enabled, and source information.
+    its configuration and when it was enabled.
 
     Requires admin authentication.
     """
@@ -134,174 +92,51 @@ async def get_current_policy(
             enabled_at=policy_info.enabled_at,
             enabled_by=policy_info.enabled_by,
             config=policy_info.config,
-            source_info=policy_info.source_info,
         )
     except Exception as e:
         logger.error(f"Failed to get current policy: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get current policy: {e}")
 
 
-@router.post("/policy/create", response_model=PolicyEnableResponse)
-async def create_policy(
-    body: PolicyCreateRequest,
-    _: str = Depends(verify_admin_token),
-    db_pool: db.DatabasePool | None = Depends(get_db_pool),
-):
-    """Create a named policy instance without activating it."""
-    if db_pool is None:
-        raise HTTPException(status_code=503, detail="Database not available")
-
-    try:
-        # Validate policy can be instantiated
-        policy_class = _import_policy_class(body.policy_class_ref)
-        _instantiate_policy(policy_class, body.config)
-
-        # Save to database
-        pool = await db_pool.get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO policy_config (name, policy_class_ref, config, description, enabled_by, is_active)
-                VALUES ($1, $2, $3, $4, $5, false)
-                RETURNING id
-                """,
-                body.name,
-                body.policy_class_ref,
-                json.dumps(body.config),
-                body.description,
-                body.created_by,
-            )
-
-        if row is None:
-            raise HTTPException(status_code=500, detail="Failed to create policy instance")
-
-        return PolicyEnableResponse(
-            success=True,
-            message=f"Created policy instance '{body.name}' (ID: {row['id']})",
-            policy=body.name,
-        )
-    except Exception as e:
-        logger.error(f"Failed to create policy: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# TODO: the actual logic here should be farmed out to a policy manager module
-@router.post("/policy/activate", response_model=PolicyEnableResponse)
-async def activate_policy(
-    body: PolicyActivateRequest,
+@router.post("/policy/set", response_model=PolicyEnableResponse)
+async def set_policy(
+    body: PolicySetRequest,
     _: str = Depends(verify_admin_token),
     manager: PolicyManager = Depends(get_policy_manager),
-    db_pool: db.DatabasePool | None = Depends(get_db_pool),
 ):
-    """Activate a saved policy instance by name."""
-    if db_pool is None:
-        raise HTTPException(status_code=503, detail="Database not available")
+    """Set the active policy.
 
+    This is the primary endpoint for changing the active policy.
+    The policy is validated, activated in memory, and persisted to the database.
+
+    Requires admin authentication.
+    """
     try:
-        # Load instance from database
-        pool = await db_pool.get_pool()
-        row = await pool.fetchrow(
-            "SELECT policy_class_ref, config FROM policy_config WHERE name = $1",
-            body.name,
-        )
-        if not row:
-            raise HTTPException(status_code=404, detail=f"Policy instance '{body.name}' not found")
-
-        # Parse config (handle both dict from JSONB and string from JSON)
-        config_value = row["config"]
-        config = config_value if isinstance(config_value, dict) else json.loads(str(config_value))
-
-        # Activate it
         result: PolicyEnableResult = await manager.enable_policy(
-            policy_class_ref=str(row["policy_class_ref"]),
-            config=config,
-            enabled_by=body.activated_by,
+            policy_class_ref=body.policy_class_ref,
+            config=body.config,
+            enabled_by=body.enabled_by,
         )
 
         if not result.success:
             return PolicyEnableResponse(
                 success=False,
-                message=f"Failed to activate: {result.error}",
+                message=f"Failed to set policy: {result.error}",
                 error=result.error,
                 troubleshooting=result.troubleshooting,
             )
 
-        # Mark as active in database (atomic transaction)
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute("UPDATE policy_config SET is_active = false")
-                await conn.execute(
-                    "UPDATE policy_config SET is_active = true WHERE name = $1",
-                    body.name,
-                )
-
         return PolicyEnableResponse(
             success=True,
-            message=f"Activated policy instance '{body.name}'",
+            message=f"Policy set to {body.policy_class_ref}",
             policy=result.policy,
             restart_duration_ms=result.restart_duration_ms,
         )
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to activate policy: {e}", exc_info=True)
+        logger.error(f"Failed to set policy: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/policy/source-info", response_model=PolicySourceInfoResponse)
-async def get_policy_source_info(
-    _: str = Depends(verify_admin_token),
-    manager: PolicyManager = Depends(get_policy_manager),
-):
-    """Get information about policy source configuration.
-
-    Returns details about how policies are loaded and persisted,
-    including whether runtime changes are supported.
-
-    Requires admin authentication.
-    """
-    try:
-        source_info = await manager.get_policy_source_info()
-        return PolicySourceInfoResponse(**source_info)
-    except Exception as e:
-        logger.error(f"Failed to get policy source info: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get source info: {e}")
-
-
-@router.get("/policy/instances", response_model=PolicyInstancesResponse)
-async def list_policy_instances(
-    _: str = Depends(verify_admin_token),
-    db_pool: db.DatabasePool | None = Depends(get_db_pool),
-):
-    """List all saved policy instances."""
-    if db_pool is None:
-        raise HTTPException(status_code=503, detail="Database not available")
-    pool = await db_pool.get_pool()
-
-    rows = await pool.fetch(
-        """
-        SELECT id, name, policy_class_ref, config, description, created_at, is_active
-        FROM policy_config
-        ORDER BY created_at DESC
-        """
-    )
-
-    instances = [
-        PolicyInstanceInfo(
-            id=cast(int, row["id"]),
-            name=str(row["name"]) if row["name"] else f"policy-{row['id']}",
-            policy_class_ref=str(row["policy_class_ref"]),
-            config=row["config"] if isinstance(row["config"], dict) else {},
-            description=str(row["description"]) if row["description"] else None,
-            created_at=cast(datetime, row["created_at"]).isoformat()
-            if hasattr(row["created_at"], "isoformat")
-            else str(row["created_at"]),
-            is_active=bool(row["is_active"]),
-        )
-        for row in rows
-    ]
-
-    return PolicyInstancesResponse(instances=instances)
 
 
 @router.get("/policy/list", response_model=PolicyListResponse)
@@ -317,7 +152,7 @@ async def list_available_policies(
     - Example configuration
 
     This endpoint helps users discover what policies are available and
-    how to configure them before creating policy instances.
+    how to configure them.
 
     Requires admin authentication.
     """

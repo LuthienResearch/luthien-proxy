@@ -1,7 +1,5 @@
 """Unit tests for Settings class and configuration management."""
 
-import pytest
-
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
 
 
@@ -19,16 +17,10 @@ class TestSettingsDefaults:
         assert settings.redis_url == "redis://localhost:6379"
 
     def test_default_policy_config(self, monkeypatch):
-        """Test default policy config path."""
+        """Test default policy config path is empty (load from DB)."""
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
         settings = Settings(_env_file=None)
-        assert settings.policy_config == "config/policy_config.yaml"
-
-    def test_default_policy_source(self, monkeypatch):
-        """Test default policy source."""
-        monkeypatch.delenv("POLICY_SOURCE", raising=False)
-        settings = Settings(_env_file=None)
-        assert settings.policy_source == "db-fallback-file"
+        assert settings.policy_config == ""
 
     def test_default_otel_enabled(self, monkeypatch):
         """Test OpenTelemetry is enabled by default."""
@@ -97,45 +89,11 @@ class TestSettingsFromEnv:
         settings = Settings()
         assert settings.otel_enabled is False
 
-    def test_loads_policy_source(self, monkeypatch):
-        """Test POLICY_SOURCE is loaded from environment."""
-        monkeypatch.setenv("POLICY_SOURCE", "file")
+    def test_loads_policy_config(self, monkeypatch):
+        """Test POLICY_CONFIG is loaded from environment."""
+        monkeypatch.setenv("POLICY_CONFIG", "custom/policy.yaml")
         settings = Settings()
-        assert settings.policy_source == "file"
-
-
-class TestPolicySourceValidation:
-    """Test Literal type validation for policy_source."""
-
-    def test_valid_policy_source_db(self, monkeypatch):
-        """Test valid policy source: db."""
-        monkeypatch.setenv("POLICY_SOURCE", "db")
-        settings = Settings()
-        assert settings.policy_source == "db"
-
-    def test_valid_policy_source_file(self, monkeypatch):
-        """Test valid policy source: file."""
-        monkeypatch.setenv("POLICY_SOURCE", "file")
-        settings = Settings()
-        assert settings.policy_source == "file"
-
-    def test_valid_policy_source_db_fallback_file(self, monkeypatch):
-        """Test valid policy source: db-fallback-file."""
-        monkeypatch.setenv("POLICY_SOURCE", "db-fallback-file")
-        settings = Settings()
-        assert settings.policy_source == "db-fallback-file"
-
-    def test_valid_policy_source_file_fallback_db(self, monkeypatch):
-        """Test valid policy source: file-fallback-db."""
-        monkeypatch.setenv("POLICY_SOURCE", "file-fallback-db")
-        settings = Settings()
-        assert settings.policy_source == "file-fallback-db"
-
-    def test_invalid_policy_source_raises_error(self, monkeypatch):
-        """Test invalid POLICY_SOURCE raises validation error."""
-        monkeypatch.setenv("POLICY_SOURCE", "invalid-source")
-        with pytest.raises(Exception):  # Pydantic ValidationError
-            Settings()
+        assert settings.policy_config == "custom/policy.yaml"
 
 
 class TestEffectiveOtelEndpoint:

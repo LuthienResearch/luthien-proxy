@@ -5,16 +5,13 @@
 
 Tests the admin API endpoints for policy management including:
 - GET /admin/policy/current - Get current policy information
-- POST /admin/policy/create - Create a named policy instance
-- POST /admin/policy/activate - Activate a saved policy instance
+- POST /admin/policy/set - Set the active policy
 - GET /admin/policy/list - List available policy classes
-- GET /admin/policy/instances - List saved policy instances
-- GET /admin/policy/source-info - Get configuration details
-- Policy persistence across different POLICY_SOURCE modes
+- Policy persistence to database
 - Hot-reload functionality (changing policy without restart)
 
 These tests require:
-- Running v2-gateway service (docker compose up gateway)
+- Running gateway service (docker compose up gateway)
 - Database with migrations applied (001, 002)
 - Redis for distributed locking
 - Valid ADMIN_API_KEY in environment
@@ -50,6 +47,39 @@ def admin_headers():
 def proxy_headers():
     """Provide proxy authentication headers."""
     return {"Authorization": f"Bearer {PROXY_API_KEY}"}
+
+
+@pytest.fixture(scope="module")
+async def restore_policy_after_tests():
+    """Save initial policy state and restore it after all tests in this module.
+
+    This ensures tests are good citizens and don't leave the gateway in an
+    unexpected state for other tests or manual testing.
+    """
+    headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
+
+    # Save initial policy state before any tests run
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(f"{GATEWAY_URL}/admin/policy/current", headers=headers)
+        if response.status_code == 200:
+            initial_policy = response.json()
+        else:
+            initial_policy = None
+
+    yield
+
+    # Restore initial policy after all tests complete
+    if initial_policy:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await client.post(
+                f"{GATEWAY_URL}/admin/policy/set",
+                headers=headers,
+                json={
+                    "policy_class_ref": initial_policy["class_ref"],
+                    "config": initial_policy.get("config", {}),
+                    "enabled_by": "e2e-test-cleanup",
+                },
+            )
 
 
 # === Admin API Authentication Tests ===
@@ -104,25 +134,6 @@ async def test_get_current_policy(http_client, admin_headers):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_get_policy_source_info(http_client, admin_headers):
-    """Test getting policy source configuration."""
-    response = await http_client.get(
-        f"{GATEWAY_URL}/admin/policy/source-info",
-        headers=admin_headers,
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    assert "policy_source" in data
-    assert "yaml_path" in data
-    assert "supports_runtime_changes" in data
-
-    print(f"Policy source: {data['policy_source']}")
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
 async def test_list_available_policies(http_client, admin_headers):
     """Test listing available policy classes."""
     response = await http_client.get(
@@ -142,60 +153,30 @@ async def test_list_available_policies(http_client, admin_headers):
         assert "description" in policy
 
 
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_list_policy_instances(http_client, admin_headers):
-    """Test listing saved policy instances."""
-    response = await http_client.get(
-        f"{GATEWAY_URL}/admin/policy/instances",
-        headers=admin_headers,
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    assert "instances" in data
-
-
 # === Policy Hot-Reload Tests ===
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_create_and_activate_policy(http_client, admin_headers, proxy_headers):
-    """Test creating and activating AllCapsPolicy and verifying it works."""
-    instance_name = f"test-allcaps-{int(time.time())}"
-
-    # Create policy instance
-    create_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/create",
+async def test_set_policy_single_call(http_client, admin_headers, proxy_headers, restore_policy_after_tests):
+    """Test setting a policy with a single API call using /policy/set."""
+    # Set policy directly
+    set_response = await http_client.post(
+        f"{GATEWAY_URL}/admin/policy/set",
         headers=admin_headers,
         json={
-            "name": instance_name,
             "policy_class_ref": "luthien_proxy.policies.all_caps_policy:AllCapsPolicy",
             "config": {},
-            "created_by": "e2e-test",
+            "enabled_by": "e2e-test",
         },
     )
 
-    assert create_response.status_code == 200, f"Failed to create: {create_response.text}"
-    assert create_response.json()["success"] is True
-
-    # Activate policy instance
-    activate_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/activate",
-        headers=admin_headers,
-        json={
-            "name": instance_name,
-            "activated_by": "e2e-test",
-        },
-    )
-
-    assert activate_response.status_code == 200, f"Failed to activate: {activate_response.text}"
-    data = activate_response.json()
+    assert set_response.status_code == 200, f"Failed to set policy: {set_response.text}"
+    data = set_response.json()
     assert data["success"] is True
+    assert "AllCapsPolicy" in data["policy"]
 
-    print(f"Policy activated in {data.get('restart_duration_ms')}ms")
+    print(f"Policy set in {data.get('restart_duration_ms')}ms")
 
     time.sleep(0.5)
 
@@ -224,24 +205,16 @@ async def test_create_and_activate_policy(http_client, admin_headers, proxy_head
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_activate_noop_policy(http_client, admin_headers):
-    """Test activating NoOpPolicy."""
-    instance_name = f"test-noop-{int(time.time())}"
-
-    await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/create",
+async def test_set_noop_policy(http_client, admin_headers, restore_policy_after_tests):
+    """Test setting NoOpPolicy."""
+    response = await http_client.post(
+        f"{GATEWAY_URL}/admin/policy/set",
         headers=admin_headers,
         json={
-            "name": instance_name,
             "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
             "config": {},
+            "enabled_by": "e2e-test",
         },
-    )
-
-    response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/activate",
-        headers=admin_headers,
-        json={"name": instance_name},
     )
 
     assert response.status_code == 200
@@ -250,29 +223,19 @@ async def test_activate_noop_policy(http_client, admin_headers):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_create_invalid_policy(http_client, admin_headers):
-    """Test that creating invalid policy fails."""
+async def test_set_invalid_policy(http_client, admin_headers, restore_policy_after_tests):
+    """Test that setting invalid policy fails gracefully."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/create",
+        f"{GATEWAY_URL}/admin/policy/set",
         headers=admin_headers,
         json={
-            "name": "invalid",
             "policy_class_ref": "nonexistent.module:NonexistentPolicy",
             "config": {},
         },
     )
 
-    assert response.status_code == 500
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_activate_nonexistent_policy(http_client, admin_headers):
-    """Test that activating non-existent policy fails."""
-    response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/activate",
-        headers=admin_headers,
-        json={"name": "does-not-exist"},
-    )
-
-    assert response.status_code == 404
+    assert response.status_code == 200  # Returns 200 with success=False
+    data = response.json()
+    assert data["success"] is False
+    assert data["error"] is not None
+    assert data["troubleshooting"] is not None
