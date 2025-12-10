@@ -1,11 +1,10 @@
 """Policy manager for runtime policy configuration.
 
 Manages policy lifecycle including:
-- Loading policies from database or file with configurable precedence
+- Loading policy from database at startup
+- Optional override from YAML file at startup (persisted to DB)
 - Hot-swapping policies at runtime without restart
-- Persisting policy changes to database or file
 - Distributed locking for concurrent policy changes
-- Audit trail and history
 """
 
 from __future__ import annotations
@@ -16,9 +15,8 @@ import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
-import yaml
 from fastapi import HTTPException
 from redis.asyncio import Redis
 
@@ -27,8 +25,6 @@ from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.utils import db
 
 logger = logging.getLogger(__name__)
-
-PolicySource = Literal["db", "file", "db-fallback-file", "file-fallback-db"]
 
 
 @dataclass
@@ -51,104 +47,100 @@ class PolicyInfo:
     enabled_at: str | None
     enabled_by: str | None
     config: dict[str, Any]
-    source_info: dict[str, Any]
 
 
 class PolicyManager:
-    """Manages runtime policy with configurable source precedence."""
+    """Manages runtime policy with simplified initialization.
+
+    Startup behavior:
+    1. If startup_policy_path is provided, load from that YAML and persist to DB
+    2. Otherwise, load from DB (the current_policy table)
+    3. If neither has a policy, fail startup with clear error
+    """
 
     def __init__(
         self,
         db_pool: db.DatabasePool,
         redis_client: Redis,
-        yaml_path: str,
-        policy_source: PolicySource = "db-fallback-file",
+        startup_policy_path: str | None = None,
     ):
         """Initialize PolicyManager.
 
         Args:
             db_pool: Database connection pool
-            redis_client: Redis client for locking and caching
-            yaml_path: Path to YAML policy configuration file
-            policy_source: Source precedence mode
+            redis_client: Redis client for locking
+            startup_policy_path: Optional path to YAML policy config to use at startup
+                                 (overrides DB, and persists to DB)
         """
         self.db = db_pool
         self.redis = redis_client
-        self.yaml_path = yaml_path
-        self.policy_source = policy_source
+        self.startup_policy_path = startup_policy_path
         self._current_policy: PolicyProtocol | None = None
         self.lock_key = "luthien:policy:lock"
 
-        logger.info(f"PolicyManager initialized with source precedence: {policy_source}")
+        logger.info(
+            "PolicyManager initialized"
+            + (f" with startup override: {startup_policy_path}" if startup_policy_path else "")
+        )
 
     async def initialize(self) -> None:
-        """Load policy based on configured source precedence."""
-        if self.policy_source == "db":
-            # DB only - error if not found
-            self._current_policy = await self._load_from_db(required=True)
+        """Load policy at startup.
 
-        elif self.policy_source == "file":
-            # File only - error if not found
-            self._current_policy = await self._load_from_file(required=True)
-
-        elif self.policy_source == "db-fallback-file":
-            # Try DB first, fall back to file
-            try:
-                self._current_policy = await self._load_from_db(required=False)
-                if self._current_policy:
-                    logger.info("Loaded policy from database")
-                else:
-                    logger.info("No policy in database, loading from file")
-                    self._current_policy = await self._load_from_file(required=True)
-                    # Persist to DB for next time
-                    await self._sync_file_to_db()
-            except Exception as e:
-                logger.warning(f"Failed to load from DB: {e}, falling back to file")
-                self._current_policy = await self._load_from_file(required=True)
-
-        elif self.policy_source == "file-fallback-db":
-            # Try file first, fall back to DB
-            try:
-                self._current_policy = await self._load_from_file(required=False)
-                if self._current_policy:
-                    logger.info("Loaded policy from file")
-                else:
-                    logger.info("No policy file, loading from database")
-                    self._current_policy = await self._load_from_db(required=True)
-            except FileNotFoundError:
-                logger.warning(f"Policy file not found at {self.yaml_path}, loading from DB")
-                self._current_policy = await self._load_from_db(required=True)
-
+        Priority:
+        1. If startup_policy_path is set, load from file and persist to DB
+        2. Otherwise, load from DB
+        3. If no policy found, raise error
+        """
+        if self.startup_policy_path:
+            await self._initialize_from_file()
         else:
-            raise ValueError(f"Invalid POLICY_SOURCE: {self.policy_source}")
+            await self._initialize_from_db()
 
         if not self._current_policy:
-            raise RuntimeError("Failed to load policy from any source")
+            raise RuntimeError(
+                "No policy configured. Either set POLICY_CONFIG to a YAML file path, "
+                "or configure a policy via the admin API first."
+            )
 
-    async def _load_from_db(self, required: bool = False) -> PolicyProtocol | None:
+    async def _initialize_from_file(self) -> None:
+        """Load policy from YAML file and persist to DB."""
+        if not self.startup_policy_path or not os.path.exists(self.startup_policy_path):
+            raise FileNotFoundError(f"Policy config not found: {self.startup_policy_path}")
+
+        self._current_policy = load_policy_from_yaml(self.startup_policy_path)
+
+        # Extract class ref and config for DB persistence
+        policy_class_ref = f"{self._current_policy.__module__}:{self._current_policy.__class__.__name__}"
+        config: dict[str, Any] = {}
+        if hasattr(self._current_policy, "get_config") and callable(getattr(self._current_policy, "get_config")):
+            config = getattr(self._current_policy, "get_config")()
+
+        await self._persist_to_db(policy_class_ref, config, "startup")
+        logger.info(f"Loaded policy from {self.startup_policy_path} and persisted to DB")
+
+    async def _initialize_from_db(self) -> None:
+        """Load policy from database."""
+        self._current_policy = await self._load_from_db()
+        if self._current_policy:
+            logger.info("Loaded policy from database")
+
+    async def _load_from_db(self) -> PolicyProtocol | None:
         """Load policy from database.
 
-        Args:
-            required: If True, raise error if policy not found
-
         Returns:
-            Policy instance or None if not found (when required=False)
+            Policy instance or None if not found
         """
         try:
             pool = await self.db.get_pool()
             row = await pool.fetchrow(
                 """
                 SELECT policy_class_ref, config
-                FROM policy_config
-                WHERE is_active = true
-                ORDER BY enabled_at DESC
-                LIMIT 1
+                FROM current_policy
+                WHERE id = 1
             """
             )
 
             if not row:
-                if required:
-                    raise RuntimeError("No active policy found in database")
                 return None
 
             policy_class_ref = str(row["policy_class_ref"])
@@ -158,68 +150,13 @@ class PolicyManager:
             return _instantiate_policy(policy_class, config)
 
         except Exception as e:
-            if required:
-                raise RuntimeError(f"Failed to load policy from database: {e}")
             logger.warning(f"Could not load from database: {e}")
             return None
-
-    async def _load_from_file(self, required: bool = False) -> PolicyProtocol | None:
-        """Load policy from YAML file.
-
-        Args:
-            required: If True, raise error if file not found
-
-        Returns:
-            Policy instance or None if not found (when required=False)
-        """
-        try:
-            if not os.path.exists(self.yaml_path):
-                if required:
-                    raise FileNotFoundError(f"Policy config not found: {self.yaml_path}")
-                return None
-
-            return load_policy_from_yaml(self.yaml_path)
-
-        except Exception as e:
-            if required:
-                raise RuntimeError(f"Failed to load policy from file: {e}")
-            logger.warning(f"Could not load from file: {e}")
-            return None
-
-    async def _sync_file_to_db(self) -> None:
-        """Sync current file-based policy to database."""
-        if not self._current_policy:
-            return
-
-        policy_class_ref = f"{self._current_policy.__module__}:{self._current_policy.__class__.__name__}"
-        config = self._current_policy.get_config() if hasattr(self._current_policy, "get_config") else {}  # type: ignore
-
-        try:
-            pool = await self.db.get_pool()
-            async with pool.acquire() as conn:
-                async with conn.transaction():
-                    # Deactivate existing policies
-                    await conn.execute("UPDATE policy_config SET is_active = false")
-
-                    # Insert file-based policy
-                    await conn.execute(
-                        """
-                        INSERT INTO policy_config
-                        (policy_class_ref, config, enabled_at, enabled_by, is_active)
-                        VALUES ($1, $2, NOW(), 'file-sync', true)
-                    """,
-                        policy_class_ref,
-                        json.dumps(config),
-                    )
-
-            logger.info(f"Synced policy from file to database: {policy_class_ref}")
-        except Exception as e:
-            logger.warning(f"Failed to sync policy to database: {e}")
 
     async def enable_policy(
         self, policy_class_ref: str, config: dict[str, Any], enabled_by: str = "unknown"
     ) -> PolicyEnableResult:
-        """Enable a new policy with persistence based on policy_source.
+        """Enable a new policy with persistence to DB.
 
         Args:
             policy_class_ref: Full module path to policy class
@@ -229,10 +166,6 @@ class PolicyManager:
         Returns:
             PolicyEnableResult with success status and error details
         """
-        # Check if policy changes are allowed
-        if self.policy_source == "file":
-            raise HTTPException(status_code=403, detail="Policy changes disabled: POLICY_SOURCE=file (read-only mode)")
-
         start_time = datetime.now()
 
         async with self._acquire_lock():
@@ -241,18 +174,8 @@ class PolicyManager:
                 policy_class = _import_policy_class(policy_class_ref)
                 new_policy = _instantiate_policy(policy_class, config)
 
-                # 2. Persist based on source configuration
-                if self.policy_source in ("db", "db-fallback-file"):
-                    # Always persist to DB
-                    await self._persist_to_db(policy_class_ref, config, enabled_by)
-
-                elif self.policy_source == "file-fallback-db":
-                    # Try file first, fall back to DB
-                    try:
-                        await self._persist_to_file(policy_class_ref, config)
-                    except Exception as e:
-                        logger.warning(f"Failed to write file, using DB: {e}")
-                        await self._persist_to_db(policy_class_ref, config, enabled_by)
+                # 2. Persist to DB
+                await self._persist_to_db(policy_class_ref, config, enabled_by)
 
                 # 3. Hot-swap in memory
                 old_policy = self._current_policy
@@ -278,39 +201,22 @@ class PolicyManager:
                 )
 
     async def _persist_to_db(self, policy_class_ref: str, config: dict[str, Any], enabled_by: str) -> None:
-        """Persist policy configuration to database."""
+        """Persist policy configuration to database (upsert)."""
         pool = await self.db.get_pool()
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute("UPDATE policy_config SET is_active = false")
-                await conn.execute(
-                    """
-                    INSERT INTO policy_config
-                    (policy_class_ref, config, enabled_at, enabled_by, is_active)
-                    VALUES ($1, $2, NOW(), $3, true)
-                """,
-                    policy_class_ref,
-                    json.dumps(config),
-                    enabled_by,
-                )
-
-    async def _persist_to_file(self, policy_class_ref: str, config: dict[str, Any]) -> None:
-        """Persist policy configuration to YAML file (atomic write)."""
-        yaml_content = {"policy": {"class": policy_class_ref, "config": config}}
-
-        # Atomic write: write to temp file, then rename
-        temp_path = f"{self.yaml_path}.tmp"
-        try:
-            with open(temp_path, "w", encoding="utf-8") as f:
-                yaml.dump(yaml_content, f, default_flow_style=False)
-
-            # Atomic rename
-            os.replace(temp_path, self.yaml_path)
-
-        finally:
-            # Clean up temp file if it exists
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+        await pool.execute(
+            """
+            INSERT INTO current_policy (id, policy_class_ref, config, enabled_at, enabled_by)
+            VALUES (1, $1, $2, NOW(), $3)
+            ON CONFLICT (id) DO UPDATE SET
+                policy_class_ref = EXCLUDED.policy_class_ref,
+                config = EXCLUDED.config,
+                enabled_at = EXCLUDED.enabled_at,
+                enabled_by = EXCLUDED.enabled_by
+        """,
+            policy_class_ref,
+            json.dumps(config),
+            enabled_by,
+        )
 
     async def get_current_policy(self) -> PolicyInfo:
         """Get current policy information.
@@ -321,7 +227,7 @@ class PolicyManager:
         if not self._current_policy:
             raise RuntimeError("No policy loaded")
 
-        # Get metadata from DB if available
+        # Get metadata from DB
         enabled_at = None
         enabled_by = None
 
@@ -330,8 +236,8 @@ class PolicyManager:
             row = await pool.fetchrow(
                 """
                 SELECT enabled_at, enabled_by
-                FROM policy_config
-                WHERE is_active = true
+                FROM current_policy
+                WHERE id = 1
             """
             )
             if row:
@@ -355,23 +261,7 @@ class PolicyManager:
             enabled_at=enabled_at,
             enabled_by=enabled_by,
             config=config,
-            source_info=await self.get_policy_source_info(),
         )
-
-    async def get_policy_source_info(self) -> dict[str, Any]:
-        """Get information about policy source configuration."""
-        return {
-            "policy_source": self.policy_source,
-            "yaml_path": self.yaml_path,
-            "supports_runtime_changes": self.policy_source != "file",
-            "persistence_target": (
-                "database"
-                if self.policy_source in ("db", "db-fallback-file")
-                else "file"
-                if self.policy_source == "file-fallback-db"
-                else "read-only"
-            ),
-        }
 
     @property
     def current_policy(self) -> PolicyProtocol:
@@ -439,7 +329,7 @@ class PolicyManager:
         if "file" in error_str or "yaml" in error_str:
             troubleshooting.extend(
                 [
-                    f"Check that policy config exists at: {self.yaml_path}",
+                    "Check that policy config exists at the specified path",
                     "Verify YAML syntax is correct",
                     "Ensure the file is readable by the gateway process",
                 ]
@@ -455,4 +345,4 @@ class PolicyManager:
         return troubleshooting
 
 
-__all__ = ["PolicyManager", "PolicyEnableResult", "PolicyInfo", "PolicySource"]
+__all__ = ["PolicyManager", "PolicyEnableResult", "PolicyInfo"]

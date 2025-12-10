@@ -6,15 +6,13 @@
 
 ### Policy UI & Admin
 
-- [ ] **Make policy selection easier for e2e testing** - Allow temporary policy specification without modifying config files
-
 ### Architecture Improvements
 
 - [ ] **create_app dependency injection** - Accept db and redis objects instead of URLs, enabling easier testing and more flexible configuration
-- [ ] **Cleaner policy config story** - Consolidate policy configuration approach (config file vs db vs runtime injection) with clear precedence rules
 
 ### Code Quality
 
+- [ ] **Replace magic numbers with named constants** - queue_size, max_chunks_queued, truncation lengths
 - [ ] **Factor out common gateway route logic** - Extract duplicate pipeline setup from `/v1/chat/completions` and `/v1/messages`
 
 ### Documentation (High)

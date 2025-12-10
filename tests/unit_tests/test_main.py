@@ -53,26 +53,6 @@ class TestLoadConfigFromEnv:
         with pytest.raises(ValueError, match="DATABASE_URL environment variable required"):
             load_config_from_env(settings=Settings(_env_file=None))
 
-    def test_invalid_policy_source_raises_error(self, monkeypatch):
-        """Test that invalid POLICY_SOURCE raises ValueError.
-
-        When Settings() is instantiated with an invalid POLICY_SOURCE, Pydantic
-        raises a ValidationError. The load_config_from_env function catches this
-        and re-raises it as ValueError.
-        """
-        from luthien_proxy.settings import Settings
-
-        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
-        monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
-        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
-        monkeypatch.setenv("POLICY_SOURCE", "invalid-source")
-
-        # The error happens during Settings instantiation (Pydantic validation).
-        # Creating Settings with invalid POLICY_SOURCE should raise ValidationError,
-        # which should be caught and converted to ValueError by load_config_from_env.
-        with pytest.raises((ValueError, Exception)):  # Pydantic raises ValidationError
-            Settings(_env_file=None)
-
     def test_valid_config_returns_dict(self, monkeypatch):
         """Test that valid configuration returns expected dictionary."""
         from luthien_proxy.settings import Settings
@@ -81,7 +61,6 @@ class TestLoadConfigFromEnv:
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6380")
-        monkeypatch.setenv("POLICY_SOURCE", "file")
         monkeypatch.setenv("POLICY_CONFIG", "custom/path.yaml")
 
         config = load_config_from_env(settings=Settings(_env_file=None))
@@ -90,8 +69,20 @@ class TestLoadConfigFromEnv:
         assert config["admin_key"] == "test-admin-key"
         assert config["database_url"] == "postgresql://test:test@localhost/test"
         assert config["redis_url"] == "redis://localhost:6380"
-        assert config["policy_source"] == "file"
-        assert config["policy_config_path"] == "custom/path.yaml"
+        assert config["startup_policy_path"] == "custom/path.yaml"
+
+    def test_empty_policy_config_returns_none(self, monkeypatch):
+        """Test that empty POLICY_CONFIG returns None for startup_policy_path."""
+        from luthien_proxy.settings import Settings
+
+        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+        monkeypatch.delenv("POLICY_CONFIG", raising=False)
+
+        config = load_config_from_env(settings=Settings(_env_file=None))
+
+        assert config["startup_policy_path"] is None
 
 
 @pytest.fixture
@@ -123,8 +114,7 @@ class TestCreateApp:
             admin_key=None,
             database_url="postgresql://test:test@localhost/test",
             redis_url="redis://localhost:6379",
-            policy_source="file",
-            policy_config_path=policy_config_file,
+            startup_policy_path=policy_config_file,
         )
 
         assert app.title == "Luthien Proxy Gateway"
@@ -139,8 +129,7 @@ class TestCreateApp:
             admin_key=None,
             database_url="postgresql://user:pass@localhost/db",
             redis_url="redis://localhost:6379",
-            policy_source="file",
-            policy_config_path=policy_config_file,
+            startup_policy_path=policy_config_file,
         )
 
         # Mock dependencies to avoid real connections
@@ -206,8 +195,7 @@ class TestCreateApp:
                 admin_key=None,
                 database_url="postgresql://invalid:invalid@localhost/invalid",
                 redis_url="redis://localhost:6379",
-                policy_source="file",
-                policy_config_path=policy_config_file,
+                startup_policy_path=policy_config_file,
             )
 
             # App startup (lifespan) should raise RuntimeError since PolicyManager requires both DB and Redis
@@ -238,8 +226,7 @@ class TestCreateApp:
                 admin_key=None,
                 database_url="postgresql://user:pass@localhost/db",
                 redis_url="redis://invalid:6379",
-                policy_source="file",
-                policy_config_path=policy_config_file,
+                startup_policy_path=policy_config_file,
             )
 
             # App startup (lifespan) should raise RuntimeError since PolicyManager requires both DB and Redis
@@ -255,8 +242,7 @@ class TestCreateApp:
             admin_key=None,
             database_url="postgresql://test:test@localhost/test",
             redis_url="redis://localhost:6379",
-            policy_source="file",
-            policy_config_path=policy_config_file,
+            startup_policy_path=policy_config_file,
         )
 
         routes = [getattr(route, "path", None) for route in app.routes]
@@ -290,8 +276,7 @@ class TestCreateApp:
                 admin_key=None,
                 database_url="postgresql://test:test@localhost/test",
                 redis_url="redis://localhost:6379",
-                policy_source="file",
-                policy_config_path=policy_config_file,
+                startup_policy_path=policy_config_file,
             )
 
             with TestClient(app) as client:
@@ -323,8 +308,7 @@ class TestCreateApp:
                 admin_key=None,
                 database_url="postgresql://test:test@localhost/test",
                 redis_url="redis://localhost:6379",
-                policy_source="file",
-                policy_config_path=policy_config_file,
+                startup_policy_path=policy_config_file,
             )
 
             with TestClient(app) as client:
@@ -344,8 +328,7 @@ class TestCreateApp:
             admin_key=None,
             database_url="postgresql://test:test@localhost/test",
             redis_url="redis://localhost:6379",
-            policy_source="file",
-            policy_config_path=policy_config_file,
+            startup_policy_path=policy_config_file,
         )
 
         with (
@@ -373,8 +356,7 @@ class TestCreateApp:
             admin_key=None,
             database_url="postgresql://test:test@localhost/test",
             redis_url="redis://localhost:6379",
-            policy_source="file",
-            policy_config_path=policy_config_file,
+            startup_policy_path=policy_config_file,
         )
 
         # Check that /v2/static route exists

@@ -6,7 +6,6 @@ Settings instance.
 """
 
 from functools import lru_cache
-from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -34,8 +33,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
 
     # Policy configuration
-    policy_config: str = "config/policy_config.yaml"
-    policy_source: Literal["db", "file", "db-fallback-file", "file-fallback-db"] = "db-fallback-file"
+    # If set, loads policy from this YAML file at startup (overrides DB, persists to DB)
+    # If not set (empty string), loads from DB only
+    policy_config: str = ""
 
     # OpenTelemetry / Observability
     otel_enabled: bool = True
