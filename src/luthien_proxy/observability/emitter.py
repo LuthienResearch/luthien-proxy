@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from opentelemetry import trace
 
+from luthien_proxy.utils.constants import OTEL_SPAN_ID_HEX_LENGTH, OTEL_TRACE_ID_HEX_LENGTH
+
 
 def _safe_serialize(obj: Any) -> Any:
     """Convert an object to a JSON-serializable form.
@@ -207,8 +209,8 @@ class EventEmitter:
                 trace_id = format(ctx.trace_id, "032x")
                 span_id = format(ctx.span_id, "016x")
             else:
-                trace_id = "0" * 32
-                span_id = "0" * 16
+                trace_id = "0" * OTEL_TRACE_ID_HEX_LENGTH
+                span_id = "0" * OTEL_SPAN_ID_HEX_LENGTH
 
             log_entry = {
                 "timestamp": timestamp.isoformat(),

@@ -37,6 +37,7 @@ from litellm.types.utils import (
 
 from luthien_proxy.settings import get_settings
 from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
+from luthien_proxy.utils.constants import TOOL_ARGS_TRUNCATION_LENGTH
 
 if TYPE_CHECKING:
     from luthien_proxy.policy_core.policy_context import PolicyContext

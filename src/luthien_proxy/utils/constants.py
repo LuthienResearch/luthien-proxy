@@ -105,6 +105,18 @@ API_KEY_HASH_LENGTH = 16
 REDIS_LOCK_TIMEOUT_SECONDS = 10
 
 # ------------------------------------------------------------------------------
+# OpenTelemetry Configuration
+# ------------------------------------------------------------------------------
+
+# Length of trace ID in hex format (16 bytes = 32 hex chars).
+# Used as placeholder when no OTEL context is available.
+OTEL_TRACE_ID_HEX_LENGTH = 32
+
+# Length of span ID in hex format (8 bytes = 16 hex chars).
+# Used as placeholder when no OTEL context is available.
+OTEL_SPAN_ID_HEX_LENGTH = 16
+
+# ------------------------------------------------------------------------------
 # Gateway Server
 # ------------------------------------------------------------------------------
 
