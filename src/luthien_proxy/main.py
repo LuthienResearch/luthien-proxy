@@ -32,7 +32,7 @@ from luthien_proxy.telemetry import (
 )
 from luthien_proxy.ui import router as ui_router
 from luthien_proxy.utils import db
-from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
+from luthien_proxy.utils.constants import DB_URL_PREVIEW_LENGTH, DEFAULT_GATEWAY_PORT
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -79,7 +79,7 @@ def create_app(
         try:
             _db_pool = db.DatabasePool(database_url)
             await _db_pool.get_pool()
-            logger.info(f"Connected to database at {database_url[:20]}...")
+            logger.info(f"Connected to database at {database_url[:DB_URL_PREVIEW_LENGTH]}...")
         except Exception as exc:
             logger.warning(f"Failed to connect to database: {exc}. Event persistence will be disabled.")
             _db_pool = None
