@@ -1,13 +1,16 @@
 # Current Objective
 
-Implement session-based login for browser access to admin/debug UIs.
+Replace magic numbers with named constants for better maintainability.
+
+## Magic Numbers Found
+
+1. `policy_manager.py:294` - `blocking_timeout=10` (Redis lock timeout)
+2. `main.py:82` - `[:20]` (database URL preview length)
+3. `tool_call_judge_policy.py` - `[:200]` (tool arguments truncation, 4 instances)
 
 ## Acceptance Criteria
 
-- [x] `/login` page that accepts ADMIN_API_KEY
-- [x] Session cookie set on successful login
-- [x] Protected UI pages redirect to login when unauthenticated
-- [x] Sign out link on all protected pages
-- [x] API endpoints still accept Bearer token (backwards compatible)
-- [x] Tests for session auth logic
-- [x] All dev checks pass
+- [ ] Add new constants to `utils/constants.py`
+- [ ] Replace all magic numbers with named constants
+- [ ] Dev checks pass
+- [ ] No functionality changes (purely refactor)
