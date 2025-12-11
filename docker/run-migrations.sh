@@ -1,10 +1,14 @@
 #!/bin/sh
 # ABOUTME: Runs all SQL migrations in order, tracking which have been applied
 # ABOUTME: Idempotent - safe to run multiple times
+# ABOUTME: Works in Docker (/migrations/) or CI (set MIGRATIONS_DIR=./migrations)
 
 set -e
 
-echo "🔄 Running database migrations..."
+# Default to /migrations for Docker, can be overridden for CI
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
+
+echo "🔄 Running database migrations from $MIGRATIONS_DIR..."
 
 # Wait for database to be ready
 until pg_isready -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE"; do
@@ -23,7 +27,7 @@ CREATE TABLE IF NOT EXISTS _migrations (
 EOF
 
 # Apply each migration in order
-for migration in /migrations/*.sql; do
+for migration in "$MIGRATIONS_DIR"/*.sql; do
     filename=$(basename "$migration")
 
     # Check if already applied
