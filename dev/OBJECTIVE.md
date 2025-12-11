@@ -1,13 +1,18 @@
 # Current Objective
 
-Implement session-based login for browser access to admin/debug UIs.
+Unify OpenAI and Anthropic endpoint processing (`luthien-proxy-en1`)
 
 ## Acceptance Criteria
 
-- [x] `/login` page that accepts ADMIN_API_KEY
-- [x] Session cookie set on successful login
-- [x] Protected UI pages redirect to login when unauthenticated
-- [x] Sign out link on all protected pages
-- [x] API endpoints still accept Bearer token (backwards compatible)
-- [x] Tests for session auth logic
-- [x] All dev checks pass
+- [ ] Single `process_llm_request()` function handles both endpoints
+- [ ] Endpoint handlers are <10 lines each (just delegation)
+- [ ] Root `transaction_processing` span wraps all processing
+- [ ] Four sibling child spans: `process_request`, `send_upstream`, `process_response`, `send_to_client`
+- [ ] Format conversion only at ingress/egress boundaries
+- [ ] All existing tests pass
+- [ ] Span attributes include: `call_id`, `model`, `stream`, `client_format`
+
+## Reference
+
+- [Story 5: Infrastructure](user-stories/05-infrastructure-observability-unification.md)
+- Issue: `luthien-proxy-en1`
