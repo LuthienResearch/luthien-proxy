@@ -1,10 +1,14 @@
 #!/bin/sh
 # ABOUTME: Runs all SQL migrations in order, tracking which have been applied
 # ABOUTME: Idempotent - safe to run multiple times
+# ABOUTME: Works in Docker (/migrations/) or CI (set MIGRATIONS_DIR=./migrations)
 
 set -e
 
-echo "🔄 Running database migrations..."
+# Default to /migrations for Docker, can be overridden for CI
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
+
+echo "🔄 Running database migrations from $MIGRATIONS_DIR..."
 
 # Wait for database to be ready
 until pg_isready -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE"; do
@@ -23,20 +27,21 @@ CREATE TABLE IF NOT EXISTS _migrations (
 EOF
 
 # Apply each migration in order
-for migration in /migrations/*.sql; do
+for migration in "$MIGRATIONS_DIR"/*.sql; do
     filename=$(basename "$migration")
 
-    # Check if already applied (use psql variable substitution to prevent SQL injection)
-    applied=$(psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -t \
-        -v filename="$filename" \
-        -c "SELECT COUNT(*) FROM _migrations WHERE filename = :'filename';" | tr -d ' ')
+    # Check if already applied
+    applied=$(psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -t <<EOF | tr -d ' '
+SELECT COUNT(*) FROM _migrations WHERE filename = '$filename';
+EOF
+)
 
     if [ "$applied" = "0" ]; then
         echo "📦 Applying migration: $filename"
         psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -f "$migration"
-        psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" \
-            -v filename="$filename" \
-            -c "INSERT INTO _migrations (filename) VALUES (:'filename');"
+        psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" <<EOF
+INSERT INTO _migrations (filename) VALUES ('$filename');
+EOF
         echo "✅ Applied: $filename"
     else
         echo "⏭️  Skipping (already applied): $filename"

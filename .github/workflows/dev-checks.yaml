@@ -55,11 +55,17 @@ jobs:
             psql -d postgres -c "CREATE DATABASE litellm_db;"
 
       - name: Run SQL migrations
+        run: MIGRATIONS_DIR=./migrations ./docker/run-migrations.sh
+
+      - name: Verify schema
         run: |
-          for migration in migrations/*.sql; do
-            echo "Applying migration: $migration"
-            psql -f "$migration"
-          done
+          echo "🔍 Verifying database schema..."
+          psql -c "SELECT 1 FROM _migrations LIMIT 0;"
+          psql -c "SELECT 1 FROM current_policy LIMIT 0;"
+          psql -c "SELECT 1 FROM conversation_events LIMIT 0;"
+          psql -c "SELECT 1 FROM conversation_calls LIMIT 0;"
+          psql -c "SELECT 1 FROM debug_logs LIMIT 0;"
+          echo "✅ Schema verification passed"
 
       - name: Run formatting, lint, and tests
         run: ./scripts/dev_checks.sh

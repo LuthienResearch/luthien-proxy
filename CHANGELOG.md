@@ -2,6 +2,7 @@
 
 ## Unreleased | TBA
 
+- Fix broken migration script that prevented migrations from running (#fix-migration-script)
 - Replace magic numbers with named constants [constants.py](src/luthien_proxy/utils/constants.py)
 - Session-based login for browser access to admin/debug UIs (#88)
   - Add `/login` page with session cookie authentication
