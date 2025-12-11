@@ -195,20 +195,81 @@ When observability is enabled:
 
 ## Configuration
 
-Copy `.env.example` to `.env` and add your API keys:
+Copy `.env.example` to `.env` and configure the following variables:
+
+### API Keys
 
 ```bash
-# Required API keys for upstream providers
+# Required: API keys for upstream LLM providers
 OPENAI_API_KEY=your_openai_api_key_here
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
-# Gateway configuration
-PROXY_API_KEY=sk-luthien-dev-key  # API key for accessing the gateway
-GATEWAY_PORT=8000               # Gateway port
-POLICY_CONFIG=/app/config/policy_config.yaml  # Policy configuration
+# Required: API key for clients to authenticate to the proxy
+PROXY_API_KEY=sk-luthien-dev-key
+
+# Required: API key for admin/policy management operations
+ADMIN_API_KEY=admin-dev-key
+```
+
+### Gateway Configuration
+
+```bash
+GATEWAY_HOST=localhost
+GATEWAY_PORT=8000
 ```
 
 ### Policy Configuration
+
+```bash
+# How to load and persist policies
+# Options: "db", "file", "db-fallback-file", "file-fallback-db"
+POLICY_SOURCE=db-fallback-file
+
+# Path to YAML policy configuration file
+POLICY_CONFIG=/app/config/policy_config.yaml
+```
+
+### Database Configuration
+
+```bash
+POSTGRES_USER=luthien
+POSTGRES_PASSWORD=luthien_dev_password
+POSTGRES_DB=luthien_control
+POSTGRES_PORT=5432
+DATABASE_URL=postgresql://luthien:luthien_dev_password@db:5432/luthien_control
+```
+
+### Redis Configuration
+
+```bash
+REDIS_URL=redis://redis:6379
+REDIS_PORT=6379
+```
+
+### Local LLM Configuration
+
+```bash
+# Local LLM Gateway (OpenAI-compatible) for policy scoring
+LOCAL_LLM_PORT=4010
+
+# Ollama (local model host) port
+OLLAMA_PORT=11434
+
+# Test model used by scripts (set to a model available with your API keys)
+TEST_MODEL=gpt-4o-mini
+```
+
+### Observability (Optional)
+
+```bash
+# OpenTelemetry endpoint (leave empty to disable tracing)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+
+# Grafana URL for viewing traces and logs
+GRAFANA_URL=http://localhost:3000
+```
+
+### Policy YAML Files
 
 The gateway loads policies from `POLICY_CONFIG` (defaults to `config/policy_config.yaml`).
 
