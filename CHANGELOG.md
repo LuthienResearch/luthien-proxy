@@ -2,26 +2,27 @@
 
 ## Unreleased | TBA
 
+- Unify OpenAI and Anthropic endpoint processing (#92)
 - Fix broken migration script that prevented migrations from running (#fix-migration-script)
 - Replace magic numbers with named constants [constants.py](src/luthien_proxy/utils/constants.py)
+
 - Session-based login for browser access to admin/debug UIs (#88)
   - Add `/login` page with session cookie authentication
   - Protected UI pages (`/activity/monitor`, `/debug/diff`, `/policy-config`) redirect to login when unauthenticated
   - Sign out links on all protected pages
   - Backwards compatible: API endpoints still accept Bearer token and x-api-key
-  - Open redirect prevention via URL validation
-  - XSS prevention via HTML attribute escaping
+
 - Confirmed policy config UI backend integration already complete via PR #66 (feature/policy-ui-backend)
+
 - Centralize environment configuration with pydantic-settings (#refactor/env-config-centralize)
   - Add `Settings` class in `src/luthien_proxy/settings.py` for typed configuration
   - Replace scattered `os.getenv()` calls throughout codebase with centralized settings access
   - Support `.env` file loading via pydantic-settings
   - Add `clear_settings_cache()` for test isolation
+
 - Remove unused prisma dependency (#84)
 - Added auth to debug endpoints (#86)
-
 - Inject EventEmitter via DI instead of global state (#dependency_injection)
-
 - Added e2e tests that actually invoke claude code running through the proxy
 
 - Codebase cleanup (#81)

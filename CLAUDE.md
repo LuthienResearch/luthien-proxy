@@ -134,6 +134,18 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - Prefer fast unit tests for policies; add integration tests against gateway endpoints.
 - Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.
 
+### Test Requirements
+
+**IMPORTANT: Always write unit tests when adding or significantly modifying code.**
+
+- New modules MUST have corresponding test files in `tests/unit_tests/` mirroring the source structure
+- New functions/classes MUST have unit tests covering:
+  - Happy path behavior
+  - Edge cases and error conditions
+  - Any format conversions or data transformations
+- Refactored code MUST maintain or improve test coverage
+- PRs without tests for new functionality will be considered incomplete
+
 ## Security & Configuration
 
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.

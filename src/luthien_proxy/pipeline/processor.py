@@ -1,0 +1,278 @@
+"""Unified request processing pipeline.
+
+This module provides a single entry point for processing LLM requests,
+regardless of client format (OpenAI or Anthropic). Format conversion
+happens only at ingress/egress boundaries.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+
+from fastapi import HTTPException, Request
+from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
+from litellm.types.utils import ModelResponse
+from opentelemetry import trace
+from pydantic import ValidationError
+
+from luthien_proxy.llm.client import LLMClient
+from luthien_proxy.llm.llm_format_utils import (
+    anthropic_to_openai_request,
+    openai_to_anthropic_response,
+)
+from luthien_proxy.messages import Request as RequestMessage
+from luthien_proxy.observability.emitter import EventEmitterProtocol
+from luthien_proxy.observability.transaction_recorder import (
+    DefaultTransactionRecorder,
+)
+from luthien_proxy.orchestration.policy_orchestrator import PolicyOrchestrator
+from luthien_proxy.pipeline.client_format import ClientFormat
+from luthien_proxy.policy_core.policy_context import PolicyContext
+from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
+from luthien_proxy.streaming.client_formatter.anthropic import (
+    AnthropicClientFormatter,
+)
+from luthien_proxy.streaming.client_formatter.interface import ClientFormatter
+from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
+from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
+from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
+
+
+async def process_llm_request(
+    request: Request,
+    client_format: ClientFormat,
+    policy: PolicyProtocol,
+    llm_client: LLMClient,
+    emitter: EventEmitterProtocol,
+) -> FastAPIStreamingResponse | JSONResponse:
+    """Process an LLM request through the unified pipeline.
+
+    This function handles both OpenAI and Anthropic format requests,
+    converting at boundaries and using OpenAI format internally.
+
+    The processing pipeline is:
+    1. process_request: Ingest, convert if needed, apply policy
+    2. send_upstream: Send request to backend LLM
+    3. process_response: Apply policy to response (streaming or full)
+    4. send_to_client: Convert if needed, return response
+
+    Args:
+        request: FastAPI request object
+        client_format: Format of the client request (OPENAI or ANTHROPIC)
+        policy: Policy to apply to request/response
+        llm_client: Client for calling backend LLM
+        emitter: Event emitter for observability
+
+    Returns:
+        StreamingResponse or JSONResponse depending on stream parameter
+
+    Raises:
+        HTTPException: On request size exceeded or other errors
+    """
+    call_id = str(uuid.uuid4())
+
+    # Derive endpoint path from client format for observability
+    endpoint = "/v1/messages" if client_format == ClientFormat.ANTHROPIC else "/v1/chat/completions"
+
+    with tracer.start_as_current_span("transaction_processing") as root_span:
+        root_span.set_attribute("luthien.transaction_id", call_id)
+        root_span.set_attribute("luthien.client_format", client_format.value)
+        root_span.set_attribute("luthien.endpoint", endpoint)
+
+        # Phase 1: Process incoming request
+        request_message = await _process_request(
+            request=request,
+            client_format=client_format,
+            call_id=call_id,
+            emitter=emitter,
+        )
+
+        is_streaming = request_message.stream
+        root_span.set_attribute("luthien.model", request_message.model)
+        root_span.set_attribute("luthien.stream", is_streaming)
+
+        # Create policy context and orchestrator
+        policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, emitter=emitter)
+        recorder = DefaultTransactionRecorder(transaction_id=call_id, emitter=emitter)
+        policy_executor = PolicyExecutor(recorder=recorder)
+        client_formatter = _get_client_formatter(client_format, request_message.model)
+
+        orchestrator = PolicyOrchestrator(
+            policy=policy,
+            policy_executor=policy_executor,
+            client_formatter=client_formatter,
+            transaction_recorder=recorder,
+        )
+
+        # Apply policy to request
+        with tracer.start_as_current_span("policy_on_request"):
+            final_request = await orchestrator.process_request(request_message, policy_ctx)
+
+        emitter.record(
+            call_id,
+            "pipeline.backend_request",
+            {"payload": final_request.model_dump(exclude_none=True)},
+        )
+
+        # Phase 2 & 3 & 4: Send upstream, process response, send to client
+        if is_streaming:
+            return await _handle_streaming(
+                final_request=final_request,
+                orchestrator=orchestrator,
+                policy_ctx=policy_ctx,
+                llm_client=llm_client,
+                call_id=call_id,
+            )
+        else:
+            return await _handle_non_streaming(
+                final_request=final_request,
+                orchestrator=orchestrator,
+                policy_ctx=policy_ctx,
+                llm_client=llm_client,
+                client_format=client_format,
+                emitter=emitter,
+                call_id=call_id,
+            )
+
+
+async def _process_request(
+    request: Request,
+    client_format: ClientFormat,
+    call_id: str,
+    emitter: EventEmitterProtocol,
+) -> RequestMessage:
+    """Process and validate incoming request.
+
+    Args:
+        request: FastAPI request object
+        client_format: Client API format
+        call_id: Transaction ID
+        emitter: Event emitter
+
+    Returns:
+        RequestMessage in OpenAI format
+
+    Raises:
+        HTTPException: On request size exceeded
+    """
+    with tracer.start_as_current_span("process_request") as span:
+        span.set_attribute("luthien.phase", "process_request")
+
+        # Check request size
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_REQUEST_PAYLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Request payload too large")
+
+        body = await request.json()
+
+        # Log incoming request
+        emitter.record(call_id, "pipeline.client_request", {"payload": body})
+
+        # Convert to OpenAI format if needed
+        if client_format == ClientFormat.ANTHROPIC:
+            span.add_event("format_conversion", {"from": "anthropic", "to": "openai"})
+            emitter.record(
+                call_id,
+                "pipeline.format_conversion",
+                {"from_format": "anthropic", "to_format": "openai"},
+            )
+            try:
+                openai_body = anthropic_to_openai_request(body)
+                request_message = RequestMessage(**openai_body)
+            except (KeyError, TypeError, AttributeError, ValidationError) as e:
+                logger.error(f"[{call_id}] Failed to convert Anthropic request: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid Anthropic request format: {e}")
+            logger.info(f"[{call_id}] /v1/messages: model={request_message.model}, stream={request_message.stream}")
+        else:
+            try:
+                request_message = RequestMessage(**body)
+            except ValidationError as e:
+                logger.error(f"[{call_id}] Failed to parse OpenAI request: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid OpenAI request format: {e}")
+            logger.info(
+                f"[{call_id}] /v1/chat/completions: model={request_message.model}, stream={request_message.stream}"
+            )
+
+        return request_message
+
+
+def _get_client_formatter(client_format: ClientFormat, model_name: str) -> ClientFormatter:
+    """Get the appropriate client formatter for the format."""
+    if client_format == ClientFormat.ANTHROPIC:
+        return AnthropicClientFormatter(model_name=model_name)
+    return OpenAIClientFormatter(model_name=model_name)
+
+
+async def _handle_streaming(
+    final_request: RequestMessage,
+    orchestrator: PolicyOrchestrator,
+    policy_ctx: PolicyContext,
+    llm_client: LLMClient,
+    call_id: str,
+) -> FastAPIStreamingResponse:
+    """Handle streaming response flow.
+
+    Phases 2-4 are interleaved for streaming: chunks flow through
+    send_upstream → process_response → send_to_client continuously.
+    """
+    with tracer.start_as_current_span("send_upstream") as span:
+        span.set_attribute("luthien.phase", "send_upstream")
+        backend_stream = await llm_client.stream(final_request)
+
+    # process_response and send_to_client happen inside the streaming generator
+    return FastAPIStreamingResponse(
+        orchestrator.process_streaming_response(backend_stream, policy_ctx),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Call-ID": call_id,
+        },
+    )
+
+
+async def _handle_non_streaming(
+    final_request: RequestMessage,
+    orchestrator: PolicyOrchestrator,
+    policy_ctx: PolicyContext,
+    llm_client: LLMClient,
+    client_format: ClientFormat,
+    emitter: EventEmitterProtocol,
+    call_id: str,
+) -> JSONResponse:
+    """Handle non-streaming response flow."""
+    # Phase 2: Send to upstream
+    with tracer.start_as_current_span("send_upstream") as span:
+        span.set_attribute("luthien.phase", "send_upstream")
+        response: ModelResponse = await llm_client.complete(final_request)
+
+    # Phase 3: Process response through policy
+    with tracer.start_as_current_span("process_response") as span:
+        span.set_attribute("luthien.phase", "process_response")
+        processed_response = await orchestrator.process_full_response(response, policy_ctx)
+
+    # Phase 4: Send to client
+    with tracer.start_as_current_span("send_to_client") as span:
+        span.set_attribute("luthien.phase", "send_to_client")
+
+        # Convert back to Anthropic format if needed
+        if client_format == ClientFormat.ANTHROPIC:
+            span.add_event("format_conversion", {"from": "openai", "to": "anthropic"})
+            final_response = openai_to_anthropic_response(processed_response)
+        else:
+            final_response = processed_response.model_dump()
+
+        emitter.record(call_id, "pipeline.client_response", {"payload": final_response})
+
+        return JSONResponse(
+            content=final_response,
+            headers={"X-Call-ID": call_id},
+        )
+
+
+__all__ = ["process_llm_request"]
