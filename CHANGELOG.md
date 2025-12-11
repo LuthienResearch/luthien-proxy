@@ -2,6 +2,14 @@
 
 ## Unreleased | TBA
 
+- Unify OpenAI and Anthropic endpoint processing (#92)
+  - Add `pipeline` module with unified `process_llm_request()` function
+  - Add `ClientFormat` enum for tracking client API format
+  - Structured span hierarchy with `transaction_processing` root span
+  - Four sibling phase spans: `process_request`, `send_upstream`, `process_response`, `send_to_client`
+  - Format conversion only at ingress/egress boundaries
+  - Thin endpoint handlers (<10 lines) that delegate to processor
+  - Reduces code duplication by ~80% in gateway_routes.py
 - Replace magic numbers with named constants [constants.py](src/luthien_proxy/utils/constants.py)
 - Session-based login for browser access to admin/debug UIs (#88)
   - Add `/login` page with session cookie authentication
