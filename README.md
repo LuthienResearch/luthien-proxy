@@ -422,7 +422,7 @@ The gateway uses an event-driven policy architecture with streaming support.
 
 ### Creating Custom Policies
 
-!!! WE NEED TO UPDATE THIS !!!
+See `src/luthien_proxy/policies/` for examples. Documentation coming soon.
 
 ### Testing
 
