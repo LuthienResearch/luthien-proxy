@@ -4,7 +4,6 @@
 
 - Core goal: implement AI Control for LLMs with integrated gateway architecture.
 - Architecture: FastAPI gateway with integrated control plane and LiteLLM, using event-driven policies.
-- Configure upstream LLM models in `config/local_llm_config.yaml`.
 - Select a policy via `POLICY_CONFIG` that points to a YAML file (defaults to `config/policy_config.yaml`).
   - Example: `export POLICY_CONFIG=./config/policy_config.yaml`
 
