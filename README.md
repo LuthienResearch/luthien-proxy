@@ -169,14 +169,19 @@ The observability stack is completely optional and does not affect core function
 
 ### Configuration
 
-Enable OpenTelemetry in `.env`:
+OpenTelemetry is enabled by default. To configure the endpoint in `.env`:
 
 ```bash
-OTEL_ENABLED=true
-OTEL_ENDPOINT=http://tempo:4317
+# OpenTelemetry endpoint (enabled by default)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+
+# Optional: customize service metadata
 SERVICE_NAME=luthien-proxy
 SERVICE_VERSION=2.0.0
 ENVIRONMENT=development
+
+# To disable tracing, set:
+# OTEL_ENABLED=false
 ```
 
 ### Documentation
