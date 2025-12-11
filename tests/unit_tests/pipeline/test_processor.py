@@ -502,3 +502,155 @@ class TestProcessLlmRequest:
         assert "luthien.client_format" in attribute_names
         assert "luthien.model" in attribute_names
         assert "luthien.stream" in attribute_names
+
+    @pytest.mark.asyncio
+    async def test_endpoint_span_attribute_openai(self, mock_request, mock_policy, mock_llm_client, mock_emitter):
+        """Test that luthien.endpoint span attribute is set for OpenAI format."""
+        openai_body = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=openai_body)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            await process_llm_request(
+                request=mock_request,
+                client_format=ClientFormat.OPENAI,
+                policy=mock_policy,
+                llm_client=mock_llm_client,
+                emitter=mock_emitter,
+            )
+
+        # Check that endpoint attribute was set to OpenAI endpoint
+        mock_span.set_attribute.assert_any_call("luthien.endpoint", "/v1/chat/completions")
+
+    @pytest.mark.asyncio
+    async def test_endpoint_span_attribute_anthropic(self, mock_request, mock_policy, mock_llm_client, mock_emitter):
+        """Test that luthien.endpoint span attribute is set for Anthropic format."""
+        anthropic_body = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            await process_llm_request(
+                request=mock_request,
+                client_format=ClientFormat.ANTHROPIC,
+                policy=mock_policy,
+                llm_client=mock_llm_client,
+                emitter=mock_emitter,
+            )
+
+        # Check that endpoint attribute was set to Anthropic endpoint
+        mock_span.set_attribute.assert_any_call("luthien.endpoint", "/v1/messages")
+
+
+class TestProcessRequestErrorHandling:
+    """Tests for error handling during request processing."""
+
+    @pytest.fixture
+    def mock_request(self):
+        """Create a mock FastAPI request."""
+        request = MagicMock()
+        request.headers = {}
+        return request
+
+    @pytest.fixture
+    def mock_emitter(self):
+        """Create a mock event emitter."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_span(self):
+        """Create a mock OpenTelemetry span."""
+        span = MagicMock()
+        span.set_attribute = MagicMock()
+        span.add_event = MagicMock()
+        return span
+
+    @pytest.mark.asyncio
+    async def test_invalid_anthropic_request_returns_400(self, mock_request, mock_emitter, mock_span):
+        """Test that invalid Anthropic request format returns 400 error."""
+        # Invalid Anthropic request - missing required fields
+        invalid_anthropic_body = {
+            "not_a_valid_field": "invalid",
+        }
+        mock_request.json = AsyncMock(return_value=invalid_anthropic_body)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _process_request(
+                    request=mock_request,
+                    client_format=ClientFormat.ANTHROPIC,
+                    call_id="test-call-id",
+                    emitter=mock_emitter,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert "Invalid Anthropic request format" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_invalid_openai_request_returns_400(self, mock_request, mock_emitter, mock_span):
+        """Test that invalid OpenAI request format returns 400 error."""
+        # Invalid OpenAI request - missing required fields
+        invalid_openai_body = {
+            "not_a_valid_field": "invalid",
+        }
+        mock_request.json = AsyncMock(return_value=invalid_openai_body)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _process_request(
+                    request=mock_request,
+                    client_format=ClientFormat.OPENAI,
+                    call_id="test-call-id",
+                    emitter=mock_emitter,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert "Invalid OpenAI request format" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_anthropic_conversion_failure_returns_400(self, mock_request, mock_emitter, mock_span):
+        """Test that Anthropic format conversion failure returns 400 error."""
+        # Request that passes initial validation but fails conversion
+        # (e.g., malformed message structure)
+        malformed_body = {
+            "model": "claude-3-opus",
+            "messages": "not_a_list",  # Should be a list
+            "max_tokens": 1024,
+        }
+        mock_request.json = AsyncMock(return_value=malformed_body)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _process_request(
+                    request=mock_request,
+                    client_format=ClientFormat.ANTHROPIC,
+                    call_id="test-call-id",
+                    emitter=mock_emitter,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert "Invalid Anthropic request format" in exc_info.value.detail

@@ -74,9 +74,13 @@ async def process_llm_request(
     """
     call_id = str(uuid.uuid4())
 
+    # Derive endpoint path from client format for observability
+    endpoint = "/v1/messages" if client_format == ClientFormat.ANTHROPIC else "/v1/chat/completions"
+
     with tracer.start_as_current_span("transaction_processing") as root_span:
         root_span.set_attribute("luthien.transaction_id", call_id)
         root_span.set_attribute("luthien.client_format", client_format.value)
+        root_span.set_attribute("luthien.endpoint", endpoint)
 
         # Phase 1: Process incoming request
         request_message = await _process_request(
@@ -175,11 +179,19 @@ async def _process_request(
                 "pipeline.format_conversion",
                 {"from_format": "anthropic", "to_format": "openai"},
             )
-            openai_body = anthropic_to_openai_request(body)
-            request_message = RequestMessage(**openai_body)
+            try:
+                openai_body = anthropic_to_openai_request(body)
+                request_message = RequestMessage(**openai_body)
+            except Exception as e:
+                logger.error(f"[{call_id}] Failed to convert Anthropic request: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid Anthropic request format: {e}")
             logger.info(f"[{call_id}] /v1/messages: model={request_message.model}, stream={request_message.stream}")
         else:
-            request_message = RequestMessage(**body)
+            try:
+                request_message = RequestMessage(**body)
+            except Exception as e:
+                logger.error(f"[{call_id}] Failed to parse OpenAI request: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid OpenAI request format: {e}")
             logger.info(
                 f"[{call_id}] /v1/chat/completions: model={request_message.model}, stream={request_message.stream}"
             )
