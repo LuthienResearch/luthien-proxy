@@ -32,3 +32,21 @@ observability/data/
 # Debug script outputs
 debug_multitool_streaming.json
 debug_multitool_nonstreaming.json
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python tools cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pytype/

@@ -55,7 +55,7 @@ from luthien_proxy.policy_core import (
     create_tool_call_chunk,
     extract_tool_calls_from_response,
 )
-from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
+from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS, TOOL_ARGS_TRUNCATION_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -494,7 +494,7 @@ class ToolCallJudgePolicy(BasePolicy):
         except Exception as exc:
             # LOUD ERROR LOGGING - judge failure is a security concern
             logger.error(
-                f"🚨 SECURITY: Judge evaluation FAILED for tool call '{name}' with arguments: {arguments[:200]}... "
+                f"🚨 SECURITY: Judge evaluation FAILED for tool call '{name}' with arguments: {arguments[:TOOL_ARGS_TRUNCATION_LENGTH]}... "
                 f"Error: {exc}. DEFAULTING TO BLOCK (fail-secure).",
                 exc_info=True,
             )
@@ -508,7 +508,7 @@ class ToolCallJudgePolicy(BasePolicy):
         return (
             f"⚠️ SECURITY BLOCK: Tool call '{name}' could not be evaluated by the judge due to an error. "
             f"For security, this call has been blocked. "
-            f"Tool arguments: {arguments[:200]}..."
+            f"Tool arguments: {arguments[:TOOL_ARGS_TRUNCATION_LENGTH]}..."
         )
 
     def _emit_evaluation_started(
@@ -523,7 +523,7 @@ class ToolCallJudgePolicy(BasePolicy):
             {
                 "summary": f"Evaluating tool call: {name}",
                 "tool_name": name,
-                "tool_arguments": arguments[:200],
+                "tool_arguments": arguments[:TOOL_ARGS_TRUNCATION_LENGTH],
             },
         )
 
@@ -540,7 +540,7 @@ class ToolCallJudgePolicy(BasePolicy):
             {
                 "summary": f"⚠️ Judge evaluation failed for '{name}' - BLOCKED (fail-secure)",
                 "tool_name": name,
-                "tool_arguments": arguments[:200],
+                "tool_arguments": arguments[:TOOL_ARGS_TRUNCATION_LENGTH],
                 "error": str(exc),
                 "severity": "error",
                 "action_taken": "blocked",
