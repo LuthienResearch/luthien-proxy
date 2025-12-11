@@ -49,7 +49,7 @@
 - [ ] Implement circuit breaker for upstream calls
 - [ ] Add Prometheus metrics endpoint
 - [ ] Implement proper task tracking for event publisher (replace fire-and-forget)
-- [ ] Add resource limits to docker-compose.yaml
+- [x] Add resource limits to docker-compose.yaml
 
 ### Documentation (Medium)
 
