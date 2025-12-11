@@ -18,7 +18,7 @@
 
 - [ ] Update README post v2-migration
 - [ ] Add security documentation for dynamic policy loading (POLICY_CONFIG)
-- [ ] Verify all environment variables are documented in README and .env.example
+- [x] Verify all environment variables are documented in README and .env.example
 
 ### Security
 
