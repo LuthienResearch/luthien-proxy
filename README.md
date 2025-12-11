@@ -425,7 +425,7 @@ The gateway uses an event-driven policy architecture with streaming support.
 
 ### Creating Custom Policies
 
-!!! WE NEED TO UPDATE THIS !!!
+See the "Create Your Own Policy" section in [Quick Start](#5-create-your-own-policy) for a complete example of creating a custom policy with `SimpleJudgePolicy`.
 
 ### Testing
 
