@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from litellm.types.utils import ModelResponse
 from opentelemetry import trace
+from pydantic import ValidationError
 
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.llm.llm_format_utils import (
@@ -33,6 +34,7 @@ from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.streaming.client_formatter.anthropic import (
     AnthropicClientFormatter,
 )
+from luthien_proxy.streaming.client_formatter.interface import ClientFormatter
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
@@ -182,14 +184,14 @@ async def _process_request(
             try:
                 openai_body = anthropic_to_openai_request(body)
                 request_message = RequestMessage(**openai_body)
-            except Exception as e:
+            except (KeyError, TypeError, AttributeError, ValidationError) as e:
                 logger.error(f"[{call_id}] Failed to convert Anthropic request: {e}")
                 raise HTTPException(status_code=400, detail=f"Invalid Anthropic request format: {e}")
             logger.info(f"[{call_id}] /v1/messages: model={request_message.model}, stream={request_message.stream}")
         else:
             try:
                 request_message = RequestMessage(**body)
-            except Exception as e:
+            except ValidationError as e:
                 logger.error(f"[{call_id}] Failed to parse OpenAI request: {e}")
                 raise HTTPException(status_code=400, detail=f"Invalid OpenAI request format: {e}")
             logger.info(
@@ -199,9 +201,7 @@ async def _process_request(
         return request_message
 
 
-def _get_client_formatter(
-    client_format: ClientFormat, model_name: str
-) -> OpenAIClientFormatter | AnthropicClientFormatter:
+def _get_client_formatter(client_format: ClientFormat, model_name: str) -> ClientFormatter:
     """Get the appropriate client formatter for the format."""
     if client_format == ClientFormat.ANTHROPIC:
         return AnthropicClientFormatter(model_name=model_name)
