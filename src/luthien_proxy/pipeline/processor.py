@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -80,12 +79,11 @@ async def process_llm_request(
         root_span.set_attribute("luthien.client_format", client_format.value)
 
         # Phase 1: Process incoming request
-        request_message, original_body = await _process_request(
+        request_message = await _process_request(
             request=request,
             client_format=client_format,
             call_id=call_id,
             emitter=emitter,
-            root_span=root_span,
         )
 
         is_streaming = request_message.stream
@@ -141,8 +139,7 @@ async def _process_request(
     client_format: ClientFormat,
     call_id: str,
     emitter: EventEmitterProtocol,
-    root_span: Any,
-) -> tuple[RequestMessage, dict]:
+) -> RequestMessage:
     """Process and validate incoming request.
 
     Args:
@@ -150,10 +147,9 @@ async def _process_request(
         client_format: Client API format
         call_id: Transaction ID
         emitter: Event emitter
-        root_span: Parent span for attributes
 
     Returns:
-        Tuple of (RequestMessage in OpenAI format, original body dict)
+        RequestMessage in OpenAI format
 
     Raises:
         HTTPException: On request size exceeded
@@ -188,7 +184,7 @@ async def _process_request(
                 f"[{call_id}] /v1/chat/completions: model={request_message.model}, stream={request_message.stream}"
             )
 
-        return request_message, body
+        return request_message
 
 
 def _get_client_formatter(

@@ -83,17 +83,15 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            request_message, body = await _process_request(
+            request_message = await _process_request(
                 request=mock_request,
                 client_format=ClientFormat.OPENAI,
                 call_id="test-call-id",
                 emitter=mock_emitter,
-                root_span=mock_span,
             )
 
         assert request_message.model == "gpt-4"
         assert request_message.stream is False
-        assert body == openai_body
         mock_emitter.record.assert_called()
 
     @pytest.mark.asyncio
@@ -111,17 +109,15 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            request_message, body = await _process_request(
+            request_message = await _process_request(
                 request=mock_request,
                 client_format=ClientFormat.ANTHROPIC,
                 call_id="test-call-id",
                 emitter=mock_emitter,
-                root_span=mock_span,
             )
 
         assert request_message.model == "claude-3-opus-20240229"
         assert request_message.max_tokens == 1024
-        assert body == anthropic_body
         mock_span.add_event.assert_called_with("format_conversion", {"from": "anthropic", "to": "openai"})
 
     @pytest.mark.asyncio
@@ -140,7 +136,6 @@ class TestProcessRequest:
                     client_format=ClientFormat.OPENAI,
                     call_id="test-call-id",
                     emitter=mock_emitter,
-                    root_span=mock_span,
                 )
 
         assert exc_info.value.status_code == 413
@@ -160,12 +155,11 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            request_message, _ = await _process_request(
+            request_message = await _process_request(
                 request=mock_request,
                 client_format=ClientFormat.OPENAI,
                 call_id="test-call-id",
                 emitter=mock_emitter,
-                root_span=mock_span,
             )
 
         assert request_message.model == "gpt-4"
