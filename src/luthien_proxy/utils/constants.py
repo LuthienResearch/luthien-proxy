@@ -31,6 +31,12 @@ LOG_CHUNK_TRUNCATION_LENGTH = 300
 # Maximum characters for SSE event logging (DEBUG level).
 LOG_SSE_EVENT_TRUNCATION_LENGTH = 200
 
+# Maximum characters for tool call arguments in logs/error messages.
+TOOL_ARGS_TRUNCATION_LENGTH = 200
+
+# Maximum characters for database URL preview in startup logs.
+DB_URL_PREVIEW_LENGTH = 20
+
 # ------------------------------------------------------------------------------
 # LLM Judge Defaults
 # ------------------------------------------------------------------------------
@@ -89,6 +95,14 @@ REDIS_POLL_TIMEOUT_BUFFER_SECONDS = 0.5
 # Length of API key hash to display in logs (SHA256 substring).
 # Balance between security and debugging convenience.
 API_KEY_HASH_LENGTH = 16
+
+# ------------------------------------------------------------------------------
+# Redis Configuration
+# ------------------------------------------------------------------------------
+
+# Timeout (in seconds) for acquiring Redis locks.
+# Prevents indefinite blocking when lock contention occurs.
+REDIS_LOCK_TIMEOUT_SECONDS = 10
 
 # ------------------------------------------------------------------------------
 # Gateway Server

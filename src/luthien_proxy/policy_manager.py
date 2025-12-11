@@ -23,6 +23,7 @@ from redis.asyncio import Redis
 from luthien_proxy.config import _import_policy_class, _instantiate_policy, load_policy_from_yaml
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.utils import db
+from luthien_proxy.utils.constants import REDIS_LOCK_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +292,7 @@ class PolicyManager:
             Exception: If lock cannot be acquired
         """
         lock = self.redis.lock(self.lock_key, timeout=timeout)
-        acquired = await lock.acquire(blocking=True, blocking_timeout=10)
+        acquired = await lock.acquire(blocking=True, blocking_timeout=REDIS_LOCK_TIMEOUT_SECONDS)
         if not acquired:
             raise HTTPException(status_code=503, detail="Another policy change in progress, please try again")
         try:
