@@ -43,6 +43,7 @@
 
 ### Infrastructure (Medium)
 
+- [ ] **Add migration tracking** - No schema_migrations table exists; migrations use IF NOT EXISTS which silently skips existing tables with wrong schema. Options: alembic, simple tracking table, or schema validation. (bd: luthien-proxy-17j)
 - [ ] **DB Migration: call_id -> transaction_id** - Rename columns for consistency
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints
 - [ ] Add rate limiting middleware
