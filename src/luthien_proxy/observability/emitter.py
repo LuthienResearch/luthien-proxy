@@ -233,29 +233,35 @@ class EventEmitter:
         if not self._db_pool:
             return
 
+        # Extract session_id from data if present (set by processor)
+        session_id = data.get("session_id") if isinstance(data, dict) else None
+
         try:
             async with self._db_pool.connection() as conn:
-                # Ensure call row exists
+                # Ensure call row exists with session_id
                 await conn.execute(
                     """
-                    INSERT INTO conversation_calls (call_id, created_at)
-                    VALUES ($1, $2)
-                    ON CONFLICT (call_id) DO NOTHING
+                    INSERT INTO conversation_calls (call_id, created_at, session_id)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (call_id) DO UPDATE SET
+                        session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id)
                     """,
                     transaction_id,
                     timestamp,
+                    session_id,
                 )
 
-                # Insert event, ordering by created_at
+                # Insert event with session_id, ordering by created_at
                 await conn.execute(
                     """
-                    INSERT INTO conversation_events (call_id, event_type, payload, created_at)
-                    VALUES ($1, $2, $3, $4)
+                    INSERT INTO conversation_events (call_id, event_type, payload, created_at, session_id)
+                    VALUES ($1, $2, $3, $4, $5)
                     """,
                     transaction_id,
                     event_type,
                     json.dumps(data),
                     timestamp,
+                    session_id,
                 )
 
             logger.debug(f"Wrote event to db: {event_type} (transaction_id={transaction_id})")

@@ -129,7 +129,7 @@ async def process_llm_request(
         emitter.record(
             call_id,
             "pipeline.backend_request",
-            {"payload": final_request.model_dump(exclude_none=True)},
+            {"payload": final_request.model_dump(exclude_none=True), "session_id": session_id},
         )
 
         # Phase 2 & 3 & 4: Send upstream, process response, send to client
@@ -295,7 +295,9 @@ async def _handle_non_streaming(
         else:
             final_response = processed_response.model_dump()
 
-        emitter.record(call_id, "pipeline.client_response", {"payload": final_response})
+        emitter.record(
+            call_id, "pipeline.client_response", {"payload": final_response, "session_id": policy_ctx.session_id}
+        )
 
         return JSONResponse(
             content=final_response,

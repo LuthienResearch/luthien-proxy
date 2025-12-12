@@ -401,36 +401,27 @@ async def test_claude_code_cost_tracking(claude_available, gateway_healthy):
 # === Policy Management Helpers ===
 
 
-async def create_and_activate_policy(
+async def set_policy(
     client: httpx.AsyncClient,
-    name: str,
     policy_class_ref: str,
     config: dict,
 ) -> None:
-    """Create and activate a policy instance."""
+    """Set the active policy via admin API."""
     gateway_base = GATEWAY_URL.rstrip("/")
     admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
 
-    # Create policy instance
-    create_response = await client.post(
-        f"{gateway_base}/admin/policy/create",
+    response = await client.post(
+        f"{gateway_base}/admin/policy/set",
         headers=admin_headers,
         json={
-            "name": name,
             "policy_class_ref": policy_class_ref,
             "config": config,
-            "created_by": "claude-code-e2e-test",
+            "enabled_by": "claude-code-e2e-test",
         },
     )
-    assert create_response.status_code == 200, f"Failed to create policy: {create_response.text}"
-
-    # Activate policy instance
-    activate_response = await client.post(
-        f"{gateway_base}/admin/policy/activate",
-        headers=admin_headers,
-        json={"name": name, "activated_by": "claude-code-e2e-test"},
-    )
-    assert activate_response.status_code == 200, f"Failed to activate policy: {activate_response.text}"
+    assert response.status_code == 200, f"Failed to set policy: {response.text}"
+    data = response.json()
+    assert data.get("success"), f"Policy set failed: {data}"
 
     # Brief pause to ensure policy is active
     time.sleep(0.3)
@@ -448,18 +439,15 @@ async def get_current_policy(client: httpx.AsyncClient) -> dict:
 @asynccontextmanager
 async def policy_context(policy_class_ref: str, config: dict):
     """Context manager that sets up a policy and restores NoOp after test."""
-    instance_name = f"test-{int(time.time() * 1000)}"
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Activate the test policy
-        await create_and_activate_policy(client, instance_name, policy_class_ref, config)
+        await set_policy(client, policy_class_ref, config)
         try:
             yield
         finally:
             # Restore NoOp policy after test
-            restore_name = f"restore-noop-{int(time.time() * 1000)}"
-            await create_and_activate_policy(
+            await set_policy(
                 client,
-                restore_name,
                 "luthien_proxy.policies.noop_policy:NoOpPolicy",
                 {},
             )
