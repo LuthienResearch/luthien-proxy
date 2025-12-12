@@ -17,6 +17,16 @@ uv run pytest -m e2e
 uv run pytest tests/e2e_tests/test_session_tracking.py -m e2e -v
 ```
 
+## Shared Test Infrastructure
+
+All shared fixtures and helpers are in `tests/e2e_tests/conftest.py`:
+
+- **Fixtures**: `claude_available`, `codex_available`, `gateway_healthy`, `http_client`
+- **Configuration**: `GATEWAY_URL`, `API_KEY`, `ADMIN_API_KEY`
+- **Helpers**: `set_policy()`, `get_current_policy()`, `policy_context()`
+
+These are auto-discovered by pytest - no explicit import needed for fixtures.
+
 ## Policy Management
 
 ### policy_context Helper
@@ -24,7 +34,7 @@ uv run pytest tests/e2e_tests/test_session_tracking.py -m e2e -v
 Use the `policy_context` async context manager to temporarily activate a policy during a test:
 
 ```python
-from tests.e2e_tests.test_session_tracking import policy_context
+from tests.e2e_tests.conftest import policy_context
 
 @pytest.mark.e2e
 @pytest.mark.asyncio

@@ -229,11 +229,19 @@ class EventEmitter:
         data: dict[str, Any],
         timestamp: datetime,
     ) -> None:
-        """Write event to PostgreSQL."""
+        """Write event to PostgreSQL.
+
+        Session ID Propagation Convention:
+            The session_id is extracted from the event data dict if present.
+            Callers (e.g., processor.py) should include {"session_id": value}
+            in their event data to persist the session_id to the database.
+            This convention allows session tracking without modifying the
+            EventEmitter interface.
+        """
         if not self._db_pool:
             return
 
-        # Extract session_id from data if present (set by processor)
+        # Extract session_id from data if present (set by processor via convention above)
         session_id = data.get("session_id") if isinstance(data, dict) else None
 
         try:

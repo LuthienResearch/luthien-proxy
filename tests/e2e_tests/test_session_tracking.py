@@ -1,6 +1,3 @@
-# ABOUTME: E2E tests for session ID tracking using actual Claude Code and Codex CLI instances
-# ABOUTME: Verifies session IDs are extracted and tracked through the gateway
-
 """E2E tests for session ID tracking through the gateway.
 
 These tests invoke actual CLI tools (Claude Code and Codex) in headless mode
@@ -21,51 +18,24 @@ import asyncio
 import json
 import os
 import re
-import shutil
-import time
-from contextlib import asynccontextmanager
 
 import httpx
 import pytest
 
-# === Test Configuration ===
-
-GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
-API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
-ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
+# Import shared config and helpers from conftest
+from tests.e2e_tests.conftest import (  # noqa: F401
+    ADMIN_API_KEY,
+    API_KEY,
+    GATEWAY_URL,
+    policy_context,
+)
 
 # Session UUID pattern (matches format extracted by gateway)
 SESSION_UUID_PATTERN = re.compile(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
 
 
-# === Fixtures ===
-
-
-@pytest.fixture
-def claude_available():
-    """Check if claude CLI is available."""
-    if not shutil.which("claude"):
-        pytest.skip("Claude CLI not installed - run: npm install -g @anthropic-ai/claude-cli")
-
-
-@pytest.fixture
-def codex_available():
-    """Check if codex CLI is available."""
-    if not shutil.which("codex"):
-        pytest.skip("Codex CLI not installed - see https://developers.openai.com/codex/quickstart/")
-
-
-@pytest.fixture
-async def gateway_healthy():
-    """Check if gateway is running and healthy."""
-    gateway_base = GATEWAY_URL.rstrip("/")
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        try:
-            response = await client.get(f"{gateway_base}/health")
-            if response.status_code != 200:
-                pytest.skip(f"Gateway not healthy: {response.status_code}")
-        except httpx.ConnectError:
-            pytest.skip(f"Gateway not running at {gateway_base}")
+# Fixtures claude_available, codex_available, gateway_healthy, http_client
+# are provided by conftest.py and auto-discovered by pytest
 
 
 # === Claude Code Helpers ===
@@ -336,60 +306,11 @@ async def test_claude_code_multiple_requests_different_sessions(claude_available
     )
 
 
-# === Policy Management Helpers ===
-
-
-async def set_policy(
-    client: httpx.AsyncClient,
-    policy_class_ref: str,
-    config: dict,
-) -> None:
-    """Set the active policy via admin API."""
-    gateway_base = GATEWAY_URL.rstrip("/")
-    admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
-
-    response = await client.post(
-        f"{gateway_base}/admin/policy/set",
-        headers=admin_headers,
-        json={
-            "policy_class_ref": policy_class_ref,
-            "config": config,
-            "enabled_by": "session-tracking-e2e-test",
-        },
-    )
-    assert response.status_code == 200, f"Failed to set policy: {response.text}"
-    data = response.json()
-    assert data.get("success"), f"Policy set failed: {data}"
-
-    # Brief pause to ensure policy is active
-    time.sleep(0.3)
-
-
-@asynccontextmanager
-async def policy_context(policy_class_ref: str, config: dict):
-    """Context manager that sets up a policy and restores NoOp after test."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        # Activate the test policy
-        await set_policy(client, policy_class_ref, config)
-        try:
-            yield
-        finally:
-            # Restore NoOp policy after test
-            await set_policy(
-                client,
-                "luthien_proxy.policies.noop_policy:NoOpPolicy",
-                {},
-            )
+# Policy helpers (set_policy, get_current_policy, policy_context) and http_client fixture
+# are provided by conftest.py
 
 
 # === HTTP Client Tests (for direct verification) ===
-
-
-@pytest.fixture
-async def http_client():
-    """Provide async HTTP client for direct HTTP tests."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        yield client
 
 
 @pytest.mark.e2e
