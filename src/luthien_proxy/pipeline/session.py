@@ -53,9 +53,11 @@ def extract_session_id_from_headers(headers: dict[str, str]) -> str | None:
         headers: Request headers (keys should be lowercase)
 
     Returns:
-        Session ID if header present, None otherwise
+        Session ID if header present and non-empty, None otherwise
     """
-    return headers.get(OPENAI_SESSION_HEADER)
+    value = headers.get(OPENAI_SESSION_HEADER)
+    # Normalize empty strings to None for consistent handling
+    return value if value else None
 
 
 __all__ = [

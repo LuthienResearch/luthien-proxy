@@ -105,11 +105,11 @@ class TestExtractSessionIdFromHeaders:
         session_id = extract_session_id_from_headers(headers)
         assert session_id is None
 
-    def test_returns_empty_string_if_header_empty(self):
-        """Test returns empty string if header value is empty."""
+    def test_returns_none_if_header_empty(self):
+        """Test returns None if header value is empty (normalized for consistent handling)."""
         headers = {OPENAI_SESSION_HEADER: ""}
         session_id = extract_session_id_from_headers(headers)
-        assert session_id == ""
+        assert session_id is None
 
     def test_preserves_uuid_format(self):
         """Test UUID session IDs are preserved correctly."""
