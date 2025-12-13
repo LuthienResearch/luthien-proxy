@@ -6,9 +6,9 @@ This module provides common infrastructure for E2E tests including:
 - HTTP client fixtures
 """
 
+import asyncio
 import os
 import shutil
-import time
 from contextlib import asynccontextmanager
 
 import httpx
@@ -92,7 +92,7 @@ async def set_policy(
     assert data.get("success"), f"Policy set failed: {data}"
 
     # Brief pause to ensure policy is active
-    time.sleep(0.3)
+    await asyncio.sleep(0.3)
 
 
 async def get_current_policy(client: httpx.AsyncClient) -> dict:
