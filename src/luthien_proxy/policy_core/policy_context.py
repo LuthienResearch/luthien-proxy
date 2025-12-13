@@ -12,6 +12,7 @@ from luthien_proxy.observability.emitter import (
     EventEmitterProtocol,
     NullEventEmitter,
 )
+from luthien_proxy.types import RawHttpRequest
 
 if TYPE_CHECKING:
     from luthien_proxy.messages import Request
@@ -40,17 +41,26 @@ class PolicyContext:
         transaction_id: str,
         request: "Request | None" = None,
         emitter: EventEmitterProtocol | None = None,
+        raw_http_request: RawHttpRequest | None = None,
+        session_id: str | None = None,
     ) -> None:
         """Initialize policy context for a request.
 
         Args:
             transaction_id: Unique identifier for this request/response cycle
-            request: Optional original request for policies that need it
+            request: Optional original request for policies that need it (OpenAI format)
             emitter: Event emitter for recording observability events.
                      If not provided, a NullEventEmitter is used.
+            raw_http_request: Optional raw HTTP request data before any processing.
+                              Contains original headers, body, method, and path.
+            session_id: Optional session identifier extracted from client request.
+                        For Anthropic clients, extracted from metadata.user_id.
+                        For OpenAI clients, extracted from x-session-id header.
         """
         self.transaction_id: str = transaction_id
         self.request: "Request | None" = request
+        self.raw_http_request: RawHttpRequest | None = raw_http_request
+        self.session_id: str | None = session_id
         self._emitter: EventEmitterProtocol = emitter or NullEventEmitter()
         self._scratchpad: dict[str, Any] = {}
 
@@ -96,6 +106,8 @@ class PolicyContext:
         cls,
         transaction_id: str = "test-txn",
         request: "Request | None" = None,
+        raw_http_request: RawHttpRequest | None = None,
+        session_id: str | None = None,
     ) -> "PolicyContext":
         """Create a PolicyContext suitable for unit tests.
 
@@ -104,6 +116,8 @@ class PolicyContext:
         Args:
             transaction_id: Transaction ID (defaults to "test-txn")
             request: Optional request object
+            raw_http_request: Optional raw HTTP request data
+            session_id: Optional session ID
 
         Returns:
             PolicyContext with null implementations for external services
@@ -112,6 +126,8 @@ class PolicyContext:
             transaction_id=transaction_id,
             request=request,
             emitter=NullEventEmitter(),
+            raw_http_request=raw_http_request,
+            session_id=session_id,
         )
 
 

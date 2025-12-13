@@ -54,6 +54,9 @@ class TestProcessRequest:
         """Create a mock FastAPI request."""
         request = MagicMock()
         request.headers = {}
+        request.method = "POST"
+        request.url = MagicMock()
+        request.url.path = "/v1/chat/completions"
         return request
 
     @pytest.fixture
@@ -83,7 +86,7 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            request_message = await _process_request(
+            request_message, raw_http_request, session_id = await _process_request(
                 request=mock_request,
                 client_format=ClientFormat.OPENAI,
                 call_id="test-call-id",
@@ -92,6 +95,10 @@ class TestProcessRequest:
 
         assert request_message.model == "gpt-4"
         assert request_message.stream is False
+        assert raw_http_request.body == openai_body
+        assert raw_http_request.method == "POST"
+        assert raw_http_request.path == "/v1/chat/completions"
+        assert session_id is None  # No x-session-id header provided
         mock_emitter.record.assert_called()
 
     @pytest.mark.asyncio
@@ -104,12 +111,13 @@ class TestProcessRequest:
             "stream": False,
         }
         mock_request.json = AsyncMock(return_value=anthropic_body)
+        mock_request.url.path = "/v1/messages"
 
         with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            request_message = await _process_request(
+            request_message, raw_http_request, session_id = await _process_request(
                 request=mock_request,
                 client_format=ClientFormat.ANTHROPIC,
                 call_id="test-call-id",
@@ -118,6 +126,9 @@ class TestProcessRequest:
 
         assert request_message.model == "claude-3-opus-20240229"
         assert request_message.max_tokens == 1024
+        assert raw_http_request.body == anthropic_body
+        assert raw_http_request.path == "/v1/messages"
+        assert session_id is None  # No metadata.user_id with session in body
         mock_span.add_event.assert_called_with("format_conversion", {"from": "anthropic", "to": "openai"})
 
     @pytest.mark.asyncio
@@ -155,7 +166,7 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            request_message = await _process_request(
+            request_message, _raw_http_request, _session_id = await _process_request(
                 request=mock_request,
                 client_format=ClientFormat.OPENAI,
                 call_id="test-call-id",
@@ -327,6 +338,9 @@ class TestProcessLlmRequest:
         """Create a mock FastAPI request."""
         request = MagicMock()
         request.headers = {}
+        request.method = "POST"
+        request.url = MagicMock()
+        request.url.path = "/v1/chat/completions"
         return request
 
     @pytest.fixture
@@ -565,6 +579,9 @@ class TestProcessRequestErrorHandling:
         """Create a mock FastAPI request."""
         request = MagicMock()
         request.headers = {}
+        request.method = "POST"
+        request.url = MagicMock()
+        request.url.path = "/v1/chat/completions"
         return request
 
     @pytest.fixture

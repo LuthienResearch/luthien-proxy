@@ -1,6 +1,3 @@
-# ABOUTME: E2E tests that invoke Claude Code CLI through the gateway
-# ABOUTME: Tests tool-use flows by parsing stream-json output from `claude -p` mode
-
 """E2E tests for Claude Code CLI routed through the gateway.
 
 These tests invoke the `claude` CLI in non-interactive (-p) mode with the gateway
@@ -19,17 +16,12 @@ Prerequisites:
 import asyncio
 import json
 import os
-import shutil
-import time
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-import httpx
 import pytest
 
-GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000/")
-API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
-ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
+# Import shared fixtures and helpers from conftest
+from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context  # noqa: F401
 
 
 @dataclass
@@ -234,24 +226,8 @@ async def run_claude_code(
     )
 
 
-@pytest.fixture
-def claude_available():
-    """Check if claude CLI is available."""
-    if not shutil.which("claude"):
-        pytest.skip("Claude CLI not installed - run: npm install -g @anthropic-ai/claude-cli")
-
-
-@pytest.fixture
-async def gateway_healthy():
-    """Check if gateway is running and healthy."""
-    gateway_base = GATEWAY_URL.rstrip("/")
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        try:
-            response = await client.get(f"{gateway_base}/health")
-            if response.status_code != 200:
-                pytest.skip(f"Gateway not healthy: {response.status_code}")
-        except httpx.ConnectError:
-            pytest.skip(f"Gateway not running at {gateway_base}")
+# Fixtures claude_available, codex_available, gateway_healthy, http_client
+# are provided by conftest.py and auto-discovered by pytest
 
 
 @pytest.mark.e2e
@@ -398,71 +374,8 @@ async def test_claude_code_cost_tracking(claude_available, gateway_healthy):
     assert "usage" in result_event.raw or "modelUsage" in result_event.raw
 
 
-# === Policy Management Helpers ===
-
-
-async def create_and_activate_policy(
-    client: httpx.AsyncClient,
-    name: str,
-    policy_class_ref: str,
-    config: dict,
-) -> None:
-    """Create and activate a policy instance."""
-    gateway_base = GATEWAY_URL.rstrip("/")
-    admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
-
-    # Create policy instance
-    create_response = await client.post(
-        f"{gateway_base}/admin/policy/create",
-        headers=admin_headers,
-        json={
-            "name": name,
-            "policy_class_ref": policy_class_ref,
-            "config": config,
-            "created_by": "claude-code-e2e-test",
-        },
-    )
-    assert create_response.status_code == 200, f"Failed to create policy: {create_response.text}"
-
-    # Activate policy instance
-    activate_response = await client.post(
-        f"{gateway_base}/admin/policy/activate",
-        headers=admin_headers,
-        json={"name": name, "activated_by": "claude-code-e2e-test"},
-    )
-    assert activate_response.status_code == 200, f"Failed to activate policy: {activate_response.text}"
-
-    # Brief pause to ensure policy is active
-    time.sleep(0.3)
-
-
-async def get_current_policy(client: httpx.AsyncClient) -> dict:
-    """Get current policy information."""
-    gateway_base = GATEWAY_URL.rstrip("/")
-    admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
-    response = await client.get(f"{gateway_base}/admin/policy/current", headers=admin_headers)
-    assert response.status_code == 200
-    return response.json()
-
-
-@asynccontextmanager
-async def policy_context(policy_class_ref: str, config: dict):
-    """Context manager that sets up a policy and restores NoOp after test."""
-    instance_name = f"test-{int(time.time() * 1000)}"
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        # Activate the test policy
-        await create_and_activate_policy(client, instance_name, policy_class_ref, config)
-        try:
-            yield
-        finally:
-            # Restore NoOp policy after test
-            restore_name = f"restore-noop-{int(time.time() * 1000)}"
-            await create_and_activate_policy(
-                client,
-                restore_name,
-                "luthien_proxy.policies.noop_policy:NoOpPolicy",
-                {},
-            )
+# Policy helpers (set_policy, get_current_policy, policy_context)
+# are provided by conftest.py
 
 
 # === Policy-Specific Tests ===

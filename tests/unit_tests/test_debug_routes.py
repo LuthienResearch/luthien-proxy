@@ -68,6 +68,7 @@ class TestGetCallEventsRoute:
             "event_type": "v2_request",
             "created_at": datetime(2025, 10, 20, 10, 0, 0),
             "payload": {"data": "test"},
+            "session_id": None,
         }
 
         mock_conn = AsyncMock()
@@ -200,11 +201,13 @@ class TestListRecentCallsRoute:
             "call_id": "call-1",
             "event_count": 2,
             "latest": datetime(2025, 10, 20, 10, 0, 0),
+            "session_id": "test-session-1",
         }
         mock_row2 = {
             "call_id": "call-2",
             "event_count": 4,
             "latest": datetime(2025, 10, 20, 9, 0, 0),
+            "session_id": None,
         }
 
         mock_conn = AsyncMock()
