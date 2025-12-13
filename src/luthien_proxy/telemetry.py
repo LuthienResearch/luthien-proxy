@@ -21,6 +21,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 from luthien_proxy.settings import get_settings
+from luthien_proxy.utils.constants import OTEL_SPAN_ID_HEX_LENGTH, OTEL_TRACE_ID_HEX_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -140,8 +141,8 @@ def configure_logging() -> None:
                 trace_id = format(ctx.trace_id, "032x")
                 span_id = format(ctx.span_id, "016x")
             else:
-                trace_id = "0" * 32
-                span_id = "0" * 16
+                trace_id = "0" * OTEL_TRACE_ID_HEX_LENGTH
+                span_id = "0" * OTEL_SPAN_ID_HEX_LENGTH
 
             # Simple structure for regular logs
             log_data = {

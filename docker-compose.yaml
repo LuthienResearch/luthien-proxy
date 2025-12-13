@@ -22,6 +22,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   # Database migrations (runs before gateway starts)
   migrations:
@@ -36,6 +44,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   # Redis for ephemeral state and caching
   redis:
@@ -47,6 +63,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   # Single-container local LLM gateway (Ollama + LiteLLM)
   local-llm:
@@ -65,6 +89,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
 
   # Gateway (integrated FastAPI + LiteLLM architecture)
   gateway:
@@ -102,6 +134,14 @@ services:
       timeout: 5s
       retries: 3
     stop_grace_period: 2s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
 
   # === OBSERVABILITY STACK ===
   # Services: Tempo (traces), Loki (logs), Grafana (visualization)
@@ -119,6 +159,14 @@ services:
       - "3200:3200"  # Tempo HTTP API
     networks:
       - default
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   loki:
     image: grafana/loki:latest
@@ -131,6 +179,14 @@ services:
       - "3100:3100"  # Loki HTTP API
     networks:
       - default
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   promtail:
     image: grafana/promtail:latest
@@ -144,6 +200,14 @@ services:
       - default
     depends_on:
       - loki
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   grafana:
     image: grafana/grafana:latest
@@ -164,6 +228,14 @@ services:
     depends_on:
       - tempo
       - loki
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
 volumes:
   postgres_data:
