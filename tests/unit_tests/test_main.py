@@ -5,12 +5,12 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
 
-from luthien_proxy.main import create_app, load_config_from_env
+from luthien_proxy.main import connect_db, connect_redis, create_app, get_app, load_config_from_env
 
 
 class TestLoadConfigFromEnv:
@@ -103,17 +103,35 @@ policy:
     Path(config_path).unlink(missing_ok=True)
 
 
+@pytest.fixture
+def mock_db_pool():
+    """Create a mock database pool for testing."""
+    mock = AsyncMock()
+    mock.get_pool = AsyncMock()
+    mock.close = AsyncMock()
+    return mock
+
+
+@pytest.fixture
+def mock_redis_client():
+    """Create a mock Redis client for testing."""
+    mock = AsyncMock()
+    mock.ping = AsyncMock()
+    mock.close = AsyncMock()
+    return mock
+
+
 class TestCreateApp:
     """Test create_app factory function."""
 
     @pytest.mark.asyncio
-    async def test_create_app_basic(self, policy_config_file):
+    async def test_create_app_basic(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test basic app creation with minimal config."""
         app = create_app(
             api_key="test-key",
             admin_key=None,
-            database_url="postgresql://test:test@localhost/test",
-            redis_url="redis://localhost:6379",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
         )
 
@@ -122,126 +140,77 @@ class TestCreateApp:
         assert app.description == "Multi-provider LLM proxy with integrated control plane"
 
     @pytest.mark.asyncio
-    async def test_create_app_lifespan_initialization(self, policy_config_file):
+    async def test_create_app_lifespan_initialization(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test that lifespan properly initializes app.state."""
         app = create_app(
             api_key="test-api-key",
             admin_key=None,
-            database_url="postgresql://user:pass@localhost/db",
-            redis_url="redis://localhost:6379",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
         )
 
-        # Mock dependencies to avoid real connections
-        with (
-            patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
-            patch("luthien_proxy.main.Redis") as mock_redis_class,
-        ):
-            # Setup mocks
-            mock_db_instance = AsyncMock()
-            mock_db_instance.get_pool = AsyncMock()
-            mock_db_instance.close = AsyncMock()
-            mock_db_pool_class.return_value = mock_db_instance
+        # Use TestClient to trigger lifespan
+        with TestClient(app):
+            # Verify dependencies container is set up
+            from luthien_proxy.dependencies import Dependencies
 
-            mock_redis_instance = AsyncMock()
-            mock_redis_instance.ping = AsyncMock()
-            mock_redis_instance.close = AsyncMock()
-            mock_redis_class.from_url.return_value = mock_redis_instance
+            assert hasattr(app.state, "dependencies")
+            assert isinstance(app.state.dependencies, Dependencies)
 
-            # Use TestClient to trigger lifespan
+            # Verify all dependencies are properly initialized via container
+            deps = app.state.dependencies
+            assert deps.api_key == "test-api-key"
+            assert deps.policy_manager is not None
+            assert deps.db_pool == mock_db_pool
+            assert deps.redis_client == mock_redis_client
+            assert deps.event_publisher is not None
+            assert deps.llm_client is not None
+
+        # Verify cleanup was called
+        mock_db_pool.close.assert_called_once()
+        mock_redis_client.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_create_app_no_database_raises_error(self, policy_config_file, mock_redis_client):
+        """Test that app raises RuntimeError when database is None (PolicyManager requires DB)."""
+        app = create_app(
+            api_key="test-api-key",
+            admin_key=None,
+            db_pool=None,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        # App startup (lifespan) should raise RuntimeError since PolicyManager requires both DB and Redis
+        with pytest.raises(RuntimeError, match="Database and Redis required for PolicyManager"):
             with TestClient(app):
-                # Note: Telemetry is configured at module import time, not in lifespan
                 pass
 
-                # Verify dependencies container is set up
-                from luthien_proxy.dependencies import Dependencies
+    @pytest.mark.asyncio
+    async def test_create_app_no_redis_raises_error(self, policy_config_file, mock_db_pool):
+        """Test that app raises RuntimeError when Redis is None (PolicyManager requires Redis)."""
+        app = create_app(
+            api_key="test-api-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=None,
+            startup_policy_path=policy_config_file,
+        )
 
-                assert hasattr(app.state, "dependencies")
-                assert isinstance(app.state.dependencies, Dependencies)
-
-                # Verify all dependencies are properly initialized via container
-                deps = app.state.dependencies
-                assert deps.api_key == "test-api-key"
-                assert deps.policy_manager is not None
-                assert deps.db_pool == mock_db_instance
-                assert deps.redis_client == mock_redis_instance
-                assert deps.event_publisher is not None
-                assert deps.llm_client is not None
-
-            # Verify cleanup was called
-            mock_db_instance.close.assert_called_once()
-            mock_redis_instance.close.assert_called_once()
+        # App startup (lifespan) should raise RuntimeError since PolicyManager requires both DB and Redis
+        with pytest.raises(RuntimeError, match="Database and Redis required for PolicyManager"):
+            with TestClient(app):
+                pass
 
     @pytest.mark.asyncio
-    async def test_create_app_database_failure_graceful(self, policy_config_file):
-        """Test that app raises RuntimeError when database connection fails (PolicyManager requires DB)."""
-        with (
-            patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
-            patch("luthien_proxy.main.Redis") as mock_redis_class,
-        ):
-            # Make DB connection fail
-            mock_db_instance = AsyncMock()
-            mock_db_instance.get_pool = AsyncMock(side_effect=Exception("DB connection failed"))
-            mock_db_pool_class.return_value = mock_db_instance
-
-            # Redis succeeds
-            mock_redis_instance = AsyncMock()
-            mock_redis_instance.ping = AsyncMock()
-            mock_redis_instance.close = AsyncMock()
-            mock_redis_class.from_url.return_value = mock_redis_instance
-
-            app = create_app(
-                api_key="test-api-key",
-                admin_key=None,
-                database_url="postgresql://invalid:invalid@localhost/invalid",
-                redis_url="redis://localhost:6379",
-                startup_policy_path=policy_config_file,
-            )
-
-            # App startup (lifespan) should raise RuntimeError since PolicyManager requires both DB and Redis
-            with pytest.raises(RuntimeError, match="Database and Redis required for PolicyManager"):
-                with TestClient(app):
-                    pass
-
-    @pytest.mark.asyncio
-    async def test_create_app_redis_failure_graceful(self, policy_config_file):
-        """Test that app raises RuntimeError when Redis connection fails (PolicyManager requires Redis)."""
-        with (
-            patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
-            patch("luthien_proxy.main.Redis") as mock_redis_class,
-        ):
-            # DB succeeds
-            mock_db_instance = AsyncMock()
-            mock_db_instance.get_pool = AsyncMock()
-            mock_db_instance.close = AsyncMock()
-            mock_db_pool_class.return_value = mock_db_instance
-
-            # Redis fails
-            mock_redis_instance = AsyncMock()
-            mock_redis_instance.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
-            mock_redis_class.from_url.return_value = mock_redis_instance
-
-            app = create_app(
-                api_key="test-api-key",
-                admin_key=None,
-                database_url="postgresql://user:pass@localhost/db",
-                redis_url="redis://invalid:6379",
-                startup_policy_path=policy_config_file,
-            )
-
-            # App startup (lifespan) should raise RuntimeError since PolicyManager requires both DB and Redis
-            with pytest.raises(RuntimeError, match="Database and Redis required for PolicyManager"):
-                with TestClient(app):
-                    pass
-
-    @pytest.mark.asyncio
-    async def test_create_app_routes_included(self, policy_config_file):
+    async def test_create_app_routes_included(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test that all expected routes are included."""
         app = create_app(
             api_key="test-key",
             admin_key=None,
-            database_url="postgresql://test:test@localhost/test",
-            redis_url="redis://localhost:6379",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
         )
 
@@ -254,111 +223,165 @@ class TestCreateApp:
         assert "/v1/chat/completions" in routes or any("/v1/chat/completions" in str(r) for r in routes if r)
         assert "/v1/messages" in routes or any("/v1/messages" in str(r) for r in routes if r)
 
-    def test_create_app_health_endpoint(self, policy_config_file):
+    def test_create_app_health_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test health endpoint returns correct response."""
-        with (
-            patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
-            patch("luthien_proxy.main.Redis") as mock_redis_class,
-        ):
-            # Setup successful mocks for both DB and Redis
-            mock_db_instance = AsyncMock()
-            mock_db_instance.get_pool = AsyncMock()
-            mock_db_instance.close = AsyncMock()
-            mock_db_pool_class.return_value = mock_db_instance
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
 
-            mock_redis_instance = AsyncMock()
-            mock_redis_instance.ping = AsyncMock()
-            mock_redis_instance.close = AsyncMock()
-            mock_redis_class.from_url.return_value = mock_redis_instance
+        with TestClient(app) as client:
+            response = client.get("/health")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "healthy"
+            assert data["version"] == "2.0.0"
 
-            app = create_app(
-                api_key="test-key",
-                admin_key=None,
-                database_url="postgresql://test:test@localhost/test",
-                redis_url="redis://localhost:6379",
-                startup_policy_path=policy_config_file,
-            )
-
-            with TestClient(app) as client:
-                response = client.get("/health")
-                assert response.status_code == 200
-                data = response.json()
-                assert data["status"] == "healthy"
-                assert data["version"] == "2.0.0"
-
-    def test_create_app_root_endpoint(self, policy_config_file):
+    def test_create_app_root_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test root endpoint returns HTML landing page."""
-        with (
-            patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
-            patch("luthien_proxy.main.Redis") as mock_redis_class,
-        ):
-            # Setup successful mocks for both DB and Redis
-            mock_db_instance = AsyncMock()
-            mock_db_instance.get_pool = AsyncMock()
-            mock_db_instance.close = AsyncMock()
-            mock_db_pool_class.return_value = mock_db_instance
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
 
-            mock_redis_instance = AsyncMock()
-            mock_redis_instance.ping = AsyncMock()
-            mock_redis_instance.close = AsyncMock()
-            mock_redis_class.from_url.return_value = mock_redis_instance
-
-            app = create_app(
-                api_key="test-key",
-                admin_key=None,
-                database_url="postgresql://test:test@localhost/test",
-                redis_url="redis://localhost:6379",
-                startup_policy_path=policy_config_file,
-            )
-
-            with TestClient(app) as client:
-                response = client.get("/")
-                assert response.status_code == 200
-                # Verify it's HTML content
-                assert response.headers["content-type"].startswith("text/html")
-                # Basic sanity checks on content
-                content = response.text
-                assert "Luthien" in content
+        with TestClient(app) as client:
+            response = client.get("/")
+            assert response.status_code == 200
+            # Verify it's HTML content
+            assert response.headers["content-type"].startswith("text/html")
+            # Basic sanity checks on content
+            content = response.text
+            assert "Luthien" in content
 
     @pytest.mark.asyncio
-    async def test_create_app_with_custom_policy(self, policy_config_file):
+    async def test_create_app_with_custom_policy(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test app creation with custom policy config."""
         app = create_app(
             api_key="test-key",
             admin_key=None,
-            database_url="postgresql://test:test@localhost/test",
-            redis_url="redis://localhost:6379",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
         )
 
-        with (
-            patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
-            patch("luthien_proxy.main.Redis") as mock_redis_class,
-        ):
-            mock_db_instance = AsyncMock()
-            mock_db_instance.get_pool = AsyncMock()
-            mock_db_instance.close = AsyncMock()
-            mock_db_pool_class.return_value = mock_db_instance
+        with TestClient(app):
+            # Verify the policy manager was initialized
+            assert app.state.dependencies.policy_manager is not None
 
-            mock_redis_instance = AsyncMock()
-            mock_redis_instance.ping = AsyncMock()
-            mock_redis_instance.close = AsyncMock()
-            mock_redis_class.from_url.return_value = mock_redis_instance
-
-            with TestClient(app):
-                # Verify the policy manager was initialized
-                assert app.state.dependencies.policy_manager is not None
-
-    def test_create_app_static_files_mounted(self, policy_config_file):
+    def test_create_app_static_files_mounted(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test that static files are properly mounted."""
         app = create_app(
             api_key="test-key",
             admin_key=None,
-            database_url="postgresql://test:test@localhost/test",
-            redis_url="redis://localhost:6379",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
         )
 
         # Check that /v2/static route exists
         routes = [getattr(route, "path", None) for route in app.routes]
         assert any("static" in str(r).lower() for r in routes if r)
+
+
+class TestConnectDb:
+    """Test connect_db function."""
+
+    @pytest.mark.asyncio
+    async def test_connect_db_success(self):
+        """Test successful database connection."""
+        from unittest.mock import AsyncMock, patch
+
+        with patch("luthien_proxy.main.db.DatabasePool") as mock_pool_class:
+            mock_pool = AsyncMock()
+            mock_pool.get_pool = AsyncMock()
+            mock_pool_class.return_value = mock_pool
+
+            result = await connect_db("postgresql://test:test@localhost/test")
+
+            assert result is mock_pool
+            mock_pool_class.assert_called_once_with("postgresql://test:test@localhost/test")
+            mock_pool.get_pool.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_connect_db_failure_returns_none(self):
+        """Test that connection failure returns None."""
+        from unittest.mock import AsyncMock, patch
+
+        with patch("luthien_proxy.main.db.DatabasePool") as mock_pool_class:
+            mock_pool = AsyncMock()
+            mock_pool.get_pool = AsyncMock(side_effect=Exception("Connection failed"))
+            mock_pool_class.return_value = mock_pool
+
+            result = await connect_db("postgresql://invalid:invalid@localhost/invalid")
+
+            assert result is None
+
+
+class TestConnectRedis:
+    """Test connect_redis function."""
+
+    @pytest.mark.asyncio
+    async def test_connect_redis_success(self):
+        """Test successful Redis connection."""
+        from unittest.mock import AsyncMock, patch
+
+        with patch("luthien_proxy.main.Redis") as mock_redis_class:
+            mock_client = AsyncMock()
+            mock_client.ping = AsyncMock()
+            mock_redis_class.from_url.return_value = mock_client
+
+            result = await connect_redis("redis://localhost:6379")
+
+            assert result is mock_client
+            mock_redis_class.from_url.assert_called_once_with("redis://localhost:6379", decode_responses=False)
+            mock_client.ping.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_connect_redis_failure_returns_none(self):
+        """Test that connection failure returns None."""
+        from unittest.mock import AsyncMock, patch
+
+        with patch("luthien_proxy.main.Redis") as mock_redis_class:
+            mock_client = AsyncMock()
+            mock_client.ping = AsyncMock(side_effect=Exception("Connection failed"))
+            mock_redis_class.from_url.return_value = mock_client
+
+            result = await connect_redis("redis://invalid:6379")
+
+            assert result is None
+
+
+class TestGetApp:
+    """Test get_app function."""
+
+    @pytest.mark.asyncio
+    async def test_get_app_creates_app_with_connections(self, monkeypatch, policy_config_file):
+        """Test that get_app creates app with DB and Redis connections."""
+        from unittest.mock import AsyncMock, patch
+
+        monkeypatch.setenv("PROXY_API_KEY", "test-key")
+        monkeypatch.setenv("ADMIN_API_KEY", "test-admin")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        monkeypatch.setenv("POLICY_CONFIG", policy_config_file)
+
+        mock_db_pool = AsyncMock()
+        mock_redis_client = AsyncMock()
+
+        with (
+            patch("luthien_proxy.main.connect_db", return_value=mock_db_pool) as mock_connect_db,
+            patch("luthien_proxy.main.connect_redis", return_value=mock_redis_client) as mock_connect_redis,
+        ):
+            from luthien_proxy.settings import Settings
+
+            app = await get_app(settings=Settings(_env_file=None))
+
+            mock_connect_db.assert_called_once_with("postgresql://test:test@localhost/test")
+            mock_connect_redis.assert_called_once_with("redis://localhost:6379")
+            assert app.title == "Luthien Proxy Gateway"
