@@ -8,6 +8,8 @@
   - Add `PolicyContext.add_span_event()` for lightweight observability events
   - Document span hierarchy in processor module docstring
   - All pipeline phases (process_request, policy_on_request, send_upstream, process_response) are now visible as siblings in Grafana/Tempo
+  - Add `luthien.policy.name` attribute to root span for easy policy identification
+  - Add `request_summary` and `response_summary` fields to PolicyContext for policy-defined observability
 
 - Dependency injection for `create_app()` (#105)
 

@@ -71,6 +71,11 @@ class PolicyContext:
         self._emitter: EventEmitterProtocol = emitter or NullEventEmitter()
         self._scratchpad: dict[str, Any] = {}
 
+        # Policy summaries - optional human-readable descriptions of what the policy did.
+        # These are set by policies and propagated to span attributes for observability.
+        self.request_summary: str | None = None
+        self.response_summary: str | None = None
+
     @property
     def emitter(self) -> EventEmitterProtocol:
         """Event emitter for recording observability events.

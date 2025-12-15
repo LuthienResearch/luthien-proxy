@@ -197,3 +197,45 @@ class TestPolicyContextScratchpad:
 
         assert ctx1.scratchpad["value"] == "from ctx1"
         assert ctx2.scratchpad["value"] == "from ctx2"
+
+
+class TestPolicyContextSummaries:
+    """Tests for PolicyContext request_summary and response_summary fields."""
+
+    def test_summaries_default_to_none(self):
+        """Summary fields default to None."""
+        ctx = PolicyContext.for_testing()
+        assert ctx.request_summary is None
+        assert ctx.response_summary is None
+
+    def test_request_summary_can_be_set(self):
+        """Policies can set request_summary."""
+        ctx = PolicyContext.for_testing()
+        ctx.request_summary = "pass_through"
+        assert ctx.request_summary == "pass_through"
+
+    def test_response_summary_can_be_set(self):
+        """Policies can set response_summary."""
+        ctx = PolicyContext.for_testing()
+        ctx.response_summary = "blocked rm -rf: high risk score (0.92)"
+        assert ctx.response_summary == "blocked rm -rf: high risk score (0.92)"
+
+    def test_summaries_are_isolated_per_context(self):
+        """Each context has its own summaries."""
+        ctx1 = PolicyContext.for_testing(transaction_id="ctx1")
+        ctx2 = PolicyContext.for_testing(transaction_id="ctx2")
+
+        ctx1.request_summary = "modified"
+        ctx2.request_summary = "pass_through"
+
+        assert ctx1.request_summary == "modified"
+        assert ctx2.request_summary == "pass_through"
+
+    def test_summaries_can_be_any_string(self):
+        """Summaries are free-form text fields."""
+        ctx = PolicyContext.for_testing()
+        ctx.request_summary = "Added safety prefix to system prompt"
+        ctx.response_summary = "Redacted 3 PII patterns (email, phone, SSN)"
+
+        assert "safety prefix" in ctx.request_summary
+        assert "PII" in ctx.response_summary

@@ -38,6 +38,7 @@ from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 from opentelemetry.context import attach, detach, get_current
+from opentelemetry.trace import Span
 from pydantic import ValidationError
 
 from luthien_proxy.llm.client import LLMClient
@@ -145,9 +146,16 @@ async def process_llm_request(
             transaction_recorder=recorder,
         )
 
+        # Set policy name on root span for easy identification
+        root_span.set_attribute("luthien.policy.name", policy.__class__.__name__)
+
         # Apply policy to request
         with tracer.start_as_current_span("policy_on_request"):
             final_request = await orchestrator.process_request(request_message, policy_ctx)
+
+        # Propagate request summary if policy set one
+        if policy_ctx.request_summary:
+            root_span.set_attribute("luthien.policy.request_summary", policy_ctx.request_summary)
 
         emitter.record(
             call_id,
@@ -163,9 +171,10 @@ async def process_llm_request(
                 policy_ctx=policy_ctx,
                 llm_client=llm_client,
                 call_id=call_id,
+                root_span=root_span,
             )
         else:
-            return await _handle_non_streaming(
+            response = await _handle_non_streaming(
                 final_request=final_request,
                 orchestrator=orchestrator,
                 policy_ctx=policy_ctx,
@@ -174,6 +183,12 @@ async def process_llm_request(
                 emitter=emitter,
                 call_id=call_id,
             )
+
+            # Propagate response summary if policy set one
+            if policy_ctx.response_summary:
+                root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
+
+            return response
 
 
 async def _process_request(
@@ -265,6 +280,7 @@ async def _handle_streaming(
     policy_ctx: PolicyContext,
     llm_client: LLMClient,
     call_id: str,
+    root_span: Span,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow.
 
@@ -300,6 +316,10 @@ async def _handle_streaming(
                     yield sse_event
 
                 response_span.set_attribute("streaming.chunk_count", chunk_count)
+
+                # Propagate response summary if policy set one (after streaming completes)
+                if policy_ctx.response_summary:
+                    root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
         finally:
             detach(token)
 
