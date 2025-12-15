@@ -202,7 +202,7 @@ def _escape_html_attr(value: str) -> str:
 DEFAULT_DEV_KEY = "admin-dev-key"
 
 
-def get_login_page_html(error: str | None = None, next_url: str = "/", admin_key: str | None = None) -> str:
+def get_login_page_html(error: str | None = None, next_url: str = "/") -> str:
     """Generate the login page HTML."""
     error_html = ""
     if error == "invalid":
@@ -282,7 +282,8 @@ def get_login_page_html(error: str | None = None, next_url: str = "/", admin_key
             font-weight: 500;
             color: #ccc;
         }}
-        input[type="password"] {{
+        input[type="password"],
+        input[type="text"] {{
             width: 100%;
             padding: 12px 16px;
             border: 1px solid #333;
@@ -299,16 +300,6 @@ def get_login_page_html(error: str | None = None, next_url: str = "/", admin_key
         }}
         .password-wrapper {{
             position: relative;
-        }}
-        .password-wrapper input {{
-            width: 100%;
-            padding: 12px 16px;
-            border: 1px solid #333;
-            border-radius: 6px;
-            background: #2a2a3e;
-            color: #fff;
-            font-size: 16px;
-            transition: border-color 0.2s;
         }}
         .toggle-password {{
             display: block;
@@ -409,10 +400,9 @@ async def login_page(
     request: Request,
     error: str | None = None,
     next: str = "/",
-    admin_key: str | None = Depends(get_admin_key),
 ) -> HTMLResponse:
     """Serve the login page."""
-    return HTMLResponse(get_login_page_html(error=error, next_url=next, admin_key=admin_key))
+    return HTMLResponse(get_login_page_html(error=error, next_url=next))
 
 
 # Also serve at /login for convenience
@@ -424,10 +414,9 @@ async def login_page_root(
     request: Request,
     error: str | None = None,
     next: str = "/",
-    admin_key: str | None = Depends(get_admin_key),
 ) -> HTMLResponse:
     """Serve the login page at /login."""
-    return HTMLResponse(get_login_page_html(error=error, next_url=next, admin_key=admin_key))
+    return HTMLResponse(get_login_page_html(error=error, next_url=next))
 
 
 __all__ = [
