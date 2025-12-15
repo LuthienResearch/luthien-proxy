@@ -2,6 +2,8 @@
 
 ## Unreleased | TBA
 
+- Dependency injection for `create_app()` (#105)
+
 - Session ID tracking for conversation context (#102)
   - Extract session ID from Anthropic `metadata.user_id` (Claude Code format: `user_<hash>_account__session_<uuid>`)
   - Extract session ID from `x-session-id` header (OpenAI format)

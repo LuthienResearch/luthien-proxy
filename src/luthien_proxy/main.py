@@ -46,8 +46,8 @@ logger = logging.getLogger(__name__)
 def create_app(
     api_key: str,
     admin_key: str | None,
-    database_url: str,
-    redis_url: str,
+    db_pool: db.DatabasePool,
+    redis_client: Redis,
     startup_policy_path: str | None = None,
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
@@ -55,8 +55,8 @@ def create_app(
     Args:
         api_key: API key for client authentication (PROXY_API_KEY)
         admin_key: API key for admin operations (ADMIN_API_KEY)
-        database_url: PostgreSQL database URL
-        redis_url: Redis URL for event publishing
+        db_pool: Database connection pool (already initialized)
+        redis_client: Redis client (already initialized)
         startup_policy_path: Optional path to YAML policy config to load at startup
                              (overrides DB, persists to DB). If None, loads from DB only.
 
@@ -74,52 +74,27 @@ def create_app(
         litellm.drop_params = True
         logger.info("Configured litellm: drop_params=True")
 
-        # Connect to database
-        _db_pool: db.DatabasePool | None = None
-        try:
-            _db_pool = db.DatabasePool(database_url)
-            await _db_pool.get_pool()
-            logger.info(f"Connected to database at {database_url[:DB_URL_PREVIEW_LENGTH]}...")
-        except Exception as exc:
-            logger.warning(f"Failed to connect to database: {exc}. Event persistence will be disabled.")
-            _db_pool = None
-
-        # Connect to Redis
-        _redis_client: Redis | None = None
-        try:
-            _redis_client = Redis.from_url(redis_url, decode_responses=False)
-            await _redis_client.ping()
-            logger.info(f"Connected to Redis at {redis_url}")
-        except Exception as exc:
-            logger.warning(f"Failed to connect to Redis: {exc}. Event publisher will be disabled.")
-            _redis_client = None
-
         # Create event emitter (will be injected via Dependencies)
-        _redis_publisher = RedisEventPublisher(_redis_client) if _redis_client else None
+        _redis_publisher = RedisEventPublisher(redis_client)
         _emitter = EventEmitter(
-            db_pool=_db_pool,
+            db_pool=db_pool,
             redis_publisher=_redis_publisher,
             stdout_enabled=True,
         )
         logger.info("Event emitter created")
 
         # Initialize PolicyManager
-        _policy_manager: PolicyManager | None = None
-        if _db_pool and _redis_client:
-            try:
-                _policy_manager = PolicyManager(
-                    db_pool=_db_pool,
-                    redis_client=_redis_client,
-                    startup_policy_path=startup_policy_path,
-                )
-                await _policy_manager.initialize()
-                logger.info(f"PolicyManager initialized (policy: {_policy_manager.current_policy.__class__.__name__})")
-            except Exception as exc:
-                logger.error(f"Failed to initialize PolicyManager: {exc}", exc_info=True)
-                raise RuntimeError(f"Failed to initialize PolicyManager: {exc}")
-        else:
-            logger.error("Cannot initialize PolicyManager without database and Redis")
-            raise RuntimeError("Database and Redis required for PolicyManager")
+        try:
+            _policy_manager = PolicyManager(
+                db_pool=db_pool,
+                redis_client=redis_client,
+                startup_policy_path=startup_policy_path,
+            )
+            await _policy_manager.initialize()
+            logger.info(f"PolicyManager initialized (policy: {_policy_manager.current_policy.__class__.__name__})")
+        except Exception as exc:
+            logger.error(f"Failed to initialize PolicyManager: {exc}", exc_info=True)
+            raise RuntimeError(f"Failed to initialize PolicyManager: {exc}") from exc
 
         # Create LLM client (singleton for the app lifetime)
         _llm_client = LiteLLMClient()
@@ -127,8 +102,8 @@ def create_app(
 
         # Create Dependencies container with all services
         _dependencies = Dependencies(
-            db_pool=_db_pool,
-            redis_client=_redis_client,
+            db_pool=db_pool,
+            redis_client=redis_client,
             llm_client=_llm_client,
             policy_manager=_policy_manager,
             emitter=_emitter,
@@ -143,12 +118,9 @@ def create_app(
         yield
 
         # Shutdown
-        if _db_pool:
-            await _db_pool.close()
-            logger.info("Closed database connection")
-        if _redis_client:
-            await _redis_client.close()
-            logger.info("Closed Redis connection")
+        # Note: db_pool and redis_client are NOT closed here - they are owned by
+        # the caller who passed them in. The caller is responsible for cleanup.
+        logger.info("Luthien Gateway shutdown complete")
 
     # === APP SETUP ===
     app = FastAPI(
@@ -183,6 +155,48 @@ def create_app(
     return app
 
 
+async def connect_db(database_url: str) -> db.DatabasePool:
+    """Create and initialize database connection pool.
+
+    Args:
+        database_url: PostgreSQL connection URL
+
+    Returns:
+        Initialized DatabasePool
+
+    Raises:
+        RuntimeError: If connection fails
+    """
+    try:
+        pool = db.DatabasePool(database_url)
+        await pool.get_pool()
+        logger.info(f"Connected to database at {database_url[:DB_URL_PREVIEW_LENGTH]}...")
+        return pool
+    except Exception as exc:
+        raise RuntimeError(f"Failed to connect to database: {exc}") from exc
+
+
+async def connect_redis(redis_url: str) -> Redis:
+    """Create and initialize Redis client.
+
+    Args:
+        redis_url: Redis connection URL
+
+    Returns:
+        Connected Redis client
+
+    Raises:
+        RuntimeError: If connection fails
+    """
+    try:
+        client: Redis = Redis.from_url(redis_url, decode_responses=False)
+        await client.ping()
+        logger.info(f"Connected to Redis at {redis_url}")
+        return client
+    except Exception as exc:
+        raise RuntimeError(f"Failed to connect to Redis: {exc}") from exc
+
+
 def load_config_from_env(settings: Settings | None = None) -> dict:
     """Load and validate configuration from environment variables.
 
@@ -190,7 +204,8 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         settings: Optional Settings instance for testing. Uses get_settings() if None.
 
     Returns:
-        Dictionary with configuration values ready for create_app()
+        Dictionary with configuration values (api_key, admin_key, database_url,
+        redis_url, startup_policy_path)
 
     Raises:
         ValueError: If required environment variables are missing or invalid
@@ -219,13 +234,42 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     }
 
 
-__all__ = ["create_app", "load_config_from_env"]
+__all__ = ["create_app", "load_config_from_env", "connect_db", "connect_redis"]
 
 
 if __name__ == "__main__":
-    config = load_config_from_env()
-    startup_path = config.get("startup_policy_path")
-    logger.info(f"Policy configuration: startup_policy_path={startup_path or '(load from DB)'}")
+    import asyncio
 
-    app = create_app(**config)
-    uvicorn.run(app, host="0.0.0.0", port=DEFAULT_GATEWAY_PORT, log_level="debug")
+    async def main():
+        """Production entry point with proper resource lifecycle."""
+        config = load_config_from_env()
+
+        startup_path = config.get("startup_policy_path")
+        logger.info(f"Policy configuration: startup_policy_path={startup_path or '(load from DB)'}")
+
+        db_pool = None
+        redis_client = None
+        try:
+            db_pool = await connect_db(config["database_url"])
+            redis_client = await connect_redis(config["redis_url"])
+
+            app = create_app(
+                api_key=config["api_key"],
+                admin_key=config["admin_key"],
+                db_pool=db_pool,
+                redis_client=redis_client,
+                startup_policy_path=startup_path,
+            )
+
+            server_config = uvicorn.Config(app, host="0.0.0.0", port=DEFAULT_GATEWAY_PORT, log_level="debug")
+            server = uvicorn.Server(server_config)
+            await server.serve()
+        finally:
+            if db_pool:
+                await db_pool.close()
+                logger.info("Closed database connection")
+            if redis_client:
+                await redis_client.close()
+                logger.info("Closed Redis connection")
+
+    asyncio.run(main())
