@@ -134,12 +134,9 @@ def create_app(
         yield
 
         # Shutdown
-        if db_pool:
-            await db_pool.close()
-            logger.info("Closed database connection")
-        if redis_client:
-            await redis_client.close()
-            logger.info("Closed Redis connection")
+        # Note: db_pool and redis_client are NOT closed here - they are owned by
+        # the caller who passed them in. The caller is responsible for cleanup.
+        logger.info("Luthien Gateway shutdown complete")
 
     # === APP SETUP ===
     app = FastAPI(
@@ -256,6 +253,9 @@ async def get_app(settings: Settings | None = None) -> FastAPI:
     from environment variables, establishes database and Redis connections,
     and creates the FastAPI application.
 
+    Note: The caller is responsible for closing db_pool and redis_client after
+    the app is done. These are stored in app.state.dependencies for access.
+
     Args:
         settings: Optional Settings instance for testing. Uses get_settings() if None.
 
@@ -289,6 +289,16 @@ if __name__ == "__main__":
         app = await get_app()
         config = uvicorn.Config(app, host="0.0.0.0", port=DEFAULT_GATEWAY_PORT, log_level="debug")
         server = uvicorn.Server(config)
-        await server.serve()
+        try:
+            await server.serve()
+        finally:
+            # Clean up connections we created
+            deps = app.state.dependencies
+            if deps.db_pool:
+                await deps.db_pool.close()
+                logger.info("Closed database connection")
+            if deps.redis_client:
+                await deps.redis_client.close()
+                logger.info("Closed Redis connection")
 
     asyncio.run(main())

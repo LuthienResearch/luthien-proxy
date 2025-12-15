@@ -167,9 +167,9 @@ class TestCreateApp:
             assert deps.event_publisher is not None
             assert deps.llm_client is not None
 
-        # Verify cleanup was called
-        mock_db_pool.close.assert_called_once()
-        mock_redis_client.close.assert_called_once()
+        # create_app does NOT close db_pool/redis_client - caller owns them
+        mock_db_pool.close.assert_not_called()
+        mock_redis_client.close.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_create_app_no_database_raises_error(self, policy_config_file, mock_redis_client):
