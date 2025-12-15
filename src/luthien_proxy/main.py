@@ -46,8 +46,8 @@ logger = logging.getLogger(__name__)
 def create_app(
     api_key: str,
     admin_key: str | None,
-    db_pool: db.DatabasePool | None,
-    redis_client: Redis | None,
+    db_pool: db.DatabasePool,
+    redis_client: Redis,
     startup_policy_path: str | None = None,
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
@@ -74,19 +74,8 @@ def create_app(
         litellm.drop_params = True
         logger.info("Configured litellm: drop_params=True")
 
-        # Log connection status (objects are already initialized by caller)
-        if db_pool:
-            logger.info("Database pool provided")
-        else:
-            logger.warning("No database pool provided. Event persistence will be disabled.")
-
-        if redis_client:
-            logger.info("Redis client provided")
-        else:
-            logger.warning("No Redis client provided. Event publisher will be disabled.")
-
         # Create event emitter (will be injected via Dependencies)
-        _redis_publisher = RedisEventPublisher(redis_client) if redis_client else None
+        _redis_publisher = RedisEventPublisher(redis_client)
         _emitter = EventEmitter(
             db_pool=db_pool,
             redis_publisher=_redis_publisher,
@@ -95,22 +84,17 @@ def create_app(
         logger.info("Event emitter created")
 
         # Initialize PolicyManager
-        _policy_manager: PolicyManager | None = None
-        if db_pool and redis_client:
-            try:
-                _policy_manager = PolicyManager(
-                    db_pool=db_pool,
-                    redis_client=redis_client,
-                    startup_policy_path=startup_policy_path,
-                )
-                await _policy_manager.initialize()
-                logger.info(f"PolicyManager initialized (policy: {_policy_manager.current_policy.__class__.__name__})")
-            except Exception as exc:
-                logger.error(f"Failed to initialize PolicyManager: {exc}", exc_info=True)
-                raise RuntimeError(f"Failed to initialize PolicyManager: {exc}")
-        else:
-            logger.error("Cannot initialize PolicyManager without database and Redis")
-            raise RuntimeError("Database and Redis required for PolicyManager")
+        try:
+            _policy_manager = PolicyManager(
+                db_pool=db_pool,
+                redis_client=redis_client,
+                startup_policy_path=startup_policy_path,
+            )
+            await _policy_manager.initialize()
+            logger.info(f"PolicyManager initialized (policy: {_policy_manager.current_policy.__class__.__name__})")
+        except Exception as exc:
+            logger.error(f"Failed to initialize PolicyManager: {exc}", exc_info=True)
+            raise RuntimeError(f"Failed to initialize PolicyManager: {exc}") from exc
 
         # Create LLM client (singleton for the app lifetime)
         _llm_client = LiteLLMClient()
@@ -171,14 +155,17 @@ def create_app(
     return app
 
 
-async def connect_db(database_url: str) -> db.DatabasePool | None:
+async def connect_db(database_url: str) -> db.DatabasePool:
     """Create and initialize database connection pool.
 
     Args:
         database_url: PostgreSQL connection URL
 
     Returns:
-        Initialized DatabasePool, or None if connection fails
+        Initialized DatabasePool
+
+    Raises:
+        RuntimeError: If connection fails
     """
     try:
         pool = db.DatabasePool(database_url)
@@ -186,27 +173,28 @@ async def connect_db(database_url: str) -> db.DatabasePool | None:
         logger.info(f"Connected to database at {database_url[:DB_URL_PREVIEW_LENGTH]}...")
         return pool
     except Exception as exc:
-        logger.warning(f"Failed to connect to database: {exc}. Event persistence will be disabled.")
-        return None
+        raise RuntimeError(f"Failed to connect to database: {exc}") from exc
 
 
-async def connect_redis(redis_url: str) -> Redis | None:
+async def connect_redis(redis_url: str) -> Redis:
     """Create and initialize Redis client.
 
     Args:
         redis_url: Redis connection URL
 
     Returns:
-        Connected Redis client, or None if connection fails
+        Connected Redis client
+
+    Raises:
+        RuntimeError: If connection fails
     """
     try:
-        client = Redis.from_url(redis_url, decode_responses=False)
+        client: Redis = Redis.from_url(redis_url, decode_responses=False)
         await client.ping()
         logger.info(f"Connected to Redis at {redis_url}")
         return client
     except Exception as exc:
-        logger.warning(f"Failed to connect to Redis: {exc}. Event publisher will be disabled.")
-        return None
+        raise RuntimeError(f"Failed to connect to Redis: {exc}") from exc
 
 
 def load_config_from_env(settings: Settings | None = None) -> dict:

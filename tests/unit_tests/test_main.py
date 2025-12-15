@@ -172,38 +172,6 @@ class TestCreateApp:
         mock_redis_client.close.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_create_app_no_database_raises_error(self, policy_config_file, mock_redis_client):
-        """Test that app raises RuntimeError when database is None (PolicyManager requires DB)."""
-        app = create_app(
-            api_key="test-api-key",
-            admin_key=None,
-            db_pool=None,
-            redis_client=mock_redis_client,
-            startup_policy_path=policy_config_file,
-        )
-
-        # App startup (lifespan) should raise RuntimeError since PolicyManager requires both DB and Redis
-        with pytest.raises(RuntimeError, match="Database and Redis required for PolicyManager"):
-            with TestClient(app):
-                pass
-
-    @pytest.mark.asyncio
-    async def test_create_app_no_redis_raises_error(self, policy_config_file, mock_db_pool):
-        """Test that app raises RuntimeError when Redis is None (PolicyManager requires Redis)."""
-        app = create_app(
-            api_key="test-api-key",
-            admin_key=None,
-            db_pool=mock_db_pool,
-            redis_client=None,
-            startup_policy_path=policy_config_file,
-        )
-
-        # App startup (lifespan) should raise RuntimeError since PolicyManager requires both DB and Redis
-        with pytest.raises(RuntimeError, match="Database and Redis required for PolicyManager"):
-            with TestClient(app):
-                pass
-
-    @pytest.mark.asyncio
     async def test_create_app_routes_included(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test that all expected routes are included."""
         app = create_app(
@@ -309,8 +277,8 @@ class TestConnectDb:
             mock_pool.get_pool.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_connect_db_failure_returns_none(self):
-        """Test that connection failure returns None."""
+    async def test_connect_db_failure_raises(self):
+        """Test that connection failure raises RuntimeError."""
         from unittest.mock import AsyncMock, patch
 
         with patch("luthien_proxy.main.db.DatabasePool") as mock_pool_class:
@@ -318,9 +286,8 @@ class TestConnectDb:
             mock_pool.get_pool = AsyncMock(side_effect=Exception("Connection failed"))
             mock_pool_class.return_value = mock_pool
 
-            result = await connect_db("postgresql://invalid:invalid@localhost/invalid")
-
-            assert result is None
+            with pytest.raises(RuntimeError, match="Failed to connect to database"):
+                await connect_db("postgresql://invalid:invalid@localhost/invalid")
 
 
 class TestConnectRedis:
@@ -343,8 +310,8 @@ class TestConnectRedis:
             mock_client.ping.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_connect_redis_failure_returns_none(self):
-        """Test that connection failure returns None."""
+    async def test_connect_redis_failure_raises(self):
+        """Test that connection failure raises RuntimeError."""
         from unittest.mock import AsyncMock, patch
 
         with patch("luthien_proxy.main.Redis") as mock_redis_class:
@@ -352,6 +319,5 @@ class TestConnectRedis:
             mock_client.ping = AsyncMock(side_effect=Exception("Connection failed"))
             mock_redis_class.from_url.return_value = mock_client
 
-            result = await connect_redis("redis://invalid:6379")
-
-            assert result is None
+            with pytest.raises(RuntimeError, match="Failed to connect to Redis"):
+                await connect_redis("redis://invalid:6379")
