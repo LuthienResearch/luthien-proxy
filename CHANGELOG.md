@@ -3,10 +3,6 @@
 ## Unreleased | TBA
 
 - Dependency injection for `create_app()` (#105)
-  - Accept `db_pool` and `redis_client` objects instead of URL strings
-  - New `connect_db()` and `connect_redis()` helper functions for URL→object conversion
-  - Resource lifecycle managed in `__main__` with proper try/finally cleanup
-  - Fail-fast error handling: connection failures raise `RuntimeError` immediately
 
 - Session ID tracking for conversation context (#102)
   - Extract session ID from Anthropic `metadata.user_id` (Claude Code format: `user_<hash>_account__session_<uuid>`)
