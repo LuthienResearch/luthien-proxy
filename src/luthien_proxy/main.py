@@ -259,11 +259,12 @@ if __name__ == "__main__":
         startup_path = config.get("startup_policy_path")
         logger.info(f"Policy configuration: startup_policy_path={startup_path or '(load from DB)'}")
 
-        # Create resources - we own them, we clean them up
-        db_pool = await connect_db(config["database_url"])
-        redis_client = await connect_redis(config["redis_url"])
-
+        db_pool = None
+        redis_client = None
         try:
+            db_pool = await connect_db(config["database_url"])
+            redis_client = await connect_redis(config["redis_url"])
+
             app = create_app(
                 api_key=config["api_key"],
                 admin_key=config["admin_key"],
@@ -276,7 +277,6 @@ if __name__ == "__main__":
             server = uvicorn.Server(server_config)
             await server.serve()
         finally:
-            # Clean up resources we created
             if db_pool:
                 await db_pool.close()
                 logger.info("Closed database connection")
