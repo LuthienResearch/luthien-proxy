@@ -6,6 +6,7 @@
 
 ### Policy UI & Admin
 
+- [ ] **Update luthienresearch.org with login instructions** - Sync Quick Start section (including /login documentation) to website. Reference: README updated in commit 040a1d4.
 - [ ] **[Future] Conversation history browser & export** - Enable users to browse and export full conversation logs from past sessions. Use case: Claude Code compacts conversations; user wants to recover detailed logs later. Could include: search by date, export to markdown/JSON, filter by user/session. Data already in `conversation_events` table. Reference: Dogfooding session 2025-12-15.
 
 ### Architecture Improvements
