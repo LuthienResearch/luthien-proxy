@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from luthien_proxy.main import connect_db, connect_redis, create_app, get_app, load_config_from_env
+from luthien_proxy.main import connect_db, connect_redis, create_app, load_config_from_env
 
 
 class TestLoadConfigFromEnv:
@@ -355,33 +355,3 @@ class TestConnectRedis:
             result = await connect_redis("redis://invalid:6379")
 
             assert result is None
-
-
-class TestGetApp:
-    """Test get_app function."""
-
-    @pytest.mark.asyncio
-    async def test_get_app_creates_app_with_connections(self, monkeypatch, policy_config_file):
-        """Test that get_app creates app with DB and Redis connections."""
-        from unittest.mock import AsyncMock, patch
-
-        monkeypatch.setenv("PROXY_API_KEY", "test-key")
-        monkeypatch.setenv("ADMIN_API_KEY", "test-admin")
-        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
-        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
-        monkeypatch.setenv("POLICY_CONFIG", policy_config_file)
-
-        mock_db_pool = AsyncMock()
-        mock_redis_client = AsyncMock()
-
-        with (
-            patch("luthien_proxy.main.connect_db", return_value=mock_db_pool) as mock_connect_db,
-            patch("luthien_proxy.main.connect_redis", return_value=mock_redis_client) as mock_connect_redis,
-        ):
-            from luthien_proxy.settings import Settings
-
-            app = await get_app(settings=Settings(_env_file=None))
-
-            mock_connect_db.assert_called_once_with("postgresql://test:test@localhost/test")
-            mock_connect_redis.assert_called_once_with("redis://localhost:6379")
-            assert app.title == "Luthien Proxy Gateway"

@@ -246,59 +246,42 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     }
 
 
-async def get_app(settings: Settings | None = None) -> FastAPI:
-    """Create fully configured app from environment variables.
-
-    This is the main entry point for production use. It reads configuration
-    from environment variables, establishes database and Redis connections,
-    and creates the FastAPI application.
-
-    Note: The caller is responsible for closing db_pool and redis_client after
-    the app is done. These are stored in app.state.dependencies for access.
-
-    Args:
-        settings: Optional Settings instance for testing. Uses get_settings() if None.
-
-    Returns:
-        Configured FastAPI application ready to serve requests
-    """
-    config = load_config_from_env(settings)
-
-    startup_path = config.get("startup_policy_path")
-    logger.info(f"Policy configuration: startup_policy_path={startup_path or '(load from DB)'}")
-
-    db_pool = await connect_db(config["database_url"])
-    redis_client = await connect_redis(config["redis_url"])
-
-    return create_app(
-        api_key=config["api_key"],
-        admin_key=config["admin_key"],
-        db_pool=db_pool,
-        redis_client=redis_client,
-        startup_policy_path=startup_path,
-    )
-
-
-__all__ = ["create_app", "get_app", "load_config_from_env", "connect_db", "connect_redis"]
+__all__ = ["create_app", "load_config_from_env", "connect_db", "connect_redis"]
 
 
 if __name__ == "__main__":
     import asyncio
 
     async def main():
-        app = await get_app()
-        config = uvicorn.Config(app, host="0.0.0.0", port=DEFAULT_GATEWAY_PORT, log_level="debug")
-        server = uvicorn.Server(config)
+        """Production entry point with proper resource lifecycle."""
+        config = load_config_from_env()
+
+        startup_path = config.get("startup_policy_path")
+        logger.info(f"Policy configuration: startup_policy_path={startup_path or '(load from DB)'}")
+
+        # Create resources - we own them, we clean them up
+        db_pool = await connect_db(config["database_url"])
+        redis_client = await connect_redis(config["redis_url"])
+
         try:
+            app = create_app(
+                api_key=config["api_key"],
+                admin_key=config["admin_key"],
+                db_pool=db_pool,
+                redis_client=redis_client,
+                startup_policy_path=startup_path,
+            )
+
+            server_config = uvicorn.Config(app, host="0.0.0.0", port=DEFAULT_GATEWAY_PORT, log_level="debug")
+            server = uvicorn.Server(server_config)
             await server.serve()
         finally:
-            # Clean up connections we created
-            deps = app.state.dependencies
-            if deps.db_pool:
-                await deps.db_pool.close()
+            # Clean up resources we created
+            if db_pool:
+                await db_pool.close()
                 logger.info("Closed database connection")
-            if deps.redis_client:
-                await deps.redis_client.close()
+            if redis_client:
+                await redis_client.close()
                 logger.info("Closed Redis connection")
 
     asyncio.run(main())
