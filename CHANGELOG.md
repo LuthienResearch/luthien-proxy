@@ -2,6 +2,13 @@
 
 ## Unreleased | TBA
 
+- Structured span hierarchy for request processing (luthien-proxy-a0r)
+  - Add `process_response` span wrapper for streaming path with proper parent context
+  - Add `PolicyContext.span()` helper for policies to create nested spans
+  - Add `PolicyContext.add_span_event()` for lightweight observability events
+  - Document span hierarchy in processor module docstring
+  - All pipeline phases (process_request, policy_on_request, send_upstream, process_response) are now visible as siblings in Grafana/Tempo
+
 - Dependency injection for `create_app()` (#105)
 
 - Session ID tracking for conversation context (#102)

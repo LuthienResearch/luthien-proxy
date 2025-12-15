@@ -1,3 +1,3 @@
 # Development Notes
 
-(none)
+(scratchpad for current objective)
