@@ -2,6 +2,11 @@
 
 ## Unreleased | TBA
 
+- Improve login page UX (dogfooding-login-ui-quick-fixes)
+  - Add show/hide password toggle below input field (avoids conflict with password managers)
+  - Add clickable dev key hint for development environments
+  - Add guidance for production users to check .env or contact admin
+
 - Session ID tracking for conversation context (#102)
   - Extract session ID from Anthropic `metadata.user_id` (Claude Code format: `user_<hash>_account__session_<uuid>`)
   - Extract session ID from `x-session-id` header (OpenAI format)
