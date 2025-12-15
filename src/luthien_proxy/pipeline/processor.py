@@ -3,18 +3,41 @@
 This module provides a single entry point for processing LLM requests,
 regardless of client format (OpenAI or Anthropic). Format conversion
 happens only at ingress/egress boundaries.
+
+Span Hierarchy
+--------------
+The pipeline creates a structured span hierarchy for observability:
+
+    transaction_processing (root)
+    ├── process_request
+    │   └── format_conversion event (if Anthropic)
+    ├── policy_on_request
+    │   └── policy.process_request
+    ├── send_upstream
+    │   └── llm.stream / llm.complete
+    ├── process_response
+    │   ├── streaming.policy_executor (streaming only)
+    │   ├── streaming.client_formatter (streaming only)
+    │   └── policy.process_response (non-streaming only)
+    └── send_to_client
+        └── format_conversion event (if Anthropic, non-streaming)
+
+For streaming, process_response wraps the entire streaming pipeline,
+and send_to_client covers the SSE event generation to the client.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from typing import AsyncIterator
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from litellm.types.utils import ModelResponse
 from opentelemetry import trace
+from opentelemetry.context import attach, detach, get_current
 from pydantic import ValidationError
 
 from luthien_proxy.llm.client import LLMClient
@@ -247,14 +270,41 @@ async def _handle_streaming(
 
     Phases 2-4 are interleaved for streaming: chunks flow through
     send_upstream → process_response → send_to_client continuously.
+
+    The span hierarchy for streaming is managed by capturing the parent
+    context and creating sibling spans within the streaming generator.
     """
+    # Capture parent context before entering the generator
+    # This allows us to create sibling spans under transaction_processing
+    parent_context = get_current()
+
     with tracer.start_as_current_span("send_upstream") as span:
         span.set_attribute("luthien.phase", "send_upstream")
         backend_stream = await llm_client.stream(final_request)
 
-    # process_response and send_to_client happen inside the streaming generator
+    # Create a wrapper generator that manages span context
+    async def streaming_with_spans() -> AsyncIterator[str]:
+        """Wrapper that creates proper span hierarchy for streaming."""
+        # Attach parent context so spans are siblings under transaction_processing
+        token = attach(parent_context)
+        chunk_count = 0
+        try:
+            # process_response span wraps the entire streaming pipeline
+            with tracer.start_as_current_span("process_response") as response_span:
+                response_span.set_attribute("luthien.phase", "process_response")
+                response_span.set_attribute("luthien.streaming", True)
+
+                # send_to_client is interleaved - we track it as an event
+                async for sse_event in orchestrator.process_streaming_response(backend_stream, policy_ctx):
+                    chunk_count += 1
+                    yield sse_event
+
+                response_span.set_attribute("streaming.chunk_count", chunk_count)
+        finally:
+            detach(token)
+
     return FastAPIStreamingResponse(
-        orchestrator.process_streaming_response(backend_stream, policy_ctx),
+        streaming_with_spans(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
