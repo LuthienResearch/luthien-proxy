@@ -199,7 +199,10 @@ def _escape_html_attr(value: str) -> str:
     )
 
 
-def get_login_page_html(error: str | None = None, next_url: str = "/") -> str:
+DEFAULT_DEV_KEY = "admin-dev-key"
+
+
+def get_login_page_html(error: str | None = None, next_url: str = "/", admin_key: str | None = None) -> str:
     """Generate the login page HTML."""
     error_html = ""
     if error == "invalid":
@@ -209,6 +212,16 @@ def get_login_page_html(error: str | None = None, next_url: str = "/") -> str:
 
     # Escape the next_url to prevent XSS
     safe_next_url = _escape_html_attr(next_url)
+
+    # Dev hint with fallback guidance
+    dev_hint_html = (
+        f'<div class="dev-hint">Development default: <code onclick="fillDevKey()">{DEFAULT_DEV_KEY}</code>'
+        "<br>Production users: check .env or contact your admin</div>"
+    )
+    fill_dev_key_script = f"""
+            function fillDevKey() {{
+                document.getElementById('password').value = '{DEFAULT_DEV_KEY}';
+            }}"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -279,11 +292,52 @@ def get_login_page_html(error: str | None = None, next_url: str = "/") -> str:
             font-size: 16px;
             transition: border-color 0.2s;
         }}
-        input[type="password"]:focus {{
+        input[type="password"]:focus,
+        input[type="text"]:focus {{
             outline: none;
             border-color: #6366f1;
         }}
-        button {{
+        .password-wrapper {{
+            position: relative;
+        }}
+        .password-wrapper input {{
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #2a2a3e;
+            color: #fff;
+            font-size: 16px;
+            transition: border-color 0.2s;
+        }}
+        .toggle-password {{
+            display: block;
+            margin-top: 8px;
+            background: none;
+            border: none;
+            color: #6366f1;
+            font-size: 13px;
+            cursor: pointer;
+            padding: 0;
+            width: auto;
+        }}
+        .toggle-password:hover {{
+            color: #8183f4;
+            background: none;
+        }}
+        .dev-hint {{
+            margin-top: 8px;
+            font-size: 13px;
+            color: #666;
+        }}
+        .dev-hint code {{
+            color: #6366f1;
+            cursor: pointer;
+        }}
+        .dev-hint code:hover {{
+            text-decoration: underline;
+        }}
+        button[type="submit"] {{
             width: 100%;
             padding: 14px;
             background: #6366f1;
@@ -295,7 +349,7 @@ def get_login_page_html(error: str | None = None, next_url: str = "/") -> str:
             cursor: pointer;
             transition: background 0.2s;
         }}
-        button:hover {{
+        button[type="submit"]:hover {{
             background: #5558e3;
         }}
         .back-link {{
@@ -320,13 +374,30 @@ def get_login_page_html(error: str | None = None, next_url: str = "/") -> str:
             <input type="hidden" name="next" value="{safe_next_url}">
             <div class="form-group">
                 <label for="password">Admin API Key</label>
-                <input type="password" id="password" name="password" required autofocus
-                       placeholder="Enter your admin API key...">
+                <div class="password-wrapper">
+                    <input type="password" id="password" name="password" required autofocus
+                           placeholder="Enter your admin API key...">
+                </div>
+                <button type="button" class="toggle-password" onclick="togglePassword()">Show</button>
+                {dev_hint_html}
             </div>
             <button type="submit">Sign In</button>
         </form>
+        <script>
+            function togglePassword() {{
+                const input = document.getElementById('password');
+                const btn = document.querySelector('.toggle-password');
+                if (input.type === 'password') {{
+                    input.type = 'text';
+                    btn.textContent = 'Hide';
+                }} else {{
+                    input.type = 'password';
+                    btn.textContent = 'Show';
+                }}
+            }}{fill_dev_key_script}
+        </script>
         <div class="back-link">
-            <a href="/">← Back to Home</a>
+            <a href="/">← Back to Gateway</a>
         </div>
     </div>
 </body>
@@ -338,9 +409,10 @@ async def login_page(
     request: Request,
     error: str | None = None,
     next: str = "/",
+    admin_key: str | None = Depends(get_admin_key),
 ) -> HTMLResponse:
     """Serve the login page."""
-    return HTMLResponse(get_login_page_html(error=error, next_url=next))
+    return HTMLResponse(get_login_page_html(error=error, next_url=next, admin_key=admin_key))
 
 
 # Also serve at /login for convenience
@@ -352,9 +424,10 @@ async def login_page_root(
     request: Request,
     error: str | None = None,
     next: str = "/",
+    admin_key: str | None = Depends(get_admin_key),
 ) -> HTMLResponse:
     """Serve the login page at /login."""
-    return HTMLResponse(get_login_page_html(error=error, next_url=next))
+    return HTMLResponse(get_login_page_html(error=error, next_url=next, admin_key=admin_key))
 
 
 __all__ = [
