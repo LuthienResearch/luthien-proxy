@@ -22,6 +22,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
 COPY config/ ./config/
+# Migrations are copied so gateway can validate DB schema is up to date at startup
+COPY migrations/ ./migrations/
 
 # Install dependencies (includes building local package)
 RUN uv sync --frozen --no-dev
