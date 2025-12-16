@@ -30,7 +30,7 @@ Raw events for each call. Contains full JSON payloads.
 | `event_type` | TEXT | Event type (see below) |
 | `payload` | JSONB | Full event data |
 | `created_at` | TIMESTAMPTZ | Event timestamp |
-| `session_id` | UUID | Session identifier (may be NULL) |
+| `session_id` | TEXT | Session identifier (may be NULL) |
 
 **Event Types:**
 - `pipeline.client_request` - Incoming request from client
@@ -72,13 +72,19 @@ Human-readable conversation log. Use this for debugging and session review inste
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `session_id` | UUID | Session identifier |
+| `session_id` | TEXT | Session identifier (may be NULL) |
 | `created_at` | TIMESTAMPTZ | Event timestamp |
 | `prompt_or_response` | TEXT | `PROMPT` or `RESPONSE` |
 | `model` | TEXT | Model name |
 | `content` | TEXT | Full message content (no truncation) |
 | `logged_by_luthien` | TEXT | Always `Y` for Luthien-logged data |
 | `call_id` | TEXT | For drill-down to raw events |
+
+**Limitations:**
+- Only extracts the **last user message** from multi-message requests
+- **Tool calls are not shown** - only text content is extracted
+- Prompts show `pipeline.client_request` (original request), not post-policy modifications
+- `session_id` is only populated for certain event types (may be NULL)
 
 **Example usage:**
 ```sql

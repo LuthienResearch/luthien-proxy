@@ -41,8 +41,11 @@ WHERE ce.event_type IN (
     'pipeline.client_request',
     'transaction.streaming_response_recorded',
     'transaction.non_streaming_response_recorded'
-)
-ORDER BY ce.created_at;
+);
 
 -- Add comment describing the view
-COMMENT ON VIEW conversation_transcript IS 'Human-readable conversation log with clean prompt/response format. Use this for debugging and session review instead of raw conversation_events.';
+COMMENT ON VIEW conversation_transcript IS 'Human-readable conversation log with clean prompt/response format. Use this for debugging and session review instead of raw conversation_events. Note: No ORDER BY in view - add your own when querying.';
+
+-- Add composite index for common query patterns on the view
+CREATE INDEX IF NOT EXISTS idx_conversation_events_type_created
+ON conversation_events(event_type, created_at);
