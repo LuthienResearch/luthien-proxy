@@ -22,15 +22,16 @@ TESTS_FAILED=0
 echo "🧪 Testing Gateway at $GATEWAY_URL"
 echo ""
 
-# Wait for gateway to be ready (up to 20 seconds)
+# Wait for gateway to be ready (up to 30 seconds)
+# Tested startup times: restart ~2s, full down/up 18-25s
 echo "Waiting for gateway..."
-for i in {1..10}; do
+for i in {1..15}; do
     if curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; then
         echo "Gateway ready!"
         break
     fi
-    if [ $i -eq 10 ]; then
-        echo -e "${RED}Gateway not ready after 20s${NC}"
+    if [ $i -eq 15 ]; then
+        echo -e "${RED}Gateway not ready after 30s${NC}"
         exit 1
     fi
     sleep 2
