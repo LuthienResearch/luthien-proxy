@@ -325,52 +325,21 @@ class TestFastAPIDependsFunctions:
 class TestDependenciesIntegrationWithMain:
     """Test that Dependencies integrates correctly with main.py create_app."""
 
-    def test_dependencies_container_in_app_state(self, policy_config_file):
-        """Test that create_app properly sets up Dependencies container."""
-        from unittest.mock import patch
+    @pytest.fixture
+    def mock_db_pool(self):
+        """Create a mock database pool for testing."""
+        mock = AsyncMock()
+        mock.get_pool = AsyncMock()
+        mock.close = AsyncMock()
+        return mock
 
-        from luthien_proxy.main import create_app
-
-        with (
-            patch("luthien_proxy.main.db.DatabasePool") as mock_db_pool_class,
-            patch("luthien_proxy.main.Redis") as mock_redis_class,
-        ):
-            # Setup mocks
-            mock_db_instance = AsyncMock()
-            mock_db_instance.get_pool = AsyncMock()
-            mock_db_instance.close = AsyncMock()
-            mock_db_pool_class.return_value = mock_db_instance
-
-            mock_redis_instance = AsyncMock()
-            mock_redis_instance.ping = AsyncMock()
-            mock_redis_instance.close = AsyncMock()
-            mock_redis_class.from_url.return_value = mock_redis_instance
-
-            app = create_app(
-                api_key="test-api-key",
-                admin_key="test-admin-key",
-                database_url="postgresql://test:test@localhost/test",
-                redis_url="redis://localhost:6379",
-                startup_policy_path=policy_config_file,
-            )
-
-            with TestClient(app):
-                # Verify dependencies container exists
-                assert hasattr(app.state, "dependencies")
-                assert isinstance(app.state.dependencies, Dependencies)
-
-                # Verify all fields are set
-                deps = app.state.dependencies
-                assert deps.db_pool is not None
-                assert deps.redis_client is not None
-                assert deps.llm_client is not None
-                assert deps.policy_manager is not None
-                assert deps.api_key == "test-api-key"
-                assert deps.admin_key == "test-admin-key"
-
-                # Verify event_publisher is derived correctly
-                assert deps.event_publisher is not None
-                assert isinstance(deps.event_publisher, RedisEventPublisher)
+    @pytest.fixture
+    def mock_redis_client(self):
+        """Create a mock Redis client for testing."""
+        mock = AsyncMock()
+        mock.ping = AsyncMock()
+        mock.close = AsyncMock()
+        return mock
 
     @pytest.fixture
     def policy_config_file(self):
@@ -390,3 +359,33 @@ policy:
         yield config_path
 
         Path(config_path).unlink(missing_ok=True)
+
+    def test_dependencies_container_in_app_state(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Test that create_app properly sets up Dependencies container."""
+        from luthien_proxy.main import create_app
+
+        app = create_app(
+            api_key="test-api-key",
+            admin_key="test-admin-key",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app):
+            # Verify dependencies container exists
+            assert hasattr(app.state, "dependencies")
+            assert isinstance(app.state.dependencies, Dependencies)
+
+            # Verify all fields are set
+            deps = app.state.dependencies
+            assert deps.db_pool is mock_db_pool
+            assert deps.redis_client is mock_redis_client
+            assert deps.llm_client is not None
+            assert deps.policy_manager is not None
+            assert deps.api_key == "test-api-key"
+            assert deps.admin_key == "test-admin-key"
+
+            # Verify event_publisher is derived correctly
+            assert deps.event_publisher is not None
+            assert isinstance(deps.event_publisher, RedisEventPublisher)

@@ -160,6 +160,10 @@ class PolicyExecutor(PolicyExecutorProtocol):
                 await assembler.process(input_stream, context=streaming_ctx)
                 chunk_count = get_chunk_count()
                 # Call on_stream_complete after all chunks processed
+                trace.get_current_span().add_event(
+                    "policy.on_stream_complete",
+                    {"chunk_count": chunk_count},
+                )
                 await policy.on_stream_complete(streaming_ctx)
 
                 # Drain any chunks added by on_stream_complete
@@ -271,12 +275,27 @@ class PolicyExecutor(PolicyExecutorProtocol):
             # Call complete hooks if block just completed
             if state.just_completed:
                 if isinstance(state.just_completed, ContentStreamBlock):
+                    trace.get_current_span().add_event(
+                        "policy.on_content_complete",
+                        {"content_length": len(state.just_completed.content)},
+                    )
                     await policy.on_content_complete(streaming_ctx)
                 elif isinstance(state.just_completed, ToolCallStreamBlock):
+                    trace.get_current_span().add_event(
+                        "policy.on_tool_call_complete",
+                        {
+                            "tool_index": state.just_completed.index,
+                            "tool_name": state.just_completed.name or "",
+                        },
+                    )
                     await policy.on_tool_call_complete(streaming_ctx)
 
             # Call finish_reason hook when present
             if state.finish_reason:
+                trace.get_current_span().add_event(
+                    "policy.on_finish_reason",
+                    {"finish_reason": state.finish_reason},
+                )
                 await policy.on_finish_reason(streaming_ctx)
 
             # Drain egress queue (policy-approved chunks) to output
