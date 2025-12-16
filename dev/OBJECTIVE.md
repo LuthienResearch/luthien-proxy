@@ -1,5 +1,3 @@
 # Current Objective
 
-None
-
-## Acceptance Criteria
+(none)

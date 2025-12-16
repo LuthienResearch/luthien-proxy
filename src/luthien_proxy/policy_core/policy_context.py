@@ -6,7 +6,10 @@ that persists across the entire request/response lifecycle.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Iterator
+
+from opentelemetry import trace
 
 from luthien_proxy.observability.emitter import (
     EventEmitterProtocol,
@@ -15,7 +18,11 @@ from luthien_proxy.observability.emitter import (
 from luthien_proxy.types import RawHttpRequest
 
 if TYPE_CHECKING:
+    from opentelemetry.trace import Span
+
     from luthien_proxy.messages import Request
+
+_tracer = trace.get_tracer(__name__)
 
 
 class PolicyContext:
@@ -64,6 +71,11 @@ class PolicyContext:
         self._emitter: EventEmitterProtocol = emitter or NullEventEmitter()
         self._scratchpad: dict[str, Any] = {}
 
+        # Policy summaries - optional human-readable descriptions of what the policy did.
+        # These are set by policies and propagated to span attributes for observability.
+        self.request_summary: str | None = None
+        self.response_summary: str | None = None
+
     @property
     def emitter(self) -> EventEmitterProtocol:
         """Event emitter for recording observability events.
@@ -100,6 +112,57 @@ class PolicyContext:
             data: Event payload
         """
         self._emitter.record(self.transaction_id, event_type, data)
+
+    @contextmanager
+    def span(self, name: str, attributes: dict[str, Any] | None = None) -> Iterator["Span"]:
+        """Create a child span for policy operations.
+
+        Use this to create nested spans within policy hooks for detailed
+        observability. Spans created here will appear as children of the
+        current span (typically process_response or policy_on_request).
+
+        The span name is automatically prefixed with "policy." to distinguish
+        policy spans from infrastructure spans.
+
+        Args:
+            name: Span name (will be prefixed with "policy.")
+            attributes: Optional span attributes to set
+
+        Yields:
+            The created span for adding events or attributes
+
+        Example:
+            async def on_content_complete(self, ctx: StreamingPolicyContext):
+                with ctx.policy_ctx.span("check_safety") as span:
+                    result = await self._run_safety_check(ctx)
+                    span.set_attribute("policy.check_passed", result.passed)
+                    if not result.passed:
+                        span.add_event("policy.content_blocked", {"reason": result.reason})
+        """
+        span_name = f"policy.{name}" if not name.startswith("policy.") else name
+        with _tracer.start_as_current_span(span_name) as span:
+            span.set_attribute("luthien.transaction_id", self.transaction_id)
+            if attributes:
+                for key, value in attributes.items():
+                    span.set_attribute(key, value)
+            yield span
+
+    def add_span_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
+        """Add an event to the current span.
+
+        Use this for point-in-time events that don't need their own span.
+        Events are lightweight and don't add span overhead.
+
+        Args:
+            name: Event name (e.g., "policy.content_filtered")
+            attributes: Optional event attributes
+
+        Example:
+            ctx.add_span_event("policy.sql_detected", {"pattern": "DROP TABLE"})
+        """
+        current_span = trace.get_current_span()
+        if current_span.is_recording():
+            current_span.add_event(name, attributes=attributes or {})
 
     @classmethod
     def for_testing(

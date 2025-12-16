@@ -316,12 +316,15 @@ class TestHandleStreaming:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
+            mock_root_span = MagicMock()
+
             response = await _handle_streaming(
                 final_request=request,
                 orchestrator=mock_orchestrator,
                 policy_ctx=mock_policy_ctx,
                 llm_client=mock_llm_client,
                 call_id="test-call-id",
+                root_span=mock_root_span,
             )
 
         assert isinstance(response, FastAPIStreamingResponse)
