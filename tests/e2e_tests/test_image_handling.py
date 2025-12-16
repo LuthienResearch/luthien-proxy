@@ -11,7 +11,9 @@ Note: There's a known issue (#108) where Claude may respond to wrong image conte
 even when validation passes - these tests verify the proxy doesn't reject the request.
 """
 
+import base64
 import os
+from pathlib import Path
 
 import httpx
 import pytest
@@ -381,66 +383,91 @@ async def test_anthropic_text_only_content_blocks(http_client):
 # These tests verify the LLM actually sees the correct image content,
 # not just that the request passes validation.
 
-# 100x100 PNG with 4 colored quadrants:
-# Top-left: Red, Top-right: Green, Bottom-left: Blue, Bottom-right: Yellow
-# This distinctive pattern lets us verify the model sees the actual image.
-COLOR_QUADRANTS_PNG_BASE64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAIAAAD/gAIDAAAAoElEQVR42u3QwQkAMBDDsOy/dDrD"
-    "/VIQeACjNBksFSxYsGDBgiVYsGDBggVLsGDBggULlmDBggULFizBggULFixYggULFixYsAQLFixY"
-    "sGAJFixYsGDB0u9Ym19tBoMFCxYsWLBgwYIFCxYsWLBgwYIFCxYsWLBgwYIFCxYsWLBgwYIFCxYs"
-    "WLBgwYIFCxYsWLBgwYIFCxYsWLBgwYJ16AG7GKX9cdhSlQAAAABJRU5ErkJggg=="
+FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
+
+
+def _load_test_image_base64() -> str:
+    """Load test image and return as base64 string."""
+    image_path = FIXTURES_DIR / "test_image.png"
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
+# The test image contains the text "This is not a pipe."
+EXPECTED_IMAGE_TEXT = "This is not a pipe."
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "client_format,backend_model",
+    [
+        ("anthropic", "claude-haiku-4-5"),  # Anthropic client → Anthropic backend
+        ("anthropic", "gpt-4o-mini"),  # Anthropic client → OpenAI backend
+        ("openai", "gpt-4o-mini"),  # OpenAI client → OpenAI backend
+        ("openai", "claude-haiku-4-5"),  # OpenAI client → Anthropic backend
+    ],
+    ids=[
+        "anthropic_client_anthropic_backend",
+        "anthropic_client_openai_backend",
+        "openai_client_openai_backend",
+        "openai_client_anthropic_backend",
+    ],
 )
+async def test_semantic_image_text_recognition(http_client, client_format: str, backend_model: str):
+    """E2E Semantic: Verify LLM sees correct image content across all format combinations.
 
-
-def _normalize_color(text: str) -> set[str]:
-    """Extract color words from response text for flexible matching."""
-    text_lower = text.lower()
-    colors_found = set()
-    color_variants = {
-        "red": ["red", "crimson", "scarlet"],
-        "green": ["green", "lime"],
-        "blue": ["blue", "azure"],
-        "yellow": ["yellow", "gold"],
-    }
-    for canonical, variants in color_variants.items():
-        if any(v in text_lower for v in variants):
-            colors_found.add(canonical)
-    return colors_found
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_semantic_anthropic_client_anthropic_backend(http_client):
-    """E2E Semantic: Verify Claude sees the correct image through Anthropic endpoint.
-
-    Uses a 4-quadrant color image and asks the model to identify all colors.
-    This validates the image data is correctly transmitted, not just that
-    the request format is valid.
+    Sends an image containing text and asks the model to read it back exactly.
+    This validates the image data is correctly transmitted through the proxy,
+    including any format conversions between Anthropic and OpenAI formats.
     """
+    image_b64 = _load_test_image_base64()
+
+    if client_format == "anthropic":
+        endpoint = f"{GATEWAY_URL}/v1/messages"
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": image_b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": "Read the text in this image and repeat it back exactly, with no other commentary.",
+                    },
+                ],
+            }
+        ]
+    else:  # openai
+        endpoint = f"{GATEWAY_URL}/v1/chat/completions"
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{image_b64}"},
+                    },
+                    {
+                        "type": "text",
+                        "text": "Read the text in this image and repeat it back exactly, with no other commentary.",
+                    },
+                ],
+            }
+        ]
+
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        endpoint,
         json={
-            "model": "claude-haiku-4-5",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": COLOR_QUADRANTS_PNG_BASE64,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": "This image has 4 colored quadrants. List the 4 colors you see, one per line.",
-                        },
-                    ],
-                }
-            ],
-            "max_tokens": 100,
+            "model": backend_model,
+            "messages": messages,
+            "max_tokens": 50,
             "stream": False,
         },
         headers={"Authorization": f"Bearer {API_KEY}"},
@@ -448,158 +475,20 @@ async def test_semantic_anthropic_client_anthropic_backend(http_client):
 
     assert response.status_code == 200, f"Request failed: {response.status_code} - {response.text}"
     data = response.json()
-    response_text = data["content"][0]["text"]
 
-    # Verify the model identified the expected colors
-    colors_found = _normalize_color(response_text)
-    expected_colors = {"red", "green", "blue", "yellow"}
+    # Extract response text based on client format
+    if client_format == "anthropic":
+        response_text = data["content"][0]["text"]
+    else:
+        response_text = data["choices"][0]["message"]["content"]
 
-    assert len(colors_found & expected_colors) >= 3, (
-        f"Model should identify at least 3 of the 4 quadrant colors. "
-        f"Expected: {expected_colors}, Found: {colors_found}. "
-        f"Response: {response_text}"
-    )
+    # Normalize for comparison (lowercase, strip punctuation/whitespace)
+    def normalize(s: str) -> str:
+        return s.lower().replace(".", "").replace('"', "").replace("'", "").strip()
 
+    expected_normalized = normalize(EXPECTED_IMAGE_TEXT)
+    response_normalized = normalize(response_text)
 
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_semantic_openai_client_openai_backend(http_client):
-    """E2E Semantic: Verify GPT sees the correct image through OpenAI endpoint.
-
-    Uses a 4-quadrant color image and asks the model to identify all colors.
-    """
-    response = await http_client.post(
-        f"{GATEWAY_URL}/v1/chat/completions",
-        json={
-            "model": "gpt-4o-mini",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{COLOR_QUADRANTS_PNG_BASE64}"},
-                        },
-                        {
-                            "type": "text",
-                            "text": "This image has 4 colored quadrants. List the 4 colors you see, one per line.",
-                        },
-                    ],
-                }
-            ],
-            "max_tokens": 100,
-            "stream": False,
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    )
-
-    assert response.status_code == 200, f"Request failed: {response.status_code} - {response.text}"
-    data = response.json()
-    response_text = data["choices"][0]["message"]["content"]
-
-    colors_found = _normalize_color(response_text)
-    expected_colors = {"red", "green", "blue", "yellow"}
-
-    assert len(colors_found & expected_colors) >= 3, (
-        f"Model should identify at least 3 of the 4 quadrant colors. "
-        f"Expected: {expected_colors}, Found: {colors_found}. "
-        f"Response: {response_text}"
-    )
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_semantic_anthropic_client_openai_backend(http_client):
-    """E2E Semantic: Verify image survives Anthropic→OpenAI format conversion.
-
-    Sends Anthropic-format image request to OpenAI backend (gpt-4o-mini).
-    Tests that the format conversion preserves image data correctly.
-    """
-    response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
-        json={
-            "model": "gpt-4o-mini",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": COLOR_QUADRANTS_PNG_BASE64,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": "This image has 4 colored quadrants. List the 4 colors you see, one per line.",
-                        },
-                    ],
-                }
-            ],
-            "max_tokens": 100,
-            "stream": False,
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    )
-
-    assert response.status_code == 200, f"Request failed: {response.status_code} - {response.text}"
-    data = response.json()
-    response_text = data["content"][0]["text"]
-
-    colors_found = _normalize_color(response_text)
-    expected_colors = {"red", "green", "blue", "yellow"}
-
-    assert len(colors_found & expected_colors) >= 3, (
-        f"Model should identify at least 3 of the 4 quadrant colors. "
-        f"Expected: {expected_colors}, Found: {colors_found}. "
-        f"Response: {response_text}"
-    )
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_semantic_openai_client_anthropic_backend(http_client):
-    """E2E Semantic: Verify image survives OpenAI→Anthropic format conversion.
-
-    Sends OpenAI-format image request to Anthropic backend (claude-haiku).
-    Tests that LiteLLM's format conversion preserves image data correctly.
-    """
-    response = await http_client.post(
-        f"{GATEWAY_URL}/v1/chat/completions",
-        json={
-            "model": "claude-haiku-4-5",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{COLOR_QUADRANTS_PNG_BASE64}"},
-                        },
-                        {
-                            "type": "text",
-                            "text": "This image has 4 colored quadrants. List the 4 colors you see, one per line.",
-                        },
-                    ],
-                }
-            ],
-            "max_tokens": 100,
-            "stream": False,
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    )
-
-    assert response.status_code == 200, f"Request failed: {response.status_code} - {response.text}"
-    data = response.json()
-    response_text = data["choices"][0]["message"]["content"]
-
-    colors_found = _normalize_color(response_text)
-    expected_colors = {"red", "green", "blue", "yellow"}
-
-    assert len(colors_found & expected_colors) >= 3, (
-        f"Model should identify at least 3 of the 4 quadrant colors. "
-        f"Expected: {expected_colors}, Found: {colors_found}. "
-        f"Response: {response_text}"
+    assert expected_normalized in response_normalized, (
+        f"Model should read the text from the image. Expected to find: '{EXPECTED_IMAGE_TEXT}' Got: '{response_text}'"
     )
