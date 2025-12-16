@@ -140,6 +140,177 @@ luthien-proxy-fsb (Message injection)
     └── Inline warning injection for guardrails
 ```
 
+## Sample Artifacts
+
+Real examples from dogfooding sessions:
+
+| Artifact | Description | Location |
+|----------|-------------|----------|
+| Session log (clean) | Image bug repro with annotations | [scott_image_repro_clean.csv](https://github.com/LuthienResearch/luthien-proxy/blob/main/dev/debug_data/scott_image_repro_clean.csv) |
+| Session log (raw) | Full conversation export | [conversation_2025-12-16_*.csv](https://github.com/LuthienResearch/luthien-proxy/blob/main/dev/debug_data/) |
+| Export template | Blank template for manual logging | [TEMPLATE_conversation_export.csv](https://github.com/LuthienResearch/luthien-proxy/blob/main/dev/debug_data/TEMPLATE_conversation_export.csv) |
+
+## Workflow Diagram
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Taylor        │     │    Luthien      │     │    Morgan       │
+│  (Claude Code)  │     │    (Proxy)      │     │  (Senior Dev)   │
+└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+         │                       │                       │
+         │  1. Prompt/Response   │                       │
+         │──────────────────────>│                       │
+         │                       │                       │
+         │  2. Logs to           │                       │
+         │     conversation_     │                       │
+         │     transcript        │                       │
+         │                       │                       │
+         │  3. Warning injected  │                       │
+         │<──────────────────────│                       │
+         │  "Hardcoded secret    │                       │
+         │   detected"           │                       │
+         │                       │                       │
+         │  4. Taylor fixes,     │                       │
+         │     pushes branch     │                       │
+         │──────────────────────────────────────────────>│
+         │                       │                       │
+         │                       │  5. Morgan reviews    │
+         │                       │     session log URL   │
+         │                       │<──────────────────────│
+         │                       │                       │
+         │  6. Feedback on PR    │                       │
+         │<──────────────────────────────────────────────│
+         │                       │                       │
+         │  7. Taylor does retro │                       │
+         │     with full logs    │                       │
+         │                       │                       │
+```
+
+## Example Policy Config
+
+```yaml
+# config/policy_config.yaml - Taylor's guardrails
+policy:
+  class: "luthien_proxy.policies.guardrails:GuardrailPolicy"
+  config:
+    # Warn on common mistakes, don't block
+    mode: "warn"
+
+    # Secrets detection
+    secrets:
+      enabled: true
+      patterns:
+        - "API_KEY\\s*=\\s*['\"][^'\"]+['\"]"
+        - "password\\s*=\\s*['\"][^'\"]+['\"]"
+        - "sk-[a-zA-Z0-9]{48}"
+      message: "This looks like a hardcoded secret. Consider using environment variables."
+
+    # Destructive command detection
+    destructive_commands:
+      enabled: true
+      context_aware: true  # Only warn if target wasn't created this session
+      patterns:
+        - "rm -rf"
+        - "DROP TABLE"
+        - "DELETE FROM .* WHERE 1=1"
+      message: "This affects files/data not created in this session. Are you sure?"
+
+    # Escalation (heads-up to Morgan)
+    escalation:
+      enabled: true
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      template: |
+        Taylor is proceeding with a flagged action:
+        - Warning: {warning_message}
+        - Session: {session_url}
+        - Time: {timestamp}
+```
+
+## Example Policy Code
+
+```python
+# Pseudocode for Commit Health Monitor policy
+class CommitHealthMonitorPolicy(EventBasedPolicy):
+    """
+    Tracks files changed since last commit.
+    Warns if too many uncommitted changes accumulate.
+    """
+
+    THRESHOLD_FILES = 10
+    THRESHOLD_LINES = 500
+
+    async def on_tool_call(self, context: PolicyContext) -> PolicyDecision:
+        tool_name = context.tool_call.get("name")
+
+        # Track file modifications
+        if tool_name in ["Write", "Edit"]:
+            file_path = context.tool_call.get("file_path")
+            await self.track_modified_file(context.session_id, file_path)
+
+        # Check git status periodically
+        if tool_name == "Bash" and "git" not in context.tool_call.get("command", ""):
+            stats = await self.get_uncommitted_stats(context.session_id)
+
+            if stats["files"] > self.THRESHOLD_FILES:
+                return PolicyDecision(
+                    action="warn",
+                    message=f"You have {stats['files']} uncommitted files. "
+                           f"Consider committing - small commits are easier to review!"
+                )
+
+        return PolicyDecision(action="allow")
+```
+
+## SQL Queries for Morgan
+
+```sql
+-- Sessions with warnings this week
+SELECT
+    session_id,
+    created_at,
+    COUNT(*) FILTER (WHERE content LIKE '%warning%') as warning_count
+FROM conversation_transcript
+WHERE created_at > NOW() - INTERVAL '7 days'
+GROUP BY session_id, created_at
+HAVING COUNT(*) FILTER (WHERE content LIKE '%warning%') > 0
+ORDER BY created_at DESC;
+
+-- Taylor's recent sessions
+SELECT
+    session_id,
+    MIN(created_at) as started,
+    MAX(created_at) as ended,
+    COUNT(*) as message_count
+FROM conversation_transcript
+WHERE created_at > NOW() - INTERVAL '7 days'
+GROUP BY session_id
+ORDER BY started DESC;
+
+-- Full session detail
+SELECT
+    created_at,
+    prompt_or_response,
+    LEFT(content, 200) as content_preview
+FROM conversation_transcript
+WHERE session_id = 'SESSION_ID_HERE'
+ORDER BY created_at;
+```
+
+## Onboarding Checklist
+
+### For Taylor (Junior Dev)
+- [ ] Luthien proxy running locally (`./scripts/quick_start.sh`)
+- [ ] Claude Code configured to use proxy (`ANTHROPIC_BASE_URL=http://localhost:8000`)
+- [ ] Understand warning vs blocking (warnings educate, you can proceed)
+- [ ] Know how to export session logs for PR descriptions
+- [ ] Bookmark the conversation viewer URL
+
+### For Morgan (Senior Dev)
+- [ ] Slack webhook configured for escalation notifications
+- [ ] Familiar with SQL queries for session review
+- [ ] Review workflow: check session log → leave PR comment → approve/request changes
+- [ ] Set expectations with Taylor: "I'll review logs async, ping me if urgent"
+
 ## Notes
 
 - This persona represents the "trust-but-verify" dynamic common in small teams with mixed experience levels
@@ -148,3 +319,13 @@ luthien-proxy-fsb (Message injection)
 - Session logs become a learning artifact, not just an audit trail
 - **Git-based approval model**: Taylor has triage access (can push branches), Morgan approves merges to main
 - **Context-aware detection**: To know what's "agent-created", Luthien must track file creation events during the session (e.g., from tool calls like `Write` or `Bash(touch/mkdir)`). This requires persisting session state and comparing against it when destructive commands are issued.
+
+## Future Documentation (TODO)
+
+Items to add as this story matures:
+
+- [ ] **Success metrics** - How do we know it's working? (warning rate decreases, review time decreases)
+- [ ] **Edge cases** - Long sessions (100+ messages), multiple warnings, Morgan unavailable
+- [ ] **Comparison to alternatives** - Why Luthien vs GitHub PR comments alone vs pair programming?
+- [ ] **Failure modes** - What if Luthien is down? What if logs are too noisy?
+- [ ] **Privacy considerations** - Who can see session logs? Retention policy?
