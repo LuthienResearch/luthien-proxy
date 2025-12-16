@@ -279,7 +279,7 @@ class PolicyManager:
         return self._current_policy
 
     @asynccontextmanager
-    async def _acquire_lock(self, timeout: int = 30):
+    async def _acquire_lock(self, timeout: int = REDIS_LOCK_TIMEOUT_SECONDS):
         """Acquire distributed lock via Redis.
 
         Args:

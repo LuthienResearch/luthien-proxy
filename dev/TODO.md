@@ -22,7 +22,7 @@
 
 - [ ] Update README post v2-migration
 - [ ] Add security documentation for dynamic policy loading (POLICY_CONFIG)
-- [ ] Verify all environment variables are documented in README and .env.example
+- [x] Verify all environment variables are documented in README and .env.example
 
 ### Security
 
@@ -54,7 +54,7 @@
 - [ ] Implement circuit breaker for upstream calls
 - [ ] Add Prometheus metrics endpoint
 - [ ] Implement proper task tracking for event publisher (replace fire-and-forget)
-- [ ] Add resource limits to docker-compose.yaml
+- [x] Add resource limits to docker-compose.yaml
 
 ### Documentation (Medium)
 
