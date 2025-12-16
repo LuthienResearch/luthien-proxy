@@ -83,7 +83,6 @@ Human-readable conversation log. Use this for debugging and session review inste
 **Limitations:**
 - Only extracts the **last user message** from multi-message requests
 - **Tool calls are not shown** - only text content is extracted
-- Prompts show `pipeline.client_request` (original request), not post-policy modifications
 - `session_id` is only populated for certain event types (may be NULL)
 
 **Example usage:**

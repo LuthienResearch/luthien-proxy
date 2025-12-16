@@ -15,7 +15,6 @@
 -- LIMITATIONS (see docs/database-schema.md for full details):
 -- - Only extracts the LAST user message from multi-message requests
 -- - Tool calls are not shown (text content only)
--- - Response extraction assumes OpenAI format (choices->message->content)
 -- - session_id may be NULL for some events
 -- =============================================================================
 
