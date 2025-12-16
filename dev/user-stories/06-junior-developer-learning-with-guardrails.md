@@ -4,6 +4,8 @@
 
 **Taylor** - A junior developer at an early-stage AI startup, working alongside a senior technical co-founder. Previously a technical product manager at a FAANG company who is familiar with building and launching technical products, but doesn't have much coding experience.
 
+**Focus area**: Front-end development - building onboarding tools, UI features, and user experience improvements. Works primarily with HTML/CSS/vanilla JS (no frameworks), with some Python for backend integration. Goal is to build small UI features autonomously so the senior dev can focus on core infrastructure.
+
 ## Context
 
 Taylor uses Claude Code for most development work and can ship small features, but their debugging is unsystematic and they sometimes miss security issues or anti-patterns. Their senior co-founder (Morgan) needs visibility into what Taylor and her AI coding assistants/agents are doing to catch mistakes before they hit prod. The dynamic is trust-but-verify: Taylor should feel empowered to work independently on branches, not micromanaged, while Morgan gets peace of mind through async review at merge time.
