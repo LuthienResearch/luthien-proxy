@@ -5,6 +5,8 @@ import logging
 import os
 from pathlib import Path
 
+import asyncpg
+
 from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
@@ -52,7 +54,14 @@ async def check_migrations(
 
     # Get applied migrations from database
     pool = await db_pool.get_pool()
-    rows = await pool.fetch("SELECT filename, content_hash FROM _migrations ORDER BY filename")
+    try:
+        rows = await pool.fetch("SELECT filename, content_hash FROM _migrations ORDER BY filename")
+    except asyncpg.UndefinedTableError:
+        raise RuntimeError(
+            "Migration tracking table '_migrations' not found.\n"
+            "The migrations container may not have run.\n"
+            "Run: docker compose up migrations"
+        )
     db_migrations: dict[str, str | None] = {
         str(row["filename"]): str(row["content_hash"]) if row["content_hash"] else None for row in rows
     }

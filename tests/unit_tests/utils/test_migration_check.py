@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+import asyncpg
 import pytest
 
 from luthien_proxy.utils.migration_check import check_migrations, compute_file_hash
@@ -261,3 +262,22 @@ class TestCheckMigrations:
         assert "002_missing.sql" in error_msg
         assert "HASH MISMATCH" in error_msg
         assert "001_init.sql" in error_msg
+
+    @pytest.mark.asyncio
+    async def test_fails_when_migrations_table_missing(self, mock_db_pool: MagicMock, tmp_path: Path) -> None:
+        """Should raise RuntimeError with helpful message when _migrations table doesn't exist."""
+        # Create a local migration file so we get past the early checks
+        migration1 = tmp_path / "001_init.sql"
+        migration1.write_bytes(b"CREATE TABLE one;")
+
+        # Mock DB to raise UndefinedTableError (table doesn't exist)
+        mock_pool = mock_db_pool.get_pool.return_value
+        mock_pool.fetch = AsyncMock(side_effect=asyncpg.UndefinedTableError("_migrations"))
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await check_migrations(mock_db_pool, migrations_dir=str(tmp_path))
+
+        error_msg = str(exc_info.value)
+        assert "_migrations" in error_msg
+        assert "not found" in error_msg
+        assert "docker compose up migrations" in error_msg

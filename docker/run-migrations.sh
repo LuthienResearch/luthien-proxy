@@ -55,9 +55,6 @@ SELECT filename, COALESCE(content_hash, '') FROM _migrations ORDER BY filename;
 EOF
 )
 
-# Write validation results to a temp file (avoids subshell variable issues)
-validation_errors=""
-
 # Process each DB migration
 for line in $db_migrations; do
     # Skip empty lines
