@@ -8,9 +8,9 @@
 -- Instead of digging through raw JSON in conversation_events, this view
 -- extracts the actual prompt/response text.
 --
--- WHY THIS MATTERS: During dogfooding, Scott needed to debug an image issue
--- and found the raw conversation_events table too messy. This view gives a
--- clean CSV-exportable format for reviewing what actually happened.
+-- WHY THIS MATTERS: Users debugging issues find the raw conversation_events
+-- table too messy (nested JSON payloads). This view gives a clean
+-- CSV-exportable format for reviewing what actually happened.
 --
 -- LIMITATIONS (see docs/database-schema.md for full details):
 -- - Only extracts the LAST user message from multi-message requests
