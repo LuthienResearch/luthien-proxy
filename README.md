@@ -451,6 +451,12 @@ See `src/luthien_proxy/policies/` for examples. Documentation coming soon.
 docker compose logs -f gateway
 ```
 
+## Documentation
+
+- **Database Schema**: [docs/database-schema.md](docs/database-schema.md) - Tables, views, and querying tips
+- **Observability Guide**: [dev/observability.md](dev/observability.md) - Tracing and logging setup
+- **OpenTelemetry Conventions**: [dev/context/otel-conventions.md](dev/context/otel-conventions.md)
+
 ## Troubleshooting
 
 ### Gateway not starting
