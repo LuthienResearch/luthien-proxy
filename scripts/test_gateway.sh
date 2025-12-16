@@ -23,21 +23,22 @@ echo "🧪 Testing Gateway at $GATEWAY_URL"
 echo ""
 
 # Wait for gateway to be ready (up to 30 seconds)
-# Tested startup times: restart ~2s, full down/up 18-25s
+# Why: After quick_start.sh, gateway needs 18-25s to fully start.
+#      Without this, users running test_gateway.sh immediately would see failures.
 echo "Waiting for gateway..."
 dots=""
-for i in {1..15}; do
-    dots="${dots}."
-    printf "\r%s Attempt %d/15" "$dots" "$i"
-    if curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; then
-        printf "\n${GREEN}Gateway ready!${NC}\n"
-        break
-    fi
-    if [ $i -eq 15 ]; then
+for i in {1..15}; do                                            # 15 retries × 2s = 30s max wait
+    dots="${dots}."                                             # Accumulate dots for visual progress
+    printf "\r%s Attempt %d/15" "$dots" "$i"                    # \r returns cursor to line start, overwrites previous attempt
+    if curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; then    # -s silent, -f fail on HTTP errors
+        printf "\n${GREEN}Gateway ready!${NC}\n"                # Success: print newline then message
+        break                                                   # Exit the loop early
+    fi                                                          # End of "if health check passed"
+    if [ $i -eq 15 ]; then                                      # On final attempt, fail instead of sleeping again
         printf "\n${RED}Gateway not ready after 30s${NC}\n"
         exit 1
-    fi
-    sleep 2
+    fi                                                          # End of "if final attempt"
+    sleep 2                                                     # Wait before next retry
 done
 
 # Helper function to test endpoint
