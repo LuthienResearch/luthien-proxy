@@ -88,7 +88,7 @@ class SimplePolicy(BasePolicy):
             context (PolicyContext): Policy context (includes observability, scratchpad)
         """
         response_str: str = await self.simple_on_request(request.last_message, context)
-        request.messages[-1].content = response_str
+        request.messages[-1]["content"] = response_str
         return request
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:

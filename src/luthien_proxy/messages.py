@@ -8,7 +8,8 @@ Policies operate on:
 
 from __future__ import annotations
 
-from litellm.types.utils import Message
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -23,7 +24,9 @@ class Request(BaseModel):
     """
 
     model: str = Field(description="Model identifier (e.g., 'gpt-4', 'claude-3-5-sonnet-20241022')")
-    messages: list[Message] = Field(description="Conversation messages in OpenAI format")
+    # Using dict instead of LiteLLM's Message to support multimodal content (images)
+    # LiteLLM's Message type expects content: str, but images require content: list
+    messages: list[dict[str, Any]] = Field(description="Conversation messages in OpenAI format")
     max_tokens: int | None = Field(default=None, description="Maximum tokens to generate")
     temperature: float | None = Field(default=None, description="Sampling temperature")
     stream: bool = Field(default=False, description="Whether to stream the response")
@@ -36,7 +39,15 @@ class Request(BaseModel):
         """Get the last message in the conversation."""
         if not self.messages:
             return ""
-        return self.messages[-1].content or ""
+        content = self.messages[-1].get("content", "")
+        # Handle multimodal content (list of content blocks)
+        if isinstance(content, list):
+            # Extract text from content blocks
+            text_parts = [
+                block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
+            ]
+            return " ".join(text_parts)
+        return content or ""
 
 
 __all__ = ["Request"]

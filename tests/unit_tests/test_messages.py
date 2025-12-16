@@ -15,8 +15,9 @@ class TestRequest:
 
         assert req.model == "gpt-4"
         assert len(req.messages) == 1
-        assert req.messages[0].role == "user"
-        assert req.messages[0].content == "Hello"
+        # Messages are now dicts to support multimodal content (images)
+        assert req.messages[0]["role"] == "user"
+        assert req.messages[0]["content"] == "Hello"
         assert req.stream is False
         assert req.max_tokens is None
         assert req.temperature is None

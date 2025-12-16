@@ -45,6 +45,8 @@ def anthropic_to_openai_request(data: dict) -> dict:
             tool_uses = []
             text_parts = []
 
+            image_parts = []
+
             for block in content:
                 if not isinstance(block, dict):
                     continue
@@ -56,6 +58,17 @@ def anthropic_to_openai_request(data: dict) -> dict:
                     tool_uses.append(block)
                 elif block_type == "text":
                     text_parts.append(block.get("text", ""))
+                elif block_type == "image":
+                    # Convert Anthropic image format to OpenAI format
+                    source = block.get("source", {})
+                    if source.get("type") == "base64":
+                        media_type = source.get("media_type", "image/png")
+                        b64_data = source.get("data", "")
+                        image_parts.append(
+                            {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64_data}"}}
+                        )
+                    elif source.get("type") == "url":
+                        image_parts.append({"type": "image_url", "image_url": {"url": source.get("url", "")}})
                 else:
                     logger.debug(f"Unknown content block type: {block_type}")
 
@@ -108,14 +121,18 @@ def anthropic_to_openai_request(data: dict) -> dict:
                 openai_msg["tool_calls"] = tool_calls
                 openai_messages.append(openai_msg)
 
-            # Handle regular text content
-            elif text_parts:
-                openai_messages.append(
-                    {
-                        "role": role,
-                        "content": " ".join(text_parts),
-                    }
-                )
+            # Handle regular text and/or image content
+            elif text_parts or image_parts:
+                # If we have images, use list format for content (OpenAI multimodal)
+                if image_parts:
+                    content_list = []
+                    if text_parts:
+                        content_list.append({"type": "text", "text": " ".join(text_parts)})
+                    content_list.extend(image_parts)
+                    openai_messages.append({"role": role, "content": content_list})
+                else:
+                    # Text only - use simple string format
+                    openai_messages.append({"role": role, "content": " ".join(text_parts)})
             # If we only have unknown block types, create an error message
             else:
                 unknown_types = [block.get("type", "unknown") for block in content if isinstance(block, dict)]
