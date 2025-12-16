@@ -14,6 +14,15 @@
 
 - [ ] **Factor out common gateway route logic** - Extract duplicate pipeline setup from `/v1/chat/completions` and `/v1/messages`
 
+### Multimodal / Images
+
+- [ ] **LiteLLM multimodal routing issue** - Images pass through proxy (PR #104 fixed validation) but Claude sometimes sees wrong image content. Troubleshooting notes:
+  - Proxy correctly converts Anthropic image format → OpenAI `image_url` format
+  - Requests return 200 (validation fixed), but Claude responds to wrong image
+  - Suspect LiteLLM→Anthropic conversion isn't handling multimodal correctly
+  - Test: `./scripts/launch_claude_code.sh`, send screenshot, Claude describes different image
+  - Related issue: #103
+
 ### Documentation (High)
 
 - [ ] Update README post v2-migration
