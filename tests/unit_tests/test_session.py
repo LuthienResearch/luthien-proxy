@@ -124,6 +124,22 @@ class TestLoginPageHTML:
         html = get_login_page_html(next_url='/test"><script>alert(1)</script>')
         assert "<script>alert(1)</script>" not in html
 
+    def test_includes_password_toggle(self):
+        html = get_login_page_html()
+        assert "togglePassword()" in html
+        assert 'class="toggle-password"' in html
+        assert ">Show<" in html  # Initial button text
+
+    def test_includes_dev_hint(self):
+        html = get_login_page_html()
+        assert "admin-dev-key" in html
+        assert "fillDevKey()" in html
+        assert "Production users:" in html
+
+    def test_includes_back_to_gateway_link(self):
+        html = get_login_page_html()
+        assert "Back to Gateway" in html
+
 
 class TestValidateNextUrl:
     def test_allows_relative_paths(self):

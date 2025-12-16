@@ -42,7 +42,22 @@ Launch your AI assistant through the proxy using the built-in scripts:
 
 These scripts automatically configure the proxy settings. All requests now flow through the policy enforcement layer!
 
-### 3. Monitor Activity
+### 3. Log In to Admin UI
+
+When you first visit any admin page (Activity Monitor, Policy Config, or Debug views), you'll be redirected to:
+
+```
+http://localhost:8000/login
+```
+
+**Default credentials (development):**
+- Admin API Key: `admin-dev-key`
+
+After logging in, your session persists across pages. Click "Sign Out" on any admin page to log out.
+
+⚠️ **For production deployments**: Change `ADMIN_API_KEY` in your `.env` file before exposing to a network.
+
+### 4. Monitor Activity
 
 Open the Activity Monitor in your browser to see requests in real-time:
 
@@ -50,10 +65,9 @@ Open the Activity Monitor in your browser to see requests in real-time:
 http://localhost:8000/activity/monitor
 ```
 
-
 Watch as requests flow through, see policy decisions, and inspect before/after diffs.
 
-### 4. Select a Policy
+### 5. Select a Policy
 
 Use the Policy Configuration UI to change policies without restart:
 
@@ -65,7 +79,7 @@ http://localhost:8000/policy-config
 2. Click to select and activate
 3. Test immediately - changes take effect instantly
 
-### 5. Create Your Own Policy
+### 6. Create Your Own Policy
 
 Create a new policy by subclassing `SimpleJudgePolicy`:
 

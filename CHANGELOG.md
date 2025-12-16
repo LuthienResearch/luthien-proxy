@@ -2,6 +2,10 @@
 
 ## Unreleased | TBA
 
+- Improve login page UX (dogfooding-login-ui-quick-fixes)
+  - Add show/hide password toggle below input field (avoids conflict with password managers)
+  - Add clickable dev key hint for development environments
+  - Add guidance for production users to check .env or contact admin
 - Structured span hierarchy for request processing (luthien-proxy-a0r)
   - All pipeline phases (process_request, policy_on_request, send_upstream, process_response) are now visible as siblings in Grafana/Tempo
   - Add `luthien.policy.name` attribute to root span for easy policy identification
