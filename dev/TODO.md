@@ -16,12 +16,7 @@
 
 ### Multimodal / Images
 
-- [ ] **LiteLLM multimodal routing issue** - Images pass through proxy (PR #104 fixed validation) but Claude sometimes sees wrong image content. Troubleshooting notes:
-  - Proxy correctly converts Anthropic image format → OpenAI `image_url` format
-  - Requests return 200 (validation fixed), but Claude responds to wrong image
-  - Suspect LiteLLM→Anthropic conversion isn't handling multimodal correctly
-  - Test: `./scripts/launch_claude_code.sh`, send screenshot, Claude describes different image
-  - Related issue: #103
+- [ ] **LiteLLM multimodal routing issue (#108)** - Images pass through proxy but Claude sees wrong content. See issue #108 for troubleshooting logs.
 
 ### Documentation (High)
 

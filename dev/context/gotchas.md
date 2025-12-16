@@ -76,33 +76,9 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 
 **Gotcha**: Images pass validation after PR #104 fix, but Claude may respond to wrong image content.
 
-### What was fixed (PR #104)
-- Changed `Request.messages` from `list[Message]` to `list[dict[str, Any]]` - LiteLLM's Message type expects `content: str` but images require `content: list`
-- Added image block handling in `anthropic_to_openai_request()` - converts Anthropic format (`type: "image"`, `source.type: "base64"`) to OpenAI format (`type: "image_url"`, `image_url.url: "data:..."`)
-- Fixed variable shadowing bug (`data` → `b64_data`) that broke the function
-
-### What's still broken
-- Claude sometimes responds to wrong image content when testing through proxy
-- Suspect LiteLLM→Anthropic conversion isn't handling multimodal correctly downstream
-- Text requests work fine; image requests return 200 but wrong content
-
-### Troubleshooting attempted
-1. Verified proxy converts Anthropic image format → OpenAI `image_url` format correctly
-2. Basic text requests work: `curl -s http://localhost:8000/v1/messages ...` returns expected response
-3. Image requests return 200 (validation fixed!) but Claude describes different image than sent
-4. Gateway logs show image data being sent but hard to trace through LiteLLM internals
-5. `test_gateway.sh --image` has separate issue: URL with `&` chars needs quoting
-
-### Test reproduction
-```bash
-./scripts/launch_claude_code.sh
-# In Claude Code session, ask it to read/describe a screenshot
-# Claude will respond but may describe wrong image content
-```
-
-### Related
-- Issue #103, PR #104
-- TODO.md has tracking item for LiteLLM multimodal routing
+- **Fixed (PR #104)**: Validation error - changed `Request.messages` to `list[dict[str, Any]]`, added image block conversion
+- **Still broken**: Claude sometimes describes wrong image - suspect LiteLLM→Anthropic conversion issue
+- **Tracking**: Issue #108 has full troubleshooting logs
 
 ---
 
