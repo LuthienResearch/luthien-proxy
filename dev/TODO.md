@@ -71,6 +71,8 @@
 
 ### Story 6 (Taylor/Junior Dev) Follow-ups
 
+- [ ] **Find better home for Scott's session debug CSVs** - Currently in `dev/debug_data/` in main repo. Options: separate repo, gist, Google Drive, or gitignore and keep local-only. These are useful for retrospectives but clutter the main repo. Reference: 2025-12-16 dogfooding session.
+
 Future documentation to add as the story matures:
 
 - [ ] **Success metrics** - How do we know it's working? (warning rate decreases, review time decreases). Reference: [Story 6](dev/user-stories/06-junior-developer-learning-with-guardrails.md)
