@@ -310,16 +310,16 @@ async def _handle_streaming(
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
 
-                # send_to_client is interleaved - we track it as an event
-                async for sse_event in orchestrator.process_streaming_response(backend_stream, policy_ctx):
-                    chunk_count += 1
-                    yield sse_event
-
-                response_span.set_attribute("streaming.chunk_count", chunk_count)
-
-                # Propagate response summary if policy set one (after streaming completes)
-                if policy_ctx.response_summary:
-                    root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
+                try:
+                    # send_to_client is interleaved - we track it as an event
+                    async for sse_event in orchestrator.process_streaming_response(backend_stream, policy_ctx):
+                        chunk_count += 1
+                        yield sse_event
+                finally:
+                    # Always record chunk count and summary, even on error
+                    response_span.set_attribute("streaming.chunk_count", chunk_count)
+                    if policy_ctx.response_summary:
+                        root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
         finally:
             detach(token)
 
