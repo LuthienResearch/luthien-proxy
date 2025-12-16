@@ -28,6 +28,7 @@
 
 ### Documentation (High)
 
+- [ ] **Create visual database schema documentation** - Current `docs/database-schema.md` is basic markdown tables. Need a visual flow diagram showing data hierarchy from most-granular (`conversation_events`) up to human-readable (`conversation_transcript` view), with `SELECT * LIMIT 3` examples for each table. Reference: Dogfooding session 2025-12-16.
 - [ ] Update README post v2-migration
 - [ ] Add security documentation for dynamic policy loading (POLICY_CONFIG)
 - [x] Verify all environment variables are documented in README and .env.example
