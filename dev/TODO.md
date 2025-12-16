@@ -69,6 +69,16 @@
 - [ ] Document timeout configuration rationale
 - [ ] Document data retention policy
 
+### Story 6 (Taylor/Junior Dev) Follow-ups
+
+Future documentation to add as the story matures:
+
+- [ ] **Success metrics** - How do we know it's working? (warning rate decreases, review time decreases). Reference: [Story 6](dev/user-stories/06-junior-developer-learning-with-guardrails.md)
+- [ ] **Edge cases** - Long sessions (100+ messages), multiple warnings, Morgan unavailable
+- [ ] **Comparison to alternatives** - Why Luthien vs GitHub PR comments alone vs pair programming?
+- [ ] **Failure modes** - What if Luthien is down? What if logs are too noisy?
+- [ ] **Privacy considerations** - Who can see session logs? Retention policy?
+
 ## Low Priority / Future Work
 
 - [ ] **Simplify db.py abstractions** - Remove redundant protocol wrappers
