@@ -39,7 +39,6 @@ for i in {1..15}; do
     fi
     sleep 2
 done
-echo ""
 
 # Helper function to test endpoint
 test_endpoint() {
