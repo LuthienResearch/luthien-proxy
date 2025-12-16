@@ -33,6 +33,7 @@ from luthien_proxy.telemetry import (
 from luthien_proxy.ui import router as ui_router
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import DB_URL_PREVIEW_LENGTH, DEFAULT_GATEWAY_PORT
+from luthien_proxy.utils.migration_check import check_migrations
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -69,6 +70,10 @@ def create_app(
         """Manage application lifespan: startup and shutdown."""
         # Startup
         logger.info("Starting Luthien Gateway...")
+
+        # Validate migrations are up to date before proceeding
+        await check_migrations(db_pool)
+        logger.info("Migration check passed")
 
         # Configure litellm globally (moved from policy file to prevent import side effects)
         litellm.drop_params = True

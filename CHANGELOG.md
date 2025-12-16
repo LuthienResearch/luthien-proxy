@@ -2,6 +2,12 @@
 
 ## Unreleased | TBA
 
+- Migration validation and fail-fast checks (#110)
+  - `run-migrations.sh` validates DB state against local files before applying
+  - Gateway startup check ensures all migrations are applied
+  - Fails fast with clear errors if: migrations missing locally, unapplied migrations, or hash mismatch
+  - Records content_hash for each migration to detect modifications
+
 - Improve login page UX (dogfooding-login-ui-quick-fixes)
   - Add show/hide password toggle below input field (avoids conflict with password managers)
   - Add clickable dev key hint for development environments
