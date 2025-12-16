@@ -11,28 +11,32 @@ Canonical user stories that guide Luthien Control development. Each story repres
 | 3 | [Researcher: Multi-Reviewer Evaluation](03-researcher-multi-reviewer-evaluation.md) | Sam (PhD Student) | Not Started |
 | 4 | [Policy Author: Compliance with HITL](04-policy-author-compliance-hitl.md) | Riley (Security Engineer) | Not Started |
 | 5 | [Infrastructure: Observability & Unification](05-infrastructure-observability-unification.md) | Core Developer | Not Started |
+| 6 | [Junior Developer: Learning with Guardrails](06-junior-developer-learning-with-guardrails.md) | Taylor (Junior Developer) | Not Started |
 
 ## Feature Matrix
 
-| Feature | Story 1 | Story 2 | Story 3 | Story 4 | Story 5 |
-|---------|:-------:|:-------:|:-------:|:-------:|:-------:|
-| Conversation context tracking | **X** | **X** | | **X** | |
-| Conversation Viewer UI | **X** | **X** | | | |
-| Message injection | **X** | **X** | **X** | **X** | |
-| Media attachment support | | **X** | | | |
-| Model param pass-through | **X** | | | | |
-| Parallel query (resampling) | | **X** | | | |
-| Per-user dashboards | | **X** | | | |
-| Escalation tiers | | **X** | | **X** | |
-| Multi-reviewer evaluation | | | **X** | | |
-| Rule extraction | | | **X** | | |
-| LLM rephrasing | | | **X** | **X** | |
-| Human-in-the-loop approval | | | | **X** | |
-| Approval UI | | | | **X** | |
-| Context-aware policy base | | | | **X** | |
-| Compliance dashboard | | | | **X** | |
-| Unified endpoint processing | | | | | **X** |
-| Structured span hierarchy | | | | | **X** |
+| Feature | Story 1 | Story 2 | Story 3 | Story 4 | Story 5 | Story 6 |
+|---------|:-------:|:-------:|:-------:|:-------:|:-------:|:-------:|
+| Conversation context tracking | **X** | **X** | | **X** | | **X** |
+| Conversation Viewer UI | **X** | **X** | | | | **X** |
+| Message injection | **X** | **X** | **X** | **X** | | **X** |
+| Media attachment support | | **X** | | | | |
+| Model param pass-through | **X** | | | | | |
+| Parallel query (resampling) | | **X** | | | | |
+| Per-user dashboards | | **X** | | | | |
+| Escalation tiers | | **X** | | **X** | | |
+| Multi-reviewer evaluation | | | **X** | | | |
+| Rule extraction | | | **X** | | | |
+| LLM rephrasing | | | **X** | **X** | | |
+| Human-in-the-loop approval | | | | **X** | | |
+| Approval UI | | | | **X** | | |
+| Context-aware policy base | | | | **X** | | **X** |
+| Compliance dashboard | | | | **X** | | |
+| Unified endpoint processing | | | | | **X** | |
+| Structured span hierarchy | | | | | **X** | |
+| Session sharing URLs | | | | | | **X** |
+| Session annotations/comments | | | | | | **X** |
+| Guardrail policies (secrets, destructive cmds) | | | | | | **X** |
 
 ## Key Issues by Feature Area
 
@@ -166,3 +170,4 @@ Based on feature dependencies and story coverage:
 
 - **2025-12-10**: Initial creation with 4 canonical user stories
 - **2025-12-10**: Added Story 5 (Infrastructure) with unified endpoint processing and structured span hierarchy
+- **2025-12-16**: Added Story 6 (Junior Developer) for learning with guardrails - trust-but-verify persona
