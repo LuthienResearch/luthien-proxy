@@ -182,6 +182,7 @@ class TestFetchCallEvents:
             "event_type": "v2_request",
             "created_at": datetime(2025, 10, 20, 10, 0, 0),
             "payload": {"data": "test"},
+            "session_id": "test-session-id",
         }
 
         mock_conn = AsyncMock()
@@ -302,6 +303,7 @@ class TestFetchRecentCalls:
                 "call_id": f"call-{i}",
                 "event_count": i + 2,
                 "latest": datetime(2025, 10, 20, 10 - i, 0, 0),
+                "session_id": f"session-{i}" if i == 0 else None,
             }
             for i in range(2)
         ]

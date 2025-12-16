@@ -19,6 +19,7 @@ class ConversationEventResponse(BaseModel):
     timestamp: str
     hook: str
     payload: dict[str, Any]
+    session_id: str | None = None
 
 
 class CallEventsResponse(BaseModel):
@@ -27,6 +28,7 @@ class CallEventsResponse(BaseModel):
     call_id: str
     events: list[ConversationEventResponse]
     tempo_trace_url: str | None
+    session_id: str | None = None
 
 
 class MessageDiff(BaseModel):
@@ -77,6 +79,7 @@ class CallListItem(BaseModel):
     call_id: str
     event_count: int
     latest_timestamp: str
+    session_id: str | None = None
 
 
 class CallListResponse(BaseModel):

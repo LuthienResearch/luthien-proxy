@@ -2,6 +2,25 @@
 
 ## Unreleased | TBA
 
+- Improve login page UX (dogfooding-login-ui-quick-fixes)
+  - Add show/hide password toggle below input field (avoids conflict with password managers)
+  - Add clickable dev key hint for development environments
+  - Add guidance for production users to check .env or contact admin
+- Structured span hierarchy for request processing (luthien-proxy-a0r)
+  - All pipeline phases (process_request, policy_on_request, send_upstream, process_response) are now visible as siblings in Grafana/Tempo
+  - Add `luthien.policy.name` attribute to root span for easy policy identification
+  - Add `request_summary` and `response_summary` fields to PolicyContext for policy-defined observability
+
+- Dependency injection for `create_app()` (#105)
+
+- Session ID tracking for conversation context (#102)
+  - Extract session ID from Anthropic `metadata.user_id` (Claude Code format: `user_<hash>_account__session_<uuid>`)
+  - Extract session ID from `x-session-id` header (OpenAI format)
+  - Persist session ID to database for querying conversations by session
+  - Add `RawHttpRequest` dataclass to capture original HTTP request data
+  - Add OpenTelemetry span attributes for session tracking (`luthien.session_id`)
+  - Debug API now returns session_id in call listings and event responses
+
 - Unify OpenAI and Anthropic endpoint processing (#92)
 - Fix broken migration script that prevented migrations from running (#fix-migration-script)
 - Replace magic numbers with named constants [constants.py](src/luthien_proxy/utils/constants.py)

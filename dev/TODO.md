@@ -6,6 +6,10 @@
 
 ### Policy UI & Admin
 
+- [ ] **[Future] Smart dev key hint** - Only show clickable dev key hint when ADMIN_API_KEY matches default; otherwise just show "check .env or contact admin". Deferred as scope creep. Reference: dogfooding-login-ui-quick-fixes branch, 2025-12-15.
+- [ ] **Activity Monitor missing auth indicator** - Gateway root page links to Activity Monitor but doesn't show "Auth Required" indicator for consistency with other protected pages. Reference: dogfooding session 2025-12-15.
+- [ ] **[Future] Conversation history browser & export** - Enable users to browse and export full conversation logs from past sessions. Use case: Claude Code compacts conversations; user wants to recover detailed logs later. Could include: search by date, export to markdown/JSON, filter by user/session. Data already in `conversation_events` table. Reference: Dogfooding session 2025-12-15.
+
 ### Architecture Improvements
 
 - [ ] **create_app dependency injection** - Accept db and redis objects instead of URLs, enabling easier testing and more flexible configuration
@@ -43,6 +47,7 @@
 
 ### Infrastructure (Medium)
 
+- [ ] **Add migration tracking** - No schema_migrations table exists; migrations use IF NOT EXISTS which silently skips existing tables with wrong schema. Options: alembic, simple tracking table, or schema validation. (bd: luthien-proxy-17j)
 - [ ] **DB Migration: call_id -> transaction_id** - Rename columns for consistency
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints
 - [ ] Add rate limiting middleware

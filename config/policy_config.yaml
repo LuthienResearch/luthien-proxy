@@ -9,6 +9,11 @@ policy:
   class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
   config: {}
 
+# Debug Logging Policy - logs raw HTTP requests and chunks
+# policy:
+#   class: "luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy"
+#   config: {}
+
 # Simple Policy - allows all requests without modification, but no streaming
 # policy:
 #   class: "luthien_proxy.policies.simple_policy:SimplePolicy"

@@ -27,7 +27,27 @@ class DebugLoggingPolicy(BasePolicy):
         return "DebugLogging"
 
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
-        """Process request before sending to LLM."""
+        """Process request before sending to LLM - log raw HTTP request."""
+        # Log the raw HTTP request (before format conversion)
+        if context.raw_http_request is not None:
+            raw = context.raw_http_request
+            logger.info(f"[RAW_HTTP_REQUEST] method={raw.method} path={raw.path}")
+            logger.info(f"[RAW_HTTP_REQUEST] headers={json.dumps(dict(raw.headers), indent=2)}")
+            logger.info(f"[RAW_HTTP_REQUEST] body={json.dumps(raw.body, indent=2)}")
+
+            # Also emit as an event for DB persistence
+            context.record_event(
+                "debug.raw_http_request",
+                {
+                    "method": raw.method,
+                    "path": raw.path,
+                    "headers": dict(raw.headers),
+                    "body": raw.body,
+                },
+            )
+        else:
+            logger.warning("[RAW_HTTP_REQUEST] No raw HTTP request available in context")
+
         return request
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:

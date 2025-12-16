@@ -3,18 +3,42 @@
 This module provides a single entry point for processing LLM requests,
 regardless of client format (OpenAI or Anthropic). Format conversion
 happens only at ingress/egress boundaries.
+
+Span Hierarchy
+--------------
+The pipeline creates a structured span hierarchy for observability:
+
+    transaction_processing (root)
+    ├── process_request
+    │   └── format_conversion event (if Anthropic)
+    ├── policy_on_request
+    │   └── policy.process_request
+    ├── send_upstream
+    │   └── llm.stream / llm.complete
+    ├── process_response
+    │   ├── streaming.policy_executor (streaming only)
+    │   ├── streaming.client_formatter (streaming only)
+    │   └── policy.process_response (non-streaming only)
+    └── send_to_client
+        └── format_conversion event (if Anthropic, non-streaming)
+
+For streaming, process_response wraps the entire streaming pipeline,
+and send_to_client covers the SSE event generation to the client.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from typing import AsyncIterator
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from litellm.types.utils import ModelResponse
 from opentelemetry import trace
+from opentelemetry.context import attach, detach, get_current
+from opentelemetry.trace import Span
 from pydantic import ValidationError
 
 from luthien_proxy.llm.client import LLMClient
@@ -29,6 +53,10 @@ from luthien_proxy.observability.transaction_recorder import (
 )
 from luthien_proxy.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.pipeline.client_format import ClientFormat
+from luthien_proxy.pipeline.session import (
+    extract_session_id_from_anthropic_body,
+    extract_session_id_from_headers,
+)
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.streaming.client_formatter.anthropic import (
@@ -37,6 +65,7 @@ from luthien_proxy.streaming.client_formatter.anthropic import (
 from luthien_proxy.streaming.client_formatter.interface import ClientFormatter
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
+from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
 logger = logging.getLogger(__name__)
@@ -85,7 +114,7 @@ async def process_llm_request(
         root_span.set_attribute("luthien.endpoint", endpoint)
 
         # Phase 1: Process incoming request
-        request_message = await _process_request(
+        request_message, raw_http_request, session_id = await _process_request(
             request=request,
             client_format=client_format,
             call_id=call_id,
@@ -95,9 +124,17 @@ async def process_llm_request(
         is_streaming = request_message.stream
         root_span.set_attribute("luthien.model", request_message.model)
         root_span.set_attribute("luthien.stream", is_streaming)
+        if session_id:
+            root_span.set_attribute("luthien.session_id", session_id)
 
         # Create policy context and orchestrator
-        policy_ctx = PolicyContext(transaction_id=call_id, request=request_message, emitter=emitter)
+        policy_ctx = PolicyContext(
+            transaction_id=call_id,
+            request=request_message,
+            emitter=emitter,
+            raw_http_request=raw_http_request,
+            session_id=session_id,
+        )
         recorder = DefaultTransactionRecorder(transaction_id=call_id, emitter=emitter)
         policy_executor = PolicyExecutor(recorder=recorder)
         client_formatter = _get_client_formatter(client_format, request_message.model)
@@ -109,14 +146,21 @@ async def process_llm_request(
             transaction_recorder=recorder,
         )
 
+        # Set policy name on root span for easy identification
+        root_span.set_attribute("luthien.policy.name", policy.__class__.__name__)
+
         # Apply policy to request
         with tracer.start_as_current_span("policy_on_request"):
             final_request = await orchestrator.process_request(request_message, policy_ctx)
 
+        # Propagate request summary if policy set one
+        if policy_ctx.request_summary:
+            root_span.set_attribute("luthien.policy.request_summary", policy_ctx.request_summary)
+
         emitter.record(
             call_id,
             "pipeline.backend_request",
-            {"payload": final_request.model_dump(exclude_none=True)},
+            {"payload": final_request.model_dump(exclude_none=True), "session_id": session_id},
         )
 
         # Phase 2 & 3 & 4: Send upstream, process response, send to client
@@ -127,9 +171,10 @@ async def process_llm_request(
                 policy_ctx=policy_ctx,
                 llm_client=llm_client,
                 call_id=call_id,
+                root_span=root_span,
             )
         else:
-            return await _handle_non_streaming(
+            response = await _handle_non_streaming(
                 final_request=final_request,
                 orchestrator=orchestrator,
                 policy_ctx=policy_ctx,
@@ -139,13 +184,19 @@ async def process_llm_request(
                 call_id=call_id,
             )
 
+            # Propagate response summary if policy set one
+            if policy_ctx.response_summary:
+                root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
+
+            return response
+
 
 async def _process_request(
     request: Request,
     client_format: ClientFormat,
     call_id: str,
     emitter: EventEmitterProtocol,
-) -> RequestMessage:
+) -> tuple[RequestMessage, RawHttpRequest, str | None]:
     """Process and validate incoming request.
 
     Args:
@@ -155,7 +206,7 @@ async def _process_request(
         emitter: Event emitter
 
     Returns:
-        RequestMessage in OpenAI format
+        Tuple of (RequestMessage in OpenAI format, RawHttpRequest with original data, session_id)
 
     Raises:
         HTTPException: On request size exceeded
@@ -169,12 +220,22 @@ async def _process_request(
             raise HTTPException(status_code=413, detail="Request payload too large")
 
         body = await request.json()
+        headers = {k.lower(): v for k, v in request.headers.items()}
+
+        # Capture raw HTTP request before any processing
+        raw_http_request = RawHttpRequest(
+            body=body,
+            headers=headers,
+            method=request.method,
+            path=request.url.path,
+        )
 
         # Log incoming request
         emitter.record(call_id, "pipeline.client_request", {"payload": body})
 
-        # Convert to OpenAI format if needed
+        # Extract session ID based on client format
         if client_format == ClientFormat.ANTHROPIC:
+            session_id = extract_session_id_from_anthropic_body(body)
             span.add_event("format_conversion", {"from": "anthropic", "to": "openai"})
             emitter.record(
                 call_id,
@@ -189,6 +250,7 @@ async def _process_request(
                 raise HTTPException(status_code=400, detail=f"Invalid Anthropic request format: {e}")
             logger.info(f"[{call_id}] /v1/messages: model={request_message.model}, stream={request_message.stream}")
         else:
+            session_id = extract_session_id_from_headers(headers)
             try:
                 request_message = RequestMessage(**body)
             except ValidationError as e:
@@ -198,7 +260,11 @@ async def _process_request(
                 f"[{call_id}] /v1/chat/completions: model={request_message.model}, stream={request_message.stream}"
             )
 
-        return request_message
+        if session_id:
+            span.set_attribute("luthien.session_id", session_id)
+            logger.debug(f"[{call_id}] Extracted session_id: {session_id}")
+
+        return request_message, raw_http_request, session_id
 
 
 def _get_client_formatter(client_format: ClientFormat, model_name: str) -> ClientFormatter:
@@ -214,19 +280,51 @@ async def _handle_streaming(
     policy_ctx: PolicyContext,
     llm_client: LLMClient,
     call_id: str,
+    root_span: Span,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow.
 
     Phases 2-4 are interleaved for streaming: chunks flow through
     send_upstream → process_response → send_to_client continuously.
+
+    The span hierarchy for streaming is managed by capturing the parent
+    context and creating sibling spans within the streaming generator.
     """
+    # Capture parent context before entering the generator
+    # This allows us to create sibling spans under transaction_processing
+    parent_context = get_current()
+
     with tracer.start_as_current_span("send_upstream") as span:
         span.set_attribute("luthien.phase", "send_upstream")
         backend_stream = await llm_client.stream(final_request)
 
-    # process_response and send_to_client happen inside the streaming generator
+    # Create a wrapper generator that manages span context
+    async def streaming_with_spans() -> AsyncIterator[str]:
+        """Wrapper that creates proper span hierarchy for streaming."""
+        # Attach parent context so spans are siblings under transaction_processing
+        token = attach(parent_context)
+        chunk_count = 0
+        try:
+            # process_response span wraps the entire streaming pipeline
+            with tracer.start_as_current_span("process_response") as response_span:
+                response_span.set_attribute("luthien.phase", "process_response")
+                response_span.set_attribute("luthien.streaming", True)
+
+                try:
+                    # send_to_client is interleaved - we track it as an event
+                    async for sse_event in orchestrator.process_streaming_response(backend_stream, policy_ctx):
+                        chunk_count += 1
+                        yield sse_event
+                finally:
+                    # Always record chunk count and summary, even on error
+                    response_span.set_attribute("streaming.chunk_count", chunk_count)
+                    if policy_ctx.response_summary:
+                        root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
+        finally:
+            detach(token)
+
     return FastAPIStreamingResponse(
-        orchestrator.process_streaming_response(backend_stream, policy_ctx),
+        streaming_with_spans(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -267,7 +365,9 @@ async def _handle_non_streaming(
         else:
             final_response = processed_response.model_dump()
 
-        emitter.record(call_id, "pipeline.client_response", {"payload": final_response})
+        emitter.record(
+            call_id, "pipeline.client_response", {"payload": final_response, "session_id": policy_ctx.session_id}
+        )
 
         return JSONResponse(
             content=final_response,

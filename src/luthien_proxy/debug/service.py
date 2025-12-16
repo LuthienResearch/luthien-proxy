@@ -223,7 +223,7 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
     async with db_pool.connection() as conn:
         rows = await conn.fetch(
             """
-            SELECT call_id, event_type, payload, created_at
+            SELECT call_id, event_type, payload, created_at, session_id
             FROM conversation_events
             WHERE call_id = $1
             ORDER BY created_at ASC
@@ -234,6 +234,13 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
     if not rows:
         raise ValueError(f"No events found for call_id: {call_id}")
 
+    # Get session_id from first event that has it
+    call_session_id = None
+    for row in rows:
+        if row["session_id"]:
+            call_session_id = str(row["session_id"])
+            break
+
     events = [
         ConversationEventResponse(
             call_id=str(row["call_id"]),
@@ -243,6 +250,7 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
             else str(row["created_at"]),
             hook="",  # Not stored in schema
             payload=dict(row["payload"]) if isinstance(row["payload"], dict) else {},  # type: ignore[arg-type]
+            session_id=str(row["session_id"]) if row["session_id"] else None,
         )
         for row in rows
     ]
@@ -251,6 +259,7 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
         call_id=call_id,
         events=events,
         tempo_trace_url=build_tempo_url(call_id),
+        session_id=call_session_id,
     )
 
 
@@ -339,7 +348,8 @@ async def fetch_recent_calls(limit: int, db_pool: DatabasePool) -> CallListRespo
             SELECT
                 call_id,
                 COUNT(*) as event_count,
-                MAX(created_at) as latest
+                MAX(created_at) as latest,
+                MAX(session_id) as session_id
             FROM conversation_events
             GROUP BY call_id
             ORDER BY latest DESC
@@ -355,6 +365,7 @@ async def fetch_recent_calls(limit: int, db_pool: DatabasePool) -> CallListRespo
             latest_timestamp=row["latest"].isoformat()  # type: ignore[union-attr]
             if isinstance(row["latest"], datetime)
             else str(row["latest"]),
+            session_id=str(row["session_id"]) if row["session_id"] else None,
         )
         for row in rows
     ]
