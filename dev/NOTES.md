@@ -1,3 +1,3 @@
-# Development Notes
+# Notes
 
-(none)
+(scratchpad for current objective - clear when objective is complete)
