@@ -9,6 +9,12 @@ set -e
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
 API_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
 
+# Retry settings for gateway startup wait
+# Values determined by timing tests: restart ~2s, full down/up 18-25s
+# See: https://github.com/LuthienResearch/luthien-proxy/pull/111
+GATEWAY_RETRY_COUNT=15      # Number of health check attempts
+GATEWAY_RETRY_INTERVAL=2    # Seconds between attempts (total wait: 15 × 2 = 30s)
+
 # Colors for output
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -22,23 +28,24 @@ TESTS_FAILED=0
 echo "🧪 Testing Gateway at $GATEWAY_URL"
 echo ""
 
-# Wait for gateway to be ready (up to 30 seconds)
+# Wait for gateway to be ready
 # Why: After quick_start.sh, gateway needs 18-25s to fully start.
 #      Without this, users running test_gateway.sh immediately would see failures.
 echo "Waiting for gateway..."
 dots=""
-for i in {1..15}; do                                            # 15 retries × 2s = 30s max wait
-    dots="${dots}."                                             # Accumulate dots for visual progress
-    printf "\r%s Attempt %d/15" "$dots" "$i"                    # \r returns cursor to line start, overwrites previous attempt
-    if curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; then    # -s silent, -f fail on HTTP errors
-        printf "\n${GREEN}Gateway ready!${NC}\n"                # Success: print newline then message
-        break                                                   # Exit the loop early
-    fi                                                          # End of "if health check passed"
-    if [ $i -eq 15 ]; then                                      # On final attempt, fail instead of sleeping again
-        printf "\n${RED}Gateway not ready after 30s${NC}\n"
+for i in $(seq 1 $GATEWAY_RETRY_COUNT); do
+    dots="${dots}."                                                              # Accumulate dots for visual progress
+    printf "\r%s Attempt %d/%d" "$dots" "$i" "$GATEWAY_RETRY_COUNT"              # \r returns cursor to line start, overwrites previous
+    if curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; then                     # -s silent, -f fail on HTTP errors
+        printf "\n${GREEN}Gateway ready!${NC}\n"
+        break
+    fi
+    if [ "$i" -eq "$GATEWAY_RETRY_COUNT" ]; then                                 # On final attempt, fail instead of sleeping again
+        total_wait=$((GATEWAY_RETRY_COUNT * GATEWAY_RETRY_INTERVAL))
+        printf "\n${RED}Gateway not ready after ${total_wait}s${NC}\n"
         exit 1
-    fi                                                          # End of "if final attempt"
-    sleep 2                                                     # Wait before next retry
+    fi
+    sleep "$GATEWAY_RETRY_INTERVAL"
 done
 
 # Helper function to test endpoint
