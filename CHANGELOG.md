@@ -2,6 +2,11 @@
 
 ## Unreleased | TBA
 
+- Fix validation error when images in Anthropic requests (#103, #104)
+  - Changed Request.messages to support multimodal content (list of dicts instead of strict Message type)
+  - Added image block handling in Anthropic→OpenAI format conversion
+  - Note: LiteLLM multimodal routing still has issues (documented in TODO.md)
+
 - Session ID tracking for conversation context (#102)
   - Extract session ID from Anthropic `metadata.user_id` (Claude Code format: `user_<hash>_account__session_<uuid>`)
   - Extract session ID from `x-session-id` header (OpenAI format)
