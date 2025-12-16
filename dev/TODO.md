@@ -2,7 +2,15 @@
 
 ## High Priority
 
+### Bugs
+
+- [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Reference: Dogfooding session 2025-12-16.
+
 ### Testing
+
+### Scott Review
+
+- [ ] **Review user-stories README and propose edits/priorities** - New file at `dev/user-stories/README.md` needs review. Reference: 2025-12-16.
 
 ### Policy UI & Admin
 
