@@ -4,7 +4,7 @@
 
 ### Bugs
 
-- [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Reference: Dogfooding session 2025-12-16.
+- [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: `dev/debug_data/conversation_2025-12-16_feature_conversation_log_export.csv` (see rows with "/compact ERROR" comments). PR: https://github.com/LuthienResearch/luthien-proxy/pull/112 Reference: Dogfooding session 2025-12-16.
 
 ### Testing
 
