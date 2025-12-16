@@ -25,13 +25,16 @@ echo ""
 # Wait for gateway to be ready (up to 30 seconds)
 # Tested startup times: restart ~2s, full down/up 18-25s
 echo "Waiting for gateway..."
+dots=""
 for i in {1..15}; do
+    dots="${dots}."
+    printf "\r%s Attempt %d/15" "$dots" "$i"
     if curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; then
-        echo "Gateway ready!"
+        printf "\n${GREEN}Gateway ready!${NC}\n"
         break
     fi
     if [ $i -eq 15 ]; then
-        echo -e "${RED}Gateway not ready after 30s${NC}"
+        printf "\n${RED}Gateway not ready after 30s${NC}\n"
         exit 1
     fi
     sleep 2
