@@ -2,11 +2,11 @@
 
 ## Persona
 
-**Taylor** - A junior developer at an early-stage AI startup, working alongside a senior technical co-founder.
+**Taylor** - A junior developer at an early-stage AI startup, working alongside a senior technical co-founder. Previously a technical product manager at a FAANG company who is familiar with building and launching technical products, but doesn't have much coding experience.
 
 ## Context
 
-Taylor is a career-switcher learning to code via AI tools. They use Claude Code for most development work and can ship small features, but their debugging is unsystematic and they sometimes miss security issues or anti-patterns. Their senior co-founder (Morgan) wants to trust Taylor to work independently, but needs visibility into what the AI is doing and a way to catch mistakes before they hit production. The dynamic is trust-but-verify: Taylor should feel empowered, not micromanaged, while Morgan gets peace of mind.
+Taylor uses Claude Code for most development work and can ship small features, but their debugging is unsystematic and they sometimes miss security issues or anti-patterns. Their senior co-founder (Morgan) needs visibility into what Taylor and her AI coding assistants/agents are doing to catch mistakes before they hit prod. The dynamic is trust-but-verify: Taylor should feel empowered to work independently on branches, not micromanaged, while Morgan gets peace of mind through async review at merge time.
 
 ## Story
 
@@ -51,6 +51,9 @@ Taylor is a career-switcher learning to code via AI tools. They use Claude Code 
 |-------|-------|--------|----------|
 | `luthien-proxy-5sr` | Conversation context tracking across requests | open | P1 |
 | `luthien-proxy-fsb` | Message injection into response stream | open | P1 |
+| [PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) | `conversation_transcript` view for human-readable logs | **merged** | P1 |
+
+**Use case for conversation logging**: Senior dev (Morgan) can't always repro issues Taylor encounters. Taylor needs to share prompt/response logs plus debugging artifacts. The `conversation_transcript` view ([PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112)) enables this by extracting clean text from raw JSON payloads.
 
 ### UI Components
 
@@ -60,6 +63,12 @@ Taylor is a career-switcher learning to code via AI tools. They use Claude Code 
 | TBD | Session sharing via URL | open | P2 |
 | TBD | Comment/annotation on session logs | open | P2 |
 
+**Current state (poor man's version)**: Export to CSV via `conversation_transcript` view, manually edit CSV to add comments, share file. Works but clunky.
+
+**Future state**: Dedicated UI with permalink URLs for session sharing. See [TODO: Create visual database schema documentation](https://github.com/LuthienResearch/luthien-proxy/blob/main/dev/TODO.md) for related work.
+
+**Open question**: Does GitHub already provide similar functionality via PR comments + linked artifacts? May not need custom UI if GitHub workflow is sufficient.
+
 ### Policy Framework
 
 | Issue | Title | Status | Priority |
@@ -67,6 +76,18 @@ Taylor is a career-switcher learning to code via AI tools. They use Claude Code 
 | TBD | Hardcoded secrets detection policy | open | P2 |
 | TBD | Destructive command guardrails (context-aware) | open | P2 |
 | `luthien-proxy-3yp` | Context-aware policy base class | open | P2 |
+
+**Policy ideas from dogfooding** (see `ux-exploration` branch):
+
+1. **Commit Health Monitor** - Track files changed since last commit, alert if 10+ files with no commit. Encourages "commit small, commit often" habit.
+
+2. **Scope Creep Detector** - Compare original request vs actual changes. Flag "Would you also like me to..." patterns. Alert when request was "fix login" but 5 features were added.
+
+3. **Session Pattern Analyzer** - Cross-session insights: "You've worked on auth 3 days in a row - consider pairing." Weekly summary metrics.
+
+4. **Learning Journal Generator** - Auto-document what was worked on each session. Generate weekly summaries for retros with senior dev.
+
+**Key insight**: Best policies leverage **cross-session data** that Claude Code hooks can't see.
 
 ## Technical Touchpoints
 
@@ -78,12 +99,14 @@ Taylor is a career-switcher learning to code via AI tools. They use Claude Code 
 
 ## Implementation Status
 
-**Overall Progress**: Not Started
+**Overall Progress**: Started (Phase 1)
 
-### Phase 1: Logging Foundation
-- [x] Conversation events stored with session linkage (done in conversation_transcript view)
+### Phase 1: Logging Foundation *(In Progress)*
+- [x] Conversation events stored with session linkage
+- [x] `conversation_transcript` view for human-readable logs ([PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112))
+- [x] CSV export workflow documented (poor man's version)
 - [ ] Include tool calls in conversation_transcript
-- [ ] Exportable via URL
+- [ ] Permalink URLs for session sharing
 
 ### Phase 2: Guardrail Policies
 - [ ] Hardcoded secrets detection

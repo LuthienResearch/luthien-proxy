@@ -11,7 +11,7 @@ Canonical user stories that guide Luthien Control development. Each story repres
 | 3 | [Researcher: Multi-Reviewer Evaluation](03-researcher-multi-reviewer-evaluation.md) | Sam (PhD Student) | Not Started |
 | 4 | [Policy Author: Compliance with HITL](04-policy-author-compliance-hitl.md) | Riley (Security Engineer) | Not Started |
 | 5 | [Infrastructure: Observability & Unification](05-infrastructure-observability-unification.md) | Core Developer | Not Started |
-| 6 | [Junior Developer: Learning with Guardrails](06-junior-developer-learning-with-guardrails.md) | Taylor (Junior Developer) | Not Started |
+| 6 | [Junior Developer: Learning with Guardrails](06-junior-developer-learning-with-guardrails.md) | Taylor (Junior Developer) | Started |
 
 ## Feature Matrix
 
