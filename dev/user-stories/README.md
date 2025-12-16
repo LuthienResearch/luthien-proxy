@@ -23,11 +23,11 @@ Canonical user stories that guide Luthien Control development. Each story repres
 | Conversation context tracking | **X** | **X** | | **X** | | **X** |
 | Conversation Viewer UI | **X** | **X** | | | | **X** |
 | Message injection | **X** | **X** | **X** | **X** | | **X** |
-| Media attachment support | | **X** | | | | |
+| Media attachment support | | **X** | | | | **X** |
 | Model param pass-through | **X** | | | | | |
 | Parallel query (resampling) | | **X** | | | | |
 | Per-user dashboards | | **X** | | | | |
-| Escalation tiers | | **X** | | **X** | | |
+| Escalation tiers | | **X** | | **X** | | **X** |
 | Multi-reviewer evaluation | | | **X** | | | |
 | Rule extraction | | | **X** | | | |
 | LLM rephrasing | | | **X** | **X** | | |
@@ -37,9 +37,9 @@ Canonical user stories that guide Luthien Control development. Each story repres
 | Compliance dashboard | | | | **X** | | |
 | Unified endpoint processing | | | | | **X** | |
 | Structured span hierarchy | | | | | **X** | |
-| Session sharing URLs | | | | | | **X** |
-| Session annotations/comments | | | | | | **X** |
-| Guardrail policies (secrets, destructive cmds) | | | | | | **X** |
+| Session sharing URLs | | **X** | | **X** | | **X** |
+| Session annotations/comments | | **X** | **X** | **X** | | **X** |
+| Guardrail policies (secrets, destructive cmds) | **X** | **X** | | **X** | | **X** |
 
 ## Key Issues by Feature Area
 
@@ -47,9 +47,9 @@ Canonical user stories that guide Luthien Control development. Each story repres
 
 | Issue | Title | Stories |
 |-------|-------|---------|
-| `luthien-proxy-5sr` | Conversation context tracking across requests | 1, 2, 4 |
-| `luthien-proxy-fsb` | Message injection into response stream | 1, 2, 3, 4 |
-| `luthien-proxy-edl` | Conversation Viewer UI | 1, 2 |
+| `luthien-proxy-5sr` | Conversation context tracking across requests | 1, 2, 4, 6 |
+| `luthien-proxy-fsb` | Message injection into response stream | 1, 2, 3, 4, 6 |
+| `luthien-proxy-edl` | Conversation Viewer UI | 1, 2, 6 |
 | `luthien-proxy-mfs` | thinking and verbosity model flags not respected | 1 |
 | `luthien-proxy-en1` | Unify OpenAI and Anthropic endpoint processing | 5 |
 | `luthien-proxy-a0r` | Structured span hierarchy for request processing | 5 |
@@ -61,24 +61,27 @@ Canonical user stories that guide Luthien Control development. Each story repres
 | `luthien-proxy-ay5` | Per-user and per-conversation dashboards | 2 |
 | `luthien-proxy-ap2` | Approval queue UI | 4 |
 | `luthien-proxy-4yh` | Compliance audit dashboard | 4 |
+| TBD | Session sharing URLs | 2, 4, 6 |
+| TBD | Session annotations/comments | 2, 3, 4, 6 |
 
 ### Policy Framework (P2)
 
 | Issue | Title | Stories |
 |-------|-------|---------|
-| `luthien-proxy-3yp` | Context-aware policy base class | 1, 4 |
+| `luthien-proxy-3yp` | Context-aware policy base class | 1, 4, 6 |
 | `luthien-proxy-kjr` | Multi-reviewer parallel policy evaluation | 3 |
 | `luthien-proxy-7ib` | Rule extraction from request context | 3 |
 | `luthien-proxy-8gv` | LLM rephrasing of policy decisions | 3, 4 |
 | `luthien-proxy-rtu` | Human-in-the-loop approval workflow | 4 |
+| TBD | Guardrail policies (secrets, destructive cmds) | 1, 2, 4, 6 |
 
 ### Platform Features (P2)
 
 | Issue | Title | Stories |
 |-------|-------|---------|
-| `luthien-proxy-kxh` | Media attachment support | 2 |
+| `luthien-proxy-kxh` | Media attachment support | 2, 6 |
 | `luthien-proxy-822` | Parallel query (resampling) support | 2 |
-| `luthien-proxy-aai` | Escalation tiers with webhook alerts | 2, 4 |
+| `luthien-proxy-aai` | Escalation tiers with webhook alerts | 2, 4, 6 |
 
 ## Dependency Graph
 
@@ -142,6 +145,9 @@ Based on feature dependencies and story coverage:
 1. `luthien-proxy-edl` - Conversation Viewer UI
 2. `luthien-proxy-ay5` - Per-user dashboards
 3. `luthien-proxy-aai` - Escalation tiers
+4. TBD - Session sharing URLs
+5. TBD - Session annotations/comments
+6. TBD - Guardrail policies (secrets, destructive cmds)
 
 ### Wave 3: Advanced Policies
 

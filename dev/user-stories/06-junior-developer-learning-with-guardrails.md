@@ -44,6 +44,8 @@ Taylor uses Claude Code for most development work and can ship small features, b
 - [ ] Guardrail policies catch: hardcoded secrets, destructive commands on non-agent-created files
 - [ ] Interventions are **warnings** (not blocks) - junior dev can acknowledge and continue
 - [ ] Warnings appear inline in Claude's response (not as errors)
+- [ ] Escalation with heads-up: if proceeding after warning, help draft Slack message to senior dev
+- [ ] Media attachment support (screenshots of UI work)
 - [ ] Session log highlights interventions for easy review
 - [ ] Senior dev can leave comments/annotations on session logs
 
