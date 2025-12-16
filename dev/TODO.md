@@ -2,15 +2,7 @@
 
 ## High Priority
 
-### Bugs
-
-- [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: `dev/debug_data/conversation_2025-12-16_feature_conversation_log_export.csv` (see rows with "/compact ERROR" comments). PR: https://github.com/LuthienResearch/luthien-proxy/pull/112 Reference: Dogfooding session 2025-12-16.
-
 ### Testing
-
-### Scott Review
-
-- [ ] **Review user-stories README and propose edits/priorities** - New file at `dev/user-stories/README.md` needs review. Reference: 2025-12-16.
 
 ### Policy UI & Admin
 
@@ -28,7 +20,6 @@
 
 ### Documentation (High)
 
-- [ ] **Create visual database schema documentation** - Current `docs/database-schema.md` is basic markdown tables. Need a visual flow diagram showing data hierarchy from most-granular (`conversation_events`) up to human-readable (`conversation_transcript` view), with `SELECT * LIMIT 3` examples for each table. Reference: Dogfooding session 2025-12-16.
 - [ ] Update README post v2-migration
 - [ ] Add security documentation for dynamic policy loading (POLICY_CONFIG)
 - [x] Verify all environment variables are documented in README and .env.example
@@ -38,11 +29,6 @@
 - [ ] Add input validation: max request size and message count limits
 
 ## Medium Priority
-
-### Dogfooding & UX
-
-- [ ] **"Logged by Luthien" indicator policy** - Create a simple policy that appends "logged and monitored by Luthien" to each response. Helps users know when they're going through the proxy vs direct API. Use case: Scott thought he was using Luthien but wasn't. Reference: Dogfooding session 2025-12-16.
-- [ ] **Include tool calls in conversation_transcript** - Currently only text content is extracted. Adding tool calls would help with retros on unsafe tool calls (e.g., "what did Claude try to execute?"). Reference: Dogfooding session 2025-12-16.
 
 ### Code Improvements
 
