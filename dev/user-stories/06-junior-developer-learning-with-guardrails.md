@@ -10,6 +10,8 @@
 
 Taylor uses Claude Code for most development work and can ship small features, but their debugging is unsystematic and they sometimes miss security issues or anti-patterns. Their senior co-founder (Morgan) needs visibility into what Taylor and her AI coding assistants/agents are doing to catch mistakes before they hit prod. The dynamic is trust-but-verify: Taylor should feel empowered to work independently on branches, not micromanaged, while Morgan gets peace of mind through async review at merge time.
 
+**Pain point**: Taylor is very interested in process improvements and learning from feedback, but Claude Code's `/compact` feature discards conversation history. When Morgan leaves async feedback on a PR, Taylor often can't do a proper retrospective because the detailed session logs are gone. Luthien's persistent conversation logging solves this.
+
 ## Story
 
 > As Taylor, I want a complete log of what Claude did during my session—plus guardrails that catch common mistakes—so that I can learn from my AI-assisted work and my senior co-founder can review without hovering over my shoulder.
@@ -53,8 +55,10 @@ Taylor uses Claude Code for most development work and can ship small features, b
 |-------|-------|--------|----------|
 | `luthien-proxy-5sr` | Conversation context tracking across requests | open | P1 |
 | `luthien-proxy-fsb` | Message injection into response stream | open | P1 |
-| [PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) | `conversation_transcript` view for human-readable logs | open | P1 |
-| [PR #104](https://github.com/LuthienResearch/luthien-proxy/pull/104) | Media attachment support (images in conversations) | open | P2 |
+| [PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) | `conversation_transcript` view for human-readable logs | pushed | P1 |
+| [PR #104](https://github.com/LuthienResearch/luthien-proxy/pull/104) | Media attachment support (images in conversations) | pushed | P2 |
+
+> **Note**: Update status to "merged" when PRs are merged.
 
 **Use case for conversation logging**: Senior dev (Morgan) can't always repro issues Taylor encounters. Taylor needs to share prompt/response logs plus debugging artifacts. The `conversation_transcript` view ([PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112)) enables this by extracting clean text from raw JSON payloads.
 
@@ -106,7 +110,7 @@ Taylor uses Claude Code for most development work and can ship small features, b
 
 ### Phase 1: Logging Foundation *(In Progress)*
 - [x] Conversation events stored with session linkage
-- [ ] `conversation_transcript` view for human-readable logs ([PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) - awaiting review)
+- [ ] `conversation_transcript` view for human-readable logs ([PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) - pushed, awaiting review)
 - [x] CSV export workflow documented (poor man's version)
 - [ ] Include tool calls in conversation_transcript
 - [ ] Permalink URLs for session sharing
