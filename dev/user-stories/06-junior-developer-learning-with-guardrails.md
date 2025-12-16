@@ -22,18 +22,25 @@ Taylor is a career-switcher learning to code via AI tools. They use Claude Code 
 6. Luthien's policy catches this: **injects a warning** "This looks like a hardcoded secret. Consider using environment variables."
 7. Taylor sees the warning inline, fixes the approach
 8. Later, Claude runs `rm -rf` on a directory Taylor didn't create
-9. Luthien blocks it: "Blocked: destructive command on non-agent-created files. Ask Taylor to confirm."
-10. End of session: Taylor shares the conversation log link with Morgan
-11. Morgan reviews the session in 5 minutes, sees the two interventions, leaves a comment: "Good catch on the API key. Next time also check X."
-12. Taylor learns from the feedback without needing a synchronous meeting
+9. Luthien **warns** (not blocks): "This affects files not created in this session. Are you sure?"
+10. Taylor acknowledges and continues (she has triage access - can push to branches)
+11. End of session: Taylor pushes to her feature branch and opens a PR
+12. Taylor shares the conversation log link in the PR description
+13. Morgan reviews the session log before approving the merge to main
+14. Morgan sees the `rm -rf` warning, leaves a comment: "Good that you caught the secrets issue. For the rm -rf, let's add a test to verify we're not deleting user data."
+15. Taylor learns from the feedback, updates the PR, Morgan approves
+
+**Key insight**: Guardrails educate in-the-moment; approval happens at merge time. Taylor is empowered to work independently on branches.
 
 ## Acceptance Criteria
 
 - [ ] All prompts, responses, and tool calls logged with timestamps
-- [ ] Conversation log exportable/viewable via URL
-- [ ] Senior dev can review sessions asynchronously
-- [ ] Guardrail policies catch: hardcoded secrets, destructive commands on user files, common anti-patterns
-- [ ] Interventions appear inline (not as errors) so junior dev learns in-flow
+- [ ] Conversation log exportable/viewable via URL (shareable in PR descriptions)
+- [ ] Senior dev can review sessions asynchronously before merge approval
+- [ ] Guardrail policies catch: hardcoded secrets, destructive commands on non-agent-created files
+- [ ] Interventions are **warnings** (not blocks) - junior dev can acknowledge and continue
+- [ ] Warnings appear inline in Claude's response (not as errors)
+- [ ] Session log highlights interventions for easy review
 - [ ] Senior dev can leave comments/annotations on session logs
 
 ## Required Features
@@ -106,3 +113,5 @@ luthien-proxy-fsb (Message injection)
 - The guardrails should educate, not block unnecessarily—Taylor should feel empowered
 - Async review is key: Morgan shouldn't need to pair-program to provide oversight
 - Session logs become a learning artifact, not just an audit trail
+- **Git-based approval model**: Taylor has triage access (can push branches), Morgan approves merges to main
+- **Context-aware detection**: To know what's "agent-created", Luthien must track file creation events during the session (e.g., from tool calls like `Write` or `Bash(touch/mkdir)`). This requires persisting session state and comparing against it when destructive commands are issued.

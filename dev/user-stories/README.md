@@ -17,6 +17,9 @@ Canonical user stories that guide Luthien Control development. Each story repres
 
 | Feature | Story 1 | Story 2 | Story 3 | Story 4 | Story 5 | Story 6 |
 |---------|:-------:|:-------:|:-------:|:-------:|:-------:|:-------:|
+| *Persona* | *Alex* | *Jordan* | *Sam* | *Riley* | *Core Dev* | *Taylor* |
+| *Role* | *Sr Dev* | *Platform* | *PhD* | *Security* | *Infra* | *Jr Dev* |
+| | | | | | | |
 | Conversation context tracking | **X** | **X** | | **X** | | **X** |
 | Conversation Viewer UI | **X** | **X** | | | | **X** |
 | Message injection | **X** | **X** | **X** | **X** | | **X** |
