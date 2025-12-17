@@ -1,13 +1,10 @@
-# ABOUTME: E2E tests for SimpleJudgePolicy
-# ABOUTME: Tests custom judge policies with real LLM evaluations
-
 """E2E tests for SimpleJudgePolicy.
 
 Tests a custom SimpleJudgePolicy subclass with real requests through the gateway.
 """
 
+import asyncio
 import os
-import time
 
 import httpx
 import pytest
@@ -40,41 +37,31 @@ def proxy_headers():
 @pytest.mark.asyncio
 async def test_simple_judge_policy_blocks_unsafe_content(http_client, admin_headers, proxy_headers):
     """Test that SimpleJudgePolicy blocks content violating rules."""
-    instance_name = f"test-simple-judge-{int(time.time())}"
-
-    # Create a test judge policy that blocks requests about deleting files
-    create_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/create",
+    # Set the SimpleJudgePolicy using the /admin/policy/set endpoint
+    set_response = await http_client.post(
+        f"{GATEWAY_URL}/admin/policy/set",
         headers=admin_headers,
         json={
-            "name": instance_name,
             "policy_class_ref": "luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
             "config": {
                 "judge_model": "claude-haiku-4-5",
                 "judge_temperature": 0.0,
                 "block_threshold": 0.6,
             },
-            "description": "Test judge that blocks file deletion requests",
+            "enabled_by": "e2e-simple-judge-tests",
         },
     )
 
-    assert create_response.status_code == 200, f"Failed to create: {create_response.text}"
-    assert create_response.json()["success"] is True
+    assert set_response.status_code == 200, f"Failed to set: {set_response.text}"
+    result = set_response.json()
+    assert result["success"] is True, f"Failed to set policy: {result.get('error')}"
 
     # Note: SimpleJudgePolicy base class has no RULES, so this won't actually block anything
     # This test demonstrates the policy is loaded and runs, but doesn't block
     # To test actual blocking, we'd need to create a custom subclass with RULES
 
-    activate_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/activate",
-        headers=admin_headers,
-        json={"name": instance_name},
-    )
-
-    assert activate_response.status_code == 200
-    assert activate_response.json()["success"] is True
-
-    time.sleep(0.5)
+    # Give the policy a moment to activate
+    await asyncio.sleep(0.5)
 
     # Make a request through the gateway - should pass since base class has no rules
     response = await http_client.post(
@@ -96,37 +83,25 @@ async def test_simple_judge_policy_blocks_unsafe_content(http_client, admin_head
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_simple_judge_policy_activates_successfully(http_client, admin_headers):
-    """Test that SimpleJudgePolicy can be created and activated."""
-    instance_name = f"test-judge-activation-{int(time.time())}"
-
-    # Create instance
-    create_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/create",
+    """Test that SimpleJudgePolicy can be set and activated."""
+    # Set the policy using /admin/policy/set
+    set_response = await http_client.post(
+        f"{GATEWAY_URL}/admin/policy/set",
         headers=admin_headers,
         json={
-            "name": instance_name,
             "policy_class_ref": "luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
             "config": {
                 "judge_model": "claude-haiku-4-5",
                 "block_threshold": 0.7,
             },
+            "enabled_by": "e2e-simple-judge-tests",
         },
     )
 
-    assert create_response.status_code == 200
-    data = create_response.json()
+    assert set_response.status_code == 200
+    data = set_response.json()
     assert data["success"] is True
     assert "policy" in data
-
-    # Activate instance
-    activate_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/activate",
-        headers=admin_headers,
-        json={"name": instance_name},
-    )
-
-    assert activate_response.status_code == 200
-    assert activate_response.json()["success"] is True
 
     # Verify it's active
     current_response = await http_client.get(
