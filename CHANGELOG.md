@@ -2,6 +2,13 @@
 
 ## Unreleased | TBA
 
+- Add `conversation_transcript` view for human-readable conversation logs (#112)
+  - SQL view extracts clean prompt/response format from `conversation_events`
+  - Handles both string and array content (Anthropic multimodal format)
+  - Columns: session_id, created_at, prompt_or_response, model, content, logged_by_luthien, call_id
+  - No truncation - full content preserved for debugging
+  - Add `docs/database-schema.md` documentation
+
 - Migration validation and fail-fast checks (#110)
   - `run-migrations.sh` validates DB state against local files before applying
   - Gateway startup check ensures all migrations are applied
