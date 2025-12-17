@@ -15,7 +15,6 @@ Based on reference data in _scratch/ showing actual API responses.
 import asyncio
 import json
 import os
-import time
 
 import httpx
 import pytest
@@ -50,40 +49,29 @@ async def noop_policy_active():
     """
     async with httpx.AsyncClient(timeout=30.0) as client:
         admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
-        instance_name = f"test-noop-streaming-{int(time.time())}"
 
-        # Create NoOp policy instance
-        create_response = await client.post(
-            f"{GATEWAY_URL}/admin/policy/create",
+        # Set NoOp policy using the /admin/policy/set endpoint
+        set_response = await client.post(
+            f"{GATEWAY_URL}/admin/policy/set",
             headers=admin_headers,
             json={
-                "name": instance_name,
                 "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
                 "config": {},
-                "created_by": "e2e-streaming-tests",
+                "enabled_by": "e2e-streaming-tests",
             },
         )
 
-        if create_response.status_code != 200:
-            raise RuntimeError(f"Failed to create NoOp policy: {create_response.text}")
+        if set_response.status_code != 200:
+            raise RuntimeError(f"Failed to set NoOp policy: {set_response.text}")
 
-        # Activate the policy
-        activate_response = await client.post(
-            f"{GATEWAY_URL}/admin/policy/activate",
-            headers=admin_headers,
-            json={
-                "name": instance_name,
-                "activated_by": "e2e-streaming-tests",
-            },
-        )
-
-        if activate_response.status_code != 200:
-            raise RuntimeError(f"Failed to activate NoOp policy: {activate_response.text}")
+        result = set_response.json()
+        if not result.get("success"):
+            raise RuntimeError(f"Failed to set NoOp policy: {result.get('error')}")
 
         # Give the policy a moment to activate
         await asyncio.sleep(0.1)
 
-        yield instance_name
+        yield "NoOpPolicy"
 
 
 # === Helper Functions ===
@@ -695,14 +683,12 @@ async def tool_call_judge_policy_active():
     """
     async with httpx.AsyncClient(timeout=30.0) as client:
         admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
-        instance_name = f"test-tool-judge-streaming-{int(time.time())}"
 
-        # Create ToolCallJudgePolicy instance
-        create_response = await client.post(
-            f"{GATEWAY_URL}/admin/policy/create",
+        # Set ToolCallJudgePolicy using the /admin/policy/set endpoint
+        set_response = await client.post(
+            f"{GATEWAY_URL}/admin/policy/set",
             headers=admin_headers,
             json={
-                "name": instance_name,
                 "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
                 "config": {
                     "model": "openai/gpt-4o-mini",
@@ -710,30 +696,21 @@ async def tool_call_judge_policy_active():
                     "temperature": 0.0,
                     "max_tokens": 256,
                 },
-                "created_by": "e2e-streaming-tests",
+                "enabled_by": "e2e-streaming-tests",
             },
         )
 
-        if create_response.status_code != 200:
-            raise RuntimeError(f"Failed to create ToolCallJudgePolicy: {create_response.text}")
+        if set_response.status_code != 200:
+            raise RuntimeError(f"Failed to set ToolCallJudgePolicy: {set_response.text}")
 
-        # Activate the policy
-        activate_response = await client.post(
-            f"{GATEWAY_URL}/admin/policy/activate",
-            headers=admin_headers,
-            json={
-                "name": instance_name,
-                "activated_by": "e2e-streaming-tests",
-            },
-        )
-
-        if activate_response.status_code != 200:
-            raise RuntimeError(f"Failed to activate ToolCallJudgePolicy: {activate_response.text}")
+        result = set_response.json()
+        if not result.get("success"):
+            raise RuntimeError(f"Failed to set ToolCallJudgePolicy: {result.get('error')}")
 
         # Give the policy a moment to activate
         await asyncio.sleep(0.1)
 
-        yield instance_name
+        yield "ToolCallJudgePolicy"
 
 
 @pytest.mark.e2e
