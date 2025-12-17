@@ -106,3 +106,54 @@ class TestRequest:
         )
 
         assert req.last_message == ""
+
+    def test_last_message_with_multimodal_content(self):
+        """Test that last_message extracts text from multimodal content blocks."""
+        req = Request(
+            model="gpt-4-vision",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What is in this image?"},
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo..."}},
+                    ],
+                }
+            ],
+        )
+
+        assert req.last_message == "What is in this image?"
+
+    def test_last_message_with_image_only(self):
+        """Test that last_message returns empty string for image-only content."""
+        req = Request(
+            model="gpt-4-vision",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo..."}},
+                    ],
+                }
+            ],
+        )
+
+        assert req.last_message == ""
+
+    def test_last_message_with_multiple_text_blocks(self):
+        """Test that last_message joins multiple text blocks with spaces."""
+        req = Request(
+            model="gpt-4-vision",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "First text"},
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo..."}},
+                        {"type": "text", "text": "Second text"},
+                    ],
+                }
+            ],
+        )
+
+        assert req.last_message == "First text Second text"
