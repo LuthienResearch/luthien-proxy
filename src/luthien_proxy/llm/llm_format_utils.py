@@ -13,6 +13,7 @@ from typing import cast
 
 from litellm.types.utils import Choices, ModelResponse, Usage
 
+from luthien_proxy.llm.types import AnthropicImageSource, ImageContentPart, ImageUrl
 from luthien_proxy.utils.constants import DEFAULT_LLM_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def anthropic_to_openai_request(data: dict) -> dict:
             tool_uses = []
             text_parts = []
 
-            image_parts = []
+            image_parts: list[ImageContentPart] = []
 
             for block in content:
                 if not isinstance(block, dict):
@@ -60,15 +61,17 @@ def anthropic_to_openai_request(data: dict) -> dict:
                     text_parts.append(block.get("text", ""))
                 elif block_type == "image":
                     # Convert Anthropic image format to OpenAI format
-                    source = block.get("source", {})
+                    source = cast(AnthropicImageSource, block.get("source", {}))
                     if source.get("type") == "base64":
                         media_type = source.get("media_type", "image/png")
                         b64_data = source.get("data", "")
-                        image_parts.append(
-                            {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64_data}"}}
-                        )
+                        image_url: ImageUrl = {"url": f"data:{media_type};base64,{b64_data}"}
+                        image_part: ImageContentPart = {"type": "image_url", "image_url": image_url}
+                        image_parts.append(image_part)
                     elif source.get("type") == "url":
-                        image_parts.append({"type": "image_url", "image_url": {"url": source.get("url", "")}})
+                        image_url = {"url": source.get("url", "")}
+                        image_part = {"type": "image_url", "image_url": image_url}
+                        image_parts.append(image_part)
                 else:
                     logger.debug(f"Unknown content block type: {block_type}")
 

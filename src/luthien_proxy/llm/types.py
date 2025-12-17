@@ -99,14 +99,35 @@ class ToolMessage(TypedDict, total=False):
 Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
 
 
+# =============================================================================
+# Anthropic Content Types (for format conversion)
+# =============================================================================
+
+
+class AnthropicImageSource(TypedDict, total=False):
+    """Anthropic image source block."""
+
+    type: Literal["base64", "url"]
+    media_type: str  # e.g., "image/png", "image/jpeg"
+    data: str  # base64-encoded data (when type="base64")
+    url: str  # URL (when type="url")
+
+
+class AnthropicImageBlock(TypedDict):
+    """Anthropic image content block."""
+
+    type: Literal["image"]
+    source: AnthropicImageSource
+
+
 __all__ = [
-    # Content parts
+    # OpenAI content parts
     "ImageUrl",
     "TextContentPart",
     "ImageContentPart",
     "ContentPart",
     "MessageContent",
-    # Messages
+    # OpenAI messages
     "SystemMessage",
     "UserMessage",
     "AssistantMessage",
@@ -114,4 +135,7 @@ __all__ = [
     "FunctionCall",
     "ToolCall",
     "Message",
+    # Anthropic content types (for format conversion)
+    "AnthropicImageSource",
+    "AnthropicImageBlock",
 ]

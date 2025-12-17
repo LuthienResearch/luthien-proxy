@@ -18,6 +18,12 @@
 
 - [ ] **Factor out common gateway route logic** - Extract duplicate pipeline setup from `/v1/chat/completions` and `/v1/messages`
 
+### Type System Improvements
+
+- [ ] **Break up llm/types.py into submodules** - Split into `llm/types/openai.py` and `llm/types/anthropic.py` for cleaner organization as the file grows.
+- [ ] **Complete strict typing for LLM types** - Add remaining TypedDict definitions for full request/response typing (OpenAIRequestDict, AnthropicRequestDict, AnthropicResponseDict, tool types). Partial implementation in git stash "comprehensive LLM type definitions - defer to follow-up PR" (created 2025-12-17).
+- [ ] **Move Request class to llm/types/openai.py** - Currently in top-level `messages.py`, should live with other LLM types. 24 files import it, so straightforward but wide-ranging change.
+
 ### Multimodal / Images
 
 - [ ] **LiteLLM multimodal routing issue (#108)** - Images pass through proxy but Claude sees wrong content. See issue #108 for troubleshooting logs.
