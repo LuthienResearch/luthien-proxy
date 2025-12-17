@@ -1,4 +1,4 @@
-"""Message types for policy processing.
+"""Request type for policy processing.
 
 Policies operate on:
 - Request: The request sent to the LLM (OpenAI format) - our type
@@ -8,9 +8,9 @@ Policies operate on:
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, Field
+
+from luthien_proxy.llm.types import Message
 
 
 class Request(BaseModel):
@@ -24,9 +24,7 @@ class Request(BaseModel):
     """
 
     model: str = Field(description="Model identifier (e.g., 'gpt-4', 'claude-3-5-sonnet-20241022')")
-    # Using dict instead of LiteLLM's Message to support multimodal content (images)
-    # LiteLLM's Message type expects content: str, but images require content: list
-    messages: list[dict[str, Any]] = Field(description="Conversation messages in OpenAI format")
+    messages: list[Message] = Field(description="Conversation messages in OpenAI format")
     max_tokens: int | None = Field(default=None, description="Maximum tokens to generate")
     temperature: float | None = Field(default=None, description="Sampling temperature")
     stream: bool = Field(default=False, description="Whether to stream the response")
