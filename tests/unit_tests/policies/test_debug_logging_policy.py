@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 import pytest
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.debug_logging_policy import DebugLoggingPolicy
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext

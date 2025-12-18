@@ -24,7 +24,7 @@ from litellm.types.utils import (
     StreamingChoices,
 )
 
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.tool_call_judge_policy import ToolCallJudgePolicy
 from luthien_proxy.policy_core.chunk_builders import create_text_chunk

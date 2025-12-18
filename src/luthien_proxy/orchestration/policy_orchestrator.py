@@ -11,7 +11,7 @@ from typing import AsyncIterator
 from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 from luthien_proxy.observability.transaction_recorder import TransactionRecorder
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol

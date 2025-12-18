@@ -8,7 +8,7 @@ from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
 from luthien_proxy.llm.client import LLMClient
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 
 # Allow LiteLLM to pass through unknown models without validation
 # This is needed for new OpenAI models that LiteLLM doesn't recognize yet

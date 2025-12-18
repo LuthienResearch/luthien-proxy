@@ -6,7 +6,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.trace import set_tracer_provider
 
 from luthien_proxy.llm.client import LLMClient
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.policies import PolicyContext

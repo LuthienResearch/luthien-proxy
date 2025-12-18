@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse
 
-    from luthien_proxy.messages import Request
+    from luthien_proxy.llm.types import Request
 
 
 class LLMClient(ABC):

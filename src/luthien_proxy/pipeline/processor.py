@@ -46,7 +46,7 @@ from luthien_proxy.llm.llm_format_utils import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
 )
-from luthien_proxy.messages import Request as RequestMessage
+from luthien_proxy.llm.types import Request as RequestMessage
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.transaction_recorder import (
     DefaultTransactionRecorder,

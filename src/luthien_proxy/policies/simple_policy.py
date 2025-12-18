@@ -17,7 +17,7 @@ from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallSt
 if TYPE_CHECKING:
     from litellm.types.utils import ChatCompletionMessageToolCall
 
-    from luthien_proxy.messages import Request
+    from luthien_proxy.llm.types import Request
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import (
         StreamingPolicyContext,

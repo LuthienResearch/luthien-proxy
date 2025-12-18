@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from litellm.types.utils import ChatCompletionMessageToolCall, ModelResponse
 
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 from luthien_proxy.policy_core.streaming_utils import (

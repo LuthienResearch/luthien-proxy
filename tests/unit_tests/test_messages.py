@@ -3,7 +3,7 @@
 
 """Tests for V2 message types."""
 
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 
 
 class TestRequest:

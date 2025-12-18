@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from litellm.types.utils import Delta, ModelResponse
 
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 from luthien_proxy.observability.transaction_recorder import TransactionRecorder
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.base_policy import BasePolicy
