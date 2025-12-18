@@ -8,6 +8,23 @@ from __future__ import annotations
 
 from typing import Literal, Required, TypedDict
 
+# JSON-compatible types for API serialization
+# These represent valid JSON values that can be sent to/received from the Anthropic API
+type JSONPrimitive = str | int | float | bool | None
+type JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
+type JSONObject = dict[str, JSONValue]
+
+# =============================================================================
+# Cache Control Types (Anthropic API spec)
+# =============================================================================
+
+
+class AnthropicCacheControl(TypedDict):
+    """Anthropic cache control for prompt caching."""
+
+    type: Literal["ephemeral"]
+
+
 # =============================================================================
 # Content Block Types (Anthropic API spec)
 # =============================================================================
@@ -52,7 +69,7 @@ class AnthropicToolUseBlock(TypedDict):
     type: Literal["tool_use"]
     id: str
     name: str
-    input: dict  # Tool input parameters
+    input: JSONObject  # Tool input parameters as JSON object
 
 
 class AnthropicToolResultBlock(TypedDict, total=False):
@@ -101,7 +118,7 @@ class AnthropicSystemBlock(TypedDict, total=False):
 
     type: Required[Literal["text"]]
     text: Required[str]
-    cache_control: dict  # e.g., {"type": "ephemeral"}
+    cache_control: AnthropicCacheControl
 
 
 # System can be a string or list of system blocks
@@ -112,13 +129,17 @@ AnthropicSystemContent = str | list[AnthropicSystemBlock]
 # Tool Definition Types (Anthropic API spec)
 # =============================================================================
 
+# JSON Schema type for tool input schemas
+# The Anthropic API expects a JSON Schema object with type: "object"
+JSONSchemaObject = JSONObject
+
 
 class AnthropicTool(TypedDict, total=False):
     """Anthropic tool definition."""
 
     name: Required[str]
     description: str
-    input_schema: Required[dict]  # JSON Schema for tool inputs
+    input_schema: Required[JSONSchemaObject]
 
 
 # =============================================================================
@@ -147,6 +168,12 @@ class AnthropicResponse(TypedDict, total=False):
 
 
 __all__ = [
+    # JSON types
+    "JSONPrimitive",
+    "JSONValue",
+    "JSONObject",
+    # Cache control
+    "AnthropicCacheControl",
     # Content blocks
     "AnthropicTextBlock",
     "AnthropicImageSourceBase64",
@@ -164,6 +191,7 @@ __all__ = [
     "AnthropicSystemBlock",
     "AnthropicSystemContent",
     # Tools
+    "JSONSchemaObject",
     "AnthropicTool",
     # Response types
     "AnthropicUsage",
