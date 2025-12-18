@@ -1,11 +1,10 @@
-"""LLM integration using LiteLLM as a library."""
+"""LLM type definitions.
 
-from .llm_format_utils import (
-    anthropic_to_openai_request,
-    openai_to_anthropic_response,
-)
-from .types import (
-    # Anthropic types (for format conversion)
+This module provides type definitions for both OpenAI and Anthropic API formats.
+Types are split into provider-specific modules for better organization.
+"""
+
+from .anthropic import (
     AnthropicContentBlock,
     AnthropicImageBlock,
     AnthropicImageSource,
@@ -17,7 +16,8 @@ from .types import (
     AnthropicToolResultBlock,
     AnthropicToolUseBlock,
     AnthropicUsage,
-    # OpenAI types
+)
+from .openai import (
     AssistantMessage,
     ContentPart,
     FunctionCall,
@@ -25,7 +25,6 @@ from .types import (
     ImageUrl,
     Message,
     MessageContent,
-    # Request
     Request,
     SystemMessage,
     TextContentPart,
@@ -35,34 +34,34 @@ from .types import (
 )
 
 __all__ = [
-    # Format converters
-    "anthropic_to_openai_request",
-    "openai_to_anthropic_response",
-    # OpenAI message types
-    "AssistantMessage",
-    "ContentPart",
-    "FunctionCall",
-    "ImageContentPart",
+    # OpenAI content parts
     "ImageUrl",
-    "Message",
-    "MessageContent",
-    "SystemMessage",
     "TextContentPart",
-    "ToolCall",
-    "ToolMessage",
+    "ImageContentPart",
+    "ContentPart",
+    "MessageContent",
+    # OpenAI messages
+    "SystemMessage",
     "UserMessage",
+    "AssistantMessage",
+    "ToolMessage",
+    "FunctionCall",
+    "ToolCall",
+    "Message",
     # Request
     "Request",
-    # Anthropic types (for format conversion)
-    "AnthropicContentBlock",
-    "AnthropicImageBlock",
-    "AnthropicImageSource",
+    # Anthropic image types
     "AnthropicImageSourceBase64",
     "AnthropicImageSourceUrl",
-    "AnthropicMessage",
-    "AnthropicResponse",
+    "AnthropicImageSource",
+    "AnthropicImageBlock",
+    # Anthropic content blocks
     "AnthropicTextBlock",
-    "AnthropicToolResultBlock",
     "AnthropicToolUseBlock",
+    "AnthropicToolResultBlock",
+    "AnthropicContentBlock",
+    # Anthropic messages and responses
+    "AnthropicMessage",
     "AnthropicUsage",
+    "AnthropicResponse",
 ]

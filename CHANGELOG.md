@@ -2,6 +2,14 @@
 
 ## Unreleased | TBA
 
+- Refactor LLM types into separate modules (#llm-type-refactor)
+  - Split `llm/types.py` into `llm/types/openai.py` and `llm/types/anthropic.py`
+  - Move `Request` class from `messages.py` to `llm/types/openai.py`
+  - Add strict typing with `Required[]` markers for TypedDict fields
+  - Add comprehensive Anthropic type definitions (messages, responses, content blocks)
+  - Maintain backwards compatibility via re-exports
+  - Add unit tests for new type modules
+
 - Increase unit test coverage from 84% to 90% (#115)
 - Fix validation error when images in Anthropic requests (#103, #104)
 - Migration validation and fail-fast checks (#110)

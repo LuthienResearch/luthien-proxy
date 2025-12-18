@@ -1,12 +1,14 @@
-"""OpenAI-compatible message types.
+"""OpenAI-compatible message and request types.
 
-These types define the structure of messages in the OpenAI chat completion API format.
+These types define the structure of messages and requests in the OpenAI chat completion API format.
 They are used for type-safe message handling throughout the proxy.
 """
 
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal, Required, TypedDict
+
+from pydantic import BaseModel, Field
 
 # =============================================================================
 # Content Part Types (OpenAI API spec)
@@ -16,7 +18,7 @@ from typing import Literal, TypedDict
 class ImageUrl(TypedDict, total=False):
     """Image URL object per OpenAI spec."""
 
-    url: str  # Required: URL or base64 data URI
+    url: Required[str]  # Required: URL or base64 data URI
     detail: Literal["auto", "low", "high"]  # Optional
 
 
@@ -49,16 +51,16 @@ MessageContent = str | list[ContentPart]
 class SystemMessage(TypedDict, total=False):
     """System message."""
 
-    role: Literal["system"]  # Required
-    content: str | list[TextContentPart]  # Required (system only supports text)
+    role: Required[Literal["system"]]
+    content: Required[str | list[TextContentPart]]  # System only supports text
     name: str  # Optional
 
 
 class UserMessage(TypedDict, total=False):
     """User message - supports multimodal content (text + images)."""
 
-    role: Literal["user"]  # Required
-    content: MessageContent  # Required
+    role: Required[Literal["user"]]
+    content: Required[MessageContent]
     name: str  # Optional
 
 
@@ -80,7 +82,7 @@ class ToolCall(TypedDict):
 class AssistantMessage(TypedDict, total=False):
     """Assistant message."""
 
-    role: Literal["assistant"]  # Required
+    role: Required[Literal["assistant"]]
     content: str | None  # Optional (can be None when tool_calls present)
     name: str  # Optional
     tool_calls: list[ToolCall]  # Optional
@@ -90,9 +92,9 @@ class AssistantMessage(TypedDict, total=False):
 class ToolMessage(TypedDict, total=False):
     """Tool result message."""
 
-    role: Literal["tool"]  # Required
-    content: str | list[TextContentPart]  # Required
-    tool_call_id: str  # Required
+    role: Required[Literal["tool"]]
+    content: Required[str | list[TextContentPart]]
+    tool_call_id: Required[str]
 
 
 # Union of all message types
@@ -100,34 +102,53 @@ Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
 
 
 # =============================================================================
-# Anthropic Content Types (for format conversion)
+# Request Type
 # =============================================================================
 
 
-class AnthropicImageSource(TypedDict, total=False):
-    """Anthropic image source block."""
+class Request(BaseModel):
+    """A request to an LLM (OpenAI format).
 
-    type: Literal["base64", "url"]
-    media_type: str  # e.g., "image/png", "image/jpeg"
-    data: str  # base64-encoded data (when type="base64")
-    url: str  # URL (when type="url")
+    This is what gets sent to the LLM provider. Policies can:
+    - Validate the request
+    - Transform parameters (e.g., clamp max_tokens)
+    - Add metadata
+    - Reject the request (by raising an exception)
+    """
 
+    model: str = Field(description="Model identifier (e.g., 'gpt-4', 'claude-3-5-sonnet-20241022')")
+    messages: list[Message] = Field(description="Conversation messages in OpenAI format")
+    max_tokens: int | None = Field(default=None, description="Maximum tokens to generate")
+    temperature: float | None = Field(default=None, description="Sampling temperature")
+    stream: bool = Field(default=False, description="Whether to stream the response")
 
-class AnthropicImageBlock(TypedDict):
-    """Anthropic image content block."""
+    # Allow additional fields for provider-specific parameters
+    model_config = {"extra": "allow"}
 
-    type: Literal["image"]
-    source: AnthropicImageSource
+    @property
+    def last_message(self) -> str:
+        """Get the last message in the conversation."""
+        if not self.messages:
+            return ""
+        content = self.messages[-1].get("content", "")
+        # Handle multimodal content (list of content blocks)
+        if isinstance(content, list):
+            # Extract text from content blocks
+            text_parts = [
+                block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
+            ]
+            return " ".join(text_parts)
+        return content or ""
 
 
 __all__ = [
-    # OpenAI content parts
+    # Content parts
     "ImageUrl",
     "TextContentPart",
     "ImageContentPart",
     "ContentPart",
     "MessageContent",
-    # OpenAI messages
+    # Messages
     "SystemMessage",
     "UserMessage",
     "AssistantMessage",
@@ -135,7 +156,6 @@ __all__ = [
     "FunctionCall",
     "ToolCall",
     "Message",
-    # Anthropic content types (for format conversion)
-    "AnthropicImageSource",
-    "AnthropicImageBlock",
+    # Request
+    "Request",
 ]
