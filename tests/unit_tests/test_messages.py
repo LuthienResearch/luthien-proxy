@@ -15,8 +15,9 @@ class TestRequest:
 
         assert req.model == "gpt-4"
         assert len(req.messages) == 1
-        assert req.messages[0].role == "user"
-        assert req.messages[0].content == "Hello"
+        # Messages are now dicts to support multimodal content (images)
+        assert req.messages[0]["role"] == "user"
+        assert req.messages[0]["content"] == "Hello"
         assert req.stream is False
         assert req.max_tokens is None
         assert req.temperature is None
@@ -105,3 +106,54 @@ class TestRequest:
         )
 
         assert req.last_message == ""
+
+    def test_last_message_with_multimodal_content(self):
+        """Test that last_message extracts text from multimodal content blocks."""
+        req = Request(
+            model="gpt-4-vision",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What is in this image?"},
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo..."}},
+                    ],
+                }
+            ],
+        )
+
+        assert req.last_message == "What is in this image?"
+
+    def test_last_message_with_image_only(self):
+        """Test that last_message returns empty string for image-only content."""
+        req = Request(
+            model="gpt-4-vision",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo..."}},
+                    ],
+                }
+            ],
+        )
+
+        assert req.last_message == ""
+
+    def test_last_message_with_multiple_text_blocks(self):
+        """Test that last_message joins multiple text blocks with spaces."""
+        req = Request(
+            model="gpt-4-vision",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "First text"},
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo..."}},
+                        {"type": "text", "text": "Second text"},
+                    ],
+                }
+            ],
+        )
+
+        assert req.last_message == "First text Second text"

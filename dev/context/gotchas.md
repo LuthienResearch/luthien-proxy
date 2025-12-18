@@ -72,6 +72,14 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 - **Right**: `claude -p "run echo hello"` - uses default tool set including Bash
 - **Why**: The `--tools` flag with permission patterns appears to filter the tool list differently than expected. When testing Claude Code through the gateway, omit `--tools` to get the full default tool set.
 
+## Image/Multimodal Handling Through Proxy (2025-12-15)
+
+**Gotcha**: Images pass validation after PR #104 fix, but Claude may respond to wrong image content.
+
+- **Fixed (PR #104)**: Validation error - changed `Request.messages` to `list[dict[str, Any]]`, added image block conversion
+- **Still broken**: Claude sometimes describes wrong image - suspect LiteLLM→Anthropic conversion issue
+- **Tracking**: Issue #108 has full troubleshooting logs
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

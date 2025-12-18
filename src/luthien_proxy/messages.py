@@ -1,4 +1,4 @@
-"""Message types for policy processing.
+"""Request type for policy processing.
 
 Policies operate on:
 - Request: The request sent to the LLM (OpenAI format) - our type
@@ -8,8 +8,9 @@ Policies operate on:
 
 from __future__ import annotations
 
-from litellm.types.utils import Message
 from pydantic import BaseModel, Field
+
+from luthien_proxy.llm.types import Message
 
 
 class Request(BaseModel):
@@ -36,7 +37,15 @@ class Request(BaseModel):
         """Get the last message in the conversation."""
         if not self.messages:
             return ""
-        return self.messages[-1].content or ""
+        content = self.messages[-1].get("content", "")
+        # Handle multimodal content (list of content blocks)
+        if isinstance(content, list):
+            # Extract text from content blocks
+            text_parts = [
+                block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
+            ]
+            return " ".join(text_parts)
+        return content or ""
 
 
 __all__ = ["Request"]
