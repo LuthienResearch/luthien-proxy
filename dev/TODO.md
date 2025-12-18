@@ -29,7 +29,7 @@
 
 ### Documentation (High)
 
-- [ ] Update README post v2-migration
+- [x] Update README post v2-migration
 - [ ] Add security documentation for dynamic policy loading (POLICY_CONFIG)
 - [x] Verify all environment variables are documented in README and .env.example
 

@@ -300,10 +300,12 @@ policy:
 
 Available policies in `src/luthien_proxy/policies/`:
 
-- `noop.py` - Pass-through (no filtering)
-- `event_based_noop.py` - Event-driven no-op (demonstrates DSL)
-- `uppercase_nth_word.py` - Simple transformation example
-- `tool_call_judge_v3.py` - AI-based tool call safety evaluation
+- `noop_policy.py` - Pass-through (no filtering)
+- `all_caps_policy.py` - Simple transformation example
+- `debug_logging_policy.py` - Logs requests/responses for debugging
+- `tool_call_judge_policy.py` - AI-based tool call safety evaluation
+- `simple_policy.py` - Base class for custom policies
+- `simple_judge_policy.py` - Base class for LLM-based rule enforcement
 
 ## Dev Tooling
 
@@ -323,19 +325,27 @@ The gateway integrates everything into a single FastAPI application:
 - **Gateway** (`src/luthien_proxy/`): Unified FastAPI + LiteLLM integration
   - OpenAI Chat Completions API compatibility
   - Anthropic Messages API compatibility
-  - Integrated control plane for policy enforcement
   - Event-driven policy system with streaming support
   - OpenTelemetry instrumentation for observability
 
-- **Control Plane** (`src/luthien_proxy/control/`): Synchronous policy orchestration
-  - Processes requests through configured policies
+- **Orchestration** (`src/luthien_proxy/orchestration/`): Request processing coordination
+  - `PolicyOrchestrator` coordinates the streaming pipeline
   - Real-time event publishing for UI updates
   - Trace context propagation
 
 - **Policy System** (`src/luthien_proxy/policies/`): Event-driven policy framework
-  - Stream-aware policy interface
-  - Buffering and transformation capabilities
-  - Examples: NoOp, ToolCallJudge, UppercaseNthWord
+  - `SimplePolicy` - Base class for simple request/response policies
+  - `SimpleJudgePolicy` - Base class for LLM-based rule enforcement
+  - Examples: NoOpPolicy, AllCapsPolicy, DebugLoggingPolicy, ToolCallJudgePolicy
+
+- **Policy Core** (`src/luthien_proxy/policy_core/`): Policy protocol and contexts
+  - Policy protocol definitions
+  - Request/response contexts for policy processing
+  - Chunk builders for streaming
+
+- **Streaming** (`src/luthien_proxy/streaming/`): Streaming support
+  - Policy executor for stream processing
+  - Client formatters for OpenAI/Anthropic formats
 
 - **UI** (`src/luthien_proxy/ui/`): Real-time monitoring and debugging
   - `/activity/monitor` - Live activity feed
@@ -429,14 +439,16 @@ The gateway uses an event-driven policy architecture with streaming support.
 
 ### Key Components
 
-- `src/luthien_proxy/policies/base.py` - Abstract policy interface
-- `src/luthien_proxy/control/synchronous_control_plane.py` - Policy orchestration
+- `src/luthien_proxy/policies/base_policy.py` - Abstract policy interface
+- `src/luthien_proxy/policies/simple_policy.py` - Base class for custom policies
+- `src/luthien_proxy/policies/simple_judge_policy.py` - Base class for LLM-based rule enforcement
+- `src/luthien_proxy/orchestration/policy_orchestrator.py` - Policy orchestration
 - `src/luthien_proxy/gateway_routes.py` - API endpoint handlers with policy integration
 - `config/policy_config.yaml` - Policy configuration
 
 ### Creating Custom Policies
 
-See `src/luthien_proxy/policies/` for examples. Documentation coming soon.
+Subclass `SimplePolicy` for basic request/response transformations, or `SimpleJudgePolicy` for LLM-based rule enforcement. See `src/luthien_proxy/policies/` for examples.
 
 ### Testing
 
