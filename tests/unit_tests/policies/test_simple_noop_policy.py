@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from litellm.types.utils import ModelResponse
 
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.simple_noop_policy import SimpleNoOpPolicy
 from luthien_proxy.policies.simple_policy import SimplePolicy

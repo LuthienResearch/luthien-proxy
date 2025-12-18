@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
 
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 from luthien_proxy.observability.transaction_recorder import (
     DefaultTransactionRecorder,
     NoOpTransactionRecorder,

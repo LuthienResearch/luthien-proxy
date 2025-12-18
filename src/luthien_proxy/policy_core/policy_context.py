@@ -20,7 +20,7 @@ from luthien_proxy.types import RawHttpRequest
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
-    from luthien_proxy.messages import Request
+    from luthien_proxy.llm.types import Request
 
 _tracer = trace.get_tracer(__name__)
 

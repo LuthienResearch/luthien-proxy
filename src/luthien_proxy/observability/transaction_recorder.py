@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from litellm.types.utils import ModelResponse
 from opentelemetry import metrics, trace
 
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 from luthien_proxy.observability.emitter import EventEmitterProtocol, NullEventEmitter
 from luthien_proxy.storage.events import reconstruct_full_response_from_chunks
 from luthien_proxy.utils.constants import DEFAULT_MAX_CHUNKS_QUEUED

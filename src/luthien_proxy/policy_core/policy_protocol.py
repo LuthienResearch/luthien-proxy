@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse
 
-    from luthien_proxy.messages import Request
+    from luthien_proxy.llm.types import Request
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import (
         StreamingPolicyContext,

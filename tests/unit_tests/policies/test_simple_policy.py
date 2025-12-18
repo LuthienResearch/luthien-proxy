@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from litellm.types.utils import ChatCompletionMessageToolCall, Function, ModelResponse
 
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext

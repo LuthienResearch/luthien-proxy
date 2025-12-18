@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
-from luthien_proxy.messages import Request as RequestMessage
+from luthien_proxy.llm.types import Request as RequestMessage
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.processor import (
     _get_client_formatter,

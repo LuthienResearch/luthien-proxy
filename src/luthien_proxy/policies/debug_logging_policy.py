@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from litellm.types.utils import ModelResponse
 
 if TYPE_CHECKING:
-    from luthien_proxy.messages import Request
+    from luthien_proxy.llm.types import Request
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 

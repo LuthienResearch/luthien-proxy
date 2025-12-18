@@ -6,7 +6,7 @@ import pytest
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.llm.litellm_client import LiteLLMClient
-from luthien_proxy.messages import Request
+from luthien_proxy.llm.types import Request
 
 
 @pytest.fixture
