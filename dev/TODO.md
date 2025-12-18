@@ -12,19 +12,19 @@
 
 ### Architecture Improvements
 
-- [ ] **create_app dependency injection** - Accept db and redis objects instead of URLs, enabling easier testing and more flexible configuration
+- [x] **create_app dependency injection** - Accept db and redis objects instead of URLs, enabling easier testing and more flexible configuration
 
 ### Code Quality
 
 ### Type System Improvements
 
-- [ ] **Break up llm/types.py into submodules** - Split into `llm/types/openai.py` and `llm/types/anthropic.py` for cleaner organization as the file grows.
-- [ ] **Complete strict typing for LLM types** - Add remaining TypedDict definitions for full request/response typing (OpenAIRequestDict, AnthropicRequestDict, AnthropicResponseDict, tool types). Partial implementation in git stash "comprehensive LLM type definitions - defer to follow-up PR" (created 2025-12-17).
-- [ ] **Move Request class to llm/types/openai.py** - Currently in top-level `messages.py`, should live with other LLM types. 24 files import it, so straightforward but wide-ranging change.
+- [x] **Break up llm/types.py into submodules** - Split into `llm/types/openai.py` and `llm/types/anthropic.py` for cleaner organization as the file grows.
+- [x] **Complete strict typing for LLM types** - Add remaining TypedDict definitions for full request/response typing (OpenAIRequestDict, AnthropicRequestDict, AnthropicResponseDict, tool types).
+- [x] **Move Request class to llm/types/openai.py** - Moved from top-level `messages.py` to live with other LLM types.
 
 ### Multimodal / Images
 
-- [ ] **LiteLLM multimodal routing issue (#108)** - Images pass through proxy but Claude sees wrong content. See issue #108 for troubleshooting logs.
+- [x] **LiteLLM multimodal routing issue (#108)** - Fixed. Images now pass through correctly.
 - [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks.
 
 ### Documentation (High)
