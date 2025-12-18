@@ -16,8 +16,6 @@
 
 ### Code Quality
 
-- [ ] **Factor out common gateway route logic** - Extract duplicate pipeline setup from `/v1/chat/completions` and `/v1/messages`
-
 ### Type System Improvements
 
 - [ ] **Break up llm/types.py into submodules** - Split into `llm/types/openai.py` and `llm/types/anthropic.py` for cleaner organization as the file grows.
