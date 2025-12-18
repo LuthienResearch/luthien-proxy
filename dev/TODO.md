@@ -27,6 +27,7 @@
 ### Multimodal / Images
 
 - [ ] **LiteLLM multimodal routing issue (#108)** - Images pass through proxy but Claude sees wrong content. See issue #108 for troubleshooting logs.
+- [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks.
 
 ### Documentation (High)
 
