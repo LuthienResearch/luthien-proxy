@@ -8,7 +8,7 @@ Policies operate on:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from luthien_proxy.llm.types import Message
 
@@ -25,9 +25,18 @@ class Request(BaseModel):
 
     model: str = Field(description="Model identifier (e.g., 'gpt-4', 'claude-3-5-sonnet-20241022')")
     messages: list[Message] = Field(description="Conversation messages in OpenAI format")
+
     max_tokens: int | None = Field(default=None, description="Maximum tokens to generate")
     temperature: float | None = Field(default=None, description="Sampling temperature")
     stream: bool = Field(default=False, description="Whether to stream the response")
+
+    @field_validator("model")
+    @classmethod
+    def model_must_not_be_empty(cls, v: str) -> str:
+        """Validate that model is not empty."""
+        if not v or not v.strip():
+            raise ValueError("model must not be empty")
+        return v
 
     # Allow additional fields for provider-specific parameters
     model_config = {"extra": "allow"}

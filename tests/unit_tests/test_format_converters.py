@@ -668,14 +668,14 @@ class TestAnthropicToOpenAIRequestEdgeCases:
         # Should skip non-dict and process valid text
         assert result["messages"][0]["content"] == "Valid text"
 
-    def test_unknown_content_format_passthrough(self):
-        """Test that unknown content formats are passed through."""
+    def test_unknown_content_format_converted_to_string(self):
+        """Test that unknown content formats are converted to strings."""
         anthropic_req = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
                     "role": "user",
-                    "content": 12345,  # Unexpected type
+                    "content": 12345,  # Unexpected type - gets converted to string
                 }
             ],
             "max_tokens": 1024,
@@ -683,7 +683,8 @@ class TestAnthropicToOpenAIRequestEdgeCases:
 
         result = anthropic_to_openai_request(anthropic_req)
 
-        assert result["messages"][0]["content"] == 12345
+        # Unknown content types are converted to strings for type safety
+        assert result["messages"][0]["content"] == "12345"
 
     def test_default_max_tokens(self):
         """Test default max_tokens is applied when not specified."""

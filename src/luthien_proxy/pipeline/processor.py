@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import AsyncIterator
+from typing import Any, AsyncIterator, cast
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -244,7 +244,8 @@ async def _process_request(
             )
             try:
                 openai_body = anthropic_to_openai_request(body)
-                request_message = RequestMessage(**openai_body)
+                # Cast to dict[str, Any] for Pydantic unpacking - extra fields handled by model_config
+                request_message = RequestMessage(**cast(dict[str, Any], openai_body))
             except (KeyError, TypeError, AttributeError, ValidationError) as e:
                 logger.error(f"[{call_id}] Failed to convert Anthropic request: {e}")
                 raise HTTPException(status_code=400, detail=f"Invalid Anthropic request format: {e}")
