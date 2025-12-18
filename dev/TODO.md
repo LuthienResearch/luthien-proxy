@@ -78,7 +78,7 @@
 
 - [ ] **Simplify db.py abstractions** - Remove redundant protocol wrappers
 - [ ] **Review observability stack** - Consolidate observability docs, verify Grafana/Loki integration
-- [ ] Increase unit test coverage (currently ~78%)
+- [ ] Increase unit test coverage (currently ~90%, target 95%+)
 - [ ] Add config schema validation (Pydantic model for policy_config.yaml)
 - [ ] Implement adaptive timeout based on model type
 - [ ] Add policy composition (chaining multiple policies)
