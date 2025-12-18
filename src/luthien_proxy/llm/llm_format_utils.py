@@ -13,7 +13,11 @@ from typing import cast
 
 from litellm.types.utils import Choices, ModelResponse, Usage
 
-from luthien_proxy.llm.types import AnthropicImageSource, ImageContentPart, ImageUrl
+from luthien_proxy.llm.types import (
+    AnthropicImageSource,
+    ImageContentPart,
+    ImageUrl,
+)
 from luthien_proxy.utils.constants import DEFAULT_LLM_MAX_TOKENS
 
 logger = logging.getLogger(__name__)

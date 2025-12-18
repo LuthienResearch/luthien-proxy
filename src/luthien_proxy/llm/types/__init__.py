@@ -1,41 +1,37 @@
-"""LLM integration using LiteLLM as a library."""
+"""LLM type definitions for OpenAI and Anthropic formats.
 
-from .llm_format_utils import (
-    anthropic_to_openai_request,
-    openai_to_anthropic_response,
-)
-from .types import (
-    # Anthropic messages
+This package provides strict type definitions for:
+- OpenAI Chat Completion API message types
+- Anthropic Messages API content and message types
+- Request model for policy processing
+"""
+
+from .anthropic import (
     AnthropicAssistantMessage,
-    # Anthropic content blocks
     AnthropicContentBlock,
     AnthropicImageBlock,
     AnthropicImageSource,
     AnthropicImageSourceBase64,
     AnthropicImageSourceUrl,
     AnthropicMessage,
-    # Anthropic response types
     AnthropicResponse,
-    # Anthropic system content
     AnthropicSystemBlock,
     AnthropicSystemContent,
     AnthropicTextBlock,
-    # Anthropic tools
     AnthropicTool,
     AnthropicToolResultBlock,
     AnthropicToolUseBlock,
     AnthropicUsage,
     AnthropicUserMessage,
-    # OpenAI messages
+)
+from .openai import (
     AssistantMessage,
-    # OpenAI content parts
     ContentPart,
     FunctionCall,
     ImageContentPart,
     ImageUrl,
     Message,
     MessageContent,
-    # Request model
     Request,
     SystemMessage,
     TextContentPart,
@@ -45,9 +41,6 @@ from .types import (
 )
 
 __all__ = [
-    # Format converters
-    "anthropic_to_openai_request",
-    "openai_to_anthropic_response",
     # OpenAI content parts
     "ImageUrl",
     "TextContentPart",
