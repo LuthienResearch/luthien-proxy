@@ -2,6 +2,11 @@
 
 ## High Priority
 
+### Core Features (User Story Aligned)
+
+- [ ] **thinking and verbosity model flags not respected** - Model parameters like `thinking` and `verbosity` are not passed through to backend. Blocks User Story 1 (Solo Developer). Issue: `luthien-proxy-mfs` (P1).
+- [ ] **Conversation history browser & export** - Enable users to browse and export full conversation logs from past sessions. Maps to `luthien-proxy-edl` (Conversation Viewer UI) in User Stories 1 & 2. Data already in `conversation_events` table. Could include: search by date, export to markdown/JSON, filter by user/session.
+
 ### Bugs
 
 - [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link) (see rows with "/compact ERROR" comments). PR: https://github.com/LuthienResearch/luthien-proxy/pull/112 Reference: Dogfooding session 2025-12-16.
@@ -44,7 +49,6 @@
 - [ ] **Format blocked messages for readability** - Pretty-print JSON, proper line breaks
 - [ ] **Improve error handling for OpenTelemetry spans** - Add defensive checks when OTEL not configured
 - [ ] **Review LiteLLMClient instantiation pattern** - Consider singleton instead of per-request
-- [ ] thinking and verbosity model flags not respected
 
 ### Testing (Medium)
 
