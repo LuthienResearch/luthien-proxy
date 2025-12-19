@@ -31,7 +31,7 @@
 
 ### Security
 
-- [ ] Add input validation: max request size and message count limits
+- [ ] **Add input validation: max request size and message count limits** - Request size limit (10MB) exists, but no message count limit. Could allow unbounded message arrays.
 
 ## Medium Priority
 
@@ -44,10 +44,10 @@
 ### Code Improvements
 
 - [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks. (Niche use case - images pass through proxy correctly already)
-- [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety
+- [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety for buffered tool calls
 - [ ] **Policy API: Prevent common streaming mistakes** - Better base class defaults and helper functions
 - [ ] **Format blocked messages for readability** - Pretty-print JSON, proper line breaks
-- [ ] **Improve error handling for OpenTelemetry spans** - Add defensive checks when OTEL not configured
+- [ ] **Improve error handling for OpenTelemetry spans** - Add defensive checks when OTEL not configured (partial: `is_recording()` checks exist)
 
 ### Testing (Medium)
 
