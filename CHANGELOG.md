@@ -13,8 +13,10 @@
 - Production readiness improvements ([#101](https://github.com/LuthienResearch/luthien-proxy/pull/101))
   - Add resource limits to Docker services
   - Add OpenTelemetry constants
+- LiteLLMClient singleton pattern ([#69](https://github.com/LuthienResearch/luthien-proxy/pull/69)) - created once at app startup and shared via Dependencies container
+- Event publisher task tracking ([#83](https://github.com/LuthienResearch/luthien-proxy/pull/83)) - `add_done_callback` for proper error logging in emitter.py
 - Increase unit test coverage from 84% to 90% (#115)
-- Fix validation error when images in Anthropic requests (#103, #104)
+- Fix validation error when images in Anthropic requests ([#108](https://github.com/LuthienResearch/luthien-proxy/issues/108), fixed by [#103](https://github.com/LuthienResearch/luthien-proxy/pull/103), [#104](https://github.com/LuthienResearch/luthien-proxy/pull/104))
 - Migration validation and fail-fast checks (#110)
   - `run-migrations.sh` validates DB state against local files before applying
   - Gateway startup check ensures all migrations are applied

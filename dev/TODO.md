@@ -27,7 +27,6 @@
 
 ### Documentation (High)
 
-- [ ] Update README post v2-migration
 - [ ] Add security documentation for dynamic policy loading (POLICY_CONFIG)
 
 ### Security
@@ -44,11 +43,11 @@
 
 ### Code Improvements
 
+- [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks. (Niche use case - images pass through proxy correctly already)
 - [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety
 - [ ] **Policy API: Prevent common streaming mistakes** - Better base class defaults and helper functions
 - [ ] **Format blocked messages for readability** - Pretty-print JSON, proper line breaks
 - [ ] **Improve error handling for OpenTelemetry spans** - Add defensive checks when OTEL not configured
-- [ ] **Review LiteLLMClient instantiation pattern** - Consider singleton instead of per-request
 
 ### Testing (Medium)
 
@@ -64,7 +63,6 @@
 - [ ] Add rate limiting middleware
 - [ ] Implement circuit breaker for upstream calls
 - [ ] Add Prometheus metrics endpoint
-- [ ] Implement proper task tracking for event publisher (replace fire-and-forget)
 - [x] Add resource limits to docker-compose.yaml
 
 ### Documentation (Medium)
