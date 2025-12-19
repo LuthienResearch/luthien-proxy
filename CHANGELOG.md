@@ -2,8 +2,8 @@
 
 ## Unreleased | TBA
 
-- Increase unit test coverage from 84% to 90% (#115)
-- Fix validation error when images in Anthropic requests (#103, #104)
+- Verify all environment variables are documented in README and .env.example
+
 - Migration validation and fail-fast checks (#110)
   - `run-migrations.sh` validates DB state against local files before applying
   - Gateway startup check ensures all migrations are applied
