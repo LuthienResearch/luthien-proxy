@@ -33,6 +33,7 @@
 
 ### Dogfooding & UX
 
+- [ ] **Web UI for conversation logs** - "We want a web UI for arbitrary conversation logs where you can just go to this URL and get a record of the conversation in a way that's intuitive and easy to navigate." Components: API endpoint (conversation ID → data), renderer UI. PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Reference: [Scott/Jai sync 2025-12-18](https://docs.google.com/document/d/16oafOvEiWw1g9cMzMTQfNehTSMeEHP7XxYASpx_rBhc/edit?tab=t.4i1mbq24ud98).
 - [ ] **Retrospective on dogfooding sessions** - Review session CSVs in [Google Drive](https://drive.google.com/file/d/1YMd0CEgEF2vtvyAy70_SZQFFzp1ZG7C-/view?usp=drive_link) and document learnings. What worked? What was painful? What should we build next? **Deadline: Dec 23, 2025**.
 - [ ] **"Logged by Luthien" indicator policy** - Create a simple policy that appends "logged and monitored by Luthien" to each response. Helps users know when they're going through the proxy vs direct API. Use case: Scott thought he was using Luthien but wasn't. Reference: Dogfooding session 2025-12-16.
 - [ ] **Include tool calls in conversation_transcript** - Currently only text content is extracted. Adding tool calls would help with retros on unsafe tool calls (e.g., "what did Claude try to execute?"). Reference: Dogfooding session 2025-12-16.
