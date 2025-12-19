@@ -21,10 +21,6 @@
 - [ ] **Activity Monitor missing auth indicator** - Gateway root page links to Activity Monitor but doesn't show "Auth Required" indicator for consistency with other protected pages. Reference: dogfooding session 2025-12-15.
 - [ ] **[Future] Conversation history browser & export** - Enable users to browse and export full conversation logs from past sessions. Use case: Claude Code compacts conversations; user wants to recover detailed logs later. Could include: search by date, export to markdown/JSON, filter by user/session. Data already in `conversation_events` table. Reference: Dogfooding session 2025-12-15.
 
-### Code Quality
-
-- [ ] **Factor out common gateway route logic** - Extract duplicate pipeline setup from `/v1/chat/completions` and `/v1/messages`
-
 ### Documentation (High)
 
 - [ ] Add security documentation for dynamic policy loading (POLICY_CONFIG)
@@ -52,17 +48,14 @@
 ### Testing (Medium)
 
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
-- [ ] **Convert Loki validation scripts to e2e tests**
 - [ ] **Audit tests for unjustified conditional logic**
 
 ### Infrastructure (Medium)
 
 - [x] **Add migration tracking** - Implemented fail-fast validation in run-migrations.sh and gateway startup check. (bd: luthien-proxy-17j, PR #110)
-- [ ] **DB Migration: call_id -> transaction_id** - Rename columns for consistency
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints (debug endpoints have tests, UI routes do not)
 - [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production
 - [ ] **Implement circuit breaker for upstream calls** - Queue overflow protection exists, but not full circuit breaker pattern
-- [ ] Add Prometheus metrics endpoint
 - [x] **Add resource limits to docker-compose.yaml**
 
 ### Documentation (Medium)
