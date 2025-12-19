@@ -2,8 +2,21 @@
 
 ## Unreleased | TBA
 
+- Reorganize LLM types into separate OpenAI and Anthropic modules ([#117](https://github.com/LuthienResearch/luthien-proxy/pull/117))
+  - Split `llm/types.py` into `llm/types/openai.py` and `llm/types/anthropic.py`
+  - Add complete TypedDict definitions for request/response types
+  - Move Request class to `llm/types/openai.py`
+- README and documentation updates ([#68](https://github.com/LuthienResearch/luthien-proxy/pull/68), [#96](https://github.com/LuthienResearch/luthien-proxy/pull/96), [#99](https://github.com/LuthienResearch/luthien-proxy/pull/99), [#100](https://github.com/LuthienResearch/luthien-proxy/pull/100))
+  - Update README to reflect V2 integration
+  - Document all environment variables
+  - Fix outdated OpenTelemetry configuration
+- Production readiness improvements ([#101](https://github.com/LuthienResearch/luthien-proxy/pull/101))
+  - Add resource limits to Docker services
+  - Add OpenTelemetry constants
+- LiteLLMClient singleton pattern ([#69](https://github.com/LuthienResearch/luthien-proxy/pull/69)) - created once at app startup and shared via Dependencies container
+- Event publisher task tracking ([#83](https://github.com/LuthienResearch/luthien-proxy/pull/83)) - `add_done_callback` for proper error logging in emitter.py
 - Increase unit test coverage from 84% to 90% (#115)
-- Fix validation error when images in Anthropic requests (#103, #104)
+- Fix validation error when images in Anthropic requests ([#108](https://github.com/LuthienResearch/luthien-proxy/issues/108), fixed by [#103](https://github.com/LuthienResearch/luthien-proxy/pull/103), [#104](https://github.com/LuthienResearch/luthien-proxy/pull/104))
 - Migration validation and fail-fast checks (#110)
   - `run-migrations.sh` validates DB state against local files before applying
   - Gateway startup check ensures all migrations are applied
