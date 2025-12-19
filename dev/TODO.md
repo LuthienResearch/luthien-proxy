@@ -59,11 +59,11 @@
 
 - [x] **Add migration tracking** - Implemented fail-fast validation in run-migrations.sh and gateway startup check. (bd: luthien-proxy-17j, PR #110)
 - [ ] **DB Migration: call_id -> transaction_id** - Rename columns for consistency
-- [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints
-- [ ] Add rate limiting middleware
-- [ ] Implement circuit breaker for upstream calls
+- [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints (debug endpoints have tests, UI routes do not)
+- [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production
+- [ ] **Implement circuit breaker for upstream calls** - Queue overflow protection exists, but not full circuit breaker pattern
 - [ ] Add Prometheus metrics endpoint
-- [x] Add resource limits to docker-compose.yaml
+- [x] **Add resource limits to docker-compose.yaml**
 
 ### Documentation (Medium)
 
