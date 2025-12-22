@@ -135,7 +135,7 @@ async def process_llm_request(
             raw_http_request=raw_http_request,
             session_id=session_id,
         )
-        recorder = DefaultTransactionRecorder(transaction_id=call_id, emitter=emitter)
+        recorder = DefaultTransactionRecorder(transaction_id=call_id, emitter=emitter, session_id=session_id)
         policy_executor = PolicyExecutor(recorder=recorder)
         client_formatter = _get_client_formatter(client_format, request_message.model)
 

@@ -2,6 +2,12 @@
 
 ## Unreleased | TBA
 
+- Add conversation history viewer with styled message types and markdown export (conversation-history-viewer)
+  - Browse recent sessions at `/history` with turn counts, policy interventions, and model usage
+  - View full conversation detail at `/history/session/{id}` with message type styling (system/user/assistant/tool call/tool result)
+  - Policy annotations shown inline on turns that had interventions
+  - Export any session to markdown via `/history/api/sessions/{id}/export`
+
 - Increase unit test coverage from 84% to 90% (#115)
 - Fix validation error when images in Anthropic requests (#103, #104)
 - Migration validation and fail-fast checks (#110)

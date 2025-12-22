@@ -122,3 +122,13 @@ OTEL_SPAN_ID_HEX_LENGTH = 16
 
 # Default port for gateway HTTP server.
 DEFAULT_GATEWAY_PORT = 8000
+
+# ------------------------------------------------------------------------------
+# History Viewer
+# ------------------------------------------------------------------------------
+
+# Default number of sessions to return in history list endpoint.
+HISTORY_SESSIONS_DEFAULT_LIMIT = 50
+
+# Maximum number of sessions allowed in history list endpoint.
+HISTORY_SESSIONS_MAX_LIMIT = 500

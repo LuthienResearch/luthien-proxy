@@ -17,6 +17,7 @@ from luthien_proxy.admin import router as admin_router
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.gateway_routes import router as gateway_router
+from luthien_proxy.history import routes as history_routes
 from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
@@ -146,6 +147,7 @@ def create_app(
     app.include_router(admin_router)  # /admin/* (policy management)
     app.include_router(session_router)  # /auth/login, /auth/logout
     app.include_router(login_page_router)  # /login (convenience redirect)
+    app.include_router(history_routes.router)  # /history/* (conversation history viewer)
 
     # Simple utility endpoints
     @app.get("/health")
