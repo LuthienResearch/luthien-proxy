@@ -319,13 +319,15 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
             }
         )
 
-    # Build conversation turns
+    # Build conversation turns, sorted by first event timestamp
     turns = []
     all_models = set()
     total_interventions = 0
 
-    for call_id, events in calls.items():
-        turn = _build_turn(call_id, events)
+    # Sort call_ids by their first event timestamp to ensure chronological order
+    sorted_call_ids = sorted(calls.keys(), key=lambda cid: calls[cid][0]["created_at"])
+    for call_id in sorted_call_ids:
+        turn = _build_turn(call_id, calls[call_id])
         turns.append(turn)
         if turn.model:
             all_models.add(turn.model)
@@ -529,9 +531,10 @@ def _format_message_markdown(msg: ConversationMessage) -> str:
         if msg.original_content:
             lines.append("> Original content:")
             lines.append("> ```")
-            for line in msg.original_content.split("\n")[:5]:
+            original_lines = msg.original_content.split("\n")
+            for line in original_lines[:5]:
                 lines.append(f"> {line}")
-            if msg.original_content.count("\n") > 5:
+            if len(original_lines) > 5:
                 lines.append("> ...")
             lines.append("> ```")
 
