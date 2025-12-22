@@ -136,9 +136,11 @@ class ParallelRulesPolicy(BasePolicy):
         for rule_dict in rules:
             self._rules.append(RuleConfig.from_dict(rule_dict))
 
-        # State for buffering tool calls during streaming
-        self._buffered_tool_calls: dict[tuple[str, int], dict[str, Any]] = {}
-        self._blocked_transactions: set[str] = set()
+        # Per-request state is stored in PolicyContext.scratchpad, not instance variables,
+        # to avoid concurrency issues when the policy is shared across requests.
+        # Keys used in scratchpad:
+        #   - "parallel_rules_buffered_tool_calls": dict[int, dict[str, Any]]
+        #   - "parallel_rules_blocked": bool
 
         logger.info(
             f"ParallelRulesPolicy initialized: "
@@ -146,6 +148,21 @@ class ParallelRulesPolicy(BasePolicy):
             f"rules={[r.name for r in self._rules]}, "
             f"default_threshold={self._judge_config.probability_threshold}"
         )
+
+    def _get_buffered_tool_calls(self, ctx: PolicyContext) -> dict[int, dict[str, Any]]:
+        """Get or initialize the buffered tool calls from scratchpad."""
+        key = "parallel_rules_buffered_tool_calls"
+        if key not in ctx.scratchpad:
+            ctx.scratchpad[key] = {}
+        return ctx.scratchpad[key]
+
+    def _is_blocked(self, ctx: PolicyContext) -> bool:
+        """Check if this request has been blocked."""
+        return ctx.scratchpad.get("parallel_rules_blocked", False)
+
+    def _set_blocked(self, ctx: PolicyContext) -> None:
+        """Mark this request as blocked."""
+        ctx.scratchpad["parallel_rules_blocked"] = True
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
         """Don't push chunks here - specific delta handlers handle it.
@@ -182,28 +199,29 @@ class ParallelRulesPolicy(BasePolicy):
         if not hasattr(delta, "tool_calls") or not delta.tool_calls:
             return
 
-        call_id = ctx.policy_ctx.transaction_id
+        buffered_tool_calls = self._get_buffered_tool_calls(ctx.policy_ctx)
         for tc_delta in delta.tool_calls:
             tc_index = tc_delta.index if hasattr(tc_delta, "index") else 0
-            key = (call_id, tc_index)
 
-            if key not in self._buffered_tool_calls:
-                self._buffered_tool_calls[key] = {
+            if tc_index not in buffered_tool_calls:
+                buffered_tool_calls[tc_index] = {
                     "id": "",
                     "type": "function",
                     "name": "",
                     "arguments": "",
                 }
 
-            buffer = self._buffered_tool_calls[key]
+            buffer = buffered_tool_calls[tc_index]
 
             if hasattr(tc_delta, "id") and tc_delta.id:
                 buffer["id"] = tc_delta.id
 
             if hasattr(tc_delta, "function"):
                 func = tc_delta.function
+                # Tool names are sent in a single delta, use assignment not concatenation
                 if hasattr(func, "name") and func.name:
-                    buffer["name"] += func.name
+                    buffer["name"] = func.name
+                # Arguments are streamed character by character, use concatenation
                 if hasattr(func, "arguments") and func.arguments:
                     buffer["arguments"] += func.arguments
 
@@ -224,8 +242,7 @@ class ParallelRulesPolicy(BasePolicy):
         if not content:
             return
 
-        call_id = ctx.policy_ctx.transaction_id
-        if call_id in self._blocked_transactions:
+        if self._is_blocked(ctx.policy_ctx):
             return
 
         # Evaluate all text rules in parallel
@@ -236,7 +253,7 @@ class ParallelRulesPolicy(BasePolicy):
         )
 
         if violations:
-            self._blocked_transactions.add(call_id)
+            self._set_blocked(ctx.policy_ctx)
             await self._send_violation_response_streaming(ctx, violations, content)
         else:
             # No violations - send the original content
@@ -248,8 +265,7 @@ class ParallelRulesPolicy(BasePolicy):
         Args:
             ctx: Streaming response context
         """
-        call_id = ctx.policy_ctx.transaction_id
-        if call_id in self._blocked_transactions:
+        if self._is_blocked(ctx.policy_ctx):
             return
 
         just_completed = ctx.original_streaming_response_state.just_completed
@@ -257,13 +273,13 @@ class ParallelRulesPolicy(BasePolicy):
             return
 
         tc_index = just_completed.index
-        key = (call_id, tc_index)
+        buffered_tool_calls = self._get_buffered_tool_calls(ctx.policy_ctx)
 
-        if key not in self._buffered_tool_calls:
-            logger.warning(f"No buffered data for tool call {key}")
+        if tc_index not in buffered_tool_calls:
+            logger.warning(f"No buffered data for tool call index {tc_index}")
             return
 
-        tool_call = self._buffered_tool_calls[key]
+        tool_call = buffered_tool_calls[tc_index]
         if not tool_call.get("name") or not tool_call.get("id"):
             logger.warning(f"Incomplete tool call data: {tool_call}")
             return
@@ -279,7 +295,7 @@ class ParallelRulesPolicy(BasePolicy):
         )
 
         if violations:
-            self._blocked_transactions.add(call_id)
+            self._set_blocked(ctx.policy_ctx)
             await self._send_violation_response_streaming(ctx, violations, tool_call_content)
         else:
             # No violations - forward the tool call
@@ -295,8 +311,7 @@ class ParallelRulesPolicy(BasePolicy):
         if not finish_reason:
             return
 
-        call_id = ctx.policy_ctx.transaction_id
-        if call_id in self._blocked_transactions:
+        if self._is_blocked(ctx.policy_ctx):
             # Already sent finish chunk with violation response
             return
 
@@ -331,7 +346,7 @@ class ParallelRulesPolicy(BasePolicy):
 
         # Check text rules against content
         if content:
-            text_violations = await self._evaluate_rules_parallel_sync(
+            text_violations = await self._evaluate_rules_parallel_nonstreaming(
                 content=content,
                 content_type=ResponseType.TEXT,
                 context=context,
@@ -344,7 +359,7 @@ class ParallelRulesPolicy(BasePolicy):
         tool_calls = extract_tool_calls_from_response(response)
         for tool_call in tool_calls:
             tool_call_content = self._format_tool_call_for_evaluation(tool_call)
-            tool_violations = await self._evaluate_rules_parallel_sync(
+            tool_violations = await self._evaluate_rules_parallel_nonstreaming(
                 content=tool_call_content,
                 content_type=ResponseType.TOOL_CALL,
                 context=context,
@@ -360,16 +375,11 @@ class ParallelRulesPolicy(BasePolicy):
 
         Args:
             ctx: Streaming response context
+
+        Note: Per-request state is stored in PolicyContext.scratchpad, which is
+        automatically cleaned up when the request completes. No explicit cleanup needed.
         """
-        call_id = ctx.policy_ctx.transaction_id
-
-        # Clear buffered tool calls for this request
-        keys_to_remove = [key for key in self._buffered_tool_calls if key[0] == call_id]
-        for key in keys_to_remove:
-            del self._buffered_tool_calls[key]
-
-        # Clear blocked transaction tracking
-        self._blocked_transactions.discard(call_id)
+        pass
 
     async def _evaluate_rules_parallel(
         self,
@@ -425,7 +435,7 @@ class ParallelRulesPolicy(BasePolicy):
 
         return violations
 
-    async def _evaluate_rules_parallel_sync(
+    async def _evaluate_rules_parallel_nonstreaming(
         self,
         content: str,
         content_type: ResponseType,

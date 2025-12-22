@@ -508,7 +508,7 @@ class TestParallelRulesPolicyStreaming:
 
     @pytest.mark.asyncio
     async def test_on_tool_call_delta_buffers(self):
-        """Test that tool call deltas are buffered."""
+        """Test that tool call deltas are buffered in scratchpad."""
         policy = ParallelRulesPolicy(
             judge={"model": "test"},
             rules=[{"name": "test", "ruletext": "test"}],
@@ -532,9 +532,10 @@ class TestParallelRulesPolicyStreaming:
 
         await policy.on_tool_call_delta(ctx)
 
-        # Verify buffered
-        assert ("test-call", 0) in policy._buffered_tool_calls
-        buffered = policy._buffered_tool_calls[("test-call", 0)]
+        # Verify buffered in scratchpad (keyed by index, not tuple)
+        buffered_tool_calls = ctx.policy_ctx.scratchpad.get("parallel_rules_buffered_tool_calls", {})
+        assert 0 in buffered_tool_calls
+        buffered = buffered_tool_calls[0]
         assert buffered["id"] == "call-123"
         assert buffered["name"] == "test_tool"
 
@@ -545,14 +546,6 @@ class TestParallelRulesPolicyStreaming:
             judge={"model": "test"},
             rules=[{"name": "test", "ruletext": "test", "response_types": ["tool_call"]}],
         )
-
-        # Buffer the tool call first
-        policy._buffered_tool_calls[("test-call", 0)] = {
-            "id": "call-123",
-            "type": "function",
-            "name": "safe_tool",
-            "arguments": '{"safe": true}',
-        }
 
         block = ToolCallStreamBlock(
             id="call-123",
@@ -566,6 +559,16 @@ class TestParallelRulesPolicyStreaming:
             transaction_id="test-call",
             just_completed=block,
         )
+
+        # Buffer the tool call in the scratchpad (keyed by index)
+        ctx.policy_ctx.scratchpad["parallel_rules_buffered_tool_calls"] = {
+            0: {
+                "id": "call-123",
+                "type": "function",
+                "name": "safe_tool",
+                "arguments": '{"safe": true}',
+            }
+        }
 
         async def mock_call_judge(rule, content, config):
             return RuleResult(probability=0.1, explanation="Safe", prompt=[], response_text="")
@@ -833,43 +836,44 @@ class TestParallelRulesPolicyErrorHandling:
 
 
 class TestParallelRulesPolicyCleanup:
-    """Test cleanup behavior."""
+    """Test cleanup and state isolation behavior."""
 
     @pytest.mark.asyncio
-    async def test_cleanup_clears_buffered_tool_calls(self):
-        """Test that cleanup removes buffered tool calls."""
+    async def test_cleanup_runs_without_error(self):
+        """Test that on_streaming_policy_complete runs without error."""
         policy = ParallelRulesPolicy(
             judge={"model": "test"},
             rules=[{"name": "test", "ruletext": "test"}],
         )
 
-        policy._buffered_tool_calls[("test-call", 0)] = {"id": "call-1", "name": "test", "arguments": "{}"}
-        policy._buffered_tool_calls[("other-call", 0)] = {"id": "call-2", "name": "test", "arguments": "{}"}
-
         ctx = create_mock_streaming_context(transaction_id="test-call")
+        # Set up some state in scratchpad
+        ctx.policy_ctx.scratchpad["parallel_rules_buffered_tool_calls"] = {0: {"id": "call-1"}}
+        ctx.policy_ctx.scratchpad["parallel_rules_blocked"] = True
 
+        # Should run without error (state is in scratchpad, cleaned up per-request)
         await policy.on_streaming_policy_complete(ctx)
 
-        assert ("test-call", 0) not in policy._buffered_tool_calls
-        assert ("other-call", 0) in policy._buffered_tool_calls
-
     @pytest.mark.asyncio
-    async def test_cleanup_clears_blocked_transactions(self):
-        """Test that cleanup removes blocked transaction tracking."""
+    async def test_scratchpad_state_isolated_per_request(self):
+        """Test that scratchpad state is isolated between different requests."""
         policy = ParallelRulesPolicy(
             judge={"model": "test"},
             rules=[{"name": "test", "ruletext": "test"}],
         )
 
-        policy._blocked_transactions.add("test-call")
-        policy._blocked_transactions.add("other-call")
+        # Create two separate contexts (simulating concurrent requests)
+        ctx1 = create_mock_streaming_context(transaction_id="request-1")
+        ctx2 = create_mock_streaming_context(transaction_id="request-2")
 
-        ctx = create_mock_streaming_context(transaction_id="test-call")
+        # Use policy's helper methods to set state
+        policy._set_blocked(ctx1.policy_ctx)
 
-        await policy.on_streaming_policy_complete(ctx)
+        # ctx2 should not be affected
+        assert not policy._is_blocked(ctx2.policy_ctx)
 
-        assert "test-call" not in policy._blocked_transactions
-        assert "other-call" in policy._blocked_transactions
+        # Verify ctx1 is still blocked
+        assert policy._is_blocked(ctx1.policy_ctx)
 
 
 class TestParallelRulesPolicyKeepalive:
