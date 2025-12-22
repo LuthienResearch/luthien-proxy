@@ -56,7 +56,7 @@ def _extract_tool_calls(message: dict[str, Any]) -> list[ConversationMessage]:
     tool_messages = []
 
     # Check for OpenAI-style tool_calls
-    tool_calls = message.get("tool_calls", [])
+    tool_calls = message.get("tool_calls") or []
     for tc in tool_calls:
         if isinstance(tc, dict):
             func = tc.get("function", {})
@@ -286,10 +286,20 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         call_id = str(row["call_id"])
         if call_id not in calls:
             calls[call_id] = []
+
+        # Parse payload - asyncpg returns JSONB as string
+        raw_payload = row["payload"]
+        if isinstance(raw_payload, dict):
+            payload = raw_payload
+        elif isinstance(raw_payload, str):
+            payload = _safe_parse_json(raw_payload) or {}
+        else:
+            payload = {}
+
         calls[call_id].append(
             {
                 "event_type": str(row["event_type"]),
-                "payload": row["payload"] if isinstance(row["payload"], dict) else {},
+                "payload": payload,
                 "created_at": row["created_at"],
             }
         )
