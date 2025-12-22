@@ -21,12 +21,13 @@ All of these must be set for the deployment to work:
 
 | Variable | Value | Description |
 |----------|-------|-------------|
-| `GATEWAY_PORT` | `${{PORT}}` | Railway's dynamic port assignment |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | PostgreSQL connection URL |
 | `REDIS_URL` | `${{Redis.REDIS_URL}}` | Redis connection URL |
 | `PROXY_API_KEY` | `openssl rand -hex 32` | API key for client authentication |
 | `ADMIN_API_KEY` | `openssl rand -hex 32` | API key for admin endpoints |
 | `POLICY_CONFIG` | `/app/config/policy_config.yaml` | Path to default policy config |
+
+**Note:** The app automatically reads Railway's `PORT` environment variable for the gateway port. No need to set `GATEWAY_PORT`.
 
 ### Recommended Environment Variables
 
