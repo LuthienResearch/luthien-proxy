@@ -25,6 +25,40 @@ from .models import (
     SessionSummary,
 )
 
+# User-friendly descriptions for common policy event types
+_EVENT_TYPE_DESCRIPTIONS: dict[str, str] = {
+    # Judge policy events
+    "policy.judge.tool_call_allowed": "Tool call approved",
+    "policy.judge.tool_call_blocked": "Tool call blocked",
+    "policy.judge.evaluation_started": "Policy evaluation started",
+    "policy.judge.evaluation_complete": "Policy evaluation complete",
+    "policy.judge.evaluation_failed": "Policy evaluation failed",
+    # Simple judge events
+    "policy.simple_judge.request_evaluated": "Request evaluated",
+    "policy.simple_judge.response_evaluated": "Response evaluated",
+    "policy.simple_judge.tool_call_evaluated": "Tool call evaluated",
+    # All caps policy events
+    "policy.all_caps.content_transformed": "Content transformed to uppercase",
+    "policy.all_caps.content_delta_warning": "Lowercase content detected",
+    "policy.all_caps.tool_call_delta_warning": "Tool call content warning",
+    "policy.all_caps.response_content_warning": "Response content warning",
+    "policy.all_caps.response_content_transformed": "Response transformed",
+    # Simple policy events
+    "policy.simple_policy.content_complete_warning": "Content warning",
+    "policy.simple_policy.tool_call_complete_warning": "Tool call warning",
+}
+
+
+def _get_event_summary(event_type: str, payload: dict[str, Any] | None) -> str:
+    """Get a user-friendly summary for a policy event.
+
+    Uses explicit summary from payload if available, falls back to
+    pre-defined descriptions, then to the raw event type.
+    """
+    if payload and payload.get("summary"):
+        return payload["summary"]
+    return _EVENT_TYPE_DESCRIPTIONS.get(event_type, event_type)
+
 
 def _extract_text_content(content: Any) -> str:
     """Extract text from message content (handles string or content blocks)."""
@@ -43,10 +77,15 @@ def _extract_text_content(content: Any) -> str:
                     # Tool use block - handled separately
                     pass
                 elif block.get("type") == "tool_result":
-                    # Tool result block
+                    # Tool result block - content can be string or array of blocks
                     result_content = block.get("content", "")
                     if isinstance(result_content, str):
                         parts.append(result_content)
+                    elif isinstance(result_content, list):
+                        # Recursively extract text from content blocks
+                        for sub_block in result_content:
+                            if isinstance(sub_block, dict) and sub_block.get("type") == "text":
+                                parts.append(sub_block.get("text", ""))
         return "\n".join(parts)
     return str(content)
 
@@ -426,12 +465,11 @@ def _build_turn(call_id: str, events: list[dict[str, Any]]) -> ConversationTurn:
             if "evaluation" in event_type:
                 continue
 
-            summary = payload.get("summary", event_type)
             annotations.append(
                 PolicyAnnotation(
                     policy_name=_extract_policy_name(event_type),
                     event_type=event_type,
-                    summary=summary,
+                    summary=_get_event_summary(event_type, payload),
                     details=payload if payload else None,
                 )
             )

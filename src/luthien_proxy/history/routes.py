@@ -89,7 +89,7 @@ async def history_detail_page(
     try:
         await fetch_session_detail(session_id, db_pool)
     except ValueError:
-        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}") from None
 
     return FileResponse(os.path.join(STATIC_DIR, "history_detail.html"))
 
@@ -136,7 +136,7 @@ async def get_session(
     try:
         return await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404, detail=str(e)) from None
 
 
 @router.get("/api/sessions/{session_id}/export")
@@ -153,7 +153,7 @@ async def export_session(
     try:
         session = await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404, detail=str(e)) from None
 
     markdown = export_session_markdown(session)
 
