@@ -7,7 +7,10 @@ Settings instance.
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
 
 
 class Settings(BaseSettings):
@@ -29,7 +32,7 @@ class Settings(BaseSettings):
     admin_api_key: str | None = None
 
     # Server configuration
-    gateway_port: int = 8000
+    gateway_port: int = Field(default=DEFAULT_GATEWAY_PORT)
 
     # Database and Redis
     database_url: str = ""
