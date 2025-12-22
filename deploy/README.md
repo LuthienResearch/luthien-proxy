@@ -54,14 +54,11 @@ export ANTHROPIC_API_BASE=https://your-app.railway.app
 export ANTHROPIC_API_KEY=your-proxy-api-key
 ```
 
-### Run Migrations
+### Database Migrations
 
-Railway runs migrations automatically via the pre-deploy job. If needed manually:
+Migrations run automatically on startup when `DATABASE_URL` is set. No manual intervention required.
 
-```bash
-# Connect to your Railway app shell
-railway run -- sh -c 'for f in /app/migrations/*.sql; do psql $DATABASE_URL -f $f; done'
-```
+**Important:** Keep your generated API keys secret. Do not share them or commit them to source control.
 
 ## Security Checklist
 

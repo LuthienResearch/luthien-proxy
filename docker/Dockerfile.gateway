@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     rustc \
     cargo \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast Python package management
@@ -22,8 +23,11 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
 COPY config/ ./config/
-# Migrations are copied so gateway can validate DB schema is up to date at startup
+# Migrations and startup scripts
 COPY migrations/ ./migrations/
+COPY docker/run-migrations.sh ./docker/
+COPY docker/start-gateway.sh ./docker/
+RUN chmod +x ./docker/run-migrations.sh ./docker/start-gateway.sh
 
 # Install dependencies (includes building local package)
 RUN uv sync --frozen --no-dev
@@ -43,5 +47,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Start the gateway service
-CMD ["uv", "run", "python", "-m", "luthien_proxy.main"]
+# Start the gateway service (runs migrations first if DATABASE_URL is set)
+CMD ["/app/docker/start-gateway.sh"]
