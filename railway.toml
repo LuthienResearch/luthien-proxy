@@ -10,10 +10,11 @@
 dockerfilePath = "docker/Dockerfile.gateway"
 
 [deploy]
-healthcheckPath = "/health"
-healthcheckTimeout = 30
+# Temporarily disabled healthcheck to debug startup
+# healthcheckPath = "/health"
+healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
+restartPolicyMaxRetries = 1
 startCommand = "uv run python -m luthien_proxy.main"
 
 # Environment variables to set in Railway dashboard:
