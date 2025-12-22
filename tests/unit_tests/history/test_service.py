@@ -1,0 +1,447 @@
+"""Tests for conversation history service layer.
+
+Tests the pure business logic functions for fetching sessions,
+parsing conversation turns, and exporting to markdown.
+"""
+
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from luthien_proxy.history.models import (
+    ConversationMessage,
+    ConversationTurn,
+    MessageType,
+    PolicyAnnotation,
+    SessionDetail,
+)
+from luthien_proxy.history.service import (
+    _build_turn,
+    _extract_text_content,
+    _extract_tool_calls,
+    _parse_request_messages,
+    _parse_response_messages,
+    _safe_parse_json,
+    export_session_markdown,
+    fetch_session_detail,
+    fetch_session_list,
+)
+
+
+class TestExtractTextContent:
+    """Test text content extraction from various message formats."""
+
+    @pytest.mark.parametrize(
+        "content,expected",
+        [
+            ("Hello world", "Hello world"),
+            ("", ""),
+            (None, ""),
+            ([{"type": "text", "text": "First"}], "First"),
+            ([{"type": "text", "text": "A"}, {"type": "text", "text": "B"}], "A\nB"),
+            ([{"type": "image", "url": "http://..."}], ""),
+            ([{"type": "text", "text": "Text"}, {"type": "tool_use", "id": "123"}], "Text"),
+        ],
+    )
+    def test_extract_content(self, content, expected):
+        """Test extracting content from various formats."""
+        assert _extract_text_content(content) == expected
+
+
+class TestSafeParseJson:
+    """Test safe JSON parsing."""
+
+    @pytest.mark.parametrize(
+        "input_str,expected",
+        [
+            ('{"key": "value"}', {"key": "value"}),
+            ("{}", {}),
+            ('{"nested": {"a": 1}}', {"nested": {"a": 1}}),
+            ("invalid", None),
+            ("[]", None),  # Not a dict
+            ('"string"', None),  # Not a dict
+        ],
+    )
+    def test_parse_json(self, input_str, expected):
+        """Test JSON parsing with various inputs."""
+        assert _safe_parse_json(input_str) == expected
+
+
+class TestExtractToolCalls:
+    """Test tool call extraction from messages."""
+
+    def test_openai_style_tool_calls(self):
+        """Test extracting OpenAI-style tool calls."""
+        message = {
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "function": {"name": "read_file", "arguments": '{"path": "/tmp/test"}'},
+                }
+            ]
+        }
+
+        result = _extract_tool_calls(message)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.TOOL_CALL
+        assert result[0].tool_name == "read_file"
+        assert result[0].tool_call_id == "call_123"
+        assert result[0].tool_input == {"path": "/tmp/test"}
+
+    def test_anthropic_style_content_blocks(self):
+        """Test extracting Anthropic-style tool_use content blocks."""
+        message = {
+            "content": [
+                {"type": "text", "text": "Let me read that file"},
+                {"type": "tool_use", "id": "toolu_123", "name": "Read", "input": {"file": "test.py"}},
+            ]
+        }
+
+        result = _extract_tool_calls(message)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.TOOL_CALL
+        assert result[0].tool_name == "Read"
+        assert result[0].tool_call_id == "toolu_123"
+        assert result[0].tool_input == {"file": "test.py"}
+
+    def test_no_tool_calls(self):
+        """Test message without tool calls."""
+        message = {"content": "Hello world"}
+        result = _extract_tool_calls(message)
+        assert len(result) == 0
+
+
+class TestParseRequestMessages:
+    """Test request message parsing."""
+
+    def test_simple_messages(self):
+        """Test parsing simple text messages."""
+        request = {
+            "messages": [
+                {"role": "system", "content": "You are helpful"},
+                {"role": "user", "content": "Hello"},
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 2
+        assert result[0].message_type == MessageType.SYSTEM
+        assert result[0].content == "You are helpful"
+        assert result[1].message_type == MessageType.USER
+        assert result[1].content == "Hello"
+
+    def test_tool_result_message(self):
+        """Test parsing tool result messages."""
+        request = {
+            "messages": [
+                {"role": "tool", "content": "File contents...", "tool_call_id": "call_123"},
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.TOOL_RESULT
+        assert result[0].tool_call_id == "call_123"
+
+
+class TestParseResponseMessages:
+    """Test response message parsing."""
+
+    def test_simple_response(self):
+        """Test parsing simple text response."""
+        response = {"choices": [{"message": {"role": "assistant", "content": "Hello!"}}]}
+
+        result = _parse_response_messages(response)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.ASSISTANT
+        assert result[0].content == "Hello!"
+
+    def test_response_with_tool_calls(self):
+        """Test parsing response with tool calls."""
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "Let me check",
+                        "tool_calls": [{"id": "call_1", "function": {"name": "read", "arguments": "{}"}}],
+                    }
+                }
+            ]
+        }
+
+        result = _parse_response_messages(response)
+
+        assert len(result) == 2
+        assert result[0].message_type == MessageType.ASSISTANT
+        assert result[1].message_type == MessageType.TOOL_CALL
+
+
+class TestBuildTurn:
+    """Test building conversation turns from events."""
+
+    def test_simple_turn(self):
+        """Test building a simple request/response turn."""
+        events = [
+            {
+                "event_type": "transaction.request_recorded",
+                "payload": {
+                    "final_model": "gpt-4",
+                    "original_request": {"messages": [{"role": "user", "content": "Hello"}]},
+                    "final_request": {"messages": [{"role": "user", "content": "Hello"}]},
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+            {
+                "event_type": "transaction.streaming_response_recorded",
+                "payload": {
+                    "original_response": {"choices": [{"message": {"content": "Hi!"}}]},
+                    "final_response": {"choices": [{"message": {"content": "Hi!"}}]},
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 1),
+            },
+        ]
+
+        turn = _build_turn("call-123", events)
+
+        assert turn.call_id == "call-123"
+        assert turn.model == "gpt-4"
+        assert len(turn.request_messages) == 1
+        assert len(turn.response_messages) == 1
+        assert not turn.had_policy_intervention
+
+    def test_turn_with_policy_intervention(self):
+        """Test turn with policy modification."""
+        events = [
+            {
+                "event_type": "transaction.request_recorded",
+                "payload": {
+                    "final_model": "gpt-4",
+                    "original_request": {"messages": [{"role": "user", "content": "Original"}]},
+                    "final_request": {"messages": [{"role": "user", "content": "Modified"}]},
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+            {
+                "event_type": "policy.judge.tool_call_blocked",
+                "payload": {"summary": "Tool call blocked for safety"},
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+        ]
+
+        turn = _build_turn("call-123", events)
+
+        assert turn.had_policy_intervention
+        assert turn.request_messages[0].was_modified
+        assert turn.request_messages[0].original_content == "Original"
+        assert len(turn.annotations) == 1
+        assert turn.annotations[0].policy_name == "judge"
+
+
+class TestFetchSessionList:
+    """Test fetching session list from database."""
+
+    @pytest.mark.asyncio
+    async def test_successful_fetch(self):
+        """Test successful session list fetching."""
+        mock_rows = [
+            {
+                "session_id": "session-1",
+                "first_ts": datetime(2025, 1, 15, 10, 0, 0),
+                "last_ts": datetime(2025, 1, 15, 11, 0, 0),
+                "total_events": 10,
+                "turn_count": 3,
+                "policy_interventions": 1,
+                "models": ["gpt-4", "claude-3"],
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        result = await fetch_session_list(limit=10, db_pool=mock_pool)
+
+        assert result.total == 1
+        assert len(result.sessions) == 1
+        assert result.sessions[0].session_id == "session-1"
+        assert result.sessions[0].turn_count == 3
+        assert result.sessions[0].policy_interventions == 1
+        assert "gpt-4" in result.sessions[0].models_used
+
+    @pytest.mark.asyncio
+    async def test_empty_result(self):
+        """Test when no sessions found."""
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = []
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        result = await fetch_session_list(limit=10, db_pool=mock_pool)
+
+        assert result.total == 0
+        assert result.sessions == []
+
+
+class TestFetchSessionDetail:
+    """Test fetching session detail from database."""
+
+    @pytest.mark.asyncio
+    async def test_successful_fetch(self):
+        """Test successful session detail fetching."""
+        mock_rows = [
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.request_recorded",
+                "payload": {
+                    "final_model": "gpt-4",
+                    "original_request": {"messages": [{"role": "user", "content": "Hi"}]},
+                    "final_request": {"messages": [{"role": "user", "content": "Hi"}]},
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.streaming_response_recorded",
+                "payload": {
+                    "original_response": {"choices": [{"message": {"content": "Hello!"}}]},
+                    "final_response": {"choices": [{"message": {"content": "Hello!"}}]},
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 1),
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        result = await fetch_session_detail("session-1", mock_pool)
+
+        assert result.session_id == "session-1"
+        assert len(result.turns) == 1
+        assert result.turns[0].model == "gpt-4"
+
+    @pytest.mark.asyncio
+    async def test_no_events_found(self):
+        """Test error when no events found."""
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = []
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        with pytest.raises(ValueError, match="No events found"):
+            await fetch_session_detail("nonexistent", mock_pool)
+
+
+class TestExportSessionMarkdown:
+    """Test markdown export functionality."""
+
+    def test_basic_export(self):
+        """Test basic markdown export."""
+        session = SessionDetail(
+            session_id="test-session",
+            first_timestamp="2025-01-15T10:00:00",
+            last_timestamp="2025-01-15T11:00:00",
+            turns=[
+                ConversationTurn(
+                    call_id="call-1",
+                    timestamp="2025-01-15T10:00:00",
+                    model="gpt-4",
+                    request_messages=[ConversationMessage(message_type=MessageType.USER, content="Hello")],
+                    response_messages=[ConversationMessage(message_type=MessageType.ASSISTANT, content="Hi there!")],
+                    annotations=[],
+                    had_policy_intervention=False,
+                )
+            ],
+            total_policy_interventions=0,
+            models_used=["gpt-4"],
+        )
+
+        markdown = export_session_markdown(session)
+
+        assert "# Conversation History: test-session" in markdown
+        assert "## Turn 1" in markdown
+        assert "### User" in markdown
+        assert "Hello" in markdown
+        assert "### Assistant" in markdown
+        assert "Hi there!" in markdown
+
+    def test_export_with_tool_call(self):
+        """Test markdown export with tool calls."""
+        session = SessionDetail(
+            session_id="test-session",
+            first_timestamp="2025-01-15T10:00:00",
+            last_timestamp="2025-01-15T11:00:00",
+            turns=[
+                ConversationTurn(
+                    call_id="call-1",
+                    timestamp="2025-01-15T10:00:00",
+                    model="gpt-4",
+                    request_messages=[],
+                    response_messages=[
+                        ConversationMessage(
+                            message_type=MessageType.TOOL_CALL,
+                            content="{}",
+                            tool_name="read_file",
+                            tool_input={"path": "/tmp/test"},
+                        )
+                    ],
+                    annotations=[],
+                    had_policy_intervention=False,
+                )
+            ],
+            total_policy_interventions=0,
+            models_used=["gpt-4"],
+        )
+
+        markdown = export_session_markdown(session)
+
+        assert "### Tool Call" in markdown
+        assert "`read_file`" in markdown
+        assert '"/tmp/test"' in markdown
+
+    def test_export_with_policy_annotations(self):
+        """Test markdown export with policy annotations."""
+        session = SessionDetail(
+            session_id="test-session",
+            first_timestamp="2025-01-15T10:00:00",
+            last_timestamp="2025-01-15T11:00:00",
+            turns=[
+                ConversationTurn(
+                    call_id="call-1",
+                    timestamp="2025-01-15T10:00:00",
+                    model="gpt-4",
+                    request_messages=[],
+                    response_messages=[],
+                    annotations=[
+                        PolicyAnnotation(
+                            policy_name="judge",
+                            event_type="policy.judge.tool_call_blocked",
+                            summary="Dangerous operation blocked",
+                        )
+                    ],
+                    had_policy_intervention=True,
+                )
+            ],
+            total_policy_interventions=1,
+            models_used=["gpt-4"],
+        )
+
+        markdown = export_session_markdown(session)
+
+        assert "### Policy Annotations" in markdown
+        assert "**judge**" in markdown
+        assert "Dangerous operation blocked" in markdown
+        assert "**Policy Interventions:** 1" in markdown

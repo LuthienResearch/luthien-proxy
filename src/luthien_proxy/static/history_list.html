@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversation History</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 32px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #888;
+        }
+
+        .nav-link {
+            color: #888;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .nav-link:hover {
+            color: #4ade80;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+            padding: 16px;
+            background: #141414;
+            border-radius: 8px;
+            border: 1px solid #262626;
+        }
+
+        .stats {
+            display: flex;
+            gap: 24px;
+            font-size: 13px;
+            color: #888;
+        }
+
+        .stat-value {
+            color: #4ade80;
+            font-weight: 600;
+        }
+
+        .sessions-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .session-card {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 8px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .session-card:hover {
+            border-color: #4ade80;
+            background: #161616;
+        }
+
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .session-id {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 14px;
+            color: #4ade80;
+            word-break: break-all;
+        }
+
+        .session-time {
+            font-size: 12px;
+            color: #666;
+            white-space: nowrap;
+            margin-left: 16px;
+        }
+
+        .session-stats {
+            display: flex;
+            gap: 24px;
+            font-size: 13px;
+            color: #888;
+        }
+
+        .session-stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .session-stat-value {
+            color: #e5e5e5;
+            font-weight: 500;
+        }
+
+        .session-stat.interventions .session-stat-value {
+            color: #f59e0b;
+        }
+
+        .session-models {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .model-tag {
+            font-size: 11px;
+            padding: 3px 8px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #a3a3a3;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #f87171;
+            background: #1a0a0a;
+            border: 1px solid #3d0a0a;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Conversation History</h1>
+                <p class="subtitle">Browse past sessions and conversations</p>
+            </div>
+            <a href="/auth/logout" class="nav-link">Sign Out</a>
+        </header>
+
+        <div class="toolbar">
+            <div class="stats">
+                <span>Total sessions: <span class="stat-value" id="total-count">-</span></span>
+            </div>
+        </div>
+
+        <div id="sessions-container" class="sessions-list">
+            <div class="loading">Loading sessions...</div>
+        </div>
+    </div>
+
+    <script>
+        async function loadSessions() {
+            const container = document.getElementById('sessions-container');
+            const totalCount = document.getElementById('total-count');
+
+            try {
+                const response = await fetch('/history/api/sessions?limit=100', {
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                totalCount.textContent = data.total;
+
+                if (data.sessions.length === 0) {
+                    container.innerHTML = '<div class="empty-state">No conversation history yet. Start using the proxy to see sessions here.</div>';
+                    return;
+                }
+
+                container.innerHTML = data.sessions.map(session => {
+                    const firstTime = new Date(session.first_timestamp);
+                    const lastTime = new Date(session.last_timestamp);
+                    const timeAgo = formatTimeAgo(lastTime);
+                    const duration = formatDuration(firstTime, lastTime);
+
+                    const modelsHtml = session.models_used.length > 0
+                        ? `<div class="session-models">${session.models_used.map(m => `<span class="model-tag">${escapeHtml(m)}</span>`).join('')}</div>`
+                        : '';
+
+                    const interventionClass = session.policy_interventions > 0 ? ' interventions' : '';
+
+                    return `
+                        <div class="session-card" onclick="viewSession('${escapeHtml(session.session_id)}')">
+                            <div class="session-header">
+                                <span class="session-id">${escapeHtml(session.session_id)}</span>
+                                <span class="session-time">${timeAgo}</span>
+                            </div>
+                            <div class="session-stats">
+                                <div class="session-stat">
+                                    <span>Turns:</span>
+                                    <span class="session-stat-value">${session.turn_count}</span>
+                                </div>
+                                <div class="session-stat">
+                                    <span>Events:</span>
+                                    <span class="session-stat-value">${session.total_events}</span>
+                                </div>
+                                <div class="session-stat${interventionClass}">
+                                    <span>Policy interventions:</span>
+                                    <span class="session-stat-value">${session.policy_interventions}</span>
+                                </div>
+                                <div class="session-stat">
+                                    <span>Duration:</span>
+                                    <span class="session-stat-value">${duration}</span>
+                                </div>
+                            </div>
+                            ${modelsHtml}
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                container.innerHTML = `<div class="error">Failed to load sessions: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        function viewSession(sessionId) {
+            window.location.href = `/history/session/${encodeURIComponent(sessionId)}`;
+        }
+
+        function formatTimeAgo(date) {
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+
+            if (diffMins < 1) return 'just now';
+            if (diffMins < 60) return `${diffMins}m ago`;
+            if (diffHours < 24) return `${diffHours}h ago`;
+            if (diffDays < 7) return `${diffDays}d ago`;
+            return date.toLocaleDateString();
+        }
+
+        function formatDuration(start, end) {
+            const diffMs = end - start;
+            const diffSecs = Math.floor(diffMs / 1000);
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+
+            if (diffSecs < 60) return `${diffSecs}s`;
+            if (diffMins < 60) return `${diffMins}m`;
+            return `${diffHours}h ${diffMins % 60}m`;
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Load sessions on page load
+        loadSessions();
+    </script>
+</body>
+</html>

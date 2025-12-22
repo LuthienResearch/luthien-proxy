@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversation Detail</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 32px;
+        }
+
+        .header-left {
+            flex: 1;
+        }
+
+        .back-link {
+            color: #888;
+            text-decoration: none;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .back-link:hover {
+            color: #4ade80;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .session-id {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 13px;
+            color: #888;
+            word-break: break-all;
+        }
+
+        .header-right {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: #888;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .nav-link:hover {
+            color: #4ade80;
+        }
+
+        .export-btn {
+            padding: 8px 16px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .export-btn:hover {
+            border-color: #4ade80;
+            background: #141414;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            margin-bottom: 24px;
+            padding: 16px;
+            background: #141414;
+            border-radius: 8px;
+            border: 1px solid #262626;
+        }
+
+        .stats {
+            display: flex;
+            gap: 24px;
+            font-size: 13px;
+            color: #888;
+        }
+
+        .stat-value {
+            color: #e5e5e5;
+            font-weight: 500;
+        }
+
+        .stat-value.warning {
+            color: #f59e0b;
+        }
+
+        .conversation {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .turn {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .turn.has-intervention {
+            border-color: #f59e0b;
+        }
+
+        .turn-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: #1a1a1a;
+            border-bottom: 1px solid #262626;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .turn-number {
+            font-weight: 600;
+            color: #e5e5e5;
+        }
+
+        .turn-model {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 11px;
+            padding: 2px 8px;
+            background: #0a0a0a;
+            border-radius: 4px;
+        }
+
+        .turn-body {
+            padding: 16px;
+        }
+
+        .messages {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            padding: 12px 16px;
+            border-radius: 8px;
+            position: relative;
+        }
+
+        .message.system {
+            background: #1a1a2e;
+            border-left: 3px solid #6366f1;
+        }
+
+        .message.user {
+            background: #1a2e1a;
+            border-left: 3px solid #4ade80;
+        }
+
+        .message.assistant {
+            background: #1a1a1a;
+            border-left: 3px solid #3b82f6;
+        }
+
+        .message.tool_call {
+            background: #2e2a1a;
+            border-left: 3px solid #f59e0b;
+        }
+
+        .message.tool_result {
+            background: #1a2e2e;
+            border-left: 3px solid #06b6d4;
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .message-type {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .message.system .message-type { color: #6366f1; }
+        .message.user .message-type { color: #4ade80; }
+        .message.assistant .message-type { color: #3b82f6; }
+        .message.tool_call .message-type { color: #f59e0b; }
+        .message.tool_result .message-type { color: #06b6d4; }
+
+        .message-modified {
+            font-size: 10px;
+            padding: 2px 6px;
+            background: #f59e0b22;
+            color: #f59e0b;
+            border-radius: 4px;
+        }
+
+        .tool-name {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 13px;
+            color: #f59e0b;
+            background: #2e2a1a;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .tool-call-id {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 11px;
+            color: #666;
+        }
+
+        .message-content {
+            font-size: 14px;
+            color: #d4d4d4;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .message-content.truncated {
+            max-height: 300px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .message-content.truncated::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: linear-gradient(transparent, #1a1a1a);
+            pointer-events: none;
+        }
+
+        .message.system .message-content.truncated::after { background: linear-gradient(transparent, #1a1a2e); }
+        .message.user .message-content.truncated::after { background: linear-gradient(transparent, #1a2e1a); }
+        .message.tool_call .message-content.truncated::after { background: linear-gradient(transparent, #2e2a1a); }
+        .message.tool_result .message-content.truncated::after { background: linear-gradient(transparent, #1a2e2e); }
+
+        .expand-btn {
+            display: block;
+            margin-top: 8px;
+            padding: 4px 12px;
+            background: transparent;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #888;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .expand-btn:hover {
+            border-color: #4ade80;
+            color: #4ade80;
+        }
+
+        .tool-input {
+            margin-top: 8px;
+            padding: 12px;
+            background: #0a0a0a;
+            border-radius: 6px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+        }
+
+        .annotations {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #262626;
+        }
+
+        .annotations-title {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #f59e0b;
+            margin-bottom: 8px;
+        }
+
+        .annotation {
+            font-size: 13px;
+            color: #f59e0b;
+            padding: 8px 12px;
+            background: #1a1508;
+            border-radius: 4px;
+            margin-bottom: 4px;
+        }
+
+        .annotation-policy {
+            font-weight: 600;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #f87171;
+            background: #1a0a0a;
+            border: 1px solid #3d0a0a;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-left">
+                <a href="/history" class="back-link">← Back to sessions</a>
+                <h1>Conversation Detail</h1>
+                <p class="session-id" id="session-id">Loading...</p>
+            </div>
+            <div class="header-right">
+                <a href="#" class="export-btn" id="export-btn">Export Markdown</a>
+                <a href="/auth/logout" class="nav-link">Sign Out</a>
+            </div>
+        </header>
+
+        <div class="toolbar">
+            <div class="stats">
+                <span>Turns: <span class="stat-value" id="turn-count">-</span></span>
+                <span>Policy interventions: <span class="stat-value" id="intervention-count">-</span></span>
+                <span>Models: <span class="stat-value" id="models-used">-</span></span>
+            </div>
+        </div>
+
+        <div id="conversation-container" class="conversation">
+            <div class="loading">Loading conversation...</div>
+        </div>
+    </div>
+
+    <script>
+        // Get session ID from URL path
+        const pathParts = window.location.pathname.split('/');
+        const sessionId = decodeURIComponent(pathParts[pathParts.length - 1]);
+
+        async function loadConversation() {
+            const container = document.getElementById('conversation-container');
+            const sessionIdEl = document.getElementById('session-id');
+            const turnCountEl = document.getElementById('turn-count');
+            const interventionCountEl = document.getElementById('intervention-count');
+            const modelsUsedEl = document.getElementById('models-used');
+            const exportBtn = document.getElementById('export-btn');
+
+            sessionIdEl.textContent = sessionId;
+            exportBtn.href = `/history/api/sessions/${encodeURIComponent(sessionId)}/export`;
+
+            try {
+                const response = await fetch(`/history/api/sessions/${encodeURIComponent(sessionId)}`, {
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error('Session not found');
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                turnCountEl.textContent = data.turns.length;
+                interventionCountEl.textContent = data.total_policy_interventions;
+                if (data.total_policy_interventions > 0) {
+                    interventionCountEl.classList.add('warning');
+                }
+                modelsUsedEl.textContent = data.models_used.join(', ') || 'None';
+
+                if (data.turns.length === 0) {
+                    container.innerHTML = '<div class="empty-state">No conversation turns found for this session.</div>';
+                    return;
+                }
+
+                container.innerHTML = data.turns.map((turn, index) => renderTurn(turn, index + 1)).join('');
+
+            } catch (error) {
+                container.innerHTML = `<div class="error">Failed to load conversation: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        function renderTurn(turn, number) {
+            const hasIntervention = turn.had_policy_intervention;
+            const turnClass = hasIntervention ? 'turn has-intervention' : 'turn';
+
+            const requestMessages = turn.request_messages.map(m => renderMessage(m)).join('');
+            const responseMessages = turn.response_messages.map(m => renderMessage(m)).join('');
+
+            const annotationsHtml = turn.annotations.length > 0 ? `
+                <div class="annotations">
+                    <div class="annotations-title">Policy Annotations</div>
+                    ${turn.annotations.map(a => `
+                        <div class="annotation">
+                            <span class="annotation-policy">${escapeHtml(a.policy_name)}:</span>
+                            ${escapeHtml(a.summary)}
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '';
+
+            return `
+                <div class="${turnClass}">
+                    <div class="turn-header">
+                        <span class="turn-number">Turn ${number}</span>
+                        ${turn.model ? `<span class="turn-model">${escapeHtml(turn.model)}</span>` : ''}
+                    </div>
+                    <div class="turn-body">
+                        <div class="messages">
+                            ${requestMessages}
+                            ${responseMessages}
+                        </div>
+                        ${annotationsHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderMessage(msg) {
+            const typeClass = msg.message_type.toLowerCase();
+            const typeLabel = getTypeLabel(msg.message_type);
+
+            let headerExtra = '';
+            if (msg.message_type === 'tool_call' && msg.tool_name) {
+                headerExtra = `<span class="tool-name">${escapeHtml(msg.tool_name)}</span>`;
+            }
+            if (msg.tool_call_id) {
+                headerExtra += `<span class="tool-call-id">${escapeHtml(msg.tool_call_id)}</span>`;
+            }
+            if (msg.was_modified) {
+                headerExtra += '<span class="message-modified">Modified</span>';
+            }
+
+            const content = msg.content || '';
+            const shouldTruncate = content.length > 1000;
+            const contentClass = shouldTruncate ? 'message-content truncated' : 'message-content';
+            const contentId = `content-${Math.random().toString(36).substr(2, 9)}`;
+
+            let toolInputHtml = '';
+            if (msg.message_type === 'tool_call' && msg.tool_input) {
+                toolInputHtml = `
+                    <div class="tool-input">
+                        <pre>${escapeHtml(JSON.stringify(msg.tool_input, null, 2))}</pre>
+                    </div>
+                `;
+            }
+
+            const expandBtn = shouldTruncate ? `
+                <button class="expand-btn" onclick="toggleExpand('${contentId}', this)">Show more</button>
+            ` : '';
+
+            return `
+                <div class="message ${typeClass}">
+                    <div class="message-header">
+                        <span class="message-type">${typeLabel}</span>
+                        ${headerExtra}
+                    </div>
+                    <div class="${contentClass}" id="${contentId}">${escapeHtml(content)}</div>
+                    ${expandBtn}
+                    ${toolInputHtml}
+                </div>
+            `;
+        }
+
+        function getTypeLabel(type) {
+            const labels = {
+                'system': 'System',
+                'user': 'User',
+                'assistant': 'Assistant',
+                'tool_call': 'Tool Call',
+                'tool_result': 'Tool Result'
+            };
+            return labels[type] || type;
+        }
+
+        function toggleExpand(contentId, btn) {
+            const content = document.getElementById(contentId);
+            if (content.classList.contains('truncated')) {
+                content.classList.remove('truncated');
+                btn.textContent = 'Show less';
+            } else {
+                content.classList.add('truncated');
+                btn.textContent = 'Show more';
+            }
+        }
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+
+        // Load conversation on page load
+        loadConversation();
+    </script>
+</body>
+</html>
