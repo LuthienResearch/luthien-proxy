@@ -2,14 +2,7 @@
 
 ## Unreleased | TBA
 
-- Add public demo deployment solution (#slack-add-demo-deployment)
-  - Fly.io deployment with `fly.toml` and automated deploy script
-  - Render Blueprint (`render.yaml`) for one-click GitHub deployment
-  - Railway deployment configuration (`railway.toml`, `railway.json`)
-  - DigitalOcean App Platform spec (`deploy/digitalocean/app.yaml`)
-  - Production Docker Compose with Caddy reverse proxy for automatic HTTPS
-  - VPS deployment script with Docker setup and secure credential generation
-  - Comprehensive deployment documentation in `deploy/README.md`
+- Add Railway demo deployment configuration (`railway.toml`, `deploy/README.md`)
 
 - Add conversation history viewer with styled message types and markdown export (conversation-history-viewer)
   - Browse recent sessions at `/history` with turn counts, policy interventions, and model usage
