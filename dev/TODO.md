@@ -5,8 +5,6 @@
 ### Core Features (User Story Aligned)
 
 - [ ] **thinking and verbosity model flags not respected** - Model parameters like `thinking` and `verbosity` are not passed through to backend. Blocks User Story 1 (Solo Developer). Issue: `luthien-proxy-mfs` (P1).
-- [x] **Conversation history browser & export** - Enable users to browse and export full conversation logs from past sessions. Maps to `luthien-proxy-edl` (Conversation Viewer UI) in User Stories 1 & 2. Implemented `/history` endpoint with styled message types and markdown export.
-- [x] **session_id not propagated to transaction events** - Fixed: TransactionRecorder now receives session_id from processor.py and includes it in all emitted events.
 
 ### Policy UI & Admin
 
