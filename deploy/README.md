@@ -13,7 +13,10 @@ Deploy Luthien Proxy to Railway for a publicly-accessible demo.
 3. Add a **Redis** service
 4. Add a new service from GitHub (this repo)
 5. Set environment variables (see below)
-6. Generate a domain in Settings → Networking
+6. **Generate a public domain:**
+   - Go to your service → **Settings** → **Networking**
+   - Click **Generate Domain** to get a public URL
+   - Without this step, your service won't be accessible from the internet
 
 ### Required Environment Variables
 
@@ -21,13 +24,12 @@ All of these must be set for the deployment to work:
 
 | Variable | Value | Description |
 |----------|-------|-------------|
+| `PORT` | `8000` | Server port (must match Dockerfile EXPOSE) |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | PostgreSQL connection URL |
 | `REDIS_URL` | `${{Redis.REDIS_URL}}` | Redis connection URL |
 | `PROXY_API_KEY` | `openssl rand -hex 32` | API key for client authentication |
 | `ADMIN_API_KEY` | `openssl rand -hex 32` | API key for admin endpoints |
 | `POLICY_CONFIG` | `/app/config/policy_config.yaml` | Path to default policy config |
-
-**Note:** The app automatically reads Railway's `PORT` environment variable for the gateway port. No need to set `GATEWAY_PORT`.
 
 ### Recommended Environment Variables
 
@@ -87,9 +89,15 @@ Check the deployment logs (`railway logs`) for these common errors:
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `RuntimeError: No policy configured` | Missing `POLICY_CONFIG` | Set `POLICY_CONFIG=/app/config/policy_config.yaml` |
-| Connection refused on port | Wrong port binding | Set `GATEWAY_PORT=${{PORT}}` |
+| Port parsing error / empty string | Missing `PORT` | Set `PORT=8000` |
 | Database connection failed | Missing DATABASE_URL | Verify PostgreSQL service is linked |
 | Redis connection failed | Missing REDIS_URL | Verify Redis service is linked |
+
+### Service Not Accessible
+
+If you get "Application not found" or can't reach your service:
+- Verify you generated a domain in Settings → Networking
+- Check that the deployment completed successfully in the Railway dashboard
 
 ### Logs Command
 
