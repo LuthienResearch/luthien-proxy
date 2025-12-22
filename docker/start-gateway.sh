@@ -19,7 +19,10 @@ if [ -n "$DATABASE_URL" ]; then
     export PGPASSWORD="${USERPASS#*:}"
 
     HOSTPORT="${HOSTPORTDB%%/*}"
-    export PGDATABASE="${HOSTPORTDB#*/}"
+    DBPART="${HOSTPORTDB#*/}"
+
+    # Strip query parameters from database name (e.g., ?sslmode=require)
+    export PGDATABASE="${DBPART%%\?*}"
 
     export PGHOST="${HOSTPORT%%:*}"
     export PGPORT="${HOSTPORT#*:}"
