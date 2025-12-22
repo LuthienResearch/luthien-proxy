@@ -2,19 +2,24 @@
 # Startup script for Luthien Gateway
 # Runs migrations (if DATABASE_URL is set) then starts the gateway
 
-set -e
+# Output to both stdout and stderr for Railway logging
+exec 2>&1
 
-echo "========================================="
-echo "Luthien Gateway Startup"
-echo "========================================="
-echo "Checking environment variables..."
-echo "DATABASE_URL set: $([ -n \"$DATABASE_URL\" ] && echo 'YES' || echo 'NO')"
-echo "REDIS_URL set: $([ -n \"$REDIS_URL\" ] && echo 'YES' || echo 'NO')"
-echo "PROXY_API_KEY set: $([ -n \"$PROXY_API_KEY\" ] && echo 'YES' || echo 'NO')"
-echo "ADMIN_API_KEY set: $([ -n \"$ADMIN_API_KEY\" ] && echo 'YES' || echo 'NO')"
-echo "GATEWAY_PORT: ${GATEWAY_PORT:-not set}"
-echo "PORT (Railway): ${PORT:-not set}"
-echo "========================================="
+echo "=========================================" >&2
+echo "Luthien Gateway Startup" >&2
+echo "=========================================" >&2
+echo "Checking environment variables..." >&2
+echo "DATABASE_URL set: $([ -n "$DATABASE_URL" ] && echo 'YES' || echo 'NO')" >&2
+echo "REDIS_URL set: $([ -n "$REDIS_URL" ] && echo 'YES' || echo 'NO')" >&2
+echo "PROXY_API_KEY set: $([ -n "$PROXY_API_KEY" ] && echo 'YES' || echo 'NO')" >&2
+echo "ADMIN_API_KEY set: $([ -n "$ADMIN_API_KEY" ] && echo 'YES' || echo 'NO')" >&2
+echo "GATEWAY_PORT: ${GATEWAY_PORT:-not set}" >&2
+echo "PORT (Railway): ${PORT:-not set}" >&2
+echo "PWD: $(pwd)" >&2
+echo "whoami: $(whoami)" >&2
+echo "=========================================" >&2
+
+set -e
 
 # Parse DATABASE_URL into individual components if set
 # Format: postgresql://user:password@host:port/database
