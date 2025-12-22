@@ -33,6 +33,7 @@ if [ -n "$DATABASE_URL" ]; then
     fi
 
     echo "Running database migrations..."
+    export MIGRATIONS_DIR=/app/migrations
     /app/docker/run-migrations.sh
     echo "Migrations complete."
 fi
