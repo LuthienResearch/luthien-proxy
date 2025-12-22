@@ -113,6 +113,16 @@ class TestExtractToolCalls:
         result = _extract_tool_calls(message)
         assert len(result) == 0
 
+    def test_explicit_none_tool_calls(self):
+        """Test message with tool_calls explicitly set to None.
+
+        This case occurs in real OpenAI responses where tool_calls is present
+        but null, not just missing from the dict.
+        """
+        message = {"content": "Hello world", "tool_calls": None}
+        result = _extract_tool_calls(message)
+        assert len(result) == 0
+
 
 class TestParseRequestMessages:
     """Test request message parsing."""
@@ -343,6 +353,56 @@ class TestFetchSessionDetail:
 
         with pytest.raises(ValueError, match="No events found"):
             await fetch_session_detail("nonexistent", mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_payload_as_json_string(self):
+        """Test handling of JSONB payload returned as string by asyncpg.
+
+        asyncpg returns JSONB columns as strings, not dicts. The service
+        must parse these strings into dicts for proper processing.
+        """
+        import json
+
+        payload_dict = {
+            "final_model": "gpt-4",
+            "original_request": {"messages": [{"role": "user", "content": "Hi"}]},
+            "final_request": {"messages": [{"role": "user", "content": "Hi"}]},
+        }
+        response_payload = {
+            "original_response": {"choices": [{"message": {"content": "Hello!"}}]},
+            "final_response": {"choices": [{"message": {"content": "Hello!"}}]},
+        }
+
+        mock_rows = [
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.request_recorded",
+                "payload": json.dumps(payload_dict),  # String, not dict
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.streaming_response_recorded",
+                "payload": json.dumps(response_payload),  # String, not dict
+                "created_at": datetime(2025, 1, 15, 10, 0, 1),
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        result = await fetch_session_detail("session-1", mock_pool)
+
+        assert result.session_id == "session-1"
+        assert len(result.turns) == 1
+        assert result.turns[0].model == "gpt-4"
+        assert len(result.turns[0].request_messages) == 1
+        assert result.turns[0].request_messages[0].content == "Hi"
+        assert len(result.turns[0].response_messages) == 1
+        assert result.turns[0].response_messages[0].content == "Hello!"
 
 
 class TestExportSessionMarkdown:
