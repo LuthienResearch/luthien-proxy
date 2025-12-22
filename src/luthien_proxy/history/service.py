@@ -124,6 +124,21 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
         # For tool results, include the tool_call_id
         tool_call_id = msg.get("tool_call_id") if role == "tool" else None
 
+        # For assistant messages, extract any tool calls first
+        if role == "assistant":
+            tool_call_msgs = _extract_tool_calls(msg)
+            if tool_call_msgs:
+                # Add tool calls, then optionally add text content if present
+                messages.extend(tool_call_msgs)
+                if content:
+                    messages.append(
+                        ConversationMessage(
+                            message_type=msg_type,
+                            content=content,
+                        )
+                    )
+                continue
+
         messages.append(
             ConversationMessage(
                 message_type=msg_type,

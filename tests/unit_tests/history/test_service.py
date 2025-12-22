@@ -144,6 +144,51 @@ class TestParseRequestMessages:
         assert result[1].message_type == MessageType.USER
         assert result[1].content == "Hello"
 
+    def test_assistant_message_with_tool_calls(self):
+        """Test parsing assistant messages with tool_calls in request.
+
+        When conversation history includes an assistant message that made
+        tool calls, those tool calls must be extracted and included.
+        """
+        request = {
+            "messages": [
+                {"role": "user", "content": "What's the weather in Tokyo?"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_abc123",
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": '{"location": "Tokyo"}',
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_abc123",
+                    "content": '{"temperature": 22, "conditions": "sunny"}',
+                },
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 3
+        # First: user message
+        assert result[0].message_type == MessageType.USER
+        assert "weather" in result[0].content.lower()
+        # Second: tool call from assistant
+        assert result[1].message_type == MessageType.TOOL_CALL
+        assert result[1].tool_name == "get_weather"
+        assert result[1].tool_call_id == "call_abc123"
+        # Third: tool result
+        assert result[2].message_type == MessageType.TOOL_RESULT
+        assert result[2].tool_call_id == "call_abc123"
+
     def test_tool_result_message(self):
         """Test parsing tool result messages."""
         request = {
