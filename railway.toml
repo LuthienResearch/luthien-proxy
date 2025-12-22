@@ -14,6 +14,7 @@ healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+startCommand = "uv run python -m luthien_proxy.main"
 
 # Environment variables to set in Railway dashboard:
 # DATABASE_URL - Auto-populated when adding PostgreSQL
