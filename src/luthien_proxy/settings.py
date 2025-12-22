@@ -32,13 +32,7 @@ class Settings(BaseSettings):
     admin_api_key: str | None = None
 
     # Server configuration
-    # Uses PORT env var (standard for Railway/PaaS platforms)
-    port: int = Field(default=DEFAULT_GATEWAY_PORT)
-
-    @property
-    def gateway_port(self) -> int:
-        """Alias for port, for backward compatibility."""
-        return self.port
+    gateway_port: int = Field(default=DEFAULT_GATEWAY_PORT)
 
     # Database and Redis
     database_url: str = ""

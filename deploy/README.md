@@ -24,7 +24,7 @@ All of these must be set for the deployment to work:
 
 | Variable | Value | Description |
 |----------|-------|-------------|
-| `PORT` | `8000` | Server port (must match Dockerfile EXPOSE) |
+| `GATEWAY_PORT` | `8000` | Server port (must match Dockerfile EXPOSE) |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | PostgreSQL connection URL |
 | `REDIS_URL` | `${{Redis.REDIS_URL}}` | Redis connection URL |
 | `PROXY_API_KEY` | `openssl rand -hex 32` | API key for client authentication |
@@ -89,7 +89,7 @@ Check the deployment logs (`railway logs`) for these common errors:
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `RuntimeError: No policy configured` | Missing `POLICY_CONFIG` | Set `POLICY_CONFIG=/app/config/policy_config.yaml` |
-| Port parsing error / empty string | Missing `PORT` | Set `PORT=8000` |
+| Port parsing error / empty string | Missing `GATEWAY_PORT` | Set `GATEWAY_PORT=8000` |
 | Database connection failed | Missing DATABASE_URL | Verify PostgreSQL service is linked |
 | Redis connection failed | Missing REDIS_URL | Verify Redis service is linked |
 

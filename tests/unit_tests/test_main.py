@@ -72,14 +72,14 @@ class TestLoadConfigFromEnv:
         assert config["startup_policy_path"] == "custom/path.yaml"
         assert config["gateway_port"] == 8000  # default value
 
-    def test_port_from_env(self, monkeypatch):
-        """Test that PORT is included in config from environment."""
+    def test_gateway_port_from_env(self, monkeypatch):
+        """Test that GATEWAY_PORT is included in config from environment."""
         from luthien_proxy.settings import Settings
 
         monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
-        monkeypatch.setenv("PORT", "3000")
+        monkeypatch.setenv("GATEWAY_PORT", "3000")
 
         config = load_config_from_env(settings=Settings(_env_file=None))
 
