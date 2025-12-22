@@ -33,7 +33,7 @@ from luthien_proxy.telemetry import (
 )
 from luthien_proxy.ui import router as ui_router
 from luthien_proxy.utils import db
-from luthien_proxy.utils.constants import DB_URL_PREVIEW_LENGTH, DEFAULT_GATEWAY_PORT
+from luthien_proxy.utils.constants import DB_URL_PREVIEW_LENGTH
 from luthien_proxy.utils.migration_check import check_migrations
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
@@ -238,6 +238,7 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         "database_url": settings.database_url,
         "redis_url": settings.redis_url,
         "startup_policy_path": settings.policy_config if settings.policy_config else None,
+        "gateway_port": settings.gateway_port,
     }
 
 
@@ -252,7 +253,9 @@ if __name__ == "__main__":
         config = load_config_from_env()
 
         startup_path = config.get("startup_policy_path")
+        port = config["gateway_port"]
         logger.info(f"Policy configuration: startup_policy_path={startup_path or '(load from DB)'}")
+        logger.info(f"Starting gateway on port {port}")
 
         db_pool = None
         redis_client = None
@@ -268,7 +271,7 @@ if __name__ == "__main__":
                 startup_policy_path=startup_path,
             )
 
-            server_config = uvicorn.Config(app, host="0.0.0.0", port=DEFAULT_GATEWAY_PORT, log_level="debug")
+            server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="debug")
             server = uvicorn.Server(server_config)
             await server.serve()
         finally:

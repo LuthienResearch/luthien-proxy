@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     proxy_api_key: str | None = None
     admin_api_key: str | None = None
 
+    # Server configuration
+    gateway_port: int = 8000
+
     # Database and Redis
     database_url: str = ""
     redis_url: str = "redis://localhost:6379"

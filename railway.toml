@@ -1,0 +1,25 @@
+# Railway deployment configuration for Luthien Proxy
+# Deploy: https://railway.app/new/template?template=https://github.com/luthienresearch/luthien-proxy
+#
+# Prerequisites:
+# 1. Add PostgreSQL service in Railway dashboard
+# 2. Add Redis service in Railway dashboard
+# 3. Set environment variables (see below)
+
+[build]
+dockerfilePath = "docker/Dockerfile.gateway"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Environment variables to set in Railway dashboard:
+# DATABASE_URL - Auto-populated when adding PostgreSQL
+# REDIS_URL - Auto-populated when adding Redis
+# PROXY_API_KEY - Your secure API key for clients
+# ADMIN_API_KEY - Your secure API key for admin
+# OPENAI_API_KEY - OpenAI API key (if using)
+# ANTHROPIC_API_KEY - Anthropic API key (if using)
+# GATEWAY_PORT - Set to $PORT (Railway provides this)

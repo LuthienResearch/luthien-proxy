@@ -2,6 +2,8 @@
 
 ## Unreleased | TBA
 
+- Add Railway demo deployment configuration (`railway.toml`, `deploy/README.md`)
+
 - Add conversation history viewer with styled message types and markdown export (conversation-history-viewer)
   - Browse recent sessions at `/history` with turn counts, policy interventions, and model usage
   - View full conversation detail at `/history/session/{id}` with message type styling (system/user/assistant/tool call/tool result)
