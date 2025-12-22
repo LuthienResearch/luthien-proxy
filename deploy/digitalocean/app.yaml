@@ -1,0 +1,99 @@
+# DigitalOcean App Platform specification
+# Deploy: doctl apps create --spec deploy/digitalocean/app.yaml
+#
+# Prerequisites:
+# 1. Install doctl: https://docs.digitalocean.com/reference/doctl/how-to/install/
+# 2. Authenticate: doctl auth init
+# 3. Create app with this spec
+
+name: luthien-proxy
+
+region: nyc
+
+services:
+  - name: gateway
+    dockerfile_path: docker/Dockerfile.gateway
+    github:
+      repo: luthienresearch/luthien-proxy
+      branch: main
+      deploy_on_push: true
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    http_port: 8000
+    routes:
+      - path: /
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 10
+      period_seconds: 30
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    envs:
+      - key: GATEWAY_PORT
+        value: "8000"
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${db.DATABASE_URL}
+      - key: REDIS_URL
+        scope: RUN_TIME
+        value: ${redis.DATABASE_URL}
+      - key: POLICY_SOURCE
+        value: db-fallback-file
+      - key: POLICY_CONFIG
+        value: /app/config/policy_config.yaml
+      - key: LOG_LEVEL
+        value: INFO
+      - key: OTEL_ENABLED
+        value: "false"
+      - key: ENVIRONMENT
+        value: production
+      # Secrets - set in dashboard or via doctl
+      - key: PROXY_API_KEY
+        type: SECRET
+      - key: ADMIN_API_KEY
+        type: SECRET
+      - key: OPENAI_API_KEY
+        type: SECRET
+      - key: ANTHROPIC_API_KEY
+        type: SECRET
+
+databases:
+  - name: db
+    engine: PG
+    version: "16"
+    size: db-s-dev-database
+    num_nodes: 1
+
+  - name: redis
+    engine: REDIS
+    version: "7"
+    size: db-s-dev-database
+    num_nodes: 1
+
+# Run migrations as a job after deployment
+jobs:
+  - name: migrations
+    kind: PRE_DEPLOY
+    dockerfile_path: docker/Dockerfile.migrations
+    github:
+      repo: luthienresearch/luthien-proxy
+      branch: main
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    envs:
+      - key: PGHOST
+        scope: RUN_TIME
+        value: ${db.HOSTNAME}
+      - key: PGUSER
+        scope: RUN_TIME
+        value: ${db.USERNAME}
+      - key: PGPASSWORD
+        scope: RUN_TIME
+        value: ${db.PASSWORD}
+      - key: PGDATABASE
+        scope: RUN_TIME
+        value: ${db.DATABASE}
+      - key: PGPORT
+        scope: RUN_TIME
+        value: ${db.PORT}
