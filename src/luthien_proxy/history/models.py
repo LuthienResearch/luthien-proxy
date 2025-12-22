@@ -76,7 +76,9 @@ class SessionListResponse(BaseModel):
     """Response for session list endpoint."""
 
     sessions: list[SessionSummary]
-    total: int
+    total: int  # Total count of all sessions in database
+    offset: int = 0  # Current offset for pagination
+    has_more: bool = False  # Whether there are more sessions after this page
 
 
 class SessionDetail(BaseModel):

@@ -191,17 +191,27 @@ def _check_modifications(original: dict[str, Any], final: dict[str, Any]) -> tup
     return False, None
 
 
-async def fetch_session_list(limit: int, db_pool: DatabasePool) -> SessionListResponse:
+async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
     """Fetch list of recent sessions with summaries.
 
     Args:
         limit: Maximum number of sessions to return
         db_pool: Database connection pool
+        offset: Number of sessions to skip for pagination
 
     Returns:
         List of session summaries ordered by most recent activity
     """
     async with db_pool.connection() as conn:
+        # Get total count of sessions
+        total_count = await conn.fetchval(
+            """
+            SELECT COUNT(DISTINCT session_id)
+            FROM conversation_events
+            WHERE session_id IS NOT NULL
+            """
+        )
+
         # Get session summaries with aggregated stats
         rows = await conn.fetch(
             """
@@ -245,9 +255,10 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool) -> SessionListRe
             GROUP BY s.session_id, s.first_ts, s.last_ts,
                      s.total_events, s.turn_count, s.policy_interventions
             ORDER BY s.last_ts DESC
-            LIMIT $1
+            LIMIT $1 OFFSET $2
             """,
             limit,
+            offset,
         )
 
     sessions = [
@@ -265,7 +276,10 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool) -> SessionListRe
         for row in rows
     ]
 
-    return SessionListResponse(sessions=sessions, total=len(sessions))
+    total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
+    has_more = offset + len(sessions) < total
+
+    return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
 
 
 async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> SessionDetail:

@@ -18,6 +18,10 @@ from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
 from luthien_proxy.session import get_session_user
+from luthien_proxy.utils.constants import (
+    HISTORY_SESSIONS_DEFAULT_LIMIT,
+    HISTORY_SESSIONS_MAX_LIMIT,
+)
 from luthien_proxy.utils.db import DatabasePool
 
 from .models import SessionDetail, SessionListResponse
@@ -27,10 +31,6 @@ router = APIRouter(prefix="/history", tags=["history"])
 
 # Static directory for HTML templates
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
-
-# Default and max limits for session list
-DEFAULT_SESSION_LIMIT = 50
-MAX_SESSION_LIMIT = 500
 
 
 def _check_auth_or_redirect(request: Request, admin_key: str | None) -> RedirectResponse | None:
@@ -74,15 +74,23 @@ async def history_detail_page(
     request: Request,
     session_id: str,
     admin_key: str | None = Depends(get_admin_key),
+    db_pool: DatabasePool = Depends(get_db_pool),
 ):
     """Conversation history detail UI.
 
     Returns the HTML page for viewing a specific session's conversation.
-    Requires admin authentication.
+    Requires admin authentication. Returns 404 if session doesn't exist.
     """
     redirect = _check_auth_or_redirect(request, admin_key)
     if redirect:
         return redirect
+
+    # Validate session exists before serving HTML
+    try:
+        await fetch_session_detail(session_id, db_pool)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
     return FileResponse(os.path.join(STATIC_DIR, "history_detail.html"))
 
 
@@ -94,18 +102,24 @@ async def list_sessions(
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
     limit: int = Query(
-        default=DEFAULT_SESSION_LIMIT,
+        default=HISTORY_SESSIONS_DEFAULT_LIMIT,
         ge=1,
-        le=MAX_SESSION_LIMIT,
+        le=HISTORY_SESSIONS_MAX_LIMIT,
         description="Maximum number of sessions to return",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of sessions to skip for pagination",
     ),
 ) -> SessionListResponse:
     """List recent sessions with summaries.
 
     Returns a list of session summaries ordered by most recent activity,
     including turn counts, policy interventions, and models used.
+    Supports pagination via limit and offset parameters.
     """
-    return await fetch_session_list(limit, db_pool)
+    return await fetch_session_list(limit, db_pool, offset)
 
 
 @router.get("/api/sessions/{session_id}", response_model=SessionDetail)

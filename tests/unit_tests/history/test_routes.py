@@ -47,7 +47,9 @@ class TestListSessionsRoute:
                     models_used=["gpt-4"],
                 ),
             ],
-            total=1,
+            total=100,
+            offset=0,
+            has_more=True,
         )
 
         with patch(
@@ -55,13 +57,15 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=expected_response,
         ) as mock_fetch:
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0)
 
             assert isinstance(result, SessionListResponse)
-            assert result.total == 1
+            assert result.total == 100
+            assert result.offset == 0
+            assert result.has_more is True
             assert len(result.sessions) == 1
             assert result.sessions[0].session_id == "session-1"
-            mock_fetch.assert_called_once_with(50, mock_db_pool)
+            mock_fetch.assert_called_once_with(50, mock_db_pool, 0)
 
     @pytest.mark.asyncio
     async def test_list_sessions_custom_limit(self):
@@ -73,8 +77,30 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=SessionListResponse(sessions=[], total=0),
         ) as mock_fetch:
-            await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=100)
-            mock_fetch.assert_called_once_with(100, mock_db_pool)
+            await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=100, offset=0)
+            mock_fetch.assert_called_once_with(100, mock_db_pool, 0)
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_with_offset(self):
+        """Test session list respects offset parameter for pagination."""
+        mock_db_pool = MagicMock()
+        expected_response = SessionListResponse(
+            sessions=[],
+            total=100,
+            offset=50,
+            has_more=True,
+        )
+
+        with patch(
+            "luthien_proxy.history.routes.fetch_session_list",
+            new_callable=AsyncMock,
+            return_value=expected_response,
+        ) as mock_fetch:
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=50)
+
+            assert result.offset == 50
+            assert result.has_more is True
+            mock_fetch.assert_called_once_with(50, mock_db_pool, 50)
 
     @pytest.mark.asyncio
     async def test_list_sessions_empty(self):
@@ -86,10 +112,11 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=SessionListResponse(sessions=[], total=0),
         ):
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0)
 
             assert result.total == 0
             assert result.sessions == []
+            assert result.has_more is False
 
 
 class TestGetSessionRoute:
