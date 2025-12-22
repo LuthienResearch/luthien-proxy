@@ -40,11 +40,12 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.grafana_url == "http://localhost:3000"
 
-    def test_default_gateway_port(self, monkeypatch):
-        """Test default gateway port is 8000."""
-        monkeypatch.delenv("GATEWAY_PORT", raising=False)
+    def test_default_port(self, monkeypatch):
+        """Test default port is 8000."""
+        monkeypatch.delenv("PORT", raising=False)
         settings = Settings(_env_file=None)
-        assert settings.gateway_port == 8000
+        assert settings.port == 8000
+        assert settings.gateway_port == 8000  # backward compat property
 
     def test_optional_fields_default_to_none(self, monkeypatch):
         """Test optional fields default to None."""
@@ -101,11 +102,12 @@ class TestSettingsFromEnv:
         settings = Settings()
         assert settings.policy_config == "custom/policy.yaml"
 
-    def test_loads_gateway_port(self, monkeypatch):
-        """Test GATEWAY_PORT is loaded from environment."""
-        monkeypatch.setenv("GATEWAY_PORT", "3000")
+    def test_loads_port(self, monkeypatch):
+        """Test PORT is loaded from environment."""
+        monkeypatch.setenv("PORT", "3000")
         settings = Settings()
-        assert settings.gateway_port == 3000
+        assert settings.port == 3000
+        assert settings.gateway_port == 3000  # backward compat property
 
 
 class TestEffectiveOtelEndpoint:

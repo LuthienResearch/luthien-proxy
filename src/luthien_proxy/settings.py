@@ -7,7 +7,7 @@ Settings instance.
 
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
@@ -32,19 +32,13 @@ class Settings(BaseSettings):
     admin_api_key: str | None = None
 
     # Server configuration
-    # Reads GATEWAY_PORT first, falls back to PORT (for Railway/PaaS compatibility)
-    gateway_port: int = Field(
-        default=DEFAULT_GATEWAY_PORT,
-        validation_alias=AliasChoices("GATEWAY_PORT", "PORT"),
-    )
+    # Uses PORT env var (standard for Railway/PaaS platforms)
+    port: int = Field(default=DEFAULT_GATEWAY_PORT)
 
-    @field_validator("gateway_port", mode="before")
-    @classmethod
-    def empty_string_to_default(cls, v: int | str | None) -> int | None:
-        """Treat empty strings as unset (use default)."""
-        if v == "":
-            return None
-        return v
+    @property
+    def gateway_port(self) -> int:
+        """Alias for port, for backward compatibility."""
+        return self.port
 
     # Database and Redis
     database_url: str = ""
