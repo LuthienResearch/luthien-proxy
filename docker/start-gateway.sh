@@ -4,6 +4,18 @@
 
 set -e
 
+echo "========================================="
+echo "Luthien Gateway Startup"
+echo "========================================="
+echo "Checking environment variables..."
+echo "DATABASE_URL set: $([ -n \"$DATABASE_URL\" ] && echo 'YES' || echo 'NO')"
+echo "REDIS_URL set: $([ -n \"$REDIS_URL\" ] && echo 'YES' || echo 'NO')"
+echo "PROXY_API_KEY set: $([ -n \"$PROXY_API_KEY\" ] && echo 'YES' || echo 'NO')"
+echo "ADMIN_API_KEY set: $([ -n \"$ADMIN_API_KEY\" ] && echo 'YES' || echo 'NO')"
+echo "GATEWAY_PORT: ${GATEWAY_PORT:-not set}"
+echo "PORT (Railway): ${PORT:-not set}"
+echo "========================================="
+
 # Parse DATABASE_URL into individual components if set
 # Format: postgresql://user:password@host:port/database
 if [ -n "$DATABASE_URL" ]; then
@@ -36,7 +48,11 @@ if [ -n "$DATABASE_URL" ]; then
     export MIGRATIONS_DIR=/app/migrations
     /app/docker/run-migrations.sh
     echo "Migrations complete."
+else
+    echo "WARNING: DATABASE_URL not set, skipping migrations"
 fi
 
 # Start the gateway
+echo "Starting gateway application..."
+echo "Command: uv run python -m luthien_proxy.main"
 exec uv run python -m luthien_proxy.main
