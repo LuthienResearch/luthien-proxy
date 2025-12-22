@@ -22,12 +22,18 @@ class TransactionRecorder(ABC):
     """Abstract interface for recording transactions."""
 
     @abstractmethod
-    def __init__(self, transaction_id: str, max_chunks_queued: int = DEFAULT_MAX_CHUNKS_QUEUED):
+    def __init__(
+        self,
+        transaction_id: str,
+        max_chunks_queued: int = DEFAULT_MAX_CHUNKS_QUEUED,
+        session_id: str | None = None,
+    ):
         """Initialize transaction recorder.
 
         Args:
             transaction_id: Unique identifier for this transaction
             max_chunks_queued: Maximum chunks to buffer before truncation
+            session_id: Session identifier for grouping related transactions
         """
 
     @abstractmethod
@@ -54,7 +60,12 @@ class TransactionRecorder(ABC):
 class NoOpTransactionRecorder(TransactionRecorder):
     """No-op recorder for testing."""
 
-    def __init__(self, transaction_id: str = "", max_chunks_queued: int = DEFAULT_MAX_CHUNKS_QUEUED):  # noqa: D107, ARG002
+    def __init__(  # noqa: D107
+        self,
+        transaction_id: str = "",
+        max_chunks_queued: int = DEFAULT_MAX_CHUNKS_QUEUED,  # noqa: ARG002
+        session_id: str | None = None,  # noqa: ARG002
+    ):
         pass
 
     async def record_request(self, original: Request, final: Request) -> None:  # noqa: D102, ARG002
@@ -81,6 +92,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
         transaction_id: str,
         emitter: EventEmitterProtocol | None = None,
         max_chunks_queued: int = DEFAULT_MAX_CHUNKS_QUEUED,
+        session_id: str | None = None,
     ):
         """Initialize default transaction recorder.
 
@@ -88,12 +100,14 @@ class DefaultTransactionRecorder(TransactionRecorder):
             transaction_id: Unique identifier for this transaction
             emitter: Event emitter for recording events (uses NullEventEmitter if None)
             max_chunks_queued: Maximum chunks to buffer before truncation
+            session_id: Session identifier for grouping related transactions
         """
         self._transaction_id = transaction_id
         self._emitter = emitter or NullEventEmitter()
         self._ingress_chunks: list[ModelResponse] = []
         self._egress_chunks: list[ModelResponse] = []
         self._max_chunks_queued = max_chunks_queued
+        self._session_id = session_id
 
     async def record_request(self, original: Request, final: Request) -> None:
         """Record request via injected emitter."""
@@ -105,6 +119,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
                 "final_model": final.model,
                 "original_request": original.model_dump(exclude_none=True),
                 "final_request": final.model_dump(exclude_none=True),
+                "session_id": self._session_id,
             },
         )
 
@@ -120,7 +135,10 @@ class DefaultTransactionRecorder(TransactionRecorder):
             self._emitter.record(
                 self._transaction_id,
                 "transaction.recorder.ingress_truncated",
-                {"reason": f"max_chunks_queued_exceeded {len(self._ingress_chunks)} > {self._max_chunks_queued}"},
+                {
+                    "reason": f"max_chunks_queued_exceeded {len(self._ingress_chunks)} > {self._max_chunks_queued}",
+                    "session_id": self._session_id,
+                },
             )
             return
         self._ingress_chunks.append(chunk)
@@ -131,7 +149,10 @@ class DefaultTransactionRecorder(TransactionRecorder):
             self._emitter.record(
                 self._transaction_id,
                 "transaction.recorder.egress_truncated",
-                {"reason": f"max_chunks_queued_exceeded {len(self._egress_chunks)} > {self._max_chunks_queued}"},
+                {
+                    "reason": f"max_chunks_queued_exceeded {len(self._egress_chunks)} > {self._max_chunks_queued}",
+                    "session_id": self._session_id,
+                },
             )
             return
         self._egress_chunks.append(chunk)
@@ -146,6 +167,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
                 "final_finish_reason": self._get_finish_reason(final_response),
                 "original_response": original_response.model_dump(),
                 "final_response": final_response.model_dump(),
+                "session_id": self._session_id,
             },
         )
 
@@ -168,6 +190,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
                 "egress_chunks": len(self._egress_chunks),
                 "original_response": original_response_dict,
                 "final_response": final_response_dict,
+                "session_id": self._session_id,
             },
         )
 
