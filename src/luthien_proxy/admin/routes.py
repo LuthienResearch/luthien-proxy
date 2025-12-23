@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from luthien_proxy.admin.policy_discovery import discover_policies
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_policy_manager
 from luthien_proxy.policy_manager import (
@@ -156,101 +157,17 @@ async def list_available_policies(
 
     Requires admin authentication.
     """
-    # Hardcoded list of available policies
-    # TODO: Consider dynamic discovery via importlib/pkgutil
+    discovered = discover_policies()
     policies = [
         PolicyClassInfo(
-            name="NoOpPolicy",
-            class_ref="luthien_proxy.policies.noop_policy:NoOpPolicy",
-            description="Pass-through policy that makes no modifications to requests or responses",
-            config_schema={},
-            example_config={},
-        ),
-        PolicyClassInfo(
-            name="AllCapsPolicy",
-            class_ref="luthien_proxy.policies.all_caps_policy:AllCapsPolicy",
-            description="Converts all response content to uppercase (for testing/demonstration)",
-            config_schema={},
-            example_config={},
-        ),
-        PolicyClassInfo(
-            name="DebugLoggingPolicy",
-            class_ref="luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy",
-            description="Logs all requests and responses for debugging purposes",
-            config_schema={},
-            example_config={},
-        ),
-        PolicyClassInfo(
-            name="SimpleJudgePolicy",
-            class_ref="luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
-            description="Easy-to-customize LLM judge for content and tool calls - just define RULES in a subclass",
-            config_schema={
-                "judge_model": {
-                    "type": "string",
-                    "description": "Model to use for judging",
-                    "default": "claude-3-5-sonnet-20241022",
-                },
-                "judge_temperature": {
-                    "type": "number",
-                    "description": "Temperature for judge model",
-                    "default": 0.0,
-                    "minimum": 0.0,
-                    "maximum": 2.0,
-                },
-                "block_threshold": {
-                    "type": "number",
-                    "description": "Confidence threshold for blocking (0-1)",
-                    "default": 0.7,
-                    "minimum": 0.0,
-                    "maximum": 1.0,
-                },
-            },
-            example_config={
-                "judge_model": "claude-3-5-sonnet-20241022",
-                "judge_temperature": 0.0,
-                "block_threshold": 0.7,
-            },
-        ),
-        PolicyClassInfo(
-            name="ToolCallJudgePolicy",
-            class_ref="luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
-            description="Advanced LLM-based tool call judge with detailed safety evaluation",
-            config_schema={
-                "judge_model": {
-                    "type": "string",
-                    "description": "Model to use for judging tool calls",
-                    "default": "claude-3-5-sonnet-20241022",
-                },
-                "judge_temperature": {
-                    "type": "number",
-                    "description": "Temperature for judge model",
-                    "default": 0.0,
-                    "minimum": 0.0,
-                    "maximum": 2.0,
-                },
-                "allowed_tools": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of tool names that are allowed (empty = all allowed)",
-                    "default": [],
-                },
-                "block_threshold": {
-                    "type": "number",
-                    "description": "Confidence threshold for blocking (0-1)",
-                    "default": 0.7,
-                    "minimum": 0.0,
-                    "maximum": 1.0,
-                },
-            },
-            example_config={
-                "judge_model": "claude-3-5-sonnet-20241022",
-                "judge_temperature": 0.0,
-                "allowed_tools": ["read_file", "list_directory"],
-                "block_threshold": 0.7,
-            },
-        ),
+            name=p["name"],
+            class_ref=p["class_ref"],
+            description=p["description"],
+            config_schema=p["config_schema"],
+            example_config=p["example_config"],
+        )
+        for p in discovered
     ]
-
     return PolicyListResponse(policies=policies)
 
 
