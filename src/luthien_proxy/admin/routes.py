@@ -3,26 +3,22 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import Any
 
+import httpx
 import litellm
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from luthien_proxy.admin.policy_discovery import discover_policies
 from luthien_proxy.auth import verify_admin_token
-from luthien_proxy.dependencies import get_emitter, get_llm_client, get_policy, get_policy_manager
-from luthien_proxy.llm.client import LLMClient
-from luthien_proxy.llm.types import Request as LLMRequest
-from luthien_proxy.observability.emitter import EventEmitterProtocol
-from luthien_proxy.policy_core.policy_context import PolicyContext
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
+from luthien_proxy.dependencies import get_policy_manager
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
     PolicyManager,
 )
+from luthien_proxy.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -238,63 +234,80 @@ async def list_models(
 @router.post("/test/chat", response_model=TestChatResponse)
 async def test_chat(
     body: TestChatRequest,
+    request: Request,
     _: str = Depends(verify_admin_token),
-    policy: PolicyProtocol = Depends(get_policy),
-    llm_client: LLMClient = Depends(get_llm_client),
-    emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """Send a test message through the proxy with the active policy.
 
-    This endpoint allows testing the current policy configuration
-    by sending a message and seeing the response. The message goes
-    through the full policy pipeline.
+    This endpoint acts as an injection point, forwarding the request to
+    /v1/chat/completions with the server's PROXY_API_KEY. This ensures
+    the test goes through the full policy pipeline (on_request, LLM call,
+    on_response) exactly as real client requests do.
 
     Requires admin authentication.
     """
-    transaction_id = f"test-{uuid.uuid4().hex[:12]}"
-
-    try:
-        # Build OpenAI-format request
-        messages: list[Any] = [{"role": "user", "content": body.message}]
-        request = LLMRequest(model=body.model, messages=messages, stream=False)
-
-        # Create policy context
-        ctx = PolicyContext(
-            transaction_id=transaction_id,
-            request=request,
-            emitter=emitter,
+    settings = get_settings()
+    if not settings.proxy_api_key:
+        return TestChatResponse(
+            success=False,
+            error="PROXY_API_KEY not configured on server",
+            model=body.model,
         )
 
-        # Apply policy on request
-        modified_request = await policy.on_request(request, ctx)
+    # Build the base URL from the incoming request
+    base_url = str(request.base_url).rstrip("/")
 
-        # Call LLM
-        response = await llm_client.complete(modified_request)
+    # Build OpenAI-format request payload
+    payload = {
+        "model": body.model,
+        "messages": [{"role": "user", "content": body.message}],
+        "stream": False,
+    }
 
-        # Extract content from response (using getattr for type safety)
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{base_url}/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {settings.proxy_api_key}"},
+            )
+
+        if response.status_code != 200:
+            error_detail = response.text
+            try:
+                error_json = response.json()
+                error_detail = error_json.get("detail", error_detail)
+            except Exception:
+                pass
+            return TestChatResponse(
+                success=False,
+                error=f"Proxy returned {response.status_code}: {error_detail}",
+                model=body.model,
+            )
+
+        data = response.json()
+
+        # Extract content from response
         content = None
-        choices = getattr(response, "choices", None)
+        choices = data.get("choices", [])
         if choices:
-            choice = choices[0]
-            msg = getattr(choice, "message", None)
-            if msg:
-                content = getattr(msg, "content", None)
+            message = choices[0].get("message", {})
+            content = message.get("content")
 
         # Extract usage
-        usage = None
-        usage_obj = getattr(response, "usage", None)
-        if usage_obj:
-            usage = {
-                "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0),
-                "completion_tokens": getattr(usage_obj, "completion_tokens", 0),
-                "total_tokens": getattr(usage_obj, "total_tokens", 0),
-            }
+        usage = data.get("usage")
 
         return TestChatResponse(
             success=True,
             content=content,
             model=body.model,
             usage=usage,
+        )
+    except httpx.TimeoutException:
+        return TestChatResponse(
+            success=False,
+            error="Request timed out (120s limit)",
+            model=body.model,
         )
     except Exception as e:
         logger.error(f"Test chat failed: {e}", exc_info=True)
