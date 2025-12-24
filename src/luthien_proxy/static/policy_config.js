@@ -13,6 +13,7 @@ const state = {
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     await Promise.all([loadCurrentPolicy(), loadPolicies(), loadModels()]);
+    initTestPanel();
 });
 
 async function apiCall(endpoint, options = {}) {
@@ -67,6 +68,35 @@ async function loadModels() {
         console.error('Failed to load models:', err);
         state.availableModels = ['gpt-4o', 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'];
         state.selectedModel = state.availableModels[0];
+    }
+}
+
+function initTestPanel() {
+    // Populate model selector
+    const modelSelect = document.getElementById('model-select');
+    if (modelSelect) {
+        modelSelect.innerHTML = state.availableModels.map(m =>
+            `<option value="${escapeHtml(m)}" ${m === state.selectedModel ? 'selected' : ''}>${escapeHtml(m)}</option>`
+        ).join('');
+        modelSelect.addEventListener('change', (e) => {
+            state.selectedModel = e.target.value;
+        });
+    }
+
+    // Toggle panel visibility
+    const toggleBtn = document.getElementById('test-panel-toggle');
+    const panelContent = document.getElementById('test-panel-content');
+    if (toggleBtn && panelContent) {
+        toggleBtn.addEventListener('click', () => {
+            const isCollapsed = panelContent.classList.toggle('collapsed');
+            toggleBtn.textContent = isCollapsed ? 'Show' : 'Hide';
+        });
+    }
+
+    // Send button
+    const sendBtn = document.getElementById('send-btn');
+    if (sendBtn) {
+        sendBtn.addEventListener('click', handleSendChat);
     }
 }
 
@@ -177,28 +207,6 @@ function renderConfigPanel() {
             </button>
         </div>
         <div id="status-container"></div>
-        <div class="test-section">
-            <h3>Test Policy</h3>
-            <div class="test-field">
-                <label for="model-select">Model</label>
-                <select class="test-select" id="model-select">
-                    ${state.availableModels.map(m =>
-                        `<option value="${escapeHtml(m)}" ${m === state.selectedModel ? 'selected' : ''}>${escapeHtml(m)}</option>`
-                    ).join('')}
-                </select>
-            </div>
-            <div class="test-field">
-                <label for="test-message">Message</label>
-                <textarea class="test-input" id="test-message" placeholder="Enter a message to test the policy...">${escapeHtml(getTestPrompt(policy.name))}</textarea>
-            </div>
-            <div class="test-buttons">
-                <button id="send-btn" ${state.isSending ? 'disabled' : ''}>
-                    ${state.isSending ? 'Sending...' : 'Send Message'}
-                </button>
-            </div>
-            <div class="test-response empty" id="test-response">Response will appear here...</div>
-            <div class="test-meta" id="test-meta"></div>
-        </div>
         <div class="quick-links">
             <h3>Quick Links</h3>
             <a href="/activity/monitor">View Activity Monitor</a>
@@ -210,10 +218,6 @@ function renderConfigPanel() {
 
     renderConfigForm(policy);
     document.getElementById('activate-btn').addEventListener('click', handleActivate);
-    document.getElementById('send-btn').addEventListener('click', handleSendChat);
-    document.getElementById('model-select').addEventListener('change', (e) => {
-        state.selectedModel = e.target.value;
-    });
 }
 
 function renderConfigForm(policy) {
