@@ -596,9 +596,10 @@
                     <div class="test-field-row">
                         <div class="test-field">
                             <label for="model-select">Model</label>
-                            <select class="test-select" id="model-select">
-                                <option>Loading models...</option>
-                            </select>
+                            <input type="text" class="test-select" id="model-select" list="model-datalist" placeholder="Enter model name...">
+                            <datalist id="model-datalist">
+                                <!-- Populated dynamically -->
+                            </datalist>
                         </div>
                     </div>
                     <div class="test-field" style="flex: 1; display: flex; flex-direction: column;">

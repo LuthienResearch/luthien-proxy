@@ -205,6 +205,8 @@ async def list_available_policies(
 
     Requires admin authentication.
     """
+    # Note: Policy discovery is performed on every request. Since the policy set
+    # is static at runtime, this could be cached if performance becomes a concern.
     discovered = discover_policies()
     policies = [
         PolicyClassInfo(
@@ -255,6 +257,9 @@ async def test_chat(
         )
 
     # Build the base URL from the incoming request
+    # Note: This creates a self-calling HTTP request back to the same server.
+    # This ensures the test goes through the full policy pipeline but may have
+    # issues behind reverse proxies or with certain async configurations.
     base_url = str(request.base_url).rstrip("/")
 
     # Build OpenAI-format request payload

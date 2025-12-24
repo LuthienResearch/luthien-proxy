@@ -66,20 +66,28 @@ async function loadModels() {
         }
     } catch (err) {
         console.error('Failed to load models:', err);
-        state.availableModels = ['gpt-4o', 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'];
-        state.selectedModel = state.availableModels[0];
+        // Don't fall back to hardcoded models - let the user enter their own
+        state.availableModels = [];
+        state.selectedModel = null;
     }
 }
 
 function initTestPanel() {
-    // Populate model selector
+    // Populate model selector datalist
     const modelSelect = document.getElementById('model-select');
-    if (modelSelect) {
-        modelSelect.innerHTML = state.availableModels.map(m =>
-            `<option value="${escapeHtml(m)}" ${m === state.selectedModel ? 'selected' : ''}>${escapeHtml(m)}</option>`
+    const modelDatalist = document.getElementById('model-datalist');
+    if (modelSelect && modelDatalist) {
+        // Populate datalist with available models
+        modelDatalist.innerHTML = state.availableModels.map(m =>
+            `<option value="${escapeHtml(m)}"></option>`
         ).join('');
-        modelSelect.addEventListener('change', (e) => {
-            state.selectedModel = e.target.value;
+        // Set initial value to first model if available
+        if (state.selectedModel) {
+            modelSelect.value = state.selectedModel;
+        }
+        // Update state when user changes the model
+        modelSelect.addEventListener('input', (e) => {
+            state.selectedModel = e.target.value.trim();
         });
     }
 
@@ -405,18 +413,6 @@ async function handleSendChat() {
         sendBtn.disabled = false;
         sendBtn.textContent = 'Send Message';
     }
-}
-
-function getTestPrompt(policyName) {
-    const prompts = {
-        'AllCapsPolicy': 'Say hello',
-        'NoOpPolicy': 'Explain what this policy does',
-        'DebugLoggingPolicy': 'Help me debug a function',
-        'ParallelRulesPolicy': 'Test the parallel rules evaluation',
-        'SimpleJudgePolicy': 'Test the judge policy',
-        'ToolCallJudgePolicy': 'Test tool call evaluation'
-    };
-    return prompts[policyName] || 'Hello! Please respond with a short greeting.';
 }
 
 function escapeHtml(text) {
