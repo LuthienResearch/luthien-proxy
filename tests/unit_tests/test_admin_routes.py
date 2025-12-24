@@ -9,15 +9,21 @@ These tests focus on the HTTP layer - ensuring routes properly:
 - Return correct response models
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi import HTTPException
 
 from luthien_proxy.admin.routes import (
     PolicyEnableResponse,
     PolicySetRequest,
+    TestChatRequest,
+    TestChatResponse,
+    get_available_models,
+    list_models,
     set_policy,
+    test_chat,
 )
 from luthien_proxy.policy_manager import PolicyEnableResult
 
@@ -146,3 +152,223 @@ class TestSetPolicyRoute:
 
         assert exc_info.value.status_code == 500
         assert "Unexpected database error" in exc_info.value.detail
+
+
+class TestGetAvailableModels:
+    """Test get_available_models function."""
+
+    @patch("luthien_proxy.admin.routes.litellm")
+    def test_returns_models_from_litellm(self, mock_litellm):
+        """Test that get_available_models returns filtered models from litellm."""
+        mock_litellm.open_ai_chat_completion_models = [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-3.5-turbo",
+            "ft:gpt-4o-mini-custom",  # Should be filtered out (fine-tuned)
+            "gpt-4o-audio-preview",  # Should be filtered out (audio)
+            "gpt-4o-realtime-preview",  # Should be filtered out (realtime)
+        ]
+        mock_litellm.anthropic_models = [
+            "claude-3-5-sonnet-20241022",
+            "claude-3-haiku-20240307",
+            "some-other-model",  # Should be filtered out (no 'claude')
+        ]
+
+        models = get_available_models()
+
+        # Check that OpenAI models are filtered correctly
+        assert "gpt-4o" in models
+        assert "gpt-4o-mini" in models
+        assert "gpt-3.5-turbo" in models
+        assert "ft:gpt-4o-mini-custom" not in models
+        assert "gpt-4o-audio-preview" not in models
+        assert "gpt-4o-realtime-preview" not in models
+
+        # Check that Anthropic models are filtered correctly
+        assert "claude-3-5-sonnet-20241022" in models
+        assert "claude-3-haiku-20240307" in models
+        assert "some-other-model" not in models
+
+    @patch("luthien_proxy.admin.routes.litellm")
+    def test_handles_missing_attributes(self, mock_litellm):
+        """Test that get_available_models handles missing litellm attributes."""
+        # Remove the attributes to simulate them not existing
+        if hasattr(mock_litellm, "open_ai_chat_completion_models"):
+            delattr(mock_litellm, "open_ai_chat_completion_models")
+        if hasattr(mock_litellm, "anthropic_models"):
+            delattr(mock_litellm, "anthropic_models")
+
+        models = get_available_models()
+
+        # Should return empty list when attributes don't exist
+        assert models == []
+
+
+class TestListModelsRoute:
+    """Test list_models route handler."""
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_available_models")
+    async def test_returns_models_list(self, mock_get_models):
+        """Test that list_models returns the models in expected format."""
+        mock_get_models.return_value = ["gpt-4o", "claude-3-5-sonnet-20241022"]
+
+        result = await list_models(_=AUTH_TOKEN)
+
+        assert "models" in result
+        assert result["models"] == ["gpt-4o", "claude-3-5-sonnet-20241022"]
+
+
+class TestTestChatRoute:
+    """Test test_chat route handler."""
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_successful_chat_request(self, mock_client_class, mock_get_settings):
+        """Test successful test chat request."""
+        # Mock settings
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_get_settings.return_value = mock_settings
+
+        # Mock HTTP response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "Hello from the LLM!"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        }
+
+        # Mock the async client
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        # Create mock request
+        mock_request = MagicMock()
+        mock_request.base_url = "http://localhost:8000/"
+
+        request = TestChatRequest(model="gpt-4o", message="Hello!")
+
+        result = await test_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+
+        assert isinstance(result, TestChatResponse)
+        assert result.success is True
+        assert result.content == "Hello from the LLM!"
+        assert result.model == "gpt-4o"
+        assert result.usage is not None
+        assert result.usage["prompt_tokens"] == 10
+
+        # Verify the HTTP call was made correctly
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        assert call_args[0][0] == "http://localhost:8000/v1/chat/completions"
+        assert call_args[1]["json"]["model"] == "gpt-4o"
+        assert call_args[1]["json"]["messages"][0]["content"] == "Hello!"
+        assert call_args[1]["headers"]["Authorization"] == "Bearer test-proxy-key"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    async def test_missing_proxy_api_key(self, mock_get_settings):
+        """Test test_chat returns error when PROXY_API_KEY is not configured."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = None
+        mock_get_settings.return_value = mock_settings
+
+        mock_request = MagicMock()
+        request = TestChatRequest(model="gpt-4o", message="Hello!")
+
+        result = await test_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+
+        assert isinstance(result, TestChatResponse)
+        assert result.success is False
+        assert "PROXY_API_KEY not configured" in result.error
+        assert result.model == "gpt-4o"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_proxy_error_response(self, mock_client_class, mock_get_settings):
+        """Test test_chat handles proxy error responses."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_get_settings.return_value = mock_settings
+
+        # Mock error response
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.text = "Bad request"
+        mock_response.json.return_value = {"detail": "Invalid model specified"}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        mock_request = MagicMock()
+        mock_request.base_url = "http://localhost:8000/"
+        request = TestChatRequest(model="invalid-model", message="Hello!")
+
+        result = await test_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+
+        assert isinstance(result, TestChatResponse)
+        assert result.success is False
+        assert "400" in result.error
+        assert "Invalid model specified" in result.error
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_timeout_exception(self, mock_client_class, mock_get_settings):
+        """Test test_chat handles timeout exceptions."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_get_settings.return_value = mock_settings
+
+        # Mock timeout
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("Request timed out"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        mock_request = MagicMock()
+        mock_request.base_url = "http://localhost:8000/"
+        request = TestChatRequest(model="gpt-4o", message="Hello!")
+
+        result = await test_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+
+        assert isinstance(result, TestChatResponse)
+        assert result.success is False
+        assert "timed out" in result.error
+        assert "120s" in result.error
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_unexpected_exception(self, mock_client_class, mock_get_settings):
+        """Test test_chat handles unexpected exceptions."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_get_settings.return_value = mock_settings
+
+        # Mock unexpected exception
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=RuntimeError("Unexpected error"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        mock_request = MagicMock()
+        mock_request.base_url = "http://localhost:8000/"
+        request = TestChatRequest(model="gpt-4o", message="Hello!")
+
+        result = await test_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+
+        assert isinstance(result, TestChatResponse)
+        assert result.success is False
+        assert "Unexpected error" in result.error

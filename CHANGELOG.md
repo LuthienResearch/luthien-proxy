@@ -2,6 +2,14 @@
 
 ## Unreleased | TBA
 
+- Auto-discovering policy configuration UI (policy-config-ui)
+  - `/admin/policy/list` now auto-discovers all policies from `luthien_proxy.policies`
+  - Config schemas extracted from constructor signatures using type hints
+  - Policy config UI (`/policy-config`) generates form fields based on schema
+  - Simple types get appropriate inputs (text, number, checkbox)
+  - Complex nested types (dict, list) get JSON textarea
+  - Fixes broken create/activate endpoints that didn't exist
+
 - Add Railway demo deployment configuration (`railway.toml`, `deploy/README.md`)
 
 - Add conversation history viewer with styled message types and markdown export (conversation-history-viewer)
