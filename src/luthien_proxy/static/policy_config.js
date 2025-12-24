@@ -1,18 +1,15 @@
 // State
 const state = {
-    currentStep: 1,
-    selectedPolicyClass: null,
-    selectedPolicyName: null,
-    policyEnabledAt: null,
-    detectedCallId: null,
+    currentPolicy: null,
+    selectedPolicy: null,
     availablePolicies: [],
-    configValues: {}
+    configValues: {},
+    isActivating: false
 };
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
-    await loadPolicies();
-    setupEventListeners();
+    await Promise.all([loadCurrentPolicy(), loadPolicies()]);
 });
 
 async function apiCall(endpoint, options = {}) {
@@ -33,109 +30,169 @@ async function apiCall(endpoint, options = {}) {
     return response.json();
 }
 
+async function loadCurrentPolicy() {
+    try {
+        const data = await apiCall('/admin/policy/current');
+        state.currentPolicy = data;
+        renderCurrentPolicyBanner();
+    } catch (err) {
+        console.error('Failed to load current policy:', err);
+        document.getElementById('current-policy-name').textContent = 'Error loading';
+    }
+}
+
 async function loadPolicies() {
     try {
         const data = await apiCall('/admin/policy/list');
         state.availablePolicies = data.policies;
-        renderPolicyCards();
+        renderPolicyList();
     } catch (err) {
         console.error('Failed to load policies:', err);
-        const step1 = document.getElementById('step-1');
-        step1.innerHTML = '';
-        const errorP = document.createElement('p');
-        errorP.className = 'error';
-        errorP.textContent = `Failed to load policies: ${err.message}`;
-        step1.appendChild(errorP);
+        document.getElementById('policy-list').innerHTML =
+            `<div class="status-message error">Failed to load policies: ${err.message}</div>`;
     }
 }
 
-function renderPolicyCards() {
-    const container = document.querySelector('.policy-grid');
+function renderCurrentPolicyBanner() {
+    const nameEl = document.getElementById('current-policy-name');
+    const metaEl = document.getElementById('current-policy-meta');
+
+    if (state.currentPolicy) {
+        nameEl.textContent = state.currentPolicy.policy;
+        const parts = [];
+        if (state.currentPolicy.enabled_by) {
+            parts.push(`by ${state.currentPolicy.enabled_by}`);
+        }
+        if (state.currentPolicy.enabled_at) {
+            const date = new Date(state.currentPolicy.enabled_at);
+            parts.push(date.toLocaleString());
+        }
+        metaEl.textContent = parts.join(' • ');
+    } else {
+        nameEl.textContent = 'None';
+        metaEl.textContent = '';
+    }
+}
+
+function renderPolicyList() {
+    const container = document.getElementById('policy-list');
     container.innerHTML = '';
 
     state.availablePolicies.forEach(policy => {
-        const card = document.createElement('div');
-        card.className = 'policy-card';
-        card.dataset.policy = policy.class_ref;
+        const isActive = state.currentPolicy && state.currentPolicy.class_ref === policy.class_ref;
+        const isSelected = state.selectedPolicy && state.selectedPolicy.class_ref === policy.class_ref;
 
-        const title = document.createElement('h3');
-        title.textContent = policy.name;
+        const item = document.createElement('div');
+        item.className = 'policy-item';
+        if (isActive) item.classList.add('active');
+        if (isSelected) item.classList.add('selected');
+        item.dataset.classRef = policy.class_ref;
 
-        const desc = document.createElement('p');
-        desc.textContent = policy.description;
+        const header = document.createElement('div');
+        header.className = 'policy-item-header';
 
-        // Show config param count
-        const configKeys = Object.keys(policy.config_schema || {});
-        if (configKeys.length > 0) {
-            const configInfo = document.createElement('p');
-            configInfo.className = 'policy-example';
-            configInfo.textContent = `Config: ${configKeys.join(', ')}`;
-            card.appendChild(title);
-            card.appendChild(desc);
-            card.appendChild(configInfo);
-        } else {
-            card.appendChild(title);
-            card.appendChild(desc);
+        const name = document.createElement('div');
+        name.className = 'policy-item-name';
+        name.textContent = policy.name;
+
+        header.appendChild(name);
+
+        if (isActive) {
+            const badge = document.createElement('span');
+            badge.className = 'policy-item-badge active';
+            badge.textContent = 'Active';
+            header.appendChild(badge);
         }
 
-        const btn = document.createElement('button');
-        btn.className = 'select-policy-btn';
-        btn.textContent = 'Select';
-        btn.addEventListener('click', () => selectPolicy(policy.class_ref));
+        const desc = document.createElement('div');
+        desc.className = 'policy-item-description';
+        desc.textContent = policy.description;
 
-        card.appendChild(btn);
-        container.appendChild(card);
+        item.appendChild(header);
+        item.appendChild(desc);
+
+        const configKeys = Object.keys(policy.config_schema || {});
+        if (configKeys.length > 0) {
+            const configInfo = document.createElement('div');
+            configInfo.className = 'policy-item-config';
+            configInfo.textContent = `Config: ${configKeys.join(', ')}`;
+            item.appendChild(configInfo);
+        }
+
+        item.addEventListener('click', () => selectPolicy(policy));
+        container.appendChild(item);
     });
 }
 
-function setupEventListeners() {
-    document.getElementById('create-activate-btn')?.addEventListener('click', handleActivate);
-    document.getElementById('copy-prompt-btn')?.addEventListener('click', handleCopyPrompt);
-}
-
-function selectPolicy(classRef) {
-    const policy = state.availablePolicies.find(p => p.class_ref === classRef);
-    if (!policy) return;
-
-    state.selectedPolicyClass = policy;
-    state.selectedPolicyName = policy.name;
+function selectPolicy(policy) {
+    state.selectedPolicy = policy;
     state.configValues = { ...(policy.example_config || {}) };
 
-    document.querySelectorAll('.policy-card').forEach(c => c.classList.remove('selected'));
-    document.querySelector(`[data-policy="${classRef}"]`).classList.add('selected');
+    // Update selection in list
+    document.querySelectorAll('.policy-item').forEach(item => {
+        item.classList.remove('selected');
+        if (item.dataset.classRef === policy.class_ref) {
+            item.classList.add('selected');
+        }
+    });
 
-    document.getElementById('selected-policy-name').textContent = policy.name;
-    document.getElementById('selected-policy-description').textContent = policy.description;
-    document.getElementById('status-container').innerHTML = '';
+    renderConfigPanel();
+}
 
-    // Render config form
+function renderConfigPanel() {
+    const panel = document.getElementById('config-panel');
+    const policy = state.selectedPolicy;
+
+    if (!policy) {
+        panel.innerHTML = '<div class="config-panel-empty">Select a policy to configure</div>';
+        return;
+    }
+
+    const isActive = state.currentPolicy && state.currentPolicy.class_ref === policy.class_ref;
+
+    let html = `
+        <div class="selected-policy-name">${escapeHtml(policy.name)}</div>
+        <div class="selected-policy-description">${escapeHtml(policy.description)}</div>
+        <div class="config-form" id="config-form"></div>
+        <div class="button-group">
+            <button class="primary" id="activate-btn" ${state.isActivating ? 'disabled' : ''}>
+                ${state.isActivating ? 'Activating...' : (isActive ? 'Reactivate Policy' : 'Activate Policy')}
+            </button>
+        </div>
+        <div id="status-container"></div>
+        <div class="test-section">
+            <h3>Test Prompt</h3>
+            <textarea class="test-prompt" id="test-prompt" readonly>${escapeHtml(getTestPrompt(policy.name))}</textarea>
+            <button class="copy-btn" id="copy-btn">Copy to Clipboard</button>
+        </div>
+        <div class="quick-links">
+            <h3>Quick Links</h3>
+            <a href="/activity/monitor">View Activity Monitor</a>
+            <a href="/debug/diff">View Diff Viewer</a>
+        </div>
+    `;
+
+    panel.innerHTML = html;
+
     renderConfigForm(policy);
-
-    const btn = document.getElementById('create-activate-btn');
-    btn.textContent = 'Activate Policy';
-    btn.disabled = false;
-    btn.className = 'primary';
-
-    goToStep(2);
+    document.getElementById('activate-btn').addEventListener('click', handleActivate);
+    document.getElementById('copy-btn').addEventListener('click', handleCopy);
 }
 
 function renderConfigForm(policy) {
-    const container = document.getElementById('config-form-container');
+    const container = document.getElementById('config-form');
     if (!container) return;
-
-    container.innerHTML = '';
 
     const schema = policy.config_schema || {};
     const example = policy.example_config || {};
     const keys = Object.keys(schema);
 
     if (keys.length === 0) {
-        const noConfig = document.createElement('p');
-        noConfig.className = 'no-config-message';
-        noConfig.textContent = 'This policy has no configuration options.';
-        container.appendChild(noConfig);
+        container.innerHTML = '<p class="no-config-message">This policy has no configuration options.</p>';
         return;
     }
+
+    container.innerHTML = '';
 
     keys.forEach(key => {
         const paramSchema = schema[key];
@@ -149,11 +206,10 @@ function renderConfigForm(policy) {
         const isComplex = paramSchema.type === 'object' || paramSchema.type === 'array';
 
         if (isComplex) {
-            // Complex types get a JSON textarea
             const textarea = document.createElement('textarea');
             textarea.id = `config-${key}`;
             textarea.className = 'config-input config-json';
-            textarea.value = JSON.stringify(example[key] ?? paramSchema.default ?? null, null, 2);
+            textarea.value = JSON.stringify(state.configValues[key] ?? example[key] ?? paramSchema.default ?? null, null, 2);
             textarea.addEventListener('input', () => {
                 try {
                     state.configValues[key] = JSON.parse(textarea.value);
@@ -165,12 +221,11 @@ function renderConfigForm(policy) {
             fieldDiv.appendChild(label);
             fieldDiv.appendChild(textarea);
         } else if (paramSchema.type === 'boolean') {
-            // Boolean gets a checkbox
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.id = `config-${key}`;
             checkbox.className = 'config-checkbox';
-            checkbox.checked = example[key] ?? paramSchema.default ?? false;
+            checkbox.checked = state.configValues[key] ?? example[key] ?? paramSchema.default ?? false;
             checkbox.addEventListener('change', () => {
                 state.configValues[key] = checkbox.checked;
             });
@@ -180,12 +235,11 @@ function renderConfigForm(policy) {
             checkboxWrapper.appendChild(label);
             fieldDiv.appendChild(checkboxWrapper);
         } else if (paramSchema.type === 'number' || paramSchema.type === 'integer') {
-            // Number input
             const input = document.createElement('input');
             input.type = 'number';
             input.id = `config-${key}`;
             input.className = 'config-input';
-            input.value = example[key] ?? paramSchema.default ?? '';
+            input.value = state.configValues[key] ?? example[key] ?? paramSchema.default ?? '';
             if (paramSchema.type === 'number') {
                 input.step = 'any';
             }
@@ -196,12 +250,11 @@ function renderConfigForm(policy) {
             fieldDiv.appendChild(label);
             fieldDiv.appendChild(input);
         } else {
-            // String input (or fallback)
             const input = document.createElement('input');
             input.type = paramSchema.nullable && key.toLowerCase().includes('key') ? 'password' : 'text';
             input.id = `config-${key}`;
             input.className = 'config-input';
-            input.value = example[key] ?? paramSchema.default ?? '';
+            input.value = state.configValues[key] ?? example[key] ?? paramSchema.default ?? '';
             input.placeholder = paramSchema.nullable ? '(optional)' : '';
             input.addEventListener('input', () => {
                 state.configValues[key] = input.value || (paramSchema.nullable ? null : '');
@@ -210,7 +263,6 @@ function renderConfigForm(policy) {
             fieldDiv.appendChild(input);
         }
 
-        // Add type hint
         const hint = document.createElement('span');
         hint.className = 'config-hint';
         hint.textContent = paramSchema.nullable ? `${paramSchema.type} (optional)` : paramSchema.type;
@@ -220,58 +272,22 @@ function renderConfigForm(policy) {
     });
 }
 
-function goToStep(stepNum) {
-    state.currentStep = stepNum;
-
-    for (let i = 1; i <= 3; i++) {
-        const stepEl = document.getElementById(`step-indicator-${i}`);
-        const lineEl = document.getElementById(`line-${i}`);
-
-        stepEl.classList.remove('active', 'completed', 'disabled');
-
-        if (i < stepNum) {
-            stepEl.classList.add('completed');
-            if (lineEl) lineEl.classList.add('completed');
-        } else if (i === stepNum) {
-            stepEl.classList.add('active');
-            if (lineEl) lineEl.classList.remove('completed');
-        } else {
-            stepEl.classList.add('disabled');
-            if (lineEl) lineEl.classList.remove('completed');
-        }
-    }
-
-    document.querySelectorAll('.step-content').forEach(c => c.classList.remove('active'));
-    document.getElementById(`step-${stepNum}`).classList.add('active');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
 async function handleActivate() {
-    const btn = document.getElementById('create-activate-btn');
+    if (!state.selectedPolicy || state.isActivating) return;
+
+    const btn = document.getElementById('activate-btn');
     const statusContainer = document.getElementById('status-container');
 
+    state.isActivating = true;
     btn.disabled = true;
     btn.textContent = 'Activating...';
-
-    // Show activating status
-    statusContainer.innerHTML = '';
-    const activatingBox = document.createElement('div');
-    activatingBox.className = 'status-box';
-    const activatingP = document.createElement('p');
-    const activatingIcon = document.createElement('span');
-    activatingIcon.className = 'status-icon spinner';
-    activatingIcon.textContent = '\u23F3';
-    activatingP.appendChild(activatingIcon);
-    activatingP.appendChild(document.createTextNode(' Activating policy...'));
-    activatingBox.appendChild(activatingP);
-    statusContainer.appendChild(activatingBox);
+    statusContainer.innerHTML = '<div class="status-message info">Activating policy...</div>';
 
     try {
-        // Use /admin/policy/set endpoint
         const result = await apiCall('/admin/policy/set', {
             method: 'POST',
             body: JSON.stringify({
-                policy_class_ref: state.selectedPolicyClass.class_ref,
+                policy_class_ref: state.selectedPolicy.class_ref,
                 config: state.configValues,
                 enabled_by: 'ui'
             })
@@ -281,58 +297,38 @@ async function handleActivate() {
             throw new Error(result.error || 'Failed to activate policy');
         }
 
-        // Show success status
-        statusContainer.innerHTML = '';
-        const successBox = document.createElement('div');
-        successBox.className = 'status-box success';
-        const successP = document.createElement('p');
-        const successIcon = document.createElement('span');
-        successIcon.className = 'status-icon';
-        successIcon.textContent = '\u2713';
-        successP.appendChild(successIcon);
-        successP.appendChild(document.createTextNode(' ' + state.selectedPolicyName + ' activated!'));
-        successBox.appendChild(successP);
-        statusContainer.appendChild(successBox);
+        // Refresh current policy
+        await loadCurrentPolicy();
+        renderPolicyList();
 
-        btn.textContent = 'Continue to Testing \u2192';
-        btn.className = 'success';
-        btn.onclick = () => goToStep3();
-        btn.disabled = false;
-
-        state.policyEnabledAt = Date.now();
+        statusContainer.innerHTML = `<div class="status-message success">✓ ${state.selectedPolicy.name} activated successfully</div>`;
+        btn.textContent = 'Reactivate Policy';
     } catch (err) {
-        statusContainer.innerHTML = '';
-        const errorBox = document.createElement('div');
-        errorBox.className = 'status-box error';
-        const errorP = document.createElement('p');
-        errorP.textContent = `Error: ${err.message}`;
-        errorBox.appendChild(errorP);
-        statusContainer.appendChild(errorBox);
-        btn.textContent = 'Retry';
+        statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(err.message)}</div>`;
+        btn.textContent = 'Retry Activation';
+    } finally {
+        state.isActivating = false;
         btn.disabled = false;
     }
 }
 
-function goToStep3() {
-    document.getElementById('test-policy-name').textContent = state.selectedPolicyName;
-    document.getElementById('test-prompt').value = getTestPrompt();
+async function handleCopy() {
+    const promptText = document.getElementById('test-prompt').value;
+    const copyBtn = document.getElementById('copy-btn');
 
-    const testStatus = document.getElementById('test-status');
-    testStatus.className = 'test-status waiting';
-    testStatus.innerHTML = '';
-    const waitingP = document.createElement('p');
-    const waitingIcon = document.createElement('span');
-    waitingIcon.className = 'status-icon spinner';
-    waitingIcon.textContent = '\u23F3';
-    waitingP.appendChild(waitingIcon);
-    waitingP.appendChild(document.createTextNode(' Waiting for test request...'));
-    testStatus.appendChild(waitingP);
-
-    goToStep(3);
-    connectToActivityStream();
+    try {
+        await navigator.clipboard.writeText(promptText);
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => {
+            copyBtn.textContent = originalText;
+        }, 2000);
+    } catch (err) {
+        console.error('Copy failed:', err);
+    }
 }
 
-function getTestPrompt() {
+function getTestPrompt(policyName) {
     const prompts = {
         'AllCapsPolicy': 'Say hello',
         'NoOpPolicy': 'Explain what this policy does',
@@ -341,99 +337,11 @@ function getTestPrompt() {
         'SimpleJudgePolicy': 'Test the judge policy',
         'ToolCallJudgePolicy': 'Test tool call evaluation'
     };
-    return prompts[state.selectedPolicyName] || 'Test this policy';
+    return prompts[policyName] || 'Test this policy';
 }
 
-async function handleCopyPrompt() {
-    const promptText = document.getElementById('test-prompt').value;
-    const copyBtn = document.getElementById('copy-prompt-btn');
-
-    try {
-        await navigator.clipboard.writeText(promptText);
-        const originalText = copyBtn.textContent;
-        copyBtn.textContent = 'Copied \u2713';
-        copyBtn.style.background = 'var(--color-success)';
-        setTimeout(() => {
-            copyBtn.textContent = originalText;
-            copyBtn.style.background = '';
-        }, 2000);
-    } catch (err) {
-        console.error('Copy failed:', err);
-    }
-}
-
-let eventSource = null;
-
-function connectToActivityStream() {
-    if (eventSource) eventSource.close();
-
-    eventSource = new EventSource('/activity/stream');
-
-    eventSource.onmessage = (e) => {
-        try {
-            const event = JSON.parse(e.data);
-
-            if (event.type === 'transaction.request_recorded' &&
-                state.policyEnabledAt &&
-                new Date(event.timestamp).getTime() > state.policyEnabledAt) {
-
-                showTestDetected(event.call_id);
-                eventSource.close();
-            }
-        } catch (err) {
-            console.error('SSE parse error:', err);
-        }
-    };
-
-    eventSource.onerror = (err) => {
-        console.error('SSE error:', err);
-        setTimeout(() => {
-            if (state.currentStep === 3 && !state.detectedCallId) {
-                showTestDetected('mock_' + Math.random().toString(36).substr(2, 12));
-            }
-        }, 15000);
-    };
-}
-
-function showTestDetected(callId) {
-    state.detectedCallId = callId;
-
-    const testStatus = document.getElementById('test-status');
-    testStatus.className = 'test-status detected';
-    testStatus.innerHTML = '';
-
-    const p1 = document.createElement('p');
-    const icon = document.createElement('span');
-    icon.className = 'status-icon';
-    icon.textContent = '\u2713';
-    p1.appendChild(icon);
-    p1.appendChild(document.createTextNode(' Test detected! Policy was applied'));
-
-    const p2 = document.createElement('p');
-    p2.appendChild(document.createTextNode('Call ID: '));
-    const callIdSpan = document.createElement('span');
-    callIdSpan.className = 'call-id';
-    callIdSpan.textContent = callId;
-    p2.appendChild(callIdSpan);
-
-    const linksDiv = document.createElement('div');
-    linksDiv.className = 'result-links';
-
-    const h4 = document.createElement('h4');
-    h4.textContent = 'View results:';
-    linksDiv.appendChild(h4);
-
-    const monitorLink = document.createElement('a');
-    monitorLink.href = '/activity/monitor';
-    monitorLink.textContent = 'Activity Monitor';
-    linksDiv.appendChild(monitorLink);
-
-    const diffLink = document.createElement('a');
-    diffLink.href = `/debug/diff?call_id=${encodeURIComponent(callId)}`;
-    diffLink.textContent = 'View Diff';
-    linksDiv.appendChild(diffLink);
-
-    testStatus.appendChild(p1);
-    testStatus.appendChild(p2);
-    testStatus.appendChild(linksDiv);
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
