@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
+import litellm
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from luthien_proxy.admin.policy_discovery import discover_policies
 from luthien_proxy.auth import verify_admin_token
-from luthien_proxy.dependencies import get_policy_manager
+from luthien_proxy.dependencies import get_emitter, get_llm_client, get_policy, get_policy_manager
+from luthien_proxy.llm.client import LLMClient
+from luthien_proxy.llm.types import Request as LLMRequest
+from luthien_proxy.observability.emitter import EventEmitterProtocol
+from luthien_proxy.policy_core.policy_context import PolicyContext
+from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
@@ -68,6 +75,51 @@ class PolicyListResponse(BaseModel):
     """Response with list of available policy classes."""
 
     policies: list[PolicyClassInfo]
+
+
+class TestChatRequest(BaseModel):
+    """Request for testing chat through the proxy."""
+
+    model: str = Field(..., description="Model to use (e.g., 'gpt-4o', 'claude-3-5-sonnet-20241022')")
+    message: str = Field(..., description="Message to send")
+    stream: bool = Field(default=False, description="Whether to stream the response")
+
+
+class TestChatResponse(BaseModel):
+    """Response from test chat."""
+
+    success: bool
+    content: str | None = None
+    error: str | None = None
+    model: str | None = None
+    usage: dict[str, Any] | None = None
+
+
+def get_available_models() -> list[str]:
+    """Get available models from litellm.
+
+    Returns a curated list of chat completion models from OpenAI and Anthropic.
+    """
+    models: list[str] = []
+
+    # Get OpenAI chat models
+    if hasattr(litellm, "open_ai_chat_completion_models"):
+        openai_models = [
+            m
+            for m in litellm.open_ai_chat_completion_models
+            if m.startswith(("gpt-", "o1", "o3", "chatgpt-"))
+            and not m.startswith("ft:")
+            and "audio" not in m
+            and "realtime" not in m
+        ]
+        models.extend(sorted(openai_models, reverse=True))
+
+    # Get Anthropic models
+    if hasattr(litellm, "anthropic_models"):
+        anthropic_models = [m for m in litellm.anthropic_models if "claude" in m.lower()]
+        models.extend(sorted(anthropic_models, reverse=True))
+
+    return models
 
 
 # === Routes ===
@@ -169,6 +221,88 @@ async def list_available_policies(
         for p in discovered
     ]
     return PolicyListResponse(policies=policies)
+
+
+@router.get("/models")
+async def list_models(
+    _: str = Depends(verify_admin_token),
+):
+    """List available models for testing.
+
+    Returns a list of models available via litellm (OpenAI and Anthropic).
+    Requires admin authentication.
+    """
+    return {"models": get_available_models()}
+
+
+@router.post("/test/chat", response_model=TestChatResponse)
+async def test_chat(
+    body: TestChatRequest,
+    _: str = Depends(verify_admin_token),
+    policy: PolicyProtocol = Depends(get_policy),
+    llm_client: LLMClient = Depends(get_llm_client),
+    emitter: EventEmitterProtocol = Depends(get_emitter),
+):
+    """Send a test message through the proxy with the active policy.
+
+    This endpoint allows testing the current policy configuration
+    by sending a message and seeing the response. The message goes
+    through the full policy pipeline.
+
+    Requires admin authentication.
+    """
+    transaction_id = f"test-{uuid.uuid4().hex[:12]}"
+
+    try:
+        # Build OpenAI-format request
+        messages: list[Any] = [{"role": "user", "content": body.message}]
+        request = LLMRequest(model=body.model, messages=messages, stream=False)
+
+        # Create policy context
+        ctx = PolicyContext(
+            transaction_id=transaction_id,
+            request=request,
+            emitter=emitter,
+        )
+
+        # Apply policy on request
+        modified_request = await policy.on_request(request, ctx)
+
+        # Call LLM
+        response = await llm_client.complete(modified_request)
+
+        # Extract content from response (using getattr for type safety)
+        content = None
+        choices = getattr(response, "choices", None)
+        if choices:
+            choice = choices[0]
+            msg = getattr(choice, "message", None)
+            if msg:
+                content = getattr(msg, "content", None)
+
+        # Extract usage
+        usage = None
+        usage_obj = getattr(response, "usage", None)
+        if usage_obj:
+            usage = {
+                "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0),
+                "completion_tokens": getattr(usage_obj, "completion_tokens", 0),
+                "total_tokens": getattr(usage_obj, "total_tokens", 0),
+            }
+
+        return TestChatResponse(
+            success=True,
+            content=content,
+            model=body.model,
+            usage=usage,
+        )
+    except Exception as e:
+        logger.error(f"Test chat failed: {e}", exc_info=True)
+        return TestChatResponse(
+            success=False,
+            error=str(e),
+            model=body.model,
+        )
 
 
 __all__ = ["router"]

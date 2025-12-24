@@ -385,31 +385,97 @@
             font-size: 14px;
             font-weight: 600;
             margin-bottom: 12px;
-            color: #888;
+            color: #e5e5e5;
         }
 
-        .test-prompt {
+        .test-field {
+            margin-bottom: 12px;
+        }
+
+        .test-field label {
+            display: block;
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .test-select {
             width: 100%;
-            min-height: 60px;
+            padding: 8px 12px;
             background: #0a0a0a;
             border: 1px solid #333;
             border-radius: 6px;
             color: #e5e5e5;
             font-size: 13px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            padding: 10px;
-            margin-bottom: 8px;
-            resize: vertical;
+            font-family: inherit;
+            cursor: pointer;
         }
 
-        .test-prompt:focus {
+        .test-select:focus {
             outline: none;
             border-color: #2563eb;
         }
 
-        .copy-btn {
-            font-size: 12px;
-            padding: 6px 12px;
+        .test-input {
+            width: 100%;
+            min-height: 80px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
+            font-size: 13px;
+            font-family: inherit;
+            padding: 10px;
+            resize: vertical;
+        }
+
+        .test-input:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+
+        .test-buttons {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .test-buttons button {
+            flex: 1;
+        }
+
+        .test-response {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 12px;
+            min-height: 100px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .test-response.empty {
+            color: #666;
+            font-style: italic;
+        }
+
+        .test-response.error {
+            color: #fca5a5;
+            border-color: #f87171;
+        }
+
+        .test-response.success {
+            color: #e5e5e5;
+        }
+
+        .test-meta {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #666;
         }
 
         /* Quick Links */

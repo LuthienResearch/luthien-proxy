@@ -3,13 +3,16 @@ const state = {
     currentPolicy: null,
     selectedPolicy: null,
     availablePolicies: [],
+    availableModels: [],
     configValues: {},
-    isActivating: false
+    isActivating: false,
+    isSending: false,
+    selectedModel: null
 };
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
-    await Promise.all([loadCurrentPolicy(), loadPolicies()]);
+    await Promise.all([loadCurrentPolicy(), loadPolicies(), loadModels()]);
 });
 
 async function apiCall(endpoint, options = {}) {
@@ -50,6 +53,20 @@ async function loadPolicies() {
         console.error('Failed to load policies:', err);
         document.getElementById('policy-list').innerHTML =
             `<div class="status-message error">Failed to load policies: ${err.message}</div>`;
+    }
+}
+
+async function loadModels() {
+    try {
+        const data = await apiCall('/admin/models');
+        state.availableModels = data.models || [];
+        if (state.availableModels.length > 0) {
+            state.selectedModel = state.availableModels[0];
+        }
+    } catch (err) {
+        console.error('Failed to load models:', err);
+        state.availableModels = ['gpt-4o', 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'];
+        state.selectedModel = state.availableModels[0];
     }
 }
 
@@ -161,9 +178,26 @@ function renderConfigPanel() {
         </div>
         <div id="status-container"></div>
         <div class="test-section">
-            <h3>Test Prompt</h3>
-            <textarea class="test-prompt" id="test-prompt" readonly>${escapeHtml(getTestPrompt(policy.name))}</textarea>
-            <button class="copy-btn" id="copy-btn">Copy to Clipboard</button>
+            <h3>Test Policy</h3>
+            <div class="test-field">
+                <label for="model-select">Model</label>
+                <select class="test-select" id="model-select">
+                    ${state.availableModels.map(m =>
+                        `<option value="${escapeHtml(m)}" ${m === state.selectedModel ? 'selected' : ''}>${escapeHtml(m)}</option>`
+                    ).join('')}
+                </select>
+            </div>
+            <div class="test-field">
+                <label for="test-message">Message</label>
+                <textarea class="test-input" id="test-message" placeholder="Enter a message to test the policy...">${escapeHtml(getTestPrompt(policy.name))}</textarea>
+            </div>
+            <div class="test-buttons">
+                <button id="send-btn" ${state.isSending ? 'disabled' : ''}>
+                    ${state.isSending ? 'Sending...' : 'Send Message'}
+                </button>
+            </div>
+            <div class="test-response empty" id="test-response">Response will appear here...</div>
+            <div class="test-meta" id="test-meta"></div>
         </div>
         <div class="quick-links">
             <h3>Quick Links</h3>
@@ -176,7 +210,10 @@ function renderConfigPanel() {
 
     renderConfigForm(policy);
     document.getElementById('activate-btn').addEventListener('click', handleActivate);
-    document.getElementById('copy-btn').addEventListener('click', handleCopy);
+    document.getElementById('send-btn').addEventListener('click', handleSendChat);
+    document.getElementById('model-select').addEventListener('change', (e) => {
+        state.selectedModel = e.target.value;
+    });
 }
 
 function renderConfigForm(policy) {
@@ -312,19 +349,57 @@ async function handleActivate() {
     }
 }
 
-async function handleCopy() {
-    const promptText = document.getElementById('test-prompt').value;
-    const copyBtn = document.getElementById('copy-btn');
+async function handleSendChat() {
+    if (state.isSending) return;
+
+    const messageEl = document.getElementById('test-message');
+    const responseEl = document.getElementById('test-response');
+    const metaEl = document.getElementById('test-meta');
+    const sendBtn = document.getElementById('send-btn');
+
+    const message = messageEl.value.trim();
+    if (!message) {
+        responseEl.className = 'test-response error';
+        responseEl.textContent = 'Please enter a message';
+        return;
+    }
+
+    state.isSending = true;
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending...';
+    responseEl.className = 'test-response empty';
+    responseEl.textContent = 'Sending request...';
+    metaEl.textContent = '';
 
     try {
-        await navigator.clipboard.writeText(promptText);
-        const originalText = copyBtn.textContent;
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => {
-            copyBtn.textContent = originalText;
-        }, 2000);
+        const result = await apiCall('/admin/test/chat', {
+            method: 'POST',
+            body: JSON.stringify({
+                model: state.selectedModel,
+                message: message,
+                stream: false
+            })
+        });
+
+        if (!result.success) {
+            throw new Error(result.error || 'Request failed');
+        }
+
+        responseEl.className = 'test-response success';
+        responseEl.textContent = result.content || '(empty response)';
+
+        if (result.usage) {
+            metaEl.textContent = `Model: ${result.model} • Tokens: ${result.usage.prompt_tokens} in / ${result.usage.completion_tokens} out`;
+        } else {
+            metaEl.textContent = `Model: ${result.model}`;
+        }
     } catch (err) {
-        console.error('Copy failed:', err);
+        responseEl.className = 'test-response error';
+        responseEl.textContent = `Error: ${err.message}`;
+    } finally {
+        state.isSending = false;
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Send Message';
     }
 }
 
@@ -337,7 +412,7 @@ function getTestPrompt(policyName) {
         'SimpleJudgePolicy': 'Test the judge policy',
         'ToolCallJudgePolicy': 'Test tool call evaluation'
     };
-    return prompts[policyName] || 'Test this policy';
+    return prompts[policyName] || 'Hello! Please respond with a short greeting.';
 }
 
 function escapeHtml(text) {
