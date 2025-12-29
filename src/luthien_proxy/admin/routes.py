@@ -73,7 +73,7 @@ class PolicyListResponse(BaseModel):
     policies: list[PolicyClassInfo]
 
 
-class TestChatRequest(BaseModel):
+class ChatRequest(BaseModel):
     """Request for testing chat through the proxy."""
 
     model: str = Field(..., description="Model to use (e.g., 'gpt-4o', 'claude-3-5-sonnet-20241022')")
@@ -81,7 +81,7 @@ class TestChatRequest(BaseModel):
     stream: bool = Field(default=False, description="Whether to stream the response")
 
 
-class TestChatResponse(BaseModel):
+class ChatResponse(BaseModel):
     """Response from test chat."""
 
     success: bool
@@ -233,9 +233,9 @@ async def list_models(
     return {"models": get_available_models()}
 
 
-@router.post("/test/chat", response_model=TestChatResponse)
-async def test_chat(
-    body: TestChatRequest,
+@router.post("/test/chat", response_model=ChatResponse)
+async def send_chat(
+    body: ChatRequest,
     request: Request,
     _: str = Depends(verify_admin_token),
 ):
@@ -250,7 +250,7 @@ async def test_chat(
     """
     settings = get_settings()
     if not settings.proxy_api_key:
-        return TestChatResponse(
+        return ChatResponse(
             success=False,
             error="PROXY_API_KEY not configured on server",
             model=body.model,
@@ -284,7 +284,7 @@ async def test_chat(
                 error_detail = error_json.get("detail", error_detail)
             except Exception:
                 pass
-            return TestChatResponse(
+            return ChatResponse(
                 success=False,
                 error=f"Proxy returned {response.status_code}: {error_detail}",
                 model=body.model,
@@ -302,21 +302,21 @@ async def test_chat(
         # Extract usage
         usage = data.get("usage")
 
-        return TestChatResponse(
+        return ChatResponse(
             success=True,
             content=content,
             model=body.model,
             usage=usage,
         )
     except httpx.TimeoutException:
-        return TestChatResponse(
+        return ChatResponse(
             success=False,
             error="Request timed out (120s limit)",
             model=body.model,
         )
     except Exception as e:
         logger.error(f"Test chat failed: {e}", exc_info=True)
-        return TestChatResponse(
+        return ChatResponse(
             success=False,
             error=str(e),
             model=body.model,

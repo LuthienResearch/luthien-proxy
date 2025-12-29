@@ -16,14 +16,14 @@ import pytest
 from fastapi import HTTPException
 
 from luthien_proxy.admin.routes import (
+    ChatRequest,
+    ChatResponse,
     PolicyEnableResponse,
     PolicySetRequest,
-    TestChatRequest,
-    TestChatResponse,
     get_available_models,
     list_models,
+    send_chat,
     set_policy,
-    test_chat,
 )
 from luthien_proxy.policy_manager import PolicyEnableResult
 
@@ -219,8 +219,8 @@ class TestListModelsRoute:
         assert result["models"] == ["gpt-4o", "claude-3-5-sonnet-20241022"]
 
 
-class TestTestChatRoute:
-    """Test test_chat route handler."""
+class TestSendChatRoute:
+    """Test send_chat route handler."""
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
@@ -251,11 +251,11 @@ class TestTestChatRoute:
         mock_request = MagicMock()
         mock_request.base_url = "http://localhost:8000/"
 
-        request = TestChatRequest(model="gpt-4o", message="Hello!")
+        request = ChatRequest(model="gpt-4o", message="Hello!")
 
-        result = await test_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+        result = await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
 
-        assert isinstance(result, TestChatResponse)
+        assert isinstance(result, ChatResponse)
         assert result.success is True
         assert result.content == "Hello from the LLM!"
         assert result.model == "gpt-4o"
@@ -273,17 +273,17 @@ class TestTestChatRoute:
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
     async def test_missing_proxy_api_key(self, mock_get_settings):
-        """Test test_chat returns error when PROXY_API_KEY is not configured."""
+        """Test send_chat returns error when PROXY_API_KEY is not configured."""
         mock_settings = MagicMock()
         mock_settings.proxy_api_key = None
         mock_get_settings.return_value = mock_settings
 
         mock_request = MagicMock()
-        request = TestChatRequest(model="gpt-4o", message="Hello!")
+        request = ChatRequest(model="gpt-4o", message="Hello!")
 
-        result = await test_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+        result = await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
 
-        assert isinstance(result, TestChatResponse)
+        assert isinstance(result, ChatResponse)
         assert result.success is False
         assert "PROXY_API_KEY not configured" in result.error
         assert result.model == "gpt-4o"
@@ -292,7 +292,7 @@ class TestTestChatRoute:
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
     async def test_proxy_error_response(self, mock_client_class, mock_get_settings):
-        """Test test_chat handles proxy error responses."""
+        """Test send_chat handles proxy error responses."""
         mock_settings = MagicMock()
         mock_settings.proxy_api_key = "test-proxy-key"
         mock_get_settings.return_value = mock_settings
@@ -311,11 +311,11 @@ class TestTestChatRoute:
 
         mock_request = MagicMock()
         mock_request.base_url = "http://localhost:8000/"
-        request = TestChatRequest(model="invalid-model", message="Hello!")
+        request = ChatRequest(model="invalid-model", message="Hello!")
 
-        result = await test_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+        result = await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
 
-        assert isinstance(result, TestChatResponse)
+        assert isinstance(result, ChatResponse)
         assert result.success is False
         assert "400" in result.error
         assert "Invalid model specified" in result.error
@@ -324,7 +324,7 @@ class TestTestChatRoute:
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
     async def test_timeout_exception(self, mock_client_class, mock_get_settings):
-        """Test test_chat handles timeout exceptions."""
+        """Test send_chat handles timeout exceptions."""
         mock_settings = MagicMock()
         mock_settings.proxy_api_key = "test-proxy-key"
         mock_get_settings.return_value = mock_settings
@@ -338,11 +338,11 @@ class TestTestChatRoute:
 
         mock_request = MagicMock()
         mock_request.base_url = "http://localhost:8000/"
-        request = TestChatRequest(model="gpt-4o", message="Hello!")
+        request = ChatRequest(model="gpt-4o", message="Hello!")
 
-        result = await test_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+        result = await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
 
-        assert isinstance(result, TestChatResponse)
+        assert isinstance(result, ChatResponse)
         assert result.success is False
         assert "timed out" in result.error
         assert "120s" in result.error
@@ -351,7 +351,7 @@ class TestTestChatRoute:
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
     async def test_unexpected_exception(self, mock_client_class, mock_get_settings):
-        """Test test_chat handles unexpected exceptions."""
+        """Test send_chat handles unexpected exceptions."""
         mock_settings = MagicMock()
         mock_settings.proxy_api_key = "test-proxy-key"
         mock_get_settings.return_value = mock_settings
@@ -365,10 +365,10 @@ class TestTestChatRoute:
 
         mock_request = MagicMock()
         mock_request.base_url = "http://localhost:8000/"
-        request = TestChatRequest(model="gpt-4o", message="Hello!")
+        request = ChatRequest(model="gpt-4o", message="Hello!")
 
-        result = await test_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+        result = await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
 
-        assert isinstance(result, TestChatResponse)
+        assert isinstance(result, ChatResponse)
         assert result.success is False
         assert "Unexpected error" in result.error
