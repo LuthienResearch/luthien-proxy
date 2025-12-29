@@ -110,7 +110,19 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
 - Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
 - Type check: `uv run pyright`
-- Docker iterate: `docker compose restart gateway`
+
+### Local Docker Development
+
+The `docker-compose.yaml` mounts source code into containers as read-only volumes (`./src:/app/src:ro`). This means:
+
+- **Python changes**: Require `docker compose restart gateway` to pick up modifications
+- **Static files (HTML/JS/CSS)**: Mounted live, but browsers cache aggressively. Use hard refresh (Cmd+Shift+R / Ctrl+Shift+R) to see changes
+- **Config files**: Changes to `config/` files require container restart
+
+Common commands:
+- `docker compose restart gateway` - restart just the gateway after code changes
+- `docker compose logs gateway --tail 50` - check recent gateway logs
+- `docker compose ps` - verify container status
 
 ## Tooling
 
