@@ -201,9 +201,37 @@ def anthropic_to_openai_request(data: dict) -> dict:
             )
         openai_data["tools"] = openai_tools
 
+    # Handle tool_choice conversion (Anthropic format → OpenAI format)
+    if "tool_choice" in data:
+        tc = data["tool_choice"]
+        if isinstance(tc, dict):
+            tc_type = tc.get("type")
+            if tc_type == "auto":
+                openai_data["tool_choice"] = "auto"
+            elif tc_type == "any":
+                # Anthropic "any" means force tool use = OpenAI "required"
+                openai_data["tool_choice"] = "required"
+            elif tc_type == "tool":
+                # Specific tool required
+                tool_name = tc.get("name")
+                if tool_name:
+                    openai_data["tool_choice"] = {
+                        "type": "function",
+                        "function": {"name": tool_name},
+                    }
+        else:
+            # Already in OpenAI format (string like "auto", "none", "required")
+            openai_data["tool_choice"] = tc
+
+    # Map Anthropic-specific parameter names to OpenAI equivalents.
+    # LiteLLM uses OpenAI parameter names internally.
+    anthropic_to_openai_param_map: dict[str, str] = {
+        "stop_sequences": "stop",  # Anthropic uses stop_sequences, OpenAI uses stop
+    }
+
     # Preserve extra parameters that weren't explicitly handled above.
     # This ensures provider-specific params like `thinking`, `metadata`,
-    # `stop_sequences`, `tool_choice`, etc. pass through to LiteLLM.
+    # etc. pass through to LiteLLM.
     handled_keys = {
         "model",
         "messages",
@@ -213,10 +241,13 @@ def anthropic_to_openai_request(data: dict) -> dict:
         "top_p",
         "system",
         "tools",
+        "tool_choice",  # Handled above
     }
     for key, value in data.items():
         if key not in handled_keys and value is not None:
-            openai_data[key] = value
+            # Map Anthropic param names to OpenAI equivalents if needed
+            mapped_key = anthropic_to_openai_param_map.get(key) or key
+            openai_data[mapped_key] = value
 
     return {k: v for k, v in openai_data.items() if v is not None}
 
