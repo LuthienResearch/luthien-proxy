@@ -29,6 +29,138 @@ class TestAnthropicToOpenAIRequest:
         assert result["max_tokens"] == 1024
         assert result["stream"] is False
 
+    def test_thinking_parameter_preserved(self):
+        """Test that thinking parameter passes through to output."""
+        anthropic_req = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Think about this"}],
+            "max_tokens": 16000,
+            "thinking": {"type": "enabled", "budget_tokens": 10000},
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assert result["thinking"] == {"type": "enabled", "budget_tokens": 10000}
+
+    def test_metadata_parameter_preserved(self):
+        """Test that metadata parameter passes through."""
+        anthropic_req = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "metadata": {"user_id": "user_123"},
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assert result["metadata"] == {"user_id": "user_123"}
+
+    def test_stop_sequences_mapped_to_stop(self):
+        """Test that stop_sequences is mapped to 'stop' (OpenAI format)."""
+        anthropic_req = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "stop_sequences": ["END", "STOP"],
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        # Anthropic's stop_sequences should be mapped to OpenAI's stop
+        assert result["stop"] == ["END", "STOP"]
+        assert "stop_sequences" not in result
+
+    def test_tool_choice_auto_converted(self):
+        """Test that Anthropic tool_choice auto is converted to OpenAI format."""
+        anthropic_req = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "tool_choice": {"type": "auto"},
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        # Anthropic {"type": "auto"} -> OpenAI "auto" (string)
+        assert result["tool_choice"] == "auto"
+
+    def test_tool_choice_any_converted_to_required(self):
+        """Test that Anthropic tool_choice any is converted to OpenAI required."""
+        anthropic_req = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "tool_choice": {"type": "any"},
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        # Anthropic {"type": "any"} (force tool use) -> OpenAI "required"
+        assert result["tool_choice"] == "required"
+
+    def test_tool_choice_specific_tool_converted(self):
+        """Test that Anthropic specific tool_choice is converted to OpenAI format."""
+        anthropic_req = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "tool_choice": {"type": "tool", "name": "get_weather"},
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        # Anthropic {"type": "tool", "name": X} -> OpenAI {"type": "function", "function": {"name": X}}
+        assert result["tool_choice"] == {"type": "function", "function": {"name": "get_weather"}}
+
+    def test_tool_choice_openai_format_passthrough(self):
+        """Test that OpenAI-format tool_choice passes through unchanged."""
+        anthropic_req = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "tool_choice": "none",  # Already OpenAI format
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assert result["tool_choice"] == "none"
+
+    def test_multiple_extra_params_preserved(self):
+        """Test that multiple extra parameters all pass through."""
+        anthropic_req = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 16000,
+            "thinking": {"type": "enabled", "budget_tokens": 10000},
+            "metadata": {"user_id": "user_123"},
+            "stop_sequences": ["END"],
+            "custom_param": "custom_value",
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assert result["thinking"] == {"type": "enabled", "budget_tokens": 10000}
+        assert result["metadata"] == {"user_id": "user_123"}
+        # stop_sequences is mapped to stop (OpenAI format)
+        assert result["stop"] == ["END"]
+        assert "stop_sequences" not in result
+        assert result["custom_param"] == "custom_value"
+
+    def test_none_extra_params_filtered(self):
+        """Test that None extra parameters are filtered out."""
+        anthropic_req = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "thinking": None,
+            "metadata": None,
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assert "thinking" not in result
+        assert "metadata" not in result
+
     def test_with_optional_params(self):
         """Test conversion with temperature and top_p."""
         anthropic_req = {

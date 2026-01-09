@@ -173,3 +173,70 @@ async def test_stream_excludes_none_values(sample_request, sample_chunks):
         call_kwargs = mock_completion.call_args.kwargs
         assert "max_tokens" not in call_kwargs
         assert call_kwargs["temperature"] == 0.7
+
+
+@pytest.mark.asyncio
+async def test_complete_preserves_extra_params(sample_response):
+    """Test that extra parameters (like reasoning_effort) pass through to LiteLLM."""
+    client = LiteLLMClient()
+    # Create request with extra OpenAI-specific params
+    request_with_extras = Request(
+        model="o1-preview",
+        messages=[{"role": "user", "content": "Think carefully"}],
+        reasoning_effort="high",  # type: ignore[call-arg]  # extra param
+        response_format={"type": "json_object"},  # type: ignore[call-arg]  # extra param
+    )
+
+    with patch("litellm.acompletion", new_callable=AsyncMock) as mock_completion:
+        mock_completion.return_value = sample_response
+        await client.complete(request_with_extras)
+
+        call_kwargs = mock_completion.call_args.kwargs
+        assert call_kwargs["reasoning_effort"] == "high"
+        assert call_kwargs["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+async def test_stream_preserves_extra_params(sample_chunks):
+    """Test that extra parameters pass through during streaming."""
+    client = LiteLLMClient()
+    request_with_extras = Request(
+        model="gpt-4",
+        messages=[{"role": "user", "content": "Hello"}],
+        logprobs=True,  # type: ignore[call-arg]  # extra param
+        seed=42,  # type: ignore[call-arg]  # extra param
+    )
+
+    async def mock_stream():
+        for chunk in sample_chunks:
+            yield chunk
+
+    with patch("litellm.acompletion", new_callable=AsyncMock) as mock_completion:
+        mock_completion.return_value = mock_stream()
+
+        stream_iter = await client.stream(request_with_extras)
+        async for _ in stream_iter:
+            pass
+
+        call_kwargs = mock_completion.call_args.kwargs
+        assert call_kwargs["logprobs"] is True
+        assert call_kwargs["seed"] == 42
+
+
+@pytest.mark.asyncio
+async def test_complete_with_thinking_param(sample_response):
+    """Test that thinking parameter passes through for Claude models."""
+    client = LiteLLMClient()
+    request_with_thinking = Request(
+        model="claude-sonnet-4-20250514",
+        messages=[{"role": "user", "content": "Think about this"}],
+        max_tokens=16000,
+        thinking={"type": "enabled", "budget_tokens": 10000},  # type: ignore[call-arg]
+    )
+
+    with patch("litellm.acompletion", new_callable=AsyncMock) as mock_completion:
+        mock_completion.return_value = sample_response
+        await client.complete(request_with_thinking)
+
+        call_kwargs = mock_completion.call_args.kwargs
+        assert call_kwargs["thinking"] == {"type": "enabled", "budget_tokens": 10000}
