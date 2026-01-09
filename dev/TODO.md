@@ -4,7 +4,7 @@
 
 ### Core Features (User Story Aligned)
 
-- [ ] **thinking and verbosity model flags not respected** - Model parameters like `thinking` and `verbosity` are not passed through to backend. Blocks User Story 1 (Solo Developer). Issue: `luthien-proxy-mfs` (P1).
+- [x] **thinking and verbosity model flags not respected** - Model parameters like `thinking` and `verbosity` are not passed through to backend. Fixed by preserving extra params in `anthropic_to_openai_request`.
 
 ### Policy UI & Admin
 

@@ -201,6 +201,23 @@ def anthropic_to_openai_request(data: dict) -> dict:
             )
         openai_data["tools"] = openai_tools
 
+    # Preserve extra parameters that weren't explicitly handled above.
+    # This ensures provider-specific params like `thinking`, `metadata`,
+    # `stop_sequences`, `tool_choice`, etc. pass through to LiteLLM.
+    handled_keys = {
+        "model",
+        "messages",
+        "max_tokens",
+        "stream",
+        "temperature",
+        "top_p",
+        "system",
+        "tools",
+    }
+    for key, value in data.items():
+        if key not in handled_keys and value is not None:
+            openai_data[key] = value
+
     return {k: v for k, v in openai_data.items() if v is not None}
 
 
