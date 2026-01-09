@@ -4,8 +4,11 @@
 
 - Pass through extra model parameters like `thinking`, `metadata`, `stop_sequences` (thinking-flags)
   - Anthropic requests now preserve all extra parameters during format conversion
+  - Map `stop_sequences` (Anthropic) → `stop` (OpenAI)
+  - Convert `tool_choice` format between Anthropic and OpenAI APIs
   - OpenAI requests already preserved extra params via Pydantic `extra="allow"`
   - Enables extended thinking, reasoning effort, and other provider-specific features
+  - 14 new e2e tests validate parameter pass-through for both client types
 
 - Auto-discovering policy configuration UI (policy-config-ui)
   - `/admin/policy/list` now auto-discovers all policies from `luthien_proxy.policies`
