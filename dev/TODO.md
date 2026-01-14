@@ -9,7 +9,7 @@
 
 ### Known Test Failures
 
-- [ ] **test_gateway.sh failing for ChatGPT** - ChatGPT backend tests are failing. Needs investigation. Noted 2026-01-13.
+- [ ] **test_gateway.sh failing for ChatGPT** - ChatGPT backend tests are failing. Needs investigation. Noted by Scott on 2026-01-13.
 
 ### Policy UI & Admin
 
@@ -17,17 +17,9 @@
 - [ ] **[Future] Smart dev key hint** - Only show clickable dev key hint when ADMIN_API_KEY matches default; otherwise just show "check .env or contact admin". Deferred as scope creep. Reference: dogfooding-login-ui-quick-fixes branch, 2025-12-15.
 - [ ] **Activity Monitor missing auth indicator** - Gateway root page links to Activity Monitor but doesn't show "Auth Required" indicator for consistency with other protected pages. Reference: dogfooding session 2025-12-15.
 
-### Type System Improvements
-
-- [x] **Break up llm/types.py into submodules** - Split into `llm/types/openai.py` and `llm/types/anthropic.py` for cleaner organization as the file grows.
-- [x] **Complete strict typing for LLM types** - Add remaining TypedDict definitions for full request/response typing (OpenAIRequestDict, AnthropicRequestDict, AnthropicResponseDict, tool types).
-- [x] **Move Request class to llm/types/openai.py** - Moved from top-level `messages.py` to live with other LLM types.
-
 ### Documentation (High)
 
-- [x] Update README post v2-migration
 - [ ] **Add security documentation for dynamic policy loading (POLICY_CONFIG)** - Document security implications of dynamic class loading, file permissions, admin API authentication requirements.
-- [x] Verify all environment variables are documented in README and .env.example
 
 ### Security
 
@@ -54,8 +46,6 @@
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints (debug endpoints have tests, UI routes do not)
 - [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production
 - [ ] **Implement circuit breaker for upstream calls** - Queue overflow protection exists, but not full circuit breaker pattern
-- [x] **Add resource limits to docker-compose.yaml**
-- [x] **Implement proper task tracking for event publisher** - Has `add_done_callback` for error logging in emitter.py
 
 ### Documentation (Medium)
 

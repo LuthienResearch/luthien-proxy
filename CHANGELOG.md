@@ -2,6 +2,8 @@
 
 ## Unreleased | TBA
 
+- Reorganize LLM types into separate OpenAI and Anthropic modules (#117)
+
 - Pass through extra model parameters like `thinking`, `metadata`, `stop_sequences` (thinking-flags)
   - Anthropic requests now preserve all extra parameters during format conversion
   - Map `stop_sequences` (Anthropic) → `stop` (OpenAI)
