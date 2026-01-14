@@ -7,10 +7,6 @@
 - [ ] **Thinking blocks stripped from non-streaming responses** - Causes 500 errors when `thinking` enabled. Fix `openai_to_anthropic_response()` to extract `message.thinking_blocks` and include FIRST in content array. [#128](https://github.com/LuthienResearch/luthien-proxy/issues/128)
 - [ ] **Thinking blocks not handled in streaming responses** - `AnthropicSSEAssembler` doesn't recognize thinking chunk types. [#129](https://github.com/LuthienResearch/luthien-proxy/issues/129)
 
-### Known Test Failures
-
-- [ ] **test_gateway.sh failing for ChatGPT** - ChatGPT backend tests are failing. Needs investigation. Noted by Scott on 2026-01-13.
-
 ### Policy UI & Admin
 
 - [ ] **Improved policy config schema system** - Enhance config schema to include: default values, per-field user-facing docstrings/descriptions, and secure field flags (e.g. API keys should render as password inputs in browser). Currently the UI infers types from schema but lacks rich metadata for good UX.
