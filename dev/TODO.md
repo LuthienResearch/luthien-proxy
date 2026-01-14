@@ -23,10 +23,6 @@
 - [x] **Complete strict typing for LLM types** - Add remaining TypedDict definitions for full request/response typing (OpenAIRequestDict, AnthropicRequestDict, AnthropicResponseDict, tool types).
 - [x] **Move Request class to llm/types/openai.py** - Moved from top-level `messages.py` to live with other LLM types.
 
-### Multimodal / Images
-
-- [x] **LiteLLM multimodal routing issue (#108)** - Fixed. Images now pass through correctly.
-
 ### Documentation (High)
 
 - [x] Update README post v2-migration
@@ -59,7 +55,6 @@
 - [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production
 - [ ] **Implement circuit breaker for upstream calls** - Queue overflow protection exists, but not full circuit breaker pattern
 - [x] **Add resource limits to docker-compose.yaml**
-- [x] **Review LiteLLMClient instantiation pattern** - Already singleton in main.py:104-105
 - [x] **Implement proper task tracking for event publisher** - Has `add_done_callback` for error logging in emitter.py
 
 ### Documentation (Medium)
