@@ -266,6 +266,18 @@ def openai_to_anthropic_response(response: ModelResponse) -> dict:
     message = choice.message
     content = []
 
+    # Add thinking blocks FIRST if present (required by Anthropic API)
+    # LiteLLM exposes these via message.thinking_blocks
+    if hasattr(message, "thinking_blocks") and message.thinking_blocks:
+        for block in message.thinking_blocks:
+            content.append(
+                {
+                    "type": block.get("type", "thinking"),
+                    "thinking": block.get("thinking", ""),
+                    "signature": block.get("signature", ""),
+                }
+            )
+
     # Add text content if present
     if message.content:
         content.append(
