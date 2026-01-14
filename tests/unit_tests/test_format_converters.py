@@ -349,6 +349,110 @@ class TestOpenAIToAnthropicResponseThinkingBlocks:
         assert len(result["content"]) == 1
         assert result["content"][0]["type"] == "text"
 
+    def test_empty_thinking_blocks_list(self):
+        """Test that empty thinking_blocks list is handled like no blocks."""
+        message = Message(role="assistant", content="Response with empty list.")
+        message.thinking_blocks = []  # Empty list, not None
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="stop")],
+            usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        # Empty list should be treated as no thinking blocks
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+
+    def test_redacted_thinking_block(self):
+        """Test handling of redacted_thinking blocks.
+
+        Redacted thinking blocks have a different structure:
+        - type: "redacted_thinking"
+        - data: encrypted/redacted content (instead of thinking + signature)
+        """
+        message = Message(role="assistant", content="Response after redacted thinking.")
+        message.thinking_blocks = [
+            {"type": "redacted_thinking", "data": "encrypted_data_abc123"},
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="stop")],
+            usage=Usage(prompt_tokens=50, completion_tokens=100, total_tokens=150),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        assert len(result["content"]) == 2
+        assert result["content"][0]["type"] == "redacted_thinking"
+        assert result["content"][0]["data"] == "encrypted_data_abc123"
+        assert "thinking" not in result["content"][0]  # Should not have thinking field
+        assert result["content"][1]["type"] == "text"
+
+    def test_thinking_blocks_without_text_content(self):
+        """Test response with thinking blocks but no text content.
+
+        Edge case where model outputs only thinking (e.g., internal reasoning
+        that doesn't produce visible output).
+        """
+        message = Message(role="assistant", content=None)
+        message.thinking_blocks = [
+            {"type": "thinking", "thinking": "Internal reasoning...", "signature": "sig"},
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="stop")],
+            usage=Usage(prompt_tokens=50, completion_tokens=100, total_tokens=150),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        # Should have only thinking block, no text
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "thinking"
+
+    def test_mixed_thinking_and_redacted_blocks(self):
+        """Test response with both thinking and redacted_thinking blocks."""
+        message = Message(role="assistant", content="Final response.")
+        message.thinking_blocks = [
+            {"type": "thinking", "thinking": "First thought", "signature": "sig1"},
+            {"type": "redacted_thinking", "data": "redacted_content"},
+            {"type": "thinking", "thinking": "Third thought", "signature": "sig3"},
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="stop")],
+            usage=Usage(prompt_tokens=50, completion_tokens=200, total_tokens=250),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        assert len(result["content"]) == 4
+        assert result["content"][0]["type"] == "thinking"
+        assert result["content"][0]["thinking"] == "First thought"
+        assert result["content"][1]["type"] == "redacted_thinking"
+        assert result["content"][1]["data"] == "redacted_content"
+        assert result["content"][2]["type"] == "thinking"
+        assert result["content"][2]["thinking"] == "Third thought"
+        assert result["content"][3]["type"] == "text"
+
 
 class TestOpenAIToAnthropicResponse:
     """Test OpenAI to Anthropic response conversion."""
