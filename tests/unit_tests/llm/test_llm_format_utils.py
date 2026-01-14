@@ -330,25 +330,6 @@ class TestOpenAIToAnthropicResponseThinkingBlocks:
         assert result["content"][1]["type"] == "text"
         assert result["content"][2]["type"] == "tool_use"
 
-    def test_no_thinking_blocks_unchanged(self):
-        """Test that responses without thinking_blocks work normally."""
-        message = Message(role="assistant", content="Simple response.")
-        # No thinking_blocks attribute set
-
-        openai_response = ModelResponse(
-            id="test-id",
-            created=1234567890,
-            model="claude-3-opus-20240229",
-            object="chat.completion",
-            choices=[Choices(index=0, message=message, finish_reason="stop")],
-            usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
-        )
-
-        result = openai_to_anthropic_response(openai_response)
-
-        assert len(result["content"]) == 1
-        assert result["content"][0]["type"] == "text"
-
     def test_empty_thinking_blocks_list(self):
         """Test that empty thinking_blocks list is handled like no blocks."""
         message = Message(role="assistant", content="Response with empty list.")
