@@ -379,6 +379,7 @@ class TestOpenAIToAnthropicResponseThinkingBlocks:
         assert len(result["content"]) == 1
         assert result["content"][0]["type"] == "thinking"
 
+
 class TestOpenAIToAnthropicResponse:
     """Test OpenAI to Anthropic response conversion."""
 
