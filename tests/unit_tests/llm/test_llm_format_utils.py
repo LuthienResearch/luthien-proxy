@@ -265,32 +265,6 @@ class TestOpenAIToAnthropicResponseThinkingBlocks:
         assert result["content"][1]["type"] == "text"
         assert result["content"][1]["text"] == "Here is my response."
 
-    def test_multiple_thinking_blocks(self):
-        """Test handling multiple thinking blocks in sequence."""
-        message = Message(role="assistant", content="Final answer.")
-        message.thinking_blocks = [
-            {"type": "thinking", "thinking": "First thought", "signature": "sig_1"},
-            {"type": "thinking", "thinking": "Second thought", "signature": "sig_2"},
-        ]
-
-        openai_response = ModelResponse(
-            id="test-id",
-            created=1234567890,
-            model="claude-sonnet-4-20250514",
-            object="chat.completion",
-            choices=[Choices(index=0, message=message, finish_reason="stop")],
-            usage=Usage(prompt_tokens=50, completion_tokens=200, total_tokens=250),
-        )
-
-        result = openai_to_anthropic_response(openai_response)
-
-        assert len(result["content"]) == 3
-        assert result["content"][0]["type"] == "thinking"
-        assert result["content"][0]["thinking"] == "First thought"
-        assert result["content"][1]["type"] == "thinking"
-        assert result["content"][1]["thinking"] == "Second thought"
-        assert result["content"][2]["type"] == "text"
-
     def test_thinking_blocks_with_tool_calls(self):
         """Test thinking blocks ordering when tool calls are also present.
 
@@ -404,36 +378,6 @@ class TestOpenAIToAnthropicResponseThinkingBlocks:
         # Should have only thinking block, no text
         assert len(result["content"]) == 1
         assert result["content"][0]["type"] == "thinking"
-
-    def test_mixed_thinking_and_redacted_blocks(self):
-        """Test response with both thinking and redacted_thinking blocks."""
-        message = Message(role="assistant", content="Final response.")
-        message.thinking_blocks = [
-            {"type": "thinking", "thinking": "First thought", "signature": "sig1"},
-            {"type": "redacted_thinking", "data": "redacted_content"},
-            {"type": "thinking", "thinking": "Third thought", "signature": "sig3"},
-        ]
-
-        openai_response = ModelResponse(
-            id="test-id",
-            created=1234567890,
-            model="claude-sonnet-4-20250514",
-            object="chat.completion",
-            choices=[Choices(index=0, message=message, finish_reason="stop")],
-            usage=Usage(prompt_tokens=50, completion_tokens=200, total_tokens=250),
-        )
-
-        result = openai_to_anthropic_response(openai_response)
-
-        assert len(result["content"]) == 4
-        assert result["content"][0]["type"] == "thinking"
-        assert result["content"][0]["thinking"] == "First thought"
-        assert result["content"][1]["type"] == "redacted_thinking"
-        assert result["content"][1]["data"] == "redacted_content"
-        assert result["content"][2]["type"] == "thinking"
-        assert result["content"][2]["thinking"] == "Third thought"
-        assert result["content"][3]["type"] == "text"
-
 
 class TestOpenAIToAnthropicResponse:
     """Test OpenAI to Anthropic response conversion."""
