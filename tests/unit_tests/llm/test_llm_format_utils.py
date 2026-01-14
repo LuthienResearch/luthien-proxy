@@ -219,6 +219,167 @@ class TestAnthropicToOpenAIRequest:
         assert "temperature" not in result
 
 
+class TestOpenAIToAnthropicResponseThinkingBlocks:
+    """Test thinking blocks handling in OpenAI to Anthropic response conversion."""
+
+    def test_thinking_blocks_appear_first_in_content(self):
+        """Test that thinking blocks are placed first in content array.
+
+        When thinking is enabled, Anthropic API requires thinking blocks
+        to appear BEFORE text content. LiteLLM exposes these via
+        message.thinking_blocks.
+        """
+        # Create a mock message with thinking_blocks attribute
+        message = Message(role="assistant", content="Here is my response.")
+        # LiteLLM adds thinking_blocks as an attribute
+        message.thinking_blocks = [
+            {
+                "type": "thinking",
+                "thinking": "Let me think about this step by step...",
+                "signature": "sig_abc123",
+            }
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id-thinking",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[
+                Choices(
+                    index=0,
+                    message=message,
+                    finish_reason="stop",
+                )
+            ],
+            usage=Usage(prompt_tokens=100, completion_tokens=500, total_tokens=600),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        # Thinking block should be FIRST, then text
+        assert len(result["content"]) == 2
+        assert result["content"][0]["type"] == "thinking"
+        assert result["content"][0]["thinking"] == "Let me think about this step by step..."
+        assert result["content"][0]["signature"] == "sig_abc123"
+        assert result["content"][1]["type"] == "text"
+        assert result["content"][1]["text"] == "Here is my response."
+
+    def test_thinking_blocks_with_tool_calls(self):
+        """Test thinking blocks ordering when tool calls are also present.
+
+        Order should be: thinking -> text -> tool_use (per Anthropic spec).
+        """
+        from litellm.types.utils import ChatCompletionMessageToolCall, Function
+
+        message = Message(
+            role="assistant",
+            content="Let me use a tool.",
+            tool_calls=[
+                ChatCompletionMessageToolCall(
+                    id="call_123",
+                    type="function",
+                    function=Function(name="get_data", arguments="{}"),
+                )
+            ],
+        )
+        message.thinking_blocks = [
+            {"type": "thinking", "thinking": "I should use the tool", "signature": "sig_x"},
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="tool_calls")],
+            usage=Usage(prompt_tokens=50, completion_tokens=100, total_tokens=150),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        # Order: thinking -> text -> tool_use
+        assert len(result["content"]) == 3
+        assert result["content"][0]["type"] == "thinking"
+        assert result["content"][1]["type"] == "text"
+        assert result["content"][2]["type"] == "tool_use"
+
+    def test_empty_thinking_blocks_list(self):
+        """Test that empty thinking_blocks list is handled like no blocks."""
+        message = Message(role="assistant", content="Response with empty list.")
+        message.thinking_blocks = []  # Empty list, not None
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="stop")],
+            usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        # Empty list should be treated as no thinking blocks
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+
+    def test_redacted_thinking_block(self):
+        """Test handling of redacted_thinking blocks.
+
+        Redacted thinking blocks have a different structure:
+        - type: "redacted_thinking"
+        - data: encrypted/redacted content (instead of thinking + signature)
+        """
+        message = Message(role="assistant", content="Response after redacted thinking.")
+        message.thinking_blocks = [
+            {"type": "redacted_thinking", "data": "encrypted_data_abc123"},
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="stop")],
+            usage=Usage(prompt_tokens=50, completion_tokens=100, total_tokens=150),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        assert len(result["content"]) == 2
+        assert result["content"][0]["type"] == "redacted_thinking"
+        assert result["content"][0]["data"] == "encrypted_data_abc123"
+        assert "thinking" not in result["content"][0]  # Should not have thinking field
+        assert result["content"][1]["type"] == "text"
+
+    def test_thinking_blocks_without_text_content(self):
+        """Test response with thinking blocks but no text content.
+
+        Edge case where model outputs only thinking (e.g., internal reasoning
+        that doesn't produce visible output).
+        """
+        message = Message(role="assistant", content=None)
+        message.thinking_blocks = [
+            {"type": "thinking", "thinking": "Internal reasoning...", "signature": "sig"},
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="stop")],
+            usage=Usage(prompt_tokens=50, completion_tokens=100, total_tokens=150),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        # Should have only thinking block, no text
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "thinking"
+
+
 class TestOpenAIToAnthropicResponse:
     """Test OpenAI to Anthropic response conversion."""
 

@@ -80,6 +80,12 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 - **Still broken**: Claude sometimes describes wrong image - suspect LiteLLM→Anthropic conversion issue
 - **Tracking**: Issue #108 has full troubleshooting logs
 
+## Thinking Blocks Must Come First in Anthropic Responses (2026-01-14)
+
+- Anthropic API requires `thinking`/`redacted_thinking` blocks BEFORE text content
+- LiteLLM exposes these via `message.thinking_blocks` (list of dicts)
+- Wrong order causes: `Expected 'thinking' or 'redacted_thinking', but found 'text'`
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

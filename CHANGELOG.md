@@ -2,6 +2,8 @@
 
 ## Unreleased | TBA
 
+- Fix thinking blocks stripped from non-streaming responses (#128)
+
 - Pass through extra model parameters like `thinking`, `metadata`, `stop_sequences` (thinking-flags)
   - Anthropic requests now preserve all extra parameters during format conversion
   - Map `stop_sequences` (Anthropic) → `stop` (OpenAI)
