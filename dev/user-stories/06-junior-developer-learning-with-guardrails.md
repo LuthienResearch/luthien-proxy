@@ -57,7 +57,7 @@ Taylor uses Claude Code for most development work and can ship small features, b
 |-------|-------|--------|----------|
 | `luthien-proxy-5sr` | Conversation context tracking across requests | open | P1 |
 | `luthien-proxy-fsb` | Message injection into response stream | open | P1 |
-| [PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) | `conversation_transcript` view for human-readable logs | pushed | P1 |
+| [PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) | `conversation_transcript` view for human-readable logs | closed | P1 |
 | [PR #104](https://github.com/LuthienResearch/luthien-proxy/pull/104) | Media attachment support (images in conversations) | pushed | P2 |
 
 > **Note**: Update status to "merged" when PRs are merged.
@@ -112,7 +112,7 @@ Taylor uses Claude Code for most development work and can ship small features, b
 
 ### Phase 1: Logging Foundation *(In Progress)*
 - [x] Conversation events stored with session linkage
-- [ ] `conversation_transcript` view for human-readable logs ([PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) - pushed, awaiting review)
+- [ ] `conversation_transcript` view for human-readable logs ([PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) - closed)
 - [x] CSV export workflow documented (poor man's version)
 - [ ] Include tool calls in conversation_transcript
 - [ ] Permalink URLs for session sharing
