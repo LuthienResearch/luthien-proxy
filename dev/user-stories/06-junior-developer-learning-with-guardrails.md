@@ -58,7 +58,7 @@ Taylor uses Claude Code for most development work and can ship small features, b
 | `luthien-proxy-5sr` | Conversation context tracking across requests | open | P1 |
 | `luthien-proxy-fsb` | Message injection into response stream | open | P1 |
 | [PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) | `conversation_transcript` view for human-readable logs | closed | P1 |
-| [PR #104](https://github.com/LuthienResearch/luthien-proxy/pull/104) | Media attachment support (images in conversations) | pushed | P2 |
+| [PR #104](https://github.com/LuthienResearch/luthien-proxy/pull/104) | Media attachment support (images in conversations) | merged | P2 |
 
 > **Note**: Update status to "merged" when PRs are merged.
 
@@ -68,11 +68,16 @@ Taylor uses Claude Code for most development work and can ship small features, b
 
 | Issue | Title | Status | Priority |
 |-------|-------|--------|----------|
-| `luthien-proxy-edl` | Conversation Viewer UI | open | P1 |
+| [PR #119](https://github.com/LuthienResearch/luthien-proxy/pull/119) | Conversation Viewer UI | merged | P1 |
 | TBD | Session sharing via URL | open | P2 |
 | TBD | Comment/annotation on session logs | open | P2 |
 
-**Current state (poor man's version)**: Export to CSV via `conversation_transcript` view, manually edit CSV to add comments, share file. Works but clunky.
+**Current state**: Conversation History Viewer at `/history` ([PR #119](https://github.com/LuthienResearch/luthien-proxy/pull/119) merged). Basic functionality working.
+
+**Improvements needed (2026-01-15 dogfooding feedback):**
+- [ ] Link from gateway homepage (under Monitoring UI section)
+- [ ] Rename session IDs to human-readable names (numeric UUIDs not helpful)
+- [ ] Show start time and end time, not just duration
 
 **Future state**: Dedicated UI with permalink URLs for session sharing. See [TODO: Create visual database schema documentation](https://github.com/LuthienResearch/luthien-proxy/blob/main/dev/TODO.md) for related work.
 
@@ -116,7 +121,7 @@ Taylor uses Claude Code for most development work and can ship small features, b
 - [x] CSV export workflow documented (poor man's version)
 - [ ] Include tool calls in conversation_transcript
 - [ ] Permalink URLs for session sharing
-- [ ] Media attachment support ([PR #104](https://github.com/LuthienResearch/luthien-proxy/pull/104) - awaiting fix)
+- [x] Media attachment support ([PR #104](https://github.com/LuthienResearch/luthien-proxy/pull/104) - merged)
 
 ### Phase 2: Guardrail Policies
 - [ ] Hardcoded secrets detection
@@ -124,7 +129,8 @@ Taylor uses Claude Code for most development work and can ship small features, b
 - [ ] Inline warning injection (not error)
 
 ### Phase 3: Review UI
-- [ ] Session viewer with intervention highlights
+- [x] Basic session viewer ([PR #119](https://github.com/LuthienResearch/luthien-proxy/pull/119) - merged)
+- [ ] Session viewer improvements (human-readable names, start/end times, gateway link)
 - [ ] Shareable session URLs
 - [ ] Comment/annotation system
 

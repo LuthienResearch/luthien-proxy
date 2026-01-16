@@ -3,7 +3,7 @@
 ## Story 6 (Taylor/Junior Dev) Follow-ups
 
 **Immediate tasks:**
-- [ ] Add workflow to CLAUDE.md
+- [x] Add workflow to CLAUDE.md
 - [ ] Re-read updated docs
 
 **Follow-up items from PR #114:**
