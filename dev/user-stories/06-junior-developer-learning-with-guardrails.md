@@ -81,7 +81,7 @@ Taylor uses Claude Code for most development work and can ship small features, b
 
 **Session naming design (2026-01-15):**
 
-Research: Claude Code's `/resume` shows either the **initial prompt** (first message) or a **manual `/rename`** value. No auto-generated summaries.
+Research: Claude Code's `/resume` shows either the **initial prompt** (first message) or a **manual `/rename`** value. However, Claude Code also auto-generates titles using the prompt: *"Please write a 5-10 word title for the following conversation:"* — so there IS some auto-summarization happening.
 
 | Claude Code shows | Luthien equivalent | Notes |
 |-------------------|-------------------|-------|
