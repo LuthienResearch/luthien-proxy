@@ -76,8 +76,20 @@ Taylor uses Claude Code for most development work and can ship small features, b
 
 **Improvements needed (2026-01-15 dogfooding feedback):**
 - [ ] Link from gateway homepage (under Monitoring UI section)
-- [ ] Rename session IDs to human-readable names (numeric UUIDs not helpful)
+- [ ] Rename session IDs to human-readable names (see design notes below)
 - [ ] Show start time and end time, not just duration
+
+**Session naming design (2026-01-15):**
+
+Research: Claude Code's `/resume` shows either the **initial prompt** (first message) or a **manual `/rename`** value. No auto-generated summaries.
+
+| Claude Code shows | Luthien equivalent | Notes |
+|-------------------|-------------------|-------|
+| Initial prompt | `Start_session_description` | What user intended to work on |
+| Manual `/rename` | Manual rename in Luthien UI? | Future feature |
+| *(nothing)* | `End_session_description` | **Luthien value-add**: what actually happened |
+
+**Recommendation:** Show `End_session_description` as the headline (unique value — Claude Code doesn't have this). Also display `Start_session_description` so users can cross-reference with Claude Code's `/resume` picker.
 
 **Future state**: Dedicated UI with permalink URLs for session sharing. See [TODO: Create visual database schema documentation](https://github.com/LuthienResearch/luthien-proxy/blob/main/dev/TODO.md) for related work.
 
