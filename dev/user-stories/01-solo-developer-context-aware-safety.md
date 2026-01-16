@@ -75,12 +75,12 @@ Alex works on a large codebase and often has long conversations with Claude span
 
 ## Implementation Status
 
-**Overall Progress**: Not Started
+**Overall Progress**: Partial (Updated 2026-01-16)
 
 ### Phase 1: Foundation (Conversation Tracking)
-- [ ] Implement session ID extraction from requests
-- [ ] Store conversation events with session linkage
-- [ ] Expose conversation history to policy context
+- [x] Implement session ID extraction from requests — `pipeline/session.py` extracts from Anthropic `metadata.user_id` and OpenAI `x-session-id` header
+- [x] Store conversation events with session linkage — events stored in DB with `session_id`
+- [ ] Expose conversation history to policy context — `session_id` available in `PolicyContext`, but **no method to fetch prior messages** from within a policy
 
 ### Phase 2: Message Injection
 - [ ] Design injection protocol for SSE streams
@@ -92,9 +92,9 @@ Alex works on a large codebase and often has long conversations with Claude span
 - [ ] Add integration tests for parameter preservation
 
 ### Phase 4: Conversation Viewer UI
-- [ ] Design conversation viewer interface
-- [ ] Implement conversation list and detail views
-- [ ] Add intervention highlighting
+- [x] Design conversation viewer interface — implemented at `/history` (not `/conversations` as spec'd)
+- [x] Implement conversation list and detail views — `/history` shows session list, `/history/session/{id}` shows detail, includes markdown export
+- [x] Add intervention highlighting
 
 ## Dependencies
 
