@@ -39,7 +39,7 @@ Taylor uses Claude Code for most development work and can ship small features, b
 ## Acceptance Criteria
 
 - [ ] All prompts, responses, and tool calls logged with timestamps
-- [ ] Conversation log exportable/viewable via URL (shareable in PR descriptions)
+- [ ] Conversation log exportable/viewable via URL (shareable via slack or in PR or Issue descriptions)
 - [ ] Senior dev can review sessions asynchronously before merge approval
 - [ ] Guardrail policies catch: hardcoded secrets, destructive commands on non-agent-created files
 - [ ] Interventions are **warnings** (not blocks) - junior dev can acknowledge and continue
@@ -326,6 +326,7 @@ Items to add as this story matures:
 
 - [ ] **Success metrics** - How do we know it's working? (warning rate decreases, review time decreases)
 - [ ] **Edge cases** - Long sessions (100+ messages), multiple warnings, Morgan unavailable
+  > **Real friction observed (2026-01-15):** When Morgan hasn't approved several PRs, Taylor feels blocked but hesitant to ping ("they seem busy, I don't want to bother them"). Multiple TODO.md files across branches add confusion about what to prioritize. Emotions: "stupid, why didn't I think of that" when mistakes surface in review.
 - [ ] **Comparison to alternatives** - Why Luthien vs GitHub PR comments alone vs pair programming?
 - [ ] **Failure modes** - What if Luthien is down? What if logs are too noisy?
 - [ ] **Privacy considerations** - Who can see session logs? Retention policy?
