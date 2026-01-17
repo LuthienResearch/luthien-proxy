@@ -26,8 +26,10 @@
 
 | Blocker | Severity | Owner | Status |
 |---------|----------|-------|--------|
-| [List specific bugs blocking dogfooding] | P0 | Jai | Open |
-| Session viewer needs polish | P1 | Scott | In Progress |
+| [Thinking blocks not handled in streaming](https://github.com/LuthienResearch/luthien-proxy/issues/129) | P0 | Jai | Open |
+| [Thinking blocks stripped from non-streaming](https://github.com/LuthienResearch/luthien-proxy/issues/128) | P0 | Jai | PR #131 |
+| `/compact` fails with "Tool names must be unique" | P0 | Jai | Open |
+| Session viewer needs polish | P1 | Scott | PR #133 |
 
 ### Approach Options
 
