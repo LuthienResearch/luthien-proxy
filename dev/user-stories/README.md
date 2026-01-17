@@ -4,14 +4,14 @@ Canonical user stories that guide Luthien Control development. Each story repres
 
 ## Stories
 
-| # | Story | Persona | Status |
+| # | Story | Persona | % done |
 |---|-------|---------|--------|
-| 1 | [Solo Developer: Context-Aware Safety](01-solo-developer-context-aware-safety.md) | Alex (Senior Developer) | Not Started |
-| 2 | [Platform Team: Org-Wide Visibility](02-platform-team-org-visibility.md) | Jordan (Platform Engineer) | Not Started |
-| 3 | [Researcher: Multi-Reviewer Evaluation](03-researcher-multi-reviewer-evaluation.md) | Sam (PhD Student) | Not Started |
-| 4 | [Policy Author: Compliance with HITL](04-policy-author-compliance-hitl.md) | Riley (Security Engineer) | Not Started |
-| 5 | [Infrastructure: Observability & Unification](05-infrastructure-observability-unification.md) | Core Developer | Not Started |
-| 6 | [Junior Developer: Learning with Guardrails](06-junior-developer-learning-with-guardrails.md) | Taylor (Junior Developer) | Started |
+| 1 | [Solo Developer: Context-Aware Safety](01-solo-developer-context-aware-safety.md) | Alex (Senior Developer) | ~40% |
+| 2 | [Platform Team: Org-Wide Visibility](02-platform-team-org-visibility.md) | Jordan (Platform Engineer) | ~15% |
+| 3 | [Researcher: Multi-Reviewer Evaluation](03-researcher-multi-reviewer-evaluation.md) | Sam (PhD Student) | ~20% |
+| 4 | [Policy Author: Compliance with HITL](04-policy-author-compliance-hitl.md) | Riley (Security Engineer) | 0% |
+| 5 | [Infrastructure: Observability & Unification](05-infrastructure-observability-unification.md) | Core Developer | ~95% |
+| 6 | [Junior Developer: Learning with Guardrails](06-junior-developer-learning-with-guardrails.md) | Taylor (Junior Developer) | ~15% |
 
 ## Feature Matrix
 
@@ -129,10 +129,10 @@ Canonical user stories that guide Luthien Control development. Each story repres
 
 Based on feature dependencies and story coverage:
 
-### Wave 0: Infrastructure (Do First)
+### Wave 0: Infrastructure ✅ COMPLETE
 
-1. `luthien-proxy-en1` - Unify OpenAI and Anthropic endpoint processing
-2. `luthien-proxy-a0r` - Structured span hierarchy for request processing
+1. `luthien-proxy-en1` - Unify OpenAI and Anthropic endpoint processing ✅
+2. `luthien-proxy-a0r` - Structured span hierarchy for request processing ✅
 
 ### Wave 1: Foundation
 
@@ -180,3 +180,4 @@ Based on feature dependencies and story coverage:
 - **2025-12-10**: Initial creation with 4 canonical user stories
 - **2025-12-10**: Added Story 5 (Infrastructure) with unified endpoint processing and structured span hierarchy
 - **2025-12-16**: Added Story 6 (Junior Developer) for learning with guardrails - trust-but-verify persona
+- **2026-01-16**: Updated implementation status for Stories 1-3, 5. Wave 0 (Infrastructure) complete. Conversation Viewer UI partially done.
