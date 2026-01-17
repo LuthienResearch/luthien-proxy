@@ -48,7 +48,7 @@
 
 ---
 
-## Goal 2: Unblock Live External User Trial
+## Goal 2: External Guided Trial + Required Features
 
 **Definition of done**: One external user can complete a guided 30-minute Luthien trial with Scott facilitating.
 
@@ -187,7 +187,7 @@ Enables core Story 6 workflow: "Taylor shares session log link in PR description
 
 ---
 
-## Questions Jai Might Have
+## FAQs
 
 ### On Goal Prioritization
 
