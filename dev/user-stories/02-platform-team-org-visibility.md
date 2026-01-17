@@ -101,7 +101,7 @@ Jordan needs per-user dashboards for team leads, automatic escalation of high-ri
 
 ## Implementation Status
 
-**Overall Progress**: Not Started
+**Overall Progress**: Minimal (Updated 2026-01-16)
 
 ### Phase 1: User Attribution
 - [ ] Extract user identity from request headers/auth
@@ -109,8 +109,8 @@ Jordan needs per-user dashboards for team leads, automatic escalation of high-ri
 - [ ] Add user-based query capabilities to storage layer
 
 ### Phase 2: Media Attachments
-- [ ] Detect and extract attachment metadata from requests
-- [ ] Pass attachments through to backend LLM
+- [x] Detect and extract attachment metadata from requests — types defined in `llm/types/`
+- [x] Pass attachments through to backend LLM — LiteLLM handles passthrough
 - [ ] Store attachment references (not content) in event log
 
 ### Phase 3: Resampling Detection

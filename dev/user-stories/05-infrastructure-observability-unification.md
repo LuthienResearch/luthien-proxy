@@ -162,34 +162,34 @@ transaction_processing (root)
 
 ## Implementation Status
 
-**Overall Progress**: Not Started
+**Overall Progress**: ~95% Complete (Updated 2026-01-16)
 
 ### Phase 1: Extract Unified Pipeline
-- [ ] Create `pipeline/processor.py` with `process_llm_request()`
-- [ ] Define `ClientFormat` enum (OPENAI, ANTHROPIC)
-- [ ] Move shared logic to processor
-- [ ] Keep format converters at boundaries
-- [ ] Update endpoint handlers to delegate
+- [x] Create `pipeline/processor.py` with `process_llm_request()` — exists at `pipeline/processor.py:75`
+- [x] Define `ClientFormat` enum (OPENAI, ANTHROPIC) — `pipeline/client_format.py`
+- [x] Move shared logic to processor — 300+ lines handling both streaming and non-streaming
+- [x] Keep format converters at boundaries — `anthropic_to_openai_request()` at ingress, `openai_to_anthropic_response()` at egress
+- [x] Update endpoint handlers to delegate — `gateway_routes.py` handlers are 6 lines each
 
 ### Phase 2: Add Span Hierarchy
-- [ ] Create root `transaction_processing` span
-- [ ] Add `process_request` span
-- [ ] Add `send_upstream` span
-- [ ] Add `process_response` span
-- [ ] Add `send_to_client` span
-- [ ] Ensure sibling (not nested) structure
+- [x] Create root `transaction_processing` span — `processor.py:111`
+- [x] Add `process_request` span — `processor.py:214`
+- [x] Add `send_upstream` span — `processor.py:297` (streaming), `processor.py:348` (non-streaming)
+- [x] Add `process_response` span — `processor.py:309` (streaming), `processor.py:353` (non-streaming)
+- [x] Add `send_to_client` span — `processor.py:358` (non-streaming); streaming is interleaved with process_response
+- [x] Ensure sibling (not nested) structure — all phase spans are children of root, siblings to each other
 
 ### Phase 3: Policy Span Support
-- [ ] Pass span context to PolicyContext
-- [ ] Add `create_span()` helper to PolicyContext
-- [ ] Document span creation for policy authors
-- [ ] Test nested policy spans in Grafana
+- [x] Pass span context to PolicyContext — `PolicyContext.span()` uses `_tracer` to create child spans
+- [x] Add `create_span()` helper to PolicyContext — `policy_context.py:117` (`span()` context manager) and `add_span_event()` at line 150
+- [ ] Document span creation for policy authors — inline docstrings exist, no external docs
+- [ ] Test nested policy spans in Grafana — unit tested, not verified in actual Grafana
 
 ### Phase 4: Span Events
-- [ ] Add span events for format conversions
-- [ ] Add span events for policy decisions
-- [ ] Add span events for streaming milestones
-- [ ] Reduce span overhead vs. current logging
+- [x] Add span events for format conversions — `processor.py:239` and `processor.py:363`
+- [x] Add span events for policy decisions — `executor.py:163,278,284,295` for stream events; `emitter.py:163` adds all events to spans
+- [x] Add span events for streaming milestones — `on_stream_complete`, `on_content_complete`, `on_tool_call_complete`, `on_finish_reason`
+- [ ] Reduce span overhead vs. current logging — likely complete but no baseline comparison
 
 ## Technical Touchpoints
 
