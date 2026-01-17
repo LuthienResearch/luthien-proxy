@@ -103,9 +103,25 @@
             margin-bottom: 12px;
         }
 
+        .session-title {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .session-preview {
+            font-size: 15px;
+            color: #e5e5e5;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         .session-id {
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            font-size: 14px;
+            font-size: 12px;
             color: #4ade80;
             word-break: break-all;
         }
@@ -115,6 +131,13 @@
             color: #666;
             white-space: nowrap;
             margin-left: 16px;
+            text-align: right;
+        }
+
+        .session-time-detail {
+            font-size: 11px;
+            color: #555;
+            margin-top: 2px;
         }
 
         .session-stats {
@@ -229,6 +252,8 @@
                     const lastTime = new Date(session.last_timestamp);
                     const timeAgo = formatTimeAgo(lastTime);
                     const duration = formatDuration(firstTime, lastTime);
+                    const startTimeStr = formatDateTime(firstTime);
+                    const endTimeStr = formatDateTime(lastTime);
 
                     const modelsHtml = session.models_used.length > 0
                         ? `<div class="session-models">${session.models_used.map(m => `<span class="model-tag">${escapeHtml(m)}</span>`).join('')}</div>`
@@ -236,11 +261,19 @@
 
                     const interventionClass = session.policy_interventions > 0 ? ' interventions' : '';
 
+                    const previewText = session.first_user_message || 'No preview available';
+
                     return `
                         <div class="session-card" onclick="viewSession('${escapeHtml(session.session_id)}')">
                             <div class="session-header">
-                                <span class="session-id">${escapeHtml(session.session_id)}</span>
-                                <span class="session-time">${timeAgo}</span>
+                                <div class="session-title">
+                                    <span class="session-preview">${escapeHtml(previewText)}</span>
+                                    <span class="session-id">${escapeHtml(session.session_id)}</span>
+                                </div>
+                                <div class="session-time">
+                                    <div>${timeAgo}</div>
+                                    <div class="session-time-detail">${startTimeStr} → ${endTimeStr}</div>
+                                </div>
                             </div>
                             <div class="session-stats">
                                 <div class="session-stat">
@@ -297,6 +330,20 @@
             if (diffSecs < 60) return `${diffSecs}s`;
             if (diffMins < 60) return `${diffMins}m`;
             return `${diffHours}h ${diffMins % 60}m`;
+        }
+
+        function formatDateTime(date) {
+            const today = new Date();
+            const isToday = date.toDateString() === today.toDateString();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const isYesterday = date.toDateString() === yesterday.toDateString();
+
+            const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            if (isToday) return timeStr;
+            if (isYesterday) return `Yesterday ${timeStr}`;
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + timeStr;
         }
 
         function escapeHtml(str) {
