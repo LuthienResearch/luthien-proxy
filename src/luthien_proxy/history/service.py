@@ -230,6 +230,46 @@ def _check_modifications(original: dict[str, Any], final: dict[str, Any]) -> tup
     return False, None
 
 
+# Maximum length for first user message preview
+_FIRST_MESSAGE_MAX_LENGTH = 100
+
+
+def _extract_first_user_message(payload: Any) -> str | None:
+    """Extract the first user message from a request payload.
+
+    Used to generate a session preview/title. Returns truncated text.
+    """
+    if not payload:
+        return None
+
+    # Handle JSON string (from asyncpg)
+    if isinstance(payload, str):
+        payload = _safe_parse_json(payload)
+        if not payload:
+            return None
+
+    # Get the final request (prefer this as it's what was actually sent)
+    request = payload.get("final_request") or payload.get("original_request") or {}
+    messages = request.get("messages", [])
+
+    # Find the last user message (most recent context)
+    for msg in reversed(messages):
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("role") == "user":
+            content = _extract_text_content(msg.get("content"))
+            if content:
+                # Truncate and clean up for display
+                content = content.strip()
+                # Replace newlines with spaces for single-line preview
+                content = " ".join(content.split())
+                if len(content) > _FIRST_MESSAGE_MAX_LENGTH:
+                    content = content[:_FIRST_MESSAGE_MAX_LENGTH] + "..."
+                return content
+
+    return None
+
+
 async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
     """Fetch list of recent sessions with summaries.
 
@@ -277,6 +317,15 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
                 WHERE session_id IS NOT NULL
                 AND event_type = 'transaction.request_recorded'
                 AND payload->>'final_model' IS NOT NULL
+            ),
+            session_first_message AS (
+                SELECT DISTINCT ON (session_id)
+                    session_id,
+                    payload as request_payload
+                FROM conversation_events
+                WHERE session_id IS NOT NULL
+                AND event_type = 'transaction.request_recorded'
+                ORDER BY session_id, created_at ASC
             )
             SELECT
                 s.session_id,
@@ -288,11 +337,14 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
                 COALESCE(
                     array_agg(DISTINCT m.model) FILTER (WHERE m.model IS NOT NULL),
                     ARRAY[]::text[]
-                ) as models
+                ) as models,
+                f.request_payload
             FROM session_stats s
             LEFT JOIN session_models m ON s.session_id = m.session_id
+            LEFT JOIN session_first_message f ON s.session_id = f.session_id
             GROUP BY s.session_id, s.first_ts, s.last_ts,
-                     s.total_events, s.turn_count, s.policy_interventions
+                     s.total_events, s.turn_count, s.policy_interventions,
+                     f.request_payload
             ORDER BY s.last_ts DESC
             LIMIT $1 OFFSET $2
             """,
@@ -311,6 +363,7 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
             models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
+            first_user_message=_extract_first_user_message(row["request_payload"]),
         )
         for row in rows
     ]
