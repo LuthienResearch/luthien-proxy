@@ -177,7 +177,7 @@ Based on feature dependencies and story coverage:
 
 ## Related Documents
 
-- **[UI and Feedback Development Tracker](UI-feedback-dev-tracker.md)** - Scott's prioritized work plan toward product-market fit, organized around three goals: unblock dogfooding, unblock external trials, unblock independent trials.
+- **[UI Feedback and Development Tracker](UI-feedback-dev-tracker.md)** - Scott's prioritized work plan toward product-market fit, organized around three goals: unblock dogfooding, unblock external trials, unblock independent trials.
 
 ## Updates
 
