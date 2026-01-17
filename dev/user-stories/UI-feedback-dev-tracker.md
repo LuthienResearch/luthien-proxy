@@ -1,4 +1,4 @@
-# Front-end Development and User Feedback Tracker
+# UI and Feedback Development Tracker
 
 **Purpose**: Track progress toward validated product-market fit using the [Learn More Faster](https://www.gv.com/research-sprint) methodology.
 
