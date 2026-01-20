@@ -21,7 +21,7 @@ Taylor uses Claude Code for most development work and can ship small features, b
 1. Taylor starts a Claude Code session to add a new API endpoint
 2. Claude suggests creating a route, writing SQL, and adding tests
 3. Taylor approves the changes, code gets written
-4. Luthien logs every prompt, response, and tool call to `conversation_transcript`
+4. Luthien logs every prompt, response, and tool call (viewable at `/history`)
 5. Claude tries to hardcode an API key in the config file
 6. Luthien's policy catches this: **injects a warning** "This looks like a hardcoded secret. Consider using environment variables."
 7. Taylor sees the warning inline, fixes the approach
@@ -75,9 +75,9 @@ Taylor uses Claude Code for most development work and can ship small features, b
 **Current state**: Conversation History Viewer at `/history` ([PR #119](https://github.com/LuthienResearch/luthien-proxy/pull/119) merged). Basic functionality working.
 
 **Improvements needed (2026-01-15 dogfooding feedback):**
-- [ ] Link from gateway homepage (under Monitoring UI section)
+- [x] Link from gateway homepage (PR #132)
 - [ ] Rename session IDs to human-readable names (see design notes below)
-- [ ] Show start time and end time, not just duration
+- [x] Show start time and end time (PR #133)
 
 **Session naming design (2026-01-15):**
 
@@ -158,16 +158,6 @@ luthien-proxy-fsb (Message injection)
     └── Inline warning injection for guardrails
 ```
 
-## Sample Artifacts
-
-Real examples from dogfooding sessions:
-
-| Artifact | Description | Location |
-|----------|-------------|----------|
-| Session log (clean) | Image bug repro with annotations | [scott_image_repro_clean.csv](https://github.com/LuthienResearch/luthien-proxy/blob/main/dev/debug_data/scott_image_repro_clean.csv) |
-| Session log (raw) | Full conversation export | [conversation_2025-12-16_*.csv](https://github.com/LuthienResearch/luthien-proxy/blob/main/dev/debug_data/) |
-| Export template | Blank template for manual logging | [TEMPLATE_conversation_export.csv](https://github.com/LuthienResearch/luthien-proxy/blob/main/dev/debug_data/TEMPLATE_conversation_export.csv) |
-
 ## Workflow Diagram
 
 ```
@@ -179,9 +169,9 @@ Real examples from dogfooding sessions:
          │  1. Prompt/Response   │                       │
          │──────────────────────>│                       │
          │                       │                       │
-         │  2. Logs to           │                       │
-         │     conversation_     │                       │
-         │     transcript        │                       │
+         │  2. Logs to /history  │                       │
+         │     (conversation     │                       │
+         │     viewer)           │                       │
          │                       │                       │
          │  3. Warning injected  │                       │
          │<──────────────────────│                       │
@@ -279,41 +269,6 @@ class CommitHealthMonitorPolicy(EventBasedPolicy):
         return PolicyDecision(action="allow")
 ```
 
-## SQL Queries for Morgan
-
-```sql
--- Sessions with warnings this week
-SELECT
-    session_id,
-    created_at,
-    COUNT(*) FILTER (WHERE content LIKE '%warning%') as warning_count
-FROM conversation_transcript
-WHERE created_at > NOW() - INTERVAL '7 days'
-GROUP BY session_id, created_at
-HAVING COUNT(*) FILTER (WHERE content LIKE '%warning%') > 0
-ORDER BY created_at DESC;
-
--- Taylor's recent sessions
-SELECT
-    session_id,
-    MIN(created_at) as started,
-    MAX(created_at) as ended,
-    COUNT(*) as message_count
-FROM conversation_transcript
-WHERE created_at > NOW() - INTERVAL '7 days'
-GROUP BY session_id
-ORDER BY started DESC;
-
--- Full session detail
-SELECT
-    created_at,
-    prompt_or_response,
-    LEFT(content, 200) as content_preview
-FROM conversation_transcript
-WHERE session_id = 'SESSION_ID_HERE'
-ORDER BY created_at;
-```
-
 ## Onboarding Checklist
 
 ### For Taylor (Junior Dev)
@@ -325,7 +280,7 @@ ORDER BY created_at;
 
 ### For Morgan (Senior Dev)
 - [ ] Slack webhook configured for escalation notifications
-- [ ] Familiar with SQL queries for session review
+- [ ] Familiar with `/history` UI for session review
 - [ ] Review workflow: check session log → leave PR comment → approve/request changes
 - [ ] Set expectations with Taylor: "I'll review logs async, ping me if urgent"
 
