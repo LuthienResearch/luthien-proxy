@@ -77,7 +77,7 @@ Taylor uses Claude Code for most development work and can ship small features, b
 **Improvements needed (2026-01-15 dogfooding feedback):**
 - [x] Link from gateway homepage (PR #132)
 - [ ] Rename session IDs to human-readable names (see design notes below)
-- [x] Show start time and end time (PR #133)
+- [ ] Show start time and end time (PR #133)
 
 **Session naming design (2026-01-15):**
 
