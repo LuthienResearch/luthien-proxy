@@ -10,8 +10,8 @@
 
 | Goal | Description | Key Metric |
 |------|-------------|------------|
-| **Goal 1** | Unblock dogfooding | Scott can use Luthien daily for real work |
-| **Goal 2** | Unblock live external user trial | 1 external user completes a guided session |
+| **Goal 1** | Unblock dogfooding | Scott & Jai can use Luthien daily for real work |
+| **Goal 2** | Unblock live external user trials | 3 external users successfully complete a guided session including seeing convo history and testing a policy |
 | **Goal 3** | Unblock independent user trials | Users can try Luthien without hand-holding |
 
 **Learn More Faster principle**: Each goal builds toward the next. We validate assumptions at each stage before investing in the next.
@@ -242,7 +242,7 @@ Enables core Story 6 workflow: "Taylor shares session log link in PR description
 
 - [User Stories README](README.md)
 - [Story 6: Junior Developer](06-junior-developer-learning-with-guardrails.md)
-- [UX Exploration Notes](../../branches/ux-exploration) *(if exists)*
+- [UX Redesign Principles](https://github.com/LuthienResearch/luthien-proxy/blob/ux-exploration/dev/ux-exploration.md) *(on ux-exploration branch)*
 
 ---
 
