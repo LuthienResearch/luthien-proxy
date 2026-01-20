@@ -69,18 +69,6 @@
 - [ ] Document timeout configuration rationale
 - [ ] Document data retention policy
 
-### Story 6 (Taylor/Junior Dev) Follow-ups
-
-- [ ] **Find better home for Scott's session debug CSVs** - Currently in `dev/debug_data/` in main repo. Options: separate repo, gist, Google Drive, or gitignore and keep local-only. These are useful for retrospectives but clutter the main repo. Reference: 2025-12-16 dogfooding session.
-
-Future documentation to add as the story matures:
-
-- [ ] **Success metrics** - How do we know it's working? (warning rate decreases, review time decreases). Reference: [Story 6](dev/user-stories/06-junior-developer-learning-with-guardrails.md)
-- [ ] **Edge cases** - Long sessions (100+ messages), multiple warnings, Morgan unavailable
-- [ ] **Comparison to alternatives** - Why Luthien vs GitHub PR comments alone vs pair programming?
-- [ ] **Failure modes** - What if Luthien is down? What if logs are too noisy?
-- [ ] **Privacy considerations** - Who can see session logs? Retention policy?
-
 ## Low Priority / Future Work
 
 - [ ] **Simplify db.py abstractions** - Remove redundant protocol wrappers
