@@ -175,14 +175,11 @@ Based on feature dependencies and story coverage:
 4. **Context**: Reference stories when implementing features to understand user intent
 5. **Testing**: Use scenarios as acceptance test cases
 
-## Related Documents
-
-- **[UI Feedback and Development Tracker](UI-feedback-dev-tracker.md)** - Scott's prioritized work plan toward product-market fit, organized around three goals: unblock dogfooding, unblock external trials, unblock independent trials.
-
 ## Updates
 
 - **2025-12-10**: Initial creation with 4 canonical user stories
 - **2025-12-10**: Added Story 5 (Infrastructure) with unified endpoint processing and structured span hierarchy
 - **2025-12-16**: Added Story 6 (Junior Developer) for learning with guardrails - trust-but-verify persona
 - **2026-01-16**: Updated implementation status for Stories 1-3, 5. Wave 0 (Infrastructure) complete. Conversation Viewer UI partially done.
-- **2026-01-17**: Added front-end development tracker with Learn More Faster methodology; moved guardrails to Wave 3.
+- **2026-01-17**: Added [UI Feedback and Development Tracker](https://github.com/LuthienResearch/luthien-org/blob/main/UI-feedback-dev-tracker.md)
+- **2026-01-20**: Added [UX Redesign Principles](https://github.com/LuthienResearch/luthien-org/blob/main/ux-exploration.md) (Nielsen's 10 heuristics applied to Luthien). 
