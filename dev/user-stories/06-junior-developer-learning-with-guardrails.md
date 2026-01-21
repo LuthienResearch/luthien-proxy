@@ -129,9 +129,8 @@ Research: Claude Code's `/resume` shows either the **initial prompt** (first mes
 
 ### Phase 1: Logging Foundation *(In Progress)*
 - [x] Conversation events stored with session linkage
-- [ ] `conversation_transcript` view for human-readable logs ([PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) - closed)
-- [x] CSV export workflow documented (poor man's version)
-- [ ] Include tool calls in conversation_transcript
+- [x] `conversation_transcript` view for human-readable logs ([PR #112](https://github.com/LuthienResearch/luthien-proxy/pull/112) - closed)
+- [x] Include tool calls in conversation_transcript
 - [ ] Permalink URLs for session sharing
 - [x] Media attachment support ([PR #104](https://github.com/LuthienResearch/luthien-proxy/pull/104) - merged)
 
