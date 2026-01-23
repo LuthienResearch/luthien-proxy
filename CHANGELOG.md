@@ -29,6 +29,14 @@
   - Policy annotations shown inline on turns that had interventions
   - Export any session to markdown via `/history/api/sessions/{id}/export`
 
+- Improve conversation history list UI (#133)
+  - Add first user message preview for at-a-glance session recognition
+  - Add quick filters: Today, This week, Last week, Last 30 days, Claude Code, Codex
+  - Add "More filters" dropdown with sort options (newest, oldest, longest, shortest) and policy activity filters
+  - Sticky search/filter bar with magnifying glass icon
+  - Date grouping (Today, Yesterday, day names, full dates)
+  - Consistent green (#4ade80) color scheme matching other Luthien pages
+
 - Increase unit test coverage from 84% to 90% (#115)
 - Fix validation error when images in Anthropic requests (#103, #104)
 - Migration validation and fail-fast checks (#110)

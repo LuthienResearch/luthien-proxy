@@ -27,156 +27,275 @@
         header {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 32px;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: baseline;
+            gap: 16px;
         }
 
         h1 {
-            font-size: 24px;
+            font-size: 20px;
             font-weight: 600;
-            color: #fff;
-            margin-bottom: 8px;
+            color: #4ade80;
         }
 
-        .subtitle {
-            font-size: 14px;
-            color: #888;
+        .page-description {
+            font-size: 12px;
+            color: #555;
         }
 
         .nav-link {
-            color: #888;
+            color: #666;
             text-decoration: none;
-            font-size: 14px;
+            font-size: 13px;
         }
 
         .nav-link:hover {
             color: #4ade80;
         }
 
-        .toolbar {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 24px;
+        /* Search and filters container */
+        .search-filters-container {
+            background: #1a1a1a;
+            border: 1px solid #3a3a3a;
+            border-radius: 12px;
             padding: 16px;
-            background: #141414;
-            border-radius: 8px;
-            border: 1px solid #262626;
+            margin-bottom: 20px;
+            position: sticky;
+            top: 12px;
+            z-index: 50;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
         }
 
-        .stats {
+        .search-container {
+            position: relative;
             display: flex;
-            gap: 24px;
-            font-size: 13px;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 14px;
+            color: #888;
+            font-size: 14px;
+            pointer-events: none;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 12px 16px 12px 40px;
+            font-size: 14px;
+            background: #f5f5f5;
+            border: none;
+            border-radius: 8px;
+            color: #222;
+            outline: none;
+        }
+
+        .search-input::placeholder {
             color: #888;
         }
 
-        .stat-value {
+        .search-input:focus {
+            background: #fff;
+            box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.3);
+        }
+
+        /* Quick filters row */
+        .filters-row {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .quick-filter {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 16px;
+            padding: 4px 12px;
+            font-size: 12px;
+            color: #888;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+
+        .quick-filter:hover {
+            border-color: #555;
+            color: #e5e5e5;
+        }
+
+        .quick-filter.active {
+            background: #4ade80;
+            border-color: #4ade80;
+            color: #000;
+        }
+
+        .quick-filter .count {
+            color: #666;
+            margin-left: 4px;
+        }
+
+        .quick-filter.active .count {
+            color: rgba(0,0,0,0.6);
+        }
+
+        .filter-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .filter-dropdown-btn {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 16px;
+            padding: 4px 12px;
+            font-size: 12px;
+            color: #888;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .filter-dropdown-btn:hover {
+            border-color: #555;
+            color: #e5e5e5;
+        }
+
+        .filter-dropdown-menu {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 100%;
+            margin-top: 4px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 8px 0;
+            min-width: 180px;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .filter-dropdown-menu.show {
+            display: block;
+        }
+
+        .filter-dropdown-label {
+            padding: 6px 16px 4px;
+            font-size: 10px;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .filter-dropdown-item {
+            padding: 6px 16px;
+            font-size: 13px;
+            color: #999;
+            cursor: pointer;
+        }
+
+        .filter-dropdown-item:hover {
+            background: #262626;
+            color: #e5e5e5;
+        }
+
+        .filter-dropdown-item.active {
             color: #4ade80;
-            font-weight: 600;
+        }
+
+        .filter-dropdown-divider {
+            height: 1px;
+            background: #333;
+            margin: 6px 0;
         }
 
         .sessions-list {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 6px;
+        }
+
+        /* Date separator pill */
+        .date-header {
+            display: flex;
+            justify-content: center;
+            margin: 12px 0 8px 0;
+        }
+
+        .date-header:first-child {
+            margin-top: 0;
+        }
+
+        .date-pill {
+            background: #1a1a1a;
+            color: #888;
+            font-size: 11px;
+            padding: 4px 12px;
+            border-radius: 10px;
+            border: 1px solid #333;
         }
 
         .session-card {
-            background: #141414;
-            border: 1px solid #262626;
-            border-radius: 8px;
-            padding: 20px;
+            background: #1e1e1e;
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            padding: 10px 14px;
             cursor: pointer;
             transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
         }
 
         .session-card:hover {
             border-color: #4ade80;
-            background: #161616;
+            background: #282828;
         }
 
-        .session-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 12px;
-        }
-
-        .session-title {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
+        .session-main {
             flex: 1;
             min-width: 0;
         }
 
         .session-preview {
-            font-size: 15px;
+            font-size: 14px;
             color: #e5e5e5;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
-        .session-id {
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            font-size: 12px;
-            color: #4ade80;
-            word-break: break-all;
-        }
-
-        .session-time {
+        .session-meta {
             font-size: 12px;
             color: #666;
-            white-space: nowrap;
-            margin-left: 16px;
-            text-align: right;
-        }
-
-        .session-time-detail {
-            font-size: 11px;
-            color: #555;
             margin-top: 2px;
         }
 
-        .session-stats {
-            display: flex;
-            gap: 24px;
-            font-size: 13px;
-            color: #888;
-        }
-
-        .session-stat {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .session-stat-value {
-            color: #e5e5e5;
-            font-weight: 500;
-        }
-
-        .session-stat.interventions .session-stat-value {
-            color: #f59e0b;
-        }
-
-        .session-models {
-            margin-top: 12px;
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .model-tag {
+        .session-time {
             font-size: 11px;
-            padding: 3px 8px;
-            background: #1a1a1a;
-            border: 1px solid #333;
-            border-radius: 4px;
-            color: #a3a3a3;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            color: #555;
+            white-space: nowrap;
+            text-align: right;
+        }
+
+        .interventions-none {
+            color: #555;
+            font-size: 11px;
+        }
+
+        .interventions-triggered {
+            color: #f59e0b;
+            font-weight: 600;
+            font-size: 12px;
         }
 
         .empty-state {
@@ -205,17 +324,42 @@
 <body>
     <div class="container">
         <header>
-            <div>
+            <div class="header-left">
                 <h1>Conversation History</h1>
-                <p class="subtitle">Browse past sessions and conversations</p>
+                <span class="page-description">Browse and search past AI sessions</span>
             </div>
             <a href="/auth/logout" class="nav-link">Sign Out</a>
         </header>
 
-        <div class="toolbar">
-            <div class="stats">
-                <span>Total sessions: <span class="stat-value" id="total-count">-</span></span>
+        <div class="search-filters-container">
+            <div class="search-container">
+                <span class="search-icon">&#x1F50D;</span>
+                <input type="text" class="search-input" id="search-input" placeholder="Search conversations..." oninput="filterSessions()">
             </div>
+
+            <div class="filters-row">
+            <span class="quick-filter active" data-filter="all" onclick="applyQuickFilter('all')">All <span class="count" id="count-all"></span></span>
+            <span class="quick-filter" data-filter="today" onclick="applyQuickFilter('today')">Today <span class="count" id="count-today"></span></span>
+            <span class="quick-filter" data-filter="week" onclick="applyQuickFilter('week')">This week <span class="count" id="count-week"></span></span>
+            <span class="quick-filter" data-filter="lastweek" onclick="applyQuickFilter('lastweek')">Last week <span class="count" id="count-lastweek"></span></span>
+            <span class="quick-filter" data-filter="30days" onclick="applyQuickFilter('30days')">Last 30 days <span class="count" id="count-30days"></span></span>
+            <span class="quick-filter" data-filter="claude" onclick="applyQuickFilter('claude')">Claude Code <span class="count" id="count-claude"></span></span>
+            <span class="quick-filter" data-filter="codex" onclick="applyQuickFilter('codex')">Codex <span class="count" id="count-codex"></span></span>
+            <div class="filter-dropdown">
+                <span class="filter-dropdown-btn" onclick="toggleDropdown()">More filters ▾</span>
+                <div class="filter-dropdown-menu" id="filter-dropdown">
+                    <div class="filter-dropdown-label">Sort by</div>
+                    <div class="filter-dropdown-item" onclick="setSortOrder('newest')">Newest first</div>
+                    <div class="filter-dropdown-item" onclick="setSortOrder('oldest')">Oldest first</div>
+                    <div class="filter-dropdown-item" onclick="setSortOrder('most-messages')">Longest sessions</div>
+                    <div class="filter-dropdown-item" onclick="setSortOrder('fewest-messages')">Shortest sessions</div>
+                    <div class="filter-dropdown-divider"></div>
+                    <div class="filter-dropdown-label">Policy activity</div>
+                    <div class="filter-dropdown-item" onclick="applyQuickFilter('interventions')">Modified by policy</div>
+                    <div class="filter-dropdown-item" onclick="applyQuickFilter('no-interventions')">Unmodified</div>
+                </div>
+            </div>
+        </div>
         </div>
 
         <div id="sessions-container" class="sessions-list">
@@ -224,9 +368,122 @@
     </div>
 
     <script>
+        let allSessions = [];
+        let currentFilter = 'all';
+        let currentSort = 'newest';
+
+        function toggleDropdown() {
+            document.getElementById('filter-dropdown').classList.toggle('show');
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.filter-dropdown')) {
+                document.getElementById('filter-dropdown').classList.remove('show');
+            }
+        });
+
+        function getFilteredSessions(filter) {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const weekStart = new Date(today);
+            weekStart.setDate(today.getDate() - today.getDay()); // Sunday
+            const lastWeekStart = new Date(weekStart);
+            lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+            const lastWeekEnd = new Date(weekStart);
+            const thirtyDaysAgo = new Date(today);
+            thirtyDaysAgo.setDate(today.getDate() - 30);
+
+            return allSessions.filter(s => {
+                const sessionDate = new Date(s.last_timestamp);
+                const models = (s.models_used || []).join(' ').toLowerCase();
+
+                switch (filter) {
+                    case 'all': return true;
+                    case 'today': return sessionDate >= today;
+                    case 'week': return sessionDate >= weekStart;
+                    case 'lastweek': return sessionDate >= lastWeekStart && sessionDate < lastWeekEnd;
+                    case '30days': return sessionDate >= thirtyDaysAgo;
+                    case 'claude': return models.includes('claude');
+                    case 'codex': return models.includes('codex') || models.includes('gpt');
+                    case 'interventions': return s.policy_interventions > 0;
+                    case 'no-interventions': return s.policy_interventions === 0;
+                    default: return true;
+                }
+            });
+        }
+
+        function updateFilterCounts() {
+            const filters = ['all', 'today', 'week', 'lastweek', '30days', 'claude', 'codex'];
+            filters.forEach(filter => {
+                const count = getFilteredSessions(filter).length;
+                const el = document.getElementById(`count-${filter}`);
+                if (el) el.textContent = `(${count})`;
+            });
+        }
+
+        function sortSessions(sessions) {
+            const sorted = [...sessions];
+            switch (currentSort) {
+                case 'oldest':
+                    sorted.sort((a, b) => new Date(a.last_timestamp) - new Date(b.last_timestamp));
+                    break;
+                case 'most-messages':
+                    sorted.sort((a, b) => b.turn_count - a.turn_count);
+                    break;
+                case 'fewest-messages':
+                    sorted.sort((a, b) => a.turn_count - b.turn_count);
+                    break;
+                case 'newest':
+                default:
+                    sorted.sort((a, b) => new Date(b.last_timestamp) - new Date(a.last_timestamp));
+                    break;
+            }
+            return sorted;
+        }
+
+        function setSortOrder(order) {
+            currentSort = order;
+            document.getElementById('filter-dropdown').classList.remove('show');
+            applyFilters();
+        }
+
+        function applyFilters() {
+            // Apply filter
+            let filtered = getFilteredSessions(currentFilter);
+
+            // Apply search if there's a query
+            const query = document.getElementById('search-input').value.toLowerCase();
+            if (query) {
+                filtered = filtered.filter(s => {
+                    const preview = (s.first_user_message || '').toLowerCase();
+                    const id = s.session_id.toLowerCase();
+                    return preview.includes(query) || id.includes(query);
+                });
+            }
+
+            // Apply sort
+            filtered = sortSessions(filtered);
+
+            renderSessions(filtered);
+        }
+
+        function applyQuickFilter(filter) {
+            currentFilter = filter;
+
+            // Update active state on quick filters
+            document.querySelectorAll('.quick-filter').forEach(el => {
+                el.classList.toggle('active', el.dataset.filter === filter);
+            });
+
+            // Close dropdown
+            document.getElementById('filter-dropdown').classList.remove('show');
+
+            applyFilters();
+        }
+
         async function loadSessions() {
             const container = document.getElementById('sessions-container');
-            const totalCount = document.getElementById('total-count');
 
             try {
                 const response = await fetch('/history/api/sessions?limit=100', {
@@ -240,74 +497,163 @@
                 }
 
                 const data = await response.json();
-                totalCount.textContent = data.total;
+                allSessions = data.sessions;
 
-                if (data.sessions.length === 0) {
-                    container.innerHTML = '<div class="empty-state">No conversation history yet. Start using the proxy to see sessions here.</div>';
-                    return;
-                }
-
-                container.innerHTML = data.sessions.map(session => {
-                    const firstTime = new Date(session.first_timestamp);
-                    const lastTime = new Date(session.last_timestamp);
-                    const timeAgo = formatTimeAgo(lastTime);
-                    const duration = formatDuration(firstTime, lastTime);
-                    const startTimeStr = formatDateTime(firstTime);
-                    const endTimeStr = formatDateTime(lastTime);
-
-                    const modelsHtml = session.models_used.length > 0
-                        ? `<div class="session-models">${session.models_used.map(m => `<span class="model-tag">${escapeHtml(m)}</span>`).join('')}</div>`
-                        : '';
-
-                    const interventionClass = session.policy_interventions > 0 ? ' interventions' : '';
-
-                    const previewText = session.first_user_message || 'No preview available';
-
-                    return `
-                        <div class="session-card" onclick="viewSession('${escapeHtml(session.session_id)}')">
-                            <div class="session-header">
-                                <div class="session-title">
-                                    <span class="session-preview">${escapeHtml(previewText)}</span>
-                                    <span class="session-id">${escapeHtml(session.session_id)}</span>
-                                </div>
-                                <div class="session-time">
-                                    <div>${timeAgo}</div>
-                                    <div class="session-time-detail">${startTimeStr} → ${endTimeStr}</div>
-                                </div>
-                            </div>
-                            <div class="session-stats">
-                                <div class="session-stat">
-                                    <span>Turns:</span>
-                                    <span class="session-stat-value">${session.turn_count}</span>
-                                </div>
-                                <div class="session-stat">
-                                    <span>Events:</span>
-                                    <span class="session-stat-value">${session.total_events}</span>
-                                </div>
-                                <div class="session-stat${interventionClass}">
-                                    <span>Policy interventions:</span>
-                                    <span class="session-stat-value">${session.policy_interventions}</span>
-                                </div>
-                                <div class="session-stat">
-                                    <span>Duration:</span>
-                                    <span class="session-stat-value">${duration}</span>
-                                </div>
-                            </div>
-                            ${modelsHtml}
-                        </div>
-                    `;
-                }).join('');
+                updateFilterCounts();
+                applyFilters();
 
             } catch (error) {
                 container.innerHTML = `<div class="error">Failed to load sessions: ${escapeHtml(error.message)}</div>`;
             }
         }
 
+        function renderSessions(sessions) {
+            const container = document.getElementById('sessions-container');
+
+            if (sessions.length === 0) {
+                container.innerHTML = '<div class="empty-state">No sessions found</div>';
+                return;
+            }
+
+            const today = new Date();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+
+            // Group sessions by most recent date (last_timestamp)
+            const grouped = groupByDate(sessions, today, yesterday);
+
+            let html = '';
+            for (const [dateKey, dateSessions] of Object.entries(grouped)) {
+                html += `<div class="date-header"><span class="date-pill">${dateKey}</span></div>`;
+
+                for (const session of dateSessions) {
+                    const firstTime = new Date(session.first_timestamp);
+                    const lastTime = new Date(session.last_timestamp);
+                    const timeStr = formatTimeRange(firstTime, lastTime);
+                    const messageCount = session.turn_count;
+
+                    const previewText = session.first_user_message || 'No preview available';
+
+                    // Build meta line
+                    let metaParts = [`${messageCount} message${messageCount !== 1 ? 's' : ''}`];
+
+                    // Policy interventions
+                    let interventionsHtml;
+                    if (session.policy_interventions > 0) {
+                        interventionsHtml = `<span class="interventions-triggered">${session.policy_interventions} policy intervention${session.policy_interventions > 1 ? 's' : ''}</span>`;
+                    } else {
+                        interventionsHtml = `<span class="interventions-none">no policies triggered</span>`;
+                    }
+
+                    html += `
+                        <div class="session-card" onclick="viewSession('${escapeHtml(session.session_id)}')">
+                            <div class="session-main">
+                                <div class="session-preview">${escapeHtml(previewText)}</div>
+                                <div class="session-meta">${metaParts.join(' · ')} · ${interventionsHtml}</div>
+                            </div>
+                            <div class="session-time">${timeStr}</div>
+                        </div>
+                    `;
+                }
+            }
+
+            container.innerHTML = html;
+        }
+
+        function groupByDate(sessions, today, yesterday) {
+            const groups = {};
+
+            for (const session of sessions) {
+                // Use last_timestamp for grouping (most recent activity)
+                const date = new Date(session.last_timestamp);
+                const dateKey = getDateLabel(date, today, yesterday);
+
+                if (!groups[dateKey]) {
+                    groups[dateKey] = [];
+                }
+                groups[dateKey].push(session);
+            }
+
+            return groups;
+        }
+
+        function getDateLabel(date, today, yesterday) {
+            if (date.toDateString() === today.toDateString()) {
+                return 'Today';
+            }
+            if (date.toDateString() === yesterday.toDateString()) {
+                return 'Yesterday';
+            }
+
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+            // If within last week, show day name
+            const diffDays = Math.floor((today - date) / 86400000);
+            if (diffDays < 7) {
+                return days[date.getDay()];
+            }
+
+            // Otherwise show "Mon, Jan 13"
+            return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
+        }
+
+        function filterSessions() {
+            applyFilters();
+        }
+
         function viewSession(sessionId) {
             window.location.href = `/history/session/${encodeURIComponent(sessionId)}`;
         }
 
-        function formatTimeAgo(date) {
+        function formatTime(date) {
+            let hours = date.getHours();
+            const mins = date.getMinutes().toString().padStart(2, '0');
+            const ampm = hours >= 12 ? 'pm' : 'am';
+            hours = hours % 12 || 12;
+            return `${hours}:${mins}${ampm}`;
+        }
+
+        function formatTimeRange(startDate, endDate) {
+            const sameDay = startDate.toDateString() === endDate.toDateString();
+
+            if (sameDay) {
+                // Same day: "11:35-11:55am" or "11:55am-12:03pm"
+                const startAmpm = startDate.getHours() >= 12 ? 'pm' : 'am';
+                const endAmpm = endDate.getHours() >= 12 ? 'pm' : 'am';
+
+                let startHours = startDate.getHours() % 12 || 12;
+                let endHours = endDate.getHours() % 12 || 12;
+                const startMins = startDate.getMinutes().toString().padStart(2, '0');
+                const endMins = endDate.getMinutes().toString().padStart(2, '0');
+
+                if (startAmpm === endAmpm) {
+                    // Same am/pm: "11:35-11:55am"
+                    return `${startHours}:${startMins}-${endHours}:${endMins}${endAmpm}`;
+                } else {
+                    // Different am/pm: "11:55am-12:03pm"
+                    return `${startHours}:${startMins}${startAmpm}-${endHours}:${endMins}${endAmpm}`;
+                }
+            } else {
+                // Multi-day: "Fri Jan 23 11:03pm - Sat Jan 24 12:30am"
+                const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+                const startDay = days[startDate.getDay()];
+                const startMonth = months[startDate.getMonth()];
+                const startDateNum = startDate.getDate();
+                const startTime = formatTime(startDate);
+
+                const endDay = days[endDate.getDay()];
+                const endMonth = months[endDate.getMonth()];
+                const endDateNum = endDate.getDate();
+                const endTime = formatTime(endDate);
+
+                return `${startDay} ${startMonth} ${startDateNum} ${startTime} -<br>${endDay} ${endMonth} ${endDateNum} ${endTime}`;
+            }
+        }
+
+        function formatRelativeTime(date) {
             const now = new Date();
             const diffMs = now - date;
             const diffMins = Math.floor(diffMs / 60000);
@@ -315,35 +661,10 @@
             const diffDays = Math.floor(diffMs / 86400000);
 
             if (diffMins < 1) return 'just now';
-            if (diffMins < 60) return `${diffMins}m ago`;
-            if (diffHours < 24) return `${diffHours}h ago`;
-            if (diffDays < 7) return `${diffDays}d ago`;
-            return date.toLocaleDateString();
-        }
-
-        function formatDuration(start, end) {
-            const diffMs = end - start;
-            const diffSecs = Math.floor(diffMs / 1000);
-            const diffMins = Math.floor(diffMs / 60000);
-            const diffHours = Math.floor(diffMs / 3600000);
-
-            if (diffSecs < 60) return `${diffSecs}s`;
-            if (diffMins < 60) return `${diffMins}m`;
-            return `${diffHours}h ${diffMins % 60}m`;
-        }
-
-        function formatDateTime(date) {
-            const today = new Date();
-            const isToday = date.toDateString() === today.toDateString();
-            const yesterday = new Date(today);
-            yesterday.setDate(yesterday.getDate() - 1);
-            const isYesterday = date.toDateString() === yesterday.toDateString();
-
-            const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-            if (isToday) return timeStr;
-            if (isYesterday) return `Yesterday ${timeStr}`;
-            return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + timeStr;
+            if (diffMins < 60) return `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
+            if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+            if (diffDays === 1) return '1 day ago';
+            return `${diffDays} days ago`;
         }
 
         function escapeHtml(str) {
@@ -352,7 +673,6 @@
             return div.innerHTML;
         }
 
-        // Load sessions on page load
         loadSessions();
     </script>
 </body>

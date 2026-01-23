@@ -55,11 +55,7 @@ class TestExtractFirstUserMessage:
 
     def test_basic_message(self):
         """Test extracting a basic user message."""
-        payload = {
-            "final_request": {
-                "messages": [{"role": "user", "content": "Hello world"}]
-            }
-        }
+        payload = {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}}
         assert _extract_first_user_message(payload) == "Hello world"
 
     def test_multiple_messages_returns_last_user(self):
@@ -79,22 +75,14 @@ class TestExtractFirstUserMessage:
     def test_truncates_long_messages(self):
         """Test that long messages are truncated to 100 chars."""
         long_message = "x" * 150
-        payload = {
-            "final_request": {
-                "messages": [{"role": "user", "content": long_message}]
-            }
-        }
+        payload = {"final_request": {"messages": [{"role": "user", "content": long_message}]}}
         result = _extract_first_user_message(payload)
         assert len(result) == 103  # 100 chars + "..."
         assert result.endswith("...")
 
     def test_normalizes_whitespace(self):
         """Test that newlines and extra whitespace are collapsed."""
-        payload = {
-            "final_request": {
-                "messages": [{"role": "user", "content": "Hello\n\nworld\n  test"}]
-            }
-        }
+        payload = {"final_request": {"messages": [{"role": "user", "content": "Hello\n\nworld\n  test"}]}}
         assert _extract_first_user_message(payload) == "Hello world test"
 
     def test_none_payload(self):
@@ -107,31 +95,20 @@ class TestExtractFirstUserMessage:
 
     def test_no_user_messages(self):
         """Test handling when no user messages present."""
-        payload = {
-            "final_request": {
-                "messages": [{"role": "system", "content": "System prompt"}]
-            }
-        }
+        payload = {"final_request": {"messages": [{"role": "system", "content": "System prompt"}]}}
         assert _extract_first_user_message(payload) is None
 
     def test_json_string_payload(self):
         """Test handling of JSON string payload from asyncpg."""
         import json
-        payload_dict = {
-            "final_request": {
-                "messages": [{"role": "user", "content": "From JSON"}]
-            }
-        }
+
+        payload_dict = {"final_request": {"messages": [{"role": "user", "content": "From JSON"}]}}
         payload_str = json.dumps(payload_dict)
         assert _extract_first_user_message(payload_str) == "From JSON"
 
     def test_falls_back_to_original_request(self):
         """Test fallback to original_request when final_request missing."""
-        payload = {
-            "original_request": {
-                "messages": [{"role": "user", "content": "Fallback message"}]
-            }
-        }
+        payload = {"original_request": {"messages": [{"role": "user", "content": "Fallback message"}]}}
         assert _extract_first_user_message(payload) == "Fallback message"
 
 
@@ -400,11 +377,7 @@ class TestFetchSessionList:
                 "turn_count": 3,
                 "policy_interventions": 1,
                 "models": ["gpt-4", "claude-3"],
-                "request_payload": {
-                    "final_request": {
-                        "messages": [{"role": "user", "content": "Hello world"}]
-                    }
-                },
+                "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
             },
         ]
 
