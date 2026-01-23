@@ -2,9 +2,15 @@
 
 ## High Priority
 
+### Bugs
+
+- [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Reference: Dogfooding session 2025-12-16.
+- [ ] **Thinking blocks stripped from non-streaming responses** - Causes 500 errors when `thinking` enabled. Fix `openai_to_anthropic_response()` to extract `message.thinking_blocks` and include FIRST in content array. [#128](https://github.com/LuthienResearch/luthien-proxy/issues/128). PR: [#131](https://github.com/LuthienResearch/luthien-proxy/pull/131).
+- [ ] **Thinking blocks not handled in streaming responses** - `AnthropicSSEAssembler` doesn't recognize thinking chunk types. [#129](https://github.com/LuthienResearch/luthien-proxy/issues/129)
+
 ### Core Features (User Story Aligned)
 
-- [x] **thinking and verbosity model flags not respected** - Model parameters like `thinking` and `verbosity` are not passed through to backend. Fixed by preserving extra params in `anthropic_to_openai_request`.
+- [ ] **Conversation history browser & export** - Enable users to browse and export full conversation logs from past sessions. Maps to `luthien-proxy-edl` (Conversation Viewer UI) in User Stories 1 & 2. Data already in `conversation_events` table. Could include: search by date, export to markdown/JSON, filter by user/session.
 
 ### Policy UI & Admin
 
@@ -12,31 +18,20 @@
 - [ ] **[Future] Smart dev key hint** - Only show clickable dev key hint when ADMIN_API_KEY matches default; otherwise just show "check .env or contact admin". Deferred as scope creep. Reference: dogfooding-login-ui-quick-fixes branch, 2025-12-15.
 - [ ] **Activity Monitor missing auth indicator** - Gateway root page links to Activity Monitor but doesn't show "Auth Required" indicator for consistency with other protected pages. Reference: dogfooding session 2025-12-15.
 
-### Architecture Improvements
-
-- [x] **create_app dependency injection** - Accept db and redis objects instead of URLs, enabling easier testing and more flexible configuration
-
-### Type System Improvements
-
-- [x] **Break up llm/types.py into submodules** - Split into `llm/types/openai.py` and `llm/types/anthropic.py` for cleaner organization as the file grows.
-- [x] **Complete strict typing for LLM types** - Add remaining TypedDict definitions for full request/response typing (OpenAIRequestDict, AnthropicRequestDict, AnthropicResponseDict, tool types).
-- [x] **Move Request class to llm/types/openai.py** - Moved from top-level `messages.py` to live with other LLM types.
-
-### Multimodal / Images
-
-- [x] **LiteLLM multimodal routing issue (#108)** - Fixed. Images now pass through correctly.
-
 ### Documentation (High)
 
-- [x] Update README post v2-migration
 - [ ] **Add security documentation for dynamic policy loading (POLICY_CONFIG)** - Document security implications of dynamic class loading, file permissions, admin API authentication requirements.
-- [x] Verify all environment variables are documented in README and .env.example
 
 ### Security
 
 - [ ] **Add input validation: max request size and message count limits** - Request size limit (10MB) exists, but no message count limit. Could allow unbounded message arrays.
 
 ## Medium Priority
+
+### Dogfooding & UX
+
+- [ ] **"Logged by Luthien" indicator policy** - Create a simple policy that appends "logged and monitored by Luthien" to each response. Helps users know when they're going through the proxy vs direct API. Use case: Scott thought he was using Luthien but wasn't. Reference: Dogfooding session 2025-12-16.
+- [ ] **Include tool calls in conversation_transcript** - Currently only text content is extracted. Adding tool calls would help with retros on unsafe tool calls (e.g., "what did Claude try to execute?"). Reference: Dogfooding session 2025-12-16.
 
 ### Code Improvements
 
@@ -54,16 +49,13 @@
 
 ### Infrastructure (Medium)
 
-- [x] **Add migration tracking** - Implemented fail-fast validation in run-migrations.sh and gateway startup check. (bd: luthien-proxy-17j, PR #110)
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints (debug endpoints have tests, UI routes do not)
 - [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production
 - [ ] **Implement circuit breaker for upstream calls** - Queue overflow protection exists, but not full circuit breaker pattern
-- [x] **Add resource limits to docker-compose.yaml**
-- [x] **Review LiteLLMClient instantiation pattern** - Already singleton in main.py:104-105
-- [x] **Implement proper task tracking for event publisher** - Has `add_done_callback` for error logging in emitter.py
 
 ### Documentation (Medium)
 
+- [ ] **Create visual database schema documentation** - Current `docs/database-schema.md` is basic markdown tables. Need a visual flow diagram showing data hierarchy from most-granular (`conversation_events`) up to human-readable (`conversation_transcript` view), with `SELECT * LIMIT 3` examples for each table. Reference: Dogfooding session 2025-12-16.
 - [ ] Add OpenAPI/Swagger documentation for V2 gateway
 - [ ] Document production deployment best practices
 - [ ] Document timeout configuration rationale

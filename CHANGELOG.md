@@ -2,6 +2,7 @@
 
 ## Unreleased | TBA
 
+- Reorganize LLM types into separate OpenAI and Anthropic modules (#117)
 - Fix thinking blocks stripped from non-streaming responses (#128)
 
 - Pass through extra model parameters like `thinking`, `metadata`, `stop_sequences` (thinking-flags)
