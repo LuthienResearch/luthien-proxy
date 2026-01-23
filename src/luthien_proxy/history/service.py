@@ -234,10 +234,11 @@ def _check_modifications(original: dict[str, Any], final: dict[str, Any]) -> tup
 _FIRST_MESSAGE_MAX_LENGTH = 100
 
 
-def _extract_first_user_message(payload: Any) -> str | None:
-    """Extract the first user message from a request payload.
+def _extract_preview_message(payload: Any) -> str | None:
+    """Extract the most recent user message from a request payload for preview.
 
     Used to generate a session preview/title. Returns truncated text.
+    Note: Extracts the LAST user message (most recent context), not the first.
     """
     if not payload:
         return None
@@ -363,7 +364,7 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
             models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
-            first_user_message=_extract_first_user_message(row["request_payload"]),
+            first_user_message=_extract_preview_message(row["request_payload"]),
         )
         for row in rows
     ]
