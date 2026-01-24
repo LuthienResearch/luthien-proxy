@@ -154,3 +154,49 @@ All tests passed via curl + Python test scripts:
 - Tool calls + thinking (HIGH PRIORITY) ✅
 
 **Note**: Initial test failed with `max_tokens must be greater than thinking.budget_tokens` - fixed by ensuring max_tokens > budget_tokens.
+
+---
+
+## COE Analysis (2026-01-24) - [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134)
+
+### Why Did This Bug Happen?
+
+**Issue #129 was CLOSED without being fixed.** The non-streaming fix (PR #131) was merged, creating false confidence that thinking was fully supported.
+
+### 5 Whys
+
+1. **Why did the bug exist?** → Streaming code path wasn't updated for thinking blocks
+2. **Why wasn't it caught?** → No E2E tests for streaming + thinking
+3. **Why was issue closed unfixed?** → No verification step; confused with PR #131
+4. **Why 4 validation attempts?** → Each attempt hit different layer failures
+5. **Why multi-layer failures?** → Unit tests pass in isolation; integration gaps
+
+### Contributing Factors
+
+| Category | Gap |
+|----------|-----|
+| Process | Issue closed without E2E verification |
+| Process | No acceptance criteria on #129 |
+| Process | Streaming/non-streaming treated as separate issues |
+| Technical | Format conversion silently drops data |
+| Technical | LiteLLM signature ordering undocumented |
+| Technical | No thinking-specific test fixtures |
+
+### Action Items
+
+**Immediate:**
+- [x] Fix all 5 layers
+- [x] E2E validate
+- [ ] Mark #129 fixed in TODO.md
+
+**Short-term:**
+- [ ] Add E2E test for streaming thinking (prevent regression)
+- [ ] Issue closure checklist: require E2E verification for feature issues
+- [ ] Thinking feature test matrix: streaming/non-streaming × single/multi-turn × tools
+
+### Metrics
+
+- Time to detect: ~10 days (closed → discovered unfixed)
+- Debug cycles: 5
+- Validation attempts: 4 sessions
+- Files changed: 6

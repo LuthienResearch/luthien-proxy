@@ -102,6 +102,11 @@ class AnthropicSSEAssembler:
 
         # Handle complete redacted thinking blocks
         if anthropic_event.get("_complete_redacted_thinking"):
+            # Close pending thinking block if waiting for signature
+            if self.thinking_block_needs_close and self.last_thinking_block_index is not None:
+                events.append({"type": "content_block_stop", "index": self.last_thinking_block_index})
+                self.thinking_block_needs_close = False
+
             # Close previous block if open
             if self.block_started:
                 events.append({"type": "content_block_stop", "index": self.block_index})
@@ -297,7 +302,7 @@ class AnthropicSSEAssembler:
         # Handle thinking content (extended thinking / reasoning)
         # LiteLLM exposes this via delta.reasoning_content
         reasoning_content = getattr(delta, "reasoning_content", None)
-        if reasoning_content:
+        if reasoning_content is not None and reasoning_content != "":
             return {
                 "type": "content_block_delta",
                 "delta": {

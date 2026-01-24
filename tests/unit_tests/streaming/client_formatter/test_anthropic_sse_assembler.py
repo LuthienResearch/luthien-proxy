@@ -320,3 +320,72 @@ class TestProcessChunk:
         # Should close block and emit message_delta
         assert any(e["type"] == "content_block_stop" for e in events)
         assert any(e["type"] == "message_delta" for e in events)
+
+    def test_signature_never_arrives_closes_on_message_delta(self):
+        """Test fallback: thinking block closes on message_delta if signature never arrives.
+
+        This tests the fallback path when LiteLLM fails to deliver a signature
+        (e.g., network issue, bug). The thinking block should still close gracefully
+        when message_delta (finish) arrives.
+        """
+        assembler = AnthropicSSEAssembler()
+
+        # Start with thinking
+        events1 = assembler.process_chunk(create_chunk_with_reasoning("Reasoning..."))
+        assert events1[0]["content_block"]["type"] == "thinking"
+        assert assembler.last_thinking_block_index == 0
+
+        # Transition to text - thinking close is delayed
+        assembler.process_chunk(create_chunk_with_text("Answer"))
+        assert assembler.thinking_block_needs_close is True
+
+        # More text (no signature arrives)
+        assembler.process_chunk(create_chunk_with_text(" more text"))
+
+        # Finish without signature - should close thinking block as fallback
+        finish_chunk = create_chunk_with_text("", finish_reason="stop")
+        events_finish = assembler.process_chunk(finish_chunk)
+
+        # Should have: content_block_stop (thinking at 0), content_block_stop (text at 1), message_delta
+        stop_events = [e for e in events_finish if e["type"] == "content_block_stop"]
+        assert len(stop_events) == 2
+        # First stop should be the delayed thinking block close
+        assert stop_events[0]["index"] == 0
+        # Second stop should be the text block
+        assert stop_events[1]["index"] == 1
+
+        assert assembler.thinking_block_needs_close is False
+
+    def test_redacted_thinking_closes_pending_thinking_block(self):
+        """Test that redacted_thinking properly closes a pending thinking block.
+
+        If a thinking block is waiting for signature and a redacted_thinking arrives,
+        the pending thinking block should be closed first.
+        """
+        assembler = AnthropicSSEAssembler()
+
+        # Start with regular thinking
+        assembler.process_chunk(create_chunk_with_reasoning("Initial thought..."))
+        assert assembler.last_thinking_block_index == 0
+
+        # Transition to text - thinking close is delayed
+        assembler.process_chunk(create_chunk_with_text("Some text"))
+        assert assembler.thinking_block_needs_close is True
+
+        # Redacted thinking arrives (instead of signature)
+        events = assembler.process_chunk(
+            create_chunk_with_thinking_blocks([{"type": "redacted_thinking", "data": "encrypted"}])
+        )
+
+        # Should close pending thinking block first, then handle redacted thinking
+        event_types = [e["type"] for e in events]
+
+        # First event should close the pending thinking block
+        assert events[0]["type"] == "content_block_stop"
+        assert events[0]["index"] == 0  # Pending thinking block
+
+        # Flag should be reset
+        assert assembler.thinking_block_needs_close is False
+
+        # Should also close text block and emit redacted thinking
+        assert "content_block_start" in event_types
