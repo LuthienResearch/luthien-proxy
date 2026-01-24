@@ -61,19 +61,19 @@ Canonical user stories that guide Luthien Control development. Each story repres
 | `luthien-proxy-ay5` | Per-user and per-conversation dashboards | 2 |
 | `luthien-proxy-ap2` | Approval queue UI | 4 |
 | `luthien-proxy-4yh` | Compliance audit dashboard | 4 |
-| `luthien-proxy-shr` | Session sharing URLs | 2, 4, 6 |
-| `luthien-proxy-ann` | Session annotations/comments | 2, 3, 4, 6 |
+| TBD | Session sharing URLs | 2, 4, 6 |
+| TBD | Session annotations/comments | 2, 3, 4, 6 |
 
 ### Policy Framework (P2)
 
 | Issue | Title | Stories |
 |-------|-------|---------|
 | `luthien-proxy-3yp` | Context-aware policy base class | 1, 4, 6 |
-| `luthien-proxy-grd` | Guardrail policies (secrets, destructive cmds) | 1, 2, 4, 6 |
 | `luthien-proxy-kjr` | Multi-reviewer parallel policy evaluation | 3 |
 | `luthien-proxy-7ib` | Rule extraction from request context | 3 |
 | `luthien-proxy-8gv` | LLM rephrasing of policy decisions | 3, 4 |
 | `luthien-proxy-rtu` | Human-in-the-loop approval workflow | 4 |
+| TBD | Guardrail policies (secrets, destructive cmds) | 1, 2, 4, 6 |
 
 ### Platform Features (P2)
 
@@ -145,16 +145,16 @@ Based on feature dependencies and story coverage:
 1. `luthien-proxy-edl` - Conversation Viewer UI
 2. `luthien-proxy-ay5` - Per-user dashboards
 3. `luthien-proxy-aai` - Escalation tiers
-4. `luthien-proxy-shr` - Session sharing URLs
-5. `luthien-proxy-ann` - Session annotations/comments
+4. TBD - Session sharing URLs
+5. TBD - Session annotations/comments
+6. TBD - Guardrail policies (secrets, destructive cmds)
 
 ### Wave 3: Advanced Policies
 
 1. `luthien-proxy-3yp` - Context-aware policy base
-2. `luthien-proxy-grd` - Guardrail policies (secrets, destructive cmds)
-3. `luthien-proxy-7ib` - Rule extraction
-4. `luthien-proxy-kjr` - Multi-reviewer evaluation
-5. `luthien-proxy-8gv` - LLM rephrasing
+2. `luthien-proxy-7ib` - Rule extraction
+3. `luthien-proxy-kjr` - Multi-reviewer evaluation
+4. `luthien-proxy-8gv` - LLM rephrasing
 
 ### Wave 4: Compliance & Approval
 
@@ -182,5 +182,4 @@ Based on feature dependencies and story coverage:
 - **2025-12-16**: Added Story 6 (Junior Developer) for learning with guardrails - trust-but-verify persona
 - **2026-01-16**: Updated implementation status for Stories 1-3, 5. Wave 0 (Infrastructure) complete. Conversation Viewer UI partially done.
 - **2026-01-17**: Added [UI Feedback and Development Tracker](https://github.com/LuthienResearch/luthien-org/blob/main/UI-feedback-dev-tracker.md)
-- **2026-01-17**: Added issue codes: `luthien-proxy-grd`, `luthien-proxy-shr`, `luthien-proxy-ann`. Moved guardrails to Wave 3 (depends on context-aware policy base).
-- **2026-01-20**: Added [UX Redesign Principles](https://github.com/LuthienResearch/luthien-org/blob/main/ux-exploration.md) (Nielsen's 10 heuristics applied to Luthien).
+- **2026-01-20**: Added [UX Redesign Principles](https://github.com/LuthienResearch/luthien-org/blob/main/ux-exploration.md) (Nielsen's 10 heuristics applied to Luthien). 
