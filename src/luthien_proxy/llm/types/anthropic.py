@@ -81,8 +81,30 @@ class AnthropicToolResultBlock(TypedDict, total=False):
     is_error: bool
 
 
+class AnthropicThinkingBlock(TypedDict, total=False):
+    """Anthropic thinking content block (extended thinking feature)."""
+
+    type: Required[Literal["thinking"]]
+    thinking: Required[str]
+    signature: str
+
+
+class AnthropicRedactedThinkingBlock(TypedDict):
+    """Anthropic redacted thinking content block."""
+
+    type: Literal["redacted_thinking"]
+    data: str
+
+
 # Union of all content block types
-AnthropicContentBlock = AnthropicTextBlock | AnthropicImageBlock | AnthropicToolUseBlock | AnthropicToolResultBlock
+AnthropicContentBlock = (
+    AnthropicTextBlock
+    | AnthropicImageBlock
+    | AnthropicToolUseBlock
+    | AnthropicToolResultBlock
+    | AnthropicThinkingBlock
+    | AnthropicRedactedThinkingBlock
+)
 
 
 # =============================================================================
@@ -182,6 +204,8 @@ __all__ = [
     "AnthropicImageBlock",
     "AnthropicToolUseBlock",
     "AnthropicToolResultBlock",
+    "AnthropicThinkingBlock",
+    "AnthropicRedactedThinkingBlock",
     "AnthropicContentBlock",
     # Messages
     "AnthropicUserMessage",

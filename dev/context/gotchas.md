@@ -86,6 +86,33 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 - LiteLLM exposes these via `message.thinking_blocks` (list of dicts)
 - Wrong order causes: `Expected 'thinking' or 'redacted_thinking', but found 'text'`
 
+## Thinking Blocks in Multi-Turn Conversations (2026-01-24)
+
+**Gotcha**: Extended thinking requires fixes at THREE layers - streaming, format conversion, AND request validation.
+
+1. **Streaming assembler** must recognize `reasoning_content` and `thinking_blocks` from LiteLLM
+2. **Format conversion** (`anthropic_to_openai_request`) must preserve thinking blocks in message history - they were silently dropped!
+3. **Pydantic validation** must allow list content in `AssistantMessage` - OpenAI types don't natively support thinking blocks
+
+**Symptoms by layer**:
+- Layer 1 missing: Single-turn works, but no thinking content visible
+- Layer 2 missing: 500 error from Anthropic: `"Expected 'thinking' or 'redacted_thinking', but found 'text'"`
+- Layer 3 missing: 400 error from proxy: `"AssistantMessage.content: Input should be a valid string"`
+
+**Files involved**: `anthropic_sse_assembler.py`, `llm_format_utils.py`, `types/anthropic.py`, `types/openai.py`
+
+## LiteLLM Delivers Thinking Signatures Out of Order (2026-01-24)
+
+**Gotcha**: LiteLLM sends `signature_delta` AFTER text content starts, but Anthropic requires it BEFORE the thinking block closes.
+
+**Expected order** (Anthropic native):
+1. thinking_deltas → 2. signature_delta → 3. content_block_stop → 4. text starts
+
+**LiteLLM actual order**:
+1. thinking_deltas → 2. text starts → 3. signature_delta (too late!)
+
+**Fix**: Delay `content_block_stop` for thinking blocks until signature arrives. Track `thinking_block_needs_close` flag and `last_thinking_block_index`.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
