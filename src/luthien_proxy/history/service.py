@@ -253,6 +253,9 @@ def _extract_preview_message(payload: Any) -> str | None:
     request = payload.get("final_request") or payload.get("original_request") or {}
     messages = request.get("messages", [])
 
+    # Messages to skip as they're not meaningful previews (Claude Code internals)
+    _SKIP_MESSAGES = {"count", ""}
+
     # Find the last user message (most recent context)
     for msg in reversed(messages):
         if not isinstance(msg, dict):
@@ -262,6 +265,9 @@ def _extract_preview_message(payload: Any) -> str | None:
             if content:
                 # Truncate and clean up for display
                 content = content.strip()
+                # Skip non-meaningful messages (like Claude Code's token counting)
+                if content.lower() in _SKIP_MESSAGES:
+                    continue
                 # Replace newlines with spaces for single-line preview
                 content = " ".join(content.split())
                 if len(content) > _FIRST_MESSAGE_MAX_LENGTH:
@@ -326,6 +332,8 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
                 FROM conversation_events
                 WHERE session_id IS NOT NULL
                 AND event_type = 'transaction.request_recorded'
+                -- Skip Claude Code token counting requests (just "count")
+                AND COALESCE(payload->'final_request'->'messages'->0->>'content', '') != 'count'
                 ORDER BY session_id, created_at ASC
             )
             SELECT
