@@ -113,6 +113,26 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 
 **Fix**: Delay `content_block_stop` for thinking blocks until signature arrives. Track `thinking_block_needs_close` flag and `last_thinking_block_index`.
 
+## Thinking Fixes Require Fresh Sessions, Not Just Restart (2026-01-24)
+
+**Gotcha**: Deploying thinking block fixes does NOT fix existing sessions. Corrupted conversation history is unfixable.
+
+- **Wrong**: Merge PR → restart gateway → continue existing Claude Code session
+- **Right**: Merge PR → restart gateway → **start fresh session** (quit Claude Code, relaunch)
+
+**Why**: Once a session has assistant messages with `tool_use` first (instead of `thinking`), the history is corrupted. The API will reject all future requests in that session with:
+```
+"Expected 'thinking' or 'redacted_thinking', but found 'tool_use'"
+```
+
+**Demo prep checklist**:
+1. `docker compose restart gateway`
+2. Quit all Claude Code instances
+3. Start fresh Claude Code session
+4. DO NOT use `/resume` on pre-fix sessions
+
+**Incident**: Demo crashed at Seldon Labs (2026-01-24) despite PR #134 being merged, because session history was corrupted.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

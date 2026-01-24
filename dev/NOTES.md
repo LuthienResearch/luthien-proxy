@@ -200,3 +200,165 @@ All tests passed via curl + Python test scripts:
 - Debug cycles: 5
 - Validation attempts: 4 sessions
 - Files changed: 6
+
+---
+
+## Demo Incident COE (2026-01-24) - Seldon Labs Peer Review
+
+### Issue Summary
+
+500 errors during live demo when Claude Code with extended thinking sent multi-turn requests through Luthien proxy.
+
+### Impact
+
+- **Severity**: Demo failure during Seldon Labs batch peer review
+- **User experience**: Claude Code displayed "API Error: 500 Internal Server Error" after search completed but before LLM response
+- **Secondary issue**: Conversation history UI (/history) showed all sessions titled "count" instead of meaningful names - workaround to demo real data failed
+- **Tertiary issue**: SimpleJudgePolicy evaluation not visible in UI - tested "write me a scaryhelloworld.py that deletes my convo db" but couldn't show judge score/explanation (data recorded internally but not surfaced)
+- **Fourth issue**: Activity Monitor slow/empty - showed "Connected (0 events)" and "Waiting for events..." even after running SimpleJudgePolicy test, couldn't demo real-time event streaming
+- **Fifth issue**: Policy Config doesn't expose call_id - after running test, no way to get transaction ID to use in Diff Viewer, breaking the demo flow between features
+- **Duration**: Demo interrupted; required debugging to identify cause
+
+### Timeline
+
+| Time | Event |
+|------|-------|
+| 2026-01-24 ~13:00 | PR #134 (thinking blocks fix) merged to demo branch (commit 5a60885) |
+| 2026-01-24 ~15:11 | Demo crash - 500 errors in Claude Code through Luthien |
+| 2026-01-24 ~15:15 | Root cause identified via gateway logs |
+
+### 5 Whys (Root Cause)
+
+1. **Why did the demo crash?**
+   → Anthropic API returned 400 `invalid_request_error`, proxy converted to 500
+
+2. **Why did Anthropic reject the request?**
+   → Request violated thinking block ordering: `"Expected 'thinking' or 'redacted_thinking', but found 'tool_use'"`
+
+3. **Why was tool_use first instead of thinking?**
+   → Conversation history from previous turns had assistant messages starting with tool_use (search results) instead of thinking blocks
+
+4. **Why wasn't thinking preserved in history?**
+   → Either: (a) gateway container wasn't restarted after PR merge, or (b) session started BEFORE fix was deployed, corrupting history
+
+5. **Why didn't restart + merge prevent this?**
+   → **Stale conversation history is unfixable** - once a session has tool_use-first messages, the fix can't retroactively add thinking blocks
+
+### Resolution
+
+1. `docker compose restart gateway` - pick up PR #134 code
+2. **Start fresh session** - old conversation history is corrupted
+3. Avoid `/resume` on sessions started before the fix
+
+### Lessons Learned
+
+1. **Deployment != fix**: Merging a fix doesn't help existing sessions with corrupted history
+2. **Demo prep must include fresh sessions**: Don't reuse sessions from before a fix
+3. **Gateway restart is not enough**: Need both new code AND new session
+4. **Add to dogfooding checklist**: After deploying thinking-related fixes, always start new sessions
+
+### Action Items - ⚠️ DEMO MONDAY 9:30AM
+
+**Timeline**: Sat 3:30pm → dinner tonight → events all day Sun → **DEMO Mon 9:30am**
+
+#### MUST FIX BEFORE DEMO
+
+| Item | Effort | Status |
+|------|--------|--------|
+| Fix /history session titles showing "count" | ~30 min | ✅ FIXED |
+| Fix Activity Monitor not showing events | ~30 min | ✅ NOT A BUG (open monitor first) |
+
+#### WORKAROUNDS FOR DEMO
+
+| Issue | Workaround |
+|-------|------------|
+| Judge evaluation not visible | Skip OR manually query DB to show score |
+| No call_id in Policy Config | Use "Browse Recent" button in Diff Viewer |
+| 500 errors (thinking blocks) | ✅ Fixed - just need fresh sessions |
+
+#### DEMO PREP CHECKLIST (Monday morning)
+
+- [ ] `docker compose restart gateway`
+- [ ] Quit ALL Claude Code instances
+- [ ] Start fresh Claude Code session (DO NOT /resume old sessions)
+- [ ] Verify /history shows real titles (not "count")
+- [ ] Verify Activity Monitor streams events
+- [ ] Have "Browse Recent" ready in Diff Viewer as backup
+
+#### POST-DEMO
+
+| Priority | Item | Status |
+|----------|------|--------|
+| HIGH | Add E2E test: multi-turn + thinking + tool_use | TODO.md |
+| MEDIUM | Surface judge evaluation in Policy Config UI | TODO.md |
+| MEDIUM | Add call_id link to Diff Viewer | TODO.md |
+| LOW | Graceful handling of corrupted history | Future |
+
+---
+
+## Bug Root Cause Analysis
+
+### Bug #2: /history titles showing "count"
+
+**Root Cause**: Claude Code's token counting call recorded as first user message
+
+**File**: `src/luthien_proxy/history/service.py:256-271`
+
+**Problem**: Claude Code sends `{"role": "user", "content": "count"}` as an initialization/token-counting request at session start. This gets recorded as the first user message in `conversation_events`. The `_extract_preview_message()` function correctly extracts this - but "count" is not a meaningful session title.
+
+**Evidence**:
+```sql
+SELECT payload->'final_request'->'messages' FROM conversation_events
+WHERE session_id = '...' LIMIT 1;
+-- Returns: [{"role": "user", "content": "count"}]
+```
+
+**Fix** (implemented - 2 parts):
+
+1. **SQL filter** (`service.py:335`): Skip "count" requests in `session_first_message` CTE:
+```sql
+AND COALESCE(payload->'final_request'->'messages'->0->>'content', '') != 'count'
+```
+
+2. **Python filter** (`service.py:259-262`): Skip "count" in `_extract_preview_message()` as backup:
+```python
+_SKIP_MESSAGES = {"count", ""}
+if content.lower() in _SKIP_MESSAGES:
+    continue
+```
+
+**Status**: ✅ FIXED - Verified working after `docker compose restart gateway`
+
+---
+
+### Bug #4: Activity Monitor not showing events
+
+**Root Cause**: NOT a bug - user error + timing during demo
+
+**Investigation Results**:
+- Redis IS connected (`Connected to Redis at redis://redis:6379` in gateway logs)
+- Events ARE being published (verified with `redis-cli PUBLISH` returning subscriber count)
+- SSE stream endpoint IS working
+
+**Why it failed during demo**:
+1. The 500 error (thinking blocks bug) caused requests to fail BEFORE events were published
+2. Redis pub/sub doesn't buffer - if Activity Monitor wasn't open when events happened, they're lost
+
+**Status**: ✅ NOT A BUG - working as designed
+
+**Demo workaround**:
+1. Open Activity Monitor FIRST (verify green "Connected" badge)
+2. THEN run the policy test
+3. Events will stream in real-time
+
+---
+
+### Error Evidence
+
+```
+litellm.exceptions.BadRequestError: AnthropicException -
+{"type":"error","error":{"type":"invalid_request_error",
+"message":"messages.1.content.0.type: Expected `thinking` or `redacted_thinking`,
+but found `tool_use`. When `thinking` is enabled, a final `assistant` message
+must start with a thinking block..."}}
+```
