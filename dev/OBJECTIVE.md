@@ -12,7 +12,11 @@ During the thinking blocks fix (#129 → PR #134), we discovered:
 
 ### 1. Consolidate CLAUDE.md and AGENTS.md
 - Make AGENTS.md the canonical source (since Codex also uses this repo)
-- CLAUDE.md becomes a thin wrapper that imports AGENTS.md + adds Claude-specific bits
+- **Updated based on review feedback**: Claude Code reads CLAUDE.md as plain text, so "reference" approach won't work
+- Options:
+  - **Option A**: Symlink CLAUDE.md → AGENTS.md (add Claude-specific bits to AGENTS.md)
+  - **Option B**: Build script that copies AGENTS.md → CLAUDE.md + appends Claude-specific content
+  - **Option C**: Keep separate files but add CI check for drift
 - Reduces duplication and drift
 
 ### 2. Add Architectural Data Flow Doc
@@ -24,7 +28,10 @@ During the thinking blocks fix (#129 → PR #134), we discovered:
 ### 3. Workflow Improvement: Preserve NOTES in PRs
 - Before clearing NOTES.md, add detailed content to PR description
 - Extract reusable learnings to gotchas.md
-- PR becomes permanent record of implementation journey
+- **Updated based on review feedback**: PR descriptions can become stale and less discoverable
+  - Prefer putting architectural insights into `dev/context/codebase_learnings.md`
+  - Use PR description for debug logs and session-specific details
+  - Committed files > PR descriptions for reusable knowledge
 
 ### 4. Proactive Gotchas Updates
 - Add to gotchas.md during debugging, not just at the end
