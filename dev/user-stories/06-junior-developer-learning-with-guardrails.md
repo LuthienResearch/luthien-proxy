@@ -76,8 +76,8 @@ Taylor uses Claude Code for most development work and can ship small features, b
 
 **Improvements needed (2026-01-15 dogfooding feedback):**
 - [x] Link from gateway homepage (PR #132)
-- [ ] Rename session IDs to human-readable names (see design notes below)
-- [ ] Show start time and end time (PR #133)
+- [x] Rename session IDs to human-readable names ([PR #133](https://github.com/LuthienResearch/luthien-proxy/pull/133))
+- [x] Show start time and end time ([PR #133](https://github.com/LuthienResearch/luthien-proxy/pull/133))
 
 **Session naming design (2026-01-15):**
 
@@ -141,7 +141,7 @@ Research: Claude Code's `/resume` shows either the **initial prompt** (first mes
 
 ### Phase 3: Review UI
 - [x] Basic session viewer ([PR #119](https://github.com/LuthienResearch/luthien-proxy/pull/119) - merged)
-- [ ] Session viewer improvements (human-readable names, start/end times, gateway link)
+- [x] Session viewer improvements (human-readable names, start/end times, gateway link) ([PR #133](https://github.com/LuthienResearch/luthien-proxy/pull/133))
 - [ ] Shareable session URLs
 - [ ] Comment/annotation system
 
