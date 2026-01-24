@@ -27,6 +27,8 @@ class AnthropicSSEAssembler:
         self.block_started = False
         self.block_index = 0
         self.current_block_type: str | None = None  # "thinking", "text", "tool_use"
+        self.last_thinking_block_index: int | None = None  # Track for signature_delta
+        self.thinking_block_needs_close: bool = False  # Delay close until signature
 
     def process_chunk(self, chunk: ModelResponse) -> list[dict]:
         """Process OpenAI chunk and return list of Anthropic SSE events to emit.
@@ -138,8 +140,22 @@ class AnthropicSSEAssembler:
         if event_type == "content_block_delta":
             delta_type = anthropic_event.get("delta", {}).get("type", "")
 
+            # Special case: signature_delta should go to the LAST thinking block.
+            # LiteLLM may deliver signatures AFTER text content starts, so we need to:
+            # 1. Emit the signature to the thinking block
+            # 2. Close the thinking block (if pending)
+            # 3. Continue with text
+            if delta_type == "signature_delta" and self.last_thinking_block_index is not None:
+                anthropic_event["index"] = self.last_thinking_block_index
+                events.append(anthropic_event)
+                # Now close the thinking block if we were waiting for signature
+                if self.thinking_block_needs_close:
+                    events.append({"type": "content_block_stop", "index": self.last_thinking_block_index})
+                    self.thinking_block_needs_close = False
+                return events
+
             # Determine what block type this delta belongs to
-            if delta_type in ("thinking_delta", "signature_delta"):
+            if delta_type == "thinking_delta":
                 target_block_type = "thinking"
             elif delta_type == "text_delta":
                 target_block_type = "text"
@@ -148,8 +164,12 @@ class AnthropicSSEAssembler:
 
             # Handle transition between block types (thinking -> text)
             if self.block_started and self.current_block_type != target_block_type:
-                # Close previous block
-                events.append({"type": "content_block_stop", "index": self.block_index})
+                # When transitioning FROM thinking, delay the close until we get signature
+                if self.current_block_type == "thinking":
+                    self.thinking_block_needs_close = True
+                else:
+                    # Close previous block immediately for non-thinking blocks
+                    events.append({"type": "content_block_stop", "index": self.block_index})
                 self.block_started = False
                 self.block_index += 1
 
@@ -159,6 +179,7 @@ class AnthropicSSEAssembler:
                 self.current_block_type = target_block_type
 
                 if target_block_type == "thinking":
+                    self.last_thinking_block_index = self.block_index
                     events.append(
                         {
                             "type": "content_block_start",
@@ -182,7 +203,12 @@ class AnthropicSSEAssembler:
 
         # Handle message_delta (finish reason)
         if event_type == "message_delta":
-            # Close block before message_delta
+            # Close any pending thinking block (if signature never arrived)
+            if self.thinking_block_needs_close and self.last_thinking_block_index is not None:
+                events.append({"type": "content_block_stop", "index": self.last_thinking_block_index})
+                self.thinking_block_needs_close = False
+
+            # Close current block before message_delta
             if self.block_started:
                 events.append({"type": "content_block_stop", "index": self.block_index})
                 self.block_started = False

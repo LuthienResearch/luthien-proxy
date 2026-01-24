@@ -83,7 +83,11 @@ class AssistantMessage(TypedDict, total=False):
     """Assistant message."""
 
     role: Required[Literal["assistant"]]
-    content: str | None  # Can be None when tool_calls present
+    # Content can be:
+    # - str: Normal text content
+    # - None: When tool_calls present
+    # - list: Anthropic thinking blocks passthrough (for extended thinking feature)
+    content: str | list | None
     name: str
     tool_calls: list[ToolCall]
     function_call: FunctionCall  # Deprecated

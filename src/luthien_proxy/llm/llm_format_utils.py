@@ -52,6 +52,8 @@ def anthropic_to_openai_request(data: dict) -> dict:
 
             image_parts: list[ImageContentPart] = []
 
+            thinking_parts = []
+
             for block in content:
                 if not isinstance(block, dict):
                     continue
@@ -63,6 +65,12 @@ def anthropic_to_openai_request(data: dict) -> dict:
                     tool_uses.append(block)
                 elif block_type == "text":
                     text_parts.append(block.get("text", ""))
+                elif block_type == "thinking":
+                    # Preserve thinking blocks for passthrough to Anthropic via LiteLLM
+                    thinking_parts.append(block)
+                elif block_type == "redacted_thinking":
+                    # Preserve redacted thinking blocks
+                    thinking_parts.append(block)
                 elif block_type == "image":
                     # Convert Anthropic image format to OpenAI format
                     source = cast(AnthropicImageSource, block.get("source", {}))
@@ -119,8 +127,14 @@ def anthropic_to_openai_request(data: dict) -> dict:
                     )
 
                 openai_msg = {"role": role}
-                # Include text content if present
-                if text_parts:
+                # Include thinking blocks + text content if present
+                # Thinking blocks must be preserved for Anthropic passthrough
+                if thinking_parts:
+                    content_list = thinking_parts.copy()
+                    if text_parts:
+                        content_list.append({"type": "text", "text": " ".join(text_parts)})
+                    openai_msg["content"] = content_list
+                elif text_parts:
                     openai_msg["content"] = " ".join(text_parts)
                 else:
                     openai_msg["content"] = None
@@ -128,10 +142,20 @@ def anthropic_to_openai_request(data: dict) -> dict:
                 openai_msg["tool_calls"] = tool_calls
                 openai_messages.append(openai_msg)
 
-            # Handle regular text and/or image content
-            elif text_parts or image_parts:
+            # Handle regular text, image, and/or thinking content
+            elif text_parts or image_parts or thinking_parts:
+                # If we have thinking blocks (assistant messages with extended thinking),
+                # preserve them in list format for passthrough to Anthropic via LiteLLM
+                if thinking_parts:
+                    content_list = []
+                    # Thinking blocks must come FIRST (Anthropic API requirement)
+                    content_list.extend(thinking_parts)
+                    if text_parts:
+                        content_list.append({"type": "text", "text": " ".join(text_parts)})
+                    content_list.extend(image_parts)
+                    openai_messages.append({"role": role, "content": content_list})
                 # If we have images, use list format for content (OpenAI multimodal)
-                if image_parts:
+                elif image_parts:
                     content_list = []
                     if text_parts:
                         content_list.append({"type": "text", "text": " ".join(text_parts)})

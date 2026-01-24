@@ -282,11 +282,13 @@ async def test_anthropic_formatter_thinking_block_lifecycle(formatter, policy_ct
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
 
-    # Send thinking chunks, then text chunks
+    # Send thinking chunks, then text chunks, then finish
+    # Note: Real LiteLLM sends finish_reason on a separate chunk with empty content
     await input_queue.put(create_thinking_response(reasoning_content="Let me think..."))
     await input_queue.put(create_thinking_response(reasoning_content=" Step by step..."))
     await input_queue.put(create_model_response(content="The answer is 42"))
-    await input_queue.put(create_model_response(content=".", finish_reason="stop"))
+    await input_queue.put(create_model_response(content="."))
+    await input_queue.put(create_model_response(content="", finish_reason="stop"))
     await input_queue.put(None)
 
     await formatter.process(input_queue, output_queue, policy_ctx)
@@ -307,8 +309,9 @@ async def test_anthropic_formatter_thinking_block_lifecycle(formatter, policy_ct
     event_types = [e["type"] for e in events]
 
     # Should have: message_start, content_block_start (thinking), thinking_deltas,
-    #              content_block_stop, content_block_start (text), text_deltas,
-    #              content_block_stop, message_delta, message_stop
+    #              content_block_start (text), text_deltas, content_block_stop (thinking - delayed until message_delta),
+    #              content_block_stop (text), message_delta, message_stop
+    # Note: Thinking block close is DELAYED until signature arrives or stream ends (LiteLLM timing quirk)
     assert "message_start" in event_types
     assert "content_block_start" in event_types
     assert "content_block_delta" in event_types

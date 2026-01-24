@@ -144,7 +144,11 @@ class TestProcessChunk:
         assert events[1]["delta"]["type"] == "thinking_delta"
 
     def test_thinking_to_text_transition(self):
-        """Test transition from thinking to text block."""
+        """Test transition from thinking to text block.
+
+        Thinking block close is DELAYED until signature arrives (LiteLLM sends
+        signatures after text content starts).
+        """
         assembler = AnthropicSSEAssembler()
 
         # First: thinking chunk
@@ -153,18 +157,35 @@ class TestProcessChunk:
         assert assembler.current_block_type == "thinking"
         assert assembler.block_index == 0
 
-        # Second: text chunk should close thinking and start text
+        # Second: text chunk should start text but NOT close thinking yet
         events2 = assembler.process_chunk(create_chunk_with_text("Answer"))
 
-        # Should have: content_block_stop, content_block_start, content_block_delta
-        assert len(events2) == 3
-        assert events2[0]["type"] == "content_block_stop"
-        assert events2[0]["index"] == 0  # Closes thinking block at index 0
-        assert events2[1]["type"] == "content_block_start"
-        assert events2[1]["content_block"]["type"] == "text"
-        assert events2[1]["index"] == 1  # Text block at index 1
-        assert events2[2]["type"] == "content_block_delta"
-        assert events2[2]["delta"]["type"] == "text_delta"
+        # Should have: content_block_start (text), content_block_delta (text)
+        # Thinking block close is delayed until signature arrives
+        assert len(events2) == 2
+        assert events2[0]["type"] == "content_block_start"
+        assert events2[0]["content_block"]["type"] == "text"
+        assert events2[0]["index"] == 1  # Text block at index 1
+        assert events2[1]["type"] == "content_block_delta"
+        assert events2[1]["delta"]["type"] == "text_delta"
+
+        # Thinking block close is pending
+        assert assembler.thinking_block_needs_close is True
+
+        # Third: signature arrives and closes the thinking block
+        events3 = assembler.process_chunk(
+            create_chunk_with_thinking_blocks([{"type": "thinking", "signature": "sig_xyz"}])
+        )
+
+        assert len(events3) == 2
+        assert events3[0]["type"] == "content_block_delta"
+        assert events3[0]["delta"]["type"] == "signature_delta"
+        assert events3[0]["index"] == 0  # Goes to thinking block
+        assert events3[1]["type"] == "content_block_stop"
+        assert events3[1]["index"] == 0  # Closes thinking block
+
+        # Pending close is resolved
+        assert assembler.thinking_block_needs_close is False
 
     def test_multiple_thinking_deltas_stay_in_same_block(self):
         """Test that consecutive thinking deltas stay in same block."""
@@ -237,6 +258,53 @@ class TestProcessChunk:
         assert events[0]["content_block"]["type"] == "text"
         assert events[1]["type"] == "content_block_delta"
         assert events[1]["delta"]["type"] == "text_delta"
+
+    def test_thinking_to_tool_call_transition(self):
+        """Test transition from thinking to tool_use block.
+
+        This is the most complex event sequencing - thinking → tool_use.
+        Tool calls close the thinking block immediately (no delayed close).
+        """
+        assembler = AnthropicSSEAssembler()
+
+        # Start with thinking
+        events1 = assembler.process_chunk(create_chunk_with_reasoning("Let me use a tool..."))
+        assert events1[0]["content_block"]["type"] == "thinking"
+        assert assembler.current_block_type == "thinking"
+
+        # Create a complete tool call chunk (id + arguments)
+        delta = Delta(content=None, role="assistant")
+        tool_call = type(
+            "ToolCall",
+            (),
+            {
+                "id": "call_123",
+                "index": 0,
+                "function": type("Function", (), {"name": "read_file", "arguments": '{"path": "test.txt"}'})(),
+            },
+        )()
+        delta.tool_calls = [tool_call]
+        tool_chunk = ModelResponse(
+            id="chatcmpl-123",
+            choices=[StreamingChoices(delta=delta, finish_reason=None, index=0)],
+            created=1234567890,
+            model="claude-sonnet-4-5-20250514",
+            object="chat.completion.chunk",
+        )
+
+        # Tool call should close thinking and start tool_use
+        events2 = assembler.process_chunk(tool_chunk)
+
+        # Should have: content_block_stop (thinking), content_block_start (tool_use),
+        #              content_block_delta (input_json), content_block_stop (tool_use)
+        event_types = [e["type"] for e in events2]
+        assert "content_block_stop" in event_types, f"Got: {event_types}"
+        assert "content_block_start" in event_types
+
+        # Find tool_use start
+        tool_starts = [e for e in events2 if e.get("content_block", {}).get("type") == "tool_use"]
+        assert len(tool_starts) == 1
+        assert tool_starts[0]["content_block"]["name"] == "read_file"
 
     def test_finish_reason_closes_block(self):
         """Test that finish_reason properly closes open block."""
