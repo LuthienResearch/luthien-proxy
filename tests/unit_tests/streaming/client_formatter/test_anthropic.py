@@ -255,3 +255,120 @@ async def test_anthropic_formatter_finish_reason_mapping(formatter, policy_ctx):
             break
 
     assert found_delta, "Should have found message_delta with stop_reason"
+
+
+def create_thinking_response(reasoning_content: str, finish_reason: str | None = None) -> ModelResponse:
+    """Helper to create a ModelResponse chunk with thinking/reasoning content."""
+    delta = Delta(content=None, role="assistant")
+    delta.reasoning_content = reasoning_content  # LiteLLM attribute for thinking content
+    return ModelResponse(
+        id="chatcmpl-thinking-123",
+        choices=[
+            StreamingChoices(
+                delta=delta,
+                finish_reason=finish_reason,
+                index=0,
+            )
+        ],
+        created=1234567890,
+        model="claude-sonnet-4-5-20250514",
+        object="chat.completion.chunk",
+    )
+
+
+@pytest.mark.asyncio
+async def test_anthropic_formatter_thinking_block_lifecycle(formatter, policy_ctx):
+    """Test proper thinking block lifecycle: start -> delta -> stop -> text."""
+    input_queue = asyncio.Queue()
+    output_queue = asyncio.Queue()
+
+    # Send thinking chunks, then text chunks
+    await input_queue.put(create_thinking_response(reasoning_content="Let me think..."))
+    await input_queue.put(create_thinking_response(reasoning_content=" Step by step..."))
+    await input_queue.put(create_model_response(content="The answer is 42"))
+    await input_queue.put(create_model_response(content=".", finish_reason="stop"))
+    await input_queue.put(None)
+
+    await formatter.process(input_queue, output_queue, policy_ctx)
+
+    # Collect all events (filter out None sentinel)
+    events = []
+    while not output_queue.empty():
+        sse_line = await output_queue.get()
+        if sse_line is None:
+            continue
+        lines = sse_line.strip().split("\n")
+        data_line = [line for line in lines if line.startswith("data: ")]
+        if data_line:
+            json_str = data_line[0][6:]
+            event = json.loads(json_str)
+            events.append(event)
+
+    event_types = [e["type"] for e in events]
+
+    # Should have: message_start, content_block_start (thinking), thinking_deltas,
+    #              content_block_stop, content_block_start (text), text_deltas,
+    #              content_block_stop, message_delta, message_stop
+    assert "message_start" in event_types
+    assert "content_block_start" in event_types
+    assert "content_block_delta" in event_types
+    assert "content_block_stop" in event_types
+    assert "message_stop" in event_types
+
+    # Find thinking block start
+    thinking_block_events = [
+        e
+        for e in events
+        if e.get("type") == "content_block_start" and e.get("content_block", {}).get("type") == "thinking"
+    ]
+    assert len(thinking_block_events) >= 1, "Should have thinking block start"
+
+    # Find text block start
+    text_block_events = [
+        e for e in events if e.get("type") == "content_block_start" and e.get("content_block", {}).get("type") == "text"
+    ]
+    assert len(text_block_events) >= 1, "Should have text block start"
+
+    # Thinking deltas should be present
+    thinking_deltas = [
+        e
+        for e in events
+        if e.get("type") == "content_block_delta" and e.get("delta", {}).get("type") == "thinking_delta"
+    ]
+    assert len(thinking_deltas) >= 1, "Should have thinking deltas"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_formatter_thinking_block_indices(formatter, policy_ctx):
+    """Test that thinking and text blocks have proper sequential indices."""
+    input_queue = asyncio.Queue()
+    output_queue = asyncio.Queue()
+
+    # Thinking -> text
+    await input_queue.put(create_thinking_response(reasoning_content="Thinking..."))
+    await input_queue.put(create_model_response(content="Answer"))
+    await input_queue.put(create_model_response(content="", finish_reason="stop"))
+    await input_queue.put(None)
+
+    await formatter.process(input_queue, output_queue, policy_ctx)
+
+    # Collect content_block_start events
+    block_starts = []
+    while not output_queue.empty():
+        sse_line = await output_queue.get()
+        if sse_line and "content_block_start" in sse_line:
+            lines = sse_line.strip().split("\n")
+            data_line = [line for line in lines if line.startswith("data: ")][0]
+            json_str = data_line[6:]
+            event = json.loads(json_str)
+            block_starts.append(event)
+
+    assert len(block_starts) >= 2, "Should have at least thinking and text block starts"
+
+    # First block (thinking) should have index 0
+    assert block_starts[0]["index"] == 0
+    assert block_starts[0]["content_block"]["type"] == "thinking"
+
+    # Second block (text) should have index 1
+    assert block_starts[1]["index"] == 1
+    assert block_starts[1]["content_block"]["type"] == "text"

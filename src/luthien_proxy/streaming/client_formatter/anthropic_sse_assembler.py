@@ -26,6 +26,7 @@ class AnthropicSSEAssembler:
         """Initialize assembler with block index at 0."""
         self.block_started = False
         self.block_index = 0
+        self.current_block_type: str | None = None  # "thinking", "text", "tool_use"
 
     def process_chunk(self, chunk: ModelResponse) -> list[dict]:
         """Process OpenAI chunk and return list of Anthropic SSE events to emit.
@@ -97,6 +98,27 @@ class AnthropicSSEAssembler:
 
             return events
 
+        # Handle complete redacted thinking blocks
+        if anthropic_event.get("_complete_redacted_thinking"):
+            # Close previous block if open
+            if self.block_started:
+                events.append({"type": "content_block_stop", "index": self.block_index})
+                self.block_started = False
+                self.block_index += 1
+
+            # Emit start and stop for redacted thinking (no delta needed)
+            events.append(
+                {
+                    "type": "content_block_start",
+                    "index": self.block_index,
+                    "content_block": anthropic_event["content_block"],
+                }
+            )
+            events.append({"type": "content_block_stop", "index": self.block_index})
+            self.block_index += 1
+
+            return events
+
         # Handle explicit content_block_start from converter
         if event_type == "content_block_start":
             # Close previous block if open
@@ -104,24 +126,54 @@ class AnthropicSSEAssembler:
                 events.append({"type": "content_block_stop", "index": self.block_index})
                 self.block_index += 1
 
-            # Start new block
+            # Start new block and track its type
             self.block_started = True
+            content_block = anthropic_event.get("content_block", {})
+            self.current_block_type = content_block.get("type", "text")
             anthropic_event["index"] = self.block_index
             events.append(anthropic_event)
             return events
 
-        # Handle content_block_delta (text or tool input)
+        # Handle content_block_delta (thinking, text, or tool input)
         if event_type == "content_block_delta":
-            # Start block if not already started (text content case)
+            delta_type = anthropic_event.get("delta", {}).get("type", "")
+
+            # Determine what block type this delta belongs to
+            if delta_type in ("thinking_delta", "signature_delta"):
+                target_block_type = "thinking"
+            elif delta_type == "text_delta":
+                target_block_type = "text"
+            else:
+                target_block_type = "tool_use"
+
+            # Handle transition between block types (thinking -> text)
+            if self.block_started and self.current_block_type != target_block_type:
+                # Close previous block
+                events.append({"type": "content_block_stop", "index": self.block_index})
+                self.block_started = False
+                self.block_index += 1
+
+            # Start block if not already started
             if not self.block_started:
                 self.block_started = True
-                events.append(
-                    {
-                        "type": "content_block_start",
-                        "index": self.block_index,
-                        "content_block": {"type": "text", "text": ""},
-                    }
-                )
+                self.current_block_type = target_block_type
+
+                if target_block_type == "thinking":
+                    events.append(
+                        {
+                            "type": "content_block_start",
+                            "index": self.block_index,
+                            "content_block": {"type": "thinking", "thinking": ""},
+                        }
+                    )
+                else:
+                    events.append(
+                        {
+                            "type": "content_block_start",
+                            "index": self.block_index,
+                            "content_block": {"type": "text", "text": ""},
+                        }
+                    )
 
             # Add index to delta and emit
             anthropic_event["index"] = self.block_index
@@ -134,6 +186,7 @@ class AnthropicSSEAssembler:
             if self.block_started:
                 events.append({"type": "content_block_stop", "index": self.block_index})
                 self.block_started = False
+                self.current_block_type = None
 
             events.append(anthropic_event)
             return events
@@ -214,6 +267,57 @@ class AnthropicSSEAssembler:
                         "partial_json": "",
                     },
                 }
+
+        # Handle thinking content (extended thinking / reasoning)
+        # LiteLLM exposes this via delta.reasoning_content
+        reasoning_content = getattr(delta, "reasoning_content", None)
+        if reasoning_content:
+            return {
+                "type": "content_block_delta",
+                "delta": {
+                    "type": "thinking_delta",
+                    "thinking": reasoning_content,
+                },
+            }
+
+        # Handle thinking blocks with signature (for complete thinking data)
+        # LiteLLM may provide thinking_blocks in streaming for signature delivery
+        thinking_blocks = getattr(delta, "thinking_blocks", None)
+        if thinking_blocks:
+            for block in thinking_blocks:
+                if isinstance(block, dict):
+                    # Check for signature in thinking block
+                    signature = block.get("signature")
+                    if signature:
+                        return {
+                            "type": "content_block_delta",
+                            "delta": {
+                                "type": "signature_delta",
+                                "signature": signature,
+                            },
+                        }
+                    # Check for thinking content
+                    thinking = block.get("thinking")
+                    if thinking:
+                        return {
+                            "type": "content_block_delta",
+                            "delta": {
+                                "type": "thinking_delta",
+                                "thinking": thinking,
+                            },
+                        }
+                    # Handle redacted_thinking block
+                    if block.get("type") == "redacted_thinking":
+                        # Redacted thinking blocks are passed through as-is
+                        # They don't have delta events, they're complete blocks
+                        return {
+                            "type": "content_block_start",
+                            "content_block": {
+                                "type": "redacted_thinking",
+                                "data": block.get("data", ""),
+                            },
+                            "_complete_redacted_thinking": True,
+                        }
 
         # Handle text content
         content = delta.content or ""
