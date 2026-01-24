@@ -146,3 +146,11 @@ LiteLLM delivers thinking signatures OUT OF ORDER (after text content starts). T
 ### Results
 - Tool call + thinking: Unit test added, covers block transition ✅
 - Test suite updated for delayed block close behavior ✅
+
+### E2E Validation (Parallel Claude Code Session)
+All tests passed via curl + Python test scripts:
+- Single-turn streaming with thinking ✅
+- Multi-turn conversation with thinking blocks ✅
+- Tool calls + thinking (HIGH PRIORITY) ✅
+
+**Note**: Initial test failed with `max_tokens must be greater than thinking.budget_tokens` - fixed by ensuring max_tokens > budget_tokens.
