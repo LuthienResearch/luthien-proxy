@@ -131,7 +131,7 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 3. Start fresh Claude Code session
 4. DO NOT use `/resume` on pre-fix sessions
 
-**Incident**: Demo crashed at Seldon Labs (2026-01-24) despite PR #134 being merged, because session history was corrupted.
+**Incident**: Demo crashed at Seldon Labs (2026-01-24) despite [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134) being merged, because session history was corrupted. See PR description for full COE.
 
 ---
 
