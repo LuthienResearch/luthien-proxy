@@ -52,7 +52,7 @@ def anthropic_to_openai_request(data: dict) -> dict:
 
             image_parts: list[ImageContentPart] = []
 
-            thinking_parts = []
+            thinking_parts: list[dict[str, Any]] = []
 
             for block in content:
                 if not isinstance(block, dict):
