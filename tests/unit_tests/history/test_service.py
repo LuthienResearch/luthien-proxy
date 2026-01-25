@@ -50,8 +50,8 @@ class TestExtractTextContent:
         assert _extract_text_content(content) == expected
 
 
-class TestExtractFirstUserMessage:
-    """Test first user message extraction for session previews."""
+class TestExtractPreviewMessage:
+    """Test preview message extraction for session list display."""
 
     def test_basic_message(self):
         """Test extracting a basic user message."""
