@@ -265,6 +265,19 @@ def _extract_preview_message(payload: Any) -> str | None:
             if content:
                 # Truncate and clean up for display
                 content = content.strip()
+                # Skip system-reminder tags (Claude Code injects these)
+                if content.startswith("<system-reminder>"):
+                    # Try to find actual content after the closing tag
+                    import re
+
+                    # Remove all <system-reminder>...</system-reminder> blocks
+                    content = re.sub(
+                        r"<system-reminder>.*?</system-reminder>\s*",
+                        "",
+                        content,
+                        flags=re.DOTALL,
+                    )
+                    content = content.strip()
                 # Skip non-meaningful messages (like Claude Code's token counting)
                 if content.lower() in _SKIP_MESSAGES:
                     continue
