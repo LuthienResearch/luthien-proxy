@@ -37,12 +37,31 @@ During the thinking blocks fix (#129 → PR #134), we discovered:
 - Add to gotchas.md during debugging, not just at the end
 - "After hitting any unexpected wall, add to gotchas before fixing"
 
+### 5. Add COE Process for Demo/Production Failures
+**Context**: PR #134 (thinking blocks fix) required two COEs to understand one bug:
+- COE #1: Why did the code fix take 5 debug cycles?
+- COE #2: Why did the demo crash despite the fix being "merged"?
+
+The fact that we needed a second COE means the first one missed something. That's a process smell.
+
+**Proposal**: Add COE template that forces operational thinking:
+- **Pre-merge checklist**: "What states can this code encounter in production?"
+- **Demo readiness**: Treat demos as production deployments to humans
+- **5 Whys required**: Root cause analysis before closing any incident
+
+**Where to add**: Section in AGENTS.md (not a new file) with:
+1. COE trigger criteria (when to write one)
+2. Required sections (timeline, 5 Whys, action items)
+3. Demo readiness checklist (manual test scenarios beyond unit tests)
+
 ## Questions for Jai
 1. AGENTS.md as source of truth - agree with this approach?
 2. data_flow.md - useful? What format/level of detail?
 3. Any concerns about the workflow changes?
+4. COE process: PR #134 needed two COEs for one bug. Is that a process smell worth fixing, or acceptable overhead?
 
 ## Acceptance Criteria
 - [ ] Jai reviews and provides feedback
-- [ ] Decide on consolidation approach
+- [ ] Decide on consolidation approach (CLAUDE.md/AGENTS.md)
+- [ ] Decide on COE process (add to AGENTS.md or defer)
 - [ ] Implement agreed changes
