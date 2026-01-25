@@ -133,6 +133,16 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 
 **Incident**: Demo crashed at Seldon Labs (2026-01-24) despite [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134) being merged, because session history was corrupted. See PR description for full COE.
 
+## /history API Requires Auth (2026-01-25)
+
+- API: `curl -H "Authorization: Bearer admin-dev-key" http://localhost:8000/history/api/sessions`
+- Without header, returns empty `{"sessions": []}` even with data in DB
+
+## Claude Code Sessions Location (2026-01-25)
+
+- Stored at `~/.claude/projects/<encoded-path>/*.jsonl` (e.g., `-Users-foo-bar/` for `/Users/foo/bar`)
+- No CLI export - use `scripts/export_claude_sessions.py` to convert to CSV
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
