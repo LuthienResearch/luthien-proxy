@@ -5,7 +5,7 @@
 ## Summary: Questions This PR Answers
 | # | Question | Where |
 |---|----------|-------|
-| 1 | Why are CLAUDE.md and AGENTS.md duplicated? | Section 1 below |
+| 1 | Why are CLAUDE.md and AGENTS.md duplicated? | [PR #135](https://github.com/LuthienResearch/luthien-proxy/pull/135) (this PR), Section 1 below |
 | 2 | Why did the thinking blocks fix take 5 debug cycles? | [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134) |
 | 3 | Why do our demos keep breaking? | [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134), Section 5 below |
 
