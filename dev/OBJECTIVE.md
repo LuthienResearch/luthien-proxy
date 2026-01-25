@@ -61,6 +61,38 @@ The fact that we needed a second COE means the first one missed something. That'
 2. Required sections (timeline, 5 Whys, action items)
 3. Demo readiness checklist (manual test scenarios beyond unit tests)
 
+**Draft demo checklist** (to be added to AGENTS.md if approved):
+```
+## Demo Readiness
+
+Treat demos as production deployments to humans.
+
+### T-24h
+- [ ] Full dry run on actual machine with fresh data
+- [ ] Record any failures and fix them
+- [ ] Verify all features you plan to show
+
+### T-1h
+- [ ] Restart all services (docker compose down && up)
+- [ ] Fresh sessions (quit all Claude Code instances, no /resume)
+- [ ] Open all demo URLs and verify they load
+- [ ] Prepare backup topics if live demo breaks
+
+### During
+- [ ] Don't debug live - switch to backup topic
+- [ ] If something breaks, note it for post-demo COE
+
+### After
+- [ ] COE for any failures
+- [ ] Update this checklist with lessons learned
+```
+
+### 6. Branch Cleanup
+After this RFC is resolved, delete stale branches:
+- `demo-readiness-process` (content merged here)
+- `chore/*` branches if merged
+- `fix/*` branches if merged
+
 ## Questions for Jai
 1. AGENTS.md as source of truth - agree with this approach?
 2. data_flow.md - useful? What format/level of detail?
