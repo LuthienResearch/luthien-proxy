@@ -12,6 +12,7 @@
 - [x] CSVs created for sessions not already exported (37 new CSVs)
 - [x] CSVs successfully imported via `scripts/import_session_csvs.py` (2014 events)
 - [x] Sessions visible in Luthien /history view (50 sessions showing)
+- [x] Fix: session end times all showing import time instead of actual last message time
 
 **Branch:** jan-26-demo
 
