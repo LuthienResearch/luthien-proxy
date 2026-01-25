@@ -235,10 +235,10 @@ _FIRST_MESSAGE_MAX_LENGTH = 100
 
 
 def _extract_preview_message(payload: Any) -> str | None:
-    """Extract the most recent user message from a request payload for preview.
+    """Extract the first meaningful user message from a request payload for preview.
 
     Used to generate a session preview/title. Returns truncated text.
-    Note: Extracts the LAST user message (most recent context), not the first.
+    Skips system-reminders and other non-meaningful content to find actual user intent.
     """
     if not payload:
         return None
@@ -256,8 +256,8 @@ def _extract_preview_message(payload: Any) -> str | None:
     # Messages to skip as they're not meaningful previews (Claude Code internals)
     _SKIP_MESSAGES = {"count", ""}
 
-    # Find the last user message (most recent context)
-    for msg in reversed(messages):
+    # Find the first meaningful user message (captures session intent)
+    for msg in messages:
         if not isinstance(msg, dict):
             continue
         if msg.get("role") == "user":
