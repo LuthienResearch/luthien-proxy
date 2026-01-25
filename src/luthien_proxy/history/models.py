@@ -70,7 +70,7 @@ class SessionSummary(BaseModel):
     total_events: int
     policy_interventions: int
     models_used: list[str]
-    first_user_message: str | None = None  # Preview of first user message (truncated)
+    preview_message: str | None = None  # Preview of session (last user message, truncated)
 
 
 class SessionListResponse(BaseModel):

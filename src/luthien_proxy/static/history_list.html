@@ -456,7 +456,7 @@
             const query = document.getElementById('search-input').value.toLowerCase();
             if (query) {
                 filtered = filtered.filter(s => {
-                    const preview = (s.first_user_message || '').toLowerCase();
+                    const preview = (s.preview_message || '').toLowerCase();
                     const id = s.session_id.toLowerCase();
                     return preview.includes(query) || id.includes(query);
                 });
@@ -532,7 +532,7 @@
                     const timeStr = formatTimeRange(firstTime, lastTime);
                     const messageCount = session.turn_count;
 
-                    const previewText = session.first_user_message || 'No preview available';
+                    const previewText = session.preview_message || 'No preview available';
 
                     // Build meta line
                     let metaParts = [`${messageCount} message${messageCount !== 1 ? 's' : ''}`];

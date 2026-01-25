@@ -372,7 +372,7 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
             models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
-            first_user_message=_extract_preview_message(row["request_payload"]),
+            preview_message=_extract_preview_message(row["request_payload"]),
         )
         for row in rows
     ]
