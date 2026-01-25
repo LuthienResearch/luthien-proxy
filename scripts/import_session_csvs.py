@@ -92,8 +92,9 @@ async def import_session(conn: asyncpg.Connection, filepath: Path, dry_run: bool
         return 0
 
     # Group rows into PROMPT/RESPONSE pairs (turns)
+    # A turn = one PROMPT + all following RESPONSEs until next PROMPT
     turns = []
-    current_turn = {"prompt": None, "response": None, "timestamp": None}
+    current_turn = {"prompt": None, "response": None, "prompt_ts": None, "response_ts": None}
 
     for row in rows:
         msg_type = row.get("prompt_or_response", "").upper()
@@ -112,20 +113,29 @@ async def import_session(conn: asyncpg.Connection, filepath: Path, dry_run: bool
             timestamp = datetime.now()
 
         if msg_type == "PROMPT":
-            # Start new turn if we already have a prompt
-            if current_turn["prompt"] is not None:
+            # Save previous turn if it has content
+            if current_turn["prompt"] is not None or current_turn["response"] is not None:
                 turns.append(current_turn)
-                current_turn = {"prompt": None, "response": None, "timestamp": None}
-            current_turn["prompt"] = content
-            current_turn["timestamp"] = timestamp
+            # Start new turn
+            current_turn = {"prompt": content, "response": None, "prompt_ts": timestamp, "response_ts": None}
         elif msg_type == "RESPONSE":
-            current_turn["response"] = content
-            turns.append(current_turn)
-            current_turn = {"prompt": None, "response": None, "timestamp": None}
+            # Accumulate responses - keep first response content, update timestamp to last
+            if current_turn["response"] is None:
+                current_turn["response"] = content
+            else:
+                current_turn["response"] += "\n\n" + content
+            current_turn["response_ts"] = timestamp  # Always use latest response timestamp
 
-    # Don't forget last turn if it has a prompt
-    if current_turn["prompt"] is not None:
+    # Don't forget last turn
+    if current_turn["prompt"] is not None or current_turn["response"] is not None:
         turns.append(current_turn)
+
+    # Use prompt_ts as fallback for response_ts if no response
+    for turn in turns:
+        if turn["response_ts"] is None:
+            turn["response_ts"] = turn["prompt_ts"]
+        if turn["prompt_ts"] is None:
+            turn["prompt_ts"] = turn["response_ts"]
 
     if not turns:
         print(f"  Skipping {filepath.name}: no valid turns found")
@@ -139,7 +149,8 @@ async def import_session(conn: asyncpg.Connection, filepath: Path, dry_run: bool
     events_inserted = 0
     for i, turn in enumerate(turns):
         call_id = f"{session_id}-turn-{i:04d}"
-        timestamp = turn["timestamp"] or datetime.now()
+        prompt_ts = turn["prompt_ts"] or datetime.now()
+        response_ts = turn["response_ts"] or prompt_ts
 
         # Insert conversation_call
         await conn.execute(
@@ -153,8 +164,8 @@ async def import_session(conn: asyncpg.Connection, filepath: Path, dry_run: bool
             model,
             "anthropic",
             "completed",
-            timestamp,
-            timestamp,
+            prompt_ts,
+            response_ts,
         )
 
         # Build request payload (what _extract_preview_message expects)
@@ -179,7 +190,7 @@ async def import_session(conn: asyncpg.Connection, filepath: Path, dry_run: bool
             session_id,
             "transaction.request_recorded",
             json.dumps(request_payload),
-            timestamp,
+            prompt_ts,
         )
         events_inserted += 1
 
@@ -203,7 +214,7 @@ async def import_session(conn: asyncpg.Connection, filepath: Path, dry_run: bool
                 session_id,
                 "transaction.streaming_response_recorded",
                 json.dumps(response_payload),
-                timestamp,
+                response_ts,
             )
             events_inserted += 1
 
