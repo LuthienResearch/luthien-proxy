@@ -398,7 +398,7 @@ class TestFetchSessionList:
         assert result.sessions[0].turn_count == 3
         assert result.sessions[0].policy_interventions == 1
         assert "gpt-4" in result.sessions[0].models_used
-        assert result.sessions[0].first_user_message == "Hello world"
+        assert result.sessions[0].preview_message == "Hello world"
 
     @pytest.mark.asyncio
     async def test_fetch_with_offset(self):
@@ -429,7 +429,7 @@ class TestFetchSessionList:
         assert result.offset == 50
         assert result.has_more is True  # 50 + 1 < 100
         assert len(result.sessions) == 1
-        assert result.sessions[0].first_user_message is None
+        assert result.sessions[0].preview_message is None
 
     @pytest.mark.asyncio
     async def test_empty_result(self):
