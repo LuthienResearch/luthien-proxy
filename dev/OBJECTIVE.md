@@ -2,6 +2,13 @@
 
 **Status**: Discussion/RFC with Jai
 
+## Summary: Questions This PR Answers
+| # | Question | Where |
+|---|----------|-------|
+| 1 | Why are CLAUDE.md and AGENTS.md duplicated? | Section 1 below |
+| 2 | Why did the thinking blocks fix take 5 debug cycles? | [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134) |
+| 3 | Why do our demos keep breaking? | [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134), Section 5 below |
+
 ## Context
 During the thinking blocks fix (#129 → PR #134), we discovered:
 1. CLAUDE.md and AGENTS.md are near-identical copies (maintenance burden, drift risk)
