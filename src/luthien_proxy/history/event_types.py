@@ -217,6 +217,7 @@ __all__ = [
     "TextBlockDict",
     "ToolUseBlockDict",
     "ToolResultBlockDict",
+    "ImageBlockDict",
     "ToolCallDict",
     "FunctionCallDict",
     # Event payloads

@@ -9,12 +9,10 @@ Provides pure business logic for:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
-
-if TYPE_CHECKING:
-    from luthien_proxy.utils.db import DatabasePool
 
 from .event_types import (
     ContentBlockDict,
@@ -36,6 +34,11 @@ from .models import (
     SessionListResponse,
     SessionSummary,
 )
+
+if TYPE_CHECKING:
+    from luthien_proxy.utils.db import DatabasePool
+
+logger = logging.getLogger(__name__)
 
 # User-friendly descriptions for common policy event types
 _EVENT_TYPE_DESCRIPTIONS: dict[str, str] = {
@@ -137,6 +140,8 @@ def _extract_tool_calls(message: MessageDict) -> list[ConversationMessage]:
                         content=str(tool_use["input"]),
                         tool_name=tool_use["name"],
                         tool_call_id=tool_use["id"],
+                        # ToolUseBlockDict.input is dict[str, object] for lenient parsing,
+                        # while ConversationMessage.tool_input is dict[str, Any] for Pydantic
                         tool_input=tool_use["input"],  # type: ignore[arg-type]
                     )
                 )
@@ -170,6 +175,7 @@ def _parse_request_messages(request: RequestDict) -> list[ConversationMessage]:
         role = msg.get("role", "")
         msg_type = _ROLE_TO_MESSAGE_TYPE.get(role)
         if msg_type is None:
+            logger.error("Unrecognized message role %r in stored event data", role)
             raise ValueError(f"Unrecognized message role: {role!r}")
 
         content = _extract_text_content(msg.get("content"))
