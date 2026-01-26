@@ -46,7 +46,7 @@
 ### Testing (Medium)
 
 - [ ] **Fix Claude Code E2E tests timing out** - `test_claude_code_*` tests timeout (120s). Root cause: Claude Code 2.x ignores `ANTHROPIC_BASE_URL` env var and sends requests directly to `api.anthropic.com` (uses OAuth). Need alternative routing method or mark tests as requiring special setup. Gateway works fine (curl passes). Other 93 E2E tests pass. Reference: 2026-01-25.
-- [ ] **Add E2E test for streaming thinking blocks** - Prevent regression of #129. Test matrix: streaming/non-streaming × single/multi-turn × with/without tools. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
+- [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
 

@@ -18,6 +18,10 @@ from luthien_proxy.llm.types import (
     ImageContentPart,
     ImageUrl,
 )
+from luthien_proxy.llm.types.anthropic import (
+    AnthropicRedactedThinkingBlock,
+    AnthropicThinkingBlock,
+)
 from luthien_proxy.utils.constants import DEFAULT_LLM_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
@@ -52,7 +56,7 @@ def anthropic_to_openai_request(data: dict) -> dict:
 
             image_parts: list[ImageContentPart] = []
 
-            thinking_parts: list[dict[str, Any]] = []
+            thinking_parts: list[AnthropicThinkingBlock | AnthropicRedactedThinkingBlock] = []
 
             for block in content:
                 if not isinstance(block, dict):
@@ -67,10 +71,10 @@ def anthropic_to_openai_request(data: dict) -> dict:
                     text_parts.append(block.get("text", ""))
                 elif block_type == "thinking":
                     # Preserve thinking blocks for passthrough to Anthropic via LiteLLM
-                    thinking_parts.append(block)
+                    thinking_parts.append(cast(AnthropicThinkingBlock, block))
                 elif block_type == "redacted_thinking":
                     # Preserve redacted thinking blocks
-                    thinking_parts.append(block)
+                    thinking_parts.append(cast(AnthropicRedactedThinkingBlock, block))
                 elif block_type == "image":
                     # Convert Anthropic image format to OpenAI format
                     source = cast(AnthropicImageSource, block.get("source", {}))

@@ -6,7 +6,7 @@ They are used for type-safe message handling throughout the proxy.
 
 from __future__ import annotations
 
-from typing import Literal, Required, TypedDict
+from typing import Literal, NotRequired, Required, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -120,8 +120,9 @@ class AssistantMessage(TypedDict, total=False):
     name: str
     tool_calls: list[ToolCall]
     function_call: FunctionCall  # Deprecated
-    # LiteLLM extension: thinking blocks for Anthropic extended thinking feature
-    thinking_blocks: list[ThinkingBlockType]
+    # LiteLLM extension: thinking blocks for Anthropic extended thinking feature.
+    # Only present in responses when extended thinking is enabled.
+    thinking_blocks: NotRequired[list[ThinkingBlockType]]
 
 
 class ToolMessage(TypedDict, total=False):

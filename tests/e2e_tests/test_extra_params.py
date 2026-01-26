@@ -64,7 +64,15 @@ async def test_anthropic_extended_thinking_sonnet(http_client, gateway_healthy):
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_anthropic_extended_thinking_streaming(http_client, gateway_healthy):
-    """Verify extended thinking works with streaming responses."""
+    """Verify extended thinking works with streaming responses.
+
+    This test validates that thinking blocks are properly streamed, including:
+    - content_block_start events with type "thinking"
+    - content_block_delta events with thinking_delta content
+    - Both thinking and text blocks appear in the stream
+    """
+    import json
+
     async with http_client.stream(
         "POST",
         f"{GATEWAY_URL}/v1/messages",
@@ -81,17 +89,49 @@ async def test_anthropic_extended_thinking_streaming(http_client, gateway_health
         assert response.status_code == 200
         assert "text/event-stream" in response.headers["content-type"]
 
-        # Collect events
+        # Collect events and their data
         events = []
+        current_event = None
+        block_types_started = []
+        delta_types_seen = []
+
         async for line in response.aiter_lines():
             if line.startswith("event: "):
-                events.append(line[7:])  # Strip "event: " prefix
+                current_event = line[7:]
+                events.append(current_event)
+            elif line.startswith("data: ") and current_event:
+                try:
+                    data = json.loads(line[6:])
+                    # Track block types from content_block_start events
+                    if current_event == "content_block_start":
+                        content_block = data.get("content_block", {})
+                        block_type = content_block.get("type")
+                        if block_type:
+                            block_types_started.append(block_type)
+                    # Track delta types from content_block_delta events
+                    elif current_event == "content_block_delta":
+                        delta = data.get("delta", {})
+                        delta_type = delta.get("type")
+                        if delta_type:
+                            delta_types_seen.append(delta_type)
+                except json.JSONDecodeError:
+                    pass
 
         # Should have received SSE events
         assert len(events) > 0, "Should receive SSE events"
 
-        # For extended thinking, we expect content_block_start events for thinking blocks
-        assert "content_block_start" in events, f"Expected content_block_start event. Got events: {set(events)}"
+        # Verify thinking blocks were started
+        assert "thinking" in block_types_started, (
+            f"Expected 'thinking' block to start. Got block types: {block_types_started}"
+        )
+
+        # Verify text blocks were also started (for the final answer)
+        assert "text" in block_types_started, f"Expected 'text' block to start. Got block types: {block_types_started}"
+
+        # Verify thinking_delta events were received
+        assert "thinking_delta" in delta_types_seen, (
+            f"Expected 'thinking_delta' in deltas. Got delta types: {set(delta_types_seen)}"
+        )
 
 
 @pytest.mark.e2e

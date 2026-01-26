@@ -27,7 +27,11 @@ class AnthropicSSEAssembler:
         self.block_started = False
         self.block_index = 0
         self.current_block_type: str | None = None  # "thinking", "text", "tool_use"
-        self.last_thinking_block_index: int | None = None  # Track for signature_delta
+        # Track the index of the last thinking block for signature_delta events.
+        # Note: If there are multiple thinking blocks (e.g., thinking → text → thinking),
+        # this gets overwritten with each new thinking block. This works correctly because
+        # LiteLLM delivers the signature for each thinking block before the next one starts.
+        self.last_thinking_block_index: int | None = None
         self.thinking_block_needs_close: bool = False  # Delay close until signature
 
     def process_chunk(self, chunk: ModelResponse) -> list[dict]:
@@ -168,8 +172,14 @@ class AnthropicSSEAssembler:
                 target_block_type = "tool_use"
 
             # Handle transition between block types (thinking -> text)
+            # Note on block index timing: We set block_started=False and increment block_index
+            # BEFORE starting the new block. This is intentional - the new block's start event
+            # (emitted below) uses the incremented index. For thinking blocks, we delay the
+            # content_block_stop until the signature arrives (via thinking_block_needs_close).
             if self.block_started and self.current_block_type != target_block_type:
-                # When transitioning FROM thinking, delay the close until we get signature
+                # When transitioning FROM thinking, delay the close until we get signature.
+                # LiteLLM delivers signatures AFTER text content starts, so we can't close
+                # the thinking block immediately - we'd lose the signature event.
                 if self.current_block_type == "thinking":
                     self.thinking_block_needs_close = True
                 else:
