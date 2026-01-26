@@ -1,6 +1,12 @@
 """Type definitions for conversation history events.
 
-Provides strict typing for event payloads and content structures.
+Provides typing for event payloads and content structures stored in the database.
+
+Note: These types intentionally overlap with llm/types/openai.py and llm/types/anthropic.py
+but serve a different purpose. The llm/types/ modules define strict API types with literal
+role types and required fields for making API calls. These types are looser variants designed
+for parsing stored event data from the database, which may contain either OpenAI or Anthropic
+format messages and needs lenient parsing (e.g., role as str instead of Literal["user"]).
 """
 
 from __future__ import annotations
