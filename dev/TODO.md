@@ -36,6 +36,14 @@
 
 ### Code Improvements
 
+- [ ] **llm_format_utils.py: Replace defensive fallbacks with exceptions** - Several places silently mask errors instead of failing fast. Reference: refactoring session 2026-01-26.
+  - `_convert_anthropic_image_block()` returns `None` for unknown source types - should raise
+  - `_categorize_content_blocks()` silently skips non-dict blocks (`if not isinstance(block, dict): continue`) - should raise
+  - `_convert_anthropic_message()` passes through unexpected content types (`if not isinstance(content, list)`) - should raise
+  - `_convert_anthropic_message()` returns error as message content for unknown block types - should raise instead
+  - `anthropic_to_openai_request()` defaults `messages` to `[]` via `.get()` but it's a required field - should use direct access
+  - `_convert_anthropic_image_block()` defaults missing `data`/`url` to empty string - should raise for missing required fields
+
 - [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks. (Niche use case - images pass through proxy correctly already)
 
 - [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety for buffered tool calls
