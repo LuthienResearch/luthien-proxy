@@ -442,12 +442,12 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         # Parse payload - asyncpg returns JSONB as dict or string
         raw_payload = row["payload"]
         if isinstance(raw_payload, dict):
-            payload = raw_payload
+            payload: dict[str, object] = dict(raw_payload)
         elif isinstance(raw_payload, str):
             parsed = _safe_parse_json(raw_payload)
             if parsed is None:
                 raise ValueError(f"Failed to parse payload JSON for call_id={call_id}")
-            payload = parsed
+            payload = dict(parsed)
         else:
             raise TypeError(f"Unexpected payload type: {type(raw_payload).__name__}")
 
@@ -458,7 +458,7 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         calls[call_id].append(
             StoredEvent(
                 event_type=str(row["event_type"]),
-                payload=payload,  # type: ignore[typeddict-item]
+                payload=payload,
                 created_at=raw_created_at,
             )
         )
