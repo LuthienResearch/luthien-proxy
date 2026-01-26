@@ -500,14 +500,15 @@ class TestAnthropicToOpenAIRequestThinkingBlocks:
     """Test thinking blocks preservation in Anthropic to OpenAI request conversion.
 
     When thinking is enabled, assistant messages in conversation history contain
-    thinking blocks. These must be preserved for passthrough to Anthropic via LiteLLM.
+    thinking blocks. These must be preserved in thinking_blocks field for passthrough
+    to Anthropic via LiteLLM.
     """
 
-    def test_thinking_blocks_preserved_in_assistant_message(self):
-        """Test that thinking blocks are preserved in assistant message content.
+    def test_thinking_blocks_preserved_in_separate_field(self):
+        """Test that thinking blocks are preserved in thinking_blocks field.
 
         Multi-turn conversations with thinking enabled require previous assistant
-        messages to include their thinking blocks.
+        messages to include their thinking blocks in the thinking_blocks field.
         """
         anthropic_req = {
             "model": "claude-sonnet-4-20250514",
@@ -531,18 +532,17 @@ class TestAnthropicToOpenAIRequestThinkingBlocks:
 
         result = anthropic_to_openai_request(anthropic_req)
 
-        # Assistant message should preserve thinking blocks in list format
+        # Assistant message should have content as string and thinking_blocks as separate field
         assistant_msg = result["messages"][1]
-        assert isinstance(assistant_msg["content"], list)
-        assert len(assistant_msg["content"]) == 2
-        assert assistant_msg["content"][0]["type"] == "thinking"
-        assert assistant_msg["content"][0]["thinking"] == "Let me calculate 2+2..."
-        assert assistant_msg["content"][0]["signature"] == "sig_abc123"
-        assert assistant_msg["content"][1]["type"] == "text"
-        assert assistant_msg["content"][1]["text"] == "The answer is 4."
+        assert assistant_msg["content"] == "The answer is 4."
+        assert "thinking_blocks" in assistant_msg
+        assert len(assistant_msg["thinking_blocks"]) == 1
+        assert assistant_msg["thinking_blocks"][0]["type"] == "thinking"
+        assert assistant_msg["thinking_blocks"][0]["thinking"] == "Let me calculate 2+2..."
+        assert assistant_msg["thinking_blocks"][0]["signature"] == "sig_abc123"
 
     def test_redacted_thinking_blocks_preserved(self):
-        """Test that redacted_thinking blocks are preserved."""
+        """Test that redacted_thinking blocks are preserved in thinking_blocks field."""
         anthropic_req = {
             "model": "claude-sonnet-4-20250514",
             "messages": [
@@ -561,12 +561,13 @@ class TestAnthropicToOpenAIRequestThinkingBlocks:
         result = anthropic_to_openai_request(anthropic_req)
 
         assistant_msg = result["messages"][1]
-        assert isinstance(assistant_msg["content"], list)
-        assert assistant_msg["content"][0]["type"] == "redacted_thinking"
-        assert assistant_msg["content"][0]["data"] == "encrypted_data_xyz"
+        assert assistant_msg["content"] == "Response"
+        assert "thinking_blocks" in assistant_msg
+        assert assistant_msg["thinking_blocks"][0]["type"] == "redacted_thinking"
+        assert assistant_msg["thinking_blocks"][0]["data"] == "encrypted_data_xyz"
 
     def test_thinking_blocks_with_tool_calls(self):
-        """Test thinking blocks preserved alongside tool_calls."""
+        """Test thinking blocks preserved in thinking_blocks field alongside tool_calls."""
         anthropic_req = {
             "model": "claude-sonnet-4-20250514",
             "messages": [
@@ -591,10 +592,11 @@ class TestAnthropicToOpenAIRequestThinkingBlocks:
         result = anthropic_to_openai_request(anthropic_req)
 
         assistant_msg = result["messages"][1]
-        # Content should be list with thinking + text
-        assert isinstance(assistant_msg["content"], list)
-        assert assistant_msg["content"][0]["type"] == "thinking"
-        assert assistant_msg["content"][1]["type"] == "text"
+        # Content should be string
+        assert assistant_msg["content"] == "Let me check."
+        # Thinking blocks in separate field
+        assert "thinking_blocks" in assistant_msg
+        assert assistant_msg["thinking_blocks"][0]["type"] == "thinking"
         # Tool calls should be separate
         assert "tool_calls" in assistant_msg
         assert assistant_msg["tool_calls"][0]["function"]["name"] == "get_weather"
@@ -618,9 +620,12 @@ class TestAnthropicToOpenAIRequestThinkingBlocks:
         result = anthropic_to_openai_request(anthropic_req)
 
         assistant_msg = result["messages"][1]
-        assert isinstance(assistant_msg["content"], list)
-        assert len(assistant_msg["content"]) == 1
-        assert assistant_msg["content"][0]["type"] == "thinking"
+        # Content should be None when no text
+        assert assistant_msg["content"] is None
+        # Thinking blocks in separate field
+        assert "thinking_blocks" in assistant_msg
+        assert len(assistant_msg["thinking_blocks"]) == 1
+        assert assistant_msg["thinking_blocks"][0]["type"] == "thinking"
 
 
 class TestAnthropicToOpenAIRequestArrayContent:

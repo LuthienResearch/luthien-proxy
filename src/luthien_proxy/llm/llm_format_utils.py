@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import cast
+from typing import Any, cast
 
 from litellm.types.utils import Choices, ModelResponse, Usage
 
@@ -126,44 +126,43 @@ def anthropic_to_openai_request(data: dict) -> dict:
                         }
                     )
 
-                openai_msg = {"role": role}
-                # Include thinking blocks + text content if present
-                # Thinking blocks must be preserved for Anthropic passthrough
-                if thinking_parts:
-                    content_list = thinking_parts.copy()
-                    if text_parts:
-                        content_list.append({"type": "text", "text": " ".join(text_parts)})
-                    openai_msg["content"] = content_list
-                elif text_parts:
+                openai_msg: dict[str, Any] = {"role": role}
+                # Text content is a simple string
+                if text_parts:
                     openai_msg["content"] = " ".join(text_parts)
                 else:
                     openai_msg["content"] = None
+
+                # Thinking blocks go in separate field for Anthropic passthrough
+                if thinking_parts:
+                    openai_msg["thinking_blocks"] = thinking_parts
 
                 openai_msg["tool_calls"] = tool_calls
                 openai_messages.append(openai_msg)
 
             # Handle regular text, image, and/or thinking content
             elif text_parts or image_parts or thinking_parts:
-                # If we have thinking blocks (assistant messages with extended thinking),
-                # preserve them in list format for passthrough to Anthropic via LiteLLM
-                if thinking_parts:
-                    content_list = []
-                    # Thinking blocks must come FIRST (Anthropic API requirement)
-                    content_list.extend(thinking_parts)
-                    if text_parts:
-                        content_list.append({"type": "text", "text": " ".join(text_parts)})
-                    content_list.extend(image_parts)
-                    openai_messages.append({"role": role, "content": content_list})
+                openai_msg: dict[str, Any] = {"role": role}
+
                 # If we have images, use list format for content (OpenAI multimodal)
-                elif image_parts:
-                    content_list = []
+                if image_parts:
+                    content_list: list[ImageContentPart | dict[str, str]] = []
                     if text_parts:
                         content_list.append({"type": "text", "text": " ".join(text_parts)})
                     content_list.extend(image_parts)
-                    openai_messages.append({"role": role, "content": content_list})
-                else:
+                    openai_msg["content"] = content_list
+                elif text_parts:
                     # Text only - use simple string format
-                    openai_messages.append({"role": role, "content": " ".join(text_parts)})
+                    openai_msg["content"] = " ".join(text_parts)
+                else:
+                    # Only thinking blocks, no text content
+                    openai_msg["content"] = None
+
+                # Thinking blocks go in separate field for Anthropic passthrough
+                if thinking_parts:
+                    openai_msg["thinking_blocks"] = thinking_parts
+
+                openai_messages.append(openai_msg)
             # If we only have unknown block types, create an error message
             else:
                 unknown_types = [block.get("type", "unknown") for block in content if isinstance(block, dict)]

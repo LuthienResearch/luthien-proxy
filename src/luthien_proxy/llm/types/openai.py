@@ -6,7 +6,7 @@ They are used for type-safe message handling throughout the proxy.
 
 from __future__ import annotations
 
-from typing import Any, Literal, Required, TypedDict
+from typing import Literal, Required, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,38 @@ ContentPart = TextContentPart | ImageContentPart
 
 # Content can be a simple string or a list of content parts (for multimodal)
 MessageContent = str | list[ContentPart]
+
+
+# =============================================================================
+# Thinking Block Types (LiteLLM extension for Anthropic extended thinking)
+# =============================================================================
+
+
+class ThinkingBlock(TypedDict, total=False):
+    """Thinking block for Anthropic extended thinking feature.
+
+    LiteLLM exposes these via message.thinking_blocks. These are passed through
+    to Anthropic when making requests with thinking enabled.
+    """
+
+    type: Required[Literal["thinking"]]
+    thinking: Required[str]
+    signature: str
+
+
+class RedactedThinkingBlock(TypedDict):
+    """Redacted thinking block.
+
+    Contains encrypted/redacted thinking content when Anthropic redacts
+    the thinking process.
+    """
+
+    type: Literal["redacted_thinking"]
+    data: str
+
+
+# Union of thinking block types
+ThinkingBlockType = ThinkingBlock | RedactedThinkingBlock
 
 
 # =============================================================================
@@ -83,14 +115,13 @@ class AssistantMessage(TypedDict, total=False):
     """Assistant message."""
 
     role: Required[Literal["assistant"]]
-    # Content can be:
-    # - str: Normal text content
-    # - None: When tool_calls present
-    # - list[dict[str, Any]]: Anthropic thinking blocks passthrough (for extended thinking feature)
-    content: str | list[dict[str, Any]] | None
+    # Content is always a simple string or None (when tool_calls present)
+    content: str | None
     name: str
     tool_calls: list[ToolCall]
     function_call: FunctionCall  # Deprecated
+    # LiteLLM extension: thinking blocks for Anthropic extended thinking feature
+    thinking_blocks: list[ThinkingBlockType]
 
 
 class ToolMessage(TypedDict, total=False):
@@ -152,6 +183,10 @@ __all__ = [
     "ImageContentPart",
     "ContentPart",
     "MessageContent",
+    # Thinking blocks (LiteLLM extension)
+    "ThinkingBlock",
+    "RedactedThinkingBlock",
+    "ThinkingBlockType",
     # Messages
     "SystemMessage",
     "UserMessage",
