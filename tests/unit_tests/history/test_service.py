@@ -58,8 +58,8 @@ class TestExtractPreviewMessage:
         payload = {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}}
         assert _extract_preview_message(payload) == "Hello world"
 
-    def test_multiple_messages_returns_last_user(self):
-        """Test that the last user message is returned (most recent context)."""
+    def test_multiple_messages_returns_first_user(self):
+        """Test that the first user message is returned (captures session intent)."""
         payload = {
             "final_request": {
                 "messages": [
@@ -70,7 +70,7 @@ class TestExtractPreviewMessage:
                 ]
             }
         }
-        assert _extract_preview_message(payload) == "Follow-up question"
+        assert _extract_preview_message(payload) == "First question"
 
     def test_truncates_long_messages(self):
         """Test that long messages are truncated to 100 chars."""
