@@ -167,4 +167,63 @@ curl -X POST http://localhost:8000/admin/policy/activate \
 
 ---
 
+## Request Flow and Format Conversions (2026-01-26)
+
+Understanding where format conversions happen is critical for debugging. The 5-cycle debug in PR #134 revealed that issues can appear at any layer.
+
+### Request Path (Client → LLM)
+
+```
+1. Client Request (OpenAI or Anthropic format)
+         ↓
+2. FastAPI endpoint (routes.py)
+         ↓
+3. Pydantic validation (llm/types/) ⚠️ Can reject valid provider-specific fields
+         ↓
+4. Format conversion (llm_format_utils.py) ⚠️ LOSSY - see below
+         ↓
+5. LiteLLM acompletion() → Provider API
+```
+
+### Response Path (LLM → Client)
+
+```
+1. Provider SSE stream
+         ↓
+2. LiteLLM ModelResponse chunks ⚠️ May reorder/transform fields
+         ↓
+3. PolicyExecutor + StreamingChunkAssembler (anthropic_sse_assembler.py)
+         ↓
+4. ClientFormatter (OpenAI or Anthropic SSE)
+         ↓
+5. Client receives SSE events
+```
+
+### Known Lossy Conversions
+
+| Conversion | What Gets Lost/Changed | Impact |
+|------------|----------------------|--------|
+| Anthropic→OpenAI request | Thinking blocks were dropped | Fixed in PR #134 |
+| Anthropic→OpenAI request | Images may be converted incorrectly | Issue #108 |
+| LiteLLM streaming | `signature_delta` arrives after text starts | Requires delayed block closing |
+
+### Debugging Checklist
+
+When something breaks in the proxy, check these layers in order:
+
+1. **Pydantic validation** - Is the input being rejected? Check `llm/types/`
+2. **Format conversion** - Is data being dropped? Add logging to `llm_format_utils.py`
+3. **LiteLLM behavior** - Is LiteLLM transforming something? Check their source
+4. **Streaming assembler** - Is the response being assembled correctly? Check `anthropic_sse_assembler.py`
+5. **Client formatter** - Is the output format correct for the client type?
+
+### Key Files
+
+- `src/luthien_proxy/llm/llm_format_utils.py` - Request/response format conversion
+- `src/luthien_proxy/llm/anthropic_sse_assembler.py` - Streaming response assembly
+- `src/luthien_proxy/llm/types/` - Pydantic models for validation
+- `src/luthien_proxy/streaming/client_formatter/` - Output formatting
+
+---
+
 (Add learnings as discovered during development with timestamps: YYYY-MM-DD)
