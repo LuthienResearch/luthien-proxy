@@ -6,7 +6,7 @@
 
 - [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Reference: Dogfooding session 2025-12-16.
 - [ ] **Thinking blocks stripped from non-streaming responses** - Causes 500 errors when `thinking` enabled. Fix `openai_to_anthropic_response()` to extract `message.thinking_blocks` and include FIRST in content array. [#128](https://github.com/LuthienResearch/luthien-proxy/issues/128). PR: [#131](https://github.com/LuthienResearch/luthien-proxy/pull/131).
-- [ ] **Thinking blocks not handled in streaming responses** - `AnthropicSSEAssembler` doesn't recognize thinking chunk types. [#129](https://github.com/LuthienResearch/luthien-proxy/issues/129)
+- [x] **Thinking blocks not handled in streaming responses** - Fixed in PR #134. Required 5 debug cycles across 4 layers. [#129](https://github.com/LuthienResearch/luthien-proxy/issues/129)
 
 ### Core Features (User Story Aligned)
 
@@ -30,10 +30,19 @@
 
 ### Dogfooding & UX
 
+- [ ] **Claude Code /resume is slow/buggy - Luthien opportunity** - Claude Code's native resume feature freezes/lags. Luthien could provide conversation history persistence that survives client restarts, enabling faster resume and cross-device continuity. [Trello](https://trello.com/c/GlT89gVw). Reference: Dogfooding 2026-01-24.
 - [ ] **"Logged by Luthien" indicator policy** - Create a simple policy that appends "logged and monitored by Luthien" to each response. Helps users know when they're going through the proxy vs direct API. Use case: Scott thought he was using Luthien but wasn't. Reference: Dogfooding session 2025-12-16.
 - [ ] **Include tool calls in conversation_transcript** - Currently only text content is extracted. Adding tool calls would help with retros on unsafe tool calls (e.g., "what did Claude try to execute?"). Reference: Dogfooding session 2025-12-16.
 
 ### Code Improvements
+
+- [ ] **llm_format_utils.py: Replace defensive fallbacks with exceptions** - Several places silently mask errors instead of failing fast. Reference: refactoring session 2026-01-26.
+  - `_convert_anthropic_image_block()` returns `None` for unknown source types - should raise
+  - `_categorize_content_blocks()` silently skips non-dict blocks (`if not isinstance(block, dict): continue`) - should raise
+  - `_convert_anthropic_message()` passes through unexpected content types (`if not isinstance(content, list)`) - should raise
+  - `_convert_anthropic_message()` returns error as message content for unknown block types - should raise instead
+  - `anthropic_to_openai_request()` defaults `messages` to `[]` via `.get()` but it's a required field - should use direct access
+  - `_convert_anthropic_image_block()` defaults missing `data`/`url` to empty string - should raise for missing required fields
 
 - [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks. (Niche use case - images pass through proxy correctly already)
 
@@ -44,6 +53,8 @@
 
 ### Testing (Medium)
 
+- [ ] **Fix Claude Code E2E tests timing out** - `test_claude_code_*` tests timeout (120s). Root cause: Claude Code 2.x ignores `ANTHROPIC_BASE_URL` env var and sends requests directly to `api.anthropic.com` (uses OAuth). Need alternative routing method or mark tests as requiring special setup. Gateway works fine (curl passes). Other 93 E2E tests pass. Reference: 2026-01-25.
+- [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
 

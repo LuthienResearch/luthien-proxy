@@ -6,7 +6,7 @@ They are used for type-safe message handling throughout the proxy.
 
 from __future__ import annotations
 
-from typing import Literal, Required, TypedDict
+from typing import Literal, NotRequired, Required, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,38 @@ ContentPart = TextContentPart | ImageContentPart
 
 # Content can be a simple string or a list of content parts (for multimodal)
 MessageContent = str | list[ContentPart]
+
+
+# =============================================================================
+# Thinking Block Types (LiteLLM extension for Anthropic extended thinking)
+# =============================================================================
+
+
+class ThinkingBlock(TypedDict, total=False):
+    """Thinking block for Anthropic extended thinking feature.
+
+    LiteLLM exposes these via message.thinking_blocks. These are passed through
+    to Anthropic when making requests with thinking enabled.
+    """
+
+    type: Required[Literal["thinking"]]
+    thinking: Required[str]
+    signature: str
+
+
+class RedactedThinkingBlock(TypedDict):
+    """Redacted thinking block.
+
+    Contains encrypted/redacted thinking content when Anthropic redacts
+    the thinking process.
+    """
+
+    type: Literal["redacted_thinking"]
+    data: str
+
+
+# Union of thinking block types
+ThinkingBlockType = ThinkingBlock | RedactedThinkingBlock
 
 
 # =============================================================================
@@ -83,10 +115,14 @@ class AssistantMessage(TypedDict, total=False):
     """Assistant message."""
 
     role: Required[Literal["assistant"]]
-    content: str | None  # Can be None when tool_calls present
+    # Content is always a simple string or None (when tool_calls present)
+    content: str | None
     name: str
     tool_calls: list[ToolCall]
     function_call: FunctionCall  # Deprecated
+    # LiteLLM extension: thinking blocks for Anthropic extended thinking feature.
+    # Only present in responses when extended thinking is enabled.
+    thinking_blocks: NotRequired[list[ThinkingBlockType]]
 
 
 class ToolMessage(TypedDict, total=False):
@@ -148,6 +184,10 @@ __all__ = [
     "ImageContentPart",
     "ContentPart",
     "MessageContent",
+    # Thinking blocks (LiteLLM extension)
+    "ThinkingBlock",
+    "RedactedThinkingBlock",
+    "ThinkingBlockType",
     # Messages
     "SystemMessage",
     "UserMessage",

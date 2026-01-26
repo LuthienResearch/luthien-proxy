@@ -26,6 +26,116 @@ async def http_client():
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
+async def test_anthropic_extended_thinking_sonnet(http_client, gateway_healthy):
+    """Verify extended thinking works with Claude Sonnet 4.5.
+
+    Extended thinking enables the model to show its reasoning process via
+    thinking blocks in the response content.
+    """
+    response = await http_client.post(
+        f"{GATEWAY_URL}/v1/messages",
+        json={
+            "model": "claude-sonnet-4-5",
+            "messages": [{"role": "user", "content": "What is 2 + 2? Think step by step."}],
+            "max_tokens": 8000,
+            "stream": False,
+            "thinking": {"type": "enabled", "budget_tokens": 5000},
+        },
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        timeout=120.0,  # Extended thinking can take longer
+    )
+
+    assert response.status_code == 200, f"Request failed: {response.text}"
+    data = response.json()
+
+    # Verify response is valid Anthropic format
+    assert data["type"] == "message"
+    assert data["role"] == "assistant"
+    assert len(data["content"]) > 0
+
+    # Extended thinking responses should contain thinking blocks
+    content_types = [block.get("type") for block in data["content"]]
+    assert "thinking" in content_types, f"Expected thinking block in response content. Got types: {content_types}"
+
+    # Verify there's also a text block with the final answer
+    assert "text" in content_types, f"Expected text block in response content. Got types: {content_types}"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_anthropic_extended_thinking_streaming(http_client, gateway_healthy):
+    """Verify extended thinking works with streaming responses.
+
+    This test validates that thinking blocks are properly streamed, including:
+    - content_block_start events with type "thinking"
+    - content_block_delta events with thinking_delta content
+    - Both thinking and text blocks appear in the stream
+    """
+    import json
+
+    async with http_client.stream(
+        "POST",
+        f"{GATEWAY_URL}/v1/messages",
+        json={
+            "model": "claude-sonnet-4-5",
+            "messages": [{"role": "user", "content": "What is 3 + 3?"}],
+            "max_tokens": 8000,
+            "stream": True,
+            "thinking": {"type": "enabled", "budget_tokens": 5000},
+        },
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        timeout=120.0,
+    ) as response:
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+
+        # Collect events and their data
+        events = []
+        current_event = None
+        block_types_started = []
+        delta_types_seen = []
+
+        async for line in response.aiter_lines():
+            if line.startswith("event: "):
+                current_event = line[7:]
+                events.append(current_event)
+            elif line.startswith("data: ") and current_event:
+                try:
+                    data = json.loads(line[6:])
+                    # Track block types from content_block_start events
+                    if current_event == "content_block_start":
+                        content_block = data.get("content_block", {})
+                        block_type = content_block.get("type")
+                        if block_type:
+                            block_types_started.append(block_type)
+                    # Track delta types from content_block_delta events
+                    elif current_event == "content_block_delta":
+                        delta = data.get("delta", {})
+                        delta_type = delta.get("type")
+                        if delta_type:
+                            delta_types_seen.append(delta_type)
+                except json.JSONDecodeError:
+                    pass
+
+        # Should have received SSE events
+        assert len(events) > 0, "Should receive SSE events"
+
+        # Verify thinking blocks were started
+        assert "thinking" in block_types_started, (
+            f"Expected 'thinking' block to start. Got block types: {block_types_started}"
+        )
+
+        # Verify text blocks were also started (for the final answer)
+        assert "text" in block_types_started, f"Expected 'text' block to start. Got block types: {block_types_started}"
+
+        # Verify thinking_delta events were received
+        assert "thinking_delta" in delta_types_seen, (
+            f"Expected 'thinking_delta' in deltas. Got delta types: {set(delta_types_seen)}"
+        )
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
 async def test_anthropic_metadata_parameter_accepted(http_client, gateway_healthy):
     """Verify Anthropic endpoint accepts and passes through metadata parameter."""
     response = await http_client.post(
