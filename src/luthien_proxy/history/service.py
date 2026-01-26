@@ -134,7 +134,7 @@ def _extract_tool_calls(message: MessageDict) -> list[ConversationMessage]:
         for block in content:
             if block["type"] == "tool_use":
                 tool_use = cast("ToolUseBlockDict", block)
-                tool_input: dict[str, Any] = dict(tool_use["input"])
+                tool_input: dict[str, object] = dict(tool_use["input"])
                 tool_messages.append(
                     ConversationMessage(
                         message_type=MessageType.TOOL_CALL,

@@ -39,7 +39,7 @@ class ConversationMessage(BaseModel):
     # Tool-specific fields
     tool_name: str | None = None
     tool_call_id: str | None = None
-    tool_input: dict[str, Any] | None = None
+    tool_input: dict[str, object] | None = None
     # Metadata
     was_modified: bool = False
     original_content: str | None = None
