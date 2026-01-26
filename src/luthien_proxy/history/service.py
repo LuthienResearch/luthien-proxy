@@ -134,15 +134,14 @@ def _extract_tool_calls(message: MessageDict) -> list[ConversationMessage]:
         for block in content:
             if block["type"] == "tool_use":
                 tool_use = cast("ToolUseBlockDict", block)
+                tool_input: dict[str, Any] = dict(tool_use["input"])
                 tool_messages.append(
                     ConversationMessage(
                         message_type=MessageType.TOOL_CALL,
                         content=str(tool_use["input"]),
                         tool_name=tool_use["name"],
                         tool_call_id=tool_use["id"],
-                        # ToolUseBlockDict.input is dict[str, object] for lenient parsing,
-                        # while ConversationMessage.tool_input is dict[str, Any] for Pydantic
-                        tool_input=tool_use["input"],  # type: ignore[arg-type]
+                        tool_input=tool_input,
                     )
                 )
 
