@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+> **User context:** For information about Scott (the primary user), see `/Users/scottwofford/build/CLAUDE.md`
+
 ## Purpose & Scope
 
 - Core goal: implement AI Control for LLMs with integrated gateway architecture.
