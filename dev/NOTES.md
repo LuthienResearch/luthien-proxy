@@ -127,17 +127,100 @@
 
 ---
 
-## Finn - 2026-01-27
+## Finn Metz (Seldon Labs) - 2026-01-26
 
+### Core Message
 > "Ship the smallest useful thing that you can and make it super easy to use."
 
-(More details to be added)
+### On Onboarding & Usability
+
+**SaaS over self-hosting:**
+> "I don't give a shit about open source. I don't give a shit about like, any of this... If it's easier for me to sign up with, like, Google auth, like, plug in my shit, I will do that, whatever is the easiest way."
+
+**Too much at once:**
+> "You've built a super huge solution that already solves everything, but no one has the fucking time to get into this. Just give me the easiest way to do a very small chunk of it."
+
+**Signal-starved:**
+> "You're starving from signal... go out and have people try different aspects of it"
+
+### On Policies
+
+**M-dash policy - first customer offer:**
+> "Give me a cloud bot implementation that has a policy of it never using a dash... I will pay you money."
+> "There's just two patterns that annoy me: the m dash and 'I will not answer twice.'"
+
+**Simple policies have value:**
+> "I heard your user express an interest. He just wants a string replacement for M-dash... That seems like totally authorable."
+
+### On Logging vs Policies
+
+**Tension acknowledged:**
+> "You're like, logging is fucking useful. Let's just do logging. And Jai is like, Yeah, but unless we do policies, there's not an AI safety angle."
+
+**Observability competitors:**
+> "How do you take on the observability space? There's like other tools... Yang Fuse might inform a policy pretty well."
+
+### On Demo Experience
+
+**Demo didn't work** - bugs blocked user testing (gateway didn't start)
+
+**Still got the core idea:**
+> "Policies... a policy is basically just Python code that runs on... memes coming in, or a tool called coming in."
+> "You could have cloud read it. You could have it text your mom when... it's just anything."
+
+### Quotes on Building
+
+**On iteration:**
+> "Go run after the login use case and be quick. Don't be like, Oh, we're gonna launch in three weeks. Just fucking build the thing."
+
+**On compounding:**
+> "What is compounding with your tool? Why does your tool get better the more users you have?"
 
 ---
 
-## Esben - (date TBD)
+## Esben Kran (Seldon Labs) - 2026-01-26
 
-(Feedback to be added)
+### Core Message
+> "User's journey is the only thing that matters. The most messy bullshit code in the world supports that, or it's great."
+
+### On Platform Approach
+
+**User journey first:**
+> "Instead of going platform first, like technology first, which is a classic programmers mindset... go user journey first."
+
+**Don't be married to the repo:**
+> "I don't want you to be married to the repository... if you scratch something and reprogram it, don't get married to reprogramming stuff."
+
+**Codebase size:**
+- Asked: "How big is the code base? Lines of code?"
+- Response: ~25-38k lines (mostly tests)
+- His take: "Shit I programmed a year ago, I could now do in a day. That's just the world we're in."
+
+### On For-Profit Mindset
+
+> "Switch to the for profit mindset now... your organization will do much better as a for profit."
+> "Why should this be a for profit? Because it improves the usability so everyone can use it."
+
+### On Data & Ownership
+
+> "I want to own my own data... as a company owner that has employees using Cloud code, I don't want all my data to be [on their servers]."
+
+### On Blame Chain / COE
+
+> "You can basically go in the blame chain, like, oh, you use that library... drag it out and say, Hey, you use this. This doesn't work. Never use it again."
+
+### On AI-Authored Policies
+
+> "Don't use M dashes would just convert... some AI wouldn't directly run that policy. It would write a policy that works for me."
+
+### On Policy Marketplace (Future)
+
+> "The policies, you plug that into the marketplace. And actually people have made great policies... Apollo put in their policy, and then there's a subscription per seat or per token that runs through you guys."
+
+### On Growth/Compounding
+
+> "Compounding effect for Facebook was... they knew the compounding metric was users."
+> "What benefit do you get [from more users]? The obvious one is more feedback."
 
 ---
 
