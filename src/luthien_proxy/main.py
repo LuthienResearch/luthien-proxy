@@ -8,7 +8,8 @@ from contextlib import asynccontextmanager
 
 import litellm
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from redis.asyncio import Redis
@@ -16,11 +17,13 @@ from redis.asyncio import Redis
 from luthien_proxy.admin import router as admin_router
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
+from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
 from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
+from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
@@ -154,6 +157,34 @@ def create_app(
     async def health():
         """Health check endpoint."""
         return {"status": "healthy", "version": "2.0.0"}
+
+    # Exception handler for backend API errors
+    @app.exception_handler(BackendAPIError)
+    async def backend_api_error_handler(request: Request, exc: BackendAPIError) -> JSONResponse:
+        """Handle errors from backend LLM providers.
+
+        Formats the error response according to the client's API format
+        (Anthropic or OpenAI) so clients receive properly structured errors.
+        """
+        if exc.client_format == ClientFormat.ANTHROPIC:
+            content = {
+                "type": "error",
+                "error": {
+                    "type": exc.error_type,
+                    "message": exc.message,
+                },
+            }
+        else:
+            # OpenAI format
+            content = {
+                "error": {
+                    "message": exc.message,
+                    "type": exc.error_type,
+                    "param": None,
+                    "code": None,
+                },
+            }
+        return JSONResponse(status_code=exc.status_code, content=content)
 
     # Instrument FastAPI AFTER routes are registered
     # This ensures all endpoints get traced
