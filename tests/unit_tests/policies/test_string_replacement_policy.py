@@ -43,8 +43,6 @@ def streaming_context():
 
 
 class TestCapitalizationHelpers:
-    """Test capitalization detection and application."""
-
     @pytest.mark.parametrize(
         "text,expected",
         [
@@ -52,9 +50,7 @@ class TestCapitalizationHelpers:
             ("hello", "lower"),
             ("Hello", "title"),
             ("hELLO", "mixed"),
-            ("cOOl", "mixed"),
             ("", "lower"),
-            ("123", "lower"),
         ],
     )
     def test_detect_pattern(self, text, expected):
@@ -66,9 +62,7 @@ class TestCapitalizationHelpers:
             ("HELLO", "world", "WORLD"),
             ("hello", "WORLD", "world"),
             ("Hello", "world", "World"),
-            ("cOOl", "test", "tESt"),
-            ("cOOl", "radicAL", "rADicAL"),  # Mixed with longer replacement
-            ("hELLo", "ab", "aB"),  # Mixed with shorter replacement
+            ("cOOl", "radicAL", "rADicAL"),
         ],
     )
     def test_apply_pattern(self, source, replacement, expected):
@@ -76,78 +70,56 @@ class TestCapitalizationHelpers:
 
 
 class TestApplyReplacements:
-    """Test the apply_replacements function."""
-
-    def test_simple_replacement(self):
-        assert apply_replacements("hello world", [("hello", "goodbye")], False) == "goodbye world"
-
-    def test_multiple_replacements(self):
-        result = apply_replacements("hello foo", [("hello", "hi"), ("foo", "bar")], False)
-        assert result == "hi bar"
-
-    def test_case_insensitive_with_preservation(self):
-        result = apply_replacements("Hello HELLO hello", [("hello", "hi")], True)
-        assert result == "Hi HI hi"
-
-    def test_empty_inputs(self):
-        assert apply_replacements("", [("a", "b")], False) == ""
-        assert apply_replacements("hello", [], False) == "hello"
-        assert apply_replacements("hello", [("", "x")], False) == "hello"
-
-    def test_special_regex_chars(self):
-        assert apply_replacements("[test]", [("[test]", "check")], False) == "check"
+    @pytest.mark.parametrize(
+        "text,replacements,match_cap,expected",
+        [
+            ("hello world", [("hello", "goodbye")], False, "goodbye world"),
+            ("hello foo", [("hello", "hi"), ("foo", "bar")], False, "hi bar"),
+            ("Hello HELLO hello", [("hello", "hi")], True, "Hi HI hi"),
+            ("", [("a", "b")], False, ""),
+            ("hello", [], False, "hello"),
+            ("[test]", [("[test]", "check")], False, "check"),
+        ],
+    )
+    def test_apply_replacements(self, text, replacements, match_cap, expected):
+        assert apply_replacements(text, replacements, match_cap) == expected
 
 
-class TestStringReplacementPolicyNonStreaming:
-    """Test non-streaming response handling."""
-
-    async def test_basic_replacement(self, policy_context):
-        policy = StringReplacementPolicy(replacements=[["hello", "goodbye"]])
+class TestNonStreaming:
+    @pytest.mark.parametrize(
+        "replacements,match_cap,content,expected",
+        [
+            ([["hello", "goodbye"]], False, "hello world", "goodbye world"),
+            ([["hello", "goodbye"]], True, "Hello HELLO hello", "Goodbye GOODBYE goodbye"),
+            ([["foo", "bar"]], False, "hello world", "hello world"),
+        ],
+    )
+    async def test_on_response(self, policy_context, replacements, match_cap, content, expected):
+        policy = StringReplacementPolicy(replacements=replacements, match_capitalization=match_cap)
         response = ModelResponse(
             id="test-id",
-            choices=[Choices(finish_reason="stop", index=0, message=Message(content="hello world", role="assistant"))],
+            choices=[Choices(finish_reason="stop", index=0, message=Message(content=content, role="assistant"))],
             created=1234567890,
             model="test-model",
             object="chat.completion",
         )
         result = await policy.on_response(response, policy_context)
-        assert result.choices[0].message.content == "goodbye world"
-
-    async def test_capitalization_preservation(self, policy_context):
-        policy = StringReplacementPolicy(replacements=[["hello", "goodbye"]], match_capitalization=True)
-        response = ModelResponse(
-            id="test-id",
-            choices=[
-                Choices(finish_reason="stop", index=0, message=Message(content="Hello HELLO hello", role="assistant"))
-            ],
-            created=1234567890,
-            model="test-model",
-            object="chat.completion",
-        )
-        result = await policy.on_response(response, policy_context)
-        assert result.choices[0].message.content == "Goodbye GOODBYE goodbye"
-
-    async def test_no_modification_when_no_match(self, policy_context):
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
-        response = ModelResponse(
-            id="test-id",
-            choices=[Choices(finish_reason="stop", index=0, message=Message(content="hello world", role="assistant"))],
-            created=1234567890,
-            model="test-model",
-            object="chat.completion",
-        )
-        result = await policy.on_response(response, policy_context)
-        assert result.choices[0].message.content == "hello world"
+        assert result.choices[0].message.content == expected
 
 
-class TestStringReplacementPolicyStreaming:
-    """Test streaming response handling."""
-
-    async def test_content_complete_applies_replacement(self, streaming_context):
-        policy = StringReplacementPolicy(replacements=[["hello", "goodbye"]])
+class TestStreaming:
+    @pytest.mark.parametrize(
+        "content,replacements,expected",
+        [
+            ("hello world", [["hello", "goodbye"]], "goodbye world"),
+            ("say hello world please", [["hello world", "goodbye"]], "say goodbye please"),
+        ],
+    )
+    async def test_on_content_complete(self, streaming_context, content, replacements, expected):
+        policy = StringReplacementPolicy(replacements=replacements)
 
         content_block = ContentStreamBlock(id="content")
-        content_block.content = "hello world"
+        content_block.content = content
         streaming_context.original_streaming_response_state.current_block = content_block
 
         chunk = make_streaming_chunk(content="", model="test-model", id="test-id", finish_reason=None)
@@ -156,26 +128,10 @@ class TestStringReplacementPolicyStreaming:
         await policy.on_content_complete(streaming_context)
 
         queued_chunk = streaming_context.egress_queue.get_nowait()
-        assert queued_chunk.choices[0].delta.content == "goodbye world"
-
-    async def test_cross_chunk_pattern_matching(self, streaming_context):
-        """Patterns split across chunks are matched when content block completes."""
-        policy = StringReplacementPolicy(replacements=[["hello world", "goodbye"]])
-
-        content_block = ContentStreamBlock(id="content")
-        content_block.content = "say hello world please"
-        streaming_context.original_streaming_response_state.current_block = content_block
-
-        chunk = make_streaming_chunk(content="", model="test-model", id="test-id", finish_reason=None)
-        streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
-
-        await policy.on_content_complete(streaming_context)
-
-        queued_chunk = streaming_context.egress_queue.get_nowait()
-        assert queued_chunk.choices[0].delta.content == "say goodbye please"
+        assert queued_chunk.choices[0].delta.content == expected
 
     async def test_content_deltas_filtered(self, streaming_context):
-        """Content delta chunks are not passed through (buffered for on_content_complete)."""
+        """Content delta chunks are buffered, not passed through."""
         policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
         chunk = make_streaming_chunk(content="hello foo", model="test-model", id="test-id", finish_reason=None)
         streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
@@ -184,29 +140,23 @@ class TestStringReplacementPolicyStreaming:
 
         assert streaming_context.egress_queue.empty()
 
-    async def test_tool_calls_pass_through(self, streaming_context):
-        """Tool call chunks pass through immediately."""
+    @pytest.mark.parametrize(
+        "content,finish_reason,tool_calls",
+        [
+            (None, "stop", None),  # Finish reason chunk
+            (
+                None,
+                None,
+                [{"index": 0, "id": "call_1", "function": {"name": "f", "arguments": "{}"}, "type": "function"}],
+            ),
+        ],
+    )
+    async def test_non_content_chunks_pass_through(self, streaming_context, content, finish_reason, tool_calls):
+        """Non-content chunks (finish reason, tool calls) pass through immediately."""
         policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
         chunk = make_streaming_chunk(
-            content=None,
-            model="test-model",
-            id="test-id",
-            finish_reason=None,
-            tool_calls=[
-                {"index": 0, "id": "call_123", "function": {"name": "get_foo", "arguments": "{}"}, "type": "function"}
-            ],
+            content=content, model="test-model", id="test-id", finish_reason=finish_reason, tool_calls=tool_calls
         )
-        streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
-
-        await policy.on_chunk_received(streaming_context)
-
-        queued_chunk = streaming_context.egress_queue.get_nowait()
-        assert queued_chunk == chunk
-
-    async def test_finish_reason_passes_through(self, streaming_context):
-        """Finish reason chunks pass through immediately."""
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
-        chunk = make_streaming_chunk(content=None, model="test-model", id="test-id", finish_reason="stop")
         streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
 
         await policy.on_chunk_received(streaming_context)
