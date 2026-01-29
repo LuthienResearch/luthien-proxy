@@ -41,7 +41,7 @@ class MyPolicy(SimpleJudgePolicy):
 **Point your AI assistant at the proxy with 2 environment variables:**
 
 ```bash
-export ANTHROPIC_BASE_URL=http://localhost:8741/v1
+export ANTHROPIC_BASE_URL=http://localhost:8000/v1
 export ANTHROPIC_API_KEY=sk-luthien-dev-key
 ```
 
@@ -54,7 +54,7 @@ git clone https://github.com/LuthienResearch/luthien-proxy
 cd luthien-proxy
 cp .env.example .env
 # Edit .env: add ANTHROPIC_API_KEY (your real Anthropic key)
-# Optional: change GATEWAY_PORT if 8741 conflicts with something
+# Optional: change GATEWAY_PORT if 8000 conflicts with something
 
 docker compose up -d
 ```
@@ -62,7 +62,7 @@ docker compose up -d
 **What this starts (all in Docker):**
 | Service | Port | Description |
 |---------|------|-------------|
-| Gateway | 8741 | The proxy — point your client here |
+| Gateway | 8000 | The proxy — point your client here |
 | PostgreSQL | 5432 | Stores conversation events |
 | Redis | 6379 | Powers real-time activity streaming |
 | Local LLM | 11434 | Ollama for local judge policies |
@@ -72,13 +72,13 @@ docker compose up -d
 ### Verify It Works
 
 ```bash
-curl http://localhost:8741/health
+curl http://localhost:8000/health
 ```
 
 Then launch Claude Code with the env vars above and make a request. You should see it in the activity monitor:
 
 ```
-http://localhost:8741/activity/monitor
+http://localhost:8000/activity/monitor
 ```
 
 ---
@@ -131,11 +131,11 @@ See `src/luthien_proxy/policies/` for more examples.
 
 ## What You Get
 
-- **Gateway** (OpenAI/Anthropic-compatible) at <http://localhost:8741>
+- **Gateway** (OpenAI/Anthropic-compatible) at <http://localhost:8000>
 - **PostgreSQL** and **Redis** fully configured
 - **Local LLM** (Ollama) at <http://localhost:11434>
-- **Real-time monitoring** at <http://localhost:8741/activity/monitor>
-- **Policy management UI** at <http://localhost:8741/policy-config>
+- **Real-time monitoring** at <http://localhost:8000/activity/monitor>
+- **Policy management UI** at <http://localhost:8000/policy-config>
 
 The gateway provides:
 
@@ -263,7 +263,7 @@ REDIS_URL=redis://redis:6379
 
 # Gateway
 GATEWAY_HOST=localhost
-GATEWAY_PORT=8741
+GATEWAY_PORT=8000
 ```
 
 ### Policy Configuration
@@ -387,7 +387,7 @@ The gateway integrates everything into a single FastAPI application:
 
 ## Endpoints
 
-### Gateway (<http://localhost:8741>)
+### Gateway (<http://localhost:8000>)
 
 **API Endpoints:**
 
@@ -412,14 +412,14 @@ Admin endpoints manage policies at runtime without requiring a restart. All admi
 **Get current policy:**
 
 ```bash
-curl http://localhost:8741/admin/policy/current \
+curl http://localhost:8000/admin/policy/current \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
 **Create a named policy instance:**
 
 ```bash
-curl -X POST http://localhost:8741/admin/policy/create \
+curl -X POST http://localhost:8000/admin/policy/create \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{
@@ -437,7 +437,7 @@ curl -X POST http://localhost:8741/admin/policy/create \
 **Activate a policy:**
 
 ```bash
-curl -X POST http://localhost:8741/admin/policy/activate \
+curl -X POST http://localhost:8000/admin/policy/activate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{"name": "my-policy"}'
@@ -446,14 +446,14 @@ curl -X POST http://localhost:8741/admin/policy/activate \
 **List available policy classes:**
 
 ```bash
-curl http://localhost:8741/admin/policy/list \
+curl http://localhost:8000/admin/policy/list \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
 **List saved policy instances:**
 
 ```bash
-curl http://localhost:8741/admin/policy/instances \
+curl http://localhost:8000/admin/policy/instances \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
@@ -518,7 +518,7 @@ docker compose down && ./scripts/quick_start.sh
 docker compose ps
 
 # Check service health
-curl http://localhost:8741/health
+curl http://localhost:8000/health
 
 # View detailed logs
 docker compose logs gateway | tail -50
