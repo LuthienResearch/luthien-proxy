@@ -250,6 +250,7 @@ class TestSendChatRoute:
         # Create mock request
         mock_request = MagicMock()
         mock_request.base_url = "http://localhost:8000/"
+        mock_request.headers = {}
 
         request = ChatRequest(model="gpt-4o", message="Hello!")
 
@@ -311,6 +312,7 @@ class TestSendChatRoute:
 
         mock_request = MagicMock()
         mock_request.base_url = "http://localhost:8000/"
+        mock_request.headers = {}
         request = ChatRequest(model="invalid-model", message="Hello!")
 
         result = await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
@@ -338,6 +340,7 @@ class TestSendChatRoute:
 
         mock_request = MagicMock()
         mock_request.base_url = "http://localhost:8000/"
+        mock_request.headers = {}
         request = ChatRequest(model="gpt-4o", message="Hello!")
 
         result = await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
@@ -365,6 +368,7 @@ class TestSendChatRoute:
 
         mock_request = MagicMock()
         mock_request.base_url = "http://localhost:8000/"
+        mock_request.headers = {}
         request = ChatRequest(model="gpt-4o", message="Hello!")
 
         result = await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
@@ -376,12 +380,12 @@ class TestSendChatRoute:
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_follows_redirects_for_reverse_proxy_compatibility(self, mock_client_class, mock_get_settings):
-        """Test that httpx client follows redirects.
+    async def test_respects_x_forwarded_proto_header(self, mock_client_class, mock_get_settings):
+        """Test that send_chat uses HTTPS when X-Forwarded-Proto indicates it.
 
-        Railway and other platforms may redirect HTTP to HTTPS, causing 301
-        responses when the base_url from the request uses HTTP internally.
-        The client must follow redirects to work behind reverse proxies.
+        Behind reverse proxies (Railway, Heroku, etc.), the internal request uses
+        HTTP but the proxy handles HTTPS. The X-Forwarded-Proto header tells us
+        the original protocol, which we must use to avoid redirect issues.
         """
         mock_settings = MagicMock()
         mock_settings.proxy_api_key = "test-proxy-key"
@@ -401,14 +405,50 @@ class TestSendChatRoute:
 
         mock_request = MagicMock()
         mock_request.base_url = "http://internal-host:8000/"
+        mock_request.headers = {"x-forwarded-proto": "https"}
         request = ChatRequest(model="gpt-4o", message="Test")
 
         await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
 
-        # Verify AsyncClient was called with follow_redirects=True
-        mock_client_class.assert_called_once()
-        call_kwargs = mock_client_class.call_args[1]
-        assert call_kwargs.get("follow_redirects") is True, (
-            "httpx.AsyncClient must be initialized with follow_redirects=True "
-            "to work behind reverse proxies that redirect HTTP to HTTPS"
+        # Verify the URL was upgraded to HTTPS
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        url = call_args[0][0]
+        assert url.startswith("https://"), (
+            f"URL should start with https:// when X-Forwarded-Proto is 'https', got: {url}"
         )
+        assert "internal-host:8000" in url
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_preserves_http_when_no_forwarded_proto(self, mock_client_class, mock_get_settings):
+        """Test that HTTP is preserved when there's no X-Forwarded-Proto header."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_get_settings.return_value = mock_settings
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "OK"}}],
+        }
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        mock_request = MagicMock()
+        mock_request.base_url = "http://localhost:8000/"
+        mock_request.headers = {}  # No X-Forwarded-Proto
+        request = ChatRequest(model="gpt-4o", message="Test")
+
+        await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+
+        # Verify the URL remains HTTP
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        url = call_args[0][0]
+        assert url.startswith("http://"), f"URL should remain http:// locally, got: {url}"

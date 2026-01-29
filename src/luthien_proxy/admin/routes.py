@@ -256,11 +256,13 @@ async def send_chat(
             model=body.model,
         )
 
-    # Build the base URL from the incoming request
-    # Note: This creates a self-calling HTTP request back to the same server.
-    # This ensures the test goes through the full policy pipeline but may have
-    # issues behind reverse proxies or with certain async configurations.
+    # Build the base URL from the incoming request.
+    # Behind reverse proxies (Railway, Heroku, etc.), the internal request uses HTTP
+    # but the proxy handles HTTPS. We check X-Forwarded-Proto to use the correct scheme.
     base_url = str(request.base_url).rstrip("/")
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto == "https" and base_url.startswith("http://"):
+        base_url = "https://" + base_url[7:]
 
     # Build OpenAI-format request payload
     payload = {
