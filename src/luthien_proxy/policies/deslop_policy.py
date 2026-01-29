@@ -23,6 +23,8 @@ class DeSlop(SimplePolicy):
     Default replacements:
     - Em-dashes (—) → regular dashes (-)
     - En-dashes (–) → regular dashes (-)
+    - Curly single quotes (' ') → straight quotes (')
+    - Curly double quotes (" ") → straight quotes (")
 
     Example config:
         policy:

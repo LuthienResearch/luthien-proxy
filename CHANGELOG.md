@@ -2,6 +2,11 @@
 
 ## Unreleased | TBA
 
+- Improve onboarding experience based on user feedback (#141)
+  - README restructure: Value prop and custom policies first, simplified quickstart
+  - `.env.example`: Clear REQUIRED vs OPTIONAL sections
+  - Add DeSlop policy for removing AI-isms (em-dashes, curly quotes → plain text)
+
 - Reorganize LLM types into separate OpenAI and Anthropic modules (#117)
 - Fix thinking blocks stripped from non-streaming responses (#128)
 
