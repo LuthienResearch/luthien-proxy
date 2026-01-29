@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from litellm.types.utils import Choices
+
 from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policy_core import create_finish_chunk
 from luthien_proxy.policy_core.streaming_utils import get_last_ingress_chunk, send_chunk, send_text, send_tool_call
@@ -100,17 +102,13 @@ class SimplePolicy(BasePolicy):
         Returns:
             Response with transformed content
         """
-        from litellm.types.utils import Choices
-
         if not response.choices:
             return response
 
         for choice in response.choices:
             if not (isinstance(choice, Choices) and isinstance(choice.message.content, str)):
                 continue
-            choice.message.content = await self.simple_on_response_content(
-                choice.message.content, context
-            )
+            choice.message.content = await self.simple_on_response_content(choice.message.content, context)
         return response
 
     # ===== Implementation of streaming hooks =====
