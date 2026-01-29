@@ -15,7 +15,6 @@ Example config:
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import TYPE_CHECKING, cast
 
@@ -32,8 +31,6 @@ if TYPE_CHECKING:
     from luthien_proxy.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
     )
-
-logger = logging.getLogger(__name__)
 
 
 def _detect_capitalization_pattern(text: str) -> str:
@@ -304,6 +301,4 @@ class StringReplacementPolicy(BasePolicy):
 __all__ = [
     "StringReplacementPolicy",
     "apply_replacements",
-    "_detect_capitalization_pattern",
-    "_apply_capitalization_pattern",
 ]
