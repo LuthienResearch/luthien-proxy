@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
+from luthien_proxy.llm.response_normalizer import normalize_chunk
 from luthien_proxy.streaming.stream_blocks import (
     ContentStreamBlock,
     ToolCallStreamBlock,
@@ -67,7 +68,7 @@ class StreamingChunkAssembler:
             logger.debug(f"[BACKEND IN] {str(chunk)[:LOG_CHUNK_TRUNCATION_LENGTH]}")  # Truncate for readability
 
             # Normalize delta to Delta object (litellm >= 1.81.0 returns dict)
-            chunk = self._normalize_delta(chunk)
+            chunk = normalize_chunk(chunk)
 
             # Store raw chunk for recording
             self.state.raw_chunks.append(chunk)
@@ -88,27 +89,6 @@ class StreamingChunkAssembler:
             # Check for stream completion
             if self.state.finish_reason:
                 break
-
-    def _normalize_delta(self, chunk: ModelResponse) -> ModelResponse:
-        """Convert dict deltas to Delta objects for consistent access.
-
-        litellm >= 1.81.0 returns delta as dict instead of Delta object.
-        This normalizes the chunk so all downstream code can use attribute access.
-
-        Args:
-            chunk: Model response chunk (may have dict or Delta delta)
-
-        Returns:
-            Chunk with delta normalized to Delta object
-        """
-        if not chunk.choices:
-            return chunk
-
-        choice = cast(StreamingChoices, chunk.choices[0])
-        if isinstance(choice.delta, dict):
-            choice.delta = Delta(**choice.delta)
-
-        return chunk
 
     def _update_state(self, chunk: ModelResponse) -> None:
         """Update aggregation state from chunk.
