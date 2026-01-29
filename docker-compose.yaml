@@ -109,7 +109,8 @@ services:
       - PROXY_API_KEY=${PROXY_API_KEY}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - POLICY_SOURCE=${POLICY_SOURCE:-db-fallback-file}
-      - GATEWAY_PORT=${GATEWAY_PORT:-8741}
+      # Internal port is always 8000; GATEWAY_PORT is only for external mapping
+      - GATEWAY_PORT=8000
       - POLICY_CONFIG=${POLICY_CONFIG:-/app/config/policy_config.yaml}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - OPENAI_API_KEY=${OPENAI_API_KEY}

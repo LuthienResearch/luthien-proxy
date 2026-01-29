@@ -120,9 +120,9 @@ OTEL_SPAN_ID_HEX_LENGTH = 16
 # Gateway Server
 # ------------------------------------------------------------------------------
 
-# Default port for gateway HTTP server.
-# Using 8741 to avoid conflicts with common dev servers on 8000.
-DEFAULT_GATEWAY_PORT = 8741
+# Default port for gateway HTTP server (internal container port).
+# External port is configurable via GATEWAY_PORT env var in docker-compose.
+DEFAULT_GATEWAY_PORT = 8000
 
 # ------------------------------------------------------------------------------
 # History Viewer
