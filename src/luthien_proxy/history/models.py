@@ -20,6 +20,7 @@ class MessageType(str, Enum):
     ASSISTANT = "assistant"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+    UNKNOWN = "unknown"
 
 
 class PolicyAnnotation(BaseModel):
@@ -40,9 +41,6 @@ class ConversationMessage(BaseModel):
     tool_name: str | None = None
     tool_call_id: str | None = None
     tool_input: dict[str, object] | None = None
-    # Metadata
-    was_modified: bool = False
-    original_content: str | None = None
 
 
 class ConversationTurn(BaseModel):
@@ -51,13 +49,18 @@ class ConversationTurn(BaseModel):
     call_id: str
     timestamp: str
     model: str | None = None
-    # Messages in this turn
+    # Messages in this turn (from final request/response)
     request_messages: list[ConversationMessage]
     response_messages: list[ConversationMessage]
     # Policy annotations for this turn
     annotations: list[PolicyAnnotation]
     # Whether anything was modified by policy
     had_policy_intervention: bool = False
+    # Turn-level modification tracking
+    request_was_modified: bool = False
+    response_was_modified: bool = False
+    original_request_messages: list[ConversationMessage] | None = None
+    original_response_messages: list[ConversationMessage] | None = None
 
 
 class SessionSummary(BaseModel):

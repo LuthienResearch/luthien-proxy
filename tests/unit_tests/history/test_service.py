@@ -367,8 +367,9 @@ class TestBuildTurn:
         turn = _build_turn("call-123", events)
 
         assert turn.had_policy_intervention
-        assert turn.request_messages[0].was_modified
-        assert turn.request_messages[0].original_content == "Original"
+        assert turn.request_was_modified
+        assert turn.original_request_messages is not None
+        assert turn.original_request_messages[0].content == "Original"
         assert len(turn.annotations) == 1
         assert turn.annotations[0].policy_name == "judge"
 
