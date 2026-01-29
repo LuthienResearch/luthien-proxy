@@ -1,117 +1,142 @@
 # Luthien Control
 
-Redwood-style AI Control as an LLM proxy for production agentic deployments.
+**Enforce rules on AI coding agents.** Luthien is a proxy that sits between your AI assistant (Claude Code, Codex, etc.) and the LLM backend, letting you intercept, inspect, and modify every request and response.
 
-## Quick Start
+## What Can You Do With This?
 
-### 1. Install and Start
-
-```bash
-# Install uv (if needed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Clone and start everything
-git clone https://github.com/LuthienResearch/luthien-proxy
-cd luthien-proxy
-
-# Configure API keys
-cp .env.example .env
-# Edit .env and add your keys:
-#   OPENAI_API_KEY=sk-proj-...
-#   ANTHROPIC_API_KEY=sk-ant-...
-
-# Start the stack
-./scripts/quick_start.sh
-```
-
-### 2. Use Claude Code or Codex through the Proxy
-
-Launch your AI assistant through the proxy using the built-in scripts:
-
-**Claude Code:**
-
-```bash
-./scripts/launch_claude_code.sh
-```
-
-**Codex:**
-
-```bash
-./scripts/launch_codex.sh
-```
-
-These scripts automatically configure the proxy settings. All requests now flow through the policy enforcement layer!
-
-### 3. Log In to Admin UI
-
-When you first visit any admin page (Activity Monitor, Policy Config, or Debug views), you'll be redirected to:
-
-```
-http://localhost:8000/login
-```
-
-**Default credentials (development):**
-- Admin API Key: `admin-dev-key`
-
-After logging in, your session persists across pages. Click "Sign Out" on any admin page to log out.
-
-⚠️ **For production deployments**: Change `ADMIN_API_KEY` in your `.env` file before exposing to a network.
-
-### 4. Monitor Activity
-
-Open the Activity Monitor in your browser to see requests in real-time:
-
-```
-http://localhost:8000/activity/monitor
-```
-
-Watch as requests flow through, see policy decisions, and inspect before/after diffs.
-
-### 5. Select a Policy
-
-Use the Policy Configuration UI to change policies without restart:
-
-```
-http://localhost:8000/policy-config
-```
-
-1. Browse available policies (NoOp, AllCaps, DebugLogging, etc.)
-2. Click to select and activate
-3. Test immediately - changes take effect instantly
-
-### 6. Create Your Own Policy
-
-Create a new policy by subclassing `SimpleJudgePolicy`:
+**Write custom policies in Python** that run on every LLM interaction:
 
 ```python
-# src/luthien_proxy/policies/my_custom_policy.py
-
 from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
 
-class MyCustomPolicy(SimpleJudgePolicy):
+class MyPolicy(SimpleJudgePolicy):
     """Block dangerous commands before they execute."""
 
     RULES = [
         "Never allow 'rm -rf' commands",
         "Block requests to delete production data",
-        "Prevent executing untrusted code"
+        "Require approval for any AWS credential access"
     ]
-
-    # That's it! SimpleJudgePolicy handles the LLM judge logic for you.
-    # It evaluates both requests, responses, and tool calls against your rules.
+    # That's it! The LLM judge evaluates every request/response against your rules.
 ```
 
-Restart the gateway and your policy appears in the Policy Config UI automatically.
+**Real-world use cases:**
+- Block dangerous shell commands before execution
+- Require human approval for sensitive operations
+- Log every tool call for compliance/audit
+- Replace AI-isms in responses (em-dashes → hyphens)
+- Route requests to different models based on task type
+- Enforce coding standards automatically
+
+**Built-in features:**
+- Real-time activity monitor — watch requests flow through
+- Policy hot-reload — switch policies without restart
+- Streaming support — works with Claude Code's streaming responses
+- OpenAI & Anthropic compatible — drop-in proxy for both APIs
+
+---
+
+## Quick Start
+
+**Point your AI assistant at the proxy with 2 environment variables:**
+
+```bash
+export ANTHROPIC_BASE_URL=http://localhost:8741/v1
+export ANTHROPIC_API_KEY=sk-luthien-dev-key
+```
+
+That's it. Your existing Claude Code (or any Anthropic-compatible client) now routes through Luthien.
+
+### Start the Proxy
+
+```bash
+git clone https://github.com/LuthienResearch/luthien-proxy
+cd luthien-proxy
+cp .env.example .env
+# Edit .env: add ANTHROPIC_API_KEY (your real Anthropic key)
+# Optional: change GATEWAY_PORT if 8741 conflicts with something
+
+docker compose up -d
+```
+
+**What this starts (all in Docker):**
+| Service | Port | Description |
+|---------|------|-------------|
+| Gateway | 8741 | The proxy — point your client here |
+| PostgreSQL | 5432 | Stores conversation events |
+| Redis | 6379 | Powers real-time activity streaming |
+| Local LLM | 11434 | Ollama for local judge policies |
+
+*Port conflicts? Change `GATEWAY_PORT` in `.env`*
+
+### Verify It Works
+
+```bash
+curl http://localhost:8741/health
+```
+
+Then launch Claude Code with the env vars above and make a request. You should see it in the activity monitor:
+
+```
+http://localhost:8741/activity/monitor
+```
+
+---
+
+## Create Your Own Policy
+
+This is the power feature. Policies are Python classes that hook into the request/response lifecycle:
+
+```python
+# src/luthien_proxy/policies/my_custom_policy.py
+
+from luthien_proxy.policies.simple_policy import SimplePolicy
+
+class DeSloppify(SimplePolicy):
+    """Remove AI-isms from responses."""
+
+    async def on_response_complete(self, context):
+        # Replace em-dashes with regular dashes
+        content = context.response_content
+        content = content.replace("—", "-")
+        content = content.replace("–", "-")
+        return context.with_modified_content(content)
+```
+
+For LLM-based rule enforcement, use `SimpleJudgePolicy`:
+
+```python
+from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
+
+class SafetyPolicy(SimpleJudgePolicy):
+    """Use an LLM judge to evaluate requests against rules."""
+
+    RULES = [
+        "Never execute commands that delete files recursively",
+        "Block any request to access environment variables containing 'SECRET' or 'KEY'",
+        "Require explicit confirmation for git push --force"
+    ]
+```
+
+Restart the gateway (`docker compose restart gateway`) and your policy appears in the Policy Config UI.
+
+**Policy lifecycle hooks:**
+- `on_request` — Before sending to LLM
+- `on_chunk` — Each streaming chunk (for real-time modifications)
+- `on_block_complete` — After a complete message/tool_use block
+- `on_response_complete` — After full response received
+
+See `src/luthien_proxy/policies/` for more examples.
 
 ---
 
 ## What You Get
 
-- **Gateway** (OpenAI/Anthropic-compatible) at <http://localhost:8000>
+- **Gateway** (OpenAI/Anthropic-compatible) at <http://localhost:8741>
 - **PostgreSQL** and **Redis** fully configured
 - **Local LLM** (Ollama) at <http://localhost:11434>
-- **Real-time monitoring** at <http://localhost:8000/activity/monitor>
-- **Policy management UI** at <http://localhost:8000/policy-config>
+- **Real-time monitoring** at <http://localhost:8741/activity/monitor>
+- **Policy management UI** at <http://localhost:8741/policy-config>
 
 The gateway provides:
 
@@ -239,7 +264,7 @@ REDIS_URL=redis://redis:6379
 
 # Gateway
 GATEWAY_HOST=localhost
-GATEWAY_PORT=8000
+GATEWAY_PORT=8741
 ```
 
 ### Policy Configuration
@@ -363,7 +388,7 @@ The gateway integrates everything into a single FastAPI application:
 
 ## Endpoints
 
-### Gateway (<http://localhost:8000>)
+### Gateway (<http://localhost:8741>)
 
 **API Endpoints:**
 
@@ -388,14 +413,14 @@ Admin endpoints manage policies at runtime without requiring a restart. All admi
 **Get current policy:**
 
 ```bash
-curl http://localhost:8000/admin/policy/current \
+curl http://localhost:8741/admin/policy/current \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
 **Create a named policy instance:**
 
 ```bash
-curl -X POST http://localhost:8000/admin/policy/create \
+curl -X POST http://localhost:8741/admin/policy/create \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{
@@ -413,7 +438,7 @@ curl -X POST http://localhost:8000/admin/policy/create \
 **Activate a policy:**
 
 ```bash
-curl -X POST http://localhost:8000/admin/policy/activate \
+curl -X POST http://localhost:8741/admin/policy/activate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{"name": "my-policy"}'
@@ -422,14 +447,14 @@ curl -X POST http://localhost:8000/admin/policy/activate \
 **List available policy classes:**
 
 ```bash
-curl http://localhost:8000/admin/policy/list \
+curl http://localhost:8741/admin/policy/list \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
 **List saved policy instances:**
 
 ```bash
-curl http://localhost:8000/admin/policy/instances \
+curl http://localhost:8741/admin/policy/instances \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
@@ -494,7 +519,7 @@ docker compose down && ./scripts/quick_start.sh
 docker compose ps
 
 # Check service health
-curl http://localhost:8000/health
+curl http://localhost:8741/health
 
 # View detailed logs
 docker compose logs gateway | tail -50
