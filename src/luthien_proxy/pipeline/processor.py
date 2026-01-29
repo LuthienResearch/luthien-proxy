@@ -304,14 +304,16 @@ async def _handle_streaming(
         try:
             backend_stream = await llm_client.stream(final_request)
         except OpenAIAPIStatusError as e:
+            logger.warning(f"[{call_id}] Backend API error: {e.status_code} {e.message}")
             raise BackendAPIError(
-                status_code=e.status_code,
+                status_code=e.status_code or 500,
                 message=str(e.message),
                 error_type=map_litellm_error_type(e),
                 client_format=client_format,
                 provider=getattr(e, "llm_provider", None),
             ) from e
         except OpenAIAPIConnectionError as e:
+            logger.warning(f"[{call_id}] Backend connection error: {e.message}")
             raise BackendAPIError(
                 status_code=502,
                 message=str(e.message),
@@ -372,14 +374,16 @@ async def _handle_non_streaming(
         try:
             response: ModelResponse = await llm_client.complete(final_request)
         except OpenAIAPIStatusError as e:
+            logger.warning(f"[{call_id}] Backend API error: {e.status_code} {e.message}")
             raise BackendAPIError(
-                status_code=e.status_code,
+                status_code=e.status_code or 500,
                 message=str(e.message),
                 error_type=map_litellm_error_type(e),
                 client_format=client_format,
                 provider=getattr(e, "llm_provider", None),
             ) from e
         except OpenAIAPIConnectionError as e:
+            logger.warning(f"[{call_id}] Backend connection error: {e.message}")
             raise BackendAPIError(
                 status_code=502,
                 message=str(e.message),
