@@ -18,6 +18,14 @@
 7. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
 8. Mark the PR as ready.
 
+### One PR = One Concern
+
+- **Bug fix discovered while building a feature?** Separate PR.
+- **Infrastructure change needed for a feature?** Separate PR, feature depends on it.
+- **Ask:** "Could these be reviewed/merged independently?" If yes, split them.
+
+This keeps PRs focused, easier to review, and allows independent merging. (Added 2026-01-29 after PR #141 bundled a SimplePolicy fix with the DeSlop feature.)
+
 ### Maintaining Context
 
 Proactively update files in `dev/context/` as you learn about the codebase:

@@ -372,3 +372,43 @@ class TestSendChatRoute:
         assert isinstance(result, ChatResponse)
         assert result.success is False
         assert "Unexpected error" in result.error
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_follows_redirects_for_reverse_proxy_compatibility(self, mock_client_class, mock_get_settings):
+        """Test that httpx client follows redirects.
+
+        Railway and other platforms may redirect HTTP to HTTPS, causing 301
+        responses when the base_url from the request uses HTTP internally.
+        The client must follow redirects to work behind reverse proxies.
+        """
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_get_settings.return_value = mock_settings
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "OK"}}],
+        }
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        mock_request = MagicMock()
+        mock_request.base_url = "http://internal-host:8000/"
+        request = ChatRequest(model="gpt-4o", message="Test")
+
+        await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+
+        # Verify AsyncClient was called with follow_redirects=True
+        mock_client_class.assert_called_once()
+        call_kwargs = mock_client_class.call_args[1]
+        assert call_kwargs.get("follow_redirects") is True, (
+            "httpx.AsyncClient must be initialized with follow_redirects=True "
+            "to work behind reverse proxies that redirect HTTP to HTTPS"
+        )
