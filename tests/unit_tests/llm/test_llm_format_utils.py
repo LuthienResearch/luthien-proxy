@@ -159,6 +159,30 @@ class TestAnthropicToOpenAIRequest:
         assert "thinking" not in result
         assert "metadata" not in result
 
+    def test_context_management_stripped(self):
+        """Test that context_management parameter is NOT forwarded.
+
+        Claude Code sends context_management for client-side context window
+        management, but Anthropic's API doesn't accept it. We must strip it.
+        """
+        anthropic_req = cast(
+            AnthropicRequest,
+            {
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 1024,
+                "context_management": {
+                    "strategy": "truncation",
+                    "max_tokens": 50000,
+                },
+            },
+        )
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        # context_management should be stripped, not forwarded
+        assert "context_management" not in result
+
     def test_with_optional_params(self):
         """Test conversion with temperature and top_p."""
         anthropic_req: AnthropicRequest = {

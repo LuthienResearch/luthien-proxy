@@ -250,6 +250,8 @@ HANDLED_KEYS = {
     "system",
     "tools",
     "tool_choice",
+    # Client-side only params (don't forward to provider)
+    "context_management",  # Claude Code context window management - not supported by Anthropic API
 }
 
 
