@@ -121,7 +121,8 @@ OTEL_SPAN_ID_HEX_LENGTH = 16
 # ------------------------------------------------------------------------------
 
 # Default port for gateway HTTP server.
-DEFAULT_GATEWAY_PORT = 8000
+# Using 8741 to avoid conflicts with common dev servers on 8000.
+DEFAULT_GATEWAY_PORT = 8741
 
 # ------------------------------------------------------------------------------
 # History Viewer

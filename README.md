@@ -92,15 +92,14 @@ This is the power feature. Policies are Python classes that hook into the reques
 
 from luthien_proxy.policies.simple_policy import SimplePolicy
 
-class DeSloppify(SimplePolicy):
+class DeSlop(SimplePolicy):
     """Remove AI-isms from responses."""
 
-    async def on_response_complete(self, context):
+    def simple_on_response_content(self, content: str, context) -> str:
         # Replace em-dashes with regular dashes
-        content = context.response_content
         content = content.replace("—", "-")
         content = content.replace("–", "-")
-        return context.with_modified_content(content)
+        return content
 ```
 
 For LLM-based rule enforcement, use `SimpleJudgePolicy`:
