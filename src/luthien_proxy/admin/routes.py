@@ -270,7 +270,7 @@ async def send_chat(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
             response = await client.post(
                 f"{base_url}/v1/chat/completions",
                 json=payload,
