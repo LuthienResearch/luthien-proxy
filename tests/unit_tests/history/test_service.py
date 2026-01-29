@@ -58,8 +58,8 @@ class TestExtractPreviewMessage:
         payload = {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}}
         assert _extract_preview_message(payload) == "Hello world"
 
-    def test_multiple_messages_returns_last_user(self):
-        """Test that the last user message is returned (most recent context)."""
+    def test_multiple_messages_returns_first_user(self):
+        """Test that the first user message is returned (captures session intent)."""
         payload = {
             "final_request": {
                 "messages": [
@@ -70,7 +70,7 @@ class TestExtractPreviewMessage:
                 ]
             }
         }
-        assert _extract_preview_message(payload) == "Follow-up question"
+        assert _extract_preview_message(payload) == "First question"
 
     def test_truncates_long_messages(self):
         """Test that long messages are truncated to 100 chars."""
@@ -206,6 +206,17 @@ class TestParseRequestMessages:
         assert result[0].content == "You are helpful"
         assert result[1].message_type == MessageType.USER
         assert result[1].content == "Hello"
+
+    def test_unrecognized_role_raises_error(self):
+        """Test that unrecognized message roles raise ValueError."""
+        request = {
+            "messages": [
+                {"role": "unknown_role", "content": "Hello"},
+            ]
+        }
+
+        with pytest.raises(ValueError, match="Unrecognized message role: 'unknown_role'"):
+            _parse_request_messages(request)
 
     def test_assistant_message_with_tool_calls(self):
         """Test parsing assistant messages with tool_calls in request.
@@ -356,10 +367,53 @@ class TestBuildTurn:
         turn = _build_turn("call-123", events)
 
         assert turn.had_policy_intervention
-        assert turn.request_messages[0].was_modified
-        assert turn.request_messages[0].original_content == "Original"
+        assert turn.request_was_modified
+        assert turn.original_request_messages is not None
+        assert turn.original_request_messages[0].content == "Original"
         assert len(turn.annotations) == 1
         assert turn.annotations[0].policy_name == "judge"
+
+    def test_missing_final_request_raises_error(self):
+        """Test that missing final_request raises KeyError."""
+        events = [
+            {
+                "event_type": "transaction.request_recorded",
+                "payload": {
+                    "final_model": "gpt-4",
+                    "original_request": {"messages": [{"role": "user", "content": "Hello"}]},
+                    # final_request is missing
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+        ]
+
+        with pytest.raises(KeyError, match="final_request"):
+            _build_turn("call-123", events)
+
+    def test_missing_final_response_raises_error(self):
+        """Test that missing final_response raises KeyError."""
+        events = [
+            {
+                "event_type": "transaction.request_recorded",
+                "payload": {
+                    "final_model": "gpt-4",
+                    "original_request": {"messages": [{"role": "user", "content": "Hello"}]},
+                    "final_request": {"messages": [{"role": "user", "content": "Hello"}]},
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+            {
+                "event_type": "transaction.streaming_response_recorded",
+                "payload": {
+                    "original_response": {"choices": [{"message": {"content": "Hi!"}}]},
+                    # final_response is missing
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 1),
+            },
+        ]
+
+        with pytest.raises(KeyError, match="final_response"):
+            _build_turn("call-123", events)
 
 
 class TestFetchSessionList:
@@ -500,6 +554,69 @@ class TestFetchSessionDetail:
 
         with pytest.raises(ValueError, match="No events found"):
             await fetch_session_detail("nonexistent", mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_invalid_payload_json_string_raises_error(self):
+        """Test that invalid JSON payload string raises ValueError."""
+        mock_rows = [
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.request_recorded",
+                "payload": "not valid json {{{",  # Invalid JSON string
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        with pytest.raises(ValueError, match="Failed to parse payload JSON"):
+            await fetch_session_detail("session-1", mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_unexpected_payload_type_raises_error(self):
+        """Test that unexpected payload type raises TypeError."""
+        mock_rows = [
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.request_recorded",
+                "payload": 12345,  # Unexpected type (not dict or str)
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        with pytest.raises(TypeError, match="Unexpected payload type: int"):
+            await fetch_session_detail("session-1", mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_unexpected_created_at_type_raises_error(self):
+        """Test that unexpected created_at type raises TypeError."""
+        mock_rows = [
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.request_recorded",
+                "payload": {"final_model": "gpt-4", "final_request": {"messages": []}},
+                "created_at": "2025-01-15T10:00:00",  # String instead of datetime
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        with pytest.raises(TypeError, match="created_at must be datetime, got str"):
+            await fetch_session_detail("session-1", mock_pool)
 
     @pytest.mark.asyncio
     async def test_payload_as_json_string(self):

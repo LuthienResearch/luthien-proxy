@@ -9,11 +9,10 @@ Provides pure business logic for:
 from __future__ import annotations
 
 import json
+import logging
+import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from luthien_proxy.utils.db import DatabasePool
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from .models import (
     ConversationMessage,
@@ -24,6 +23,20 @@ from .models import (
     SessionListResponse,
     SessionSummary,
 )
+
+if TYPE_CHECKING:
+    from luthien_proxy.utils.db import DatabasePool
+
+
+class StoredEvent(TypedDict):
+    """Structure of an event retrieved from the database."""
+
+    event_type: str
+    payload: dict[str, Any]
+    created_at: datetime
+
+
+logger = logging.getLogger(__name__)
 
 # User-friendly descriptions for common policy event types
 _EVENT_TYPE_DESCRIPTIONS: dict[str, str] = {
@@ -60,67 +73,70 @@ def _get_event_summary(event_type: str, payload: dict[str, Any] | None) -> str:
     return _EVENT_TYPE_DESCRIPTIONS.get(event_type, event_type)
 
 
-def _extract_text_content(content: Any) -> str:
-    """Extract text from message content (handles string or content blocks)."""
+def _extract_text_content(content: str | list[dict[str, Any]] | None) -> str:
+    """Extract text from message content.
+
+    Args:
+        content: Message content - either a string, list of content blocks, or None
+
+    Returns:
+        Extracted text as string
+    """
     if content is None:
         return ""
     if isinstance(content, str):
         return content
-    if isinstance(content, list):
-        # Handle content blocks (Anthropic/OpenAI format)
-        parts = []
-        for block in content:
-            if isinstance(block, dict):
-                if block.get("type") == "text":
-                    parts.append(block.get("text", ""))
-                elif block.get("type") == "tool_use":
-                    # Tool use block - handled separately
-                    pass
-                elif block.get("type") == "tool_result":
-                    # Tool result block - content can be string or array of blocks
-                    result_content = block.get("content", "")
-                    if isinstance(result_content, str):
-                        parts.append(result_content)
-                    elif isinstance(result_content, list):
-                        # Recursively extract text from content blocks
-                        for sub_block in result_content:
-                            if isinstance(sub_block, dict) and sub_block.get("type") == "text":
-                                parts.append(sub_block.get("text", ""))
-        return "\n".join(parts)
-    return str(content)
+
+    # Content is a list of content blocks
+    parts: list[str] = []
+    for block in content:
+        if block.get("type") == "text":
+            parts.append(block.get("text", ""))
+        elif block.get("type") == "tool_result":
+            result_content = block.get("content")
+            if result_content is not None:
+                parts.append(_extract_text_content(result_content))
+        # Skip tool_use (handled by _extract_tool_calls) and other block types
+    return "\n".join(parts)
 
 
 def _extract_tool_calls(message: dict[str, Any]) -> list[ConversationMessage]:
-    """Extract tool calls from a message."""
-    tool_messages = []
+    """Extract tool calls from a message.
 
-    # Check for OpenAI-style tool_calls
-    tool_calls = message.get("tool_calls") or []
-    for tc in tool_calls:
-        if isinstance(tc, dict):
+    Handles both OpenAI-style tool_calls and Anthropic-style tool_use content blocks.
+    """
+    tool_messages: list[ConversationMessage] = []
+
+    # OpenAI-style tool_calls
+    tool_calls = message.get("tool_calls")
+    if tool_calls is not None:
+        for tc in tool_calls:
             func = tc.get("function", {})
+            arguments = func.get("arguments", "{}")
             tool_messages.append(
                 ConversationMessage(
                     message_type=MessageType.TOOL_CALL,
-                    content=func.get("arguments", "{}"),
+                    content=arguments,
                     tool_name=func.get("name"),
                     tool_call_id=tc.get("id"),
-                    tool_input=_safe_parse_json(func.get("arguments", "{}")),
+                    tool_input=_safe_parse_json(arguments),
                 )
             )
 
-    # Check for Anthropic-style content blocks with tool_use
-    content = message.get("content", [])
-    if isinstance(content, list):
+    # Anthropic-style content blocks with tool_use
+    content = message.get("content")
+    if content is not None and isinstance(content, list):
         for block in content:
-            if isinstance(block, dict) and block.get("type") == "tool_use":
+            if block.get("type") == "tool_use":
+                tool_input_raw = block.get("input", {})
+                tool_input: dict[str, object] = dict(tool_input_raw) if isinstance(tool_input_raw, dict) else {}
                 tool_messages.append(
                     ConversationMessage(
                         message_type=MessageType.TOOL_CALL,
-                        content=str(block.get("input", {})),
+                        content=str(tool_input_raw),
                         tool_name=block.get("name"),
                         tool_call_id=block.get("id"),
-                        tool_input=block.get("input"),
+                        tool_input=tool_input,
                     )
                 )
 
@@ -136,35 +152,32 @@ def _safe_parse_json(s: str) -> dict[str, Any] | None:
         return None
 
 
+_ROLE_TO_MESSAGE_TYPE: dict[str, MessageType] = {
+    "system": MessageType.SYSTEM,
+    "user": MessageType.USER,
+    "assistant": MessageType.ASSISTANT,
+    "tool": MessageType.TOOL_RESULT,
+}
+
+
 def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage]:
     """Parse messages from a request payload."""
-    messages = []
+    messages: list[ConversationMessage] = []
     raw_messages = request.get("messages", [])
 
     for msg in raw_messages:
-        if not isinstance(msg, dict):
-            continue
+        role = msg.get("role", "")
+        msg_type = _ROLE_TO_MESSAGE_TYPE.get(role, MessageType.UNKNOWN)
+        if msg_type == MessageType.UNKNOWN:
+            raise ValueError(f"Unrecognized message role: '{role}'")
 
-        role = msg.get("role", "unknown")
         content = _extract_text_content(msg.get("content"))
 
-        # Map role to message type
-        if role == "system":
-            msg_type = MessageType.SYSTEM
-        elif role == "user":
-            msg_type = MessageType.USER
-        elif role == "assistant":
-            msg_type = MessageType.ASSISTANT
-        elif role == "tool":
-            msg_type = MessageType.TOOL_RESULT
-        else:
-            msg_type = MessageType.USER  # Default
-
         # For tool results, include the tool_call_id
-        tool_call_id = msg.get("tool_call_id") if role == "tool" else None
+        tool_call_id = msg.get("tool_call_id") if msg_type == MessageType.TOOL_RESULT else None
 
         # For assistant messages, extract any tool calls first
-        if role == "assistant":
+        if msg_type == MessageType.ASSISTANT:
             tool_call_msgs = _extract_tool_calls(msg)
             if tool_call_msgs:
                 # Add tool calls, then optionally add text content if present
@@ -191,15 +204,12 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
 
 def _parse_response_messages(response: dict[str, Any]) -> list[ConversationMessage]:
     """Parse messages from a response payload."""
-    messages = []
+    messages: list[ConversationMessage] = []
     choices = response.get("choices", [])
 
     for choice in choices:
-        if not isinstance(choice, dict):
-            continue
-
-        msg = choice.get("message", {})
-        if not isinstance(msg, dict):
+        msg = choice.get("message")
+        if msg is None:
             continue
 
         content = _extract_text_content(msg.get("content"))
@@ -220,18 +230,11 @@ def _parse_response_messages(response: dict[str, Any]) -> list[ConversationMessa
     return messages
 
 
-def _check_modifications(original: dict[str, Any], final: dict[str, Any]) -> tuple[bool, str | None]:
-    """Check if content was modified between original and final."""
-    orig_content = _extract_text_content(original.get("content"))
-    final_content = _extract_text_content(final.get("content"))
-
-    if orig_content != final_content:
-        return True, orig_content
-    return False, None
-
-
 # Maximum length for first user message preview
 _FIRST_MESSAGE_MAX_LENGTH = 100
+
+# Pattern to strip system-reminder tags from content
+_SYSTEM_REMINDER_PATTERN = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.DOTALL)
 
 
 def _extract_preview_message(payload: Any) -> str | None:
@@ -267,17 +270,7 @@ def _extract_preview_message(payload: Any) -> str | None:
                 content = content.strip()
                 # Skip system-reminder tags (Claude Code injects these)
                 if content.startswith("<system-reminder>"):
-                    # Try to find actual content after the closing tag
-                    import re
-
-                    # Remove all <system-reminder>...</system-reminder> blocks
-                    content = re.sub(
-                        r"<system-reminder>.*?</system-reminder>\s*",
-                        "",
-                        content,
-                        flags=re.DOTALL,
-                    )
-                    content = content.strip()
+                    content = _SYSTEM_REMINDER_PATTERN.sub("", content).strip()
                 # Skip non-meaningful messages (like Claude Code's token counting)
                 if content.lower() in _SKIP_MESSAGES:
                     continue
@@ -424,27 +417,34 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         raise ValueError(f"No events found for session_id: {session_id}")
 
     # Group events by call_id
-    calls: dict[str, list[dict[str, Any]]] = {}
+    calls: dict[str, list[StoredEvent]] = {}
     for row in rows:
         call_id = str(row["call_id"])
         if call_id not in calls:
             calls[call_id] = []
 
-        # Parse payload - asyncpg returns JSONB as string
+        # Parse payload - asyncpg returns JSONB as dict or string
         raw_payload = row["payload"]
         if isinstance(raw_payload, dict):
-            payload = raw_payload
+            payload: dict[str, object] = dict(raw_payload)
         elif isinstance(raw_payload, str):
-            payload = _safe_parse_json(raw_payload) or {}
+            parsed = _safe_parse_json(raw_payload)
+            if parsed is None:
+                raise ValueError(f"Failed to parse payload JSON for call_id={call_id}")
+            payload = dict(parsed)
         else:
-            payload = {}
+            raise TypeError(f"Unexpected payload type: {type(raw_payload).__name__}")
+
+        raw_created_at = row["created_at"]
+        if not isinstance(raw_created_at, datetime):
+            raise TypeError(f"created_at must be datetime, got {type(raw_created_at).__name__}")
 
         calls[call_id].append(
-            {
-                "event_type": str(row["event_type"]),
-                "payload": payload,
-                "created_at": row["created_at"],
-            }
+            StoredEvent(
+                event_type=str(row["event_type"]),
+                payload=payload,
+                created_at=raw_created_at,
+            )
         )
 
     # Build conversation turns, sorted by first event timestamp
@@ -476,65 +476,57 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
     )
 
 
-def _build_turn(call_id: str, events: list[dict[str, Any]]) -> ConversationTurn:
+def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
     """Build a conversation turn from a list of events for a call."""
     request_messages: list[ConversationMessage] = []
     response_messages: list[ConversationMessage] = []
+    original_request_messages: list[ConversationMessage] | None = None
+    original_response_messages: list[ConversationMessage] | None = None
     annotations: list[PolicyAnnotation] = []
     model: str | None = None
     timestamp: str = ""
-    had_intervention = False
+    request_was_modified = False
+    response_was_modified = False
 
     for event in events:
         event_type = event["event_type"]
         payload = event["payload"]
         created_at = event["created_at"]
 
-        if not timestamp and created_at:
-            timestamp = created_at.isoformat() if isinstance(created_at, datetime) else str(created_at)
+        if not timestamp:
+            timestamp = created_at.isoformat()
 
-        # Handle request recorded
         if event_type == "transaction.request_recorded":
             model = payload.get("final_model")
-            original_req = payload.get("original_request", {})
-            final_req = payload.get("final_request", {})
+            original_req = payload.get("original_request")
+            final_req = payload.get("final_request")
 
-            # Parse messages from final request
+            if final_req is None:
+                raise KeyError("transaction.request_recorded missing 'final_request'")
+
             request_messages = _parse_request_messages(final_req)
 
-            # Check for modifications
-            orig_messages = original_req.get("messages", [])
-            final_messages = final_req.get("messages", [])
-            for i, msg in enumerate(request_messages):
-                if i < len(orig_messages) and i < len(final_messages):
-                    was_modified, orig_content = _check_modifications(orig_messages[i], final_messages[i])
-                    if was_modified:
-                        msg.was_modified = True
-                        msg.original_content = orig_content
-                        had_intervention = True
+            # Check for modifications at turn level
+            if original_req is not None and original_req != final_req:
+                request_was_modified = True
+                original_request_messages = _parse_request_messages(original_req)
 
-        # Handle response recorded (streaming or non-streaming)
         elif event_type in (
             "transaction.streaming_response_recorded",
             "transaction.non_streaming_response_recorded",
         ):
-            final_resp = payload.get("final_response", {})
+            final_resp = payload.get("final_response")
+            if final_resp is None:
+                raise KeyError(f"{event_type} missing 'final_response'")
+
             response_messages = _parse_response_messages(final_resp)
 
-            # Check for response modifications
-            original_resp = payload.get("original_response", {})
-            orig_choices = original_resp.get("choices", [])
-            final_choices = final_resp.get("choices", [])
-            if orig_choices and final_choices:
-                orig_msg = orig_choices[0].get("message", {})
-                final_msg = final_choices[0].get("message", {})
-                was_modified, orig_content = _check_modifications(orig_msg, final_msg)
-                if was_modified and response_messages:
-                    response_messages[0].was_modified = True
-                    response_messages[0].original_content = orig_content
-                    had_intervention = True
+            # Check for modifications at turn level
+            original_resp = payload.get("original_response")
+            if original_resp is not None and original_resp != final_resp:
+                response_was_modified = True
+                original_response_messages = _parse_response_messages(original_resp)
 
-        # Handle policy events
         elif event_type.startswith("policy."):
             # Skip evaluation started/complete events
             if "evaluation" in event_type:
@@ -548,7 +540,8 @@ def _build_turn(call_id: str, events: list[dict[str, Any]]) -> ConversationTurn:
                     details=payload if payload else None,
                 )
             )
-            had_intervention = True
+
+    had_intervention = request_was_modified or response_was_modified or bool(annotations)
 
     return ConversationTurn(
         call_id=call_id,
@@ -558,6 +551,10 @@ def _build_turn(call_id: str, events: list[dict[str, Any]]) -> ConversationTurn:
         response_messages=response_messages,
         annotations=annotations,
         had_policy_intervention=had_intervention,
+        request_was_modified=request_was_modified,
+        response_was_modified=response_was_modified,
+        original_request_messages=original_request_messages,
+        original_response_messages=original_response_messages,
     )
 
 
@@ -651,19 +648,6 @@ def _format_message_markdown(msg: ConversationMessage) -> str:
     else:
         lines.append("")
         lines.append(msg.content)
-
-    if msg.was_modified:
-        lines.append("")
-        lines.append("> **Modified by policy**")
-        if msg.original_content:
-            lines.append("> Original content:")
-            lines.append("> ```")
-            original_lines = msg.original_content.split("\n")
-            for line in original_lines[:5]:
-                lines.append(f"> {line}")
-            if len(original_lines) > 5:
-                lines.append("> ...")
-            lines.append("> ```")
 
     return "\n".join(lines)
 
