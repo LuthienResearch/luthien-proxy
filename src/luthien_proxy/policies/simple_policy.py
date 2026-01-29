@@ -15,7 +15,7 @@ from luthien_proxy.policy_core.streaming_utils import get_last_ingress_chunk, se
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ChatCompletionMessageToolCall
+    from litellm.types.utils import ChatCompletionMessageToolCall, Choices, ModelResponse
 
     from luthien_proxy.llm.types import Request
     from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -90,6 +90,30 @@ class SimplePolicy(BasePolicy):
         response_str: str = await self.simple_on_request(request.last_message, context)
         request.messages[-1]["content"] = response_str
         return request
+
+    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+        """Process non-streaming response through simple_on_response_content.
+
+        Args:
+            response: Complete ModelResponse from LLM
+            context: Policy context
+        Returns:
+            Response with transformed content
+        """
+        from litellm.types.utils import Choices
+
+        if not response.choices:
+            return response
+
+        for choice in response.choices:
+            if not (isinstance(choice, Choices) and isinstance(choice.message.content, str)):
+                continue
+            choice.message.content = await self.simple_on_response_content(
+                choice.message.content, context
+            )
+        return response
+
+    # ===== Implementation of streaming hooks =====
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
         """Buffer all chunks, don't emit yet."""
