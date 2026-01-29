@@ -36,7 +36,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from litellm.types.utils import ModelResponse
-from openai import APIError as OpenAIAPIError
+from openai import APIConnectionError as OpenAIAPIConnectionError
+from openai import APIStatusError as OpenAIAPIStatusError
 from opentelemetry import trace
 from opentelemetry.context import attach, detach, get_current
 from opentelemetry.trace import Span
@@ -302,11 +303,19 @@ async def _handle_streaming(
         span.set_attribute("luthien.phase", "send_upstream")
         try:
             backend_stream = await llm_client.stream(final_request)
-        except OpenAIAPIError as e:
+        except OpenAIAPIStatusError as e:
             raise BackendAPIError(
                 status_code=e.status_code,
                 message=str(e.message),
                 error_type=map_litellm_error_type(e),
+                client_format=client_format,
+                provider=getattr(e, "llm_provider", None),
+            ) from e
+        except OpenAIAPIConnectionError as e:
+            raise BackendAPIError(
+                status_code=502,
+                message=str(e.message),
+                error_type="api_connection_error",
                 client_format=client_format,
                 provider=getattr(e, "llm_provider", None),
             ) from e
@@ -362,11 +371,19 @@ async def _handle_non_streaming(
         span.set_attribute("luthien.phase", "send_upstream")
         try:
             response: ModelResponse = await llm_client.complete(final_request)
-        except OpenAIAPIError as e:
+        except OpenAIAPIStatusError as e:
             raise BackendAPIError(
                 status_code=e.status_code,
                 message=str(e.message),
                 error_type=map_litellm_error_type(e),
+                client_format=client_format,
+                provider=getattr(e, "llm_provider", None),
+            ) from e
+        except OpenAIAPIConnectionError as e:
+            raise BackendAPIError(
+                status_code=502,
+                message=str(e.message),
+                error_type="api_connection_error",
                 client_format=client_format,
                 provider=getattr(e, "llm_provider", None),
             ) from e
