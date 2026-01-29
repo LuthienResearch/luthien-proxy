@@ -2,6 +2,25 @@
 
 ## Unreleased | TBA
 
+- Reorganize LLM types into separate OpenAI and Anthropic modules (#117)
+- Fix thinking blocks stripped from non-streaming responses (#128)
+
+- Pass through extra model parameters like `thinking`, `metadata`, `stop_sequences` (thinking-flags)
+  - Anthropic requests now preserve all extra parameters during format conversion
+  - Map `stop_sequences` (Anthropic) → `stop` (OpenAI)
+  - Convert `tool_choice` format between Anthropic and OpenAI APIs
+  - OpenAI requests already preserved extra params via Pydantic `extra="allow"`
+  - Enables extended thinking, reasoning effort, and other provider-specific features
+  - 14 new e2e tests validate parameter pass-through for both client types
+
+- Auto-discovering policy configuration UI (policy-config-ui)
+  - `/admin/policy/list` now auto-discovers all policies from `luthien_proxy.policies`
+  - Config schemas extracted from constructor signatures using type hints
+  - Policy config UI (`/policy-config`) generates form fields based on schema
+  - Simple types get appropriate inputs (text, number, checkbox)
+  - Complex nested types (dict, list) get JSON textarea
+  - Fixes broken create/activate endpoints that didn't exist
+
 - Add Railway demo deployment configuration (`railway.toml`, `deploy/README.md`)
 
 - Add conversation history viewer with styled message types and markdown export (conversation-history-viewer)
@@ -9,6 +28,14 @@
   - View full conversation detail at `/history/session/{id}` with message type styling (system/user/assistant/tool call/tool result)
   - Policy annotations shown inline on turns that had interventions
   - Export any session to markdown via `/history/api/sessions/{id}/export`
+
+- Improve conversation history list UI (#133)
+  - Add first user message preview for at-a-glance session recognition
+  - Add quick filters: Today, This week, Last week, Last 30 days, Claude Code, Codex
+  - Add "More filters" dropdown with sort options (newest, oldest, longest, shortest) and policy activity filters
+  - Sticky search/filter bar with magnifying glass icon
+  - Date grouping (Today, Yesterday, day names, full dates)
+  - Consistent green (#4ade80) color scheme matching other Luthien pages
 
 - Increase unit test coverage from 84% to 90% (#115)
 - Fix validation error when images in Anthropic requests (#103, #104)

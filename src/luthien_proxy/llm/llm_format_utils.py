@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import cast
+from dataclasses import dataclass, field
+from typing import Any, cast
 
 from litellm.types.utils import Choices, ModelResponse, Usage
 
@@ -18,12 +19,241 @@ from luthien_proxy.llm.types import (
     ImageContentPart,
     ImageUrl,
 )
+from luthien_proxy.llm.types.anthropic import (
+    AnthropicMessage,
+    AnthropicRedactedThinkingBlock,
+    AnthropicRequest,
+    AnthropicThinkingBlock,
+    AnthropicTool,
+    AnthropicToolChoice,
+)
 from luthien_proxy.utils.constants import DEFAULT_LLM_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
 
 
-def anthropic_to_openai_request(data: dict) -> dict:
+@dataclass
+class CategorizedBlocks:
+    """Content blocks from an Anthropic message, categorized by type."""
+
+    tool_results: list[dict] = field(default_factory=list)
+    tool_uses: list[dict] = field(default_factory=list)
+    text_parts: list[str] = field(default_factory=list)
+    image_parts: list[ImageContentPart] = field(default_factory=list)
+    thinking_parts: list[AnthropicThinkingBlock | AnthropicRedactedThinkingBlock] = field(default_factory=list)
+
+    def has_content(self) -> bool:
+        return bool(self.tool_results or self.tool_uses or self.text_parts or self.image_parts or self.thinking_parts)
+
+
+def _convert_anthropic_image_block(block: dict) -> ImageContentPart | None:
+    """Convert an Anthropic image block to OpenAI format."""
+    source = cast(AnthropicImageSource, block.get("source", {}))
+    source_type = source.get("type")
+
+    if source_type == "base64":
+        media_type = source.get("media_type", "image/png")
+        b64_data = source.get("data", "")
+        image_url: ImageUrl = {"url": f"data:{media_type};base64,{b64_data}"}
+        return {"type": "image_url", "image_url": image_url}
+
+    if source_type == "url":
+        image_url = {"url": source.get("url", "")}
+        return {"type": "image_url", "image_url": image_url}
+
+    return None
+
+
+def _categorize_content_blocks(content: list) -> CategorizedBlocks:
+    """Categorize Anthropic content blocks by type."""
+    result = CategorizedBlocks()
+
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+
+        block_type = block.get("type")
+
+        if block_type == "tool_result":
+            result.tool_results.append(block)
+        elif block_type == "tool_use":
+            result.tool_uses.append(block)
+        elif block_type == "text":
+            result.text_parts.append(block.get("text", ""))
+        elif block_type == "thinking":
+            result.thinking_parts.append(cast(AnthropicThinkingBlock, block))
+        elif block_type == "redacted_thinking":
+            result.thinking_parts.append(cast(AnthropicRedactedThinkingBlock, block))
+        elif block_type == "image":
+            image_part = _convert_anthropic_image_block(block)
+            if image_part:
+                result.image_parts.append(image_part)
+        else:
+            logger.debug(f"Unknown content block type: {block_type}")
+
+    return result
+
+
+def _build_tool_result_messages(blocks: CategorizedBlocks, role: str) -> list[dict[str, Any]]:
+    """Build OpenAI messages from tool result blocks."""
+    messages: list[dict[str, Any]] = []
+
+    for block in blocks.tool_results:
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": block.get("tool_use_id"),
+                "content": block.get("content", ""),
+            }
+        )
+
+    # WHY: This handles the case where user sends text alongside tool results (e.g., rejection messages).
+    # This logic is incomplete and doesn't properly handle all tool-rejection scenarios.
+    if blocks.text_parts:
+        messages.append({"role": role, "content": " ".join(blocks.text_parts)})
+
+    return messages
+
+
+def _build_tool_use_message(blocks: CategorizedBlocks, role: str) -> dict[str, Any]:
+    """Build an OpenAI message from tool use blocks."""
+    tool_calls = [
+        {
+            "id": block.get("id"),
+            "type": "function",
+            "function": {
+                "name": block.get("name"),
+                "arguments": json.dumps(block.get("input", {})),
+            },
+        }
+        for block in blocks.tool_uses
+    ]
+
+    openai_msg: dict[str, Any] = {
+        "role": role,
+        "content": " ".join(blocks.text_parts) if blocks.text_parts else None,
+        "tool_calls": tool_calls,
+    }
+
+    if blocks.thinking_parts:
+        openai_msg["thinking_blocks"] = blocks.thinking_parts
+
+    return openai_msg
+
+
+def _build_content_message(blocks: CategorizedBlocks, role: str) -> dict[str, Any]:
+    """Build an OpenAI message from text, image, and/or thinking blocks."""
+    openai_msg: dict[str, Any] = {"role": role}
+
+    if blocks.image_parts:
+        # Multimodal content requires list format
+        content_list: list[ImageContentPart | dict[str, str]] = []
+        if blocks.text_parts:
+            content_list.append({"type": "text", "text": " ".join(blocks.text_parts)})
+        content_list.extend(blocks.image_parts)
+        openai_msg["content"] = content_list
+    elif blocks.text_parts:
+        openai_msg["content"] = " ".join(blocks.text_parts)
+    else:
+        openai_msg["content"] = None
+
+    if blocks.thinking_parts:
+        openai_msg["thinking_blocks"] = blocks.thinking_parts
+
+    return openai_msg
+
+
+def _convert_anthropic_message(msg: AnthropicMessage) -> list[dict[str, Any]]:
+    """Convert a single Anthropic message to OpenAI format.
+
+    Returns a list because tool results expand into multiple messages.
+    """
+    role = msg["role"]
+    content = msg["content"]
+
+    if isinstance(content, str):
+        return [{"role": role, "content": content}]
+
+    if not isinstance(content, list):
+        return [{"role": role, "content": content}]
+
+    blocks = _categorize_content_blocks(content)
+
+    if blocks.tool_results:
+        return _build_tool_result_messages(blocks, role)
+
+    if blocks.tool_uses:
+        return [_build_tool_use_message(blocks, role)]
+
+    if blocks.text_parts or blocks.image_parts or blocks.thinking_parts:
+        return [_build_content_message(blocks, role)]
+
+    # Only unknown block types present
+    unknown_types = [block.get("type", "unknown") for block in content if isinstance(block, dict)]
+    return [{"role": role, "content": f"Error: Response included only unknown block types {unknown_types}"}]
+
+
+def _convert_system_param(system_content: str | list) -> str:
+    """Convert Anthropic system parameter to OpenAI format string."""
+    if isinstance(system_content, str):
+        return system_content
+
+    text_parts = [
+        block.get("text", "") for block in system_content if isinstance(block, dict) and block.get("type") == "text"
+    ]
+    return " ".join(text_parts) if text_parts else ""
+
+
+def _convert_tools(tools: list[AnthropicTool]) -> list[dict]:
+    """Convert Anthropic tools format to OpenAI format."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool.get("description"),
+                "parameters": tool["input_schema"],
+            },
+        }
+        for tool in tools
+    ]
+
+
+def _convert_tool_choice(tc: AnthropicToolChoice) -> dict[str, Any] | str:
+    """Convert Anthropic tool_choice to OpenAI format."""
+    tc_type = tc["type"]
+
+    if tc_type == "auto":
+        return "auto"
+
+    if tc_type == "any":
+        return "required"
+
+    # tc_type == "tool"
+    # At this point tc is AnthropicToolChoiceTool which has a "name" field
+    tool_name = cast(str, tc.get("name"))
+    return {"type": "function", "function": {"name": tool_name}}
+
+
+# Map Anthropic-specific parameter names to OpenAI equivalents
+ANTHROPIC_TO_OPENAI_PARAM_MAP: dict[str, str] = {
+    "stop_sequences": "stop",
+}
+
+HANDLED_KEYS = {
+    "model",
+    "messages",
+    "max_tokens",
+    "stream",
+    "temperature",
+    "top_p",
+    "system",
+    "tools",
+    "tool_choice",
+}
+
+
+def anthropic_to_openai_request(data: AnthropicRequest) -> dict[str, Any]:
     """Convert Anthropic Messages API format to OpenAI format.
 
     Args:
@@ -32,128 +262,11 @@ def anthropic_to_openai_request(data: dict) -> dict:
     Returns:
         Request in OpenAI format
     """
-    # Convert messages - handle tool results, tool use, and text content
-    openai_messages = []
+    openai_messages: list[dict[str, Any]] = []
     for msg in data.get("messages", []):
-        role = msg.get("role")
-        content = msg.get("content")
+        openai_messages.extend(_convert_anthropic_message(msg))
 
-        # Handle string content (simple case)
-        if isinstance(content, str):
-            openai_messages.append({"role": role, "content": content})
-            continue
-
-        # Handle array content (tool results, tool use, text blocks, etc.)
-        if isinstance(content, list):
-            # Separate different content types
-            tool_results = []
-            tool_uses = []
-            text_parts = []
-
-            image_parts: list[ImageContentPart] = []
-
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-
-                block_type = block.get("type")
-                if block_type == "tool_result":
-                    tool_results.append(block)
-                elif block_type == "tool_use":
-                    tool_uses.append(block)
-                elif block_type == "text":
-                    text_parts.append(block.get("text", ""))
-                elif block_type == "image":
-                    # Convert Anthropic image format to OpenAI format
-                    source = cast(AnthropicImageSource, block.get("source", {}))
-                    if source.get("type") == "base64":
-                        media_type = source.get("media_type", "image/png")
-                        b64_data = source.get("data", "")
-                        image_url: ImageUrl = {"url": f"data:{media_type};base64,{b64_data}"}
-                        image_part: ImageContentPart = {"type": "image_url", "image_url": image_url}
-                        image_parts.append(image_part)
-                    elif source.get("type") == "url":
-                        image_url = {"url": source.get("url", "")}
-                        image_part = {"type": "image_url", "image_url": image_url}
-                        image_parts.append(image_part)
-                else:
-                    logger.debug(f"Unknown content block type: {block_type}")
-
-            # Handle tool results (user sending results back)
-            if tool_results:
-                for block in tool_results:
-                    openai_messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": block.get("tool_use_id"),
-                            "content": block.get("content", ""),
-                        }
-                    )
-                # This is a hacky bit of logic that fails to address the tool-rejection-message case properly.
-                # Maintaining it here for the moment so we can keep iterating on it.
-                # But it's broken and bad and needs to be fixed properly soon.
-                if text_parts:
-                    openai_messages.append(
-                        {
-                            "role": role,
-                            "content": " ".join(text_parts),
-                        }
-                    )
-                # end of hacky bit
-
-            # Handle tool uses (assistant requesting tool calls)
-            # These stay in the message as we're passing through Anthropic format for assistant messages
-            elif tool_uses:
-                # For assistant messages with tool_use, we need to convert to OpenAI tool_calls format
-                tool_calls = []
-                for block in tool_uses:
-                    tool_calls.append(
-                        {
-                            "id": block.get("id"),
-                            "type": "function",
-                            "function": {
-                                "name": block.get("name"),
-                                "arguments": json.dumps(block.get("input", {})),
-                            },
-                        }
-                    )
-
-                openai_msg = {"role": role}
-                # Include text content if present
-                if text_parts:
-                    openai_msg["content"] = " ".join(text_parts)
-                else:
-                    openai_msg["content"] = None
-
-                openai_msg["tool_calls"] = tool_calls
-                openai_messages.append(openai_msg)
-
-            # Handle regular text and/or image content
-            elif text_parts or image_parts:
-                # If we have images, use list format for content (OpenAI multimodal)
-                if image_parts:
-                    content_list = []
-                    if text_parts:
-                        content_list.append({"type": "text", "text": " ".join(text_parts)})
-                    content_list.extend(image_parts)
-                    openai_messages.append({"role": role, "content": content_list})
-                else:
-                    # Text only - use simple string format
-                    openai_messages.append({"role": role, "content": " ".join(text_parts)})
-            # If we only have unknown block types, create an error message
-            else:
-                unknown_types = [block.get("type", "unknown") for block in content if isinstance(block, dict)]
-                openai_messages.append(
-                    {
-                        "role": role,
-                        "content": f"Error: Response included only unknown block types {unknown_types}",
-                    }
-                )
-        else:
-            # Unknown content format - pass through
-            openai_messages.append({"role": role, "content": content})
-
-    openai_data = {
+    openai_data: dict[str, Any] = {
         "model": data.get("model"),
         "messages": openai_messages,
         "max_tokens": data.get("max_tokens", DEFAULT_LLM_MAX_TOKENS),
@@ -165,41 +278,20 @@ def anthropic_to_openai_request(data: dict) -> dict:
     if "top_p" in data:
         openai_data["top_p"] = data["top_p"]
 
-    # Handle Anthropic's system parameter
     if "system" in data:
-        system_content = data["system"]
-        # System can be a string or array of content blocks
-        if isinstance(system_content, list):
-            # Extract text from content blocks
-            text_parts = []
-            for block in system_content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text_parts.append(block.get("text", ""))
-            system_content = " ".join(text_parts) if text_parts else ""
+        openai_data["messages"].insert(0, {"role": "system", "content": _convert_system_param(data["system"])})
 
-        openai_data["messages"].insert(
-            0,
-            {
-                "role": "system",
-                "content": system_content,
-            },
-        )
-
-    # Handle tools (convert from Anthropic format to OpenAI format)
     if "tools" in data:
-        openai_tools = []
-        for tool in data["tools"]:
-            openai_tools.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.get("name"),
-                        "description": tool.get("description"),
-                        "parameters": tool.get("input_schema", {}),
-                    },
-                }
-            )
-        openai_data["tools"] = openai_tools
+        openai_data["tools"] = _convert_tools(data["tools"])
+
+    if "tool_choice" in data:
+        openai_data["tool_choice"] = _convert_tool_choice(data["tool_choice"])
+
+    # Pass through extra parameters (e.g., `thinking`, `metadata`)
+    for key, value in data.items():
+        if key not in HANDLED_KEYS and value is not None:
+            mapped_key = ANTHROPIC_TO_OPENAI_PARAM_MAP.get(key, key)
+            openai_data[mapped_key] = value
 
     return {k: v for k, v in openai_data.items() if v is not None}
 
@@ -217,6 +309,28 @@ def openai_to_anthropic_response(response: ModelResponse) -> dict:
     choice = cast(Choices, choice)
     message = choice.message
     content = []
+
+    # Add thinking blocks FIRST if present (required by Anthropic API)
+    # LiteLLM exposes these via message.thinking_blocks as list[dict] | None
+    # Two block types: "thinking" (thinking + signature) and "redacted_thinking" (data)
+    if hasattr(message, "thinking_blocks") and message.thinking_blocks:
+        for block in message.thinking_blocks:
+            block_type = block.get("type", "thinking")
+            if block_type == "redacted_thinking":
+                content.append(
+                    {
+                        "type": "redacted_thinking",
+                        "data": block.get("data", ""),
+                    }
+                )
+            else:
+                content.append(
+                    {
+                        "type": "thinking",
+                        "thinking": block.get("thinking", ""),
+                        "signature": block.get("signature", ""),
+                    }
+                )
 
     # Add text content if present
     if message.content:

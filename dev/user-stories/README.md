@@ -4,35 +4,42 @@ Canonical user stories that guide Luthien Control development. Each story repres
 
 ## Stories
 
-| # | Story | Persona | Status |
+| # | Story | Persona | % done |
 |---|-------|---------|--------|
-| 1 | [Solo Developer: Context-Aware Safety](01-solo-developer-context-aware-safety.md) | Alex (Senior Developer) | Not Started |
-| 2 | [Platform Team: Org-Wide Visibility](02-platform-team-org-visibility.md) | Jordan (Platform Engineer) | Not Started |
-| 3 | [Researcher: Multi-Reviewer Evaluation](03-researcher-multi-reviewer-evaluation.md) | Sam (PhD Student) | Not Started |
-| 4 | [Policy Author: Compliance with HITL](04-policy-author-compliance-hitl.md) | Riley (Security Engineer) | Not Started |
-| 5 | [Infrastructure: Observability & Unification](05-infrastructure-observability-unification.md) | Core Developer | Not Started |
+| 1 | [Solo Developer: Context-Aware Safety](01-solo-developer-context-aware-safety.md) | Alex (Senior Developer) | ~40% |
+| 2 | [Platform Team: Org-Wide Visibility](02-platform-team-org-visibility.md) | Jordan (Platform Engineer) | ~15% |
+| 3 | [Researcher: Multi-Reviewer Evaluation](03-researcher-multi-reviewer-evaluation.md) | Sam (PhD Student) | ~20% |
+| 4 | [Policy Author: Compliance with HITL](04-policy-author-compliance-hitl.md) | Riley (Security Engineer) | 0% |
+| 5 | [Infrastructure: Observability & Unification](05-infrastructure-observability-unification.md) | Core Developer | ~95% |
+| 6 | [Junior Developer: Learning with Guardrails](06-junior-developer-learning-with-guardrails.md) | Taylor (Junior Developer) | ~15% |
 
 ## Feature Matrix
 
-| Feature | Story 1 | Story 2 | Story 3 | Story 4 | Story 5 |
-|---------|:-------:|:-------:|:-------:|:-------:|:-------:|
-| Conversation context tracking | **X** | **X** | | **X** | |
-| Conversation Viewer UI | **X** | **X** | | | |
-| Message injection | **X** | **X** | **X** | **X** | |
-| Media attachment support | | **X** | | | |
-| Model param pass-through | **X** | | | | |
-| Parallel query (resampling) | | **X** | | | |
-| Per-user dashboards | | **X** | | | |
-| Escalation tiers | | **X** | | **X** | |
-| Multi-reviewer evaluation | | | **X** | | |
-| Rule extraction | | | **X** | | |
-| LLM rephrasing | | | **X** | **X** | |
-| Human-in-the-loop approval | | | | **X** | |
-| Approval UI | | | | **X** | |
-| Context-aware policy base | | | | **X** | |
-| Compliance dashboard | | | | **X** | |
-| Unified endpoint processing | | | | | **X** |
-| Structured span hierarchy | | | | | **X** |
+| Feature | Story 1 | Story 2 | Story 3 | Story 4 | Story 5 | Story 6 |
+|---------|:-------:|:-------:|:-------:|:-------:|:-------:|:-------:|
+| *Persona* | *Alex* | *Jordan* | *Sam* | *Riley* | *Core Dev* | *Taylor* |
+| *Role* | *Sr Dev* | *Platform* | *PhD* | *Security* | *Infra* | *Jr Dev* |
+| | | | | | | |
+| Conversation context tracking | **X** | **X** | | **X** | | **X** |
+| Conversation Viewer UI | **X** | **X** | | | | **X** |
+| Message injection | **X** | **X** | **X** | **X** | | **X** |
+| Media attachment support | | **X** | | | | **X** |
+| Model param pass-through | **X** | | | | | |
+| Parallel query (resampling) | | **X** | | | | |
+| Per-user dashboards | | **X** | | | | |
+| Escalation tiers | | **X** | | **X** | | **X** |
+| Multi-reviewer evaluation | | | **X** | | | |
+| Rule extraction | | | **X** | | | |
+| LLM rephrasing | | | **X** | **X** | | |
+| Human-in-the-loop approval | | | | **X** | | |
+| Approval UI | | | | **X** | | |
+| Context-aware policy base | | | | **X** | | **X** |
+| Compliance dashboard | | | | **X** | | |
+| Unified endpoint processing | | | | | **X** | |
+| Structured span hierarchy | | | | | **X** | |
+| Session sharing URLs | | **X** | | **X** | | **X** |
+| Session annotations/comments | | **X** | **X** | **X** | | **X** |
+| Guardrail policies (secrets, destructive cmds) | **X** | **X** | | **X** | | **X** |
 
 ## Key Issues by Feature Area
 
@@ -40,9 +47,9 @@ Canonical user stories that guide Luthien Control development. Each story repres
 
 | Issue | Title | Stories |
 |-------|-------|---------|
-| `luthien-proxy-5sr` | Conversation context tracking across requests | 1, 2, 4 |
-| `luthien-proxy-fsb` | Message injection into response stream | 1, 2, 3, 4 |
-| `luthien-proxy-edl` | Conversation Viewer UI | 1, 2 |
+| `luthien-proxy-5sr` | Conversation context tracking across requests | 1, 2, 4, 6 |
+| `luthien-proxy-fsb` | Message injection into response stream | 1, 2, 3, 4, 6 |
+| `luthien-proxy-edl` | Conversation Viewer UI | 1, 2, 6 |
 | `luthien-proxy-mfs` | thinking and verbosity model flags not respected | 1 |
 | `luthien-proxy-en1` | Unify OpenAI and Anthropic endpoint processing | 5 |
 | `luthien-proxy-a0r` | Structured span hierarchy for request processing | 5 |
@@ -54,24 +61,27 @@ Canonical user stories that guide Luthien Control development. Each story repres
 | `luthien-proxy-ay5` | Per-user and per-conversation dashboards | 2 |
 | `luthien-proxy-ap2` | Approval queue UI | 4 |
 | `luthien-proxy-4yh` | Compliance audit dashboard | 4 |
+| TBD | Session sharing URLs | 2, 4, 6 |
+| TBD | Session annotations/comments | 2, 3, 4, 6 |
 
 ### Policy Framework (P2)
 
 | Issue | Title | Stories |
 |-------|-------|---------|
-| `luthien-proxy-3yp` | Context-aware policy base class | 1, 4 |
+| `luthien-proxy-3yp` | Context-aware policy base class | 1, 4, 6 |
 | `luthien-proxy-kjr` | Multi-reviewer parallel policy evaluation | 3 |
 | `luthien-proxy-7ib` | Rule extraction from request context | 3 |
 | `luthien-proxy-8gv` | LLM rephrasing of policy decisions | 3, 4 |
 | `luthien-proxy-rtu` | Human-in-the-loop approval workflow | 4 |
+| TBD | Guardrail policies (secrets, destructive cmds) | 1, 2, 4, 6 |
 
 ### Platform Features (P2)
 
 | Issue | Title | Stories |
 |-------|-------|---------|
-| `luthien-proxy-kxh` | Media attachment support | 2 |
+| `luthien-proxy-kxh` | Media attachment support | 2, 6 |
 | `luthien-proxy-822` | Parallel query (resampling) support | 2 |
-| `luthien-proxy-aai` | Escalation tiers with webhook alerts | 2, 4 |
+| `luthien-proxy-aai` | Escalation tiers with webhook alerts | 2, 4, 6 |
 
 ## Dependency Graph
 
@@ -119,10 +129,10 @@ Canonical user stories that guide Luthien Control development. Each story repres
 
 Based on feature dependencies and story coverage:
 
-### Wave 0: Infrastructure (Do First)
+### Wave 0: Infrastructure ✅ COMPLETE
 
-1. `luthien-proxy-en1` - Unify OpenAI and Anthropic endpoint processing
-2. `luthien-proxy-a0r` - Structured span hierarchy for request processing
+1. `luthien-proxy-en1` - Unify OpenAI and Anthropic endpoint processing ✅
+2. `luthien-proxy-a0r` - Structured span hierarchy for request processing ✅
 
 ### Wave 1: Foundation
 
@@ -135,6 +145,9 @@ Based on feature dependencies and story coverage:
 1. `luthien-proxy-edl` - Conversation Viewer UI
 2. `luthien-proxy-ay5` - Per-user dashboards
 3. `luthien-proxy-aai` - Escalation tiers
+4. TBD - Session sharing URLs
+5. TBD - Session annotations/comments
+6. TBD - Guardrail policies (secrets, destructive cmds)
 
 ### Wave 3: Advanced Policies
 
@@ -166,3 +179,7 @@ Based on feature dependencies and story coverage:
 
 - **2025-12-10**: Initial creation with 4 canonical user stories
 - **2025-12-10**: Added Story 5 (Infrastructure) with unified endpoint processing and structured span hierarchy
+- **2025-12-16**: Added Story 6 (Junior Developer) for learning with guardrails - trust-but-verify persona
+- **2026-01-16**: Updated implementation status for Stories 1-3, 5. Wave 0 (Infrastructure) complete. Conversation Viewer UI partially done.
+- **2026-01-17**: Added [UI Feedback and Development Tracker](https://github.com/LuthienResearch/luthien-org/blob/main/UI-feedback-dev-tracker.md)
+- **2026-01-20**: Added [UX Redesign Principles](https://github.com/LuthienResearch/luthien-org/blob/main/ux-exploration.md) (Nielsen's 10 heuristics applied to Luthien). 

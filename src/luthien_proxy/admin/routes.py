@@ -5,9 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+import litellm
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from luthien_proxy.admin.policy_discovery import discover_policies
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_policy_manager
 from luthien_proxy.policy_manager import (
@@ -15,6 +18,7 @@ from luthien_proxy.policy_manager import (
     PolicyInfo,
     PolicyManager,
 )
+from luthien_proxy.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +71,51 @@ class PolicyListResponse(BaseModel):
     """Response with list of available policy classes."""
 
     policies: list[PolicyClassInfo]
+
+
+class ChatRequest(BaseModel):
+    """Request for testing chat through the proxy."""
+
+    model: str = Field(..., description="Model to use (e.g., 'gpt-4o', 'claude-3-5-sonnet-20241022')")
+    message: str = Field(..., description="Message to send")
+    stream: bool = Field(default=False, description="Whether to stream the response")
+
+
+class ChatResponse(BaseModel):
+    """Response from test chat."""
+
+    success: bool
+    content: str | None = None
+    error: str | None = None
+    model: str | None = None
+    usage: dict[str, Any] | None = None
+
+
+def get_available_models() -> list[str]:
+    """Get available models from litellm.
+
+    Returns a curated list of chat completion models from OpenAI and Anthropic.
+    """
+    models: list[str] = []
+
+    # Get OpenAI chat models
+    if hasattr(litellm, "open_ai_chat_completion_models"):
+        openai_models = [
+            m
+            for m in litellm.open_ai_chat_completion_models
+            if m.startswith(("gpt-", "o1", "o3", "chatgpt-"))
+            and not m.startswith("ft:")
+            and "audio" not in m
+            and "realtime" not in m
+        ]
+        models.extend(sorted(openai_models, reverse=True))
+
+    # Get Anthropic models
+    if hasattr(litellm, "anthropic_models"):
+        anthropic_models = [m for m in litellm.anthropic_models if "claude" in m.lower()]
+        models.extend(sorted(anthropic_models, reverse=True))
+
+    return models
 
 
 # === Routes ===
@@ -156,102 +205,122 @@ async def list_available_policies(
 
     Requires admin authentication.
     """
-    # Hardcoded list of available policies
-    # TODO: Consider dynamic discovery via importlib/pkgutil
+    # Note: Policy discovery is performed on every request. Since the policy set
+    # is static at runtime, this could be cached if performance becomes a concern.
+    discovered = discover_policies()
     policies = [
         PolicyClassInfo(
-            name="NoOpPolicy",
-            class_ref="luthien_proxy.policies.noop_policy:NoOpPolicy",
-            description="Pass-through policy that makes no modifications to requests or responses",
-            config_schema={},
-            example_config={},
-        ),
-        PolicyClassInfo(
-            name="AllCapsPolicy",
-            class_ref="luthien_proxy.policies.all_caps_policy:AllCapsPolicy",
-            description="Converts all response content to uppercase (for testing/demonstration)",
-            config_schema={},
-            example_config={},
-        ),
-        PolicyClassInfo(
-            name="DebugLoggingPolicy",
-            class_ref="luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy",
-            description="Logs all requests and responses for debugging purposes",
-            config_schema={},
-            example_config={},
-        ),
-        PolicyClassInfo(
-            name="SimpleJudgePolicy",
-            class_ref="luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
-            description="Easy-to-customize LLM judge for content and tool calls - just define RULES in a subclass",
-            config_schema={
-                "judge_model": {
-                    "type": "string",
-                    "description": "Model to use for judging",
-                    "default": "claude-3-5-sonnet-20241022",
-                },
-                "judge_temperature": {
-                    "type": "number",
-                    "description": "Temperature for judge model",
-                    "default": 0.0,
-                    "minimum": 0.0,
-                    "maximum": 2.0,
-                },
-                "block_threshold": {
-                    "type": "number",
-                    "description": "Confidence threshold for blocking (0-1)",
-                    "default": 0.7,
-                    "minimum": 0.0,
-                    "maximum": 1.0,
-                },
-            },
-            example_config={
-                "judge_model": "claude-3-5-sonnet-20241022",
-                "judge_temperature": 0.0,
-                "block_threshold": 0.7,
-            },
-        ),
-        PolicyClassInfo(
-            name="ToolCallJudgePolicy",
-            class_ref="luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
-            description="Advanced LLM-based tool call judge with detailed safety evaluation",
-            config_schema={
-                "judge_model": {
-                    "type": "string",
-                    "description": "Model to use for judging tool calls",
-                    "default": "claude-3-5-sonnet-20241022",
-                },
-                "judge_temperature": {
-                    "type": "number",
-                    "description": "Temperature for judge model",
-                    "default": 0.0,
-                    "minimum": 0.0,
-                    "maximum": 2.0,
-                },
-                "allowed_tools": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of tool names that are allowed (empty = all allowed)",
-                    "default": [],
-                },
-                "block_threshold": {
-                    "type": "number",
-                    "description": "Confidence threshold for blocking (0-1)",
-                    "default": 0.7,
-                    "minimum": 0.0,
-                    "maximum": 1.0,
-                },
-            },
-            example_config={
-                "judge_model": "claude-3-5-sonnet-20241022",
-                "judge_temperature": 0.0,
-                "allowed_tools": ["read_file", "list_directory"],
-                "block_threshold": 0.7,
-            },
-        ),
+            name=p["name"],
+            class_ref=p["class_ref"],
+            description=p["description"],
+            config_schema=p["config_schema"],
+            example_config=p["example_config"],
+        )
+        for p in discovered
     ]
-
     return PolicyListResponse(policies=policies)
+
+
+@router.get("/models")
+async def list_models(
+    _: str = Depends(verify_admin_token),
+):
+    """List available models for testing.
+
+    Returns a list of models available via litellm (OpenAI and Anthropic).
+    Requires admin authentication.
+    """
+    return {"models": get_available_models()}
+
+
+@router.post("/test/chat", response_model=ChatResponse)
+async def send_chat(
+    body: ChatRequest,
+    request: Request,
+    _: str = Depends(verify_admin_token),
+):
+    """Send a test message through the proxy with the active policy.
+
+    This endpoint acts as an injection point, forwarding the request to
+    /v1/chat/completions with the server's PROXY_API_KEY. This ensures
+    the test goes through the full policy pipeline (on_request, LLM call,
+    on_response) exactly as real client requests do.
+
+    Requires admin authentication.
+    """
+    settings = get_settings()
+    if not settings.proxy_api_key:
+        return ChatResponse(
+            success=False,
+            error="PROXY_API_KEY not configured on server",
+            model=body.model,
+        )
+
+    # Build the base URL from the incoming request
+    # Note: This creates a self-calling HTTP request back to the same server.
+    # This ensures the test goes through the full policy pipeline but may have
+    # issues behind reverse proxies or with certain async configurations.
+    base_url = str(request.base_url).rstrip("/")
+
+    # Build OpenAI-format request payload
+    payload = {
+        "model": body.model,
+        "messages": [{"role": "user", "content": body.message}],
+        "stream": False,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{base_url}/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {settings.proxy_api_key}"},
+            )
+
+        if response.status_code != 200:
+            error_detail = response.text
+            try:
+                error_json = response.json()
+                error_detail = error_json.get("detail", error_detail)
+            except Exception:
+                pass
+            return ChatResponse(
+                success=False,
+                error=f"Proxy returned {response.status_code}: {error_detail}",
+                model=body.model,
+            )
+
+        data = response.json()
+
+        # Extract content from response
+        content = None
+        choices = data.get("choices", [])
+        if choices:
+            message = choices[0].get("message", {})
+            content = message.get("content")
+
+        # Extract usage
+        usage = data.get("usage")
+
+        return ChatResponse(
+            success=True,
+            content=content,
+            model=body.model,
+            usage=usage,
+        )
+    except httpx.TimeoutException:
+        return ChatResponse(
+            success=False,
+            error="Request timed out (120s limit)",
+            model=body.model,
+        )
+    except Exception as e:
+        logger.error(f"Test chat failed: {e}", exc_info=True)
+        return ChatResponse(
+            success=False,
+            error=str(e),
+            model=body.model,
+        )
 
 
 __all__ = ["router"]

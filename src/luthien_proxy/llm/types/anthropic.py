@@ -81,8 +81,30 @@ class AnthropicToolResultBlock(TypedDict, total=False):
     is_error: bool
 
 
+class AnthropicThinkingBlock(TypedDict, total=False):
+    """Anthropic thinking content block (extended thinking feature)."""
+
+    type: Required[Literal["thinking"]]
+    thinking: Required[str]
+    signature: str
+
+
+class AnthropicRedactedThinkingBlock(TypedDict):
+    """Anthropic redacted thinking content block."""
+
+    type: Literal["redacted_thinking"]
+    data: str
+
+
 # Union of all content block types
-AnthropicContentBlock = AnthropicTextBlock | AnthropicImageBlock | AnthropicToolUseBlock | AnthropicToolResultBlock
+AnthropicContentBlock = (
+    AnthropicTextBlock
+    | AnthropicImageBlock
+    | AnthropicToolUseBlock
+    | AnthropicToolResultBlock
+    | AnthropicThinkingBlock
+    | AnthropicRedactedThinkingBlock
+)
 
 
 # =============================================================================
@@ -143,6 +165,71 @@ class AnthropicTool(TypedDict, total=False):
 
 
 # =============================================================================
+# Tool Choice Types (Anthropic API spec)
+# =============================================================================
+
+
+class AnthropicToolChoiceAuto(TypedDict):
+    """Anthropic tool choice: auto (model decides)."""
+
+    type: Literal["auto"]
+
+
+class AnthropicToolChoiceAny(TypedDict):
+    """Anthropic tool choice: any (force tool use)."""
+
+    type: Literal["any"]
+
+
+class AnthropicToolChoiceTool(TypedDict):
+    """Anthropic tool choice: specific tool required."""
+
+    type: Literal["tool"]
+    name: str
+
+
+AnthropicToolChoice = AnthropicToolChoiceAuto | AnthropicToolChoiceAny | AnthropicToolChoiceTool
+
+
+# =============================================================================
+# Thinking Configuration Types (Anthropic API spec)
+# =============================================================================
+
+
+class AnthropicThinkingConfig(TypedDict, total=False):
+    """Anthropic thinking configuration for extended thinking feature."""
+
+    type: Required[Literal["enabled"]]
+    budget_tokens: Required[int]
+
+
+# =============================================================================
+# Request Types (Anthropic API spec)
+# =============================================================================
+
+
+class AnthropicRequest(TypedDict, total=False):
+    """Anthropic Messages API request.
+
+    This represents the request body sent to POST /v1/messages.
+    """
+
+    model: Required[str]
+    messages: Required[list[AnthropicMessage]]
+    max_tokens: Required[int]
+    system: AnthropicSystemContent
+    tools: list[AnthropicTool]
+    tool_choice: AnthropicToolChoice
+    temperature: float
+    top_p: float
+    top_k: int
+    stop_sequences: list[str]
+    stream: bool
+    metadata: JSONObject
+    thinking: AnthropicThinkingConfig
+
+
+# =============================================================================
 # Response Types (Anthropic API spec)
 # =============================================================================
 
@@ -182,6 +269,8 @@ __all__ = [
     "AnthropicImageBlock",
     "AnthropicToolUseBlock",
     "AnthropicToolResultBlock",
+    "AnthropicThinkingBlock",
+    "AnthropicRedactedThinkingBlock",
     "AnthropicContentBlock",
     # Messages
     "AnthropicUserMessage",
@@ -193,6 +282,15 @@ __all__ = [
     # Tools
     "JSONSchemaObject",
     "AnthropicTool",
+    # Tool choice
+    "AnthropicToolChoiceAuto",
+    "AnthropicToolChoiceAny",
+    "AnthropicToolChoiceTool",
+    "AnthropicToolChoice",
+    # Thinking configuration
+    "AnthropicThinkingConfig",
+    # Request types
+    "AnthropicRequest",
     # Response types
     "AnthropicUsage",
     "AnthropicResponse",

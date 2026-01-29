@@ -5,44 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Policy Configuration - Luthien Proxy</title>
     <style>
-        /* Theme Variables */
-        :root {
-            /* Backgrounds */
-            --bg-primary: #0a0a0a;
-            --bg-secondary: #141414;
-            --bg-tertiary: #1a1a1a;
-
-            /* Text */
-            --text-primary: #e5e5e5;
-            --text-secondary: #888;
-            --text-tertiary: #666;
-
-            /* Borders */
-            --border-color: #262626;
-            --border-light: #333;
-
-            /* Status Colors */
-            --color-success: #4ade80;
-            --color-error: #f87171;
-            --color-warning: #f59e0b;
-            --color-info: #2563eb;
-            --color-neutral: #06b6d4;
-
-            /* Spacing */
-            --spacing-xs: 4px;
-            --spacing-sm: 8px;
-            --spacing-md: 12px;
-            --spacing-lg: 16px;
-            --spacing-xl: 24px;
-            --spacing-2xl: 32px;
-
-            /* Border Radius */
-            --radius-sm: 4px;
-            --radius-md: 6px;
-            --radius-lg: 8px;
-        }
-
-        /* Base Styles */
         * {
             margin: 0;
             padding: 0;
@@ -51,218 +13,296 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
+            background: #0a0a0a;
+            color: #e5e5e5;
             line-height: 1.6;
-            font-size: 13px;
         }
 
-        /* Navigation Header */
-        .nav-header {
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-color);
-            padding: var(--spacing-lg) var(--spacing-xl);
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
         }
 
-        .nav-header h1 {
-            font-size: 20px;
-            font-weight: 600;
-            margin-bottom: var(--spacing-sm);
-        }
-
-        .nav-links {
+        header {
             display: flex;
-            gap: var(--spacing-lg);
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 32px;
         }
 
-        .nav-links a {
-            color: var(--text-secondary);
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #888;
+        }
+
+        .header-links {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .header-links a {
+            color: #888;
             text-decoration: none;
-            font-size: 13px;
+            font-size: 14px;
             transition: color 0.2s;
         }
 
-        .nav-links a:hover {
-            color: var(--text-primary);
+        .header-links a:hover {
+            color: #e5e5e5;
         }
 
-        .nav-links a.active {
-            color: var(--color-info);
-            font-weight: 600;
-        }
-
-        .nav-links a.active::after {
-            content: " ●";
-            font-size: 8px;
-            vertical-align: middle;
-        }
-
-        /* Container */
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: var(--spacing-2xl);
-        }
-
-        /* Page Title */
-        .page-title {
-            margin-bottom: var(--spacing-2xl);
-        }
-
-        .page-title h2 {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: var(--spacing-sm);
-        }
-
-        .page-title .subtitle {
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-
-        /* Stepper */
-        .stepper {
+        /* Current Policy Banner */
+        .current-policy-banner {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
             display: flex;
-            justify-content: center;
+            justify-content: space-between;
             align-items: center;
-            margin: var(--spacing-2xl) 0;
-            gap: var(--spacing-md);
         }
 
-        .step {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: var(--spacing-sm);
-            cursor: pointer;
-        }
-
-        .step.disabled {
-            cursor: not-allowed;
-        }
-
-        .step-circle {
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            border: 2px solid var(--border-light);
-            background: var(--bg-secondary);
+        .current-policy-info {
             display: flex;
             align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            font-size: 16px;
-            color: var(--text-secondary);
-            transition: all 0.3s;
+            gap: 16px;
         }
 
-        .step.active .step-circle {
-            background: var(--color-info);
-            border-color: var(--color-info);
-            color: white;
-        }
-
-        .step.completed .step-circle {
-            background: var(--color-success);
-            border-color: var(--color-success);
-            color: white;
-        }
-
-        .step.completed .step-circle::before {
-            content: "✓";
-        }
-
-        .step-label {
-            font-size: 12px;
-            color: var(--text-secondary);
-            text-align: center;
-            max-width: 120px;
-        }
-
-        .step.active .step-label {
-            color: var(--text-primary);
-            font-weight: 600;
-        }
-
-        .step-line {
-            width: 100px;
-            height: 2px;
-            background: var(--border-light);
-            margin: 0 var(--spacing-md);
-        }
-
-        .step-line.completed {
-            background: var(--color-success);
-        }
-
-        /* Step Content */
-        .step-content {
-            display: none;
-        }
-
-        .step-content.active {
-            display: block;
-        }
-
-        /* Policy Card */
-        .policy-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            padding: var(--spacing-xl);
-            margin-bottom: var(--spacing-lg);
-            transition: all 0.2s;
-        }
-
-        .policy-card:hover {
-            border-color: var(--border-light);
-        }
-
-        .policy-card.selected {
-            border-color: var(--color-success);
-            border-width: 2px;
-            background: #0a1f0a;
-        }
-
-        .policy-card h3 {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: var(--spacing-md);
-            color: var(--text-primary);
-        }
-
-        .policy-description {
-            font-size: 14px;
-            color: var(--text-primary);
-            margin-bottom: var(--spacing-md);
-        }
-
-        .policy-example {
+        .current-policy-label {
             font-size: 13px;
-            color: var(--text-secondary);
-            margin-bottom: var(--spacing-sm);
+            color: #888;
+        }
+
+        .current-policy-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #4ade80;
+        }
+
+        .current-policy-meta {
+            font-size: 12px;
+            color: #666;
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
         }
 
-        .policy-usecase {
-            font-size: 13px;
-            color: var(--text-secondary);
-            font-style: italic;
-            margin-bottom: var(--spacing-lg);
+        /* Main Layout */
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 24px;
         }
 
-        .policy-card-footer {
+        @media (max-width: 1000px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Policy List */
+        .policy-list-section h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #e5e5e5;
+        }
+
+        .policy-list {
             display: flex;
-            justify-content: flex-end;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .policy-item {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 8px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .policy-item:hover {
+            border-color: #333;
+            background: #161616;
+        }
+
+        .policy-item.selected {
+            border-color: #2563eb;
+            background: #0a1628;
+        }
+
+        .policy-item.active {
+            border-left: 3px solid #4ade80;
+        }
+
+        .policy-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .policy-item-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: #e5e5e5;
+        }
+
+        .policy-item-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .policy-item-badge.active {
+            background: #0a3d0a;
+            color: #4ade80;
+        }
+
+        .policy-item-description {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+
+        .policy-item-config {
+            font-size: 12px;
+            color: #666;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        }
+
+        /* Configuration Panel */
+        .config-panel {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 8px;
+            padding: 20px;
+            position: sticky;
+            top: 24px;
+        }
+
+        .config-panel h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #e5e5e5;
+        }
+
+        .config-panel-empty {
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .selected-policy-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e5e5e5;
+            margin-bottom: 8px;
+        }
+
+        .selected-policy-description {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #262626;
+        }
+
+        .config-form {
+            margin-bottom: 20px;
+        }
+
+        .config-field {
+            margin-bottom: 16px;
+        }
+
+        .config-field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #e5e5e5;
+            margin-bottom: 6px;
+        }
+
+        .config-input {
+            width: 100%;
+            padding: 8px 12px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
+            font-size: 13px;
+            font-family: inherit;
+        }
+
+        .config-input:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+
+        .config-input.invalid {
+            border-color: #f87171;
+        }
+
+        .config-json {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .config-hint {
+            display: block;
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-wrapper label {
+            margin-bottom: 0;
+        }
+
+        .config-checkbox {
+            width: 16px;
+            height: 16px;
+        }
+
+        .no-config-message {
+            color: #666;
+            font-style: italic;
+            font-size: 13px;
         }
 
         /* Buttons */
+        .button-group {
+            display: flex;
+            gap: 8px;
+        }
+
         button {
             padding: 8px 16px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-light);
-            border-radius: var(--radius-md);
-            color: var(--text-primary);
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
             font-size: 13px;
             cursor: pointer;
             transition: all 0.2s;
@@ -270,19 +310,8 @@
         }
 
         button:hover:not(:disabled) {
-            border-color: var(--color-info);
-            background: var(--bg-tertiary);
-        }
-
-        button.primary {
-            background: var(--color-info);
-            border-color: var(--color-info);
-            color: white;
-        }
-
-        button.primary:hover:not(:disabled) {
-            background: #1d4ed8;
-            border-color: #1d4ed8;
+            border-color: #4ade80;
+            background: #141414;
         }
 
         button:disabled {
@@ -290,193 +319,51 @@
             cursor: not-allowed;
         }
 
-        button.success {
-            background: var(--color-success);
-            border-color: var(--color-success);
+        button.primary {
+            background: #2563eb;
+            border-color: #2563eb;
             color: white;
+            flex: 1;
         }
 
-        /* Confirmation Box */
-        .confirmation-box {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            padding: var(--spacing-xl);
-            margin-bottom: var(--spacing-xl);
+        button.primary:hover:not(:disabled) {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
         }
 
-        .confirmation-box h3 {
-            font-size: 18px;
-            margin-bottom: var(--spacing-sm);
+        /* Status Messages */
+        .status-message {
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-top: 16px;
         }
 
-        .confirmation-box .description {
-            color: var(--text-secondary);
-            margin-bottom: var(--spacing-xl);
+        .status-message.success {
+            background: #0a3d0a;
+            border: 1px solid #4ade80;
+            color: #4ade80;
         }
 
-        .what-happens {
-            margin-bottom: var(--spacing-xl);
-        }
-
-        .what-happens h4 {
-            font-size: 14px;
-            margin-bottom: var(--spacing-md);
-            color: var(--text-primary);
-        }
-
-        .what-happens ul {
-            list-style: none;
-            padding: 0;
-        }
-
-        .what-happens li {
-            padding-left: var(--spacing-lg);
-            margin-bottom: var(--spacing-sm);
-            position: relative;
-        }
-
-        .what-happens li::before {
-            content: "•";
-            position: absolute;
-            left: 0;
-            color: var(--color-info);
-        }
-
-        /* Status Box */
-        .status-box {
-            background: #1e3a5f;
-            border: 1px solid var(--color-info);
-            border-radius: var(--radius-md);
-            padding: var(--spacing-lg);
-            margin-bottom: var(--spacing-lg);
-            color: #60a5fa;
-        }
-
-        .status-box.error {
-            background: #4d1a1a;
-            border-color: var(--color-error);
+        .status-message.error {
+            background: #3d0a0a;
+            border: 1px solid #f87171;
             color: #fca5a5;
         }
 
-        .status-box.success {
-            background: #0a3d0a;
-            border-color: var(--color-success);
-            color: var(--color-success);
-        }
-
-        .status-box p {
-            margin-bottom: var(--spacing-sm);
-            line-height: 1.8;
-        }
-
-        .status-box p:last-child {
-            margin-bottom: 0;
-        }
-
-        .status-icon {
-            margin-right: var(--spacing-sm);
-        }
-
-        .button-group {
-            display: flex;
-            justify-content: center;
-            gap: var(--spacing-md);
-        }
-
-        /* Test Prompt Box */
-        .test-prompt-box {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            padding: var(--spacing-xl);
-        }
-
-        .test-prompt-box h3 {
-            font-size: 18px;
-            margin-bottom: var(--spacing-md);
-        }
-
-        .test-prompt-box .instructions {
-            color: var(--text-secondary);
-            margin-bottom: var(--spacing-lg);
-        }
-
-        .prompt-textarea {
-            width: 100%;
-            min-height: 100px;
-            background: var(--bg-primary);
-            border: 1px solid var(--border-light);
-            border-radius: var(--radius-md);
-            color: var(--text-primary);
-            font-size: 13px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            padding: var(--spacing-md);
-            margin-bottom: var(--spacing-md);
-            resize: vertical;
-        }
-
-        .prompt-textarea:focus {
-            outline: none;
-            border-color: var(--color-info);
-        }
-
-        .copy-button-container {
-            display: flex;
-            justify-content: flex-end;
-            margin-bottom: var(--spacing-xl);
-        }
-
-        .test-status {
-            margin-top: var(--spacing-xl);
-            padding: var(--spacing-lg);
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-        }
-
-        .test-status.waiting {
-            color: var(--text-secondary);
-        }
-
-        .test-status.detected {
-            background: #0a3d0a;
-            border-color: var(--color-success);
-            color: var(--text-primary);
-        }
-
-        .call-id {
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            color: var(--color-info);
-            font-size: 12px;
-        }
-
-        .result-links {
-            margin-top: var(--spacing-lg);
-        }
-
-        .result-links h4 {
-            font-size: 14px;
-            margin-bottom: var(--spacing-md);
-        }
-
-        .result-links a {
-            display: block;
-            color: var(--color-info);
-            text-decoration: none;
-            margin-bottom: var(--spacing-sm);
-            transition: color 0.2s;
-        }
-
-        .result-links a:hover {
+        .status-message.info {
+            background: #1e3a5f;
+            border: 1px solid #2563eb;
             color: #60a5fa;
         }
 
-        .result-links a::after {
-            content: " →";
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
         }
 
-        /* Loading Animation */
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -487,123 +374,262 @@
             animation: spin 1s linear infinite;
         }
 
-        /* Troubleshooting */
-        .troubleshooting {
-            margin-top: var(--spacing-lg);
+        /* Test Section - standalone panel */
+        .test-panel {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
         }
 
-        .troubleshooting h4 {
+        .test-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .test-panel h3 {
             font-size: 14px;
-            margin-bottom: var(--spacing-md);
+            font-weight: 600;
+            color: #e5e5e5;
+            margin: 0;
         }
 
-        .troubleshooting ul {
-            list-style: none;
-            padding: 0;
-        }
-
-        .troubleshooting li {
-            padding-left: var(--spacing-lg);
-            margin-bottom: var(--spacing-sm);
-            position: relative;
-        }
-
-        .troubleshooting li::before {
-            content: "•";
-            position: absolute;
-            left: 0;
-        }
-
-        .troubleshooting code {
-            background: var(--bg-primary);
-            padding: 2px 6px;
-            border-radius: var(--radius-sm);
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        .test-panel-toggle {
             font-size: 12px;
+            padding: 4px 10px;
+            background: transparent;
+            border: 1px solid #333;
+        }
+
+        .test-panel-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 800px) {
+            .test-panel-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .test-panel-content.collapsed {
+            display: none;
+        }
+
+        .test-input-section {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .test-output-section {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .test-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .test-field label {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .test-field-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        .test-field-row .test-field {
+            flex: 1;
+        }
+
+        .test-select {
+            padding: 8px 12px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
+            font-size: 13px;
+            font-family: inherit;
+            cursor: pointer;
+        }
+
+        .test-select:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+
+        .test-input {
+            width: 100%;
+            min-height: 80px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
+            font-size: 13px;
+            font-family: inherit;
+            padding: 10px;
+            resize: vertical;
+            flex: 1;
+        }
+
+        .test-input:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+
+        .test-send-btn {
+            align-self: flex-start;
+            padding: 8px 20px;
+        }
+
+        .test-response-label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .test-response {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 12px;
+            min-height: 120px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+            flex: 1;
+        }
+
+        .test-response.empty {
+            color: #666;
+            font-style: italic;
+        }
+
+        .test-response.error {
+            color: #fca5a5;
+            border-color: #f87171;
+        }
+
+        .test-response.success {
+            color: #e5e5e5;
+        }
+
+        .test-meta {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #666;
+        }
+
+        /* Quick Links */
+        .quick-links {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #262626;
+        }
+
+        .quick-links h3 {
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .quick-links a {
+            display: block;
+            color: #2563eb;
+            text-decoration: none;
+            font-size: 13px;
+            padding: 4px 0;
+            transition: color 0.2s;
+        }
+
+        .quick-links a:hover {
+            color: #60a5fa;
         }
     </style>
 </head>
 <body>
-    <!-- Navigation Header -->
-    <div class="nav-header">
-        <h1>Luthien Proxy</h1>
-        <div class="nav-links">
-            <a href="/activity/monitor">Activity Monitor</a>
-            <a href="/policy-config" class="active">Policy Config</a>
-            <a href="/debug/diff">Diff Viewer</a>
-            <a href="/auth/logout" style="margin-left: 20px; color: #888;">Sign Out</a>
-        </div>
-    </div>
-
-    <!-- Main Container -->
     <div class="container">
-        <!-- Page Title -->
-        <div class="page-title">
-            <h2>Policy Configuration</h2>
-            <p class="subtitle">Live configuration and testing of Luthien policies</p>
+        <header>
+            <div>
+                <h1>Policy Configuration</h1>
+                <p class="subtitle">Configure and activate gateway policies</p>
+            </div>
+            <div class="header-links">
+                <a href="/activity/monitor">Activity Monitor</a>
+                <a href="/debug/diff">Diff Viewer</a>
+                <a href="/auth/logout">Sign Out</a>
+            </div>
+        </header>
+
+        <!-- Current Policy Banner -->
+        <div class="current-policy-banner" id="current-policy-banner">
+            <div class="current-policy-info">
+                <span class="current-policy-label">Active Policy:</span>
+                <span class="current-policy-name" id="current-policy-name">Loading...</span>
+            </div>
+            <div class="current-policy-meta" id="current-policy-meta"></div>
         </div>
 
-        <!-- Stepper -->
-        <div class="stepper">
-            <div class="step active" data-step="1" id="step-indicator-1">
-                <div class="step-circle">1</div>
-                <div class="step-label">Select Policy</div>
+        <!-- Test Panel (tests against active policy) -->
+        <div class="test-panel" id="test-panel">
+            <div class="test-panel-header">
+                <h3>Test Active Policy</h3>
+                <button class="test-panel-toggle" id="test-panel-toggle">Hide</button>
             </div>
-            <div class="step-line" id="line-1"></div>
-            <div class="step" data-step="2" id="step-indicator-2">
-                <div class="step-circle">2</div>
-                <div class="step-label">Enable & Test</div>
-            </div>
-            <div class="step-line" id="line-2"></div>
-            <div class="step" data-step="3" id="step-indicator-3">
-                <div class="step-circle">3</div>
-                <div class="step-label">Try out Policy</div>
-            </div>
-        </div>
-
-        <!-- Step 1: Select Policy -->
-        <div class="step-content active" id="step-1">
-            <div class="policy-grid">
-                <!-- Policies loaded dynamically from /admin/policy/list -->
-            </div>
-        </div>
-
-        <!-- Step 2: Enable & Test -->
-        <div class="step-content" id="step-2">
-            <div class="confirmation-box">
-                <h3>You selected: <span id="selected-policy-name"></span></h3>
-                <p class="description" id="selected-policy-description"></p>
-
-                <div class="what-happens">
-                    <h4>What happens next:</h4>
-                    <ul>
-                        <li>Policy instance will be created and saved</li>
-                        <li>Policy will become active immediately</li>
-                    </ul>
+            <div class="test-panel-content" id="test-panel-content">
+                <div class="test-input-section">
+                    <div class="test-field-row">
+                        <div class="test-field">
+                            <label for="model-select">Model</label>
+                            <input type="text" class="test-select" id="model-select" list="model-datalist" placeholder="Enter model name...">
+                            <datalist id="model-datalist">
+                                <!-- Populated dynamically -->
+                            </datalist>
+                        </div>
+                    </div>
+                    <div class="test-field" style="flex: 1; display: flex; flex-direction: column;">
+                        <label for="test-message">Message</label>
+                        <textarea class="test-input" id="test-message" placeholder="Enter a message to test the active policy...">Hello! Please respond with a short greeting.</textarea>
+                    </div>
+                    <button class="test-send-btn" id="send-btn">Send Message</button>
                 </div>
-
-                <div id="status-container"></div>
-
-                <div class="button-group">
-                    <button class="primary" id="create-activate-btn">Create & Activate</button>
+                <div class="test-output-section">
+                    <div class="test-response-label">Response</div>
+                    <div class="test-response empty" id="test-response">Response will appear here...</div>
+                    <div class="test-meta" id="test-meta"></div>
                 </div>
             </div>
         </div>
 
-        <!-- Step 3: Try out Policy -->
-        <div class="step-content" id="step-3">
-            <div class="test-prompt-box">
-                <h3>Test the <span id="test-policy-name"></span></h3>
-                <p class="instructions">Copy this test prompt and paste it into your Claude Code terminal:</p>
-
-                <textarea class="prompt-textarea" id="test-prompt" readonly></textarea>
-
-                <div class="copy-button-container">
-                    <button id="copy-prompt-btn">Copy Prompt</button>
+        <!-- Main Layout -->
+        <div class="main-layout">
+            <!-- Policy List -->
+            <div class="policy-list-section">
+                <h2>Available Policies</h2>
+                <div class="policy-list" id="policy-list">
+                    <div class="loading"><span class="spinner">⏳</span> Loading policies...</div>
                 </div>
+            </div>
 
-                <div class="test-status waiting" id="test-status">
-                    <p><span class="status-icon spinner">⏳</span> Waiting for test request...</p>
+            <!-- Configuration Panel -->
+            <div class="config-panel" id="config-panel">
+                <div class="config-panel-empty">
+                    Select a policy to configure
                 </div>
             </div>
         </div>
