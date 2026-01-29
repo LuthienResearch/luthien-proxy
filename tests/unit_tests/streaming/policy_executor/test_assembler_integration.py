@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from litellm.types.utils import ChatCompletionDeltaToolCall as ToolCall
-from litellm.types.utils import Delta, Function, ModelResponse, StreamingChoices
+from litellm.types.utils import Function
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.policies import PolicyContext
@@ -41,20 +42,13 @@ def mock_policy():
     return policy
 
 
-def create_content_chunk(content: str, finish_reason: str | None = None) -> ModelResponse:
+def create_content_chunk(content: str, finish_reason: str | None = None):
     """Helper to create a content chunk."""
-    return ModelResponse(
-        id="chatcmpl-123",
-        choices=[
-            StreamingChoices(
-                delta=Delta(content=content, role="assistant"),
-                finish_reason=finish_reason,
-                index=0,
-            )
-        ],
-        created=1234567890,
+    return make_streaming_chunk(
+        content=content,
         model="gpt-4",
-        object="chat.completion.chunk",
+        id="chatcmpl-123",
+        finish_reason=finish_reason,
     )
 
 
@@ -63,7 +57,7 @@ def create_tool_call_chunk(
     name: str | None = None,
     arguments: str | None = None,
     index: int = 0,
-) -> ModelResponse:
+):
     """Helper to create a tool call chunk."""
     tool_call = ToolCall(
         id=tool_id,
@@ -71,18 +65,12 @@ def create_tool_call_chunk(
         index=index,
         type="function",
     )
-    return ModelResponse(
-        id="chatcmpl-123",
-        choices=[
-            StreamingChoices(
-                delta=Delta(role="assistant", tool_calls=[tool_call]),
-                finish_reason=None,
-                index=0,
-            )
-        ],
-        created=1234567890,
+    return make_streaming_chunk(
+        content=None,
         model="gpt-4",
-        object="chat.completion.chunk",
+        id="chatcmpl-123",
+        finish_reason=None,
+        tool_calls=[tool_call],
     )
 
 

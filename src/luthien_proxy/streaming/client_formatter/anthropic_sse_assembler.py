@@ -14,6 +14,8 @@ from typing import cast
 
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
+from luthien_proxy.llm.response_normalizer import normalize_chunk
+
 
 class AnthropicSSEAssembler:
     """Assembles Anthropic SSE events from OpenAI streaming chunks.
@@ -248,6 +250,8 @@ class AnthropicSSEAssembler:
         Returns:
             Anthropic SSE event dict (may contain internal flags like _complete_tool_call)
         """
+        # Normalize chunk to ensure delta is a Delta object (litellm >= 1.81.0 returns dict)
+        chunk = normalize_chunk(chunk)
         delta: Delta = cast(StreamingChoices, chunk.choices[0]).delta
 
         # Handle tool calls

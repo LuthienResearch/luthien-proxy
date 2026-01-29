@@ -21,8 +21,8 @@ from litellm.types.utils import (
     Delta,
     Function,
     ModelResponse,
-    StreamingChoices,
 )
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.llm.types import Request
 from luthien_proxy.policies import PolicyContext
@@ -77,13 +77,7 @@ class TestToolCallJudgePolicyContentForwarding:
         policy = ToolCallJudgePolicy()
 
         # Create a content chunk
-        content_chunk = ModelResponse(
-            id="test",
-            object="chat.completion.chunk",
-            created=123,
-            model="test",
-            choices=[{"index": 0, "delta": {"content": "hello world"}, "finish_reason": None}],
-        )
+        content_chunk = make_streaming_chunk(content="hello world", model="test", id="test")
 
         ctx = create_mock_context(raw_chunks=[content_chunk])
 
@@ -159,19 +153,7 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
             index=0,
             function=Function(name="dangerous_action", arguments='{"confirm": true}'),
         )
-        tool_call_chunk = ModelResponse(
-            id="test",
-            object="chat.completion.chunk",
-            created=123,
-            model="test",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(tool_calls=[tc]),
-                    finish_reason=None,
-                )
-            ],
-        )
+        tool_call_chunk = make_streaming_chunk(content=None, model="test", id="test", tool_calls=[tc])
         ctx.original_streaming_response_state.raw_chunks = [tool_call_chunk]
         await policy.on_tool_call_delta(ctx)
 
@@ -230,19 +212,7 @@ class TestToolCallJudgePolicyBlockedMessageChunks:
             index=0,
             function=Function(name="safe_action", arguments='{"ok": true}'),
         )
-        tool_call_chunk = ModelResponse(
-            id="test",
-            object="chat.completion.chunk",
-            created=123,
-            model="test",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(tool_calls=[tc]),
-                    finish_reason=None,
-                )
-            ],
-        )
+        tool_call_chunk = make_streaming_chunk(content=None, model="test", id="test", tool_calls=[tc])
 
         ctx = create_mock_context(
             transaction_id="test-call",
@@ -298,57 +268,21 @@ class TestToolCallJudgePolicyToolCallBuffering:
             index=0,
             function=Function(name="test_tool", arguments=None),
         )
-        chunk1 = ModelResponse(
-            id="test",
-            object="chat.completion.chunk",
-            created=123,
-            model="test",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(tool_calls=[tc1]),
-                    finish_reason=None,
-                )
-            ],
-        )
+        chunk1 = make_streaming_chunk(content=None, model="test", id="test", tool_calls=[tc1])
 
         # Chunk 2: first part of arguments
         tc2 = ChatCompletionDeltaToolCall(
             index=0,
             function=Function(name=None, arguments='{"key":'),
         )
-        chunk2 = ModelResponse(
-            id="test",
-            object="chat.completion.chunk",
-            created=123,
-            model="test",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(tool_calls=[tc2]),
-                    finish_reason=None,
-                )
-            ],
-        )
+        chunk2 = make_streaming_chunk(content=None, model="test", id="test", tool_calls=[tc2])
 
         # Chunk 3: rest of arguments
         tc3 = ChatCompletionDeltaToolCall(
             index=0,
             function=Function(name=None, arguments='"value"}'),
         )
-        chunk3 = ModelResponse(
-            id="test",
-            object="chat.completion.chunk",
-            created=123,
-            model="test",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(tool_calls=[tc3]),
-                    finish_reason=None,
-                )
-            ],
-        )
+        chunk3 = make_streaming_chunk(content=None, model="test", id="test", tool_calls=[tc3])
 
         ctx = create_mock_context(transaction_id="test-call")
 
@@ -581,19 +515,7 @@ class TestToolCallJudgeErrorHandling:
             index=0,
             function=Function(name="test_tool", arguments="{}"),
         )
-        chunk = ModelResponse(
-            id="test",
-            object="chat.completion.chunk",
-            created=123,
-            model="test",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(tool_calls=[tc]),
-                    finish_reason=None,
-                )
-            ],
-        )
+        chunk = make_streaming_chunk(content=None, model="test", id="test", tool_calls=[tc])
 
         ctx = create_mock_context(transaction_id="test-call", raw_chunks=[chunk])
         await policy.on_tool_call_delta(ctx)

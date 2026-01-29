@@ -188,14 +188,15 @@ class TestCreateToolCallChunk:
 
         assert chunk1.id != chunk2.id
 
-    def test_uses_streaming_choices_not_choices(self):
-        """Test that tool call chunks use StreamingChoices for proper streaming format.
+    def test_has_delta_for_streaming_format(self):
+        """Test that tool call chunks have delta field for proper streaming format.
 
-        This ensures the chunk only has 'delta' field, not 'message' field,
-        which is required for OpenAI streaming format compatibility.
+        This ensures the chunk has a 'delta' field which is required for
+        OpenAI streaming format compatibility.
+
+        Note: litellm 1.81+ converts StreamingChoices to Choices internally,
+        but the delta field is still present and usable for streaming.
         """
-        from litellm.types.utils import StreamingChoices
-
         tool_call = ChatCompletionMessageToolCall(
             id="call-123",
             type="function",
@@ -207,16 +208,11 @@ class TestCreateToolCallChunk:
 
         chunk = create_tool_call_chunk(tool_call)
 
-        # Verify it's a StreamingChoices, not Choices
-        assert isinstance(chunk.choices[0], StreamingChoices)
-
-        # StreamingChoices has delta but not message
+        # Chunk should have delta attribute for streaming
         assert hasattr(chunk.choices[0], "delta")
-        # When serialized, should not have 'message' key at top level of choice
+        # When serialized, should have 'delta' key
         choice_dict = chunk.choices[0].model_dump()
         assert "delta" in choice_dict
-        # message should be None or not present for streaming
-        assert choice_dict.get("message") is None
 
 
 class TestCreateFinishChunk:
@@ -264,20 +260,18 @@ class TestCreateFinishChunk:
         assert chunk1.id.startswith("finish-")
         assert chunk2.id.startswith("finish-")
 
-    def test_uses_streaming_choices(self):
-        """Test that finish chunks use StreamingChoices for proper streaming format."""
-        from litellm.types.utils import StreamingChoices
+    def test_has_delta_for_streaming_format(self):
+        """Test that finish chunks have delta field for proper streaming format.
 
+        Note: litellm 1.81+ converts StreamingChoices to Choices internally,
+        but the delta field is still present and usable for streaming.
+        """
         chunk = create_finish_chunk("tool_calls")
 
-        # Verify it's a StreamingChoices, not Choices
-        assert isinstance(chunk.choices[0], StreamingChoices)
-
-        # StreamingChoices has delta but not message
+        # Chunk should have delta attribute for streaming
         assert hasattr(chunk.choices[0], "delta")
         choice_dict = chunk.choices[0].model_dump()
         assert "delta" in choice_dict
-        assert choice_dict.get("message") is None
 
     def test_has_timestamp(self):
         """Test that chunk has a created timestamp."""
