@@ -17,11 +17,10 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from litellm.types.utils import (
     ChatCompletionDeltaToolCall,
-    Delta,
     Function,
     ModelResponse,
-    StreamingChoices,
 )
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.llm.types import Request
 from luthien_proxy.policies import PolicyContext
@@ -416,13 +415,7 @@ class TestParallelRulesPolicyStreaming:
             judge={"model": "test"},
             rules=[{"name": "test", "ruletext": "test"}],
         )
-        content_chunk = ModelResponse(
-            id="test",
-            object="chat.completion.chunk",
-            created=123,
-            model="test",
-            choices=[StreamingChoices(index=0, delta=Delta(content="hello"), finish_reason=None)],
-        )
+        content_chunk = make_streaming_chunk(content="hello", model="test", id="test", finish_reason=None)
         ctx = create_mock_streaming_context(raw_chunks=[content_chunk])
 
         await policy.on_content_delta(ctx)
@@ -520,13 +513,7 @@ class TestParallelRulesPolicyStreaming:
             index=0,
             function=Function(name="test_tool", arguments='{"arg":'),
         )
-        chunk = ModelResponse(
-            id="test",
-            object="chat.completion.chunk",
-            created=123,
-            model="test",
-            choices=[StreamingChoices(index=0, delta=Delta(tool_calls=[tc]), finish_reason=None)],
-        )
+        chunk = make_streaming_chunk(content=None, model="test", id="test", finish_reason=None, tool_calls=[tc])
 
         ctx = create_mock_streaming_context(transaction_id="test-call", raw_chunks=[chunk])
 

@@ -4,53 +4,23 @@
 """Tests for AnthropicSSEAssembler thinking block handling."""
 
 from litellm.types.utils import Delta, ModelResponse, StreamingChoices
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
+from luthien_proxy.llm.response_normalizer import normalize_chunk, normalize_chunk_with_finish_reason
 from luthien_proxy.streaming.client_formatter.anthropic_sse_assembler import (
     AnthropicSSEAssembler,
 )
 
 
-def create_chunk_with_reasoning(reasoning: str, finish_reason: str | None = None) -> ModelResponse:
-    """Create a ModelResponse chunk with reasoning_content."""
-    delta = Delta(content=None, role="assistant")
-    delta.reasoning_content = reasoning
-    return ModelResponse(
-        id="chatcmpl-123",
-        choices=[
-            StreamingChoices(
-                delta=delta,
-                finish_reason=finish_reason,
-                index=0,
-            )
-        ],
-        created=1234567890,
-        model="claude-sonnet-4-5-20250514",
-        object="chat.completion.chunk",
-    )
-
-
-def create_chunk_with_text(text: str, finish_reason: str | None = None) -> ModelResponse:
-    """Create a ModelResponse chunk with text content."""
-    return ModelResponse(
-        id="chatcmpl-123",
-        choices=[
-            StreamingChoices(
-                delta=Delta(content=text, role="assistant"),
-                finish_reason=finish_reason,
-                index=0,
-            )
-        ],
-        created=1234567890,
-        model="claude-sonnet-4-5-20250514",
-        object="chat.completion.chunk",
-    )
-
-
 def create_chunk_with_thinking_blocks(blocks: list[dict], finish_reason: str | None = None) -> ModelResponse:
-    """Create a ModelResponse chunk with thinking_blocks attribute."""
+    """Create a ModelResponse chunk with thinking_blocks attribute.
+
+    Note: thinking_blocks is a special LiteLLM-specific attribute for signature delivery
+    that is not supported by the generic make_streaming_chunk helper.
+    """
     delta = Delta(content=None, role="assistant")
     delta.thinking_blocks = blocks
-    return ModelResponse(
+    raw_chunk = ModelResponse(
         id="chatcmpl-123",
         choices=[
             StreamingChoices(
@@ -63,6 +33,33 @@ def create_chunk_with_thinking_blocks(blocks: list[dict], finish_reason: str | N
         model="claude-sonnet-4-5-20250514",
         object="chat.completion.chunk",
     )
+    # Normalize to ensure delta is a Delta object (LiteLLM converts to dict)
+    return normalize_chunk(raw_chunk)
+
+
+def create_tool_call_chunk(tool_name: str, tool_id: str, tool_args: str) -> ModelResponse:
+    """Create a ModelResponse chunk with tool calls.
+
+    Uses dict format for tool_calls that survives litellm's serialization.
+    """
+    from litellm.types.utils import ChatCompletionDeltaToolCall, Function
+
+    tool_call = ChatCompletionDeltaToolCall(
+        id=tool_id,
+        index=0,
+        function=Function(name=tool_name, arguments=tool_args),
+        type="function",
+    )
+    delta = Delta(content=None, role="assistant", tool_calls=[tool_call])
+    raw_chunk = ModelResponse(
+        id="chatcmpl-123",
+        choices=[StreamingChoices(delta=delta, finish_reason=None, index=0)],
+        created=1234567890,
+        model="claude-sonnet-4-5-20250514",
+        object="chat.completion.chunk",
+    )
+    # Normalize to ensure delta is a Delta object and finish_reason is preserved (None)
+    return normalize_chunk_with_finish_reason(raw_chunk, None)
 
 
 class TestConvertChunkToEvent:
@@ -71,7 +68,12 @@ class TestConvertChunkToEvent:
     def test_reasoning_content_becomes_thinking_delta(self):
         """Test that reasoning_content is converted to thinking_delta."""
         assembler = AnthropicSSEAssembler()
-        chunk = create_chunk_with_reasoning("Let me think step by step...")
+        chunk = make_streaming_chunk(
+            content=None,
+            reasoning_content="Let me think step by step...",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
 
         event = assembler.convert_chunk_to_event(chunk)
 
@@ -82,7 +84,11 @@ class TestConvertChunkToEvent:
     def test_text_content_becomes_text_delta(self):
         """Test that text content is converted to text_delta."""
         assembler = AnthropicSSEAssembler()
-        chunk = create_chunk_with_text("The answer is 42")
+        chunk = make_streaming_chunk(
+            content="The answer is 42",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
 
         event = assembler.convert_chunk_to_event(chunk)
 
@@ -131,7 +137,12 @@ class TestProcessChunk:
     def test_first_thinking_chunk_starts_thinking_block(self):
         """Test that first thinking chunk starts a thinking block."""
         assembler = AnthropicSSEAssembler()
-        chunk = create_chunk_with_reasoning("Thinking...")
+        chunk = make_streaming_chunk(
+            content=None,
+            reasoning_content="Thinking...",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
 
         events = assembler.process_chunk(chunk)
 
@@ -152,13 +163,24 @@ class TestProcessChunk:
         assembler = AnthropicSSEAssembler()
 
         # First: thinking chunk
-        events1 = assembler.process_chunk(create_chunk_with_reasoning("Thinking..."))
+        thinking_chunk = make_streaming_chunk(
+            content=None,
+            reasoning_content="Thinking...",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        events1 = assembler.process_chunk(thinking_chunk)
         assert events1[0]["content_block"]["type"] == "thinking"
         assert assembler.current_block_type == "thinking"
         assert assembler.block_index == 0
 
         # Second: text chunk should start text but NOT close thinking yet
-        events2 = assembler.process_chunk(create_chunk_with_text("Answer"))
+        text_chunk = make_streaming_chunk(
+            content="Answer",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        events2 = assembler.process_chunk(text_chunk)
 
         # Should have: content_block_start (text), content_block_delta (text)
         # Thinking block close is delayed until signature arrives
@@ -192,11 +214,23 @@ class TestProcessChunk:
         assembler = AnthropicSSEAssembler()
 
         # First thinking chunk
-        events1 = assembler.process_chunk(create_chunk_with_reasoning("Step 1..."))
+        chunk1 = make_streaming_chunk(
+            content=None,
+            reasoning_content="Step 1...",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        events1 = assembler.process_chunk(chunk1)
         assert len(events1) == 2  # start + delta
 
         # Second thinking chunk - should NOT start new block
-        events2 = assembler.process_chunk(create_chunk_with_reasoning("Step 2..."))
+        chunk2 = make_streaming_chunk(
+            content=None,
+            reasoning_content="Step 2...",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        events2 = assembler.process_chunk(chunk2)
         assert len(events2) == 1  # just delta
         assert events2[0]["type"] == "content_block_delta"
         assert events2[0]["index"] == 0  # Still at index 0
@@ -210,7 +244,13 @@ class TestProcessChunk:
         assembler = AnthropicSSEAssembler()
 
         # Start with thinking
-        assembler.process_chunk(create_chunk_with_reasoning("Reasoning..."))
+        thinking_chunk = make_streaming_chunk(
+            content=None,
+            reasoning_content="Reasoning...",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        assembler.process_chunk(thinking_chunk)
         assert assembler.current_block_type == "thinking"
 
         # Signature should stay in thinking block
@@ -228,7 +268,13 @@ class TestProcessChunk:
         assembler = AnthropicSSEAssembler()
 
         # Start with regular thinking
-        assembler.process_chunk(create_chunk_with_reasoning("Initial thought..."))
+        thinking_chunk = make_streaming_chunk(
+            content=None,
+            reasoning_content="Initial thought...",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        assembler.process_chunk(thinking_chunk)
         assert assembler.block_index == 0
 
         # Redacted thinking should close previous and emit as complete block
@@ -251,7 +297,12 @@ class TestProcessChunk:
         assembler = AnthropicSSEAssembler()
 
         # Just text - no thinking
-        events = assembler.process_chunk(create_chunk_with_text("Hello world"))
+        text_chunk = make_streaming_chunk(
+            content="Hello world",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        events = assembler.process_chunk(text_chunk)
 
         assert len(events) == 2
         assert events[0]["type"] == "content_block_start"
@@ -260,46 +311,41 @@ class TestProcessChunk:
         assert events[1]["delta"]["type"] == "text_delta"
 
     def test_thinking_to_tool_call_transition(self):
-        """Test transition from thinking to tool_use block.
+        """Test transition from thinking to tool_use block via complete tool call.
 
-        This is the most complex event sequencing - thinking → tool_use.
-        Tool calls close the thinking block immediately (no delayed close).
+        When a complete tool call (with both id and arguments) arrives after thinking,
+        the assembler closes the thinking block immediately and emits the full tool_use
+        lifecycle (start, delta, stop) in one batch.
         """
         assembler = AnthropicSSEAssembler()
 
         # Start with thinking
-        events1 = assembler.process_chunk(create_chunk_with_reasoning("Let me use a tool..."))
+        thinking_chunk = make_streaming_chunk(
+            content=None,
+            reasoning_content="Let me use a tool...",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        events1 = assembler.process_chunk(thinking_chunk)
         assert events1[0]["content_block"]["type"] == "thinking"
         assert assembler.current_block_type == "thinking"
 
         # Create a complete tool call chunk (id + arguments)
-        delta = Delta(content=None, role="assistant")
-        tool_call = type(
-            "ToolCall",
-            (),
-            {
-                "id": "call_123",
-                "index": 0,
-                "function": type("Function", (), {"name": "read_file", "arguments": '{"path": "test.txt"}'})(),
-            },
-        )()
-        delta.tool_calls = [tool_call]
-        tool_chunk = ModelResponse(
-            id="chatcmpl-123",
-            choices=[StreamingChoices(delta=delta, finish_reason=None, index=0)],
-            created=1234567890,
-            model="claude-sonnet-4-5-20250514",
-            object="chat.completion.chunk",
+        tool_chunk = create_tool_call_chunk(
+            tool_name="read_file",
+            tool_id="call_123",
+            tool_args='{"path": "test.txt"}',
         )
 
-        # Tool call should close thinking and start tool_use
+        # Complete tool call should close thinking and emit full tool_use lifecycle
         events2 = assembler.process_chunk(tool_chunk)
 
         # Should have: content_block_stop (thinking), content_block_start (tool_use),
         #              content_block_delta (input_json), content_block_stop (tool_use)
         event_types = [e["type"] for e in events2]
-        assert "content_block_stop" in event_types, f"Got: {event_types}"
-        assert "content_block_start" in event_types
+        assert "content_block_stop" in event_types  # Thinking block closed
+        assert "content_block_start" in event_types  # Tool_use started
+        assert "content_block_delta" in event_types  # Tool arguments
 
         # Find tool_use start
         tool_starts = [e for e in events2 if e.get("content_block", {}).get("type") == "tool_use"]
@@ -311,11 +357,22 @@ class TestProcessChunk:
         assembler = AnthropicSSEAssembler()
 
         # Thinking chunk
-        assembler.process_chunk(create_chunk_with_reasoning("Done thinking"))
+        thinking_chunk = make_streaming_chunk(
+            content=None,
+            reasoning_content="Done thinking",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        assembler.process_chunk(thinking_chunk)
 
         # Finish chunk
-        chunk = create_chunk_with_text("", finish_reason="stop")
-        events = assembler.process_chunk(chunk)
+        finish_chunk = make_streaming_chunk(
+            content="",
+            finish_reason="stop",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        events = assembler.process_chunk(finish_chunk)
 
         # Should close block and emit message_delta
         assert any(e["type"] == "content_block_stop" for e in events)
@@ -331,19 +388,40 @@ class TestProcessChunk:
         assembler = AnthropicSSEAssembler()
 
         # Start with thinking
-        events1 = assembler.process_chunk(create_chunk_with_reasoning("Reasoning..."))
+        thinking_chunk = make_streaming_chunk(
+            content=None,
+            reasoning_content="Reasoning...",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        events1 = assembler.process_chunk(thinking_chunk)
         assert events1[0]["content_block"]["type"] == "thinking"
         assert assembler.last_thinking_block_index == 0
 
         # Transition to text - thinking close is delayed
-        assembler.process_chunk(create_chunk_with_text("Answer"))
+        text_chunk = make_streaming_chunk(
+            content="Answer",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        assembler.process_chunk(text_chunk)
         assert assembler.thinking_block_needs_close is True
 
         # More text (no signature arrives)
-        assembler.process_chunk(create_chunk_with_text(" more text"))
+        more_text_chunk = make_streaming_chunk(
+            content=" more text",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        assembler.process_chunk(more_text_chunk)
 
         # Finish without signature - should close thinking block as fallback
-        finish_chunk = create_chunk_with_text("", finish_reason="stop")
+        finish_chunk = make_streaming_chunk(
+            content="",
+            finish_reason="stop",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
         events_finish = assembler.process_chunk(finish_chunk)
 
         # Should have: content_block_stop (thinking at 0), content_block_stop (text at 1), message_delta
@@ -365,11 +443,22 @@ class TestProcessChunk:
         assembler = AnthropicSSEAssembler()
 
         # Start with regular thinking
-        assembler.process_chunk(create_chunk_with_reasoning("Initial thought..."))
+        thinking_chunk = make_streaming_chunk(
+            content=None,
+            reasoning_content="Initial thought...",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        assembler.process_chunk(thinking_chunk)
         assert assembler.last_thinking_block_index == 0
 
         # Transition to text - thinking close is delayed
-        assembler.process_chunk(create_chunk_with_text("Some text"))
+        text_chunk = make_streaming_chunk(
+            content="Some text",
+            model="claude-sonnet-4-5-20250514",
+            id="chatcmpl-123",
+        )
+        assembler.process_chunk(text_chunk)
         assert assembler.thinking_block_needs_close is True
 
         # Redacted thinking arrives (instead of signature)

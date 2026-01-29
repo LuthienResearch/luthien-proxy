@@ -7,7 +7,7 @@ import asyncio
 import json
 
 import pytest
-from litellm.types.utils import Delta, ModelResponse, StreamingChoices
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.streaming.client_formatter.anthropic import AnthropicClientFormatter
@@ -25,30 +25,13 @@ def formatter():
     return AnthropicClientFormatter(model_name="claude-3-5-sonnet-20241022")
 
 
-def create_model_response(content: str = "Hello", finish_reason: str | None = None) -> ModelResponse:
-    """Helper to create a ModelResponse chunk."""
-    return ModelResponse(
-        id="chatcmpl-123",
-        choices=[
-            StreamingChoices(
-                delta=Delta(content=content, role="assistant"),
-                finish_reason=finish_reason,
-                index=0,
-            )
-        ],
-        created=1234567890,
-        model="claude-3-opus-20240229",
-        object="chat.completion.chunk",
-    )
-
-
 @pytest.mark.asyncio
 async def test_anthropic_formatter_sends_message_start(formatter, policy_ctx):
     """Test that formatter sends message_start before first chunk."""
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
 
-    chunk = create_model_response(content="Hello")
+    chunk = make_streaming_chunk(content="Hello")
     await input_queue.put(chunk)
     await input_queue.put(None)
 
@@ -80,7 +63,7 @@ async def test_anthropic_formatter_sends_message_stop(formatter, policy_ctx):
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
 
-    chunk = create_model_response(content="Hi", finish_reason="stop")
+    chunk = make_streaming_chunk(content="Hi", finish_reason="stop")
     await input_queue.put(chunk)
     await input_queue.put(None)
 
@@ -114,9 +97,9 @@ async def test_anthropic_formatter_content_block_lifecycle(formatter, policy_ctx
     output_queue = asyncio.Queue()
 
     # Send text chunks
-    await input_queue.put(create_model_response(content="Hello"))
-    await input_queue.put(create_model_response(content=" world"))
-    await input_queue.put(create_model_response(content="!", finish_reason="stop"))
+    await input_queue.put(make_streaming_chunk(content="Hello"))
+    await input_queue.put(make_streaming_chunk(content=" world"))
+    await input_queue.put(make_streaming_chunk(content="!", finish_reason="stop"))
     await input_queue.put(None)
 
     await formatter.process(input_queue, output_queue, policy_ctx)
@@ -158,8 +141,8 @@ async def test_anthropic_formatter_content_block_indices(formatter, policy_ctx):
     output_queue = asyncio.Queue()
 
     # Single text block
-    await input_queue.put(create_model_response(content="Test"))
-    await input_queue.put(create_model_response(content="", finish_reason="stop"))
+    await input_queue.put(make_streaming_chunk(content="Test"))
+    await input_queue.put(make_streaming_chunk(content="", finish_reason="stop"))
     await input_queue.put(None)
 
     await formatter.process(input_queue, output_queue, policy_ctx)
@@ -190,7 +173,7 @@ async def test_anthropic_formatter_sse_format_with_event_type(formatter, policy_
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
 
-    chunk = create_model_response(content="Test")
+    chunk = make_streaming_chunk(content="Test")
     await input_queue.put(chunk)
     await input_queue.put(None)
 
@@ -232,7 +215,7 @@ async def test_anthropic_formatter_finish_reason_mapping(formatter, policy_ctx):
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
 
-    chunk = create_model_response(content="", finish_reason="stop")
+    chunk = make_streaming_chunk(content="", finish_reason="stop")
     await input_queue.put(chunk)
     await input_queue.put(None)
 
@@ -257,25 +240,6 @@ async def test_anthropic_formatter_finish_reason_mapping(formatter, policy_ctx):
     assert found_delta, "Should have found message_delta with stop_reason"
 
 
-def create_thinking_response(reasoning_content: str, finish_reason: str | None = None) -> ModelResponse:
-    """Helper to create a ModelResponse chunk with thinking/reasoning content."""
-    delta = Delta(content=None, role="assistant")
-    delta.reasoning_content = reasoning_content  # LiteLLM attribute for thinking content
-    return ModelResponse(
-        id="chatcmpl-thinking-123",
-        choices=[
-            StreamingChoices(
-                delta=delta,
-                finish_reason=finish_reason,
-                index=0,
-            )
-        ],
-        created=1234567890,
-        model="claude-sonnet-4-5-20250514",
-        object="chat.completion.chunk",
-    )
-
-
 @pytest.mark.asyncio
 async def test_anthropic_formatter_thinking_block_lifecycle(formatter, policy_ctx):
     """Test proper thinking block lifecycle: start -> delta -> stop -> text."""
@@ -284,11 +248,11 @@ async def test_anthropic_formatter_thinking_block_lifecycle(formatter, policy_ct
 
     # Send thinking chunks, then text chunks, then finish
     # Note: Real LiteLLM sends finish_reason on a separate chunk with empty content
-    await input_queue.put(create_thinking_response(reasoning_content="Let me think..."))
-    await input_queue.put(create_thinking_response(reasoning_content=" Step by step..."))
-    await input_queue.put(create_model_response(content="The answer is 42"))
-    await input_queue.put(create_model_response(content="."))
-    await input_queue.put(create_model_response(content="", finish_reason="stop"))
+    await input_queue.put(make_streaming_chunk(content=None, reasoning_content="Let me think..."))
+    await input_queue.put(make_streaming_chunk(content=None, reasoning_content=" Step by step..."))
+    await input_queue.put(make_streaming_chunk(content="The answer is 42"))
+    await input_queue.put(make_streaming_chunk(content="."))
+    await input_queue.put(make_streaming_chunk(content="", finish_reason="stop"))
     await input_queue.put(None)
 
     await formatter.process(input_queue, output_queue, policy_ctx)
@@ -348,9 +312,9 @@ async def test_anthropic_formatter_thinking_block_indices(formatter, policy_ctx)
     output_queue = asyncio.Queue()
 
     # Thinking -> text
-    await input_queue.put(create_thinking_response(reasoning_content="Thinking..."))
-    await input_queue.put(create_model_response(content="Answer"))
-    await input_queue.put(create_model_response(content="", finish_reason="stop"))
+    await input_queue.put(make_streaming_chunk(content=None, reasoning_content="Thinking..."))
+    await input_queue.put(make_streaming_chunk(content="Answer"))
+    await input_queue.put(make_streaming_chunk(content="", finish_reason="stop"))
     await input_queue.put(None)
 
     await formatter.process(input_queue, output_queue, policy_ctx)

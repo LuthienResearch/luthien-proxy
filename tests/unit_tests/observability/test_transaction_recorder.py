@@ -4,7 +4,8 @@
 from unittest.mock import Mock
 
 import pytest
-from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
+from litellm.types.utils import Choices, Message, ModelResponse
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.llm.types import Request
 from luthien_proxy.observability.transaction_recorder import (
@@ -99,18 +100,11 @@ class TestDefaultTransactionRecorder:
 
         # Add chunks within limit
         for i in range(3):
-            chunk = ModelResponse(
-                id=f"chunk-{i}",
-                object="chat.completion.chunk",
-                created=1234567890 + i,
+            chunk = make_streaming_chunk(
+                content=f"word{i}",
                 model="gpt-4",
-                choices=[
-                    StreamingChoices(
-                        index=0,
-                        delta=Delta(content=f"word{i}"),
-                        finish_reason="stop" if i == 2 else None,
-                    )
-                ],
+                id=f"chunk-{i}",
+                finish_reason="stop" if i == 2 else None,
             )
             recorder.add_ingress_chunk(chunk)
 
@@ -133,18 +127,11 @@ class TestDefaultTransactionRecorder:
 
         # Add chunks beyond limit
         for i in range(4):
-            chunk = ModelResponse(
-                id=f"chunk-{i}",
-                object="chat.completion.chunk",
-                created=1234567890 + i,
+            chunk = make_streaming_chunk(
+                content=f"word{i}",
                 model="gpt-4",
-                choices=[
-                    StreamingChoices(
-                        index=0,
-                        delta=Delta(content=f"word{i}"),
-                        finish_reason="stop" if i == 3 else None,
-                    )
-                ],
+                id=f"chunk-{i}",
+                finish_reason="stop" if i == 3 else None,
             )
             recorder.add_ingress_chunk(chunk)
 
@@ -171,12 +158,11 @@ class TestDefaultTransactionRecorder:
 
         # Add chunks up to and beyond limit
         for i in range(3):
-            chunk = ModelResponse(
-                id=f"chunk-{i}",
-                object="chat.completion.chunk",
-                created=1234567890 + i,
+            chunk = make_streaming_chunk(
+                content=f"word{i}",
                 model="gpt-4",
-                choices=[StreamingChoices(index=0, delta=Delta(content=f"word{i}"), finish_reason=None)],
+                id=f"chunk-{i}",
+                finish_reason=None,
             )
             recorder.add_ingress_chunk(chunk)
 
@@ -194,18 +180,11 @@ class TestDefaultTransactionRecorder:
 
         # Add egress chunks beyond limit
         for i in range(4):
-            chunk = ModelResponse(
-                id=f"chunk-{i}",
-                object="chat.completion.chunk",
-                created=1234567890 + i,
+            chunk = make_streaming_chunk(
+                content=f"response{i}",
                 model="gpt-4-turbo",
-                choices=[
-                    StreamingChoices(
-                        index=0,
-                        delta=Delta(content=f"response{i}"),
-                        finish_reason="stop" if i == 3 else None,
-                    )
-                ],
+                id=f"chunk-{i}",
+                finish_reason="stop" if i == 3 else None,
             )
             recorder.add_egress_chunk(chunk)
 
@@ -232,12 +211,11 @@ class TestDefaultTransactionRecorder:
 
         # Add chunks up to and beyond limit
         for i in range(3):
-            chunk = ModelResponse(
-                id=f"chunk-{i}",
-                object="chat.completion.chunk",
-                created=1234567890 + i,
+            chunk = make_streaming_chunk(
+                content=f"response{i}",
                 model="gpt-4-turbo",
-                choices=[StreamingChoices(index=0, delta=Delta(content=f"response{i}"), finish_reason=None)],
+                id=f"chunk-{i}",
+                finish_reason=None,
             )
             recorder.add_egress_chunk(chunk)
 
@@ -254,31 +232,17 @@ class TestDefaultTransactionRecorder:
         recorder = DefaultTransactionRecorder(transaction_id="test-txn", emitter=mock_emitter)
 
         # Add some realistic streaming chunks using proper types
-        ingress_chunk = ModelResponse(
-            id="ingress-id",
-            object="chat.completion.chunk",
-            created=1234567890,
+        ingress_chunk = make_streaming_chunk(
+            content="Hello",
             model="gpt-4",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(role="assistant", content="Hello"),
-                    finish_reason=None,
-                )
-            ],
+            id="ingress-id",
+            finish_reason=None,
         )
-        egress_chunk = ModelResponse(
-            id="egress-id",
-            object="chat.completion.chunk",
-            created=1234567891,
+        egress_chunk = make_streaming_chunk(
+            content="Hi",
             model="gpt-4-turbo",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(content="Hi"),
-                    finish_reason="stop",
-                )
-            ],
+            id="egress-id",
+            finish_reason="stop",
         )
         recorder.add_ingress_chunk(ingress_chunk)
         recorder.add_egress_chunk(egress_chunk)
@@ -454,18 +418,11 @@ class TestSessionIdPropagation:
             transaction_id="test-txn", emitter=mock_emitter, session_id="test-session-789"
         )
 
-        chunk = ModelResponse(
-            id="chunk-1",
-            object="chat.completion.chunk",
-            created=1234567890,
+        chunk = make_streaming_chunk(
+            content="hello",
             model="gpt-4",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(content="hello"),
-                    finish_reason="stop",
-                )
-            ],
+            id="chunk-1",
+            finish_reason="stop",
         )
         recorder.add_ingress_chunk(chunk)
         recorder.add_egress_chunk(chunk)
@@ -487,12 +444,11 @@ class TestSessionIdPropagation:
 
         # Add chunks to trigger truncation
         for i in range(2):
-            chunk = ModelResponse(
-                id=f"chunk-{i}",
-                object="chat.completion.chunk",
-                created=1234567890,
+            chunk = make_streaming_chunk(
+                content=f"word{i}",
                 model="gpt-4",
-                choices=[StreamingChoices(index=0, delta=Delta(content=f"word{i}"), finish_reason=None)],
+                id=f"chunk-{i}",
+                finish_reason=None,
             )
             recorder.add_ingress_chunk(chunk)
 
@@ -511,12 +467,11 @@ class TestSessionIdPropagation:
 
         # Add chunks to trigger truncation
         for i in range(2):
-            chunk = ModelResponse(
-                id=f"chunk-{i}",
-                object="chat.completion.chunk",
-                created=1234567890,
+            chunk = make_streaming_chunk(
+                content=f"word{i}",
                 model="gpt-4",
-                choices=[StreamingChoices(index=0, delta=Delta(content=f"word{i}"), finish_reason=None)],
+                id=f"chunk-{i}",
+                finish_reason=None,
             )
             recorder.add_egress_chunk(chunk)
 

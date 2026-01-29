@@ -248,7 +248,9 @@ class AnthropicSSEAssembler:
         Returns:
             Anthropic SSE event dict (may contain internal flags like _complete_tool_call)
         """
-        delta: Delta = cast(StreamingChoices, chunk.choices[0]).delta
+        raw_delta = cast(StreamingChoices, chunk.choices[0]).delta
+        # Convert dict to Delta object for consistent attribute access (litellm >= 1.81.0)
+        delta: Delta = Delta(**raw_delta) if isinstance(raw_delta, dict) else raw_delta
 
         # Handle tool calls
         if hasattr(delta, "tool_calls") and delta.tool_calls:

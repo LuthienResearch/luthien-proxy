@@ -66,6 +66,9 @@ class StreamingChunkAssembler:
             # DEBUG: Log raw chunk from backend
             logger.debug(f"[BACKEND IN] {str(chunk)[:LOG_CHUNK_TRUNCATION_LENGTH]}")  # Truncate for readability
 
+            # Normalize delta to Delta object (litellm >= 1.81.0 returns dict)
+            chunk = self._normalize_delta(chunk)
+
             # Store raw chunk for recording
             self.state.raw_chunks.append(chunk)
 
@@ -86,6 +89,27 @@ class StreamingChunkAssembler:
             if self.state.finish_reason:
                 break
 
+    def _normalize_delta(self, chunk: ModelResponse) -> ModelResponse:
+        """Convert dict deltas to Delta objects for consistent access.
+
+        litellm >= 1.81.0 returns delta as dict instead of Delta object.
+        This normalizes the chunk so all downstream code can use attribute access.
+
+        Args:
+            chunk: Model response chunk (may have dict or Delta delta)
+
+        Returns:
+            Chunk with delta normalized to Delta object
+        """
+        if not chunk.choices:
+            return chunk
+
+        choice = cast(StreamingChoices, chunk.choices[0])
+        if isinstance(choice.delta, dict):
+            choice.delta = Delta(**choice.delta)
+
+        return chunk
+
     def _update_state(self, chunk: ModelResponse) -> None:
         """Update aggregation state from chunk.
 
@@ -100,16 +124,14 @@ class StreamingChunkAssembler:
         - self.state.just_completed
         - self.state.finish_reason
         """
-        # Extract data from chunk
         if not chunk.choices:
             return
 
         choice = chunk.choices[0]
         choice = cast(StreamingChoices, choice)
-        delta: Delta = choice.delta
         finish_reason = choice.finish_reason
+        delta: Delta = choice.delta
 
-        # Extract content from delta (handle both dict and Delta object)
         content = delta.content
 
         # Process content
@@ -118,7 +140,6 @@ class StreamingChunkAssembler:
         if content:  # Truthy check: handles null, empty string, and actual content
             self._process_content_delta(content)
 
-        # Extract tool_calls from delta (handle both dict and Delta object)
         tool_calls = delta.tool_calls
 
         # Process tool calls
@@ -243,7 +264,7 @@ class StreamingChunkAssembler:
 
         delta = choices[0].delta
 
-        # Set content to None if it's empty string (for Delta objects)
+        # Set content to None if it's empty string
         if delta.content == "":
             delta.content = None
 

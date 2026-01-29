@@ -20,6 +20,8 @@ from litellm.types.utils import (
     StreamingChoices,
 )
 
+from luthien_proxy.llm.response_normalizer import normalize_chunk_with_finish_reason
+
 
 def create_text_response(
     text: str, model: str = "luthien-policy", response_id: str | None = None, finish_reason: str = "stop"
@@ -71,7 +73,7 @@ def create_text_chunk(
     delta = Delta(content=text if text else None)
 
     # Use StreamingChoices for streaming chunks (not Choices which is for non-streaming)
-    return ModelResponse(
+    raw_chunk = ModelResponse(
         id=unique_id,
         choices=[
             StreamingChoices(
@@ -84,6 +86,8 @@ def create_text_chunk(
         model=model,
         object="chat.completion.chunk",
     )
+    # Normalize to ensure delta is a Delta object and finish_reason is preserved
+    return normalize_chunk_with_finish_reason(raw_chunk, finish_reason)
 
 
 def create_finish_chunk(
@@ -107,7 +111,7 @@ def create_finish_chunk(
     """
     unique_id = chunk_id or f"finish-{uuid4()}"
 
-    return ModelResponse(
+    raw_chunk = ModelResponse(
         id=unique_id,
         choices=[
             StreamingChoices(
@@ -120,6 +124,8 @@ def create_finish_chunk(
         model=model,
         object="chat.completion.chunk",
     )
+    # Normalize to ensure delta is a Delta object and finish_reason is preserved
+    return normalize_chunk_with_finish_reason(raw_chunk, finish_reason)
 
 
 def create_tool_call_chunk(
@@ -150,7 +156,7 @@ def create_tool_call_chunk(
         },
     }
 
-    return ModelResponse(
+    raw_chunk = ModelResponse(
         id=unique_id,
         choices=[
             StreamingChoices(
@@ -163,6 +169,8 @@ def create_tool_call_chunk(
         model=model,
         object="chat.completion.chunk",
     )
+    # Normalize to ensure delta is a Delta object and finish_reason is preserved (None)
+    return normalize_chunk_with_finish_reason(raw_chunk, None)
 
 
 __all__ = [
