@@ -36,11 +36,14 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from litellm.types.utils import ModelResponse
+from openai import APIConnectionError as OpenAIAPIConnectionError
+from openai import APIStatusError as OpenAIAPIStatusError
 from opentelemetry import trace
 from opentelemetry.context import attach, detach, get_current
 from opentelemetry.trace import Span
 from pydantic import ValidationError
 
+from luthien_proxy.exceptions import BackendAPIError, map_litellm_error_type
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.llm.llm_format_utils import (
     anthropic_to_openai_request,
@@ -170,6 +173,7 @@ async def process_llm_request(
                 orchestrator=orchestrator,
                 policy_ctx=policy_ctx,
                 llm_client=llm_client,
+                client_format=client_format,
                 call_id=call_id,
                 root_span=root_span,
             )
@@ -279,6 +283,7 @@ async def _handle_streaming(
     orchestrator: PolicyOrchestrator,
     policy_ctx: PolicyContext,
     llm_client: LLMClient,
+    client_format: ClientFormat,
     call_id: str,
     root_span: Span,
 ) -> FastAPIStreamingResponse:
@@ -296,7 +301,26 @@ async def _handle_streaming(
 
     with tracer.start_as_current_span("send_upstream") as span:
         span.set_attribute("luthien.phase", "send_upstream")
-        backend_stream = await llm_client.stream(final_request)
+        try:
+            backend_stream = await llm_client.stream(final_request)
+        except OpenAIAPIStatusError as e:
+            logger.warning(f"[{call_id}] Backend API error: {e.status_code} {e.message}")
+            raise BackendAPIError(
+                status_code=e.status_code or 500,
+                message=str(e.message),
+                error_type=map_litellm_error_type(e),
+                client_format=client_format,
+                provider=getattr(e, "llm_provider", None),
+            ) from e
+        except OpenAIAPIConnectionError as e:
+            logger.warning(f"[{call_id}] Backend connection error: {e.message}")
+            raise BackendAPIError(
+                status_code=502,
+                message=str(e.message),
+                error_type="api_connection_error",
+                client_format=client_format,
+                provider=getattr(e, "llm_provider", None),
+            ) from e
 
     # Create a wrapper generator that manages span context
     async def streaming_with_spans() -> AsyncIterator[str]:
@@ -347,7 +371,26 @@ async def _handle_non_streaming(
     # Phase 2: Send to upstream
     with tracer.start_as_current_span("send_upstream") as span:
         span.set_attribute("luthien.phase", "send_upstream")
-        response: ModelResponse = await llm_client.complete(final_request)
+        try:
+            response: ModelResponse = await llm_client.complete(final_request)
+        except OpenAIAPIStatusError as e:
+            logger.warning(f"[{call_id}] Backend API error: {e.status_code} {e.message}")
+            raise BackendAPIError(
+                status_code=e.status_code or 500,
+                message=str(e.message),
+                error_type=map_litellm_error_type(e),
+                client_format=client_format,
+                provider=getattr(e, "llm_provider", None),
+            ) from e
+        except OpenAIAPIConnectionError as e:
+            logger.warning(f"[{call_id}] Backend connection error: {e.message}")
+            raise BackendAPIError(
+                status_code=502,
+                message=str(e.message),
+                error_type="api_connection_error",
+                client_format=client_format,
+                provider=getattr(e, "llm_provider", None),
+            ) from e
 
     # Phase 3: Process response through policy
     with tracer.start_as_current_span("process_response") as span:

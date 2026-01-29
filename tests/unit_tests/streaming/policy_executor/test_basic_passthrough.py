@@ -6,7 +6,7 @@
 import asyncio
 
 import pytest
-from litellm.types.utils import Delta, ModelResponse, StreamingChoices
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.policies import PolicyContext
@@ -26,23 +26,6 @@ def noop_policy():
     return NoOpPolicy()
 
 
-def create_model_response(content: str = "Hello", finish_reason: str | None = None) -> ModelResponse:
-    """Helper to create a ModelResponse chunk."""
-    return ModelResponse(
-        id="chatcmpl-123",
-        choices=[
-            StreamingChoices(
-                delta=Delta(content=content, role="assistant"),
-                finish_reason=finish_reason,
-                index=0,
-            )
-        ],
-        created=1234567890,
-        model="gpt-4",
-        object="chat.completion.chunk",
-    )
-
-
 async def async_iter_from_list(items: list):
     """Convert a list to an async iterator."""
     for item in items:
@@ -55,7 +38,7 @@ async def test_basic_passthrough_single_chunk(noop_policy, policy_ctx):
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     # Create input stream with one chunk
-    chunk = create_model_response(content="Hello")
+    chunk = make_streaming_chunk(content="Hello")
     input_stream = async_iter_from_list([chunk])
 
     # Create output queue
@@ -83,9 +66,9 @@ async def test_basic_passthrough_multiple_chunks(noop_policy, policy_ctx):
 
     # Create input stream with multiple chunks
     chunks = [
-        create_model_response(content="Hello"),
-        create_model_response(content=" world"),
-        create_model_response(content="!", finish_reason="stop"),
+        make_streaming_chunk(content="Hello"),
+        make_streaming_chunk(content=" world"),
+        make_streaming_chunk(content="!", finish_reason="stop"),
     ]
     input_stream = async_iter_from_list(chunks)
 
@@ -125,7 +108,7 @@ async def test_basic_passthrough_preserves_chunk_data(noop_policy, policy_ctx):
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
     # Create chunk with specific data
-    original_chunk = create_model_response(content="Test content")
+    original_chunk = make_streaming_chunk(content="Test content")
     input_stream = async_iter_from_list([original_chunk])
     output_queue = asyncio.Queue()
 
@@ -145,7 +128,7 @@ async def test_basic_passthrough_finish_reason(noop_policy, policy_ctx):
     """Test that finish_reason is preserved."""
     executor = PolicyExecutor(recorder=NoOpTransactionRecorder())
 
-    chunk = create_model_response(content="Done", finish_reason="stop")
+    chunk = make_streaming_chunk(content="Done", finish_reason="stop")
     input_stream = async_iter_from_list([chunk])
     output_queue = asyncio.Queue()
 

@@ -15,7 +15,7 @@ Example config:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from litellm.types.utils import Choices, StreamingChoices
 
@@ -47,7 +47,17 @@ class AllCapsPolicy(BasePolicy):
     async def on_tool_call_delta(self, ctx: StreamingPolicyContext):
         """Pass through tool call deltas without modification."""
         last_chunk: ModelResponse = ctx.last_chunk_received
-        if not last_chunk.choices or not isinstance(last_chunk.choices[0], StreamingChoices):
+        if not last_chunk.choices:
+            ctx.policy_ctx.record_event(
+                "policy.all_caps.tool_call_delta_warning",
+                {
+                    "summary": "on_tool_call_delta most recent chunk does not appear to be a tool call delta; dropping chunk"
+                },
+            )
+            return
+        # Cast to StreamingChoices for delta access (streaming chunks use StreamingChoices, not Choices)
+        streaming_choice = cast(StreamingChoices, last_chunk.choices[0])
+        if not hasattr(streaming_choice, "delta"):
             ctx.policy_ctx.record_event(
                 "policy.all_caps.tool_call_delta_warning",
                 {
@@ -66,21 +76,24 @@ class AllCapsPolicy(BasePolicy):
         # Get current content delta from most recent chunk
         last_chunk: ModelResponse = ctx.last_chunk_received
         for choice in last_chunk.choices:
-            if not isinstance(choice, StreamingChoices):
+            # Cast to StreamingChoices for delta access (streaming chunks use StreamingChoices, not Choices)
+            streaming_choice = cast(StreamingChoices, choice)
+            # Check for delta presence (streaming chunk indicator)
+            if not hasattr(streaming_choice, "delta") or streaming_choice.delta is None:
                 ctx.policy_ctx.record_event(
                     "policy.all_caps.content_delta_warning",
                     {"summary": "on_content_delta most recent chunk does not appear to be a content delta"},
                 )
                 continue
 
-            if choice.delta.content is None:
+            if streaming_choice.delta.content is None:
                 # No content to modify
                 continue
 
-            original = choice.delta.content
+            original = streaming_choice.delta.content
             uppercased = original.upper()
 
-            choice.delta.content = uppercased
+            streaming_choice.delta.content = uppercased
 
             # Emit event for observability
             ctx.policy_ctx.record_event(

@@ -7,7 +7,7 @@ import asyncio
 import json
 
 import pytest
-from litellm.types.utils import Delta, ModelResponse, StreamingChoices
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
@@ -25,23 +25,6 @@ def formatter():
     return OpenAIClientFormatter(model_name="gpt-4")
 
 
-def create_model_response(content: str = "Hello", finish_reason: str | None = None) -> ModelResponse:
-    """Helper to create a ModelResponse chunk."""
-    return ModelResponse(
-        id="chatcmpl-123",
-        choices=[
-            StreamingChoices(
-                delta=Delta(content=content, role="assistant"),
-                finish_reason=finish_reason,
-                index=0,
-            )
-        ],
-        created=1234567890,
-        model="gpt-4",
-        object="chat.completion.chunk",
-    )
-
-
 @pytest.mark.asyncio
 async def test_openai_formatter_basic_flow(formatter, policy_ctx):
     """Test that OpenAI formatter converts chunks to SSE format."""
@@ -49,9 +32,9 @@ async def test_openai_formatter_basic_flow(formatter, policy_ctx):
     output_queue = asyncio.Queue()
 
     # Add some chunks to input
-    chunk1 = create_model_response(content="Hello")
-    chunk2 = create_model_response(content=" world")
-    chunk3 = create_model_response(content="!", finish_reason="stop")
+    chunk1 = make_streaming_chunk(content="Hello")
+    chunk2 = make_streaming_chunk(content=" world")
+    chunk3 = make_streaming_chunk(content="!", finish_reason="stop")
 
     await input_queue.put(chunk1)
     await input_queue.put(chunk2)
@@ -93,7 +76,7 @@ async def test_openai_formatter_preserves_chunk_data(formatter, policy_ctx):
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
 
-    chunk = create_model_response(content="Test content")
+    chunk = make_streaming_chunk(content="Test content", id="chatcmpl-123")
     await input_queue.put(chunk)
     await input_queue.put(None)
 
@@ -134,7 +117,7 @@ async def test_openai_formatter_finish_reason(formatter, policy_ctx):
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
 
-    chunk = create_model_response(content="Done", finish_reason="stop")
+    chunk = make_streaming_chunk(content="Done", finish_reason="stop")
     await input_queue.put(chunk)
     await input_queue.put(None)
 
@@ -153,7 +136,7 @@ async def test_openai_formatter_sse_format_compliance(formatter, policy_ctx):
     input_queue = asyncio.Queue()
     output_queue = asyncio.Queue()
 
-    chunk = create_model_response(content="x")
+    chunk = make_streaming_chunk(content="x")
     await input_queue.put(chunk)
     await input_queue.put(None)
 
@@ -183,8 +166,8 @@ async def test_openai_formatter_sends_done_marker(formatter, policy_ctx):
     output_queue = asyncio.Queue()
 
     # Add some chunks
-    await input_queue.put(create_model_response(content="Hello"))
-    await input_queue.put(create_model_response(content=" world", finish_reason="stop"))
+    await input_queue.put(make_streaming_chunk(content="Hello"))
+    await input_queue.put(make_streaming_chunk(content=" world", finish_reason="stop"))
     await input_queue.put(None)  # End signal
 
     await formatter.process(input_queue, output_queue, policy_ctx)

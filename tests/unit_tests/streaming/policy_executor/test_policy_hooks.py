@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from litellm.types.utils import ChatCompletionDeltaToolCall as ToolCall
-from litellm.types.utils import Delta, Function, ModelResponse, StreamingChoices
+from litellm.types.utils import Function, ModelResponse
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.policies import PolicyContext
@@ -43,19 +44,7 @@ def mock_policy():
 
 def create_content_chunk(content: str, finish_reason: str | None = None) -> ModelResponse:
     """Helper to create a content chunk."""
-    return ModelResponse(
-        id="chatcmpl-123",
-        choices=[
-            StreamingChoices(
-                delta=Delta(content=content, role="assistant"),
-                finish_reason=finish_reason,
-                index=0,
-            )
-        ],
-        created=1234567890,
-        model="gpt-4",
-        object="chat.completion.chunk",
-    )
+    return make_streaming_chunk(content=content, finish_reason=finish_reason)
 
 
 def create_tool_call_chunk(
@@ -71,19 +60,7 @@ def create_tool_call_chunk(
         index=index,
         type="function",
     )
-    return ModelResponse(
-        id="chatcmpl-123",
-        choices=[
-            StreamingChoices(
-                delta=Delta(role="assistant", tool_calls=[tool_call]),
-                finish_reason=None,
-                index=0,
-            )
-        ],
-        created=1234567890,
-        model="gpt-4",
-        object="chat.completion.chunk",
-    )
+    return make_streaming_chunk(content=None, tool_calls=[tool_call])
 
 
 async def async_iter_from_list(items: list):

@@ -323,6 +323,7 @@ class TestHandleStreaming:
                 orchestrator=mock_orchestrator,
                 policy_ctx=mock_policy_ctx,
                 llm_client=mock_llm_client,
+                client_format=ClientFormat.OPENAI,
                 call_id="test-call-id",
                 root_span=mock_root_span,
             )
