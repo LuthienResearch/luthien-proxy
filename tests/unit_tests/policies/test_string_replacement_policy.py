@@ -15,6 +15,7 @@ from luthien_proxy.policies.string_replacement_policy import (
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
+from luthien_proxy.streaming.stream_blocks import ContentStreamBlock
 from luthien_proxy.streaming.stream_state import StreamState
 
 
@@ -319,57 +320,76 @@ class TestStringReplacementPolicyNonStreaming:
 class TestStringReplacementPolicyStreaming:
     """Test streaming response handling."""
 
-    async def test_basic_replacement(self, streaming_context):
+    async def test_content_complete_basic_replacement(self, streaming_context):
+        """Test that on_content_complete applies replacements to accumulated content."""
         policy = StringReplacementPolicy(replacements=[["hello", "goodbye"]])
+
+        # Simulate accumulated content block
+        content_block = ContentStreamBlock(id="content")
+        content_block.content = "hello world"
+        streaming_context.original_streaming_response_state.current_block = content_block
+
+        # Add a chunk for metadata
         chunk = make_streaming_chunk(
-            content="hello world",
+            content="",
             model="test-model",
             id="test-id",
             finish_reason=None,
         )
-
         streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
-        await policy.on_content_delta(streaming_context)
 
-        assert chunk.choices[0].delta.content == "goodbye world"
+        await policy.on_content_complete(streaming_context)
+
         assert not streaming_context.egress_queue.empty()
         queued_chunk = streaming_context.egress_queue.get_nowait()
-        assert queued_chunk == chunk
+        assert queued_chunk.choices[0].delta.content == "goodbye world"
 
-    async def test_case_insensitive_replacement(self, streaming_context):
+    async def test_content_complete_case_insensitive(self, streaming_context):
+        """Test capitalization preservation at content completion."""
         policy = StringReplacementPolicy(
             replacements=[["hello", "goodbye"]],
             match_capitalization=True,
         )
+
+        content_block = ContentStreamBlock(id="content")
+        content_block.content = "HELLO there"
+        streaming_context.original_streaming_response_state.current_block = content_block
+
         chunk = make_streaming_chunk(
-            content="HELLO there",
+            content="",
             model="test-model",
             id="test-id",
             finish_reason=None,
         )
-
         streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
-        await policy.on_content_delta(streaming_context)
 
-        assert chunk.choices[0].delta.content == "GOODBYE there"
+        await policy.on_content_complete(streaming_context)
 
-    async def test_empty_content_delta(self, streaming_context):
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
-        chunk = make_streaming_chunk(
-            content=None,
-            model="test-model",
-            id="test-id",
-            finish_reason=None,
-        )
-
-        streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
-        await policy.on_content_delta(streaming_context)
-
-        assert not streaming_context.egress_queue.empty()
         queued_chunk = streaming_context.egress_queue.get_nowait()
-        assert queued_chunk == chunk
+        assert queued_chunk.choices[0].delta.content == "GOODBYE there"
 
-    async def test_tool_call_delta_unchanged(self, streaming_context):
+    async def test_content_complete_empty_content(self, streaming_context):
+        """Test that empty content blocks don't emit chunks."""
+        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
+
+        content_block = ContentStreamBlock(id="content")
+        content_block.content = ""
+        streaming_context.original_streaming_response_state.current_block = content_block
+
+        chunk = make_streaming_chunk(
+            content="",
+            model="test-model",
+            id="test-id",
+            finish_reason=None,
+        )
+        streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
+
+        await policy.on_content_complete(streaming_context)
+
+        assert streaming_context.egress_queue.empty()
+
+    async def test_on_chunk_received_passes_tool_calls(self, streaming_context):
+        """Test that tool call chunks are passed through immediately."""
         policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
         chunk = make_streaming_chunk(
             content=None,
@@ -387,7 +407,7 @@ class TestStringReplacementPolicyStreaming:
         )
 
         streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
-        await policy.on_tool_call_delta(streaming_context)
+        await policy.on_chunk_received(streaming_context)
 
         assert not streaming_context.egress_queue.empty()
         queued_chunk = streaming_context.egress_queue.get_nowait()
@@ -395,26 +415,64 @@ class TestStringReplacementPolicyStreaming:
         # Tool call should not be modified
         assert chunk.choices[0].delta.tool_calls[0]["function"]["name"] == "get_foo"
 
-    async def test_multiple_content_deltas(self, streaming_context):
+    async def test_on_chunk_received_filters_content_deltas(self, streaming_context):
+        """Test that content delta chunks are NOT passed through (buffered instead)."""
         policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
-        chunks_and_expected = [
-            ("Hello foo ", "Hello bar "),
-            ("foo world", "bar world"),
-            ("!", "!"),
-        ]
+        chunk = make_streaming_chunk(
+            content="hello foo",
+            model="test-model",
+            id="test-id",
+            finish_reason=None,
+        )
 
-        for original, expected in chunks_and_expected:
-            chunk = make_streaming_chunk(
-                content=original,
-                model="test-model",
-                id="test-id",
-                finish_reason=None,
-            )
+        streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
+        await policy.on_chunk_received(streaming_context)
 
-            streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
-            await policy.on_content_delta(streaming_context)
+        # Content chunks should NOT be pushed - they're accumulated for on_content_complete
+        assert streaming_context.egress_queue.empty()
 
-            assert chunk.choices[0].delta.content == expected
+    async def test_on_chunk_received_passes_finish_reason(self, streaming_context):
+        """Test that finish reason chunks are passed through."""
+        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
+        chunk = make_streaming_chunk(
+            content=None,
+            model="test-model",
+            id="test-id",
+            finish_reason="stop",
+        )
+
+        streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
+        await policy.on_chunk_received(streaming_context)
+
+        assert not streaming_context.egress_queue.empty()
+        queued_chunk = streaming_context.egress_queue.get_nowait()
+        assert queued_chunk == chunk
+
+    async def test_cross_chunk_replacement(self, streaming_context):
+        """Test that patterns split across chunks are correctly replaced.
+
+        This is the key benefit of using on_content_complete - patterns that
+        would be split across chunk boundaries are still matched.
+        """
+        policy = StringReplacementPolicy(replacements=[["hello world", "goodbye"]])
+
+        # Simulate content that arrived in multiple chunks but is now accumulated
+        content_block = ContentStreamBlock(id="content")
+        content_block.content = "say hello world please"  # Would be "hello" + " world" in chunks
+        streaming_context.original_streaming_response_state.current_block = content_block
+
+        chunk = make_streaming_chunk(
+            content="",
+            model="test-model",
+            id="test-id",
+            finish_reason=None,
+        )
+        streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
+
+        await policy.on_content_complete(streaming_context)
+
+        queued_chunk = streaming_context.egress_queue.get_nowait()
+        assert queued_chunk.choices[0].delta.content == "say goodbye please"
 
 
 class TestCapitalizationPreservation:

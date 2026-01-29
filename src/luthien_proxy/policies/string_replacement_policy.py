@@ -23,6 +23,8 @@ from litellm.types.utils import Choices, StreamingChoices
 
 from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policy_core import PolicyContext
+from luthien_proxy.policy_core.chunk_builders import create_text_chunk
+from luthien_proxy.streaming.stream_blocks import ContentStreamBlock
 
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse
@@ -204,61 +206,63 @@ class StringReplacementPolicy(BasePolicy):
         return apply_replacements(text, self._replacements, self._match_capitalization)
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
-        """Handle raw chunk - no-op since we process in specialized hooks."""
-        pass
-
-    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
-        """Pass through tool call deltas without modification."""
+        """Push non-content chunks immediately; content is handled in on_content_complete."""
         last_chunk: ModelResponse = ctx.last_chunk_received
         if not last_chunk.choices:
-            ctx.policy_ctx.record_event(
-                "policy.string_replacement.tool_call_delta_warning",
-                {"summary": "on_tool_call_delta chunk has no choices; dropping chunk"},
-            )
+            ctx.push_chunk(last_chunk)
             return
-        streaming_choice = cast(StreamingChoices, last_chunk.choices[0])
-        if not hasattr(streaming_choice, "delta"):
-            ctx.policy_ctx.record_event(
-                "policy.string_replacement.tool_call_delta_warning",
-                {"summary": "on_tool_call_delta chunk is not a streaming choice; dropping chunk"},
-            )
+
+        choice = last_chunk.choices[0]
+        streaming_choice = cast(StreamingChoices, choice)
+        if not hasattr(streaming_choice, "delta") or streaming_choice.delta is None:
+            ctx.push_chunk(last_chunk)
             return
+
+        # Content deltas are buffered and emitted in on_content_complete
+        if streaming_choice.delta.content is not None:
+            return
+
+        # All other chunks (tool calls, finish reasons, etc.) pass through
         ctx.push_chunk(last_chunk)
 
-    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
-        """Apply string replacements to content deltas.
+    async def on_content_complete(self, ctx: StreamingPolicyContext) -> None:
+        """Apply string replacements to the complete content block.
 
-        Args:
-            ctx: Streaming policy context with current chunk
+        Waits for the full content block to be accumulated, then applies
+        replacements and emits a single chunk with the transformed content.
+        This ensures replacements work correctly even if patterns would
+        otherwise be split across chunk boundaries.
         """
-        last_chunk: ModelResponse = ctx.last_chunk_received
-        for choice in last_chunk.choices:
-            streaming_choice = cast(StreamingChoices, choice)
-            if not hasattr(streaming_choice, "delta") or streaming_choice.delta is None:
-                ctx.policy_ctx.record_event(
-                    "policy.string_replacement.content_delta_warning",
-                    {"summary": "on_content_delta chunk is not a streaming choice"},
-                )
-                continue
+        stream_state = ctx.original_streaming_response_state
+        current_block = stream_state.current_block
 
-            if streaming_choice.delta.content is None:
-                continue
+        if not isinstance(current_block, ContentStreamBlock):
+            return
 
-            original = streaming_choice.delta.content
-            transformed = self._apply_replacements(original)
+        original = current_block.content
+        if not original:
+            return
 
-            streaming_choice.delta.content = transformed
+        transformed = self._apply_replacements(original)
 
-            if original != transformed:
-                ctx.policy_ctx.record_event(
-                    "policy.string_replacement.content_transformed",
-                    {
-                        "original_length": len(original),
-                        "transformed_length": len(transformed),
-                        "replacements_count": len(self._replacements),
-                    },
-                )
-        ctx.push_chunk(last_chunk)
+        # Get metadata from a previous chunk for the new chunk
+        last_chunk = ctx.last_chunk_received
+        chunk = create_text_chunk(
+            text=transformed,
+            model=last_chunk.model or "unknown",
+            response_id=last_chunk.id,
+        )
+        ctx.push_chunk(chunk)
+
+        if original != transformed:
+            ctx.policy_ctx.record_event(
+                "policy.string_replacement.content_transformed",
+                {
+                    "original_length": len(original),
+                    "transformed_length": len(transformed),
+                    "replacements_count": len(self._replacements),
+                },
+            )
 
     async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
         """Apply string replacements to non-streaming response content.
