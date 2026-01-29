@@ -32,9 +32,12 @@ from .openai import (
     ImageUrl,
     Message,
     MessageContent,
+    RedactedThinkingBlock,
     Request,
     SystemMessage,
     TextContentPart,
+    ThinkingBlock,
+    ThinkingBlockType,
     ToolCall,
     ToolMessage,
     UserMessage,
@@ -47,6 +50,10 @@ __all__ = [
     "ImageContentPart",
     "ContentPart",
     "MessageContent",
+    # Thinking blocks (LiteLLM extension)
+    "ThinkingBlock",
+    "RedactedThinkingBlock",
+    "ThinkingBlockType",
     # OpenAI messages
     "SystemMessage",
     "UserMessage",

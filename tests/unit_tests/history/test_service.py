@@ -18,6 +18,7 @@ from luthien_proxy.history.models import (
 )
 from luthien_proxy.history.service import (
     _build_turn,
+    _extract_preview_message,
     _extract_text_content,
     _extract_tool_calls,
     _parse_request_messages,
@@ -47,6 +48,68 @@ class TestExtractTextContent:
     def test_extract_content(self, content, expected):
         """Test extracting content from various formats."""
         assert _extract_text_content(content) == expected
+
+
+class TestExtractPreviewMessage:
+    """Test preview message extraction for session list display."""
+
+    def test_basic_message(self):
+        """Test extracting a basic user message."""
+        payload = {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}}
+        assert _extract_preview_message(payload) == "Hello world"
+
+    def test_multiple_messages_returns_first_user(self):
+        """Test that the first user message is returned (captures session intent)."""
+        payload = {
+            "final_request": {
+                "messages": [
+                    {"role": "system", "content": "You are helpful"},
+                    {"role": "user", "content": "First question"},
+                    {"role": "assistant", "content": "Answer"},
+                    {"role": "user", "content": "Follow-up question"},
+                ]
+            }
+        }
+        assert _extract_preview_message(payload) == "First question"
+
+    def test_truncates_long_messages(self):
+        """Test that long messages are truncated to 100 chars."""
+        long_message = "x" * 150
+        payload = {"final_request": {"messages": [{"role": "user", "content": long_message}]}}
+        result = _extract_preview_message(payload)
+        assert len(result) == 103  # 100 chars + "..."
+        assert result.endswith("...")
+
+    def test_normalizes_whitespace(self):
+        """Test that newlines and extra whitespace are collapsed."""
+        payload = {"final_request": {"messages": [{"role": "user", "content": "Hello\n\nworld\n  test"}]}}
+        assert _extract_preview_message(payload) == "Hello world test"
+
+    def test_none_payload(self):
+        """Test handling of None payload."""
+        assert _extract_preview_message(None) is None
+
+    def test_empty_payload(self):
+        """Test handling of empty dict payload."""
+        assert _extract_preview_message({}) is None
+
+    def test_no_user_messages(self):
+        """Test handling when no user messages present."""
+        payload = {"final_request": {"messages": [{"role": "system", "content": "System prompt"}]}}
+        assert _extract_preview_message(payload) is None
+
+    def test_json_string_payload(self):
+        """Test handling of JSON string payload from asyncpg."""
+        import json
+
+        payload_dict = {"final_request": {"messages": [{"role": "user", "content": "From JSON"}]}}
+        payload_str = json.dumps(payload_dict)
+        assert _extract_preview_message(payload_str) == "From JSON"
+
+    def test_falls_back_to_original_request(self):
+        """Test fallback to original_request when final_request missing."""
+        payload = {"original_request": {"messages": [{"role": "user", "content": "Fallback message"}]}}
+        assert _extract_preview_message(payload) == "Fallback message"
 
 
 class TestSafeParseJson:
@@ -143,6 +206,17 @@ class TestParseRequestMessages:
         assert result[0].content == "You are helpful"
         assert result[1].message_type == MessageType.USER
         assert result[1].content == "Hello"
+
+    def test_unrecognized_role_raises_error(self):
+        """Test that unrecognized message roles raise ValueError."""
+        request = {
+            "messages": [
+                {"role": "unknown_role", "content": "Hello"},
+            ]
+        }
+
+        with pytest.raises(ValueError, match="Unrecognized message role: 'unknown_role'"):
+            _parse_request_messages(request)
 
     def test_assistant_message_with_tool_calls(self):
         """Test parsing assistant messages with tool_calls in request.
@@ -293,10 +367,53 @@ class TestBuildTurn:
         turn = _build_turn("call-123", events)
 
         assert turn.had_policy_intervention
-        assert turn.request_messages[0].was_modified
-        assert turn.request_messages[0].original_content == "Original"
+        assert turn.request_was_modified
+        assert turn.original_request_messages is not None
+        assert turn.original_request_messages[0].content == "Original"
         assert len(turn.annotations) == 1
         assert turn.annotations[0].policy_name == "judge"
+
+    def test_missing_final_request_raises_error(self):
+        """Test that missing final_request raises KeyError."""
+        events = [
+            {
+                "event_type": "transaction.request_recorded",
+                "payload": {
+                    "final_model": "gpt-4",
+                    "original_request": {"messages": [{"role": "user", "content": "Hello"}]},
+                    # final_request is missing
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+        ]
+
+        with pytest.raises(KeyError, match="final_request"):
+            _build_turn("call-123", events)
+
+    def test_missing_final_response_raises_error(self):
+        """Test that missing final_response raises KeyError."""
+        events = [
+            {
+                "event_type": "transaction.request_recorded",
+                "payload": {
+                    "final_model": "gpt-4",
+                    "original_request": {"messages": [{"role": "user", "content": "Hello"}]},
+                    "final_request": {"messages": [{"role": "user", "content": "Hello"}]},
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+            {
+                "event_type": "transaction.streaming_response_recorded",
+                "payload": {
+                    "original_response": {"choices": [{"message": {"content": "Hi!"}}]},
+                    # final_response is missing
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 1),
+            },
+        ]
+
+        with pytest.raises(KeyError, match="final_response"):
+            _build_turn("call-123", events)
 
 
 class TestFetchSessionList:
@@ -314,6 +431,7 @@ class TestFetchSessionList:
                 "turn_count": 3,
                 "policy_interventions": 1,
                 "models": ["gpt-4", "claude-3"],
+                "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
             },
         ]
 
@@ -334,6 +452,7 @@ class TestFetchSessionList:
         assert result.sessions[0].turn_count == 3
         assert result.sessions[0].policy_interventions == 1
         assert "gpt-4" in result.sessions[0].models_used
+        assert result.sessions[0].preview_message == "Hello world"
 
     @pytest.mark.asyncio
     async def test_fetch_with_offset(self):
@@ -347,6 +466,7 @@ class TestFetchSessionList:
                 "turn_count": 2,
                 "policy_interventions": 0,
                 "models": ["gpt-4"],
+                "request_payload": None,  # Test with no first message
             },
         ]
 
@@ -363,6 +483,7 @@ class TestFetchSessionList:
         assert result.offset == 50
         assert result.has_more is True  # 50 + 1 < 100
         assert len(result.sessions) == 1
+        assert result.sessions[0].preview_message is None
 
     @pytest.mark.asyncio
     async def test_empty_result(self):
@@ -433,6 +554,69 @@ class TestFetchSessionDetail:
 
         with pytest.raises(ValueError, match="No events found"):
             await fetch_session_detail("nonexistent", mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_invalid_payload_json_string_raises_error(self):
+        """Test that invalid JSON payload string raises ValueError."""
+        mock_rows = [
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.request_recorded",
+                "payload": "not valid json {{{",  # Invalid JSON string
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        with pytest.raises(ValueError, match="Failed to parse payload JSON"):
+            await fetch_session_detail("session-1", mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_unexpected_payload_type_raises_error(self):
+        """Test that unexpected payload type raises TypeError."""
+        mock_rows = [
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.request_recorded",
+                "payload": 12345,  # Unexpected type (not dict or str)
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        with pytest.raises(TypeError, match="Unexpected payload type: int"):
+            await fetch_session_detail("session-1", mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_unexpected_created_at_type_raises_error(self):
+        """Test that unexpected created_at type raises TypeError."""
+        mock_rows = [
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.request_recorded",
+                "payload": {"final_model": "gpt-4", "final_request": {"messages": []}},
+                "created_at": "2025-01-15T10:00:00",  # String instead of datetime
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        with pytest.raises(TypeError, match="created_at must be datetime, got str"):
+            await fetch_session_detail("session-1", mock_pool)
 
     @pytest.mark.asyncio
     async def test_payload_as_json_string(self):

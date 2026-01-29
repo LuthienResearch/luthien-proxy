@@ -3,12 +3,15 @@
 
 """Tests for LLM format converters."""
 
+from typing import cast
+
 from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
 from luthien_proxy.llm.llm_format_utils import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
 )
+from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
 
 class TestAnthropicToOpenAIRequest:
@@ -16,7 +19,7 @@ class TestAnthropicToOpenAIRequest:
 
     def test_minimal_conversion(self):
         """Test converting minimal Anthropic request."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
@@ -29,9 +32,136 @@ class TestAnthropicToOpenAIRequest:
         assert result["max_tokens"] == 1024
         assert result["stream"] is False
 
+    def test_thinking_parameter_preserved(self):
+        """Test that thinking parameter passes through to output."""
+        anthropic_req: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Think about this"}],
+            "max_tokens": 16000,
+            "thinking": {"type": "enabled", "budget_tokens": 10000},
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assert result["thinking"] == {"type": "enabled", "budget_tokens": 10000}
+
+    def test_metadata_parameter_preserved(self):
+        """Test that metadata parameter passes through."""
+        anthropic_req: AnthropicRequest = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "metadata": {"user_id": "user_123"},
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assert result["metadata"] == {"user_id": "user_123"}
+
+    def test_stop_sequences_mapped_to_stop(self):
+        """Test that stop_sequences is mapped to 'stop' (OpenAI format)."""
+        anthropic_req: AnthropicRequest = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "stop_sequences": ["END", "STOP"],
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        # Anthropic's stop_sequences should be mapped to OpenAI's stop
+        assert result["stop"] == ["END", "STOP"]
+        assert "stop_sequences" not in result
+
+    def test_tool_choice_auto_converted(self):
+        """Test that Anthropic tool_choice auto is converted to OpenAI format."""
+        anthropic_req: AnthropicRequest = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "tool_choice": {"type": "auto"},
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        # Anthropic {"type": "auto"} -> OpenAI "auto" (string)
+        assert result["tool_choice"] == "auto"
+
+    def test_tool_choice_any_converted_to_required(self):
+        """Test that Anthropic tool_choice any is converted to OpenAI required."""
+        anthropic_req: AnthropicRequest = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "tool_choice": {"type": "any"},
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        # Anthropic {"type": "any"} (force tool use) -> OpenAI "required"
+        assert result["tool_choice"] == "required"
+
+    def test_tool_choice_specific_tool_converted(self):
+        """Test that Anthropic specific tool_choice is converted to OpenAI format."""
+        anthropic_req: AnthropicRequest = {
+            "model": "claude-3-opus-20240229",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "tool_choice": {"type": "tool", "name": "get_weather"},
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        # Anthropic {"type": "tool", "name": X} -> OpenAI {"type": "function", "function": {"name": X}}
+        assert result["tool_choice"] == {"type": "function", "function": {"name": "get_weather"}}
+
+    def test_multiple_extra_params_preserved(self):
+        """Test that multiple extra parameters all pass through."""
+        # Use cast because we're testing passthrough of unknown params like custom_param
+        anthropic_req = cast(
+            AnthropicRequest,
+            {
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 16000,
+                "thinking": {"type": "enabled", "budget_tokens": 10000},
+                "metadata": {"user_id": "user_123"},
+                "stop_sequences": ["END"],
+                "custom_param": "custom_value",
+            },
+        )
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assert result["thinking"] == {"type": "enabled", "budget_tokens": 10000}
+        assert result["metadata"] == {"user_id": "user_123"}
+        # stop_sequences is mapped to stop (OpenAI format)
+        assert result["stop"] == ["END"]
+        assert "stop_sequences" not in result
+        assert result["custom_param"] == "custom_value"
+
+    def test_none_extra_params_filtered(self):
+        """Test that None extra parameters are filtered out."""
+        # Use cast because we're testing None handling which isn't in the TypedDict
+        anthropic_req = cast(
+            AnthropicRequest,
+            {
+                "model": "claude-3-opus-20240229",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 1024,
+                "thinking": None,
+                "metadata": None,
+            },
+        )
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assert "thinking" not in result
+        assert "metadata" not in result
+
     def test_with_optional_params(self):
         """Test conversion with temperature and top_p."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-sonnet-20240229",
             "messages": [{"role": "user", "content": "Test"}],
             "max_tokens": 500,
@@ -46,7 +176,7 @@ class TestAnthropicToOpenAIRequest:
 
     def test_with_streaming(self):
         """Test conversion with streaming enabled."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [{"role": "user", "content": "Stream this"}],
             "max_tokens": 1024,
@@ -59,7 +189,7 @@ class TestAnthropicToOpenAIRequest:
 
     def test_system_parameter_conversion(self):
         """Test that Anthropic system parameter becomes first message."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
@@ -75,16 +205,181 @@ class TestAnthropicToOpenAIRequest:
 
     def test_filters_none_values(self):
         """Test that None values are filtered out."""
-        anthropic_req = {
-            "model": "claude-3-opus-20240229",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "max_tokens": 1024,
-            "temperature": None,
-        }
+        # Use cast because we're testing None handling which isn't in the TypedDict
+        anthropic_req = cast(
+            AnthropicRequest,
+            {
+                "model": "claude-3-opus-20240229",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 1024,
+                "temperature": None,
+            },
+        )
 
         result = anthropic_to_openai_request(anthropic_req)
 
         assert "temperature" not in result
+
+
+class TestOpenAIToAnthropicResponseThinkingBlocks:
+    """Test thinking blocks handling in OpenAI to Anthropic response conversion."""
+
+    def test_thinking_blocks_appear_first_in_content(self):
+        """Test that thinking blocks are placed first in content array.
+
+        When thinking is enabled, Anthropic API requires thinking blocks
+        to appear BEFORE text content. LiteLLM exposes these via
+        message.thinking_blocks.
+        """
+        # Create a mock message with thinking_blocks attribute
+        message = Message(role="assistant", content="Here is my response.")
+        # LiteLLM adds thinking_blocks as an attribute
+        message.thinking_blocks = [
+            {
+                "type": "thinking",
+                "thinking": "Let me think about this step by step...",
+                "signature": "sig_abc123",
+            }
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id-thinking",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[
+                Choices(
+                    index=0,
+                    message=message,
+                    finish_reason="stop",
+                )
+            ],
+            usage=Usage(prompt_tokens=100, completion_tokens=500, total_tokens=600),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        # Thinking block should be FIRST, then text
+        assert len(result["content"]) == 2
+        assert result["content"][0]["type"] == "thinking"
+        assert result["content"][0]["thinking"] == "Let me think about this step by step..."
+        assert result["content"][0]["signature"] == "sig_abc123"
+        assert result["content"][1]["type"] == "text"
+        assert result["content"][1]["text"] == "Here is my response."
+
+    def test_thinking_blocks_with_tool_calls(self):
+        """Test thinking blocks ordering when tool calls are also present.
+
+        Order should be: thinking -> text -> tool_use (per Anthropic spec).
+        """
+        from litellm.types.utils import ChatCompletionMessageToolCall, Function
+
+        message = Message(
+            role="assistant",
+            content="Let me use a tool.",
+            tool_calls=[
+                ChatCompletionMessageToolCall(
+                    id="call_123",
+                    type="function",
+                    function=Function(name="get_data", arguments="{}"),
+                )
+            ],
+        )
+        message.thinking_blocks = [
+            {"type": "thinking", "thinking": "I should use the tool", "signature": "sig_x"},
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="tool_calls")],
+            usage=Usage(prompt_tokens=50, completion_tokens=100, total_tokens=150),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        # Order: thinking -> text -> tool_use
+        assert len(result["content"]) == 3
+        assert result["content"][0]["type"] == "thinking"
+        assert result["content"][1]["type"] == "text"
+        assert result["content"][2]["type"] == "tool_use"
+
+    def test_empty_thinking_blocks_list(self):
+        """Test that empty thinking_blocks list is handled like no blocks."""
+        message = Message(role="assistant", content="Response with empty list.")
+        message.thinking_blocks = []  # Empty list, not None
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="stop")],
+            usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        # Empty list should be treated as no thinking blocks
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+
+    def test_redacted_thinking_block(self):
+        """Test handling of redacted_thinking blocks.
+
+        Redacted thinking blocks have a different structure:
+        - type: "redacted_thinking"
+        - data: encrypted/redacted content (instead of thinking + signature)
+        """
+        message = Message(role="assistant", content="Response after redacted thinking.")
+        message.thinking_blocks = [
+            {"type": "redacted_thinking", "data": "encrypted_data_abc123"},
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="stop")],
+            usage=Usage(prompt_tokens=50, completion_tokens=100, total_tokens=150),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        assert len(result["content"]) == 2
+        assert result["content"][0]["type"] == "redacted_thinking"
+        assert result["content"][0]["data"] == "encrypted_data_abc123"
+        assert "thinking" not in result["content"][0]  # Should not have thinking field
+        assert result["content"][1]["type"] == "text"
+
+    def test_thinking_blocks_without_text_content(self):
+        """Test response with thinking blocks but no text content.
+
+        Edge case where model outputs only thinking (e.g., internal reasoning
+        that doesn't produce visible output).
+        """
+        message = Message(role="assistant", content=None)
+        message.thinking_blocks = [
+            {"type": "thinking", "thinking": "Internal reasoning...", "signature": "sig"},
+        ]
+
+        openai_response = ModelResponse(
+            id="test-id",
+            created=1234567890,
+            model="claude-sonnet-4-20250514",
+            object="chat.completion",
+            choices=[Choices(index=0, message=message, finish_reason="stop")],
+            usage=Usage(prompt_tokens=50, completion_tokens=100, total_tokens=150),
+        )
+
+        result = openai_to_anthropic_response(openai_response)
+
+        # Should have only thinking block, no text
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "thinking"
 
 
 class TestOpenAIToAnthropicResponse:
@@ -203,12 +498,144 @@ class TestOpenAIToAnthropicResponse:
         assert result["stop_reason"] == "content_filter"
 
 
+class TestAnthropicToOpenAIRequestThinkingBlocks:
+    """Test thinking blocks preservation in Anthropic to OpenAI request conversion.
+
+    When thinking is enabled, assistant messages in conversation history contain
+    thinking blocks. These must be preserved in thinking_blocks field for passthrough
+    to Anthropic via LiteLLM.
+    """
+
+    def test_thinking_blocks_preserved_in_separate_field(self):
+        """Test that thinking blocks are preserved in thinking_blocks field.
+
+        Multi-turn conversations with thinking enabled require previous assistant
+        messages to include their thinking blocks in the thinking_blocks field.
+        """
+        anthropic_req: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [
+                {"role": "user", "content": "What is 2+2?"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "Let me calculate 2+2...",
+                            "signature": "sig_abc123",
+                        },
+                        {"type": "text", "text": "The answer is 4."},
+                    ],
+                },
+                {"role": "user", "content": "What about 3+3?"},
+            ],
+            "max_tokens": 1024,
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        # Assistant message should have content as string and thinking_blocks as separate field
+        assistant_msg = result["messages"][1]
+        assert assistant_msg["content"] == "The answer is 4."
+        assert "thinking_blocks" in assistant_msg
+        assert len(assistant_msg["thinking_blocks"]) == 1
+        assert assistant_msg["thinking_blocks"][0]["type"] == "thinking"
+        assert assistant_msg["thinking_blocks"][0]["thinking"] == "Let me calculate 2+2..."
+        assert assistant_msg["thinking_blocks"][0]["signature"] == "sig_abc123"
+
+    def test_redacted_thinking_blocks_preserved(self):
+        """Test that redacted_thinking blocks are preserved in thinking_blocks field."""
+        anthropic_req: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [
+                {"role": "user", "content": "Question"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "redacted_thinking", "data": "encrypted_data_xyz"},
+                        {"type": "text", "text": "Response"},
+                    ],
+                },
+            ],
+            "max_tokens": 1024,
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assistant_msg = result["messages"][1]
+        assert assistant_msg["content"] == "Response"
+        assert "thinking_blocks" in assistant_msg
+        assert assistant_msg["thinking_blocks"][0]["type"] == "redacted_thinking"
+        assert assistant_msg["thinking_blocks"][0]["data"] == "encrypted_data_xyz"
+
+    def test_thinking_blocks_with_tool_calls(self):
+        """Test thinking blocks preserved in thinking_blocks field alongside tool_calls."""
+        anthropic_req: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [
+                {"role": "user", "content": "Get the weather"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "thinking": "I should use the tool", "signature": "sig"},
+                        {"type": "text", "text": "Let me check."},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_123",
+                            "name": "get_weather",
+                            "input": {"location": "NYC"},
+                        },
+                    ],
+                },
+            ],
+            "max_tokens": 1024,
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assistant_msg = result["messages"][1]
+        # Content should be string
+        assert assistant_msg["content"] == "Let me check."
+        # Thinking blocks in separate field
+        assert "thinking_blocks" in assistant_msg
+        assert assistant_msg["thinking_blocks"][0]["type"] == "thinking"
+        # Tool calls should be separate
+        assert "tool_calls" in assistant_msg
+        assert assistant_msg["tool_calls"][0]["function"]["name"] == "get_weather"
+
+    def test_thinking_only_no_text(self):
+        """Test assistant message with only thinking block (no text)."""
+        anthropic_req: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [
+                {"role": "user", "content": "Think about this"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "thinking": "Internal reasoning only", "signature": "sig"},
+                    ],
+                },
+            ],
+            "max_tokens": 1024,
+        }
+
+        result = anthropic_to_openai_request(anthropic_req)
+
+        assistant_msg = result["messages"][1]
+        # Content should be None when no text
+        assert assistant_msg["content"] is None
+        # Thinking blocks in separate field
+        assert "thinking_blocks" in assistant_msg
+        assert len(assistant_msg["thinking_blocks"]) == 1
+        assert assistant_msg["thinking_blocks"][0]["type"] == "thinking"
+
+
 class TestAnthropicToOpenAIRequestArrayContent:
     """Test Anthropic to OpenAI conversion for array content blocks."""
 
     def test_text_block_array(self):
         """Test converting array of text blocks."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -229,7 +656,7 @@ class TestAnthropicToOpenAIRequestArrayContent:
 
     def test_image_base64_conversion(self):
         """Test converting base64 image from Anthropic to OpenAI format."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -261,7 +688,7 @@ class TestAnthropicToOpenAIRequestArrayContent:
 
     def test_image_url_conversion(self):
         """Test converting URL image from Anthropic to OpenAI format."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -290,24 +717,28 @@ class TestAnthropicToOpenAIRequestArrayContent:
 
     def test_image_default_media_type(self):
         """Test that base64 images default to image/png media type."""
-        anthropic_req = {
-            "model": "claude-3-opus-20240229",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "data": "abc123",
+        # Use cast because the source is missing media_type which is required in the TypedDict
+        anthropic_req = cast(
+            AnthropicRequest,
+            {
+                "model": "claude-3-opus-20240229",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "data": "abc123",
+                                },
                             },
-                        },
-                    ],
-                }
-            ],
-            "max_tokens": 1024,
-        }
+                        ],
+                    }
+                ],
+                "max_tokens": 1024,
+            },
+        )
 
         result = anthropic_to_openai_request(anthropic_req)
 
@@ -316,7 +747,7 @@ class TestAnthropicToOpenAIRequestArrayContent:
 
     def test_image_only_no_text(self):
         """Test image-only message without text."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -345,7 +776,7 @@ class TestAnthropicToOpenAIRequestArrayContent:
 
     def test_multiple_images(self):
         """Test message with multiple images."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -380,7 +811,7 @@ class TestAnthropicToOpenAIRequestToolResults:
 
     def test_tool_result_conversion(self):
         """Test converting tool_result blocks to OpenAI tool messages."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -405,7 +836,7 @@ class TestAnthropicToOpenAIRequestToolResults:
 
     def test_multiple_tool_results(self):
         """Test converting multiple tool_result blocks."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -427,7 +858,7 @@ class TestAnthropicToOpenAIRequestToolResults:
 
     def test_tool_result_with_text(self):
         """Test tool_result with accompanying text creates separate messages."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -455,7 +886,7 @@ class TestAnthropicToOpenAIRequestToolUse:
 
     def test_tool_use_conversion(self):
         """Test converting assistant tool_use to OpenAI tool_calls."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -486,7 +917,7 @@ class TestAnthropicToOpenAIRequestToolUse:
 
     def test_tool_use_with_text(self):
         """Test tool_use with accompanying text."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -513,7 +944,7 @@ class TestAnthropicToOpenAIRequestToolUse:
 
     def test_multiple_tool_uses(self):
         """Test converting multiple tool_use blocks."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [
                 {
@@ -540,7 +971,7 @@ class TestAnthropicToOpenAIRequestTools:
 
     def test_tools_conversion(self):
         """Test converting Anthropic tools to OpenAI format."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [{"role": "user", "content": "Use tools"}],
             "max_tokens": 1024,
@@ -572,7 +1003,7 @@ class TestAnthropicToOpenAIRequestTools:
 
     def test_multiple_tools(self):
         """Test converting multiple tools."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [{"role": "user", "content": "Use tools"}],
             "max_tokens": 1024,
@@ -594,7 +1025,7 @@ class TestAnthropicToOpenAIRequestSystem:
 
     def test_system_as_content_blocks(self):
         """Test system parameter as array of content blocks."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
@@ -611,7 +1042,7 @@ class TestAnthropicToOpenAIRequestSystem:
 
     def test_system_empty_blocks(self):
         """Test system with empty content blocks."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
@@ -629,18 +1060,22 @@ class TestAnthropicToOpenAIRequestEdgeCases:
 
     def test_unknown_block_type(self):
         """Test handling unknown content block types."""
-        anthropic_req = {
-            "model": "claude-3-opus-20240229",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "unknown_type", "data": "something"},
-                    ],
-                }
-            ],
-            "max_tokens": 1024,
-        }
+        # Use cast because we're testing handling of unknown/malformed block types
+        anthropic_req = cast(
+            AnthropicRequest,
+            {
+                "model": "claude-3-opus-20240229",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "unknown_type", "data": "something"},
+                        ],
+                    }
+                ],
+                "max_tokens": 1024,
+            },
+        )
 
         result = anthropic_to_openai_request(anthropic_req)
 
@@ -649,19 +1084,23 @@ class TestAnthropicToOpenAIRequestEdgeCases:
 
     def test_non_dict_block_in_array(self):
         """Test handling non-dict items in content array."""
-        anthropic_req = {
-            "model": "claude-3-opus-20240229",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        "string item",  # Not a dict
-                        {"type": "text", "text": "Valid text"},
-                    ],
-                }
-            ],
-            "max_tokens": 1024,
-        }
+        # Use cast because we're testing handling of malformed content (string instead of dict)
+        anthropic_req = cast(
+            AnthropicRequest,
+            {
+                "model": "claude-3-opus-20240229",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            "string item",  # Not a dict
+                            {"type": "text", "text": "Valid text"},
+                        ],
+                    }
+                ],
+                "max_tokens": 1024,
+            },
+        )
 
         result = anthropic_to_openai_request(anthropic_req)
 
@@ -670,16 +1109,20 @@ class TestAnthropicToOpenAIRequestEdgeCases:
 
     def test_unknown_content_format_passthrough(self):
         """Test that unknown content formats are passed through."""
-        anthropic_req = {
-            "model": "claude-3-opus-20240229",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": 12345,  # Unexpected type
-                }
-            ],
-            "max_tokens": 1024,
-        }
+        # Use cast because we're testing handling of unexpected content type (int)
+        anthropic_req = cast(
+            AnthropicRequest,
+            {
+                "model": "claude-3-opus-20240229",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": 12345,  # Unexpected type
+                    }
+                ],
+                "max_tokens": 1024,
+            },
+        )
 
         result = anthropic_to_openai_request(anthropic_req)
 
@@ -689,10 +1132,14 @@ class TestAnthropicToOpenAIRequestEdgeCases:
         """Test default max_tokens is applied when not specified."""
         from luthien_proxy.utils.constants import DEFAULT_LLM_MAX_TOKENS
 
-        anthropic_req = {
-            "model": "claude-3-opus-20240229",
-            "messages": [{"role": "user", "content": "Hello"}],
-        }
+        # Use cast because we're omitting max_tokens which is required in the TypedDict
+        anthropic_req = cast(
+            AnthropicRequest,
+            {
+                "model": "claude-3-opus-20240229",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
 
         result = anthropic_to_openai_request(anthropic_req)
 
@@ -700,7 +1147,7 @@ class TestAnthropicToOpenAIRequestEdgeCases:
 
     def test_empty_messages(self):
         """Test handling empty messages array."""
-        anthropic_req = {
+        anthropic_req: AnthropicRequest = {
             "model": "claude-3-opus-20240229",
             "messages": [],
             "max_tokens": 1024,
