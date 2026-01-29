@@ -34,10 +34,14 @@ class DeSlop(SimplePolicy):
               "utilize": "use"
     """
 
-    # Default replacements - em/en dashes to regular dashes
+    # Default replacements - common AI-isms to plain text
     DEFAULT_REPLACEMENTS: dict[str, str] = {
         "—": "-",  # em-dash
         "–": "-",  # en-dash
+        "\u2018": "'",  # left single curly quote
+        "\u2019": "'",  # right single curly quote (apostrophe)
+        "\u201c": '"',  # left double curly quote
+        "\u201d": '"',  # right double curly quote
     }
 
     def __init__(self, config: dict | None = None) -> None:

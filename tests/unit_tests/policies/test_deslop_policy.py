@@ -116,3 +116,27 @@ class TestDeSlopInvariants:
         content = "```python\nresult = a — b  # em-dash in code\n```"
         result = await policy.simple_on_response_content(content, policy_context)
         assert result == "```python\nresult = a - b  # em-dash in code\n```"
+
+
+class TestDeSlopCurlyQuotes:
+    """Test curly quote replacement (TDD: write tests first)."""
+
+    async def test_curly_single_quotes_replaced(self, policy, policy_context):
+        """Test that curly single quotes are replaced with straight quotes."""
+        # \u2018 = ' (left single) \u2019 = ' (right single/apostrophe)
+        content = "It\u2019s a \u2018test\u2019 with curly quotes"
+        result = await policy.simple_on_response_content(content, policy_context)
+        assert result == "It's a 'test' with curly quotes"
+
+    async def test_curly_double_quotes_replaced(self, policy, policy_context):
+        """Test that curly double quotes are replaced with straight quotes."""
+        # \u201c = " (left double) \u201d = " (right double)
+        content = "He said \u201chello\u201d to her"
+        result = await policy.simple_on_response_content(content, policy_context)
+        assert result == 'He said "hello" to her'
+
+    async def test_mixed_curly_quotes(self, policy, policy_context):
+        """Test mixed curly quotes in same content."""
+        content = "She said \u201cit\u2019s \u2018fine\u2019\u201d \u2014 really"
+        result = await policy.simple_on_response_content(content, policy_context)
+        assert result == "She said \"it's 'fine'\" - really"
