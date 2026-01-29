@@ -8,7 +8,7 @@ import time
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from litellm.types.utils import Delta, ModelResponse, StreamingChoices
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.policies import PolicyContext
@@ -103,22 +103,6 @@ class TestPolicyExecutorTimeoutEnforcement:
         policy.on_stream_complete = AsyncMock()
         return policy
 
-    def create_content_chunk(self, content: str, finish_reason: str | None = None) -> ModelResponse:
-        """Helper to create a content chunk."""
-        return ModelResponse(
-            id="chatcmpl-123",
-            choices=[
-                StreamingChoices(
-                    delta=Delta(content=content, role="assistant"),
-                    finish_reason=finish_reason,
-                    index=0,
-                )
-            ],
-            created=1234567890,
-            model="gpt-4",
-            object="chat.completion.chunk",
-        )
-
     async def async_iter_from_list(self, items: list):
         """Convert a list to an async iterator."""
         for item in items:
@@ -163,8 +147,8 @@ class TestPolicyExecutorTimeoutEnforcement:
 
         # Create fast stream
         chunks = [
-            self.create_content_chunk("Hello"),
-            self.create_content_chunk(" world", finish_reason="stop"),
+            make_streaming_chunk(content="Hello"),
+            make_streaming_chunk(content=" world", finish_reason="stop"),
         ]
         input_stream = self.async_iter_from_list(chunks)
 
@@ -182,10 +166,10 @@ class TestPolicyExecutorTimeoutEnforcement:
 
         # Create a stalled stream that waits too long
         async def stalled_stream():
-            yield self.create_content_chunk("Start")
+            yield make_streaming_chunk(content="Start")
             # Stall for longer than timeout
             await asyncio.sleep(0.5)
-            yield self.create_content_chunk("Too late")
+            yield make_streaming_chunk(content="Too late")
 
         with pytest.raises(PolicyTimeoutError) as exc_info:
             await executor.process(stalled_stream(), output_queue, mock_policy, policy_ctx)
@@ -201,11 +185,11 @@ class TestPolicyExecutorTimeoutEnforcement:
         # Create stream with delays between chunks
         # But each chunk calls keepalive, so timeout doesn't trigger
         async def slow_stream():
-            yield self.create_content_chunk("First")
+            yield make_streaming_chunk(content="First")
             await asyncio.sleep(0.3)  # Less than timeout
-            yield self.create_content_chunk("Second")
+            yield make_streaming_chunk(content="Second")
             await asyncio.sleep(0.3)  # Less than timeout
-            yield self.create_content_chunk("Third", finish_reason="stop")
+            yield make_streaming_chunk(content="Third", finish_reason="stop")
 
         # Should complete without timeout because keepalive called on each chunk
         await executor.process(slow_stream(), output_queue, mock_policy, policy_ctx)
@@ -220,9 +204,9 @@ class TestPolicyExecutorTimeoutEnforcement:
         output_queue = asyncio.Queue()
 
         async def stalled_stream():
-            yield self.create_content_chunk("Start")
+            yield make_streaming_chunk(content="Start")
             await asyncio.sleep(0.4)
-            yield self.create_content_chunk("End")
+            yield make_streaming_chunk(content="End")
 
         with pytest.raises(PolicyTimeoutError) as exc_info:
             await executor.process(stalled_stream(), output_queue, mock_policy, policy_ctx)
@@ -239,7 +223,7 @@ class TestPolicyExecutorTimeoutEnforcement:
         output_queue = asyncio.Queue()
 
         chunks = [
-            self.create_content_chunk("Done", finish_reason="stop"),
+            make_streaming_chunk(content="Done", finish_reason="stop"),
         ]
         input_stream = self.async_iter_from_list(chunks)
 
@@ -259,7 +243,7 @@ class TestPolicyExecutorTimeoutEnforcement:
         failing_policy.on_chunk_received = AsyncMock(side_effect=ValueError("Policy error"))
         failing_policy.on_stream_complete = AsyncMock()
 
-        chunks = [self.create_content_chunk("Test")]
+        chunks = [make_streaming_chunk(content="Test")]
         input_stream = self.async_iter_from_list(chunks)
 
         # Should raise ValueError, not timeout
@@ -290,8 +274,8 @@ class TestPolicyExecutorTimeoutEnforcement:
         policy.on_stream_complete = AsyncMock()
 
         chunks = [
-            self.create_content_chunk("Test1"),
-            self.create_content_chunk("Test2", finish_reason="stop"),
+            make_streaming_chunk(content="Test1"),
+            make_streaming_chunk(content="Test2", finish_reason="stop"),
         ]
         input_stream = self.async_iter_from_list(chunks)
 

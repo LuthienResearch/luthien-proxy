@@ -8,6 +8,7 @@ from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
 from luthien_proxy.llm.client import LLMClient
+from luthien_proxy.llm.response_normalizer import normalize_response, normalize_stream
 from luthien_proxy.llm.types import Request
 
 # Allow LiteLLM to pass through unknown models without validation
@@ -29,8 +30,9 @@ class LiteLLMClient(LLMClient):
             data = request.model_dump(exclude_none=True)
             data["stream"] = True
             response_stream = await litellm.acompletion(**data)
-            # litellm returns AsyncIterator when stream=True
-            return cast(AsyncIterator[ModelResponse], response_stream)
+            # Normalize chunks for consistent Delta objects (litellm >= 1.81.0 compat)
+            raw_stream = cast(AsyncIterator[ModelResponse], response_stream)
+            return normalize_stream(raw_stream)
 
     async def complete(self, request: Request) -> ModelResponse:
         """Get complete response from LLM."""
@@ -41,7 +43,7 @@ class LiteLLMClient(LLMClient):
             data = request.model_dump(exclude_none=True)
             data["stream"] = False
             response = await litellm.acompletion(**data)
-            return cast(ModelResponse, response)
+            return normalize_response(cast(ModelResponse, response))
 
 
 __all__ = ["LiteLLMClient"]

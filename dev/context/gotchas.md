@@ -113,6 +113,26 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 
 **Fix**: Delay `content_block_stop` for thinking blocks until signature arrives. Track `thinking_block_needs_close` flag and `last_thinking_block_index`.
 
+## LiteLLM >= 1.81.0 Breaking Changes in Streaming (2026-01-29)
+
+**Gotcha**: litellm 1.81.0+ introduced breaking changes in streaming response handling.
+
+**Breaking changes**:
+1. `StreamingChoices.delta` returns a `dict` instead of a `Delta` object
+2. `finish_reason` defaults to `"stop"` instead of `None` for intermediate chunks
+3. `StreamingChoices` passed to `ModelResponse` may get converted to `Choices`
+
+**Fix**: Use `response_normalizer.py` to normalize all streaming chunks:
+- `normalize_chunk()` - converts dict deltas to `Delta` objects
+- `normalize_chunk_with_finish_reason()` - also restores intended `finish_reason`
+- `normalize_stream()` - wraps async streams to normalize each chunk
+
+**Where normalization happens**:
+- `litellm_client.py` calls `normalize_stream()` on raw litellm output
+- Downstream code should receive already-normalized chunks
+
+**Test helpers**: Use `litellm_test_utils.make_streaming_chunk()` to create normalized chunks for tests.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

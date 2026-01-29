@@ -3,7 +3,8 @@
 import asyncio
 
 import pytest
-from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
+from litellm.types.utils import Choices, Message, ModelResponse
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.llm.types import Request
 from luthien_proxy.policies.all_caps_policy import AllCapsPolicy
@@ -176,22 +177,7 @@ class TestAllCapsPolicyStreaming:
     async def test_uppercase_content_delta(self, policy, streaming_context):
         """Test that content delta is converted to uppercase."""
         # Create a content delta chunk
-        chunk = ModelResponse(
-            id="test-id",
-            choices=[
-                StreamingChoices(
-                    finish_reason=None,
-                    index=0,
-                    delta=Delta(
-                        content="hello world",
-                        role="assistant",
-                    ),
-                )
-            ],
-            created=1234567890,
-            model="test-model",
-            object="chat.completion.chunk",
-        )
+        chunk = make_streaming_chunk(content="hello world", model="test-model", id="test-id", finish_reason=None)
 
         # Add chunk to state
         streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
@@ -210,22 +196,7 @@ class TestAllCapsPolicyStreaming:
     async def test_empty_content_delta(self, policy, streaming_context):
         """Test that empty content delta is handled gracefully."""
         # Create a content delta chunk with no content
-        chunk = ModelResponse(
-            id="test-id",
-            choices=[
-                StreamingChoices(
-                    finish_reason=None,
-                    index=0,
-                    delta=Delta(
-                        content=None,
-                        role="assistant",
-                    ),
-                )
-            ],
-            created=1234567890,
-            model="test-model",
-            object="chat.completion.chunk",
-        )
+        chunk = make_streaming_chunk(content=None, model="test-model", id="test-id", finish_reason=None)
 
         # Add chunk to state
         streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
@@ -241,27 +212,19 @@ class TestAllCapsPolicyStreaming:
     async def test_tool_call_delta_unchanged(self, policy, streaming_context):
         """Test that tool call deltas are passed through unchanged."""
         # Create a tool call delta chunk
-        chunk = ModelResponse(
-            id="test-id",
-            choices=[
-                StreamingChoices(
-                    finish_reason=None,
-                    index=0,
-                    delta=Delta(
-                        tool_calls=[
-                            {
-                                "index": 0,
-                                "id": "call_123",
-                                "function": {"name": "get_weather", "arguments": '{"location": "'},
-                                "type": "function",
-                            }
-                        ],
-                    ),
-                )
-            ],
-            created=1234567890,
+        chunk = make_streaming_chunk(
+            content=None,
             model="test-model",
-            object="chat.completion.chunk",
+            id="test-id",
+            finish_reason=None,
+            tool_calls=[
+                {
+                    "index": 0,
+                    "id": "call_123",
+                    "function": {"name": "get_weather", "arguments": '{"location": "'},
+                    "type": "function",
+                }
+            ],
         )
 
         # Add chunk to state
@@ -304,22 +267,7 @@ class TestAllCapsPolicyStreaming:
         ]
 
         for original, expected in chunks_and_expected:
-            chunk = ModelResponse(
-                id="test-id",
-                choices=[
-                    StreamingChoices(
-                        finish_reason=None,
-                        index=0,
-                        delta=Delta(
-                            content=original,
-                            role="assistant",
-                        ),
-                    )
-                ],
-                created=1234567890,
-                model="test-model",
-                object="chat.completion.chunk",
-            )
+            chunk = make_streaming_chunk(content=original, model="test-model", id="test-id", finish_reason=None)
 
             streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
             await policy.on_content_delta(streaming_context)
@@ -336,22 +284,7 @@ class TestAllCapsPolicyStreaming:
         ]
 
         for original, expected in test_cases:
-            chunk = ModelResponse(
-                id="test-id",
-                choices=[
-                    StreamingChoices(
-                        finish_reason=None,
-                        index=0,
-                        delta=Delta(
-                            content=original,
-                            role="assistant",
-                        ),
-                    )
-                ],
-                created=1234567890,
-                model="test-model",
-                object="chat.completion.chunk",
-            )
+            chunk = make_streaming_chunk(content=original, model="test-model", id="test-id", finish_reason=None)
 
             streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
             await policy.on_content_delta(streaming_context)

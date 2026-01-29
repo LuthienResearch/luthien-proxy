@@ -7,7 +7,10 @@ import socket
 import warnings
 
 import pytest
-from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
+from litellm.types.utils import Choices, Message, ModelResponse
+from tests.unit_tests.helpers.litellm_test_utils import (
+    make_streaming_chunk as _make_streaming_chunk,
+)
 
 _original_socket = socket.socket
 
@@ -105,33 +108,11 @@ def make_model_response():
 def make_streaming_chunk():
     """Factory fixture for creating streaming chunk ModelResponse objects.
 
-    Returns a function that creates fully-formed streaming chunks
-    with all required fields to avoid Pydantic serialization warnings.
+    Returns a function that creates fully-formed, normalized streaming chunks
+    as litellm_client.stream() would return them.
 
     Usage:
         chunk = make_streaming_chunk(content="Hello ")
         chunk = make_streaming_chunk(content="world", finish_reason="stop")
     """
-
-    def _make(
-        content: str | None,
-        model: str = "gpt-4",
-        id: str = "test-chunk-id",
-        finish_reason: str | None = None,
-    ) -> ModelResponse:
-        """Create a complete streaming chunk."""
-        return ModelResponse(
-            id=id,
-            created=1234567890,
-            model=model,
-            object="chat.completion.chunk",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(role="assistant", content=content),
-                    finish_reason=finish_reason,
-                )
-            ],
-        )
-
-    return _make
+    return _make_streaming_chunk

@@ -7,7 +7,8 @@ ModelResponse objects and checking the output events. No mocking - just real obj
 from unittest.mock import patch
 
 import pytest
-from litellm.types.utils import Delta, ModelResponse, StreamingChoices
+from litellm.types.utils import ChatCompletionDeltaToolCall, Function
+from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.streaming.client_formatter.anthropic_sse_assembler import AnthropicSSEAssembler
 
@@ -20,17 +21,7 @@ class TestAnthropicSSEAssembler:
         tracker = AnthropicSSEAssembler()
 
         # First chunk with text content
-        chunk1 = ModelResponse(
-            id="msg_123",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(content="Hello", role="assistant"),
-                    finish_reason=None,
-                )
-            ],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk1 = make_streaming_chunk(content="Hello", model="claude-3-5-haiku-20241022", id="msg_123")
 
         events1 = tracker.process_chunk(chunk1)
 
@@ -49,19 +40,11 @@ class TestAnthropicSSEAssembler:
         tracker = AnthropicSSEAssembler()
 
         # First chunk starts the block
-        chunk1 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content="Hello", role="assistant"))],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk1 = make_streaming_chunk(content="Hello", model="claude-3-5-haiku-20241022", id="msg_123")
         tracker.process_chunk(chunk1)
 
         # Second chunk should only emit delta
-        chunk2 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content=" world"))],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk2 = make_streaming_chunk(content=" world", model="claude-3-5-haiku-20241022", id="msg_123")
 
         events2 = tracker.process_chunk(chunk2)
 
@@ -75,18 +58,12 @@ class TestAnthropicSSEAssembler:
         tracker = AnthropicSSEAssembler()
 
         # Start with text
-        chunk1 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content="Hi", role="assistant"))],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk1 = make_streaming_chunk(content="Hi", model="claude-3-5-haiku-20241022", id="msg_123")
         tracker.process_chunk(chunk1)
 
         # Finish chunk with usage in _hidden_params
-        chunk2 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="stop")],
-            model="claude-3-5-haiku-20241022",
+        chunk2 = make_streaming_chunk(
+            content=None, model="claude-3-5-haiku-20241022", id="msg_123", finish_reason="stop"
         )
         # Add usage to hidden params
         chunk2._hidden_params = {"usage": type("Usage", (), {"prompt_tokens": 10, "completion_tokens": 5})()}
@@ -107,35 +84,22 @@ class TestAnthropicSSEAssembler:
         tracker = AnthropicSSEAssembler()
 
         # Text content first
-        chunk1 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content="Let me check", role="assistant"))],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk1 = make_streaming_chunk(content="Let me check", model="claude-3-5-haiku-20241022", id="msg_123")
         tracker.process_chunk(chunk1)
 
         # Tool call start (has id and name, empty args)
-        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
-
-        chunk2 = ModelResponse(
+        chunk2 = make_streaming_chunk(
+            content="",
+            model="claude-3-5-haiku-20241022",
             id="msg_123",
-            choices=[
-                StreamingChoices(
+            tool_calls=[
+                ChatCompletionDeltaToolCall(
+                    id="toolu_123",
+                    function=Function(name="get_weather", arguments=""),
+                    type="function",
                     index=0,
-                    delta=Delta(
-                        content="",
-                        tool_calls=[
-                            ChatCompletionDeltaToolCall(
-                                id="toolu_123",
-                                function=Function(name="get_weather", arguments=""),
-                                type="function",
-                                index=0,
-                            )
-                        ],
-                    ),
                 )
             ],
-            model="claude-3-5-haiku-20241022",
         )
 
         events2 = tracker.process_chunk(chunk2)
@@ -151,25 +115,18 @@ class TestAnthropicSSEAssembler:
         assert events2[1]["content_block"]["name"] == "get_weather"
 
         # Empty tool call chunk (no id, empty args)
-        chunk3 = ModelResponse(
+        chunk3 = make_streaming_chunk(
+            content="",
+            model="claude-3-5-haiku-20241022",
             id="msg_123",
-            choices=[
-                StreamingChoices(
+            tool_calls=[
+                ChatCompletionDeltaToolCall(
+                    id=None,
+                    function=Function(name=None, arguments=""),
+                    type="function",
                     index=0,
-                    delta=Delta(
-                        content="",
-                        tool_calls=[
-                            ChatCompletionDeltaToolCall(
-                                id=None,
-                                function=Function(name=None, arguments=""),
-                                type="function",
-                                index=0,
-                            )
-                        ],
-                    ),
                 )
             ],
-            model="claude-3-5-haiku-20241022",
         )
 
         events3 = tracker.process_chunk(chunk3)
@@ -182,25 +139,18 @@ class TestAnthropicSSEAssembler:
         assert events3[0]["delta"]["partial_json"] == ""
 
         # Progressive argument chunks
-        chunk4 = ModelResponse(
+        chunk4 = make_streaming_chunk(
+            content="",
+            model="claude-3-5-haiku-20241022",
             id="msg_123",
-            choices=[
-                StreamingChoices(
+            tool_calls=[
+                ChatCompletionDeltaToolCall(
+                    id=None,
+                    function=Function(name=None, arguments='{"location"'),
+                    type="function",
                     index=0,
-                    delta=Delta(
-                        content="",
-                        tool_calls=[
-                            ChatCompletionDeltaToolCall(
-                                id=None,
-                                function=Function(name=None, arguments='{"location"'),
-                                type="function",
-                                index=0,
-                            )
-                        ],
-                    ),
                 )
             ],
-            model="claude-3-5-haiku-20241022",
         )
 
         events4 = tracker.process_chunk(chunk4)
@@ -215,35 +165,22 @@ class TestAnthropicSSEAssembler:
         tracker = AnthropicSSEAssembler()
 
         # Text first
-        chunk1 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content="Sure", role="assistant"))],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk1 = make_streaming_chunk(content="Sure", model="claude-3-5-haiku-20241022", id="msg_123")
         tracker.process_chunk(chunk1)
 
         # Complete tool call (has both id and args)
-        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
-
-        chunk2 = ModelResponse(
+        chunk2 = make_streaming_chunk(
+            content="",
+            model="claude-3-5-haiku-20241022",
             id="msg_123",
-            choices=[
-                StreamingChoices(
+            tool_calls=[
+                ChatCompletionDeltaToolCall(
+                    id="toolu_456",
+                    function=Function(name="search", arguments='{"query":"test"}'),
+                    type="function",
                     index=0,
-                    delta=Delta(
-                        content="",
-                        tool_calls=[
-                            ChatCompletionDeltaToolCall(
-                                id="toolu_456",
-                                function=Function(name="search", arguments='{"query":"test"}'),
-                                type="function",
-                                index=0,
-                            )
-                        ],
-                    ),
                 )
             ],
-            model="claude-3-5-haiku-20241022",
         )
 
         events2 = tracker.process_chunk(chunk2)
@@ -272,27 +209,19 @@ class TestAnthropicSSEAssembler:
         tracker = AnthropicSSEAssembler()
 
         # Complete tool call with finish_reason in the same chunk
-        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
-
-        chunk = ModelResponse(
+        chunk = make_streaming_chunk(
+            content=None,
+            model="claude-3-5-haiku-20241022",
             id="msg_123",
-            choices=[
-                StreamingChoices(
+            finish_reason="tool_calls",
+            tool_calls=[
+                ChatCompletionDeltaToolCall(
+                    id="toolu_789",
+                    function=Function(name="get_weather", arguments='{"location":"NYC"}'),
+                    type="function",
                     index=0,
-                    delta=Delta(
-                        tool_calls=[
-                            ChatCompletionDeltaToolCall(
-                                id="toolu_789",
-                                function=Function(name="get_weather", arguments='{"location":"NYC"}'),
-                                type="function",
-                                index=0,
-                            )
-                        ],
-                    ),
-                    finish_reason="tool_calls",
                 )
             ],
-            model="claude-3-5-haiku-20241022",
         )
 
         events = tracker.process_chunk(chunk)
@@ -314,35 +243,23 @@ class TestAnthropicSSEAssembler:
         tracker = AnthropicSSEAssembler()
 
         # Block 0: text
-        chunk1 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content="First", role="assistant"))],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk1 = make_streaming_chunk(content="First", model="claude-3-5-haiku-20241022", id="msg_123")
         events1 = tracker.process_chunk(chunk1)
         assert events1[0]["index"] == 0  # content_block_start
 
         # Block 1: tool (complete)
-        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
-
-        chunk2 = ModelResponse(
+        chunk2 = make_streaming_chunk(
+            content=None,
+            model="claude-3-5-haiku-20241022",
             id="msg_123",
-            choices=[
-                StreamingChoices(
+            tool_calls=[
+                ChatCompletionDeltaToolCall(
+                    id="tool_1",
+                    function=Function(name="fn", arguments="{}"),
+                    type="function",
                     index=0,
-                    delta=Delta(
-                        tool_calls=[
-                            ChatCompletionDeltaToolCall(
-                                id="tool_1",
-                                function=Function(name="fn", arguments="{}"),
-                                type="function",
-                                index=0,
-                            )
-                        ]
-                    ),
                 )
             ],
-            model="claude-3-5-haiku-20241022",
         )
         events2 = tracker.process_chunk(chunk2)
         # First event closes block 0, second starts block 1
@@ -356,18 +273,12 @@ class TestAnthropicSSEAssembler:
         tracker = AnthropicSSEAssembler()
 
         # Start with text
-        chunk1 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content="Hi", role="assistant"))],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk1 = make_streaming_chunk(content="Hi", model="claude-3-5-haiku-20241022", id="msg_123")
         tracker.process_chunk(chunk1)
 
         # Finish with tool_calls
-        chunk2 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="tool_calls")],
-            model="claude-3-5-haiku-20241022",
+        chunk2 = make_streaming_chunk(
+            content=None, model="claude-3-5-haiku-20241022", id="msg_123", finish_reason="tool_calls"
         )
         chunk2._hidden_params = {"usage": type("Usage", (), {"prompt_tokens": 5, "completion_tokens": 3})()}
 
@@ -381,19 +292,11 @@ class TestAnthropicSSEAssembler:
         tracker = AnthropicSSEAssembler()
 
         # Start a block
-        chunk1 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content="Hi", role="assistant"))],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk1 = make_streaming_chunk(content="Hi", model="claude-3-5-haiku-20241022", id="msg_123")
         tracker.process_chunk(chunk1)
 
         # Empty chunk (no content, no tool_calls, no finish_reason)
-        chunk2 = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content=""))],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk2 = make_streaming_chunk(content="", model="claude-3-5-haiku-20241022", id="msg_123")
 
         events2 = tracker.process_chunk(chunk2)
 
@@ -407,11 +310,7 @@ class TestAnthropicSSEAssembler:
         """Test that unexpected event types from converter raise ValueError."""
         tracker = AnthropicSSEAssembler()
 
-        chunk = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content="Hi", role="assistant"))],
-            model="claude-3-5-haiku-20241022",
-        )
+        chunk = make_streaming_chunk(content="Hi", model="claude-3-5-haiku-20241022", id="msg_123")
 
         # Mock the converter to return an unexpected event type
         # Patch the static method on the assembler class
@@ -430,16 +329,8 @@ class TestAnthropicSSEAssembler:
         # Simple text stream
         (
             [
-                ModelResponse(
-                    id="msg_1",
-                    choices=[StreamingChoices(index=0, delta=Delta(content="A", role="assistant"))],
-                    model="claude",
-                ),
-                ModelResponse(
-                    id="msg_1",
-                    choices=[StreamingChoices(index=0, delta=Delta(content="B"))],
-                    model="claude",
-                ),
+                make_streaming_chunk(content="A", model="claude", id="msg_1"),
+                make_streaming_chunk(content="B", model="claude", id="msg_1"),
             ],
             [
                 ["content_block_start", "content_block_delta"],  # First chunk
@@ -449,16 +340,8 @@ class TestAnthropicSSEAssembler:
         # Text then finish
         (
             [
-                ModelResponse(
-                    id="msg_2",
-                    choices=[StreamingChoices(index=0, delta=Delta(content="X", role="assistant"))],
-                    model="claude",
-                ),
-                ModelResponse(
-                    id="msg_2",
-                    choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="stop")],
-                    model="claude",
-                ),
+                make_streaming_chunk(content="X", model="claude", id="msg_2"),
+                make_streaming_chunk(content=None, model="claude", id="msg_2", finish_reason="stop"),
             ],
             [
                 ["content_block_start", "content_block_delta"],
@@ -491,11 +374,7 @@ class TestConvertChunkToEvent:
 
     def test_text_content_chunk(self):
         """Test converting a chunk with text content."""
-        chunk = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content="Hello world", role="assistant"))],
-            model="claude",
-        )
+        chunk = make_streaming_chunk(content="Hello world", model="claude", id="msg_123")
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
 
@@ -505,11 +384,7 @@ class TestConvertChunkToEvent:
 
     def test_empty_text_content(self):
         """Test chunk with empty string content."""
-        chunk = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content=""))],
-            model="claude",
-        )
+        chunk = make_streaming_chunk(content="", model="claude", id="msg_123")
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
 
@@ -519,11 +394,7 @@ class TestConvertChunkToEvent:
 
     def test_none_content(self):
         """Test chunk with None content falls through to default."""
-        chunk = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(content=None))],
-            model="claude",
-        )
+        chunk = make_streaming_chunk(content=None, model="claude", id="msg_123")
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
 
@@ -534,26 +405,18 @@ class TestConvertChunkToEvent:
 
     def test_tool_call_with_id_and_args(self):
         """Test complete tool call in one chunk (buffered case)."""
-        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
-
-        chunk = ModelResponse(
+        chunk = make_streaming_chunk(
+            content=None,
+            model="claude",
             id="msg_123",
-            choices=[
-                StreamingChoices(
+            tool_calls=[
+                ChatCompletionDeltaToolCall(
+                    id="toolu_123",
+                    function=Function(name="search", arguments='{"query":"test"}'),
+                    type="function",
                     index=0,
-                    delta=Delta(
-                        tool_calls=[
-                            ChatCompletionDeltaToolCall(
-                                id="toolu_123",
-                                function=Function(name="search", arguments='{"query":"test"}'),
-                                type="function",
-                                index=0,
-                            )
-                        ]
-                    ),
                 )
             ],
-            model="claude",
         )
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
@@ -568,26 +431,18 @@ class TestConvertChunkToEvent:
 
     def test_tool_call_start_only_id(self):
         """Test tool call start with just ID (progressive streaming)."""
-        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
-
-        chunk = ModelResponse(
+        chunk = make_streaming_chunk(
+            content=None,
+            model="claude",
             id="msg_123",
-            choices=[
-                StreamingChoices(
+            tool_calls=[
+                ChatCompletionDeltaToolCall(
+                    id="toolu_456",
+                    function=Function(name="get_weather", arguments=""),
+                    type="function",
                     index=0,
-                    delta=Delta(
-                        tool_calls=[
-                            ChatCompletionDeltaToolCall(
-                                id="toolu_456",
-                                function=Function(name="get_weather", arguments=""),
-                                type="function",
-                                index=0,
-                            )
-                        ]
-                    ),
                 )
             ],
-            model="claude",
         )
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
@@ -600,26 +455,18 @@ class TestConvertChunkToEvent:
 
     def test_tool_call_arguments_only(self):
         """Test tool call arguments delta (no id)."""
-        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
-
-        chunk = ModelResponse(
+        chunk = make_streaming_chunk(
+            content=None,
+            model="claude",
             id="msg_123",
-            choices=[
-                StreamingChoices(
+            tool_calls=[
+                ChatCompletionDeltaToolCall(
+                    id=None,
+                    function=Function(name=None, arguments='{"location"'),
+                    type="function",
                     index=0,
-                    delta=Delta(
-                        tool_calls=[
-                            ChatCompletionDeltaToolCall(
-                                id=None,
-                                function=Function(name=None, arguments='{"location"'),
-                                type="function",
-                                index=0,
-                            )
-                        ]
-                    ),
                 )
             ],
-            model="claude",
         )
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
@@ -630,26 +477,18 @@ class TestConvertChunkToEvent:
 
     def test_tool_call_empty_arguments(self):
         """Test tool call with empty arguments (placeholder chunk)."""
-        from litellm.types.utils import ChatCompletionDeltaToolCall, Function
-
-        chunk = ModelResponse(
+        chunk = make_streaming_chunk(
+            content=None,
+            model="claude",
             id="msg_123",
-            choices=[
-                StreamingChoices(
+            tool_calls=[
+                ChatCompletionDeltaToolCall(
+                    id=None,
+                    function=Function(name=None, arguments=""),
+                    type="function",
                     index=0,
-                    delta=Delta(
-                        tool_calls=[
-                            ChatCompletionDeltaToolCall(
-                                id=None,
-                                function=Function(name=None, arguments=""),
-                                type="function",
-                                index=0,
-                            )
-                        ]
-                    ),
                 )
             ],
-            model="claude",
         )
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
@@ -660,11 +499,7 @@ class TestConvertChunkToEvent:
 
     def test_finish_reason_stop(self):
         """Test chunk with finish_reason='stop'."""
-        chunk = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="stop")],
-            model="claude",
-        )
+        chunk = make_streaming_chunk(content=None, model="claude", id="msg_123", finish_reason="stop")
         chunk._hidden_params = {"usage": type("Usage", (), {"prompt_tokens": 10, "completion_tokens": 20})()}
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
@@ -677,11 +512,7 @@ class TestConvertChunkToEvent:
 
     def test_finish_reason_tool_calls(self):
         """Test chunk with finish_reason='tool_calls'."""
-        chunk = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="tool_calls")],
-            model="claude",
-        )
+        chunk = make_streaming_chunk(content=None, model="claude", id="msg_123", finish_reason="tool_calls")
         chunk._hidden_params = {"usage": type("Usage", (), {"prompt_tokens": 5, "completion_tokens": 15})()}
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
@@ -693,11 +524,7 @@ class TestConvertChunkToEvent:
 
     def test_finish_reason_length(self):
         """Test chunk with finish_reason='length'."""
-        chunk = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="length")],
-            model="claude",
-        )
+        chunk = make_streaming_chunk(content=None, model="claude", id="msg_123", finish_reason="length")
         chunk._hidden_params = {"usage": type("Usage", (), {"prompt_tokens": 100, "completion_tokens": 4096})()}
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
@@ -707,11 +534,7 @@ class TestConvertChunkToEvent:
 
     def test_finish_reason_without_usage(self):
         """Test finish chunk without usage info in hidden_params."""
-        chunk = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="stop")],
-            model="claude",
-        )
+        chunk = make_streaming_chunk(content=None, model="claude", id="msg_123", finish_reason="stop")
         # No _hidden_params set
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
@@ -721,11 +544,7 @@ class TestConvertChunkToEvent:
 
     def test_unknown_finish_reason(self):
         """Test chunk with unmapped finish_reason falls through."""
-        chunk = ModelResponse(
-            id="msg_123",
-            choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="content_filter")],
-            model="claude",
-        )
+        chunk = make_streaming_chunk(content=None, model="claude", id="msg_123", finish_reason="content_filter")
         chunk._hidden_params = {"usage": type("Usage", (), {"prompt_tokens": 1, "completion_tokens": 1})()}
 
         event = AnthropicSSEAssembler.convert_chunk_to_event(chunk)
