@@ -113,7 +113,7 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 
 **Fix**: Delay `content_block_stop` for thinking blocks until signature arrives. Track `thinking_block_needs_close` flag and `last_thinking_block_index`.
 
-## LiteLLM >= 1.81.0 Breaking Changes in Streaming (2026-01-29)
+## LiteLLM >= 1.81.0 Breaking Changes in Streaming (2026-01-29, updated 2026-01-30)
 
 **Gotcha**: litellm 1.81.0+ introduced breaking changes in streaming response handling.
 
@@ -132,6 +132,28 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 - Downstream code should receive already-normalized chunks
 
 **Test helpers**: Use `litellm_test_utils.make_streaming_chunk()` to create normalized chunks for tests.
+
+## LiteLLM Type Exports Are Unstable Across Versions (2026-01-30)
+
+**Gotcha**: Don't import internal type aliases from `litellm.types.utils` - they may be removed/renamed between versions.
+
+**Example**: `OpenAIChatCompletionFinishReason` existed in 1.81.5 but was removed in later versions, breaking Docker startup.
+
+**Pattern to avoid**:
+```python
+# BAD - type may not exist in all litellm versions
+from litellm.types.utils import OpenAIChatCompletionFinishReason
+choice.finish_reason = cast(OpenAIChatCompletionFinishReason, value)
+```
+
+**Pattern to use**:
+```python
+# GOOD - use type: ignore with explanation
+# litellm's finish_reason type varies across versions; str | None works at runtime
+choice.finish_reason = value  # type: ignore[assignment]
+```
+
+**Safe imports from litellm**: `Delta`, `ModelResponse`, `StreamingChoices`, `Choices`, `Message` - these are stable public types.
 
 ---
 
