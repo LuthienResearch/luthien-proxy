@@ -75,18 +75,20 @@ async function loadPolicies() {
     }
 }
 
+const DEFAULT_MODEL = 'claude-haiku-4-5-20241022';
+
 async function loadModels() {
     try {
         const data = await apiCall('/admin/models');
         state.availableModels = data.models || [];
-        if (state.availableModels.length > 0) {
-            state.selectedModel = state.availableModels[0];
-        }
+        // Default to claude-haiku if available, otherwise first model
+        state.selectedModel = state.availableModels.find(m => m.includes('haiku'))
+            || state.availableModels[0]
+            || DEFAULT_MODEL;
     } catch (err) {
         console.error('Failed to load models:', err);
-        // Don't fall back to hardcoded models - let the user enter their own
         state.availableModels = [];
-        state.selectedModel = null;
+        state.selectedModel = DEFAULT_MODEL;
     }
 }
 
