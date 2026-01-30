@@ -2,6 +2,8 @@
 
 ## Unreleased | TBA
 
+- Fix Docker startup failure caused by fragile litellm type import (#155)
+
 - Reorganize LLM types into separate OpenAI and Anthropic modules (#117)
 - Fix thinking blocks stripped from non-streaming responses (#128)
 
