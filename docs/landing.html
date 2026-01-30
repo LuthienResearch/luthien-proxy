@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Luthien Control - AI Safety for Production Agents</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inconsolata', monospace;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 60px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        h1 {
+            font-size: 2.8rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 16px;
+            letter-spacing: -1px;
+        }
+
+        .tagline {
+            font-size: 1.2rem;
+            color: #888;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .section {
+            margin-bottom: 50px;
+        }
+
+        h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        .value-props {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .prop {
+            padding: 20px 0;
+            border-bottom: 1px solid #2a2a2a;
+        }
+
+        .prop:last-child {
+            border-bottom: none;
+        }
+
+        .prop h3 {
+            font-size: 1.2rem;
+            color: #fff;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .prop p {
+            color: #999;
+            font-size: 0.95rem;
+        }
+
+        .code-block {
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+
+        .code-block code {
+            color: #4ade80;
+            font-size: 0.9rem;
+            white-space: pre;
+        }
+
+        .cta {
+            text-align: center;
+            margin-top: 50px;
+            padding-top: 40px;
+            border-top: 1px solid #333;
+        }
+
+        .cta a {
+            display: inline-block;
+            padding: 14px 32px;
+            background: #fff;
+            color: #1a1a1a;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1rem;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .cta a:hover {
+            background: #e0e0e0;
+            transform: translateY(-2px);
+        }
+
+        .links {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        .links a {
+            color: #666;
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.2s;
+        }
+
+        .links a:hover {
+            color: #fff;
+        }
+
+        footer {
+            text-align: center;
+            padding: 40px 0;
+            color: #444;
+            font-size: 0.85rem;
+        }
+
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 2rem;
+            }
+
+            .container {
+                padding: 40px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Luthien Control</h1>
+            <p class="tagline">AI safety and control for production agentic deployments. See what your AI agents are doing. Enforce the rules you care about.</p>
+        </header>
+
+        <section class="section">
+            <h2>Why Luthien</h2>
+            <div class="value-props">
+                <div class="prop">
+                    <h3>Drop-in Proxy</h3>
+                    <p>Works with Claude Code, Codex, and any OpenAI/Anthropic-compatible tool. Point your agent at Luthien and you're done.</p>
+                </div>
+                <div class="prop">
+                    <h3>Real-Time Visibility</h3>
+                    <p>Watch every request and response as it happens. See exactly what your AI agent is doing, thinking, and outputting.</p>
+                </div>
+                <div class="prop">
+                    <h3>Policy Enforcement</h3>
+                    <p>Define rules. Luthien enforces them. Block dangerous commands, filter sensitive data, or transform responses on the fly.</p>
+                </div>
+                <div class="prop">
+                    <h3>Hot-Swap Policies</h3>
+                    <p>Change policies without restarting anything. Click to activate a new policy and it takes effect immediately.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Get Started</h2>
+            <div class="code-block">
+<code>git clone https://github.com/LuthienResearch/luthien-proxy
+cd luthien-proxy
+cp .env.example .env
+# Add your API keys to .env
+./scripts/quick_start.sh
+
+# Launch Claude Code through the proxy
+./scripts/launch_claude_code.sh</code>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Write Your Own Policy</h2>
+            <div class="code-block">
+<code>from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
+
+class MyPolicy(SimpleJudgePolicy):
+    RULES = [
+        "Never allow 'rm -rf' commands",
+        "Block requests to delete production data",
+    ]
+    # That's it. Luthien handles the rest.</code>
+            </div>
+        </section>
+
+        <div class="cta">
+            <a href="https://github.com/LuthienResearch/luthien-proxy">View on GitHub</a>
+            <div class="links">
+                <a href="https://github.com/LuthienResearch/luthien-proxy#quick-start">Documentation</a>
+                <a href="https://github.com/LuthienResearch/luthien-proxy/issues">Issues</a>
+            </div>
+        </div>
+
+        <footer>
+            <p>Luthien Research &middot; Apache 2.0 License</p>
+        </footer>
+    </div>
+</body>
+</html>
