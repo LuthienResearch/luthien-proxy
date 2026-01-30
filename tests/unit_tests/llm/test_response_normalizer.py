@@ -150,8 +150,12 @@ class TestNormalizeChunk:
 class TestNormalizeChunkWithFinishReason:
     """Tests for normalize_chunk_with_finish_reason() function."""
 
-    def test_restores_none_finish_reason(self):
-        """Restores None finish_reason that litellm defaults to 'stop'."""
+    @pytest.mark.parametrize(
+        "intended_finish_reason",
+        [None, "stop", "length", "tool_calls", "content_filter"],
+    )
+    def test_sets_intended_finish_reason(self, intended_finish_reason):
+        """Sets finish_reason to the intended value, regardless of original."""
         chunk = ModelResponse(
             id="test-id",
             model="gpt-4",
@@ -160,33 +164,14 @@ class TestNormalizeChunkWithFinishReason:
                 StreamingChoices(
                     index=0,
                     delta=Delta(content="hello"),
-                    finish_reason="stop",  # litellm's default, but we want None
+                    finish_reason="stop",  # original value doesn't matter
                 )
             ],
         )
 
-        result = normalize_chunk_with_finish_reason(chunk, intended_finish_reason=None)
+        result = normalize_chunk_with_finish_reason(chunk, intended_finish_reason=intended_finish_reason)
 
-        assert result.choices[0].finish_reason is None
-
-    def test_preserves_intended_finish_reason(self):
-        """Preserves explicit finish_reason values."""
-        chunk = ModelResponse(
-            id="test-id",
-            model="gpt-4",
-            object="chat.completion.chunk",
-            choices=[
-                StreamingChoices(
-                    index=0,
-                    delta=Delta(content=""),
-                    finish_reason=None,
-                )
-            ],
-        )
-
-        result = normalize_chunk_with_finish_reason(chunk, intended_finish_reason="stop")
-
-        assert result.choices[0].finish_reason == "stop"
+        assert result.choices[0].finish_reason == intended_finish_reason
 
     def test_also_normalizes_dict_delta(self):
         """Also converts dict deltas to Delta objects."""
