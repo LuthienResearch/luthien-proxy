@@ -133,6 +133,35 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 
 **Test helpers**: Use `litellm_test_utils.make_streaming_chunk()` to create normalized chunks for tests.
 
+## Content and finish_reason Must Be in Separate Chunks (2026-01-30)
+
+**Gotcha**: The SSE assembler's `convert_chunk_to_event()` returns early when there's text content, never reaching the `finish_reason` check. Creating a chunk with BOTH content AND finish_reason causes the finish_reason to be silently ignored.
+
+**Symptoms**:
+- Claude Code shows blank responses with "No assistant message found" errors
+- SSE stream missing `content_block_stop` and `message_delta` events
+- `message_stop` appears but without proper block closure
+
+**Wrong**: Creating a single chunk with content + finish_reason
+```python
+chunk = create_text_chunk(text=transformed, finish_reason=stream_state.finish_reason)
+ctx.push_chunk(chunk)  # finish_reason is ignored!
+```
+
+**Right**: Emit content first, then finish_reason in a separate chunk
+```python
+content_chunk = create_text_chunk(text=transformed, finish_reason=None)
+ctx.push_chunk(content_chunk)
+
+if stream_state.finish_reason:
+    finish_chunk = create_finish_chunk(finish_reason=stream_state.finish_reason)
+    ctx.push_chunk(finish_chunk)
+```
+
+**Why**: `convert_chunk_to_event()` checks content before finish_reason. If content exists, it returns a `text_delta` event immediately. The finish_reason check never runs.
+
+**Affected policies**: Any policy that buffers content and emits it in `on_content_complete()`. See `StringReplacementPolicy`, `ParallelRulesPolicy` for correct patterns.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

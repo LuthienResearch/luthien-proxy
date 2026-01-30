@@ -2,6 +2,11 @@
 
 ## Unreleased | TBA
 
+- Fix StringReplacementPolicy dropping finish_reason causing blank responses in Claude Code
+  - Content and finish_reason must be emitted as separate chunks
+  - SSE assembler's `convert_chunk_to_event()` returns early on content, ignoring finish_reason
+  - Added e2e test to verify complete SSE event structure (message_delta, content_block_stop)
+
 - Reorganize LLM types into separate OpenAI and Anthropic modules (#117)
 - Fix thinking blocks stripped from non-streaming responses (#128)
 

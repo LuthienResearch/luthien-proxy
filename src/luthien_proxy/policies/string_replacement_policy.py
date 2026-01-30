@@ -22,7 +22,7 @@ from litellm.types.utils import Choices, StreamingChoices
 
 from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policy_core import PolicyContext
-from luthien_proxy.policy_core.chunk_builders import create_text_chunk
+from luthien_proxy.policy_core.chunk_builders import create_finish_chunk, create_text_chunk
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock
 
 if TYPE_CHECKING:
@@ -244,12 +244,27 @@ class StringReplacementPolicy(BasePolicy):
 
         # Get metadata from a previous chunk for the new chunk
         last_chunk = ctx.last_chunk_received
-        chunk = create_text_chunk(
+        stream_state = ctx.original_streaming_response_state
+
+        # Emit content chunk WITHOUT finish_reason (SSE assembler returns early
+        # on content chunks, so combining content+finish_reason loses the finish)
+        content_chunk = create_text_chunk(
             text=transformed,
             model=last_chunk.model or "unknown",
             response_id=last_chunk.id,
+            finish_reason=None,  # Don't include finish_reason with content
         )
-        ctx.push_chunk(chunk)
+        ctx.push_chunk(content_chunk)
+
+        # Emit separate finish chunk if stream has ended - this ensures proper
+        # SSE event generation (content_block_stop, message_delta with stop_reason)
+        if stream_state.finish_reason:
+            finish_chunk = create_finish_chunk(
+                finish_reason=stream_state.finish_reason,
+                model=last_chunk.model,
+                chunk_id=last_chunk.id,
+            )
+            ctx.push_chunk(finish_chunk)
 
         if original != transformed:
             ctx.policy_ctx.record_event(

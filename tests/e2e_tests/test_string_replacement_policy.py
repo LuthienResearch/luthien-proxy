@@ -240,6 +240,100 @@ async def test_string_replacement_streaming(http_client, admin_headers, proxy_he
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
+async def test_string_replacement_streaming_has_complete_sse_events(http_client, admin_headers, proxy_headers):
+    """Test that streaming responses have complete SSE event structure.
+
+    This test verifies the fix for a bug where StringReplacementPolicy
+    was dropping the finish_reason, causing malformed SSE streams that
+    were missing content_block_stop and message_delta events.
+
+    Claude Code requires complete SSE event sequences:
+    - message_start
+    - content_block_start
+    - content_block_delta (one or more)
+    - content_block_stop
+    - message_delta (with stop_reason)
+    - message_stop
+    """
+    import json
+
+    # Set policy
+    set_response = await http_client.post(
+        f"{GATEWAY_URL}/admin/policy/set",
+        headers=admin_headers,
+        json={
+            "policy_class_ref": "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
+            "config": {
+                "replacements": [["test", "example"]],
+                "match_capitalization": False,
+            },
+            "enabled_by": "e2e-string-replacement-tests",
+        },
+    )
+
+    assert set_response.status_code == 200
+    result = set_response.json()
+    assert result["success"] is True
+
+    await asyncio.sleep(0.5)
+
+    # Track which event types we see
+    event_types_seen = set()
+
+    # Make a streaming request
+    async with http_client.stream(
+        "POST",
+        f"{GATEWAY_URL}/v1/messages",
+        headers=proxy_headers,
+        json={
+            "model": "claude-haiku-4-5",
+            "messages": [{"role": "user", "content": "Say 'hello' and nothing else."}],
+            "max_tokens": 20,
+            "stream": True,
+        },
+    ) as response:
+        assert response.status_code == 200
+
+        current_event_type = None
+        async for line in response.aiter_lines():
+            line = line.strip()
+            if line.startswith("event: "):
+                current_event_type = line[7:]
+            elif line.startswith("data: "):
+                event_data = line[6:]
+                if current_event_type:
+                    event_types_seen.add(current_event_type)
+                    # Also verify message_delta has stop_reason
+                    if current_event_type == "message_delta":
+                        try:
+                            data = json.loads(event_data)
+                            delta = data.get("delta", {})
+                            stop_reason = delta.get("stop_reason")
+                            assert stop_reason is not None, f"message_delta event missing stop_reason: {data}"
+                        except json.JSONDecodeError:
+                            pass  # Ignore parse errors for [DONE]
+                current_event_type = None
+
+    # Verify we got all required event types for a complete Anthropic SSE stream
+    required_events = {
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+    }
+
+    missing_events = required_events - event_types_seen
+    assert not missing_events, (
+        f"Missing required SSE events: {missing_events}. "
+        f"Events seen: {event_types_seen}. "
+        "This may indicate the StringReplacementPolicy is not preserving finish_reason."
+    )
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
 async def test_string_replacement_cleanup(http_client, admin_headers):
     """Test that we can restore NoOpPolicy after tests."""
     # Restore NoOpPolicy
