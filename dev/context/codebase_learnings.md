@@ -167,4 +167,23 @@ curl -X POST http://localhost:8000/admin/policy/activate \
 
 ---
 
+## Don't Overload Fields — Add New Ones (2026-01-28)
+
+**Principle**: When adding a new concept to an existing type, don't make an existing field more complex — add a separate field.
+
+**Example**: Thinking blocks in `AssistantMessage`
+
+- ❌ **PR #134**: Made `content: str | list[dict[str, Any]] | None` — now all code touching `content` must handle both cases, and `Any` loses type safety
+- ✅ **PR #138**: Reverted `content` to `str | None`, added separate `thinking_blocks` field — existing code unchanged, new concept is isolated
+
+**Why this matters**:
+- Existing code can still make strong assumptions about the original field
+- New concept gets its own type with proper validation
+- `Any` types are a sign of imprecision — avoid them
+- Same complexity, but more modular: logic for the new concept is factored out instead of spread across all field access points
+
+**General rule**: If you're tempted to use `str | list | dict | Any` to handle multiple cases in one field, step back and consider whether each case deserves its own field.
+
+---
+
 (Add learnings as discovered during development with timestamps: YYYY-MM-DD)
