@@ -11,9 +11,9 @@ delta is a Delta object and finish_reason is properly preserved.
 """
 
 from collections.abc import AsyncIterator
-from typing import cast
+from typing import Any, cast
 
-from litellm.types.utils import Delta, ModelResponse, OpenAIChatCompletionFinishReason, StreamingChoices
+from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 
 
 def normalize_chunk(chunk: ModelResponse) -> ModelResponse:
@@ -59,7 +59,7 @@ def normalize_chunk_with_finish_reason(chunk: ModelResponse, intended_finish_rea
 
     if chunk.choices:
         for choice in chunk.choices:
-            choice.finish_reason = cast(OpenAIChatCompletionFinishReason, intended_finish_reason)
+            choice.finish_reason = cast(Any, intended_finish_reason)
 
     return chunk
 
