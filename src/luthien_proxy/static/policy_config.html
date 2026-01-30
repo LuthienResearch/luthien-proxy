@@ -74,8 +74,14 @@
 
         .current-policy-info {
             display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .current-policy-header {
+            display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 12px;
         }
 
         .current-policy-label {
@@ -87,6 +93,19 @@
             font-size: 16px;
             font-weight: 600;
             color: #4ade80;
+        }
+
+        .current-policy-config {
+            font-size: 12px;
+            color: #888;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            background: #0a0a0a;
+            padding: 6px 10px;
+            border-radius: 4px;
+            max-width: 600px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .current-policy-meta {
@@ -221,6 +240,39 @@
             border-bottom: 1px solid #262626;
         }
 
+        /* Config status indicators */
+        .config-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+        }
+
+        .config-status-icon {
+            font-weight: bold;
+        }
+
+        .config-status-active {
+            background: #0a3d0a;
+            border: 1px solid #4ade80;
+            color: #4ade80;
+        }
+
+        .config-status-modified {
+            background: #3d3d0a;
+            border: 1px solid #facc15;
+            color: #fde047;
+        }
+
+        .config-status-different {
+            background: #1e3a5f;
+            border: 1px solid #2563eb;
+            color: #60a5fa;
+        }
+
         .config-form {
             margin-bottom: 20px;
         }
@@ -255,6 +307,30 @@
 
         .config-input.invalid {
             border-color: #f87171;
+            background: #1a0a0a;
+            box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.3);
+        }
+
+        .config-error-message {
+            display: none;
+            font-size: 12px;
+            color: #fca5a5;
+            background: #3d0a0a;
+            border: 1px solid #f87171;
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin-top: 8px;
+        }
+
+        .config-error-message.visible {
+            display: block;
+        }
+
+        button.disabled-error {
+            background: #3d0a0a !important;
+            border-color: #f87171 !important;
+            color: #fca5a5 !important;
+            cursor: not-allowed;
         }
 
         .config-json {
@@ -579,8 +655,11 @@
         <!-- Current Policy Banner -->
         <div class="current-policy-banner" id="current-policy-banner">
             <div class="current-policy-info">
-                <span class="current-policy-label">Active Policy:</span>
-                <span class="current-policy-name" id="current-policy-name">Loading...</span>
+                <div class="current-policy-header">
+                    <span class="current-policy-label">Active Policy:</span>
+                    <span class="current-policy-name" id="current-policy-name">Loading...</span>
+                </div>
+                <div class="current-policy-config" id="current-policy-config" style="display: none;"></div>
             </div>
             <div class="current-policy-meta" id="current-policy-meta"></div>
         </div>

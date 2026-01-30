@@ -5,10 +5,28 @@ const state = {
     availablePolicies: [],
     availableModels: [],
     configValues: {},
+    invalidFields: new Set(),  // Track fields with invalid JSON
     isActivating: false,
     isSending: false,
     selectedModel: null
 };
+
+// Check if current editor config matches the active policy
+function isConfigMatchingActive() {
+    if (!state.currentPolicy || !state.selectedPolicy) return false;
+    if (state.currentPolicy.class_ref !== state.selectedPolicy.class_ref) return false;
+
+    const activeConfig = state.currentPolicy.config || {};
+    const editorConfig = state.configValues || {};
+
+    return JSON.stringify(activeConfig) === JSON.stringify(editorConfig);
+}
+
+// Check if we're editing the same policy type as active
+function isEditingActiveType() {
+    return state.currentPolicy && state.selectedPolicy &&
+        state.currentPolicy.class_ref === state.selectedPolicy.class_ref;
+}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
@@ -111,6 +129,7 @@ function initTestPanel() {
 function renderCurrentPolicyBanner() {
     const nameEl = document.getElementById('current-policy-name');
     const metaEl = document.getElementById('current-policy-meta');
+    const configEl = document.getElementById('current-policy-config');
 
     if (state.currentPolicy) {
         nameEl.textContent = state.currentPolicy.policy;
@@ -123,9 +142,31 @@ function renderCurrentPolicyBanner() {
             parts.push(date.toLocaleString());
         }
         metaEl.textContent = parts.join(' • ');
+
+        // Show config if present
+        if (configEl) {
+            const config = state.currentPolicy.config || {};
+            const configKeys = Object.keys(config);
+            if (configKeys.length > 0) {
+                const configSummary = configKeys.map(k => {
+                    const val = config[k];
+                    const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                    const truncated = displayVal.length > 30 ? displayVal.slice(0, 30) + '...' : displayVal;
+                    return `${k}: ${truncated}`;
+                }).join(', ');
+                configEl.textContent = configSummary;
+                configEl.style.display = 'block';
+            } else {
+                configEl.textContent = '(no config)';
+                configEl.style.display = 'block';
+            }
+        }
     } else {
         nameEl.textContent = 'None';
         metaEl.textContent = '';
+        if (configEl) {
+            configEl.style.display = 'none';
+        }
     }
 }
 
@@ -181,7 +222,16 @@ function renderPolicyList() {
 
 function selectPolicy(policy) {
     state.selectedPolicy = policy;
-    state.configValues = { ...(policy.example_config || {}) };
+    state.invalidFields.clear();  // Reset invalid fields when selecting a new policy
+
+    // If this is the currently active policy, use its actual config
+    // Otherwise, use the example config as a starting point
+    const isActivePolicy = state.currentPolicy && state.currentPolicy.class_ref === policy.class_ref;
+    if (isActivePolicy && state.currentPolicy.config) {
+        state.configValues = { ...state.currentPolicy.config };
+    } else {
+        state.configValues = { ...(policy.example_config || {}) };
+    }
 
     // Update selection in list
     document.querySelectorAll('.policy-item').forEach(item => {
@@ -203,15 +253,38 @@ function renderConfigPanel() {
         return;
     }
 
-    const isActive = state.currentPolicy && state.currentPolicy.class_ref === policy.class_ref;
+    const isActiveType = isEditingActiveType();
+    const isMatchingActive = isConfigMatchingActive();
+
+    // Build status indicator
+    let statusHtml = '';
+    if (isActiveType) {
+        if (isMatchingActive) {
+            statusHtml = `<div class="config-status config-status-active">
+                <span class="config-status-icon">✓</span>
+                Viewing active policy configuration
+            </div>`;
+        } else {
+            statusHtml = `<div class="config-status config-status-modified">
+                <span class="config-status-icon">●</span>
+                Configuration differs from active policy
+            </div>`;
+        }
+    } else {
+        statusHtml = `<div class="config-status config-status-different">
+            <span class="config-status-icon">○</span>
+            Different policy type from active
+        </div>`;
+    }
 
     let html = `
         <div class="selected-policy-name">${escapeHtml(policy.name)}</div>
+        ${statusHtml}
         <div class="selected-policy-description">${escapeHtml(policy.description)}</div>
         <div class="config-form" id="config-form"></div>
         <div class="button-group">
             <button class="primary" id="activate-btn" ${state.isActivating ? 'disabled' : ''}>
-                ${state.isActivating ? 'Activating...' : (isActive ? 'Reactivate Policy' : 'Activate Policy')}
+                ${state.isActivating ? 'Activating...' : (isMatchingActive ? 'Reactivate Policy' : 'Activate Policy')}
             </button>
         </div>
         <div id="status-container"></div>
@@ -259,16 +332,29 @@ function renderConfigForm(policy) {
             textarea.id = `config-${key}`;
             textarea.className = 'config-input config-json';
             textarea.value = JSON.stringify(state.configValues[key] ?? example[key] ?? paramSchema.default ?? null, null, 2);
+
+            // Error message element (hidden by default)
+            const errorMsg = document.createElement('div');
+            errorMsg.className = 'config-error-message';
+            errorMsg.textContent = 'Invalid JSON - use double quotes for strings, e.g. [["hello", "world"]]';
+
             textarea.addEventListener('input', () => {
                 try {
                     state.configValues[key] = JSON.parse(textarea.value);
                     textarea.classList.remove('invalid');
+                    errorMsg.classList.remove('visible');
+                    state.invalidFields.delete(key);
                 } catch {
                     textarea.classList.add('invalid');
+                    errorMsg.classList.add('visible');
+                    state.invalidFields.add(key);
                 }
+                updateActivateButton();
+                updateConfigStatus();
             });
             fieldDiv.appendChild(label);
             fieldDiv.appendChild(textarea);
+            fieldDiv.appendChild(errorMsg);
         } else if (paramSchema.type === 'boolean') {
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
@@ -277,6 +363,7 @@ function renderConfigForm(policy) {
             checkbox.checked = state.configValues[key] ?? example[key] ?? paramSchema.default ?? false;
             checkbox.addEventListener('change', () => {
                 state.configValues[key] = checkbox.checked;
+                updateConfigStatus();
             });
             const checkboxWrapper = document.createElement('div');
             checkboxWrapper.className = 'checkbox-wrapper';
@@ -295,6 +382,7 @@ function renderConfigForm(policy) {
             input.addEventListener('input', () => {
                 const val = input.value === '' ? null : Number(input.value);
                 state.configValues[key] = val;
+                updateConfigStatus();
             });
             fieldDiv.appendChild(label);
             fieldDiv.appendChild(input);
@@ -307,6 +395,7 @@ function renderConfigForm(policy) {
             input.placeholder = paramSchema.nullable ? '(optional)' : '';
             input.addEventListener('input', () => {
                 state.configValues[key] = input.value || (paramSchema.nullable ? null : '');
+                updateConfigStatus();
             });
             fieldDiv.appendChild(label);
             fieldDiv.appendChild(input);
@@ -321,8 +410,59 @@ function renderConfigForm(policy) {
     });
 }
 
+function updateActivateButton() {
+    const btn = document.getElementById('activate-btn');
+    if (!btn) return;
+
+    const hasInvalidFields = state.invalidFields.size > 0;
+    btn.disabled = hasInvalidFields || state.isActivating;
+
+    if (hasInvalidFields) {
+        btn.textContent = 'Fix errors to activate';
+        btn.classList.add('disabled-error');
+    } else {
+        btn.classList.remove('disabled-error');
+        const isMatchingActive = isConfigMatchingActive();
+        btn.textContent = state.isActivating ? 'Activating...' : (isMatchingActive ? 'Reactivate Policy' : 'Activate Policy');
+    }
+}
+
+function updateConfigStatus() {
+    const statusEl = document.querySelector('.config-status');
+    if (!statusEl) return;
+
+    const isActiveType = isEditingActiveType();
+    const isMatchingActive = isConfigMatchingActive();
+
+    // Update status classes and content
+    statusEl.classList.remove('config-status-active', 'config-status-modified', 'config-status-different');
+
+    if (isActiveType) {
+        if (isMatchingActive) {
+            statusEl.classList.add('config-status-active');
+            statusEl.innerHTML = '<span class="config-status-icon">✓</span> Viewing active policy configuration';
+        } else {
+            statusEl.classList.add('config-status-modified');
+            statusEl.innerHTML = '<span class="config-status-icon">●</span> Configuration differs from active policy';
+        }
+    } else {
+        statusEl.classList.add('config-status-different');
+        statusEl.innerHTML = '<span class="config-status-icon">○</span> Different policy type from active';
+    }
+
+    // Also update activate button text
+    updateActivateButton();
+}
+
 async function handleActivate() {
     if (!state.selectedPolicy || state.isActivating) return;
+
+    // Block activation if there are invalid fields
+    if (state.invalidFields.size > 0) {
+        const statusContainer = document.getElementById('status-container');
+        statusContainer.innerHTML = '<div class="status-message error">Please fix JSON errors before activating</div>';
+        return;
+    }
 
     const btn = document.getElementById('activate-btn');
     const statusContainer = document.getElementById('status-container');
