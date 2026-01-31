@@ -154,6 +154,7 @@ def _safe_parse_json(s: str) -> dict[str, Any] | None:
 
 _ROLE_TO_MESSAGE_TYPE: dict[str, MessageType] = {
     "system": MessageType.SYSTEM,
+    "developer": MessageType.SYSTEM,
     "user": MessageType.USER,
     "assistant": MessageType.ASSISTANT,
     "tool": MessageType.TOOL_RESULT,

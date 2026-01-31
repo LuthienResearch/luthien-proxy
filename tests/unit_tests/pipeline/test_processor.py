@@ -102,6 +102,30 @@ class TestProcessRequest:
         mock_emitter.record.assert_called()
 
     @pytest.mark.asyncio
+    async def test_openai_request_developer_role_normalized(self, mock_request, mock_emitter, mock_span):
+        """Test that developer role is normalized to system for OpenAI requests."""
+        openai_body = {
+            "model": "gpt-4",
+            "messages": [{"role": "developer", "content": "Follow these instructions"}],
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=openai_body)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            request_message, _raw_http_request, _session_id = await _process_request(
+                request=mock_request,
+                client_format=ClientFormat.OPENAI,
+                call_id="test-call-id",
+                emitter=mock_emitter,
+            )
+
+        assert request_message.messages[0]["role"] == "system"
+        assert request_message.messages[0]["content"] == "Follow these instructions"
+
+    @pytest.mark.asyncio
     async def test_anthropic_request_conversion(self, mock_request, mock_emitter, mock_span):
         """Test converting Anthropic format request to OpenAI format."""
         anthropic_body = {

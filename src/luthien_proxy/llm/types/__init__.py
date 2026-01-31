@@ -27,6 +27,7 @@ from .anthropic import (
 from .openai import (
     AssistantMessage,
     ContentPart,
+    DeveloperMessage,
     FunctionCall,
     ImageContentPart,
     ImageUrl,
@@ -56,6 +57,7 @@ __all__ = [
     "ThinkingBlockType",
     # OpenAI messages
     "SystemMessage",
+    "DeveloperMessage",
     "UserMessage",
     "AssistantMessage",
     "ToolMessage",

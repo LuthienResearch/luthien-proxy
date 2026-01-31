@@ -205,18 +205,32 @@ def _convert_system_param(system_content: str | list) -> str:
 
 
 def _convert_tools(tools: list[AnthropicTool]) -> list[dict]:
-    """Convert Anthropic tools format to OpenAI format."""
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": tool["name"],
-                "description": tool.get("description"),
-                "parameters": tool["input_schema"],
-            },
-        }
-        for tool in tools
-    ]
+    """Convert Anthropic tools format to OpenAI format.
+
+    Deduplicates tools by name (keeping the first occurrence) since
+    Anthropic rejects requests with duplicate tool names.
+    """
+    seen_names: set[str] = set()
+    result: list[dict] = []
+
+    for tool in tools:
+        name = tool["name"]
+        if name in seen_names:
+            logger.debug(f"Skipping duplicate tool: {name}")
+            continue
+        seen_names.add(name)
+        result.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": tool.get("description"),
+                    "parameters": tool["input_schema"],
+                },
+            }
+        )
+
+    return result
 
 
 def _convert_tool_choice(tc: AnthropicToolChoice) -> dict[str, Any] | str:
@@ -379,7 +393,38 @@ def openai_to_anthropic_response(response: ModelResponse) -> dict:
     }
 
 
+def deduplicate_tools(tools: list[dict]) -> list[dict]:
+    """Deduplicate tools by function name, keeping the first occurrence.
+
+    This is necessary because Anthropic rejects requests with duplicate tool names,
+    while OpenAI silently accepts them. Claude Code and other clients may send
+    duplicates (e.g., during /compact operations).
+
+    Args:
+        tools: List of OpenAI-format tools (with type: "function" and function.name)
+
+    Returns:
+        Deduplicated list of tools
+    """
+    seen_names: set[str] = set()
+    result: list[dict] = []
+
+    for tool in tools:
+        # Handle OpenAI tool format: {"type": "function", "function": {"name": "..."}}
+        if tool.get("type") == "function" and "function" in tool:
+            name = tool["function"].get("name")
+            if name and name in seen_names:
+                logger.debug(f"Skipping duplicate tool: {name}")
+                continue
+            if name:
+                seen_names.add(name)
+        result.append(tool)
+
+    return result
+
+
 __all__ = [
     "anthropic_to_openai_request",
     "openai_to_anthropic_response",
+    "deduplicate_tools",
 ]

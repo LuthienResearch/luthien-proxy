@@ -9,6 +9,7 @@ from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
 from luthien_proxy.llm.llm_format_utils import (
     anthropic_to_openai_request,
+    deduplicate_tools,
     openai_to_anthropic_response,
 )
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
@@ -1305,3 +1306,76 @@ class TestOpenAIToAnthropicResponseToolCalls:
 
         # No content blocks when message.content is None/empty
         assert result["content"] == []
+
+
+class TestDeduplicateTools:
+    """Test tool deduplication for Anthropic compatibility."""
+
+    def test_no_duplicates_unchanged(self):
+        """Test that tools without duplicates are unchanged."""
+        tools = [
+            {"type": "function", "function": {"name": "read_file", "parameters": {}}},
+            {"type": "function", "function": {"name": "write_file", "parameters": {}}},
+        ]
+
+        result = deduplicate_tools(tools)
+
+        assert len(result) == 2
+        assert result[0]["function"]["name"] == "read_file"
+        assert result[1]["function"]["name"] == "write_file"
+
+    def test_duplicates_removed(self):
+        """Test that duplicate tool names are removed (keeps first)."""
+        tools = [
+            {"type": "function", "function": {"name": "read_file", "parameters": {"v": 1}}},
+            {"type": "function", "function": {"name": "read_file", "parameters": {"v": 2}}},
+            {"type": "function", "function": {"name": "write_file", "parameters": {}}},
+        ]
+
+        result = deduplicate_tools(tools)
+
+        assert len(result) == 2
+        assert result[0]["function"]["name"] == "read_file"
+        assert result[0]["function"]["parameters"] == {"v": 1}  # First one kept
+        assert result[1]["function"]["name"] == "write_file"
+
+    def test_multiple_duplicates(self):
+        """Test handling multiple duplicates of same tool."""
+        tools = [
+            {"type": "function", "function": {"name": "tool_a", "parameters": {}}},
+            {"type": "function", "function": {"name": "tool_a", "parameters": {}}},
+            {"type": "function", "function": {"name": "tool_a", "parameters": {}}},
+        ]
+
+        result = deduplicate_tools(tools)
+
+        assert len(result) == 1
+        assert result[0]["function"]["name"] == "tool_a"
+
+    def test_empty_list(self):
+        """Test empty tools list."""
+        result = deduplicate_tools([])
+        assert result == []
+
+    def test_non_function_tools_preserved(self):
+        """Test that non-function type tools are preserved."""
+        tools = [
+            {"type": "other", "data": "something"},
+            {"type": "function", "function": {"name": "read_file", "parameters": {}}},
+        ]
+
+        result = deduplicate_tools(tools)
+
+        assert len(result) == 2
+        assert result[0]["type"] == "other"
+
+    def test_tools_without_name_preserved(self):
+        """Test that malformed tools without name are preserved."""
+        tools = [
+            {"type": "function", "function": {"parameters": {}}},  # No name
+            {"type": "function", "function": {"name": "read_file", "parameters": {}}},
+        ]
+
+        result = deduplicate_tools(tools)
+
+        assert len(result) == 2

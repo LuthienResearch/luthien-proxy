@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -47,6 +47,7 @@ from luthien_proxy.exceptions import BackendAPIError, map_litellm_error_type
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.llm.llm_format_utils import (
     anthropic_to_openai_request,
+    deduplicate_tools,
     openai_to_anthropic_response,
 )
 from luthien_proxy.llm.types import Request as RequestMessage
@@ -73,6 +74,20 @@ from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _normalize_openai_roles(body: dict[str, Any]) -> None:
+    """Normalize OpenAI message roles for compatibility.
+
+    Codex can emit "developer" messages when using the chat wire format.
+    Normalize to "system" so downstream validation and providers accept it.
+    """
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return
+    for message in messages:
+        if isinstance(message, dict) and message.get("role") == "developer":
+            message["role"] = "system"
 
 
 async def process_llm_request(
@@ -255,6 +270,11 @@ async def _process_request(
             logger.info(f"[{call_id}] /v1/messages: model={request_message.model}, stream={request_message.stream}")
         else:
             session_id = extract_session_id_from_headers(headers)
+            _normalize_openai_roles(body)
+            # Deduplicate tools to prevent Anthropic "Tool names must be unique" error
+            # (OpenAI accepts duplicates, Anthropic doesn't, Claude Code may send duplicates)
+            if "tools" in body and body["tools"]:
+                body["tools"] = deduplicate_tools(body["tools"])
             try:
                 request_message = RequestMessage(**body)
             except ValidationError as e:
