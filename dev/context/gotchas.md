@@ -165,3 +165,9 @@ if stream_state.finish_reason:
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
+
+## Codex "developer" Role in Chat Wire Format (2026-01-31)
+
+- Codex can send OpenAI-format messages with role "developer" when using chat wire API.
+- Proxy OpenAI request validation rejects unknown roles unless normalized.
+- Normalize "developer" to "system" during OpenAI request ingestion to keep compatibility with providers.
