@@ -2,6 +2,8 @@
 
 ## Unreleased | TBA
 
+- Allow Codex developer role messages in OpenAI-format requests (bug-bash-codex-role)
+
 - Fix StringReplacementPolicy dropping finish_reason causing blank responses in Claude Code
   - Content and finish_reason must be emitted as separate chunks
   - SSE assembler's `convert_chunk_to_event()` returns early on content, ignoring finish_reason
