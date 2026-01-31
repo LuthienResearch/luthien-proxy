@@ -186,4 +186,25 @@ curl -X POST http://localhost:8000/admin/policy/activate \
 
 ---
 
+## Streaming and Non-Streaming Parity (2026-01-31)
+
+**Principle**: When implementing a feature for streaming responses, ensure the non-streaming path has equivalent behavior (and vice versa).
+
+**Example**: PR #147 (SimplePolicy non-streaming fix)
+
+- ❌ **Initial fix**: Added `on_response()` that called `simple_on_response_content()` for text — but forgot tool calls
+- ✅ **Complete fix**: Also calls `simple_on_response_tool_call()` for each tool call, matching what the streaming path does in `on_tool_call_complete()`
+
+**Why this matters**:
+- Users expect consistent behavior regardless of `stream: true/false`
+- Easy to forget one path when working on the other
+- The streaming and non-streaming code paths are in different methods, so changes don't automatically propagate
+
+**Checklist when modifying response processing**:
+- [ ] Does the streaming path handle this? (`on_chunk_received`, `on_content_complete`, `on_tool_call_complete`)
+- [ ] Does the non-streaming path handle this? (`on_response`)
+- [ ] Are the transformations equivalent?
+
+---
+
 (Add learnings as discovered during development with timestamps: YYYY-MM-DD)
