@@ -17,7 +17,7 @@ from luthien_proxy.policy_core.streaming_utils import get_last_ingress_chunk, se
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ChatCompletionMessageToolCall, Choices, ModelResponse
+    from litellm.types.utils import ChatCompletionMessageToolCall, ModelResponse
 
     from luthien_proxy.llm.types import Request
     from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -80,7 +80,7 @@ class SimplePolicy(BasePolicy):
         """
         return tool_call
 
-    # ===== Implementation of streaming hooks =====
+    # ===== Implementation of non-streaming hooks =====
 
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
         """Essentially a wrapper for simple_on_request (extract string, call, re-insert).
