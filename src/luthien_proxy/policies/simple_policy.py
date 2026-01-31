@@ -9,13 +9,15 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from litellm.types.utils import Choices
+
 from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policy_core import create_finish_chunk
 from luthien_proxy.policy_core.streaming_utils import get_last_ingress_chunk, send_chunk, send_text, send_tool_call
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ChatCompletionMessageToolCall
+    from litellm.types.utils import ChatCompletionMessageToolCall, ModelResponse
 
     from luthien_proxy.llm.types import Request
     from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -78,7 +80,7 @@ class SimplePolicy(BasePolicy):
         """
         return tool_call
 
-    # ===== Implementation of streaming hooks =====
+    # ===== Implementation of non-streaming hooks =====
 
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
         """Essentially a wrapper for simple_on_request (extract string, call, re-insert).
@@ -90,6 +92,38 @@ class SimplePolicy(BasePolicy):
         response_str: str = await self.simple_on_request(request.last_message, context)
         request.messages[-1]["content"] = response_str
         return request
+
+    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+        """Process non-streaming response through simple_on_response_content and simple_on_response_tool_call.
+
+        Args:
+            response: Complete ModelResponse from LLM
+            context: Policy context
+        Returns:
+            Response with transformed content and tool calls
+        """
+        if not response.choices:
+            return response
+
+        for choice in response.choices:
+            if not isinstance(choice, Choices):
+                continue
+
+            # Transform text content
+            if isinstance(choice.message.content, str):
+                choice.message.content = await self.simple_on_response_content(choice.message.content, context)
+
+            # Transform tool calls
+            if choice.message.tool_calls:
+                transformed_tool_calls = []
+                for tool_call in choice.message.tool_calls:
+                    transformed = await self.simple_on_response_tool_call(tool_call, context)
+                    transformed_tool_calls.append(transformed)
+                choice.message.tool_calls = transformed_tool_calls
+
+        return response
+
+    # ===== Implementation of streaming hooks =====
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
         """Buffer all chunks, don't emit yet."""

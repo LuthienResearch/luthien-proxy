@@ -35,7 +35,7 @@ class NoTransformPolicy(SimplePolicy):
 class UppercasePolicy(SimplePolicy):
     """SimplePolicy subclass that uppercases content."""
 
-    async def on_response_content(self, content: str, context: PolicyContext) -> str:
+    async def simple_on_response_content(self, content: str, context: PolicyContext) -> str:
         """Transform content to uppercase."""
         return content.upper()
 
@@ -43,7 +43,7 @@ class UppercasePolicy(SimplePolicy):
 class ToolBlockerPolicy(SimplePolicy):
     """SimplePolicy subclass that blocks tool calls."""
 
-    async def on_response_tool_call(
+    async def simple_on_response_tool_call(
         self, tool_call: ChatCompletionMessageToolCall, context: PolicyContext
     ) -> ChatCompletionMessageToolCall:
         """Transform tool call to blocked function."""
@@ -396,6 +396,160 @@ class TestSimplePolicyChunkReceived:
             await policy.on_chunk_received(ctx)
             # Verify nothing was emitted
             ctx.egress_queue.put.assert_not_called()
+
+
+class TestSimplePolicyNonStreaming:
+    """Test that SimplePolicy handles non-streaming responses correctly."""
+
+    @pytest.fixture
+    def mock_policy_context(self):
+        """Create a mock PolicyContext for non-streaming tests."""
+        ctx = Mock(spec=PolicyContext)
+        ctx.transaction_id = "test-transaction-id"
+        ctx.request = Request(
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+        )
+        ctx.scratchpad = {}
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_on_response_transforms_content(self, mock_policy_context):
+        """Test that on_response applies simple_on_response_content transformation."""
+        from litellm.types.utils import Choices, Message
+
+        policy = UppercasePolicy()
+
+        # Create a non-streaming response
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                Choices(
+                    index=0,
+                    message=Message(role="assistant", content="hello world"),
+                    finish_reason="stop",
+                )
+            ],
+        )
+
+        result = await policy.on_response(response, mock_policy_context)
+
+        # Verify content was transformed to uppercase
+        assert result.choices[0].message.content == "HELLO WORLD"
+
+    @pytest.mark.asyncio
+    async def test_on_response_no_transform_passthrough(self, mock_policy_context):
+        """Test that on_response passes through when no transformation is defined."""
+        from litellm.types.utils import Choices, Message
+
+        policy = NoTransformPolicy()
+
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                Choices(
+                    index=0,
+                    message=Message(role="assistant", content="hello world"),
+                    finish_reason="stop",
+                )
+            ],
+        )
+
+        result = await policy.on_response(response, mock_policy_context)
+
+        # Content should be unchanged
+        assert result.choices[0].message.content == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_on_response_empty_choices(self, mock_policy_context):
+        """Test that on_response handles empty choices gracefully."""
+        policy = UppercasePolicy()
+
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[],
+        )
+
+        result = await policy.on_response(response, mock_policy_context)
+
+        # Should return response unchanged
+        assert result.choices == []
+
+    @pytest.mark.asyncio
+    async def test_on_response_non_string_content_skipped(self, mock_policy_context):
+        """Test that on_response skips choices with non-string content."""
+        from litellm.types.utils import Choices, Message
+
+        policy = UppercasePolicy()
+
+        # Create response with None content (e.g., tool call response)
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                Choices(
+                    index=0,
+                    message=Message(role="assistant", content=None),
+                    finish_reason="tool_calls",
+                )
+            ],
+        )
+
+        result = await policy.on_response(response, mock_policy_context)
+
+        # Content should remain None (not transformed)
+        assert result.choices[0].message.content is None
+
+    @pytest.mark.asyncio
+    async def test_on_response_transforms_tool_calls(self, mock_policy_context):
+        """Test that on_response applies simple_on_response_tool_call transformation."""
+        from litellm.types.utils import Choices, Message
+
+        policy = ToolBlockerPolicy()
+
+        # Create a non-streaming response with tool calls
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                Choices(
+                    index=0,
+                    message=Message(
+                        role="assistant",
+                        content=None,
+                        tool_calls=[
+                            ChatCompletionMessageToolCall(
+                                id="call-123",
+                                type="function",
+                                function=Function(name="dangerous_function", arguments='{"do_bad": true}'),
+                            )
+                        ],
+                    ),
+                    finish_reason="tool_calls",
+                )
+            ],
+        )
+
+        result = await policy.on_response(response, mock_policy_context)
+
+        # Tool call should be transformed to "blocked"
+        assert result.choices[0].message.tool_calls is not None
+        assert len(result.choices[0].message.tool_calls) == 1
+        assert result.choices[0].message.tool_calls[0].function.name == "blocked"
+        assert result.choices[0].message.tool_calls[0].function.arguments == "{}"
 
 
 if __name__ == "__main__":
