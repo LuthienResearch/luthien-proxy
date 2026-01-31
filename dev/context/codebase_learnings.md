@@ -190,7 +190,7 @@ curl -X POST http://localhost:8000/admin/policy/activate \
 
 **Principle**: When implementing a feature for streaming responses, ensure the non-streaming path has equivalent behavior (and vice versa).
 
-**Example**: PR #147 (SimplePolicy non-streaming fix)
+**Example**: [PR #147](https://github.com/LuthienResearch/luthien-proxy/pull/147) (SimplePolicy non-streaming fix)
 
 - ❌ **Initial fix**: Added `on_response()` that called `simple_on_response_content()` for text — but forgot tool calls
 - ✅ **Complete fix**: Also calls `simple_on_response_tool_call()` for each tool call, matching what the streaming path does in `on_tool_call_complete()`
