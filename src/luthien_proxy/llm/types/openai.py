@@ -88,6 +88,14 @@ class SystemMessage(TypedDict, total=False):
     name: str
 
 
+class DeveloperMessage(TypedDict, total=False):
+    """Developer message (OpenAI responses compatibility)."""
+
+    role: Required[Literal["developer"]]
+    content: Required[str | list[TextContentPart]]  # developer only supports text
+    name: str
+
+
 class UserMessage(TypedDict, total=False):
     """User message - supports multimodal content (text + images)."""
 
@@ -134,7 +142,7 @@ class ToolMessage(TypedDict, total=False):
 
 
 # Union of all message types
-Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
+Message = SystemMessage | DeveloperMessage | UserMessage | AssistantMessage | ToolMessage
 
 
 # =============================================================================
@@ -190,6 +198,7 @@ __all__ = [
     "ThinkingBlockType",
     # Messages
     "SystemMessage",
+    "DeveloperMessage",
     "UserMessage",
     "AssistantMessage",
     "ToolMessage",
