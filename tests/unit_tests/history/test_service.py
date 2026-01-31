@@ -218,6 +218,20 @@ class TestParseRequestMessages:
         with pytest.raises(ValueError, match="Unrecognized message role: 'unknown_role'"):
             _parse_request_messages(request)
 
+    def test_developer_role_maps_to_system(self):
+        """Test that developer role is treated as system."""
+        request = {
+            "messages": [
+                {"role": "developer", "content": "Obey the instructions"},
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.SYSTEM
+        assert result[0].content == "Obey the instructions"
+
     def test_assistant_message_with_tool_calls(self):
         """Test parsing assistant messages with tool_calls in request.
 
