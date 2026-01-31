@@ -511,6 +511,46 @@ class TestSimplePolicyNonStreaming:
         # Content should remain None (not transformed)
         assert result.choices[0].message.content is None
 
+    @pytest.mark.asyncio
+    async def test_on_response_transforms_tool_calls(self, mock_policy_context):
+        """Test that on_response applies simple_on_response_tool_call transformation."""
+        from litellm.types.utils import Choices, Message
+
+        policy = ToolBlockerPolicy()
+
+        # Create a non-streaming response with tool calls
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                Choices(
+                    index=0,
+                    message=Message(
+                        role="assistant",
+                        content=None,
+                        tool_calls=[
+                            ChatCompletionMessageToolCall(
+                                id="call-123",
+                                type="function",
+                                function=Function(name="dangerous_function", arguments='{"do_bad": true}'),
+                            )
+                        ],
+                    ),
+                    finish_reason="tool_calls",
+                )
+            ],
+        )
+
+        result = await policy.on_response(response, mock_policy_context)
+
+        # Tool call should be transformed to "blocked"
+        assert result.choices[0].message.tool_calls is not None
+        assert len(result.choices[0].message.tool_calls) == 1
+        assert result.choices[0].message.tool_calls[0].function.name == "blocked"
+        assert result.choices[0].message.tool_calls[0].function.arguments == "{}"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

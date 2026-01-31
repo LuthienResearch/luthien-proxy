@@ -94,21 +94,33 @@ class SimplePolicy(BasePolicy):
         return request
 
     async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
-        """Process non-streaming response through simple_on_response_content.
+        """Process non-streaming response through simple_on_response_content and simple_on_response_tool_call.
 
         Args:
             response: Complete ModelResponse from LLM
             context: Policy context
         Returns:
-            Response with transformed content
+            Response with transformed content and tool calls
         """
         if not response.choices:
             return response
 
         for choice in response.choices:
-            if not (isinstance(choice, Choices) and isinstance(choice.message.content, str)):
+            if not isinstance(choice, Choices):
                 continue
-            choice.message.content = await self.simple_on_response_content(choice.message.content, context)
+
+            # Transform text content
+            if isinstance(choice.message.content, str):
+                choice.message.content = await self.simple_on_response_content(choice.message.content, context)
+
+            # Transform tool calls
+            if choice.message.tool_calls:
+                transformed_tool_calls = []
+                for tool_call in choice.message.tool_calls:
+                    transformed = await self.simple_on_response_tool_call(tool_call, context)
+                    transformed_tool_calls.append(transformed)
+                choice.message.tool_calls = transformed_tool_calls
+
         return response
 
     # ===== Implementation of streaming hooks =====
