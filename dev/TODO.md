@@ -73,6 +73,7 @@
 - [ ] Document production deployment best practices
 - [ ] Document timeout configuration rationale
 - [ ] Document data retention policy
+- [ ] Clean up temporary Codex session log in dev/conversation_logs/2026-02-01_codex-session-log.csv after external logging is restored
 
 ## Low Priority / Future Work
 
