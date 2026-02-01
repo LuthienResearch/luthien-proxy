@@ -12,6 +12,7 @@ Acceptance
 - Non-streaming responses return a valid Responses API payload.
 - Add unit tests for streaming and non-streaming.
 - Update `scripts/launch_codex.sh` to set `wire_api=responses` once endpoint is in place.
+- Include a migration note: Codex currently emits `developer` role messages; ensure the normalization fix is present on this branch or merged before validation.
 
 Plan (TDD)
 1. Add failing tests for `/v1/responses` (streaming + non-streaming) using a minimal payload.
@@ -19,3 +20,4 @@ Plan (TDD)
 3. Implement response adapter: map OpenAI `ModelResponse` → Responses format.
 4. Implement SSE adapter: emit `response.output_text.delta` + `response.completed` events.
 5. Update Codex launcher to `wire_api=responses`.
+6. Confirm developer-role normalization is included (merge PR #162 if needed).
