@@ -219,6 +219,32 @@ def _convert_tools(tools: list[AnthropicTool]) -> list[dict]:
     ]
 
 
+def deduplicate_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove duplicate tools by name to satisfy Anthropic uniqueness constraints."""
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        tool_name = None
+        function = tool.get("function")
+        if isinstance(function, dict):
+            tool_name = function.get("name")
+        if not tool_name:
+            tool_name = tool.get("name")
+
+        if not isinstance(tool_name, str) or not tool_name:
+            deduped.append(tool)
+            continue
+        if tool_name in seen:
+            continue
+        seen.add(tool_name)
+        deduped.append(tool)
+
+    return deduped
+
+
 def _convert_tool_choice(tc: AnthropicToolChoice) -> dict[str, Any] | str:
     """Convert Anthropic tool_choice to OpenAI format."""
     tc_type = tc["type"]
