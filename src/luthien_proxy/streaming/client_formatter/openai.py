@@ -1,6 +1,7 @@
 """OpenAI client formatter implementation."""
 
 import asyncio
+import json
 import logging
 
 from litellm.types.utils import ModelResponse
@@ -75,7 +76,16 @@ class OpenAIClientFormatter(ClientFormatter):
 
                     chunk_count += 1
                     # Convert ModelResponse to SSE format: "data: {json}\n\n"
-                    sse_line = f"data: {chunk.model_dump_json()}\n\n"
+                    chunk_dict = chunk.model_dump()
+                    # Remove provider-specific fields that Codex may not tolerate in chat SSE.
+                    chunk_dict.pop("provider_specific_fields", None)
+                    chunk_dict.pop("citations", None)
+                    chunk_dict.pop("obfuscation", None)
+                    for choice in chunk_dict.get("choices", []):
+                        delta = choice.get("delta")
+                        if isinstance(delta, dict):
+                            delta.pop("provider_specific_fields", None)
+                    sse_line = f"data: {json.dumps(chunk_dict)}\n\n"
                     await self._safe_put(output_queue, sse_line)
 
                 # Send [DONE] marker per OpenAI streaming spec

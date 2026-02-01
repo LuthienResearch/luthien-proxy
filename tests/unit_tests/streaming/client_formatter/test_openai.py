@@ -190,3 +190,31 @@ async def test_openai_formatter_sends_done_marker(formatter, policy_ctx):
 
     # [DONE] should be the last item
     assert results[-1] == done_marker, "[DONE] marker must be the last item in stream"
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_strips_provider_specific_fields(formatter, policy_ctx):
+    """Test that provider-specific fields are stripped from SSE output."""
+    input_queue = asyncio.Queue()
+    output_queue = asyncio.Queue()
+
+    chunk = make_streaming_chunk(content="Test content", id="chatcmpl-abc")
+    # Inject provider-specific fields that Codex may not handle.
+    chunk.provider_specific_fields = {"foo": "bar"}
+    chunk.citations = ["citation-1"]
+    chunk.obfuscation = "obfuscated"
+    chunk.choices[0].delta.provider_specific_fields = {"delta": "field"}
+
+    await input_queue.put(chunk)
+    await input_queue.put(None)
+
+    await formatter.process(input_queue, output_queue, policy_ctx)
+
+    sse_line = await output_queue.get()
+    json_str = sse_line[6:-2]
+    result = json.loads(json_str)
+
+    assert "provider_specific_fields" not in result
+    assert "citations" not in result
+    assert "obfuscation" not in result
+    assert "provider_specific_fields" not in result["choices"][0]["delta"]
