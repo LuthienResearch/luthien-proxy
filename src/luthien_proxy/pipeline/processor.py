@@ -76,6 +76,20 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
+def _collect_tool_result_indices(messages: list[Any]) -> dict[str, int]:
+    """Collect the earliest index for each tool_call_id tool result."""
+    indices: dict[str, int] = {}
+    for idx, message in enumerate(messages):
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") != "tool":
+            continue
+        tool_call_id = message.get("tool_call_id")
+        if isinstance(tool_call_id, str) and tool_call_id:
+            indices.setdefault(tool_call_id, idx)
+    return indices
+
+
 def _prune_unanswered_tool_calls(body: dict[str, Any]) -> None:
     """Remove assistant tool_calls that have no matching tool results.
 
@@ -87,15 +101,10 @@ def _prune_unanswered_tool_calls(body: dict[str, Any]) -> None:
     if not isinstance(messages, list):
         return
 
-    tool_result_ids: set[str] = set()
-    for message in messages:
-        if isinstance(message, dict) and message.get("role") == "tool":
-            tool_call_id = message.get("tool_call_id")
-            if isinstance(tool_call_id, str) and tool_call_id:
-                tool_result_ids.add(tool_call_id)
+    tool_result_indices = _collect_tool_result_indices(messages)
 
     pruned: list[dict[str, Any]] = []
-    for message in messages:
+    for idx, message in enumerate(messages):
         if not isinstance(message, dict):
             continue
         if message.get("role") != "assistant":
@@ -109,8 +118,10 @@ def _prune_unanswered_tool_calls(body: dict[str, Any]) -> None:
         for call in tool_calls:
             if isinstance(call, dict):
                 call_id = call.get("id")
-                if isinstance(call_id, str) and call_id in tool_result_ids:
-                    remaining.append(call)
+                if isinstance(call_id, str):
+                    tool_idx = tool_result_indices.get(call_id)
+                    if tool_idx is not None and tool_idx > idx:
+                        remaining.append(call)
         if remaining:
             message["tool_calls"] = remaining
             pruned.append(message)
@@ -130,15 +141,10 @@ def _prune_unanswered_tool_calls_from_request(request: RequestMessage) -> None:
     if not isinstance(messages, list):
         return
 
-    tool_result_ids: set[str] = set()
-    for message in messages:
-        if isinstance(message, dict) and message.get("role") == "tool":
-            tool_call_id = message.get("tool_call_id")
-            if isinstance(tool_call_id, str) and tool_call_id:
-                tool_result_ids.add(tool_call_id)
+    tool_result_indices = _collect_tool_result_indices(messages)
 
     pruned: list[dict[str, Any]] = []
-    for message in messages:
+    for idx, message in enumerate(messages):
         if not isinstance(message, dict):
             continue
         if message.get("role") != "assistant":
@@ -152,8 +158,10 @@ def _prune_unanswered_tool_calls_from_request(request: RequestMessage) -> None:
         for call in tool_calls:
             if isinstance(call, dict):
                 call_id = call.get("id")
-                if isinstance(call_id, str) and call_id in tool_result_ids:
-                    remaining.append(call)
+                if isinstance(call_id, str):
+                    tool_idx = tool_result_indices.get(call_id)
+                    if tool_idx is not None and tool_idx > idx:
+                        remaining.append(call)
         if remaining:
             message["tool_calls"] = remaining
             pruned.append(message)

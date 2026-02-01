@@ -362,6 +362,31 @@ class TestPruneUnansweredToolCalls:
         assert len(request.messages) == 3
         assert request.messages[1]["tool_calls"][0]["id"] == "call_1"
 
+    def test_prunes_tool_calls_when_tool_result_precedes(self):
+        """Drop tool_calls if tool results appear before the assistant call."""
+        request = RequestMessage(
+            model="gpt-4",
+            messages=[
+                {"role": "tool", "tool_call_id": "call_1", "content": "{}"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "list_tools", "arguments": "{}"},
+                        }
+                    ],
+                },
+            ],
+        )
+
+        _prune_unanswered_tool_calls_from_request(request)
+
+        assert len(request.messages) == 1
+        assert request.messages[0]["role"] == "tool"
+
 
 class TestHandleNonStreaming:
     """Tests for _handle_non_streaming helper function."""
