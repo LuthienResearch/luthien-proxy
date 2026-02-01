@@ -280,10 +280,41 @@ class TestProcessRequest:
 class TestPruneUnansweredToolCalls:
     """Tests for pruning unanswered tool calls on final requests."""
 
-    def test_prunes_unanswered_tool_calls_without_tools(self):
+    def test_prunes_unanswered_tool_calls(self):
         """Drop assistant tool_calls if no matching tool results exist."""
         request = RequestMessage(
             model="gpt-4",
+            messages=[
+                {"role": "user", "content": "Hi"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "list_tools", "arguments": "{}"},
+                        }
+                    ],
+                },
+            ],
+        )
+
+        _prune_unanswered_tool_calls_from_request(request)
+
+        assert len(request.messages) == 1
+        assert request.messages[0]["role"] == "user"
+
+    def test_prunes_unanswered_tool_calls_with_tools_present(self):
+        """Drop assistant tool_calls even when tools are supplied."""
+        request = RequestMessage(
+            model="gpt-4",
+            tools=[
+                {
+                    "type": "function",
+                    "function": {"name": "list_tools", "parameters": {}},
+                }
+            ],
             messages=[
                 {"role": "user", "content": "Hi"},
                 {

@@ -77,14 +77,11 @@ tracer = trace.get_tracer(__name__)
 
 
 def _prune_unanswered_tool_calls(body: dict[str, Any]) -> None:
-    """Remove assistant tool_calls that have no matching tool results when tools are absent.
+    """Remove assistant tool_calls that have no matching tool results.
 
     This prevents upstream OpenAI errors when clients emit tool_calls without
-    tool result messages and no tools are configured on the request.
+    tool result messages in the same request payload.
     """
-    tools = body.get("tools")
-    if tools:
-        return
 
     messages = body.get("messages")
     if not isinstance(messages, list):
@@ -128,9 +125,6 @@ def _prune_unanswered_tool_calls(body: dict[str, Any]) -> None:
 
 def _prune_unanswered_tool_calls_from_request(request: RequestMessage) -> None:
     """Remove assistant tool_calls with no matching tool results on the final request."""
-    tools = request.model_dump(exclude_none=True).get("tools")
-    if tools:
-        return
 
     messages = request.messages
     if not isinstance(messages, list):
