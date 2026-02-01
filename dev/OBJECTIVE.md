@@ -9,6 +9,9 @@ Acceptance
 - Codex no longer errors with missing tool result messages during normal prompts.
 - Tool-call paths either return tool result messages or are blocked safely with a clear error.
 - Regression test added for tool-call sequencing.
+- Merge codex-chat-wire-API-bug-fix and responses-api-shim into this branch and re-test Codex UI.
+- Update PR description with latest RCA + repro steps + full error strings and note combined fixes.
+- If objective completes: update CHANGELOG.md, clear dev/OBJECTIVE.md and dev/NOTES.md, run ./scripts/dev_checks.sh, mark PR ready.
 
 Repro (from session)
 1. Run gateway on branch `codex-developer-role` (or any branch with Codex launcher).
