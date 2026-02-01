@@ -125,6 +125,52 @@ def _prune_unanswered_tool_calls(body: dict[str, Any]) -> None:
     body["messages"] = pruned
 
 
+def _prune_unanswered_tool_calls_from_request(request: RequestMessage) -> None:
+    """Remove assistant tool_calls with no matching tool results on the final request."""
+    tools = request.model_dump(exclude_none=True).get("tools")
+    if tools:
+        return
+
+    messages = request.messages
+    if not isinstance(messages, list):
+        return
+
+    tool_result_ids: set[str] = set()
+    for message in messages:
+        if isinstance(message, dict) and message.get("role") == "tool":
+            tool_call_id = message.get("tool_call_id")
+            if isinstance(tool_call_id, str) and tool_call_id:
+                tool_result_ids.add(tool_call_id)
+
+    pruned: list[dict[str, Any]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") != "assistant":
+            pruned.append(message)
+            continue
+        tool_calls = message.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            pruned.append(message)
+            continue
+        remaining = []
+        for call in tool_calls:
+            if isinstance(call, dict):
+                call_id = call.get("id")
+                if isinstance(call_id, str) and call_id in tool_result_ids:
+                    remaining.append(call)
+        if remaining:
+            message["tool_calls"] = remaining
+            pruned.append(message)
+            continue
+        content = message.get("content")
+        if content is not None and content != "":
+            message.pop("tool_calls", None)
+            pruned.append(message)
+
+    request.messages = pruned
+
+
 async def process_llm_request(
     request: Request,
     client_format: ClientFormat,
@@ -205,6 +251,8 @@ async def process_llm_request(
         # Apply policy to request
         with tracer.start_as_current_span("policy_on_request"):
             final_request = await orchestrator.process_request(request_message, policy_ctx)
+
+        _prune_unanswered_tool_calls_from_request(final_request)
 
         # Propagate request summary if policy set one
         if policy_ctx.request_summary:

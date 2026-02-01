@@ -14,6 +14,7 @@ from luthien_proxy.pipeline.processor import (
     _get_client_formatter,
     _handle_non_streaming,
     _handle_streaming,
+    _prune_unanswered_tool_calls_from_request,
     _process_request,
     process_llm_request,
 )
@@ -250,6 +251,61 @@ class TestProcessRequest:
         assert len(request_message.messages) == 3
         assert request_message.messages[1]["role"] == "assistant"
         assert request_message.messages[1]["tool_calls"][0]["id"] == "call_1"
+
+
+class TestPruneUnansweredToolCalls:
+    """Tests for pruning unanswered tool calls on final requests."""
+
+    def test_prunes_unanswered_tool_calls_without_tools(self):
+        """Drop assistant tool_calls if no matching tool results exist."""
+        request = RequestMessage(
+            model="gpt-4",
+            messages=[
+                {"role": "user", "content": "Hi"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "list_tools", "arguments": "{}"},
+                        }
+                    ],
+                },
+            ],
+        )
+
+        _prune_unanswered_tool_calls_from_request(request)
+
+        assert len(request.messages) == 1
+        assert request.messages[0]["role"] == "user"
+
+    def test_preserves_answered_tool_calls(self):
+        """Keep tool_calls when tool results are present."""
+        request = RequestMessage(
+            model="gpt-4",
+            messages=[
+                {"role": "user", "content": "Hi"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "list_tools", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_1", "content": "{}"},
+            ],
+        )
+
+        _prune_unanswered_tool_calls_from_request(request)
+
+        assert len(request.messages) == 3
+        assert request.messages[1]["tool_calls"][0]["id"] == "call_1"
 
 
 class TestHandleNonStreaming:
