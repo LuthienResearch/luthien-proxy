@@ -16,3 +16,6 @@ OR
 ```bash
 ./scripts/launch_codex.sh
 ```
+
+Notes:
+4) Untracked file: dev/debug_data/conversation_log_template.csv
