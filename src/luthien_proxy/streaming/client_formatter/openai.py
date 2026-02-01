@@ -78,6 +78,7 @@ class OpenAIClientFormatter(ClientFormatter):
                     # Convert ModelResponse to SSE format: "data: {json}\n\n"
                     chunk_dict = chunk.model_dump()
                     # Remove LiteLLM-specific fields that Codex may not tolerate in chat SSE.
+                    # WHY: keep the SSE surface area minimal and predictable for clients.
                     # We do post-hoc deletion to also strip nested delta fields.
                     chunk_dict.pop("provider_specific_fields", None)
                     chunk_dict.pop("citations", None)

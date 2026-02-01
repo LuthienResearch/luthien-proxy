@@ -206,6 +206,14 @@ async def test_openai_formatter_strips_provider_specific_fields(formatter, polic
     chunk.obfuscation = "obfuscated"
     chunk.choices[0].delta.provider_specific_fields = {"delta": "field"}
 
+    # Assert these fields actually serialize, so the test can't pass by accident
+    # if LiteLLM/Pydantic changes the underlying schema behavior.
+    dump = chunk.model_dump()
+    assert "provider_specific_fields" in dump
+    assert "citations" in dump
+    assert "obfuscation" in dump
+    assert "provider_specific_fields" in dump["choices"][0]["delta"]
+
     await input_queue.put(chunk)
     await input_queue.put(None)
 
