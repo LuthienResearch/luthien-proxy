@@ -200,6 +200,7 @@ async def test_openai_formatter_strips_provider_specific_fields(formatter, polic
 
     chunk = make_streaming_chunk(content="Test content", id="chatcmpl-abc")
     # Inject provider-specific fields that Codex may not handle.
+    # Note: obfuscation appeared in gateway SSE captures.
     chunk.provider_specific_fields = {"foo": "bar"}
     chunk.citations = ["citation-1"]
     chunk.obfuscation = "obfuscated"

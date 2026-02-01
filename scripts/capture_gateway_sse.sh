@@ -6,9 +6,12 @@ set -euo pipefail
 
 OUT_FILE=${1:-/tmp/gateway_sse_capture.txt}
 
-# Load .env if present
+# Load .env if present (handles spaces safely)
 if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+  set -a
+  # shellcheck source=/dev/null
+  source .env
+  set +a
 fi
 
 API_KEY=${PROXY_API_KEY:-}
