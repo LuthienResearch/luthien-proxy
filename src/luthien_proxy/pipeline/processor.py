@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -73,6 +73,56 @@ from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _prune_unanswered_tool_calls(body: dict[str, Any]) -> None:
+    """Remove assistant tool_calls that have no matching tool results when tools are absent.
+
+    This prevents upstream OpenAI errors when clients emit tool_calls without
+    tool result messages and no tools are configured on the request.
+    """
+    tools = body.get("tools")
+    if tools:
+        return
+
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return
+
+    tool_result_ids: set[str] = set()
+    for message in messages:
+        if isinstance(message, dict) and message.get("role") == "tool":
+            tool_call_id = message.get("tool_call_id")
+            if isinstance(tool_call_id, str) and tool_call_id:
+                tool_result_ids.add(tool_call_id)
+
+    pruned: list[dict[str, Any]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") != "assistant":
+            pruned.append(message)
+            continue
+        tool_calls = message.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            pruned.append(message)
+            continue
+        remaining = []
+        for call in tool_calls:
+            if isinstance(call, dict):
+                call_id = call.get("id")
+                if isinstance(call_id, str) and call_id in tool_result_ids:
+                    remaining.append(call)
+        if remaining:
+            message["tool_calls"] = remaining
+            pruned.append(message)
+            continue
+        content = message.get("content")
+        if content is not None and content != "":
+            message.pop("tool_calls", None)
+            pruned.append(message)
+
+    body["messages"] = pruned
 
 
 async def process_llm_request(
@@ -255,6 +305,7 @@ async def _process_request(
             logger.info(f"[{call_id}] /v1/messages: model={request_message.model}, stream={request_message.stream}")
         else:
             session_id = extract_session_id_from_headers(headers)
+            _prune_unanswered_tool_calls(body)
             try:
                 request_message = RequestMessage(**body)
             except ValidationError as e:
