@@ -22,6 +22,7 @@
 
 - [ ] **Add security documentation for dynamic policy loading (POLICY_CONFIG)** - Document security implications of dynamic class loading, file permissions, admin API authentication requirements.
 - [ ] **Monitor OpenAI/Codex deprecations for wire API changes** - Subscribe to OpenAI API changelog + Codex announcements and update proxy/launch scripts when deprecations are announced.
+  - PR: https://github.com/LuthienResearch/luthien-proxy/pull/165 (branch: objective/responses-api-shim)
 
 ### Security
 
