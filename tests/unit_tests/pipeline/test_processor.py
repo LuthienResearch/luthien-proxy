@@ -175,6 +175,82 @@ class TestProcessRequest:
 
         assert request_message.model == "gpt-4"
 
+    @pytest.mark.asyncio
+    async def test_openai_request_prunes_unanswered_tool_calls(self, mock_request, mock_emitter, mock_span):
+        """Test that unanswered tool calls are pruned when no tools are configured."""
+        openai_body = {
+            "model": "gpt-4",
+            "messages": [
+                {"role": "user", "content": "Check tools"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "list_tools", "arguments": "{}"},
+                        }
+                    ],
+                },
+            ],
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=openai_body)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            request_message, _raw_http_request, _session_id = await _process_request(
+                request=mock_request,
+                client_format=ClientFormat.OPENAI,
+                call_id="test-call-id",
+                emitter=mock_emitter,
+            )
+
+        assert len(request_message.messages) == 1
+        assert request_message.messages[0]["role"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_openai_request_preserves_answered_tool_calls(self, mock_request, mock_emitter, mock_span):
+        """Test that answered tool calls are preserved."""
+        openai_body = {
+            "model": "gpt-4",
+            "messages": [
+                {"role": "user", "content": "Check tools"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "list_tools", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_1", "content": "{}"},
+            ],
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=openai_body)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            request_message, _raw_http_request, _session_id = await _process_request(
+                request=mock_request,
+                client_format=ClientFormat.OPENAI,
+                call_id="test-call-id",
+                emitter=mock_emitter,
+            )
+
+        assert len(request_message.messages) == 3
+        assert request_message.messages[1]["role"] == "assistant"
+        assert request_message.messages[1]["tool_calls"][0]["id"] == "call_1"
+
 
 class TestHandleNonStreaming:
     """Tests for _handle_non_streaming helper function."""
