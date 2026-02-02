@@ -179,6 +179,31 @@ Current blocker: Bugs from client compatibility keep interrupting
 
 ---
 
+---
+
+## Draft Slack to Jai
+
+```
+Hey - wanted to flag something I've been thinking about.
+
+**The problem:** This weekend I hit several Codex bugs, and today found another Claude Code bug (orphaned tool_results after /compact). I know you're thinking about stripping out Codex/OpenAI support to simplify to just Claude bits, but I'm still worried these client compat bugs are going to keep slowing us down from dogfooding.
+
+Every time Claude Code or Codex ships an update, something breaks. And I can't test this stuff myself because... Claude Code can't test Claude Code through the proxy (self-reference problem). Same with Codex.
+
+**An idea:** What if we hired a part-time QA contractor ($2-4K/mo) to do manual regression testing before demo day? Their job: run real Claude Code sessions through the proxy after each release, catch the "it just broke" stuff before I hit it while trying to dogfood.
+
+I did some analysis - we've had 34 bug-fix PRs since October, and about half are client compat issues that a human tester would catch immediately. ROI math: saves ~15 eng hours/month + gives us demo day confidence.
+
+Full analysis in dev/NOTES.md on evaluate-qa-outsourcing branch.
+
+**Questions:**
+1. Any concerns with this approach? Or does simplifying to Claude-only solve this enough?
+2. Do you already have Playwright set up? (want to automate UI testing too)
+3. Want me to handle vendor research/hiring or want to be involved?
+```
+
+---
+
 ## Claude Desktop Prompt (for vendor research)
 
 Copy this into Claude Desktop:
