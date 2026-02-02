@@ -144,6 +144,41 @@ Evaluate data - did QA catch real bugs? Scale accordingly.
 
 ---
 
+---
+
+## Human-Only vs Automatable Testing
+
+### Genuinely Requires Humans (Not Fixable)
+
+| What | Why |
+|------|-----|
+| **Real Claude Code through proxy** | Agent can't run itself as a client and observe |
+| **Real Codex through proxy** | Same self-reference problem |
+| **Client behavior drift** | Claude Code/Codex ship updates with new wire formats - mocks based on yesterday's behavior won't catch tomorrow's bugs |
+
+**This is the core argument for outsourced QA** - you need a human running the real clients.
+
+### Automatable But Not Yet Done
+
+| What | Fix | Effort |
+|------|-----|--------|
+| UI visual testing | Playwright | Medium - Jai may already have this |
+| Traffic recording → replay tests | Record real sessions, replay as fixtures | Medium |
+| Expand e2e with client message fixtures | Capture real Claude Code/Codex payloads | Low-Medium |
+| Post-/compact behavior | Add test fixtures for compacted conversations | Low |
+
+**Key insight:** Even with automation, you still need humans to CAPTURE the real client behavior that becomes test fixtures. Automation replays known-good behavior; humans discover new edge cases.
+
+### The Dogfooding Bottleneck
+
+Scott's goal: Dogfood Luthien → Build better UX features
+
+Current blocker: Bugs from client compatibility keep interrupting
+
+**Automation reduces future interruptions** but requires upfront investment. QA contractor catches bugs NOW while automation gets built.
+
+---
+
 ## Claude Desktop Prompt (for vendor research)
 
 See below - copy this into Claude Desktop for the research portion.
