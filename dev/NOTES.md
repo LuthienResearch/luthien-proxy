@@ -181,4 +181,45 @@ Current blocker: Bugs from client compatibility keep interrupting
 
 ## Claude Desktop Prompt (for vendor research)
 
-See below - copy this into Claude Desktop for the research portion.
+Copy this into Claude Desktop:
+
+```
+I'm evaluating QA outsourcing options for a developer tools startup (AI proxy for Claude Code/Codex). Demo day is April 2026 with potential $3-7M funding. Budget: $2-5K/month for QA.
+
+**What I need tested:**
+- Claude Code compatibility (VS Code extension that sends requests through our proxy)
+- Codex compatibility (OpenAI's coding agent)
+- Basic API flows (send message → get response)
+- UI pages (login, activity monitor, debug views)
+- Post-dependency-upgrade regression testing
+
+**Please research and compare:**
+
+1. **Crowdsourced QA platforms** (Rainforest QA, Testlio, uTest, Applause)
+   - Pricing models
+   - Turnaround time
+   - Quality of testers for developer tools
+   - Minimum commitments
+
+2. **QA contractor marketplaces** (Upwork, Toptal, Arc.dev)
+   - Typical rates for QA engineers with API testing experience
+   - How to filter for dev tools / CLI experience
+   - Trial project ideas to evaluate candidates
+
+3. **Offshore QA agencies**
+   - Reputable agencies for startups
+   - Typical engagement models
+   - Communication/timezone considerations
+
+4. **AI-assisted QA tools** that could supplement human QA
+   - Are there tools that can automate Claude Code/Codex testing?
+   - What about API contract testing automation?
+
+For each option, give me:
+- Estimated monthly cost
+- Pros/cons for a 2-person startup
+- How quickly I could get started
+- Red flags to watch for
+
+My main goal is catching regressions before users hit them, especially around our two main clients (Claude Code and Codex).
+```
