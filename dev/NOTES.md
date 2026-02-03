@@ -186,15 +186,11 @@ Current blocker: Bugs from client compatibility keep interrupting
 ```
 Hey - wanted to flag something I've been thinking about.
 
-**The problem:** This weekend I hit several Codex bugs, and today found another Claude Code bug:
-- PR #162: Codex developer role not accepted
-- PR #164: Codex chat wire API rendering bug
-- PR #166: Codex tool-call sequencing error
-- PR #167: Claude Code orphaned tool_results after /compact (today)
+**The problem:** My top goal right now is to unblock dogfooding so I can build better UX features. But I can't make progress because of client compat bugs - it feels like I'm on a treadmill being attacked by a swarm of bugs.
 
-I know you're thinking about stripping out Codex/OpenAI support to simplify to just Claude bits, but I'm still worried these client compat bugs are going to keep slowing us down from dogfooding.
+This weekend I hit several Codex bugs (#162, #164, #166) and today found another Claude Code bug (#167 - orphaned tool_results after /compact).
 
-Every time Claude Code or Codex ships an update, something breaks. And I can't test this stuff myself because... Claude Code can't test Claude Code through the proxy (self-reference problem). Same with Codex.
+I know you're thinking about stripping out Codex/OpenAI support to simplify to just Claude bits, but I'm still worried these bugs are going to keep slowing us down. Every time Claude Code or Codex ships an update, something breaks. And I can't test this stuff myself because... Claude Code can't test Claude Code through the proxy (self-reference problem). Same with Codex.
 
 **An idea:** What if we hired a part-time QA contractor ($2-4K/mo) to do manual regression testing before demo day? Their job: run real Claude Code sessions through the proxy after each release, catch the "it just broke" stuff before I hit it while trying to dogfood.
 
@@ -209,6 +205,51 @@ This is in addition to the pre-demo mechanisms and checklist we discussed: [pre-
 2. Do you already have Playwright set up? (want to automate UI testing too)
 3. Want me to handle vendor research/hiring or want to be involved?
 ```
+
+---
+
+---
+
+## Upwork Job Post Draft
+
+**Title:** Part-Time QA Tester for AI Developer Tools (Claude Code / API Testing)
+
+**Budget:** $40-60/hr, 10-15 hrs/week
+
+**Duration:** 3+ months (through April 2026, potential to extend)
+
+**Description:**
+
+We're a small AI safety startup building a proxy for AI coding assistants (Claude Code, Codex). We need a part-time QA tester to help us catch bugs before our users do.
+
+**What you'll be testing:**
+- Claude Code (Anthropic's VS Code extension) running through our proxy
+- Basic API flows: send messages, receive responses, tool calls
+- Edge cases: /compact command, multi-turn conversations, streaming responses
+- Web UI: login page, activity monitor, debug views
+- Regression testing after each release and dependency upgrade
+
+**What we're looking for:**
+- Experience with API testing (not just UI clicking)
+- Comfortable in terminal/CLI environments
+- Clear bug reports with reproduction steps
+- Available to test 2-3 times per week, especially around releases
+- Bonus: experience with AI/LLM products or developer tools
+
+**What you'll do:**
+- Run through test scenarios using real Claude Code sessions
+- Document any bugs, regressions, or unexpected behavior
+- Help us build a regression test checklist
+- Quick turnaround when we ship updates (same-day or next-day testing)
+
+**About us:**
+- 2-person startup, demo day in April 2026
+- Tech stack: Python (FastAPI), JavaScript, Docker
+- We move fast and ship frequently
+- Friendly, async-first communication (Slack)
+
+**To apply:**
+Tell us about your QA experience, especially with APIs or developer tools. Bonus points if you've used Claude Code or similar AI coding assistants.
 
 ---
 
