@@ -2,6 +2,12 @@
 
 ## Unreleased | TBA
 
+- Fix orphaned tool_result errors after `/compact` in Claude Code (#167)
+  - Prune tool_result messages that have no matching tool_call in the conversation
+  - Complementary fix to #166 which prunes tool_calls without results
+  - O(n) single-pass algorithm for efficiency
+  - Added e2e tests to catch future regressions
+
 - Fix StringReplacementPolicy dropping finish_reason causing blank responses in Claude Code
   - Content and finish_reason must be emitted as separate chunks
   - SSE assembler's `convert_chunk_to_event()` returns early on content, ignoring finish_reason
