@@ -8,7 +8,9 @@ This breaks Claude Code workflows, especially after using `/compact` which likel
 ## Acceptance Criteria
 - [x] Claude Code can use `/compact` without triggering orphaned tool_result errors
 - [x] Add pruning for orphaned tool_results (opposite of PR #166's tool_call pruning)
-- [x] Unit tests cover the new pruning logic (14 tests added)
+- [x] Unit tests cover the new pruning logic (9 unit tests)
+- [x] E2E tests for orphaned tool_result scenarios (4 tests)
+- [x] Manual test: Claude Code through Luthien with /compact - verified working
 
 ## Technical Notes
 - Error comes from Anthropic API rejecting malformed message history
@@ -16,9 +18,6 @@ This breaks Claude Code workflows, especially after using `/compact` which likel
 - Bidirectional pruning now in `processor.py`
 
 ## Implementation Complete
-- Added `_prune_orphaned_tool_results()` in processor.py
+- Added `_prune_orphaned_tool_results()` in processor.py (O(n) single-pass algorithm)
 - Applied for both Anthropic and OpenAI format requests
 - All dev_checks pass
-
-## Still Needed
-- [ ] Manual test: run Claude Code through Luthien, use `/compact`, verify no errors
