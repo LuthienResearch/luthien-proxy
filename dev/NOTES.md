@@ -186,15 +186,23 @@ Current blocker: Bugs from client compatibility keep interrupting
 ```
 Hey - wanted to flag something I've been thinking about.
 
-**The problem:** This weekend I hit several Codex bugs, and today found another Claude Code bug (orphaned tool_results after /compact). I know you're thinking about stripping out Codex/OpenAI support to simplify to just Claude bits, but I'm still worried these client compat bugs are going to keep slowing us down from dogfooding.
+**The problem:** This weekend I hit several Codex bugs, and today found another Claude Code bug:
+- PR #162: Codex developer role not accepted
+- PR #164: Codex chat wire API rendering bug
+- PR #166: Codex tool-call sequencing error
+- PR #167: Claude Code orphaned tool_results after /compact (today)
+
+I know you're thinking about stripping out Codex/OpenAI support to simplify to just Claude bits, but I'm still worried these client compat bugs are going to keep slowing us down from dogfooding.
 
 Every time Claude Code or Codex ships an update, something breaks. And I can't test this stuff myself because... Claude Code can't test Claude Code through the proxy (self-reference problem). Same with Codex.
 
 **An idea:** What if we hired a part-time QA contractor ($2-4K/mo) to do manual regression testing before demo day? Their job: run real Claude Code sessions through the proxy after each release, catch the "it just broke" stuff before I hit it while trying to dogfood.
 
-I did some analysis - we've had 34 bug-fix PRs since October, and about half are client compat issues that a human tester would catch immediately. ROI math: saves ~15 eng hours/month + gives us demo day confidence.
+I did some analysis - we've had 34 bug-fix PRs since October, and about half are client compat issues that a human tester would catch immediately.
 
-Full analysis in dev/NOTES.md on evaluate-qa-outsourcing branch.
+**Full analysis:** [Google Doc link - TODO: copy NOTES.md content here]
+
+This is in addition to the pre-demo mechanisms and checklist we discussed: [pre-demo checklist link - TODO]
 
 **Questions:**
 1. Any concerns with this approach? Or does simplifying to Claude-only solve this enough?
