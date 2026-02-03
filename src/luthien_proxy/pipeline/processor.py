@@ -75,35 +75,6 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-def _collect_tool_call_ids_before_index(messages: list[Any], max_index: int) -> set[str]:
-    """Collect all tool_call IDs from assistant messages before a given index.
-
-    Args:
-        messages: List of messages in OpenAI format
-        max_index: Only consider messages before this index
-
-    Returns:
-        Set of tool_call IDs found in assistant messages
-    """
-    tool_call_ids: set[str] = set()
-    for idx, message in enumerate(messages):
-        if idx >= max_index:
-            break
-        if not isinstance(message, dict):
-            continue
-        if message.get("role") != "assistant":
-            continue
-        tool_calls = message.get("tool_calls")
-        if not isinstance(tool_calls, list):
-            continue
-        for call in tool_calls:
-            if isinstance(call, dict):
-                call_id = call.get("id")
-                if isinstance(call_id, str):
-                    tool_call_ids.add(call_id)
-    return tool_call_ids
-
-
 def _prune_orphaned_tool_results(body: dict[str, Any]) -> None:
     """Remove tool result messages that have no matching tool_call.
 
@@ -113,37 +84,45 @@ def _prune_orphaned_tool_results(body: dict[str, Any]) -> None:
     The error message is: "unexpected tool_use_id found in tool_result blocks.
     Each tool_result block must have a corresponding tool_use block in the
     previous message."
+
+    Algorithm: Single pass O(n) - track tool_call IDs as we encounter them,
+    then check tool results against the accumulated set.
     """
     messages = body.get("messages")
     if not isinstance(messages, list):
         return
 
+    seen_tool_call_ids: set[str] = set()
     pruned: list[dict[str, Any]] = []
-    for idx, message in enumerate(messages):
+
+    for message in messages:
         if not isinstance(message, dict):
             continue
 
-        # Keep non-tool messages
-        if message.get("role") != "tool":
-            pruned.append(message)
-            continue
+        role = message.get("role")
 
-        # For tool messages, check if there's a matching tool_call before this index
-        tool_call_id = message.get("tool_call_id")
-        if not isinstance(tool_call_id, str):
-            # No tool_call_id, keep the message (shouldn't happen but be safe)
+        if role == "assistant":
+            # Track tool_call IDs from assistant messages
+            tool_calls = message.get("tool_calls")
+            if isinstance(tool_calls, list):
+                for call in tool_calls:
+                    if isinstance(call, dict):
+                        call_id = call.get("id")
+                        if isinstance(call_id, str):
+                            seen_tool_call_ids.add(call_id)
             pruned.append(message)
-            continue
 
-        # Collect tool_call IDs from all assistant messages before this one
-        tool_call_ids = _collect_tool_call_ids_before_index(messages, idx)
+        elif role == "tool":
+            # Only keep tool results if we've seen the matching tool_call
+            tool_call_id = message.get("tool_call_id")
+            if isinstance(tool_call_id, str) and tool_call_id in seen_tool_call_ids:
+                pruned.append(message)
+            else:
+                logger.debug(f"Pruning orphaned tool_result with tool_call_id={tool_call_id}")
 
-        if tool_call_id in tool_call_ids:
-            # Found matching tool_call, keep this tool result
-            pruned.append(message)
         else:
-            # Orphaned tool result - skip it
-            logger.debug(f"Pruning orphaned tool_result with tool_call_id={tool_call_id}")
+            # Keep all other messages (user, system)
+            pruned.append(message)
 
     body["messages"] = pruned
 

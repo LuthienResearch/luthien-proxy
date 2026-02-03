@@ -11,7 +11,6 @@ from litellm.types.utils import Choices, Message, ModelResponse, Usage
 from luthien_proxy.llm.types import Request as RequestMessage
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.processor import (
-    _collect_tool_call_ids_before_index,
     _get_client_formatter,
     _handle_non_streaming,
     _handle_streaming,
@@ -677,72 +676,6 @@ class TestProcessRequestErrorHandling:
 
         assert exc_info.value.status_code == 400
         assert "Invalid Anthropic request format" in exc_info.value.detail
-
-
-class TestCollectToolCallIds:
-    """Tests for _collect_tool_call_ids_before_index helper function."""
-
-    def test_collects_tool_call_ids_from_assistant_messages(self):
-        """Test collecting tool_call IDs from assistant messages."""
-        messages = [
-            {"role": "user", "content": "Hello"},
-            {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {"id": "call_123", "type": "function", "function": {"name": "test"}},
-                    {"id": "call_456", "type": "function", "function": {"name": "test2"}},
-                ],
-            },
-            {"role": "tool", "tool_call_id": "call_123", "content": "result"},
-        ]
-
-        result = _collect_tool_call_ids_before_index(messages, 2)
-        assert result == {"call_123", "call_456"}
-
-    def test_respects_max_index(self):
-        """Test that only messages before max_index are considered."""
-        messages = [
-            {"role": "user", "content": "Hello"},
-            {
-                "role": "assistant",
-                "tool_calls": [{"id": "call_early", "type": "function", "function": {"name": "test"}}],
-            },
-            {"role": "tool", "tool_call_id": "call_early", "content": "result"},
-            {
-                "role": "assistant",
-                "tool_calls": [{"id": "call_late", "type": "function", "function": {"name": "test"}}],
-            },
-        ]
-
-        # Only collect from messages before index 2
-        result = _collect_tool_call_ids_before_index(messages, 2)
-        assert result == {"call_early"}
-        assert "call_late" not in result
-
-    def test_handles_empty_messages(self):
-        """Test handling of empty message list."""
-        result = _collect_tool_call_ids_before_index([], 0)
-        assert result == set()
-
-    def test_ignores_non_assistant_messages(self):
-        """Test that user and tool messages are ignored."""
-        messages = [
-            {"role": "user", "content": "Hello"},
-            {"role": "tool", "tool_call_id": "call_123", "content": "result"},
-        ]
-
-        result = _collect_tool_call_ids_before_index(messages, 2)
-        assert result == set()
-
-    def test_handles_assistant_without_tool_calls(self):
-        """Test assistant messages without tool_calls."""
-        messages = [
-            {"role": "assistant", "content": "Just text, no tools"},
-        ]
-
-        result = _collect_tool_call_ids_before_index(messages, 1)
-        assert result == set()
 
 
 class TestPruneOrphanedToolResults:
