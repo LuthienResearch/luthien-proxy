@@ -11,10 +11,12 @@ from litellm.types.utils import Choices, Message, ModelResponse, Usage
 from luthien_proxy.llm.types import Request as RequestMessage
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.processor import (
+    _collect_tool_call_ids_before_index,
     _get_client_formatter,
     _handle_non_streaming,
     _handle_streaming,
     _process_request,
+    _prune_orphaned_tool_results,
     process_llm_request,
 )
 from luthien_proxy.streaming.client_formatter.anthropic import AnthropicClientFormatter
@@ -675,3 +677,195 @@ class TestProcessRequestErrorHandling:
 
         assert exc_info.value.status_code == 400
         assert "Invalid Anthropic request format" in exc_info.value.detail
+
+
+class TestCollectToolCallIds:
+    """Tests for _collect_tool_call_ids_before_index helper function."""
+
+    def test_collects_tool_call_ids_from_assistant_messages(self):
+        """Test collecting tool_call IDs from assistant messages."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_123", "type": "function", "function": {"name": "test"}},
+                    {"id": "call_456", "type": "function", "function": {"name": "test2"}},
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_123", "content": "result"},
+        ]
+
+        result = _collect_tool_call_ids_before_index(messages, 2)
+        assert result == {"call_123", "call_456"}
+
+    def test_respects_max_index(self):
+        """Test that only messages before max_index are considered."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "tool_calls": [{"id": "call_early", "type": "function", "function": {"name": "test"}}],
+            },
+            {"role": "tool", "tool_call_id": "call_early", "content": "result"},
+            {
+                "role": "assistant",
+                "tool_calls": [{"id": "call_late", "type": "function", "function": {"name": "test"}}],
+            },
+        ]
+
+        # Only collect from messages before index 2
+        result = _collect_tool_call_ids_before_index(messages, 2)
+        assert result == {"call_early"}
+        assert "call_late" not in result
+
+    def test_handles_empty_messages(self):
+        """Test handling of empty message list."""
+        result = _collect_tool_call_ids_before_index([], 0)
+        assert result == set()
+
+    def test_ignores_non_assistant_messages(self):
+        """Test that user and tool messages are ignored."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "tool", "tool_call_id": "call_123", "content": "result"},
+        ]
+
+        result = _collect_tool_call_ids_before_index(messages, 2)
+        assert result == set()
+
+    def test_handles_assistant_without_tool_calls(self):
+        """Test assistant messages without tool_calls."""
+        messages = [
+            {"role": "assistant", "content": "Just text, no tools"},
+        ]
+
+        result = _collect_tool_call_ids_before_index(messages, 1)
+        assert result == set()
+
+
+class TestPruneOrphanedToolResults:
+    """Tests for _prune_orphaned_tool_results helper function."""
+
+    def test_keeps_tool_results_with_matching_tool_calls(self):
+        """Test that tool results with matching tool_calls are preserved."""
+        body = {
+            "messages": [
+                {"role": "user", "content": "Hello"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{"id": "call_123", "type": "function", "function": {"name": "test"}}],
+                },
+                {"role": "tool", "tool_call_id": "call_123", "content": "result"},
+                {"role": "assistant", "content": "Done!"},
+            ]
+        }
+
+        _prune_orphaned_tool_results(body)
+
+        assert len(body["messages"]) == 4
+        tool_msgs = [m for m in body["messages"] if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0]["tool_call_id"] == "call_123"
+
+    def test_removes_orphaned_tool_results(self):
+        """Test that tool results without matching tool_calls are removed."""
+        body = {
+            "messages": [
+                {"role": "user", "content": "Hello"},
+                # No assistant message with tool_calls for call_orphan
+                {"role": "tool", "tool_call_id": "call_orphan", "content": "orphaned result"},
+                {"role": "assistant", "content": "Done!"},
+            ]
+        }
+
+        _prune_orphaned_tool_results(body)
+
+        assert len(body["messages"]) == 2
+        tool_msgs = [m for m in body["messages"] if m.get("role") == "tool"]
+        assert len(tool_msgs) == 0
+
+    def test_compact_scenario_removes_orphaned_after_trim(self):
+        """Test scenario where /compact removed assistant message but left tool result."""
+        # This simulates what happens after /compact:
+        # The original assistant message with tool_use was removed,
+        # but the tool_result message remains
+        body = {
+            "messages": [
+                {"role": "user", "content": "Earlier context was removed by /compact"},
+                # This tool result references a tool_call that was in a removed message
+                {"role": "tool", "tool_call_id": "call_from_removed_msg", "content": "result"},
+                {"role": "assistant", "content": "Response after tool use"},
+            ]
+        }
+
+        _prune_orphaned_tool_results(body)
+
+        assert len(body["messages"]) == 2
+        assert body["messages"][0]["role"] == "user"
+        assert body["messages"][1]["role"] == "assistant"
+
+    def test_handles_multiple_tool_calls_and_results(self):
+        """Test with multiple tool calls, some orphaned and some not."""
+        body = {
+            "messages": [
+                {"role": "user", "content": "Hello"},
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {"id": "call_valid_1", "type": "function", "function": {"name": "test"}},
+                        {"id": "call_valid_2", "type": "function", "function": {"name": "test"}},
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_valid_1", "content": "result 1"},
+                {"role": "tool", "tool_call_id": "call_orphan", "content": "orphaned"},
+                {"role": "tool", "tool_call_id": "call_valid_2", "content": "result 2"},
+            ]
+        }
+
+        _prune_orphaned_tool_results(body)
+
+        tool_msgs = [m for m in body["messages"] if m.get("role") == "tool"]
+        assert len(tool_msgs) == 2
+        tool_call_ids = {m["tool_call_id"] for m in tool_msgs}
+        assert tool_call_ids == {"call_valid_1", "call_valid_2"}
+
+    def test_handles_empty_messages(self):
+        """Test handling of empty messages list."""
+        body = {"messages": []}
+
+        _prune_orphaned_tool_results(body)
+
+        assert body["messages"] == []
+
+    def test_handles_missing_messages_key(self):
+        """Test handling of body without messages key."""
+        body = {"model": "gpt-4"}
+
+        _prune_orphaned_tool_results(body)
+
+        assert "messages" not in body
+
+    def test_handles_non_list_messages(self):
+        """Test handling of non-list messages value."""
+        body = {"messages": "not a list"}
+
+        _prune_orphaned_tool_results(body)
+
+        assert body["messages"] == "not a list"
+
+    def test_preserves_non_tool_messages(self):
+        """Test that user and assistant messages are always preserved."""
+        body = {
+            "messages": [
+                {"role": "system", "content": "You are helpful"},
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi there!"},
+            ]
+        }
+
+        _prune_orphaned_tool_results(body)
+
+        assert len(body["messages"]) == 3

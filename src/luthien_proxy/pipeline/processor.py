@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -73,6 +73,79 @@ from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _collect_tool_call_ids_before_index(messages: list[Any], max_index: int) -> set[str]:
+    """Collect all tool_call IDs from assistant messages before a given index.
+
+    Args:
+        messages: List of messages in OpenAI format
+        max_index: Only consider messages before this index
+
+    Returns:
+        Set of tool_call IDs found in assistant messages
+    """
+    tool_call_ids: set[str] = set()
+    for idx, message in enumerate(messages):
+        if idx >= max_index:
+            break
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") != "assistant":
+            continue
+        tool_calls = message.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            continue
+        for call in tool_calls:
+            if isinstance(call, dict):
+                call_id = call.get("id")
+                if isinstance(call_id, str):
+                    tool_call_ids.add(call_id)
+    return tool_call_ids
+
+
+def _prune_orphaned_tool_results(body: dict[str, Any]) -> None:
+    """Remove tool result messages that have no matching tool_call.
+
+    This prevents Anthropic API errors when /compact or message trimming
+    removes tool_use blocks but leaves orphaned tool_result blocks.
+
+    The error message is: "unexpected tool_use_id found in tool_result blocks.
+    Each tool_result block must have a corresponding tool_use block in the
+    previous message."
+    """
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return
+
+    pruned: list[dict[str, Any]] = []
+    for idx, message in enumerate(messages):
+        if not isinstance(message, dict):
+            continue
+
+        # Keep non-tool messages
+        if message.get("role") != "tool":
+            pruned.append(message)
+            continue
+
+        # For tool messages, check if there's a matching tool_call before this index
+        tool_call_id = message.get("tool_call_id")
+        if not isinstance(tool_call_id, str):
+            # No tool_call_id, keep the message (shouldn't happen but be safe)
+            pruned.append(message)
+            continue
+
+        # Collect tool_call IDs from all assistant messages before this one
+        tool_call_ids = _collect_tool_call_ids_before_index(messages, idx)
+
+        if tool_call_id in tool_call_ids:
+            # Found matching tool_call, keep this tool result
+            pruned.append(message)
+        else:
+            # Orphaned tool result - skip it
+            logger.debug(f"Pruning orphaned tool_result with tool_call_id={tool_call_id}")
+
+    body["messages"] = pruned
 
 
 async def process_llm_request(
@@ -248,6 +321,9 @@ async def _process_request(
             )
             try:
                 openai_body = anthropic_to_openai_request(body)
+                # Prune orphaned tool_results that reference removed tool_use blocks
+                # (e.g., after /compact removes earlier messages)
+                _prune_orphaned_tool_results(openai_body)
                 request_message = RequestMessage(**openai_body)
             except (KeyError, TypeError, AttributeError, ValidationError) as e:
                 logger.error(f"[{call_id}] Failed to convert Anthropic request: {e}")
@@ -255,6 +331,9 @@ async def _process_request(
             logger.info(f"[{call_id}] /v1/messages: model={request_message.model}, stream={request_message.stream}")
         else:
             session_id = extract_session_id_from_headers(headers)
+            # Prune orphaned tool_results that reference removed tool_calls
+            # (e.g., after /compact removes earlier messages)
+            _prune_orphaned_tool_results(body)
             try:
                 request_message = RequestMessage(**body)
             except ValidationError as e:
