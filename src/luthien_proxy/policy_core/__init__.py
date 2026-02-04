@@ -5,8 +5,10 @@ from streaming. Both modules import from this policy_core layer to avoid
 circular dependencies.
 """
 
-from luthien_proxy.llm.types.anthropic import AnthropicStreamingEvent
-from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
+from luthien_proxy.policy_core.anthropic_protocol import (
+    AnthropicPolicyProtocol,
+    AnthropicStreamEvent,
+)
 from luthien_proxy.policy_core.chunk_builders import (
     create_finish_chunk,
     create_text_chunk,
@@ -26,7 +28,7 @@ from luthien_proxy.policy_core.streaming_policy_context import (
 
 __all__ = [
     "AnthropicPolicyProtocol",
-    "AnthropicStreamingEvent",
+    "AnthropicStreamEvent",
     "PolicyContext",
     "PolicyProtocol",
     "StreamingPolicyContext",

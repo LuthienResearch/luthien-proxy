@@ -5,6 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
+from anthropic.types import (
+    RawContentBlockDeltaEvent,
+    RawMessageStartEvent,
+    RawMessageStopEvent,
+    TextDelta,
+)
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
@@ -21,7 +27,6 @@ from luthien_proxy.pipeline.anthropic_processor import (
     process_anthropic_request,
 )
 from luthien_proxy.policies.anthropic.noop import AnthropicNoOpPolicy
-from luthien_proxy.policy_core.anthropic_protocol import AnthropicStreamingEvent
 
 
 class TestFormatSSEEvent:
@@ -29,9 +34,9 @@ class TestFormatSSEEvent:
 
     def test_formats_message_start_event(self):
         """Test formatting a message_start event."""
-        event: AnthropicStreamingEvent = {
-            "type": "message_start",
-            "message": {
+        event = RawMessageStartEvent(
+            type="message_start",
+            message={
                 "id": "msg_123",
                 "type": "message",
                 "role": "assistant",
@@ -41,7 +46,7 @@ class TestFormatSSEEvent:
                 "stop_sequence": None,
                 "usage": {"input_tokens": 10, "output_tokens": 0},
             },
-        }
+        )
         result = _format_sse_event(event)
 
         assert result.startswith("event: message_start\n")
@@ -51,11 +56,11 @@ class TestFormatSSEEvent:
 
     def test_formats_content_block_delta_event(self):
         """Test formatting a content_block_delta event."""
-        event: AnthropicStreamingEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": {"type": "text_delta", "text": "Hello"},
-        }
+        event = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=TextDelta(type="text_delta", text="Hello"),
+        )
         result = _format_sse_event(event)
 
         assert result.startswith("event: content_block_delta\n")
@@ -64,7 +69,7 @@ class TestFormatSSEEvent:
 
     def test_formats_message_stop_event(self):
         """Test formatting a message_stop event."""
-        event: AnthropicStreamingEvent = {"type": "message_stop"}
+        event = RawMessageStopEvent(type="message_stop")
         result = _format_sse_event(event)
 
         assert result == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
@@ -360,10 +365,21 @@ class TestHandleStreaming:
         client = MagicMock()
 
         async def mock_stream(request):
-            # Yield a few events
-            yield MagicMock(model_dump=lambda: {"type": "message_start", "message": {}})
-            yield MagicMock(model_dump=lambda: {"type": "content_block_start", "index": 0})
-            yield MagicMock(model_dump=lambda: {"type": "message_stop"})
+            # Yield a few events using SDK types
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_123",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-3-5-sonnet-20241022",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
+            yield RawMessageStopEvent(type="message_stop")
 
         client.stream = mock_stream
         return client
@@ -500,8 +516,20 @@ class TestProcessAnthropicRequest:
 
         # Create streaming client
         async def mock_stream(request):
-            yield MagicMock(model_dump=lambda: {"type": "message_start", "message": {}})
-            yield MagicMock(model_dump=lambda: {"type": "message_stop"})
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_123",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-3-5-sonnet-20241022",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
+            yield RawMessageStopEvent(type="message_stop")
 
         mock_streaming_client = MagicMock()
         mock_streaming_client.stream = mock_stream
@@ -619,9 +647,9 @@ class TestBuildErrorEvent:
 
         event = _build_error_event(error, "test-call-id")
 
-        assert event["type"] == "error"
-        assert event["error"]["type"] == "api_error"
-        assert "Rate limit exceeded" in event["error"]["message"]
+        assert event.get("type") == "error"
+        assert event.get("error", {}).get("type") == "api_error"
+        assert "Rate limit exceeded" in event.get("error", {}).get("message", "")
 
     def test_builds_connection_error_event(self):
         """Test building error event from AnthropicConnectionError."""
@@ -630,8 +658,8 @@ class TestBuildErrorEvent:
 
         event = _build_error_event(error, "test-call-id")
 
-        assert event["type"] == "error"
-        assert event["error"]["type"] == "api_connection_error"
+        assert event.get("type") == "error"
+        assert event.get("error", {}).get("type") == "api_connection_error"
 
     def test_builds_generic_error_event(self):
         """Test building error event from unknown exception type."""
@@ -639,9 +667,9 @@ class TestBuildErrorEvent:
 
         event = _build_error_event(error, "test-call-id")
 
-        assert event["type"] == "error"
-        assert event["error"]["type"] == "api_error"
-        assert "Something went wrong" in event["error"]["message"]
+        assert event.get("type") == "error"
+        assert event.get("error", {}).get("type") == "api_error"
+        assert "Something went wrong" in event.get("error", {}).get("message", "")
 
 
 class TestMidStreamErrorHandling:
@@ -678,8 +706,19 @@ class TestMidStreamErrorHandling:
         )
 
         async def failing_stream(req):
-            yield MagicMock(model_dump=lambda: {"type": "message_start", "message": {}})
-            yield MagicMock(model_dump=lambda: {"type": "content_block_start", "index": 0})
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_123",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-3-5-sonnet-20241022",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
             raise api_error
 
         mock_client = MagicMock()
@@ -706,8 +745,8 @@ class TestMidStreamErrorHandling:
             async for chunk in response.body_iterator:
                 events.append(chunk)
 
-        # Verify we got the initial events plus an error event
-        assert len(events) >= 3  # message_start, content_block_start, error
+        # Verify we got the initial event plus an error event
+        assert len(events) >= 2  # message_start, error
         last_event = events[-1]
         assert "event: error" in last_event
         assert '"type": "api_error"' in last_event
@@ -727,7 +766,19 @@ class TestMidStreamErrorHandling:
         connection_error = AnthropicConnectionError(request=mock_request)
 
         async def failing_stream(req):
-            yield MagicMock(model_dump=lambda: {"type": "message_start", "message": {}})
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_123",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-3-5-sonnet-20241022",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
             raise connection_error
 
         mock_client = MagicMock()

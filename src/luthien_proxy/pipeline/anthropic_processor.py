@@ -31,6 +31,7 @@ from typing import AsyncIterator
 
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
+from anthropic.lib.streaming import MessageStreamEvent
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
@@ -42,7 +43,6 @@ from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
     AnthropicResponse,
-    AnthropicStreamingEvent,
 )
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.session import extract_session_id_from_anthropic_body
@@ -330,21 +330,28 @@ async def _handle_non_streaming(
         )
 
 
-def _format_sse_event(event: AnthropicStreamingEvent) -> str:
+def _format_sse_event(event: MessageStreamEvent | dict[str, object]) -> str:
     """Format an Anthropic stream event as an SSE line.
 
     Args:
-        event: Anthropic streaming event TypedDict
+        event: Anthropic SDK streaming event (Pydantic model) or error event dict
 
     Returns:
         SSE-formatted string with event type and JSON data.
     """
-    event_type = event.get("type", "unknown")
-    json_data = json.dumps(event)
+    # Handle both SDK Pydantic models and plain dicts (e.g., error events)
+    if isinstance(event, dict):
+        event_type = str(event.get("type", "unknown"))
+        event_data = event
+    else:
+        event_type = event.type
+        event_data = event.model_dump()
+
+    json_data = json.dumps(event_data)
     return f"event: {event_type}\ndata: {json_data}\n\n"
 
 
-def _build_error_event(e: Exception, call_id: str) -> AnthropicStreamingEvent:
+def _build_error_event(e: Exception, call_id: str) -> dict:
     """Build an Anthropic-format error event for mid-stream errors.
 
     When errors occur after headers are sent, we can't return an HTTP error.
@@ -355,7 +362,7 @@ def _build_error_event(e: Exception, call_id: str) -> AnthropicStreamingEvent:
         call_id: Transaction ID for logging
 
     Returns:
-        AnthropicStreamingEvent with error details
+        Error event dict with error details
     """
     if isinstance(e, AnthropicStatusError):
         error_type = "api_error"

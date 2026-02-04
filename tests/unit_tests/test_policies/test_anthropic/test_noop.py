@@ -9,21 +9,18 @@ Verifies that AnthropicNoOpPolicy:
 """
 
 import pytest
-
-from luthien_proxy.llm.types.anthropic import (
-    AnthropicContentBlockDeltaEvent,
-    AnthropicContentBlockStartEvent,
-    AnthropicContentBlockStopEvent,
-    AnthropicMessageDeltaEvent,
-    AnthropicMessageStartEvent,
-    AnthropicMessageStopEvent,
-    AnthropicPingEvent,
-    AnthropicRequest,
-    AnthropicResponse,
-    AnthropicStreamingEvent,
-    AnthropicTextBlock,
-    AnthropicTextDelta,
+from anthropic.types import (
+    Message,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    RawMessageStartEvent,
+    RawMessageStopEvent,
+    TextBlock,
+    TextDelta,
 )
+
 from luthien_proxy.policies.anthropic.noop import AnthropicNoOpPolicy
 from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
 from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -52,7 +49,7 @@ class TestAnthropicNoOpPolicyRequest:
         policy = AnthropicNoOpPolicy()
         ctx = PolicyContext.for_testing()
 
-        request: AnthropicRequest = {
+        request = {
             "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
@@ -68,7 +65,7 @@ class TestAnthropicNoOpPolicyRequest:
         policy = AnthropicNoOpPolicy()
         ctx = PolicyContext.for_testing()
 
-        request: AnthropicRequest = {
+        request = {
             "model": "claude-sonnet-4-20250514",
             "messages": [
                 {"role": "user", "content": "Hello"},
@@ -98,16 +95,15 @@ class TestAnthropicNoOpPolicyResponse:
         policy = AnthropicNoOpPolicy()
         ctx = PolicyContext.for_testing()
 
-        text_block: AnthropicTextBlock = {"type": "text", "text": "Hello!"}
-        response: AnthropicResponse = {
-            "id": "msg_123",
-            "type": "message",
-            "role": "assistant",
-            "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
-            "stop_reason": "end_turn",
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-        }
+        response = Message.model_construct(
+            id="msg_123",
+            type="message",
+            role="assistant",
+            content=[TextBlock.model_construct(type="text", text="Hello!")],
+            model="claude-sonnet-4-20250514",
+            stop_reason="end_turn",
+            usage={"input_tokens": 10, "output_tokens": 5},
+        )
 
         result = await policy.on_response(response, ctx)
 
@@ -119,22 +115,21 @@ class TestAnthropicNoOpPolicyResponse:
         policy = AnthropicNoOpPolicy()
         ctx = PolicyContext.for_testing()
 
-        text_block: AnthropicTextBlock = {"type": "text", "text": "Complex response text"}
-        response: AnthropicResponse = {
-            "id": "msg_456",
-            "type": "message",
-            "role": "assistant",
-            "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
-            "stop_reason": "end_turn",
-            "usage": {"input_tokens": 20, "output_tokens": 10},
-        }
+        response = Message.model_construct(
+            id="msg_456",
+            type="message",
+            role="assistant",
+            content=[TextBlock.model_construct(type="text", text="Complex response text")],
+            model="claude-sonnet-4-20250514",
+            stop_reason="end_turn",
+            usage={"input_tokens": 20, "output_tokens": 10},
+        )
 
         result = await policy.on_response(response, ctx)
 
-        assert result["content"][0]["text"] == "Complex response text"
-        assert result["usage"]["input_tokens"] == 20
-        assert result["usage"]["output_tokens"] == 10
+        assert result.content[0].text == "Complex response text"
+        assert result.usage.input_tokens == 20
+        assert result.usage.output_tokens == 10
 
 
 class TestAnthropicNoOpPolicyStreamEvent:
@@ -146,12 +141,11 @@ class TestAnthropicNoOpPolicyStreamEvent:
         policy = AnthropicNoOpPolicy()
         ctx = PolicyContext.for_testing()
 
-        text_delta: AnthropicTextDelta = {"type": "text_delta", "text": "Hello"}
-        event: AnthropicContentBlockDeltaEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": text_delta,
-        }
+        event = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=TextDelta.model_construct(type="text_delta", text="Hello"),
+        )
 
         result = await policy.on_stream_event(event, ctx)
 
@@ -163,10 +157,10 @@ class TestAnthropicNoOpPolicyStreamEvent:
         policy = AnthropicNoOpPolicy()
         ctx = PolicyContext.for_testing()
 
-        events: list[AnthropicStreamingEvent] = [
-            {
-                "type": "message_start",
-                "message": {
+        events = [
+            RawMessageStartEvent.model_construct(
+                type="message_start",
+                message={
                     "id": "msg_123",
                     "type": "message",
                     "role": "assistant",
@@ -175,30 +169,32 @@ class TestAnthropicNoOpPolicyStreamEvent:
                     "stop_reason": None,
                     "usage": {"input_tokens": 10, "output_tokens": 0},
                 },
-            },
-            {
-                "type": "content_block_start",
-                "index": 0,
-                "content_block": {"type": "text", "text": ""},
-            },
-            {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "text_delta", "text": "Hi"},
-            },
-            {"type": "content_block_stop", "index": 0},
-            {
-                "type": "message_delta",
-                "delta": {"stop_reason": "end_turn", "stop_sequence": None},
-                "usage": {"output_tokens": 1},
-            },
-            {"type": "message_stop"},
-            {"type": "ping"},
+            ),
+            RawContentBlockStartEvent.model_construct(
+                type="content_block_start",
+                index=0,
+                content_block=TextBlock.model_construct(type="text", text=""),
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="Hi"),
+            ),
+            RawContentBlockStopEvent.model_construct(
+                type="content_block_stop",
+                index=0,
+            ),
+            RawMessageDeltaEvent.model_construct(
+                type="message_delta",
+                delta={"stop_reason": "end_turn", "stop_sequence": None},
+                usage={"output_tokens": 1},
+            ),
+            RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
         for event in events:
             result = await policy.on_stream_event(event, ctx)
-            assert result is not None, f"Event of type {event['type']} was filtered out"
+            assert result is not None, f"Event of type {event.type} was filtered out"
             assert result is event
 
     @pytest.mark.asyncio
@@ -207,9 +203,9 @@ class TestAnthropicNoOpPolicyStreamEvent:
         policy = AnthropicNoOpPolicy()
         ctx = PolicyContext.for_testing()
 
-        message_start: AnthropicMessageStartEvent = {
-            "type": "message_start",
-            "message": {
+        message_start = RawMessageStartEvent.model_construct(
+            type="message_start",
+            message={
                 "id": "msg_test",
                 "type": "message",
                 "role": "assistant",
@@ -218,34 +214,32 @@ class TestAnthropicNoOpPolicyStreamEvent:
                 "stop_reason": None,
                 "usage": {"input_tokens": 5, "output_tokens": 0},
             },
-        }
+        )
 
-        content_block_start: AnthropicContentBlockStartEvent = {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {"type": "text", "text": ""},
-        }
+        content_block_start = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock.model_construct(type="text", text=""),
+        )
 
-        content_block_delta: AnthropicContentBlockDeltaEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": {"type": "text_delta", "text": "test"},
-        }
+        content_block_delta = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=TextDelta.model_construct(type="text_delta", text="test"),
+        )
 
-        content_block_stop: AnthropicContentBlockStopEvent = {
-            "type": "content_block_stop",
-            "index": 0,
-        }
+        content_block_stop = RawContentBlockStopEvent.model_construct(
+            type="content_block_stop",
+            index=0,
+        )
 
-        message_delta: AnthropicMessageDeltaEvent = {
-            "type": "message_delta",
-            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
-            "usage": {"output_tokens": 1},
-        }
+        message_delta = RawMessageDeltaEvent.model_construct(
+            type="message_delta",
+            delta={"stop_reason": "end_turn", "stop_sequence": None},
+            usage={"output_tokens": 1},
+        )
 
-        message_stop: AnthropicMessageStopEvent = {"type": "message_stop"}
-
-        ping: AnthropicPingEvent = {"type": "ping"}
+        message_stop = RawMessageStopEvent.model_construct(type="message_stop")
 
         assert await policy.on_stream_event(message_start, ctx) is message_start
         assert await policy.on_stream_event(content_block_start, ctx) is content_block_start
@@ -253,4 +247,3 @@ class TestAnthropicNoOpPolicyStreamEvent:
         assert await policy.on_stream_event(content_block_stop, ctx) is content_block_stop
         assert await policy.on_stream_event(message_delta, ctx) is message_delta
         assert await policy.on_stream_event(message_stop, ctx) is message_stop
-        assert await policy.on_stream_event(ping, ctx) is ping

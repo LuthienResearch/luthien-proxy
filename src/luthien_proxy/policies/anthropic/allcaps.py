@@ -7,31 +7,20 @@ other content types (tool_use, thinking, etc.) unchanged.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
-from luthien_proxy.llm.types.anthropic import (
-    AnthropicContentBlockDeltaEvent,
-    AnthropicTextBlock,
-    AnthropicTextDelta,
+from anthropic.types import (
+    RawContentBlockDeltaEvent,
+    TextDelta,
 )
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
         AnthropicRequest,
         AnthropicResponse,
-        AnthropicStreamingEvent,
     )
+    from luthien_proxy.policy_core.anthropic_protocol import AnthropicStreamEvent
     from luthien_proxy.policy_core.policy_context import PolicyContext
-
-
-def _is_text_block(block: Any) -> bool:
-    """Check if a content block is a text block."""
-    return isinstance(block, dict) and block.get("type") == "text"
-
-
-def _is_text_delta(delta: Any) -> bool:
-    """Check if a delta is a text delta."""
-    return isinstance(delta, dict) and delta.get("type") == "text_delta"
 
 
 class AnthropicAllCapsPolicy:
@@ -59,27 +48,26 @@ class AnthropicAllCapsPolicy:
         Tool use, thinking, and other block types remain unchanged.
         """
         for block in response.get("content", []):
-            if _is_text_block(block):
-                text_block = cast(AnthropicTextBlock, block)
-                text_block["text"] = text_block["text"].upper()
+            # Narrow type to text block by checking type field
+            if isinstance(block, dict) and block.get("type") == "text" and "text" in block:
+                text = block.get("text")
+                if isinstance(text, str):
+                    block["text"] = text.upper()
         return response
 
     async def on_stream_event(
-        self, event: "AnthropicStreamingEvent", context: "PolicyContext"
-    ) -> "AnthropicStreamingEvent | None":
+        self, event: "AnthropicStreamEvent", context: "PolicyContext"
+    ) -> "AnthropicStreamEvent | None":
         """Transform text_delta events to uppercase.
 
         For content_block_delta events with delta.type == "text_delta",
         converts the text to uppercase. All other events pass through unchanged.
         """
-        if not isinstance(event, dict) or event.get("type") != "content_block_delta":
+        if not isinstance(event, RawContentBlockDeltaEvent):
             return event
 
-        delta_event = cast(AnthropicContentBlockDeltaEvent, event)
-        delta = delta_event.get("delta")
-        if delta is not None and _is_text_delta(delta):
-            text_delta = cast(AnthropicTextDelta, delta)
-            text_delta["text"] = text_delta["text"].upper()
+        if isinstance(event.delta, TextDelta):
+            event.delta.text = event.delta.text.upper()
 
         return event
 

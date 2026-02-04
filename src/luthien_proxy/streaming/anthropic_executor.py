@@ -11,16 +11,12 @@ the client.
 
 import logging
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
 
+from anthropic.lib.streaming import MessageStreamEvent
 from opentelemetry import trace
 
-from luthien_proxy.llm.types.anthropic import AnthropicStreamingEvent
 from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
 from luthien_proxy.policy_core.policy_context import PolicyContext
-
-if TYPE_CHECKING:
-    from anthropic.lib.streaming import MessageStreamEvent
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -42,10 +38,10 @@ class AnthropicStreamExecutor:
 
     async def process(
         self,
-        stream: AsyncIterator["MessageStreamEvent"],
+        stream: AsyncIterator[MessageStreamEvent],
         policy: AnthropicPolicyProtocol,
         context: PolicyContext,
-    ) -> AsyncIterator[AnthropicStreamingEvent]:
+    ) -> AsyncIterator[MessageStreamEvent]:
         """Process streaming events through the policy.
 
         Args:
@@ -64,43 +60,22 @@ class AnthropicStreamExecutor:
 
             async for sdk_event in stream:
                 event_count += 1
-                event = self._convert_sdk_event(sdk_event)
 
                 try:
-                    result = await policy.on_stream_event(event, context)
+                    result = await policy.on_stream_event(sdk_event, context)
                     if result is not None:
                         yielded_count += 1
                         yield result
                 except Exception:
                     logger.warning(
                         "Error in policy on_stream_event for event type %s",
-                        event.get("type"),
+                        getattr(sdk_event, "type", "unknown"),
                         exc_info=True,
                     )
                     # Skip the event on error but continue processing
 
             span.set_attribute("streaming.event_count", event_count)
             span.set_attribute("streaming.yielded_count", yielded_count)
-
-    def _convert_sdk_event(self, sdk_event: "MessageStreamEvent") -> AnthropicStreamingEvent:
-        """Convert an Anthropic SDK event to our TypedDict format.
-
-        The SDK returns Pydantic models; we convert to plain dicts for
-        consistency with our type system and to allow policies to easily
-        modify events.
-
-        Args:
-            sdk_event: Event from the Anthropic SDK (Pydantic model)
-
-        Returns:
-            Event as a TypedDict-compatible dict
-        """
-        # SDK events have a model_dump() method for conversion
-        if hasattr(sdk_event, "model_dump"):
-            return sdk_event.model_dump()  # type: ignore[return-value]
-
-        # For testing with plain dicts, just return as-is
-        return sdk_event  # type: ignore[return-value]
 
 
 __all__ = ["AnthropicStreamExecutor"]

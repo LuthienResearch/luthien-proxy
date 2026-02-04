@@ -10,19 +10,24 @@ Verifies that policies can implement the Anthropic-native protocol for:
 from typing import Any, cast
 
 import pytest
+from anthropic.types import (
+    Message,
+    MessageDeltaUsage,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    RawMessageStartEvent,
+    RawMessageStopEvent,
+    TextBlock,
+    TextDelta,
+    Usage,
+)
+from anthropic.types.raw_message_delta_event import Delta
 
 from luthien_proxy.llm.types.anthropic import (
-    AnthropicContentBlockDeltaEvent,
-    AnthropicContentBlockStartEvent,
-    AnthropicContentBlockStopEvent,
-    AnthropicMessageDeltaEvent,
-    AnthropicMessageStartEvent,
-    AnthropicMessageStopEvent,
     AnthropicRequest,
     AnthropicResponse,
-    AnthropicStreamingEvent,
-    AnthropicTextBlock,
-    AnthropicTextDelta,
 )
 from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
 from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -45,9 +50,7 @@ class TestAnthropicPolicyProtocolNonStreaming:
             async def on_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
                 return response
 
-            async def on_stream_event(
-                self, event: AnthropicStreamingEvent, context: PolicyContext
-            ) -> AnthropicStreamingEvent | None:
+            async def on_stream_event(self, event, context: PolicyContext):
                 return event
 
         policy = MockAnthropicPolicy()
@@ -80,9 +83,7 @@ class TestAnthropicPolicyProtocolNonStreaming:
             async def on_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
                 return response
 
-            async def on_stream_event(
-                self, event: AnthropicStreamingEvent, context: PolicyContext
-            ) -> AnthropicStreamingEvent | None:
+            async def on_stream_event(self, event, context: PolicyContext):
                 return event
 
         policy = RequestModifyingPolicy()
@@ -120,26 +121,23 @@ class TestAnthropicPolicyProtocolNonStreaming:
                 modified["content"] = content
                 return cast(AnthropicResponse, modified)
 
-            async def on_stream_event(
-                self, event: AnthropicStreamingEvent, context: PolicyContext
-            ) -> AnthropicStreamingEvent | None:
+            async def on_stream_event(self, event, context: PolicyContext):
                 return event
 
         policy = ResponseModifyingPolicy()
         ctx = PolicyContext.for_testing()
-        text_block: AnthropicTextBlock = {"type": "text", "text": "hello world"}
         original_response: AnthropicResponse = {
             "id": "msg_123",
             "type": "message",
             "role": "assistant",
-            "content": [text_block],
+            "content": [{"type": "text", "text": "hello world"}],
             "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
 
         modified = await policy.on_response(original_response, ctx)
-        first_block = cast(AnthropicTextBlock, modified["content"][0])
+        first_block = cast(dict[str, Any], modified["content"][0])
         assert first_block["text"] == "HELLO WORLD"
 
 
@@ -147,66 +145,65 @@ class TestAnthropicStreamingEvents:
     """Tests for Anthropic streaming event types."""
 
     def test_message_start_structure(self):
-        """AnthropicMessageStartEvent event has correct structure."""
-        event: AnthropicMessageStartEvent = {
-            "type": "message_start",
-            "message": {
-                "id": "msg_123",
-                "type": "message",
-                "role": "assistant",
-                "content": [],
-                "model": "claude-sonnet-4-20250514",
-                "stop_reason": None,
-                "usage": {"input_tokens": 10, "output_tokens": 0},
-            },
-        }
-        assert event["type"] == "message_start"
-        assert event["message"]["id"] == "msg_123"
+        """RawMessageStartEvent has correct structure."""
+        event = RawMessageStartEvent(
+            type="message_start",
+            message=Message(
+                id="msg_123",
+                type="message",
+                role="assistant",
+                content=[],
+                model="claude-sonnet-4-20250514",
+                stop_reason=None,
+                usage=Usage(input_tokens=10, output_tokens=0),
+            ),
+        )
+        assert event.type == "message_start"
+        assert event.message.id == "msg_123"
 
     def test_content_block_start_text(self):
-        """AnthropicContentBlockStartEvent for text block."""
-        event: AnthropicContentBlockStartEvent = {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {"type": "text", "text": ""},
-        }
-        assert event["type"] == "content_block_start"
-        assert event["index"] == 0
-        assert event["content_block"]["type"] == "text"
+        """RawContentBlockStartEvent for text block."""
+        event = RawContentBlockStartEvent(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock(type="text", text=""),
+        )
+        assert event.type == "content_block_start"
+        assert event.index == 0
+        assert event.content_block.type == "text"
 
     def test_content_block_delta_text(self):
-        """AnthropicContentBlockDeltaEvent with text delta."""
-        text_delta: AnthropicTextDelta = {"type": "text_delta", "text": "Hello"}
-        event: AnthropicContentBlockDeltaEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": text_delta,
-        }
-        assert event["type"] == "content_block_delta"
-        assert event["delta"]["type"] == "text_delta"
-        delta = cast(AnthropicTextDelta, event["delta"])
-        assert delta["text"] == "Hello"
+        """RawContentBlockDeltaEvent with text delta."""
+        text_delta = TextDelta(type="text_delta", text="Hello")
+        event = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=text_delta,
+        )
+        assert event.type == "content_block_delta"
+        assert event.delta.type == "text_delta"
+        assert event.delta.text == "Hello"
 
     def test_content_block_stop(self):
-        """AnthropicContentBlockStopEvent event."""
-        event: AnthropicContentBlockStopEvent = {"type": "content_block_stop", "index": 0}
-        assert event["type"] == "content_block_stop"
-        assert event["index"] == 0
+        """RawContentBlockStopEvent event."""
+        event = RawContentBlockStopEvent(type="content_block_stop", index=0)
+        assert event.type == "content_block_stop"
+        assert event.index == 0
 
     def test_message_delta(self):
-        """AnthropicMessageDeltaEvent with stop reason."""
-        event: AnthropicMessageDeltaEvent = {
-            "type": "message_delta",
-            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
-            "usage": {"output_tokens": 15},
-        }
-        assert event["type"] == "message_delta"
-        assert event["delta"].get("stop_reason") == "end_turn"
+        """RawMessageDeltaEvent with stop reason."""
+        event = RawMessageDeltaEvent(
+            type="message_delta",
+            delta=Delta(stop_reason="end_turn", stop_sequence=None),
+            usage=MessageDeltaUsage(output_tokens=15),
+        )
+        assert event.type == "message_delta"
+        assert event.delta.stop_reason == "end_turn"
 
     def test_message_stop(self):
-        """AnthropicMessageStopEvent event."""
-        event: AnthropicMessageStopEvent = {"type": "message_stop"}
-        assert event["type"] == "message_stop"
+        """RawMessageStopEvent event."""
+        event = RawMessageStopEvent(type="message_stop")
+        assert event.type == "message_stop"
 
 
 class TestAnthropicPolicyProtocolStreaming:
@@ -227,20 +224,18 @@ class TestAnthropicPolicyProtocolStreaming:
             async def on_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
                 return response
 
-            async def on_stream_event(
-                self, event: AnthropicStreamingEvent, context: PolicyContext
-            ) -> AnthropicStreamingEvent | None:
+            async def on_stream_event(self, event, context: PolicyContext):
                 return event
 
         policy = PassthroughPolicy()
         ctx = PolicyContext.for_testing()
 
-        text_delta: AnthropicTextDelta = {"type": "text_delta", "text": "Hello"}
-        event: AnthropicContentBlockDeltaEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": text_delta,
-        }
+        text_delta = TextDelta(type="text_delta", text="Hello")
+        event = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=text_delta,
+        )
 
         result = await policy.on_stream_event(event, ctx)
         assert result == event
@@ -260,34 +255,29 @@ class TestAnthropicPolicyProtocolStreaming:
             async def on_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
                 return response
 
-            async def on_stream_event(
-                self, event: AnthropicStreamingEvent, context: PolicyContext
-            ) -> AnthropicStreamingEvent | None:
+            async def on_stream_event(self, event, context: PolicyContext):
                 # Filter out text that contains "secret"
-                if event.get("type") == "content_block_delta":
-                    event_dict = cast(dict[str, Any], event)
-                    delta = event_dict.get("delta", {})
-                    if delta.get("type") == "text_delta":
-                        text = delta.get("text", "")
-                        if "secret" in text.lower():
+                if isinstance(event, RawContentBlockDeltaEvent):
+                    if isinstance(event.delta, TextDelta):
+                        if "secret" in event.delta.text.lower():
                             return None
                 return event
 
         policy = FilteringPolicy()
         ctx = PolicyContext.for_testing()
 
-        normal_delta: AnthropicTextDelta = {"type": "text_delta", "text": "Hello"}
-        normal_event: AnthropicContentBlockDeltaEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": normal_delta,
-        }
-        secret_delta: AnthropicTextDelta = {"type": "text_delta", "text": "This is secret"}
-        secret_event: AnthropicContentBlockDeltaEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": secret_delta,
-        }
+        normal_delta = TextDelta(type="text_delta", text="Hello")
+        normal_event = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=normal_delta,
+        )
+        secret_delta = TextDelta(type="text_delta", text="This is secret")
+        secret_event = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=secret_delta,
+        )
 
         assert await policy.on_stream_event(normal_event, ctx) == normal_event
         assert await policy.on_stream_event(secret_event, ctx) is None
@@ -307,42 +297,37 @@ class TestAnthropicPolicyProtocolStreaming:
             async def on_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
                 return response
 
-            async def on_stream_event(
-                self, event: AnthropicStreamingEvent, context: PolicyContext
-            ) -> AnthropicStreamingEvent | None:
+            async def on_stream_event(self, event, context: PolicyContext):
                 # Uppercase all text deltas
-                if event.get("type") == "content_block_delta":
-                    event_dict = cast(AnthropicContentBlockDeltaEvent, event)
-                    delta = event_dict["delta"]
-                    if delta.get("type") == "text_delta":
-                        text_delta = cast(AnthropicTextDelta, delta)
-                        new_delta: AnthropicTextDelta = {
-                            "type": "text_delta",
-                            "text": text_delta["text"].upper(),
-                        }
-                        result: AnthropicContentBlockDeltaEvent = {
-                            "type": "content_block_delta",
-                            "index": event_dict["index"],
-                            "delta": new_delta,
-                        }
+                if isinstance(event, RawContentBlockDeltaEvent):
+                    if isinstance(event.delta, TextDelta):
+                        new_delta = TextDelta(
+                            type="text_delta",
+                            text=event.delta.text.upper(),
+                        )
+                        result = RawContentBlockDeltaEvent(
+                            type="content_block_delta",
+                            index=event.index,
+                            delta=new_delta,
+                        )
                         return result
                 return event
 
         policy = TransformingPolicy()
         ctx = PolicyContext.for_testing()
 
-        text_delta: AnthropicTextDelta = {"type": "text_delta", "text": "hello"}
-        event: AnthropicContentBlockDeltaEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": text_delta,
-        }
+        text_delta = TextDelta(type="text_delta", text="hello")
+        event = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=text_delta,
+        )
 
         result = await policy.on_stream_event(event, ctx)
         assert result is not None
-        result_delta = cast(AnthropicContentBlockDeltaEvent, result)
-        delta = cast(AnthropicTextDelta, result_delta["delta"])
-        assert delta["text"] == "HELLO"
+        assert isinstance(result, RawContentBlockDeltaEvent)
+        assert isinstance(result.delta, TextDelta)
+        assert result.delta.text == "HELLO"
 
 
 class TestPolicyContextIntegration:
@@ -364,10 +349,8 @@ class TestPolicyContextIntegration:
             async def on_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
                 return response
 
-            async def on_stream_event(
-                self, event: AnthropicStreamingEvent, context: PolicyContext
-            ) -> AnthropicStreamingEvent | None:
-                if event.get("type") == "content_block_delta":
+            async def on_stream_event(self, event, context: PolicyContext):
+                if isinstance(event, RawContentBlockDeltaEvent):
                     context.scratchpad.setdefault("delta_count", 0)
                     context.scratchpad["delta_count"] += 1
                 return event
@@ -384,12 +367,12 @@ class TestPolicyContextIntegration:
         assert ctx.scratchpad["request_seen"] is True
 
         for i in range(3):
-            text_delta: AnthropicTextDelta = {"type": "text_delta", "text": f"chunk{i}"}
-            event: AnthropicContentBlockDeltaEvent = {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": text_delta,
-            }
+            text_delta = TextDelta(type="text_delta", text=f"chunk{i}")
+            event = RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=0,
+                delta=text_delta,
+            )
             await policy.on_stream_event(event, ctx)
 
         assert ctx.scratchpad["delta_count"] == 3

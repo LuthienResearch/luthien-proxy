@@ -9,14 +9,22 @@ This module defines AnthropicPolicyProtocol with hooks for:
 Policies implementing this protocol work with native Anthropic types,
 avoiding format conversion overhead and preserving Anthropic-specific features.
 
-For streaming event types, import directly from luthien_proxy.llm.types.anthropic.
+For streaming event types, uses Anthropic SDK types directly.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from luthien_proxy.llm.types.anthropic import AnthropicStreamingEvent
+from anthropic.lib.streaming import MessageStreamEvent
+from anthropic.types import (
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    RawMessageStartEvent,
+    RawMessageStopEvent,
+)
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
@@ -24,6 +32,15 @@ if TYPE_CHECKING:
         AnthropicResponse,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
+
+
+# =============================================================================
+# Anthropic Streaming Event Types
+# =============================================================================
+
+# Use the SDK's MessageStreamEvent which includes all streaming event types
+# (TextEvent, CitationEvent, ThinkingEvent, Raw* events, etc.)
+AnthropicStreamEvent = MessageStreamEvent
 
 
 # =============================================================================
@@ -77,8 +94,8 @@ class AnthropicPolicyProtocol(Protocol):
         ...
 
     async def on_stream_event(
-        self, event: AnthropicStreamingEvent, context: "PolicyContext"
-    ) -> AnthropicStreamingEvent | None:
+        self, event: AnthropicStreamEvent, context: "PolicyContext"
+    ) -> AnthropicStreamEvent | None:
         """Process a streaming event from Anthropic.
 
         This hook is called for each SSE event in a streaming response.
@@ -99,5 +116,12 @@ class AnthropicPolicyProtocol(Protocol):
 
 __all__ = [
     "AnthropicPolicyProtocol",
-    "AnthropicStreamingEvent",
+    "AnthropicStreamEvent",
+    # Re-export SDK types for convenience
+    "RawMessageStartEvent",
+    "RawContentBlockStartEvent",
+    "RawContentBlockDeltaEvent",
+    "RawContentBlockStopEvent",
+    "RawMessageDeltaEvent",
+    "RawMessageStopEvent",
 ]

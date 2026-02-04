@@ -13,22 +13,22 @@ Verifies that AnthropicAllCapsPolicy:
 from typing import cast
 
 import pytest
+from anthropic.types import (
+    InputJSONDelta,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    RawMessageStartEvent,
+    RawMessageStopEvent,
+    TextDelta,
+    ThinkingDelta,
+)
 
 from luthien_proxy.llm.types.anthropic import (
-    AnthropicContentBlockDeltaEvent,
-    AnthropicContentBlockStartEvent,
-    AnthropicContentBlockStopEvent,
-    AnthropicInputJSONDelta,
-    AnthropicMessageDeltaEvent,
-    AnthropicMessageStartEvent,
-    AnthropicMessageStopEvent,
-    AnthropicPingEvent,
     AnthropicRequest,
     AnthropicResponse,
-    AnthropicStreamingEvent,
     AnthropicTextBlock,
-    AnthropicTextDelta,
-    AnthropicThinkingDelta,
     AnthropicToolUseBlock,
 )
 from luthien_proxy.policies.anthropic.allcaps import AnthropicAllCapsPolicy
@@ -242,20 +242,20 @@ class TestAnthropicAllCapsPolicyStreamEvent:
         policy = AnthropicAllCapsPolicy()
         ctx = PolicyContext.for_testing()
 
-        text_delta: AnthropicTextDelta = {"type": "text_delta", "text": "hello world"}
-        event: AnthropicContentBlockDeltaEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": text_delta,
-        }
+        text_delta = TextDelta.model_construct(type="text_delta", text="hello world")
+        event = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=text_delta,
+        )
 
         result = await policy.on_stream_event(event, ctx)
 
         assert result is not None
-        result_delta = cast(AnthropicContentBlockDeltaEvent, result)
-        assert result_delta["type"] == "content_block_delta"
-        result_text_delta = cast(AnthropicTextDelta, result_delta["delta"])
-        assert result_text_delta["text"] == "HELLO WORLD"
+        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert result_event.type == "content_block_delta"
+        assert isinstance(result_event.delta, TextDelta)
+        assert result_event.delta.text == "HELLO WORLD"
 
     @pytest.mark.asyncio
     async def test_on_stream_event_leaves_thinking_delta_unchanged(self):
@@ -263,19 +263,19 @@ class TestAnthropicAllCapsPolicyStreamEvent:
         policy = AnthropicAllCapsPolicy()
         ctx = PolicyContext.for_testing()
 
-        thinking_delta: AnthropicThinkingDelta = {"type": "thinking_delta", "thinking": "Let me consider..."}
-        event: AnthropicContentBlockDeltaEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": thinking_delta,
-        }
+        thinking_delta = ThinkingDelta.model_construct(type="thinking_delta", thinking="Let me consider...")
+        event = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=thinking_delta,
+        )
 
         result = await policy.on_stream_event(event, ctx)
 
         assert result is not None
-        result_delta = cast(AnthropicContentBlockDeltaEvent, result)
-        result_thinking_delta = cast(AnthropicThinkingDelta, result_delta["delta"])
-        assert result_thinking_delta["thinking"] == "Let me consider..."
+        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert isinstance(result_event.delta, ThinkingDelta)
+        assert result_event.delta.thinking == "Let me consider..."
 
     @pytest.mark.asyncio
     async def test_on_stream_event_leaves_input_json_delta_unchanged(self):
@@ -283,19 +283,19 @@ class TestAnthropicAllCapsPolicyStreamEvent:
         policy = AnthropicAllCapsPolicy()
         ctx = PolicyContext.for_testing()
 
-        json_delta: AnthropicInputJSONDelta = {"type": "input_json_delta", "partial_json": '{"loc'}
-        event: AnthropicContentBlockDeltaEvent = {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": json_delta,
-        }
+        json_delta = InputJSONDelta.model_construct(type="input_json_delta", partial_json='{"loc')
+        event = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=json_delta,
+        )
 
         result = await policy.on_stream_event(event, ctx)
 
         assert result is not None
-        result_delta = cast(AnthropicContentBlockDeltaEvent, result)
-        result_json_delta = cast(AnthropicInputJSONDelta, result_delta["delta"])
-        assert result_json_delta["partial_json"] == '{"loc'
+        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert isinstance(result_event.delta, InputJSONDelta)
+        assert result_event.delta.partial_json == '{"loc'
 
     @pytest.mark.asyncio
     async def test_on_stream_event_passes_through_message_start(self):
@@ -303,9 +303,9 @@ class TestAnthropicAllCapsPolicyStreamEvent:
         policy = AnthropicAllCapsPolicy()
         ctx = PolicyContext.for_testing()
 
-        event: AnthropicMessageStartEvent = {
-            "type": "message_start",
-            "message": {
+        event = RawMessageStartEvent.model_construct(
+            type="message_start",
+            message={
                 "id": "msg_test",
                 "type": "message",
                 "role": "assistant",
@@ -314,7 +314,7 @@ class TestAnthropicAllCapsPolicyStreamEvent:
                 "stop_reason": None,
                 "usage": {"input_tokens": 5, "output_tokens": 0},
             },
-        }
+        )
 
         result = await policy.on_stream_event(event, ctx)
 
@@ -326,11 +326,11 @@ class TestAnthropicAllCapsPolicyStreamEvent:
         policy = AnthropicAllCapsPolicy()
         ctx = PolicyContext.for_testing()
 
-        event: AnthropicContentBlockStartEvent = {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {"type": "text", "text": ""},
-        }
+        event = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block={"type": "text", "text": ""},
+        )
 
         result = await policy.on_stream_event(event, ctx)
 
@@ -342,10 +342,10 @@ class TestAnthropicAllCapsPolicyStreamEvent:
         policy = AnthropicAllCapsPolicy()
         ctx = PolicyContext.for_testing()
 
-        event: AnthropicContentBlockStopEvent = {
-            "type": "content_block_stop",
-            "index": 0,
-        }
+        event = RawContentBlockStopEvent.model_construct(
+            type="content_block_stop",
+            index=0,
+        )
 
         result = await policy.on_stream_event(event, ctx)
 
@@ -357,11 +357,11 @@ class TestAnthropicAllCapsPolicyStreamEvent:
         policy = AnthropicAllCapsPolicy()
         ctx = PolicyContext.for_testing()
 
-        event: AnthropicMessageDeltaEvent = {
-            "type": "message_delta",
-            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
-            "usage": {"output_tokens": 10},
-        }
+        event = RawMessageDeltaEvent.model_construct(
+            type="message_delta",
+            delta={"stop_reason": "end_turn", "stop_sequence": None},
+            usage={"output_tokens": 10},
+        )
 
         result = await policy.on_stream_event(event, ctx)
 
@@ -373,19 +373,7 @@ class TestAnthropicAllCapsPolicyStreamEvent:
         policy = AnthropicAllCapsPolicy()
         ctx = PolicyContext.for_testing()
 
-        event: AnthropicMessageStopEvent = {"type": "message_stop"}
-
-        result = await policy.on_stream_event(event, ctx)
-
-        assert result is event
-
-    @pytest.mark.asyncio
-    async def test_on_stream_event_passes_through_ping(self):
-        """on_stream_event passes through ping events unchanged."""
-        policy = AnthropicAllCapsPolicy()
-        ctx = PolicyContext.for_testing()
-
-        event: AnthropicPingEvent = {"type": "ping"}
+        event = RawMessageStopEvent.model_construct(type="message_stop")
 
         result = await policy.on_stream_event(event, ctx)
 
@@ -397,10 +385,10 @@ class TestAnthropicAllCapsPolicyStreamEvent:
         policy = AnthropicAllCapsPolicy()
         ctx = PolicyContext.for_testing()
 
-        events: list[AnthropicStreamingEvent] = [
-            {
-                "type": "message_start",
-                "message": {
+        events: list = [
+            RawMessageStartEvent.model_construct(
+                type="message_start",
+                message={
                     "id": "msg_123",
                     "type": "message",
                     "role": "assistant",
@@ -409,30 +397,29 @@ class TestAnthropicAllCapsPolicyStreamEvent:
                     "stop_reason": None,
                     "usage": {"input_tokens": 10, "output_tokens": 0},
                 },
-            },
-            {
-                "type": "content_block_start",
-                "index": 0,
-                "content_block": {"type": "text", "text": ""},
-            },
-            {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "text_delta", "text": "Hi"},
-            },
-            {"type": "content_block_stop", "index": 0},
-            {
-                "type": "message_delta",
-                "delta": {"stop_reason": "end_turn", "stop_sequence": None},
-                "usage": {"output_tokens": 1},
-            },
-            {"type": "message_stop"},
-            {"type": "ping"},
+            ),
+            RawContentBlockStartEvent.model_construct(
+                type="content_block_start",
+                index=0,
+                content_block={"type": "text", "text": ""},
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="Hi"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+            RawMessageDeltaEvent.model_construct(
+                type="message_delta",
+                delta={"stop_reason": "end_turn", "stop_sequence": None},
+                usage={"output_tokens": 1},
+            ),
+            RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
         for event in events:
             result = await policy.on_stream_event(event, ctx)
-            assert result is not None, f"Event of type {event['type']} was filtered out"
+            assert result is not None, f"Event of type {event.type} was filtered out"
 
 
 __all__ = [
