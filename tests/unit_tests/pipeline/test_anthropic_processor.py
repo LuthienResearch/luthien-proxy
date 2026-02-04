@@ -3,12 +3,17 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from anthropic import APIConnectionError as AnthropicConnectionError
+from anthropic import APIStatusError as AnthropicStatusError
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
+from httpx import Request as HttpxRequest
+from httpx import Response as HttpxResponse
 
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.pipeline.anthropic_processor import (
+    _build_error_event,
     _format_sse_event,
     _handle_non_streaming,
     _handle_streaming,
@@ -597,3 +602,157 @@ class TestProcessAnthropicRequest:
 
         mock_span.set_attribute.assert_any_call("luthien.client_format", "anthropic_native")
         mock_span.set_attribute.assert_any_call("luthien.endpoint", "/v1/messages")
+
+
+class TestBuildErrorEvent:
+    """Tests for _build_error_event helper function."""
+
+    def test_builds_api_status_error_event(self):
+        """Test building error event from AnthropicStatusError."""
+        mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        mock_response = HttpxResponse(429, request=mock_request)
+        error = AnthropicStatusError(
+            message="Rate limit exceeded",
+            response=mock_response,
+            body=None,
+        )
+
+        event = _build_error_event(error, "test-call-id")
+
+        assert event["type"] == "error"
+        assert event["error"]["type"] == "api_error"
+        assert "Rate limit exceeded" in event["error"]["message"]
+
+    def test_builds_connection_error_event(self):
+        """Test building error event from AnthropicConnectionError."""
+        mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        error = AnthropicConnectionError(request=mock_request)
+
+        event = _build_error_event(error, "test-call-id")
+
+        assert event["type"] == "error"
+        assert event["error"]["type"] == "api_connection_error"
+
+    def test_builds_generic_error_event(self):
+        """Test building error event from unknown exception type."""
+        error = RuntimeError("Something went wrong")
+
+        event = _build_error_event(error, "test-call-id")
+
+        assert event["type"] == "error"
+        assert event["error"]["type"] == "api_error"
+        assert "Something went wrong" in event["error"]["message"]
+
+
+class TestMidStreamErrorHandling:
+    """Tests for mid-stream error handling in streaming responses."""
+
+    @pytest.fixture
+    def mock_policy(self):
+        """Create a mock Anthropic policy."""
+        return AnthropicNoOpPolicy()
+
+    @pytest.fixture
+    def mock_policy_ctx(self):
+        """Create a mock PolicyContext."""
+        ctx = MagicMock()
+        ctx.response_summary = None
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_mid_stream_api_error_emits_error_event(self, mock_policy, mock_policy_ctx):
+        """Test that API errors mid-stream emit an error event instead of raising."""
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        mock_response = HttpxResponse(500, request=mock_request)
+        api_error = AnthropicStatusError(
+            message="Internal server error",
+            response=mock_response,
+            body=None,
+        )
+
+        async def failing_stream(req):
+            yield MagicMock(model_dump=lambda: {"type": "message_start", "message": {}})
+            yield MagicMock(model_dump=lambda: {"type": "content_block_start", "index": 0})
+            raise api_error
+
+        mock_client = MagicMock()
+        mock_client.stream = failing_stream
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            mock_root_span = MagicMock()
+
+            response = await _handle_streaming(
+                final_request=request,
+                policy=mock_policy,
+                policy_ctx=mock_policy_ctx,
+                anthropic_client=mock_client,
+                call_id="test-call-id",
+                root_span=mock_root_span,
+            )
+
+            # Collect all events from the stream
+            events = []
+            async for chunk in response.body_iterator:
+                events.append(chunk)
+
+        # Verify we got the initial events plus an error event
+        assert len(events) >= 3  # message_start, content_block_start, error
+        last_event = events[-1]
+        assert "event: error" in last_event
+        assert '"type": "api_error"' in last_event
+        assert "Internal server error" in last_event
+
+    @pytest.mark.asyncio
+    async def test_mid_stream_connection_error_emits_error_event(self, mock_policy, mock_policy_ctx):
+        """Test that connection errors mid-stream emit an error event."""
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        connection_error = AnthropicConnectionError(request=mock_request)
+
+        async def failing_stream(req):
+            yield MagicMock(model_dump=lambda: {"type": "message_start", "message": {}})
+            raise connection_error
+
+        mock_client = MagicMock()
+        mock_client.stream = failing_stream
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            mock_root_span = MagicMock()
+
+            response = await _handle_streaming(
+                final_request=request,
+                policy=mock_policy,
+                policy_ctx=mock_policy_ctx,
+                anthropic_client=mock_client,
+                call_id="test-call-id",
+                root_span=mock_root_span,
+            )
+
+            events = []
+            async for chunk in response.body_iterator:
+                events.append(chunk)
+
+        last_event = events[-1]
+        assert "event: error" in last_event
+        assert '"type": "api_connection_error"' in last_event

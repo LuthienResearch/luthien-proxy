@@ -268,7 +268,10 @@ async def _handle_streaming(
                         sse_line = _format_sse_event(event)
                         yield sse_line
                 except (AnthropicStatusError, AnthropicConnectionError) as e:
-                    _handle_anthropic_error(e, call_id)
+                    # Emit error event before the stream terminates so clients see the error
+                    # (headers are already sent, so HTTPException won't help)
+                    error_event = _build_error_event(e, call_id)
+                    yield _format_sse_event(error_event)
                 finally:
                     # Always record chunk count and summary, even on error
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
@@ -339,6 +342,41 @@ def _format_sse_event(event: AnthropicStreamingEvent) -> str:
     event_type = event.get("type", "unknown")
     json_data = json.dumps(event)
     return f"event: {event_type}\ndata: {json_data}\n\n"
+
+
+def _build_error_event(e: Exception, call_id: str) -> AnthropicStreamingEvent:
+    """Build an Anthropic-format error event for mid-stream errors.
+
+    When errors occur after headers are sent, we can't return an HTTP error.
+    Instead, emit an error event in the stream so clients can detect the failure.
+
+    Args:
+        e: Exception that occurred
+        call_id: Transaction ID for logging
+
+    Returns:
+        AnthropicStreamingEvent with error details
+    """
+    if isinstance(e, AnthropicStatusError):
+        error_type = "api_error"
+        message = str(e.message)
+        logger.warning(f"[{call_id}] Mid-stream Anthropic API error: {e.status_code} {message}")
+    elif isinstance(e, AnthropicConnectionError):
+        error_type = "api_connection_error"
+        message = str(e)
+        logger.warning(f"[{call_id}] Mid-stream Anthropic connection error: {message}")
+    else:
+        error_type = "api_error"
+        message = str(e)
+        logger.warning(f"[{call_id}] Mid-stream error: {message}")
+
+    return {
+        "type": "error",
+        "error": {
+            "type": error_type,
+            "message": message,
+        },
+    }  # type: ignore[return-value]
 
 
 def _handle_anthropic_error(e: Exception, call_id: str) -> None:
