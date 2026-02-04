@@ -4,7 +4,6 @@
 
 - Core goal: implement AI Control for LLMs with integrated gateway architecture.
 - Architecture: FastAPI gateway with integrated control plane and LiteLLM, using event-driven policies.
-- Configure upstream LLM models in `config/local_llm_config.yaml`.
 - Select a policy via `POLICY_CONFIG` that points to a YAML file (defaults to `config/policy_config.yaml`).
   - Example: `export POLICY_CONFIG=./config/policy_config.yaml`
 
@@ -94,9 +93,9 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `ui/`: Real-time monitoring interfaces
   - `debug/`: Debug and inspection endpoints
   - `utils/`: Shared utilities (db, redis, validation)
-- `config/`: `policy_config.yaml`, `local_llm_config.yaml`
+- `config/`: `policy_config.yaml`
 - `scripts/`: developer helpers (`quick_start.sh`, `test_gateway.sh`)
-- `docker/` + `docker-compose.yaml`: local stack (db, redis, gateway, local-llm)
+- `docker/` + `docker-compose.yaml`: local stack (db, redis, gateway)
 - `migrations/`: SQL database migrations
 - `tests/`: unit/integration tests
 
