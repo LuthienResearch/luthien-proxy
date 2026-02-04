@@ -2,6 +2,18 @@
 
 ## High Priority
 
+### Failing E2E Tests (2026-02-03)
+
+- [ ] **test_anthropic_metadata_parameter_accepted** - Anthropic API rejects custom metadata fields (`metadata.custom_field: Extra inputs are not permitted`). Either test expectation is wrong or API behavior changed.
+- [ ] **test_anthropic_client_to_openai_backend_with_extra_params** - Same metadata rejection issue as above.
+- [ ] **test_anthropic_client_openai_backend_preserves_anthropic_format** - Model didn't use tools when expected. May be flaky or model behavior change.
+- [ ] **test_anthropic_buffered_tool_call_emits_message_delta** - Related to above tool use expectations.
+- [ ] **test_claude_code_with_simple_noop_policy** - Needs investigation.
+- [ ] **test_claude_code_with_tool_judge_low_threshold** - Model responded without using tools, so judge policy never triggered. Test may need different prompt.
+- [ ] **test_anthropic_client_image_passthrough[gpt-4o-mini]** - Image handling test failure.
+- [ ] **test_anthropic_client_semantic_image[gpt-4o-mini]** - Image handling test failure.
+- [ ] **test_gateway_matrix::test_anthropic_client_openai_backend_non_streaming** - Cross-format test failure.
+
 ### Bugs
 
 - [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Reference: Dogfooding session 2025-12-16.
