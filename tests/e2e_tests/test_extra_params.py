@@ -464,10 +464,9 @@ async def test_openai_streaming_with_extra_params(http_client, gateway_healthy):
 
 # === Cross-format Extra Parameters ===
 
-# NOTE: test_anthropic_client_to_openai_backend_with_extra_params removed.
-# The split-APIs architecture (PR #169) uses endpoint-based routing, not model-based.
-# Sending an OpenAI model to /v1/messages always routes to Anthropic backend.
-# Cross-format routing is Phase 2 work. See dev/NOTES.md (2026-02-03).
+# NOTE: Cross-format test removed - PR #169 uses endpoint-based routing.
+# /v1/messages always uses Anthropic backend regardless of model name.
+# Model-based routing is Phase 2 work.
 
 
 @pytest.mark.e2e

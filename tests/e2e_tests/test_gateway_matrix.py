@@ -247,7 +247,6 @@ async def test_anthropic_client_openai_backend_streaming(http_client):
         assert len(event_lines) > 0, "Should receive Anthropic SSE events"
 
 
-# NOTE: Cross-format test (Anthropic client → OpenAI backend) removed.
-# The split-APIs architecture (PR #169) uses endpoint-based routing, not model-based.
-# Sending an OpenAI model to /v1/messages always routes to Anthropic backend.
-# Cross-format routing is Phase 2 work. See dev/NOTES.md (2026-02-03).
+# NOTE: Cross-format test removed - PR #169 uses endpoint-based routing.
+# /v1/messages always uses Anthropic backend regardless of model name.
+# Model-based routing is Phase 2 work.
