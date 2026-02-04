@@ -11,23 +11,21 @@ Verifies that AnthropicNoOpPolicy:
 import pytest
 
 from luthien_proxy.llm.types.anthropic import (
+    AnthropicContentBlockDeltaEvent,
+    AnthropicContentBlockStartEvent,
+    AnthropicContentBlockStopEvent,
+    AnthropicMessageDeltaEvent,
+    AnthropicMessageStartEvent,
+    AnthropicMessageStopEvent,
+    AnthropicPingEvent,
     AnthropicRequest,
     AnthropicResponse,
+    AnthropicStreamingEvent,
     AnthropicTextBlock,
+    AnthropicTextDelta,
 )
 from luthien_proxy.policies.anthropic.noop import AnthropicNoOpPolicy
-from luthien_proxy.policy_core.anthropic_protocol import (
-    AnthropicPolicyProtocol,
-    AnthropicStreamEvent,
-    ContentBlockDelta,
-    ContentBlockStart,
-    ContentBlockStop,
-    MessageDelta,
-    MessageStart,
-    MessageStop,
-    Ping,
-    TextDelta,
-)
+from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
@@ -148,8 +146,8 @@ class TestAnthropicNoOpPolicyStreamEvent:
         policy = AnthropicNoOpPolicy()
         ctx = PolicyContext.for_testing()
 
-        text_delta: TextDelta = {"type": "text_delta", "text": "Hello"}
-        event: ContentBlockDelta = {
+        text_delta: AnthropicTextDelta = {"type": "text_delta", "text": "Hello"}
+        event: AnthropicContentBlockDeltaEvent = {
             "type": "content_block_delta",
             "index": 0,
             "delta": text_delta,
@@ -165,7 +163,7 @@ class TestAnthropicNoOpPolicyStreamEvent:
         policy = AnthropicNoOpPolicy()
         ctx = PolicyContext.for_testing()
 
-        events: list[AnthropicStreamEvent] = [
+        events: list[AnthropicStreamingEvent] = [
             {
                 "type": "message_start",
                 "message": {
@@ -209,7 +207,7 @@ class TestAnthropicNoOpPolicyStreamEvent:
         policy = AnthropicNoOpPolicy()
         ctx = PolicyContext.for_testing()
 
-        message_start: MessageStart = {
+        message_start: AnthropicMessageStartEvent = {
             "type": "message_start",
             "message": {
                 "id": "msg_test",
@@ -222,32 +220,32 @@ class TestAnthropicNoOpPolicyStreamEvent:
             },
         }
 
-        content_block_start: ContentBlockStart = {
+        content_block_start: AnthropicContentBlockStartEvent = {
             "type": "content_block_start",
             "index": 0,
             "content_block": {"type": "text", "text": ""},
         }
 
-        content_block_delta: ContentBlockDelta = {
+        content_block_delta: AnthropicContentBlockDeltaEvent = {
             "type": "content_block_delta",
             "index": 0,
             "delta": {"type": "text_delta", "text": "test"},
         }
 
-        content_block_stop: ContentBlockStop = {
+        content_block_stop: AnthropicContentBlockStopEvent = {
             "type": "content_block_stop",
             "index": 0,
         }
 
-        message_delta: MessageDelta = {
+        message_delta: AnthropicMessageDeltaEvent = {
             "type": "message_delta",
             "delta": {"stop_reason": "end_turn", "stop_sequence": None},
             "usage": {"output_tokens": 1},
         }
 
-        message_stop: MessageStop = {"type": "message_stop"}
+        message_stop: AnthropicMessageStopEvent = {"type": "message_stop"}
 
-        ping: Ping = {"type": "ping"}
+        ping: AnthropicPingEvent = {"type": "ping"}
 
         assert await policy.on_stream_event(message_start, ctx) is message_start
         assert await policy.on_stream_event(content_block_start, ctx) is content_block_start

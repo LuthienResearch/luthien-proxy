@@ -10,8 +10,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
-    from luthien_proxy.policy_core.anthropic_protocol import AnthropicStreamEvent
+    from luthien_proxy.llm.types.anthropic import (
+        AnthropicRequest,
+        AnthropicResponse,
+        AnthropicStreamingEvent,
+    )
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
@@ -38,8 +41,8 @@ class AnthropicNoOpPolicy:
         return response
 
     async def on_stream_event(
-        self, event: "AnthropicStreamEvent", context: "PolicyContext"
-    ) -> "AnthropicStreamEvent | None":
+        self, event: "AnthropicStreamingEvent", context: "PolicyContext"
+    ) -> "AnthropicStreamingEvent | None":
         """Pass through stream event unchanged."""
         return event
 

@@ -9,38 +9,14 @@ This module defines AnthropicPolicyProtocol with hooks for:
 Policies implementing this protocol work with native Anthropic types,
 avoiding format conversion overhead and preserving Anthropic-specific features.
 
-Streaming event types are imported from luthien_proxy.llm.types.anthropic and
-re-exported here with shorter aliases for backward compatibility.
+For streaming event types, import directly from luthien_proxy.llm.types.anthropic.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-# Import canonical streaming event types with backward-compatible short aliases
-# ruff: noqa: E501
-from luthien_proxy.llm.types.anthropic import AnthropicContentBlockDeltaEvent as ContentBlockDelta
-from luthien_proxy.llm.types.anthropic import AnthropicContentBlockStartEvent as ContentBlockStart
-from luthien_proxy.llm.types.anthropic import AnthropicContentBlockStopEvent as ContentBlockStop
-from luthien_proxy.llm.types.anthropic import AnthropicErrorEvent as ErrorEvent
-from luthien_proxy.llm.types.anthropic import AnthropicInputJSONDelta as InputJsonDelta
-from luthien_proxy.llm.types.anthropic import AnthropicMessageDelta as MessageDeltaDelta
-from luthien_proxy.llm.types.anthropic import AnthropicMessageDeltaEvent as MessageDelta
-from luthien_proxy.llm.types.anthropic import AnthropicMessageDeltaUsage as MessageDeltaUsage
-from luthien_proxy.llm.types.anthropic import AnthropicMessageStartEvent as MessageStart
-from luthien_proxy.llm.types.anthropic import AnthropicMessageStopEvent as MessageStop
-from luthien_proxy.llm.types.anthropic import AnthropicPingEvent as Ping
-from luthien_proxy.llm.types.anthropic import AnthropicSignatureDelta as SignatureDelta
-from luthien_proxy.llm.types.anthropic import AnthropicStreamingContentBlock as ContentBlockStartBlock
-from luthien_proxy.llm.types.anthropic import AnthropicStreamingDelta as ContentBlockDeltaType
-from luthien_proxy.llm.types.anthropic import AnthropicStreamingEvent as AnthropicStreamEvent
-from luthien_proxy.llm.types.anthropic import AnthropicStreamingMessage as MessageStartMessage
-from luthien_proxy.llm.types.anthropic import AnthropicStreamingThinkingBlock as ThinkingBlockStart
-from luthien_proxy.llm.types.anthropic import AnthropicStreamingToolUseBlock as ToolUseBlockStart
-from luthien_proxy.llm.types.anthropic import AnthropicTextBlock as TextBlockStart
-from luthien_proxy.llm.types.anthropic import AnthropicTextDelta as TextDelta
-from luthien_proxy.llm.types.anthropic import AnthropicThinkingDelta as ThinkingDelta
-from luthien_proxy.llm.types.anthropic import AnthropicUsage as MessageStartUsage
+from luthien_proxy.llm.types.anthropic import AnthropicStreamingEvent
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
@@ -101,8 +77,8 @@ class AnthropicPolicyProtocol(Protocol):
         ...
 
     async def on_stream_event(
-        self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> AnthropicStreamEvent | None:
+        self, event: AnthropicStreamingEvent, context: "PolicyContext"
+    ) -> AnthropicStreamingEvent | None:
         """Process a streaming event from Anthropic.
 
         This hook is called for each SSE event in a streaming response.
@@ -122,29 +98,6 @@ class AnthropicPolicyProtocol(Protocol):
 
 
 __all__ = [
-    # Protocol
     "AnthropicPolicyProtocol",
-    # Stream events (backward-compatible short names)
-    "AnthropicStreamEvent",
-    "MessageStart",
-    "MessageStartMessage",
-    "MessageStartUsage",
-    "ContentBlockStart",
-    "ContentBlockStartBlock",
-    "TextBlockStart",
-    "ThinkingBlockStart",
-    "ToolUseBlockStart",
-    "ContentBlockDelta",
-    "ContentBlockDeltaType",
-    "TextDelta",
-    "ThinkingDelta",
-    "SignatureDelta",
-    "InputJsonDelta",
-    "ContentBlockStop",
-    "MessageDelta",
-    "MessageDeltaDelta",
-    "MessageDeltaUsage",
-    "MessageStop",
-    "Ping",
-    "ErrorEvent",
+    "AnthropicStreamingEvent",
 ]

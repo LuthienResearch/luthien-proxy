@@ -15,10 +15,8 @@ from typing import TYPE_CHECKING
 
 from opentelemetry import trace
 
-from luthien_proxy.policy_core.anthropic_protocol import (
-    AnthropicPolicyProtocol,
-    AnthropicStreamEvent,
-)
+from luthien_proxy.llm.types.anthropic import AnthropicStreamingEvent
+from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 if TYPE_CHECKING:
@@ -47,7 +45,7 @@ class AnthropicStreamExecutor:
         stream: AsyncIterator["MessageStreamEvent"],
         policy: AnthropicPolicyProtocol,
         context: PolicyContext,
-    ) -> AsyncIterator[AnthropicStreamEvent]:
+    ) -> AsyncIterator[AnthropicStreamingEvent]:
         """Process streaming events through the policy.
 
         Args:
@@ -84,7 +82,7 @@ class AnthropicStreamExecutor:
             span.set_attribute("streaming.event_count", event_count)
             span.set_attribute("streaming.yielded_count", yielded_count)
 
-    def _convert_sdk_event(self, sdk_event: "MessageStreamEvent") -> AnthropicStreamEvent:
+    def _convert_sdk_event(self, sdk_event: "MessageStreamEvent") -> AnthropicStreamingEvent:
         """Convert an Anthropic SDK event to our TypedDict format.
 
         The SDK returns Pydantic models; we convert to plain dicts for
