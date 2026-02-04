@@ -381,13 +381,6 @@ Policies can intercept at these points:
   - [decisions.md](context/decisions.md#streaming-pipeline-queue-based-architecture-2025-11-05) - Why this approach
   - [gotchas.md](context/gotchas.md#queue-shutdown-for-stream-termination-2025-01-20-updated-2025-10-20) - Queue patterns
 
-- **Implementation Details**:
-  - [success.md](success.md#2025-11-05-streaming-pipeline-refactor-complete) - Refactor accomplishments
-  - Event-driven policy guide (if exists) - How to write policies
-
 - **Observability**:
-  - [observability-v2.md](observability-v2.md) - Tracing and monitoring
+  - [observability.md](observability.md) - Tracing and monitoring
   - [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md) - Using Grafana
-
-- **Archive** (historical context):
-  - [archive/streaming-refactor-2025-11-05/](archive/streaming-refactor-2025-11-05/) - Completed objective and design docs

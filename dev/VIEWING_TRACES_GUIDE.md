@@ -5,7 +5,6 @@
 **Quick Guide:** See traces and logs from proxy activity in Grafana
 
 **Other observability docs:**
-- New to observability? Start with [OBSERVABILITY_DEMO.md](OBSERVABILITY_DEMO.md)
 - Understanding the system? Read [observability.md](observability.md)
 
 ---
