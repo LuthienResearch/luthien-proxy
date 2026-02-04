@@ -1,8 +1,7 @@
-"""Unified request processing pipeline.
+"""OpenAI-format request processing pipeline.
 
-This module provides a single entry point for processing LLM requests,
-regardless of client format (OpenAI or Anthropic). Format conversion
-happens only at ingress/egress boundaries.
+This module provides the entry point for processing OpenAI-format LLM requests.
+Anthropic format requests are handled by anthropic_processor.py.
 
 Span Hierarchy
 --------------
@@ -10,7 +9,6 @@ The pipeline creates a structured span hierarchy for observability:
 
     transaction_processing (root)
     ├── process_request
-    │   └── format_conversion event (if Anthropic)
     ├── policy_on_request
     │   └── policy.process_request
     ├── send_upstream
@@ -20,7 +18,6 @@ The pipeline creates a structured span hierarchy for observability:
     │   ├── streaming.client_formatter (streaming only)
     │   └── policy.process_response (non-streaming only)
     └── send_to_client
-        └── format_conversion event (if Anthropic, non-streaming)
 
 For streaming, process_response wraps the entire streaming pipeline,
 and send_to_client covers the SSE event generation to the client.
@@ -45,10 +42,6 @@ from pydantic import ValidationError
 
 from luthien_proxy.exceptions import BackendAPIError, map_litellm_error_type
 from luthien_proxy.llm.client import LLMClient
-from luthien_proxy.llm.llm_format_utils import (
-    anthropic_to_openai_request,
-    openai_to_anthropic_response,
-)
 from luthien_proxy.llm.types import Request as RequestMessage
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.transaction_recorder import (
@@ -56,16 +49,9 @@ from luthien_proxy.observability.transaction_recorder import (
 )
 from luthien_proxy.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.pipeline.client_format import ClientFormat
-from luthien_proxy.pipeline.session import (
-    extract_session_id_from_anthropic_body,
-    extract_session_id_from_headers,
-)
+from luthien_proxy.pipeline.session import extract_session_id_from_headers
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
-from luthien_proxy.streaming.client_formatter.anthropic import (
-    AnthropicClientFormatter,
-)
-from luthien_proxy.streaming.client_formatter.interface import ClientFormatter
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
 from luthien_proxy.types import RawHttpRequest
@@ -82,20 +68,17 @@ async def process_llm_request(
     llm_client: LLMClient,
     emitter: EventEmitterProtocol,
 ) -> FastAPIStreamingResponse | JSONResponse:
-    """Process an LLM request through the unified pipeline.
-
-    This function handles both OpenAI and Anthropic format requests,
-    converting at boundaries and using OpenAI format internally.
+    """Process an OpenAI-format LLM request through the pipeline.
 
     The processing pipeline is:
-    1. process_request: Ingest, convert if needed, apply policy
+    1. process_request: Ingest and validate request
     2. send_upstream: Send request to backend LLM
     3. process_response: Apply policy to response (streaming or full)
-    4. send_to_client: Convert if needed, return response
+    4. send_to_client: Return response
 
     Args:
         request: FastAPI request object
-        client_format: Format of the client request (OPENAI or ANTHROPIC)
+        client_format: Format of the client request (kept for compatibility)
         policy: Policy to apply to request/response
         llm_client: Client for calling backend LLM
         emitter: Event emitter for observability
@@ -201,19 +184,19 @@ async def _process_request(
     call_id: str,
     emitter: EventEmitterProtocol,
 ) -> tuple[RequestMessage, RawHttpRequest, str | None]:
-    """Process and validate incoming request.
+    """Process and validate incoming OpenAI-format request.
 
     Args:
         request: FastAPI request object
-        client_format: Client API format
+        client_format: Client API format (kept for compatibility)
         call_id: Transaction ID
         emitter: Event emitter
 
     Returns:
-        Tuple of (RequestMessage in OpenAI format, RawHttpRequest with original data, session_id)
+        Tuple of (RequestMessage, RawHttpRequest with original data, session_id)
 
     Raises:
-        HTTPException: On request size exceeded
+        HTTPException: On request size exceeded or invalid format
     """
     with tracer.start_as_current_span("process_request") as span:
         span.set_attribute("luthien.phase", "process_request")
@@ -237,32 +220,14 @@ async def _process_request(
         # Log incoming request
         emitter.record(call_id, "pipeline.client_request", {"payload": body})
 
-        # Extract session ID based on client format
-        if client_format == ClientFormat.ANTHROPIC:
-            session_id = extract_session_id_from_anthropic_body(body)
-            span.add_event("format_conversion", {"from": "anthropic", "to": "openai"})
-            emitter.record(
-                call_id,
-                "pipeline.format_conversion",
-                {"from_format": "anthropic", "to_format": "openai"},
-            )
-            try:
-                openai_body = anthropic_to_openai_request(body)
-                request_message = RequestMessage(**openai_body)
-            except (KeyError, TypeError, AttributeError, ValidationError) as e:
-                logger.error(f"[{call_id}] Failed to convert Anthropic request: {e}")
-                raise HTTPException(status_code=400, detail=f"Invalid Anthropic request format: {e}")
-            logger.info(f"[{call_id}] /v1/messages: model={request_message.model}, stream={request_message.stream}")
-        else:
-            session_id = extract_session_id_from_headers(headers)
-            try:
-                request_message = RequestMessage(**body)
-            except ValidationError as e:
-                logger.error(f"[{call_id}] Failed to parse OpenAI request: {e}")
-                raise HTTPException(status_code=400, detail=f"Invalid OpenAI request format: {e}")
-            logger.info(
-                f"[{call_id}] /v1/chat/completions: model={request_message.model}, stream={request_message.stream}"
-            )
+        # Extract session ID from headers
+        session_id = extract_session_id_from_headers(headers)
+        try:
+            request_message = RequestMessage(**body)
+        except ValidationError as e:
+            logger.error(f"[{call_id}] Failed to parse OpenAI request: {e}")
+            raise HTTPException(status_code=400, detail=f"Invalid OpenAI request format: {e}")
+        logger.info(f"[{call_id}] /v1/chat/completions: model={request_message.model}, stream={request_message.stream}")
 
         if session_id:
             span.set_attribute("luthien.session_id", session_id)
@@ -271,10 +236,8 @@ async def _process_request(
         return request_message, raw_http_request, session_id
 
 
-def _get_client_formatter(client_format: ClientFormat, model_name: str) -> ClientFormatter:
-    """Get the appropriate client formatter for the format."""
-    if client_format == ClientFormat.ANTHROPIC:
-        return AnthropicClientFormatter(model_name=model_name)
+def _get_client_formatter(client_format: ClientFormat, model_name: str) -> OpenAIClientFormatter:
+    """Get the OpenAI client formatter."""
     return OpenAIClientFormatter(model_name=model_name)
 
 
@@ -401,12 +364,7 @@ async def _handle_non_streaming(
     with tracer.start_as_current_span("send_to_client") as span:
         span.set_attribute("luthien.phase", "send_to_client")
 
-        # Convert back to Anthropic format if needed
-        if client_format == ClientFormat.ANTHROPIC:
-            span.add_event("format_conversion", {"from": "openai", "to": "anthropic"})
-            final_response = openai_to_anthropic_response(processed_response)
-        else:
-            final_response = processed_response.model_dump()
+        final_response = processed_response.model_dump()
 
         emitter.record(
             call_id, "pipeline.client_response", {"payload": final_response, "session_id": policy_ctx.session_id}
