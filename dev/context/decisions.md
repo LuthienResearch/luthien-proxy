@@ -47,8 +47,8 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 policy:
   class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
   config:
-    model: "ollama/gemma2:2b"
-    api_base: "http://local-llm:11434"
+    model: "your-model"
+    api_base: "http://your-llm-server:port"
 ```
 
 ## Conversation Storage (2025-10-24)

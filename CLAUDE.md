@@ -105,9 +105,9 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `ui/`: Activity monitoring and diff viewer interfaces
   - `llm/`: LiteLLM client wrapper and format converters
   - `utils/`: Shared utilities (db, redis, validation)
-- `config/`: `policy_config.yaml`, `local_llm_config.yaml`
+- `config/`: `policy_config.yaml`
 - `scripts/`: developer helpers (`quick_start.sh`, `test_gateway.sh`)
-- `docker/` + `docker-compose.yaml`: local stack (db, redis, gateway, local-llm)
+- `docker/` + `docker-compose.yaml`: local stack (db, redis, gateway)
 - `migrations/`: SQL database migrations
 - `tests/`: unit/integration tests
 

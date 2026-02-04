@@ -20,7 +20,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - **Env changes require recreate, not restart**: `docker compose restart gateway` updates the code, but does NOT reload `.env` changes - it reuses the existing container config. Use `docker compose up -d gateway` to recreate with updated env vars.
 - Check logs with `docker compose logs -f gateway` when debugging
 - Long-running compose or `uv` commands can hang the CLI; launch them via `scripts/run_bg_command.sh` so you can poll logs (`tail -f`) and terminate with the recorded PID if needed.
-- **Services**: gateway, local-llm, db, and redis
+- **Services**: gateway, db, and redis
 
 ## Observability Checks (2025-10-08, updated 2025-11-11)
 

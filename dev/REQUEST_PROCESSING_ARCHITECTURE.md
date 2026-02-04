@@ -49,7 +49,7 @@ Via `PolicyOrchestrator.process_request()`
 
 ### 4. LiteLLM forwards to backend
 
-- Request sent to configured LLM (OpenAI, Anthropic, local Ollama, etc.)
+- Request sent to configured LLM (OpenAI, Anthropic, etc.)
 - LiteLLM handles format conversion between providers
 - Backend returns complete response
 

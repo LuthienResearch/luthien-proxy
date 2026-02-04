@@ -2,6 +2,12 @@
 
 ## Unreleased | TBA
 
+- Remove local Ollama container and all related configuration
+  - Deleted docker/Dockerfile.local-llm, docker/local-llm-entrypoint.sh
+  - Deleted config/local_llm_config.yaml, config/archive/demo_judge.yaml
+  - Removed local-llm service and local_llm_models volume from docker-compose.yaml
+  - Updated documentation to remove Ollama references
+
 - Refactor policies to use platform-specific interfaces (split-apis)
   - Add `BasePolicy`, `OpenAIPolicyInterface`, `AnthropicPolicyInterface` ABCs
   - Unified policies implement both OpenAI and Anthropic interfaces
