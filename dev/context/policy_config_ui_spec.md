@@ -948,4 +948,35 @@ Structure:
 
 ---
 
+## Redesign: Single-Page Layout (PR #123, Dec 2025)
+
+The wizard UI was replaced with a single-page layout in PR #123 (Dec 29, 2025).
+
+### Problems with Wizard UI
+
+1. **Locked forward-only navigation** - Users couldn't go back or jump to a specific step
+2. **Forced flow** - Had to go through all steps even when user knew exactly what they wanted
+3. **Bespoke nav header** - Didn't match the simpler headers on Activity Monitor and Diff Viewer
+
+### New Single-Page Design
+
+- **Policy list on left** - All policies visible at once with active policy indicator
+- **Config panel on right** - Sticky panel for editing selected policy's configuration
+- **Current policy banner at top** - Shows what's currently active
+- **Collapsible test chat panel** - Test messages go through full proxy pipeline
+- **Auto-discovery** - Policies discovered from codebase, config schemas extracted from constructors
+- **No forced flow** - Users can select any policy and configure directly
+
+### Key Changes from Wizard
+
+| Aspect | Wizard (Nov 2025) | Single-Page (Dec 2025) |
+|--------|-------------------|------------------------|
+| Navigation | 1→2→3 steps, forward-only | Free-form, click any policy |
+| Policy list | 3 hardcoded policies | Auto-discovered from codebase |
+| Configuration | None | Form fields from config_schema |
+| Testing | Copy prompt to terminal | Live test chat in UI |
+| Layout | Vertical steps | Side-by-side list + panel |
+
+---
+
 **End of Specification**
