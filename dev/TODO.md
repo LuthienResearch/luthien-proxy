@@ -89,3 +89,4 @@
 - [ ] Load testing with multiple concurrent streams
 - [ ] Memory leak detection for long-running streams
 - [ ] Redis pub/sub performance testing under high event volume
+- [ ] Add policy config integration for Anthropic policies (hardcoded NoOp for now)
