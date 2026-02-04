@@ -1,0 +1,139 @@
+%%{init: {
+  "theme": "dark",
+  "themeVariables": {
+    "background": "#0f172a",
+    "mainBkg": "#0f172a",
+    "primaryColor": "#111827",
+    "primaryTextColor": "#f8fafc",
+    "primaryBorderColor": "#1e293b",
+    "secondaryColor": "#1f2937",
+    "secondaryTextColor": "#f8fafc",
+    "secondaryBorderColor": "#1e293b",
+    "tertiaryColor": "#1f2937",
+    "tertiaryTextColor": "#f8fafc",
+    "tertiaryBorderColor": "#1e293b",
+    "lineColor": "#f8fafc",
+    "textColor": "#f8fafc",
+    "edgeLabelBackground": "#1f2937",
+    "actorBorderColor": "#e2e8f0",
+    "actorBkg": "#0f172a",
+    "actorTextColor": "#f8fafc",
+    "actorLineColor": "#e2e8f0",
+    "labelBoxBorderColor": "#e2e8f0",
+    "labelBoxBackgroundColor": "#1f2937",
+    "labelTextColor": "#f8fafc",
+    "signalColor": "#f8fafc",
+    "signalTextColor": "#f8fafc",
+    "sequenceNumberColor": "#f8fafc",
+    "loopTextColor": "#f8fafc",
+    "noteBorderColor": "#334155",
+    "noteBkgColor": "#1e293b",
+    "noteTextColor": "#f8fafc",
+    "sectionBkgColor": "#111827",
+    "sectionBkgColor2": "#0f172a",
+    "altSectionBkgColor": "#0f172a",
+    "activationBorderColor": "#475569",
+    "activationBackgroundColor": "#0f172a"
+  }
+}}%%
+
+sequenceDiagram
+    participant Client
+    participant LiteLLM as LiteLLM Proxy<br/>(LuthienCallback)
+    participant SC as StreamConnection<br/>(proxy-side)
+    participant WS as WebSocket
+    participant CPE as Control Plane<br/>(streaming_routes.py)
+    participant Policy as Policy<br/>(generate_response_stream)
+    participant Upstream as Upstream LLM<br/>(OpenAI/Anthropic)
+
+    Note over Client,Upstream: Phase 1: Connection Initiation
+
+    Client->>LiteLLM: POST /chat/completions (stream=true)
+    LiteLLM->>Upstream: Start LLM request
+
+    Note over LiteLLM: async_post_call_streaming_iterator_hook()
+
+    LiteLLM->>SC: StreamConnection.create(stream_id, control_plane_url)
+    SC->>WS: websockets.connect(ws://control-plane/stream/{id})
+    WS-->>SC: Connection established
+
+    SC->>WS: send({"type": "START", "data": request_metadata})
+    WS->>CPE: WebSocket message
+
+    Note over CPE: policy_stream_endpoint()
+    CPE->>CPE: _ensure_start_message()
+    CPE->>Policy: create_stream_context(stream_id, request_data)
+
+    Note over LiteLLM,CPE: Phase 2: Concurrent Bidirectional Streaming
+
+    Note over LiteLLM: StreamOrchestrator.run()
+
+    par Forward Upstream (Background Task)
+        loop For each upstream chunk
+            Upstream-->>LiteLLM: ModelResponseStream chunk
+            Note over LiteLLM: _forward_upstream()
+            LiteLLM->>SC: send({"type": "CHUNK", "data": chunk.model_dump()})
+            SC->>WS: JSON.dumps() + websocket.send()
+            WS->>CPE: WebSocket message
+            Note over CPE: _incoming_stream_from_websocket()
+            CPE->>CPE: _interpret_stream_message()
+            CPE->>Policy: yield chunk to generate_response_stream()
+        end
+
+        Note over LiteLLM: Upstream exhausted
+        LiteLLM->>SC: send({"type": "END"})
+        SC->>WS: JSON message
+        WS->>CPE: END signal
+        CPE->>Policy: Stream iterator completes
+    and Poll Control Plane (Main Loop)
+        loop Until END or timeout
+            Note over LiteLLM: _poll_control_plane()
+
+            LiteLLM->>SC: receive(timeout=0.1)
+            SC->>WS: websocket.recv() with timeout
+
+            alt Control plane has chunk ready
+                Policy->>CPE: yield transformed_chunk
+                Note over CPE: _forward_policy_output()
+                CPE->>WS: send_json({"type": "CHUNK", "data": chunk})
+                WS->>SC: WebSocket message
+                SC->>LiteLLM: return parsed JSON dict
+
+                Note over LiteLLM: _normalize_chunk()
+                LiteLLM->>LiteLLM: ModelResponseStream.model_validate()
+                LiteLLM->>Client: yield chunk (to end user)
+
+                Note over LiteLLM: _register_activity() - reset timeout
+
+            else Policy still processing (keepalive)
+                CPE->>WS: send_json({"type": "KEEPALIVE"})
+                WS->>SC: WebSocket message
+                SC->>LiteLLM: return {"type": "KEEPALIVE"}
+                Note over LiteLLM: _register_activity() - reset timeout<br/>No chunk yielded to client
+
+            else Timeout (no message within poll_interval)
+                SC->>LiteLLM: return None
+                Note over LiteLLM: Check deadline, continue loop
+
+            else Timeout exceeded
+                Note over LiteLLM: raise StreamTimeoutError<br/>Return empty response
+
+            end
+        end
+    end
+
+    Note over Client,Upstream: Phase 3: Completion
+
+    Note over Policy: Policy stream completes
+    Policy->>CPE: Stream iterator returns
+    CPE->>WS: send_json({"type": "END"})
+    WS->>SC: WebSocket message
+    SC->>LiteLLM: return {"type": "END"}
+
+    Note over LiteLLM: Set state = ENDED, break poll loop
+
+    LiteLLM->>LiteLLM: Cancel forward_task
+    LiteLLM->>SC: close()
+    SC->>WS: websocket.close()
+
+    LiteLLM->>Client: Complete response stream
