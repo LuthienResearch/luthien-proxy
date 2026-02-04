@@ -247,32 +247,7 @@ async def test_anthropic_client_openai_backend_streaming(http_client):
         assert len(event_lines) > 0, "Should receive Anthropic SSE events"
 
 
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_anthropic_client_openai_backend_non_streaming(http_client):
-    """E2E: Anthropic client → OpenAI backend (gpt-3.5-turbo), non-streaming."""
-    response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
-        json={
-            "model": "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": "Say hello"}],
-            "max_tokens": 20,
-            "stream": False,
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Verify Anthropic response structure (translated from OpenAI)
-    assert "id" in data
-    assert "type" in data
-    assert data["type"] == "message"
-    assert "role" in data
-    assert data["role"] == "assistant"
-    assert "content" in data
-    assert len(data["content"]) > 0
-    # Content is array of content blocks in Anthropic format
-    assert "text" in data["content"][0]
-    assert len(data["content"][0]["text"]) > 0
+# NOTE: Cross-format test (Anthropic client → OpenAI backend) removed.
+# The split-APIs architecture (PR #169) uses endpoint-based routing, not model-based.
+# Sending an OpenAI model to /v1/messages always routes to Anthropic backend.
+# Cross-format routing is Phase 2 work. See dev/NOTES.md (2026-02-03).

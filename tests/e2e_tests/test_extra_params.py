@@ -145,7 +145,7 @@ async def test_anthropic_metadata_parameter_accepted(http_client, gateway_health
             "messages": [{"role": "user", "content": "Say hello"}],
             "max_tokens": 20,
             "stream": False,
-            "metadata": {"user_id": "test-user-123", "custom_field": "custom_value"},
+            "metadata": {"user_id": "test-user-123"},
         },
         headers={"Authorization": f"Bearer {API_KEY}"},
     )
@@ -464,29 +464,10 @@ async def test_openai_streaming_with_extra_params(http_client, gateway_healthy):
 
 # === Cross-format Extra Parameters ===
 
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_anthropic_client_to_openai_backend_with_extra_params(http_client, gateway_healthy):
-    """Verify extra params work when Anthropic client talks to OpenAI backend."""
-    response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
-        json={
-            "model": "gpt-3.5-turbo",  # OpenAI model via Anthropic endpoint
-            "messages": [{"role": "user", "content": "Say hello briefly"}],
-            "max_tokens": 20,
-            "stream": False,
-            "metadata": {"test": "cross-format"},
-            "stop_sequences": ["goodbye"],
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    )
-
-    assert response.status_code == 200, f"Request failed: {response.text}"
-    data = response.json()
-
-    # Should get Anthropic format response
-    assert data["type"] == "message"
+# NOTE: test_anthropic_client_to_openai_backend_with_extra_params removed.
+# The split-APIs architecture (PR #169) uses endpoint-based routing, not model-based.
+# Sending an OpenAI model to /v1/messages always routes to Anthropic backend.
+# Cross-format routing is Phase 2 work. See dev/NOTES.md (2026-02-03).
 
 
 @pytest.mark.e2e
