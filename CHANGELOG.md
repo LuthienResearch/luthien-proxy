@@ -2,6 +2,12 @@
 
 ## Unreleased | TBA
 
+- Remove local Ollama container and all related configuration
+  - Deleted docker/Dockerfile.local-llm, docker/local-llm-entrypoint.sh
+  - Deleted config/local_llm_config.yaml, config/archive/demo_judge.yaml
+  - Removed local-llm service and local_llm_models volume from docker-compose.yaml
+  - Updated documentation to remove Ollama references
+
 - Fix StringReplacementPolicy dropping finish_reason causing blank responses in Claude Code
   - Content and finish_reason must be emitted as separate chunks
   - SSE assembler's `convert_chunk_to_event()` returns early on content, ignoring finish_reason

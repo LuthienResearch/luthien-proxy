@@ -72,32 +72,6 @@ services:
           cpus: '0.1'
           memory: 64M
 
-  # Single-container local LLM gateway (Ollama + LiteLLM)
-  local-llm:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.local-llm
-    environment:
-      - MODEL_NAME=${LOCAL_LLM_MODEL_NAME:-gemma2:2b}
-    volumes:
-      - local_llm_models:/root/.ollama
-    ports:
-      - "4010:4000"   # OpenAI-compatible API (LiteLLM)
-      - "11434:11434" # Ollama API with native OpenAI compatibility
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/test"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '4.0'
-          memory: 4G
-        reservations:
-          cpus: '1.0'
-          memory: 2G
-
   # Gateway (integrated FastAPI + LiteLLM architecture)
   gateway:
     build:
@@ -239,7 +213,6 @@ services:
 
 volumes:
   postgres_data:
-  local_llm_models:
 
 networks:
   default:
