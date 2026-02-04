@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, Request
 from redis.asyncio import Redis
 
+from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
+from luthien_proxy.policies.anthropic.noop import AnthropicNoOpPolicy
+from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.utils import db
 
@@ -35,6 +39,8 @@ class Dependencies:
     emitter: EventEmitterProtocol
     api_key: str
     admin_key: str | None
+    anthropic_client: AnthropicClient | None = field(default=None)
+    anthropic_policy: AnthropicPolicyProtocol | None = field(default=None)
 
     @cached_property
     def event_publisher(self) -> RedisEventPublisher | None:
@@ -51,6 +57,40 @@ class Dependencies:
     def policy(self) -> PolicyProtocol:
         """Get current active policy from policy manager."""
         return self.policy_manager.current_policy
+
+    def get_anthropic_client(self) -> AnthropicClient:
+        """Get or create the Anthropic client.
+
+        Creates the client lazily on first access using ANTHROPIC_API_KEY
+        from environment variables.
+
+        Raises:
+            HTTPException: If ANTHROPIC_API_KEY is not set
+        """
+        if self.anthropic_client is not None:
+            return self.anthropic_client
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="ANTHROPIC_API_KEY not configured for native Anthropic path",
+            )
+        self.anthropic_client = AnthropicClient(api_key=api_key)
+        return self.anthropic_client
+
+    def get_anthropic_policy(self) -> AnthropicPolicyProtocol:
+        """Get the current Anthropic policy.
+
+        For now, returns a hardcoded AnthropicNoOpPolicy.
+        Future: will integrate with policy config system.
+        """
+        if self.anthropic_policy is not None:
+            return self.anthropic_policy
+
+        # Default to NoOp policy for now
+        self.anthropic_policy = AnthropicNoOpPolicy()
+        return self.anthropic_policy
 
 
 # === FastAPI Dependency Functions ===
@@ -186,6 +226,35 @@ def get_admin_key(request: Request) -> str | None:
     return get_dependencies(request).admin_key
 
 
+def get_anthropic_client(request: Request) -> AnthropicClient:
+    """Get Anthropic client from dependencies.
+
+    Creates the client lazily if not already initialized.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Anthropic client instance
+
+    Raises:
+        HTTPException: If ANTHROPIC_API_KEY is not configured
+    """
+    return get_dependencies(request).get_anthropic_client()
+
+
+def get_anthropic_policy(request: Request) -> AnthropicPolicyProtocol:
+    """Get current Anthropic policy from dependencies.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Current Anthropic policy
+    """
+    return get_dependencies(request).get_anthropic_policy()
+
+
 __all__ = [
     "Dependencies",
     "get_dependencies",
@@ -198,4 +267,6 @@ __all__ = [
     "get_policy_manager",
     "get_api_key",
     "get_admin_key",
+    "get_anthropic_client",
+    "get_anthropic_policy",
 ]

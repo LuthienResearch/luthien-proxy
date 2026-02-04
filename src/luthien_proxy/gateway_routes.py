@@ -8,14 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from luthien_proxy.dependencies import (
+    get_anthropic_client,
+    get_anthropic_policy,
     get_api_key,
     get_emitter,
     get_llm_client,
     get_policy,
 )
+from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
-from luthien_proxy.pipeline import ClientFormat, process_llm_request
+from luthien_proxy.pipeline import ClientFormat, process_anthropic_request, process_llm_request
+from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.utils.constants import API_KEY_HASH_LENGTH
 
@@ -70,16 +74,15 @@ async def chat_completions(
 async def anthropic_messages(
     request: Request,
     _: str = Depends(verify_token),
-    policy: PolicyProtocol = Depends(get_policy),
-    llm_client: LLMClient = Depends(get_llm_client),
+    anthropic_policy: AnthropicPolicyProtocol = Depends(get_anthropic_policy),
+    anthropic_client: AnthropicClient = Depends(get_anthropic_client),
     emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
-    """Anthropic Messages API endpoint."""
-    return await process_llm_request(
+    """Anthropic Messages API endpoint (native Anthropic path)."""
+    return await process_anthropic_request(
         request=request,
-        client_format=ClientFormat.ANTHROPIC,
-        policy=policy,
-        llm_client=llm_client,
+        policy=anthropic_policy,
+        anthropic_client=anthropic_client,
         emitter=emitter,
     )
 
