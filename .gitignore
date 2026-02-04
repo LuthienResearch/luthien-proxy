@@ -50,3 +50,6 @@ debug_multitool_nonstreaming.json
 .ruff_cache/
 .mypy_cache/
 .pytype/
+
+# worktree meta
+.worktree-purpose
