@@ -232,16 +232,8 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         Args:
             ctx: Streaming response context with current chunk
         """
-        try:
-            current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
-            ctx.egress_queue.put_nowait(current_chunk)
-        except IndexError:
-            ctx.policy_ctx.record_event(
-                "policy.judge.content_delta_no_chunk",
-                {"summary": "No content chunk available to forward in on_content_delta (this shouldn't happen!)"},
-            )
-        except Exception as exc:
-            logger.error(f"Error forwarding content delta: {exc}", exc_info=True)
+        current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
+        ctx.egress_queue.put_nowait(current_chunk)
 
     async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
         """Default - do nothing for content completion."""

@@ -162,7 +162,10 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
 
         for choice in response.choices:
             if not isinstance(choice, Choices):
-                continue
+                raise TypeError(
+                    f"Expected choice to be Choices, got {type(choice).__name__}. "
+                    "This indicates an unexpected response format from the LLM."
+                )
 
             # Transform text content
             if isinstance(choice.message.content, str):
@@ -348,11 +351,17 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
                     block["text"] = await self.simple_on_response_content(text, context)
 
             elif block_type == "tool_use":
-                # Cast to AnthropicToolUseBlock for type safety
+                block_id = block.get("id")
+                block_name = block.get("name")
+                if block_id is None or block_name is None:
+                    raise ValueError(
+                        f"Malformed tool_use block: missing required field(s) "
+                        f"(id={block_id!r}, name={block_name!r})"
+                    )
                 tool_block: AnthropicToolUseBlock = {
                     "type": "tool_use",
-                    "id": block.get("id", ""),
-                    "name": block.get("name", ""),
+                    "id": block_id,
+                    "name": block_name,
                     "input": block.get("input", {}),
                 }
                 transformed = await self.simple_on_anthropic_tool_call(tool_block, context)
@@ -404,15 +413,23 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
 
             if isinstance(delta, TextDelta):
                 # Accumulate text delta
-                if index in self._text_buffer:
-                    self._text_buffer[index] += delta.text
+                if index not in self._text_buffer:
+                    raise RuntimeError(
+                        f"Received TextDelta for index {index} but no buffer exists. "
+                        "This indicates a missing content_block_start event."
+                    )
+                self._text_buffer[index] += delta.text
                 # Suppress the delta - we'll emit on stop
                 return None
 
             if isinstance(delta, InputJSONDelta):
                 # Accumulate JSON delta for tool calls
-                if index in self._tool_buffer:
-                    self._tool_buffer[index]["input_json"] += delta.partial_json
+                if index not in self._tool_buffer:
+                    raise RuntimeError(
+                        f"Received InputJSONDelta for index {index} but no buffer exists. "
+                        "This indicates a missing content_block_start event."
+                    )
+                self._tool_buffer[index]["input_json"] += delta.partial_json
                 # Suppress the delta - we'll emit on stop
                 return None
 
@@ -448,11 +465,8 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
             if index in self._tool_buffer:
                 tool_info = self._tool_buffer.pop(index)
 
-                # Parse the accumulated JSON
-                try:
-                    input_data = json.loads(tool_info["input_json"]) if tool_info["input_json"] else {}
-                except json.JSONDecodeError:
-                    input_data = {}
+                # Parse the accumulated JSON - empty string means no input
+                input_data = json.loads(tool_info["input_json"]) if tool_info["input_json"] else {}
 
                 tool_block: AnthropicToolUseBlock = {
                     "type": "tool_use",

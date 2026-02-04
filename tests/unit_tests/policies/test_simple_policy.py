@@ -1212,5 +1212,183 @@ class TestSimplePolicyAnthropicBufferManagement:
         assert result1_event.delta.text == "SECOND"
 
 
+# ===== Error Handling Tests =====
+
+
+class TestSimplePolicyErrorHandling:
+    """Tests that SimplePolicy raises errors instead of silently suppressing them."""
+
+    @pytest.fixture
+    def mock_policy_context(self):
+        """Create a mock PolicyContext for non-streaming tests."""
+        ctx = Mock(spec=PolicyContext)
+        ctx.transaction_id = "test-transaction-id"
+        ctx.request = Request(
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+        )
+        ctx.scratchpad = {}
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_on_openai_response_raises_on_non_choices_type(self, mock_policy_context):
+        """on_openai_response raises TypeError when choice is not Choices type."""
+        policy = SimplePolicy()
+
+        # Create response then manually set a non-Choices object
+        # (ModelResponse auto-converts dicts to Choices, so we bypass that)
+        response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[],
+        )
+        response.choices = ["not a Choices object"]  # type: ignore[list-item]
+
+        with pytest.raises(TypeError) as exc_info:
+            await policy.on_openai_response(response, mock_policy_context)
+
+        assert "Expected choice to be Choices" in str(exc_info.value)
+        assert "unexpected response format" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_on_stream_event_raises_on_text_delta_without_buffer(self):
+        """on_anthropic_stream_event raises RuntimeError when TextDelta received without buffer."""
+        policy = SimplePolicy()
+        ctx = PolicyContext.for_testing()
+
+        # Send text delta WITHOUT starting a block first
+        text_delta = TextDelta.model_construct(type="text_delta", text="orphan delta")
+        delta_event = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=text_delta,
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await policy.on_anthropic_stream_event(delta_event, ctx)
+
+        assert "Received TextDelta for index 0" in str(exc_info.value)
+        assert "no buffer exists" in str(exc_info.value)
+        assert "missing content_block_start" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_on_stream_event_raises_on_json_delta_without_buffer(self):
+        """on_anthropic_stream_event raises RuntimeError when InputJSONDelta received without buffer."""
+        policy = SimplePolicy()
+        ctx = PolicyContext.for_testing()
+
+        # Send JSON delta WITHOUT starting a tool block first
+        json_delta = InputJSONDelta.model_construct(type="input_json_delta", partial_json='{"key":')
+        delta_event = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=json_delta,
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await policy.on_anthropic_stream_event(delta_event, ctx)
+
+        assert "Received InputJSONDelta for index 0" in str(exc_info.value)
+        assert "no buffer exists" in str(exc_info.value)
+        assert "missing content_block_start" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_on_stream_event_raises_on_malformed_json(self):
+        """on_anthropic_stream_event raises JSONDecodeError for malformed tool call JSON."""
+        import json as json_module
+
+        policy = SimplePolicy()
+        ctx = PolicyContext.for_testing()
+
+        # Start tool_use block
+        start_event = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=ToolUseBlock.model_construct(
+                type="tool_use",
+                id="tool_123",
+                name="test_tool",
+                input={},
+            ),
+        )
+        await policy.on_anthropic_stream_event(start_event, ctx)
+
+        # Send malformed JSON delta
+        json_delta = InputJSONDelta.model_construct(type="input_json_delta", partial_json='{"key": invalid}')
+        delta_event = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=json_delta,
+        )
+        await policy.on_anthropic_stream_event(delta_event, ctx)
+
+        # Stop block - should raise JSONDecodeError when parsing
+        stop_event = RawContentBlockStopEvent.model_construct(
+            type="content_block_stop",
+            index=0,
+        )
+
+        with pytest.raises(json_module.JSONDecodeError):
+            await policy.on_anthropic_stream_event(stop_event, ctx)
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_response_raises_on_missing_tool_use_id(self):
+        """on_anthropic_response raises ValueError when tool_use block is missing id."""
+        policy = SimplePolicy()
+        ctx = PolicyContext.for_testing()
+
+        response: AnthropicResponse = {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "name": "test_tool",
+                    "input": {},
+                }  # Missing "id" field
+            ],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+        with pytest.raises(ValueError) as exc_info:
+            await policy.on_anthropic_response(response, ctx)
+
+        assert "Malformed tool_use block" in str(exc_info.value)
+        assert "id=None" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_response_raises_on_missing_tool_use_name(self):
+        """on_anthropic_response raises ValueError when tool_use block is missing name."""
+        policy = SimplePolicy()
+        ctx = PolicyContext.for_testing()
+
+        response: AnthropicResponse = {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "tool_123",
+                    "input": {},
+                }  # Missing "name" field
+            ],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+        with pytest.raises(ValueError) as exc_info:
+            await policy.on_anthropic_response(response, ctx)
+
+        assert "Malformed tool_use block" in str(exc_info.value)
+        assert "name=None" in str(exc_info.value)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

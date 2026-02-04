@@ -200,14 +200,17 @@ class TestToolCallJudgePolicyOpenAIContentForwarding:
         ctx.egress_queue.put_nowait.assert_called_once_with(content_chunk)
 
     @pytest.mark.asyncio
-    async def test_on_content_delta_handles_empty_chunks(self):
-        """Test that on_content_delta handles edge case of no chunks."""
+    async def test_on_content_delta_raises_on_empty_chunks(self):
+        """Test that on_content_delta raises when called with no chunks.
+
+        If on_content_delta is called when raw_chunks is empty, it indicates
+        a bug in the calling code - fail fast rather than silently swallowing.
+        """
         policy = ToolCallJudgePolicy()
         ctx = create_mock_context(raw_chunks=[])
 
-        # Should not raise, should not emit
-        await policy.on_content_delta(ctx)
-        ctx.egress_queue.put_nowait.assert_not_called()
+        with pytest.raises(IndexError):
+            await policy.on_content_delta(ctx)
 
 
 class TestCreateTextChunkDeltaType:

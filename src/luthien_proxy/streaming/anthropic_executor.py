@@ -9,7 +9,6 @@ policy's on_stream_event hook, and yields the events that should be sent to
 the client.
 """
 
-import logging
 from collections.abc import AsyncIterator
 
 from anthropic.lib.streaming import MessageStreamEvent
@@ -18,7 +17,6 @@ from opentelemetry import trace
 from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
-logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
@@ -32,8 +30,7 @@ class AnthropicStreamExecutor:
     - Return a modified event (transformation)
     - Return None to filter out the event
 
-    The executor handles errors gracefully, logging them and continuing with
-    the stream rather than crashing.
+    Policy errors propagate to the caller - if something fails, it fails loudly.
     """
 
     async def process(
@@ -57,29 +54,17 @@ class AnthropicStreamExecutor:
             span.set_attribute("policy.name", policy.short_policy_name)
             event_count = 0
             yielded_count = 0
-            error_count = 0
 
             async for sdk_event in stream:
                 event_count += 1
 
-                try:
-                    result = await policy.on_anthropic_stream_event(sdk_event, context)
-                    if result is not None:
-                        yielded_count += 1
-                        yield result
-                except Exception:
-                    error_count += 1
-                    logger.warning(
-                        "Error in policy on_anthropic_stream_event for event type %s (error %d)",
-                        getattr(sdk_event, "type", "unknown"),
-                        error_count,
-                        exc_info=True,
-                    )
-                    # Skip the event on error but continue processing
+                result = await policy.on_anthropic_stream_event(sdk_event, context)
+                if result is not None:
+                    yielded_count += 1
+                    yield result
 
             span.set_attribute("streaming.event_count", event_count)
             span.set_attribute("streaming.yielded_count", yielded_count)
-            span.set_attribute("streaming.error_count", error_count)
 
 
 __all__ = ["AnthropicStreamExecutor"]

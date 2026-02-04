@@ -210,7 +210,7 @@ explanation: Brief explanation of your decision"""
         if not self.RULES:
             return tool_block
 
-        tool_name = tool_block.get("name", "unknown_tool")
+        tool_name = tool_block["name"]
         tool_input = tool_block.get("input", {})
 
         result = await call_judge(
@@ -362,10 +362,17 @@ explanation: Brief explanation of your decision"""
         content_blocks = response.get("content", [])
         for i, block in enumerate(content_blocks):
             if isinstance(block, dict) and block.get("type") == "tool_use":
+                block_id = block.get("id")
+                block_name = block.get("name")
+                if block_id is None or block_name is None:
+                    raise ValueError(
+                        f"Malformed tool_use block: missing required field(s) "
+                        f"(id={block_id!r}, name={block_name!r})"
+                    )
                 tool_block: AnthropicToolUseBlock = {
                     "type": "tool_use",
-                    "id": block.get("id", ""),
-                    "name": block.get("name", ""),
+                    "id": block_id,
+                    "name": block_name,
                     "input": block.get("input", {}),
                 }
                 transformed = await self.simple_on_anthropic_tool_call(tool_block, context)

@@ -7,10 +7,9 @@ Verifies that the executor correctly:
 - Passes events through with NoOp-like policies
 - Filters events when policy returns None
 - Transforms events when policy returns modified events
-- Handles errors gracefully without crashing the stream
+- Propagates policy errors to the caller
 """
 
-import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -399,16 +398,19 @@ class TestAnthropicStreamExecutorTransformation:
 
 
 # =============================================================================
-# Tests for Error Handling
+# Tests for Error Propagation
 # =============================================================================
 
 
-class TestAnthropicStreamExecutorErrorHandling:
-    """Tests for error handling behavior."""
+class TestAnthropicStreamExecutorErrorPropagation:
+    """Tests for error propagation behavior.
+
+    Policy errors propagate to the caller - if something fails, it fails loudly.
+    """
 
     @pytest.mark.asyncio
-    async def test_policy_error_does_not_crash_stream(self, policy_ctx: PolicyContext, caplog):
-        """Test that errors in policy don't crash the stream."""
+    async def test_policy_error_propagates(self, policy_ctx: PolicyContext):
+        """Test that errors in policy propagate to caller."""
         executor = AnthropicStreamExecutor()
         policy = ErrorThrowingPolicy(error_on_text="error")
 
@@ -420,27 +422,20 @@ class TestAnthropicStreamExecutorErrorHandling:
         stream = async_iter_from_list(events)
 
         results = []
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(ValueError, match="Policy error on text"):
             async for result in executor.process(stream, policy, policy_ctx):
                 results.append(result)
 
-        # Error event should be skipped, others should pass through
-        assert len(results) == 2
-        delta1 = results[0]
-        delta2 = results[1]
-        assert isinstance(delta1, RawContentBlockDeltaEvent)
-        assert isinstance(delta2, RawContentBlockDeltaEvent)
-        assert isinstance(delta1.delta, TextDelta)
-        assert isinstance(delta2.delta, TextDelta)
-        assert delta1.delta.text == "Hello"
-        assert delta2.delta.text == "World"
-
-        # Check that the error was logged
-        assert "Error in policy on_anthropic_stream_event" in caplog.text
+        # Only the first event should have been processed before the error
+        assert len(results) == 1
+        delta = results[0]
+        assert isinstance(delta, RawContentBlockDeltaEvent)
+        assert isinstance(delta.delta, TextDelta)
+        assert delta.delta.text == "Hello"
 
     @pytest.mark.asyncio
-    async def test_policy_error_on_first_event(self, policy_ctx: PolicyContext, caplog):
-        """Test that error on first event doesn't prevent rest of stream."""
+    async def test_policy_error_on_first_event_propagates(self, policy_ctx: PolicyContext):
+        """Test that error on first event propagates immediately."""
         executor = AnthropicStreamExecutor()
         policy = ErrorThrowingPolicy(error_on_text="error")
 
@@ -451,15 +446,12 @@ class TestAnthropicStreamExecutorErrorHandling:
         stream = async_iter_from_list(events)
 
         results = []
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(ValueError, match="Policy error on text"):
             async for result in executor.process(stream, policy, policy_ctx):
                 results.append(result)
 
-        assert len(results) == 1
-        delta = results[0]
-        assert isinstance(delta, RawContentBlockDeltaEvent)
-        assert isinstance(delta.delta, TextDelta)
-        assert delta.delta.text == "second"
+        # No events should have been processed
+        assert len(results) == 0
 
 
 # =============================================================================

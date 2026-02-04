@@ -1100,5 +1100,75 @@ class TestSimpleJudgePolicyEventRecording:
         assert event_data["blocked"] is False
 
 
+# ========== Error Handling Tests ==========
+
+
+class TestSimpleJudgePolicyErrorHandling:
+    """Tests that SimpleJudgePolicy raises errors for malformed tool_use blocks."""
+
+    @pytest.fixture
+    def policy_with_rules(self) -> SimpleJudgePolicy:
+        """Create a policy subclass with rules for testing."""
+
+        class TestPolicy(SimpleJudgePolicy):
+            RULES = ["Test rule"]
+
+        return TestPolicy()
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_response_raises_on_missing_tool_use_id(self, policy_with_rules):
+        """on_anthropic_response raises ValueError when tool_use block is missing id."""
+        ctx = PolicyContext.for_testing()
+
+        response: AnthropicResponse = {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "name": "test_tool",
+                    "input": {},
+                }  # Missing "id" field
+            ],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+        with pytest.raises(ValueError) as exc_info:
+            await policy_with_rules.on_anthropic_response(response, ctx)
+
+        assert "Malformed tool_use block" in str(exc_info.value)
+        assert "id=None" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_response_raises_on_missing_tool_use_name(self, policy_with_rules):
+        """on_anthropic_response raises ValueError when tool_use block is missing name."""
+        ctx = PolicyContext.for_testing()
+
+        response: AnthropicResponse = {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "tool_123",
+                    "input": {},
+                }  # Missing "name" field
+            ],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+        with pytest.raises(ValueError) as exc_info:
+            await policy_with_rules.on_anthropic_response(response, ctx)
+
+        assert "Malformed tool_use block" in str(exc_info.value)
+        assert "name=None" in str(exc_info.value)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
