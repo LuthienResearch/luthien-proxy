@@ -37,7 +37,6 @@ class Dependencies:
     api_key: str
     admin_key: str | None
     anthropic_client: AnthropicClient | None = field(default=None)
-    anthropic_policy: AnthropicPolicyInterface | None = field(default=None)
 
     @cached_property
     def event_publisher(self) -> RedisEventPublisher | None:
@@ -79,15 +78,18 @@ class Dependencies:
     def get_anthropic_policy(self) -> AnthropicPolicyInterface:
         """Get the current Anthropic policy.
 
-        For now, returns a hardcoded NoOpPolicy.
-        Future: will integrate with policy config system.
-        """
-        if self.anthropic_policy is not None:
-            return self.anthropic_policy
+        Uses the policy from policy_manager if it implements AnthropicPolicyInterface,
+        otherwise falls back to NoOpPolicy.
 
-        # Default to NoOp policy for now
-        self.anthropic_policy = NoOpPolicy()
-        return self.anthropic_policy
+        Note: Not cached because policy can change at runtime via admin API.
+        """
+        # Check if the current policy supports Anthropic
+        current = self.policy_manager.current_policy
+        if isinstance(current, AnthropicPolicyInterface):
+            return current
+
+        # Fall back to NoOp if current policy doesn't support Anthropic
+        return NoOpPolicy()
 
 
 # === FastAPI Dependency Functions ===
