@@ -13,8 +13,8 @@ from opentelemetry import trace
 
 from luthien_proxy.llm.types import Request
 from luthien_proxy.observability.transaction_recorder import TransactionRecorder
+from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.streaming.client_formatter import ClientFormatter
 from luthien_proxy.streaming.policy_executor import PolicyExecutor
 from luthien_proxy.utils.constants import DEFAULT_QUEUE_SIZE, LOG_SSE_EVENT_TRUNCATION_LENGTH
@@ -41,7 +41,7 @@ class PolicyOrchestrator:
 
     def __init__(
         self,
-        policy: PolicyProtocol,
+        policy: OpenAIPolicyInterface,
         policy_executor: PolicyExecutor,
         client_formatter: ClientFormatter,
         transaction_recorder: TransactionRecorder,
@@ -50,7 +50,7 @@ class PolicyOrchestrator:
         """Initialize orchestrator with injected dependencies.
 
         Args:
-            policy: Policy instance implementing PolicyProtocol with request/response hooks
+            policy: Policy instance implementing OpenAIPolicyInterface with request/response hooks
             policy_executor: Executes policy logic on ModelResponse chunks
             client_formatter: Converts ModelResponse to client SSE strings
             transaction_recorder: Records chunks at pipeline boundaries
@@ -91,8 +91,8 @@ class PolicyOrchestrator:
             # Set request in context for policy access
             policy_ctx.request = request
 
-            # Call policy's on_request hook
-            final_request = await self.policy.on_request(request, policy_ctx)
+            # Call policy's on_openai_request hook
+            final_request = await self.policy.on_openai_request(request, policy_ctx)
             await self.transaction_recorder.record_request(request, final_request)
 
             span.set_attribute("request.modified", final_request != request)
@@ -168,8 +168,8 @@ class PolicyOrchestrator:
         with tracer.start_as_current_span("policy.process_response") as span:
             span.set_attribute("policy.class", self.policy.__class__.__name__)
 
-            # Call policy's on_response hook
-            final_response = await self.policy.on_response(response, policy_ctx)
+            # Call policy's on_openai_response hook
+            final_response = await self.policy.on_openai_response(response, policy_ctx)
             await self.transaction_recorder.record_response(response, final_response)
 
             span.set_attribute("response.modified", final_response != response)

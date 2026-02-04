@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator
 from anthropic.lib.streaming import MessageStreamEvent
 from opentelemetry import trace
 
-from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
+from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
@@ -39,14 +39,14 @@ class AnthropicStreamExecutor:
     async def process(
         self,
         stream: AsyncIterator[MessageStreamEvent],
-        policy: AnthropicPolicyProtocol,
+        policy: AnthropicPolicyInterface,
         context: PolicyContext,
     ) -> AsyncIterator[MessageStreamEvent]:
         """Process streaming events through the policy.
 
         Args:
             stream: Async iterator of MessageStreamEvent from Anthropic SDK
-            policy: Policy implementing AnthropicPolicyProtocol
+            policy: Policy implementing AnthropicPolicyInterface
             context: Policy context with scratchpad, emitter, etc.
 
         Yields:
@@ -63,14 +63,14 @@ class AnthropicStreamExecutor:
                 event_count += 1
 
                 try:
-                    result = await policy.on_stream_event(sdk_event, context)
+                    result = await policy.on_anthropic_stream_event(sdk_event, context)
                     if result is not None:
                         yielded_count += 1
                         yield result
                 except Exception:
                     error_count += 1
                     logger.warning(
-                        "Error in policy on_stream_event for event type %s (error %d)",
+                        "Error in policy on_anthropic_stream_event for event type %s (error %d)",
                         getattr(sdk_event, "type", "unknown"),
                         error_count,
                         exc_info=True,

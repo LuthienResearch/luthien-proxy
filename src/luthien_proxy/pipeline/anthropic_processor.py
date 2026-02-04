@@ -1,5 +1,5 @@
 # ABOUTME: Anthropic-native request processing pipeline
-# ABOUTME: Processes Anthropic requests through AnthropicPolicyProtocol without format conversion
+# ABOUTME: Processes Anthropic requests through AnthropicPolicyInterface without format conversion
 
 """Anthropic-native request processing pipeline.
 
@@ -46,7 +46,7 @@ from luthien_proxy.llm.types.anthropic import (
 )
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.session import extract_session_id_from_anthropic_body
-from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
+from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.anthropic_executor import AnthropicStreamExecutor
 from luthien_proxy.types import RawHttpRequest
@@ -73,14 +73,14 @@ tracer = trace.get_tracer(__name__)
 
 async def process_anthropic_request(
     request: Request,
-    policy: AnthropicPolicyProtocol,
+    policy: AnthropicPolicyInterface,
     anthropic_client: AnthropicClient,
     emitter: EventEmitterProtocol,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an Anthropic API request through the native pipeline.
 
     This function handles Anthropic requests without converting to OpenAI format.
-    It uses AnthropicPolicyProtocol for policy hooks and AnthropicClient for
+    It uses AnthropicPolicyInterface for policy hooks and AnthropicClient for
     backend calls.
 
     The processing pipeline is:
@@ -92,7 +92,7 @@ async def process_anthropic_request(
 
     Args:
         request: FastAPI request object
-        policy: Policy implementing AnthropicPolicyProtocol
+        policy: Policy implementing AnthropicPolicyInterface
         anthropic_client: Client for calling Anthropic API
         emitter: Event emitter for observability
 
@@ -101,7 +101,14 @@ async def process_anthropic_request(
 
     Raises:
         HTTPException: On request size exceeded or validation errors
+        TypeError: If policy does not implement AnthropicPolicyInterface
     """
+    if not isinstance(policy, AnthropicPolicyInterface):
+        raise TypeError(
+            f"Policy must implement AnthropicPolicyInterface, got {type(policy).__name__}. "
+            "Ensure your policy inherits from AnthropicPolicyInterface or implements all required hooks."
+        )
+
     call_id = str(uuid.uuid4())
 
     with tracer.start_as_current_span("anthropic_transaction_processing") as root_span:
@@ -137,7 +144,7 @@ async def process_anthropic_request(
 
         # Apply policy to request
         with tracer.start_as_current_span("policy_on_request"):
-            final_request = await policy.on_request(anthropic_request, policy_ctx)
+            final_request = await policy.on_anthropic_request(anthropic_request, policy_ctx)
 
         # Propagate request summary if policy set one
         if policy_ctx.request_summary:
@@ -244,7 +251,7 @@ async def _process_request(
 
 async def _handle_streaming(
     final_request: AnthropicRequest,
-    policy: AnthropicPolicyProtocol,
+    policy: AnthropicPolicyInterface,
     policy_ctx: PolicyContext,
     anthropic_client: AnthropicClient,
     call_id: str,
@@ -308,7 +315,7 @@ async def _handle_streaming(
 
 async def _handle_non_streaming(
     final_request: AnthropicRequest,
-    policy: AnthropicPolicyProtocol,
+    policy: AnthropicPolicyInterface,
     policy_ctx: PolicyContext,
     anthropic_client: AnthropicClient,
     emitter: EventEmitterProtocol,
@@ -327,7 +334,7 @@ async def _handle_non_streaming(
     # Phase 3: Process response through policy
     with tracer.start_as_current_span("process_response") as span:
         span.set_attribute("luthien.phase", "process_response")
-        processed_response = await policy.on_response(response, policy_ctx)
+        processed_response = await policy.on_anthropic_response(response, policy_ctx)
 
     # Phase 4: Send to client
     with tracer.start_as_current_span("send_to_client") as span:

@@ -50,8 +50,8 @@ from luthien_proxy.observability.transaction_recorder import (
 from luthien_proxy.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.session import extract_session_id_from_headers
+from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
 from luthien_proxy.types import RawHttpRequest
@@ -64,7 +64,7 @@ tracer = trace.get_tracer(__name__)
 async def process_llm_request(
     request: Request,
     client_format: ClientFormat,
-    policy: PolicyProtocol,
+    policy: OpenAIPolicyInterface,
     llm_client: LLMClient,
     emitter: EventEmitterProtocol,
 ) -> FastAPIStreamingResponse | JSONResponse:
@@ -79,7 +79,7 @@ async def process_llm_request(
     Args:
         request: FastAPI request object
         client_format: Format of the client request (kept for compatibility)
-        policy: Policy to apply to request/response
+        policy: Policy implementing OpenAIPolicyInterface
         llm_client: Client for calling backend LLM
         emitter: Event emitter for observability
 
@@ -88,7 +88,14 @@ async def process_llm_request(
 
     Raises:
         HTTPException: On request size exceeded or other errors
+        TypeError: If policy does not implement OpenAIPolicyInterface
     """
+    if not isinstance(policy, OpenAIPolicyInterface):
+        raise TypeError(
+            f"Policy must implement OpenAIPolicyInterface, got {type(policy).__name__}. "
+            "Ensure your policy inherits from OpenAIPolicyInterface or implements all required hooks."
+        )
+
     call_id = str(uuid.uuid4())
 
     # Derive endpoint path from client format for observability

@@ -26,7 +26,7 @@ from luthien_proxy.pipeline.anthropic_processor import (
     _process_request,
     process_anthropic_request,
 )
-from luthien_proxy.policies.anthropic.noop import AnthropicNoOpPolicy
+from luthien_proxy.policies.noop_policy import NoOpPolicy
 
 
 class TestFormatSSEEvent:
@@ -278,10 +278,9 @@ class TestHandleNonStreaming:
 
     @pytest.fixture
     def mock_policy(self, mock_anthropic_response):
-        """Create a mock Anthropic policy."""
-        policy = MagicMock()
-        policy.on_response = AsyncMock(return_value=mock_anthropic_response)
-        return policy
+        """Create an Anthropic policy for testing."""
+        # Use the real NoOpPolicy which implements the interface
+        return NoOpPolicy()
 
     @pytest.fixture
     def mock_policy_ctx(self):
@@ -323,7 +322,6 @@ class TestHandleNonStreaming:
         assert isinstance(response, JSONResponse)
         assert response.headers.get("x-call-id") == "test-call-id"
         mock_anthropic_client.complete.assert_called_once_with(request)
-        mock_policy.on_response.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_emits_client_response_event(
@@ -387,7 +385,7 @@ class TestHandleStreaming:
     @pytest.fixture
     def mock_policy(self):
         """Create a mock Anthropic policy."""
-        policy = AnthropicNoOpPolicy()
+        policy = NoOpPolicy()
         return policy
 
     @pytest.fixture
@@ -444,12 +442,8 @@ class TestProcessAnthropicRequest:
 
     @pytest.fixture
     def mock_policy(self):
-        """Create a mock Anthropic policy."""
-        policy = MagicMock()
-        policy.__class__.__name__ = "MockPolicy"
-        policy.on_request = AsyncMock(side_effect=lambda req, ctx: req)
-        policy.on_response = AsyncMock(side_effect=lambda resp, ctx: resp)
-        return policy
+        """Create an Anthropic policy implementing AnthropicPolicyInterface."""
+        return NoOpPolicy()
 
     @pytest.fixture
     def mock_anthropic_client(self):
@@ -500,8 +494,6 @@ class TestProcessAnthropicRequest:
 
         assert isinstance(response, JSONResponse)
         mock_anthropic_client.complete.assert_called_once()
-        mock_policy.on_request.assert_called_once()
-        mock_policy.on_response.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_streaming_request_returns_streaming_response(self, mock_request, mock_policy, mock_emitter):
@@ -547,7 +539,6 @@ class TestProcessAnthropicRequest:
             )
 
         assert isinstance(response, FastAPIStreamingResponse)
-        mock_policy.on_request.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_request_too_large_raises_413(self, mock_request, mock_policy, mock_anthropic_client, mock_emitter):
@@ -678,7 +669,7 @@ class TestMidStreamErrorHandling:
     @pytest.fixture
     def mock_policy(self):
         """Create a mock Anthropic policy."""
-        return AnthropicNoOpPolicy()
+        return NoOpPolicy()
 
     @pytest.fixture
     def mock_policy_ctx(self):

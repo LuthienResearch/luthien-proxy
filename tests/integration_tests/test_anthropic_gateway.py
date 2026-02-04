@@ -14,7 +14,7 @@ from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.observability.emitter import NullEventEmitter
-from luthien_proxy.policies.anthropic.noop import AnthropicNoOpPolicy
+from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_manager import PolicyManager
 
 
@@ -79,7 +79,7 @@ def test_app(mock_policy_manager, mock_anthropic_client, mock_redis):
         api_key="test-api-key",
         admin_key="test-admin-key",
         anthropic_client=mock_anthropic_client,
-        anthropic_policy=AnthropicNoOpPolicy(),
+        anthropic_policy=NoOpPolicy(),
     )
 
     app = FastAPI()
@@ -309,7 +309,7 @@ class TestAnthropicStreaming:
             api_key="test-api-key",
             admin_key="test-admin-key",
             anthropic_client=mock_streaming_client,
-            anthropic_policy=AnthropicNoOpPolicy(),
+            anthropic_policy=NoOpPolicy(),
         )
 
         app = FastAPI()

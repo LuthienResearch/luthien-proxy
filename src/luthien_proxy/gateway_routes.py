@@ -19,8 +19,8 @@ from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline import ClientFormat, process_anthropic_request, process_llm_request
-from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
+from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
+from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.utils.constants import API_KEY_HASH_LENGTH
 
 router = APIRouter(tags=["gateway"])
@@ -56,7 +56,7 @@ def hash_api_key(key: str) -> str:
 async def chat_completions(
     request: Request,
     _: str = Depends(verify_token),
-    policy: PolicyProtocol = Depends(get_policy),
+    policy: OpenAIPolicyInterface = Depends(get_policy),
     llm_client: LLMClient = Depends(get_llm_client),
     emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
@@ -74,7 +74,7 @@ async def chat_completions(
 async def anthropic_messages(
     request: Request,
     _: str = Depends(verify_token),
-    anthropic_policy: AnthropicPolicyProtocol = Depends(get_anthropic_policy),
+    anthropic_policy: AnthropicPolicyInterface = Depends(get_anthropic_policy),
     anthropic_client: AnthropicClient = Depends(get_anthropic_client),
     emitter: EventEmitterProtocol = Depends(get_emitter),
 ):

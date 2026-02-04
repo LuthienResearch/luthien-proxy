@@ -1,30 +1,21 @@
-# ABOUTME: Protocol defining the Anthropic-native policy interface for request/response processing
+# ABOUTME: Abstract base class defining the Anthropic policy interface
 
-"""Protocol defining the Anthropic-native policy interface.
+"""Abstract base class defining the Anthropic policy interface.
 
-This module defines AnthropicPolicyProtocol with hooks for:
+This module defines AnthropicPolicyInterface with hooks for:
 - Non-streaming request and response processing
 - Streaming event processing with filtering and transformation
 
-Policies implementing this protocol work with native Anthropic types,
+Policies implementing this interface work with native Anthropic types,
 avoiding format conversion overhead and preserving Anthropic-specific features.
-
-For streaming event types, uses Anthropic SDK types directly.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from anthropic.lib.streaming import MessageStreamEvent
-from anthropic.types import (
-    RawContentBlockDeltaEvent,
-    RawContentBlockStartEvent,
-    RawContentBlockStopEvent,
-    RawMessageDeltaEvent,
-    RawMessageStartEvent,
-    RawMessageStopEvent,
-)
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
@@ -33,43 +24,38 @@ if TYPE_CHECKING:
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
-
-# =============================================================================
-# Anthropic Streaming Event Types
-# =============================================================================
-
 # Use the SDK's MessageStreamEvent which includes all streaming event types
 # (TextEvent, CitationEvent, ThinkingEvent, Raw* events, etc.)
 AnthropicStreamEvent = MessageStreamEvent
 
 
-# =============================================================================
-# Anthropic Policy Protocol
-# =============================================================================
+class AnthropicPolicyInterface(ABC):
+    """Abstract base class for policies that work with native Anthropic types.
 
-
-@runtime_checkable
-class AnthropicPolicyProtocol(Protocol):
-    """Protocol for policies that work with native Anthropic types.
-
-    This protocol defines hooks for processing Anthropic API requests and responses
+    This interface defines hooks for processing Anthropic API requests and responses
     without converting to/from OpenAI format. This preserves Anthropic-specific
     features like extended thinking, tool use patterns, and prompt caching.
 
     For non-streaming:
-    - on_request: Transform request before sending to Anthropic
-    - on_response: Transform response before returning to client
+    - on_anthropic_request: Transform request before sending to Anthropic
+    - on_anthropic_response: Transform response before returning to client
 
     For streaming:
-    - on_stream_event: Process each streaming event, can filter or transform
+    - on_anthropic_stream_event: Process each streaming event, can filter or transform
     """
 
     @property
+    @abstractmethod
     def short_policy_name(self) -> str:
-        """Short human-readable name for the policy (e.g., 'NoOp', 'AllCaps')."""
+        """Return a short, human-readable name for this policy.
+
+        Used for logging, tracing, and observability. Should be concise
+        (e.g., "NoOp", "AllCaps", "StringReplace").
+        """
         ...
 
-    async def on_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
+    @abstractmethod
+    async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
         """Process request before sending to Anthropic API.
 
         Args:
@@ -81,7 +67,10 @@ class AnthropicPolicyProtocol(Protocol):
         """
         ...
 
-    async def on_response(self, response: "AnthropicResponse", context: "PolicyContext") -> "AnthropicResponse":
+    @abstractmethod
+    async def on_anthropic_response(
+        self, response: "AnthropicResponse", context: "PolicyContext"
+    ) -> "AnthropicResponse":
         """Process non-streaming response after receiving from Anthropic.
 
         Args:
@@ -93,7 +82,8 @@ class AnthropicPolicyProtocol(Protocol):
         """
         ...
 
-    async def on_stream_event(
+    @abstractmethod
+    async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: "PolicyContext"
     ) -> AnthropicStreamEvent | None:
         """Process a streaming event from Anthropic.
@@ -115,13 +105,6 @@ class AnthropicPolicyProtocol(Protocol):
 
 
 __all__ = [
-    "AnthropicPolicyProtocol",
+    "AnthropicPolicyInterface",
     "AnthropicStreamEvent",
-    # Re-export SDK types for convenience
-    "RawMessageStartEvent",
-    "RawContentBlockStartEvent",
-    "RawContentBlockDeltaEvent",
-    "RawContentBlockStopEvent",
-    "RawMessageDeltaEvent",
-    "RawMessageStopEvent",
 ]

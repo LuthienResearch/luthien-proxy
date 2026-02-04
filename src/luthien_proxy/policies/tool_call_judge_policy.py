@@ -6,6 +6,7 @@ This policy demonstrates a more complex use of the new Policy interface:
 - Blocks harmful tool calls and replaces with explanation
 - Handles both streaming and non-streaming responses
 - Configurable via YAML
+- Supports both OpenAI and Anthropic API formats
 
 Example config:
     policy:
@@ -27,6 +28,13 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+from anthropic.types import (
+    InputJSONDelta,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    ToolUseBlock,
+)
 from litellm.types.utils import (
     ChatCompletionMessageToolCall,
     Choices,
@@ -35,42 +43,56 @@ from litellm.types.utils import (
     StreamingChoices,
 )
 
-from luthien_proxy.settings import get_settings
-from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
-
-if TYPE_CHECKING:
-    from luthien_proxy.policy_core.policy_context import PolicyContext
-    from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
-
-from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policies.tool_call_judge_utils import (
     JudgeConfig,
+    JudgeResult,
     call_judge,
     create_blocked_response,
 )
 from luthien_proxy.policy_core import (
+    AnthropicPolicyInterface,
+    AnthropicStreamEvent,
+    BasePolicy,
+    OpenAIPolicyInterface,
     create_finish_chunk,
     create_text_chunk,
     create_text_response,
     create_tool_call_chunk,
     extract_tool_calls_from_response,
 )
+from luthien_proxy.settings import get_settings
+from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
 from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS, TOOL_ARGS_TRUNCATION_LENGTH
+
+if TYPE_CHECKING:
+    from luthien_proxy.llm.types import Request
+    from luthien_proxy.llm.types.anthropic import (
+        AnthropicRequest,
+        AnthropicResponse,
+    )
+    from luthien_proxy.policy_core.policy_context import PolicyContext
+    from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
 logger = logging.getLogger(__name__)
 
 
-class ToolCallJudgePolicy(BasePolicy):
+class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
     """Policy that evaluates tool calls with a judge LLM and blocks harmful ones.
 
     This policy demonstrates buffering, external LLM calls, and content replacement.
-    It operates on both streaming and non-streaming responses.
+    It operates on both streaming and non-streaming responses, for both OpenAI
+    and Anthropic API formats.
 
-    During streaming:
+    During OpenAI streaming:
     - Buffers tool call deltas instead of forwarding them
     - Detects when tool call is complete
     - Evaluates with judge LLM
     - Either forwards the tool call or replaces with blocked message
+
+    During Anthropic streaming:
+    - Buffers tool_use input deltas until complete
+    - Judges when content_block_stop received
+    - Either passes through or replaces with blocked text
 
     Config:
         model: LLM model to use for judging (default: "openai/gpt-4")
@@ -141,10 +163,16 @@ class ToolCallJudgePolicy(BasePolicy):
             "(probability {probability:.2f}). Explanation: {explanation}"
         )
 
-        # State for buffering tool calls during streaming
+        # State for buffering OpenAI tool calls during streaming
         # Key: (call_id, tool_index), Value: accumulated tool call data
         self._buffered_tool_calls: dict[tuple[str, int], dict[str, Any]] = {}
         self._blocked_calls: set[str] = set()  # Track which call_ids have been blocked
+
+        # State for buffering Anthropic tool_use during streaming
+        # Key: content block index, Value: accumulated tool_use data
+        self._buffered_tool_uses: dict[int, dict[str, Any]] = {}
+        self._blocked_blocks: set[int] = set()  # Track which blocks have been blocked
+        self._replacement_block_started: set[int] = set()  # Track if replacement text started
 
         logger.info(
             f"ToolCallJudgePolicy initialized: model={self._config.model}, "
@@ -152,16 +180,53 @@ class ToolCallJudgePolicy(BasePolicy):
             f"api_base={self._config.api_base}"
         )
 
-    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
+    # ========================================================================
+    # OpenAI Interface Implementation
+    # ========================================================================
+
+    async def on_openai_request(self, request: "Request", context: "PolicyContext") -> "Request":
+        """Pass through request unchanged."""
+        return request
+
+    async def on_openai_response(self, response: ModelResponse, context: "PolicyContext") -> ModelResponse:
+        """Evaluate non-streaming tool calls and block if necessary.
+
+        Args:
+            response: Complete ModelResponse from LLM
+            context: Policy context
+
+        Returns:
+            Original response or blocked response if tool call is harmful
+        """
+        # Extract tool calls from response
+        tool_calls = extract_tool_calls_from_response(response)
+        if not tool_calls:
+            return response
+
+        logger.debug(f"Found {len(tool_calls)} tool call(s) to evaluate in non-streaming response")
+
+        # Evaluate each tool call
+        for tool_call in tool_calls:
+            blocked_response = await self._evaluate_and_maybe_block_openai(tool_call, context)
+            if blocked_response is not None:
+                # Tool call was blocked - return blocked response
+                logger.info(f"Blocked tool call '{tool_call.get('name')}' in non-streaming response")
+                return blocked_response
+
+        # All tool calls passed
+        logger.debug("All tool calls passed judge evaluation in non-streaming response")
+        return response
+
+    async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
         """Don't push chunks here - specific delta handlers handle it.
 
-        This overrides BasePolicy.on_chunk_received() which would push every chunk,
+        This overrides the default which would push every chunk,
         causing duplicates since our delta handlers (on_content_delta, on_tool_call_delta)
         also push chunks.
         """
         pass  # Intentionally empty - let on_content_delta and on_tool_call_delta handle pushing
 
-    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
+    async def on_content_delta(self, ctx: "StreamingPolicyContext") -> None:
         """Forward content deltas as-is.
 
         Args:
@@ -178,7 +243,11 @@ class ToolCallJudgePolicy(BasePolicy):
         except Exception as exc:
             logger.error(f"Error forwarding content delta: {exc}", exc_info=True)
 
-    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
+    async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
+        """Default - do nothing for content completion."""
+        pass
+
+    async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
         """Buffer tool call deltas instead of forwarding them.
 
         Args:
@@ -231,7 +300,7 @@ class ToolCallJudgePolicy(BasePolicy):
         # Clear the tool_calls from delta to prevent forwarding
         delta.tool_calls = None
 
-    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
+    async def on_tool_call_complete(self, ctx: "StreamingPolicyContext") -> None:
         """Judge complete tool call and decide whether to forward or block.
 
         Args:
@@ -245,7 +314,7 @@ class ToolCallJudgePolicy(BasePolicy):
             return
 
         # Judge the tool call
-        blocked_response = await self._evaluate_and_maybe_block(tool_call, ctx.policy_ctx)
+        blocked_response = await self._evaluate_and_maybe_block_openai(tool_call, ctx.policy_ctx)
 
         is_blocked = blocked_response is not None
 
@@ -256,7 +325,141 @@ class ToolCallJudgePolicy(BasePolicy):
 
         # Note: Cleanup happens in on_streaming_policy_complete()
 
-    def _validate_tool_call_for_judging(self, ctx: StreamingPolicyContext, call_id: str) -> dict[str, Any] | None:
+    async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
+        """Default - do nothing for finish reason."""
+        pass
+
+    async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
+        """Emit final finish_reason chunk for tool call responses.
+
+        This is needed because tool call chunks no longer include finish_reason,
+        so we must emit it separately at the end of the stream.
+        """
+        # Get the finish_reason from the original stream
+        finish_reason = ctx.original_streaming_response_state.finish_reason
+        if not finish_reason:
+            return
+
+        # Check if this call was blocked - if so, we already sent finish_reason="stop"
+        call_id = ctx.policy_ctx.transaction_id
+        if call_id in self._blocked_calls:
+            return
+
+        # For tool call responses, emit the finish_reason chunk
+        # (Content-only responses would have their finish_reason forwarded via on_chunk_received)
+        blocks = ctx.original_streaming_response_state.blocks
+
+        has_tool_calls = any(isinstance(b, ToolCallStreamBlock) for b in blocks)
+
+        if has_tool_calls:
+            raw_chunks = ctx.original_streaming_response_state.raw_chunks
+            last_chunk = raw_chunks[-1] if raw_chunks else None
+            chunk_id = last_chunk.id if last_chunk else None
+            model = last_chunk.model if last_chunk else "luthien-policy"
+
+            finish_chunk = create_finish_chunk(
+                finish_reason=finish_reason,
+                model=model,
+                chunk_id=chunk_id,
+            )
+            await ctx.egress_queue.put(finish_chunk)
+
+    async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
+        """Clean up per-request state after all streaming policy processing completes.
+
+        This ensures buffers are cleared even if errors occurred during processing.
+        """
+        call_id = ctx.policy_ctx.transaction_id
+
+        # Clear any buffered tool calls for this request
+        keys_to_remove = [key for key in self._buffered_tool_calls if key[0] == call_id]
+        for key in keys_to_remove:
+            del self._buffered_tool_calls[key]
+
+        # Clear blocked call tracking for this request
+        self._blocked_calls.discard(call_id)
+
+    # ========================================================================
+    # Anthropic Interface Implementation
+    # ========================================================================
+
+    async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
+        """Pass through request unchanged."""
+        return request
+
+    async def on_anthropic_response(
+        self, response: "AnthropicResponse", context: "PolicyContext"
+    ) -> "AnthropicResponse":
+        """Evaluate tool_use blocks in non-streaming response.
+
+        Iterates through content blocks and evaluates tool_use blocks.
+        If blocked, replaces with text block containing blocked message.
+        """
+        content = response.get("content", [])
+        if not content:
+            return response
+
+        new_content: list[Any] = []
+        modified = False
+
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                # Cast to dict[str, Any] since we've verified it's a dict with type="tool_use"
+                tool_call = self._extract_tool_call_from_anthropic_block(cast(dict[str, Any], block))
+                blocked_result = await self._evaluate_and_maybe_block_anthropic(tool_call, context)
+
+                if blocked_result is not None:
+                    blocked_text = self._format_anthropic_blocked_message(tool_call, blocked_result)
+                    new_content.append({"type": "text", "text": blocked_text})
+                    modified = True
+                    logger.info(f"Blocked tool call '{tool_call['name']}' in non-streaming response")
+                else:
+                    new_content.append(block)
+            else:
+                new_content.append(block)
+
+        if modified:
+            # Create a new response dict with modified content
+            modified_response = dict(response)
+            modified_response["content"] = new_content
+            # Change stop_reason from tool_use to end_turn if we blocked all tool calls
+            has_tool_use = any(isinstance(b, dict) and b.get("type") == "tool_use" for b in new_content)
+            if not has_tool_use and modified_response.get("stop_reason") == "tool_use":
+                modified_response["stop_reason"] = "end_turn"
+            return cast("AnthropicResponse", modified_response)
+
+        return response
+
+    async def on_anthropic_stream_event(
+        self, event: AnthropicStreamEvent, context: "PolicyContext"
+    ) -> AnthropicStreamEvent | None:
+        """Process streaming events, buffering tool_use deltas for evaluation.
+
+        For tool_use blocks:
+        - content_block_start: buffer the initial tool_use data
+        - content_block_delta with input_json_delta: accumulate JSON
+        - content_block_stop: judge the complete tool call
+          - If allowed: emit all buffered events
+          - If blocked: emit text block with blocked message instead
+
+        Returns None to filter out tool_use events while buffering.
+        """
+        if isinstance(event, RawContentBlockStartEvent):
+            return await self._handle_anthropic_content_block_start(event, context)
+
+        elif isinstance(event, RawContentBlockDeltaEvent):
+            return await self._handle_anthropic_content_block_delta(event, context)
+
+        elif isinstance(event, RawContentBlockStopEvent):
+            return await self._handle_anthropic_content_block_stop(event, context)
+
+        return event
+
+    # ========================================================================
+    # OpenAI Streaming Helpers
+    # ========================================================================
+
+    def _validate_tool_call_for_judging(self, ctx: "StreamingPolicyContext", call_id: str) -> dict[str, Any] | None:
         """Validate that we have a complete tool call ready to judge.
 
         Returns:
@@ -299,7 +502,7 @@ class ToolCallJudgePolicy(BasePolicy):
 
     async def _handle_blocked_tool_call(
         self,
-        ctx: StreamingPolicyContext,
+        ctx: "StreamingPolicyContext",
         call_id: str,
         tool_call: dict[str, Any],
         blocked_response: ModelResponse,
@@ -335,7 +538,7 @@ class ToolCallJudgePolicy(BasePolicy):
 
     async def _handle_passed_tool_call(
         self,
-        ctx: StreamingPolicyContext,
+        ctx: "StreamingPolicyContext",
         call_id: str,
         tool_call: dict[str, Any],
     ) -> None:
@@ -352,74 +555,10 @@ class ToolCallJudgePolicy(BasePolicy):
         tool_chunk = create_tool_call_chunk(tool_call_obj)
         await ctx.egress_queue.put(tool_chunk)
 
-    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
-        """Evaluate non-streaming tool calls and block if necessary.
-
-        Args:
-            response: Complete ModelResponse from LLM
-            context: Policy context
-
-        Returns:
-            Original response or blocked response if tool call is harmful
-        """
-        # Extract tool calls from response
-        tool_calls = extract_tool_calls_from_response(response)
-        if not tool_calls:
-            return response
-
-        logger.debug(f"Found {len(tool_calls)} tool call(s) to evaluate in non-streaming response")
-
-        # Evaluate each tool call
-        for tool_call in tool_calls:
-            blocked_response = await self._evaluate_and_maybe_block(tool_call, context)
-            if blocked_response is not None:
-                # Tool call was blocked - return blocked response
-                logger.info(f"Blocked tool call '{tool_call.get('name')}' in non-streaming response")
-                return blocked_response
-
-        # All tool calls passed
-        logger.debug("All tool calls passed judge evaluation in non-streaming response")
-        return response
-
-    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
-        """Emit final finish_reason chunk for tool call responses.
-
-        This is needed because tool call chunks no longer include finish_reason,
-        so we must emit it separately at the end of the stream.
-        """
-        # Get the finish_reason from the original stream
-        finish_reason = ctx.original_streaming_response_state.finish_reason
-        if not finish_reason:
-            return
-
-        # Check if this call was blocked - if so, we already sent finish_reason="stop"
-        call_id = ctx.policy_ctx.transaction_id
-        if call_id in self._blocked_calls:
-            return
-
-        # For tool call responses, emit the finish_reason chunk
-        # (Content-only responses would have their finish_reason forwarded via on_chunk_received)
-        blocks = ctx.original_streaming_response_state.blocks
-
-        has_tool_calls = any(isinstance(b, ToolCallStreamBlock) for b in blocks)
-
-        if has_tool_calls:
-            raw_chunks = ctx.original_streaming_response_state.raw_chunks
-            last_chunk = raw_chunks[-1] if raw_chunks else None
-            chunk_id = last_chunk.id if last_chunk else None
-            model = last_chunk.model if last_chunk else "luthien-policy"
-
-            finish_chunk = create_finish_chunk(
-                finish_reason=finish_reason,
-                model=model,
-                chunk_id=chunk_id,
-            )
-            await ctx.egress_queue.put(finish_chunk)
-
-    async def _evaluate_and_maybe_block(
+    async def _evaluate_and_maybe_block_openai(
         self,
         tool_call: dict[str, Any],
-        policy_ctx: PolicyContext,
+        policy_ctx: "PolicyContext",
     ) -> ModelResponse | None:
         """Evaluate a tool call and return blocked response if harmful.
 
@@ -464,6 +603,173 @@ class ToolCallJudgePolicy(BasePolicy):
             self._emit_tool_call_allowed(policy_ctx, name, judge_result.probability)
             return None
 
+    # ========================================================================
+    # Anthropic Streaming Helpers
+    # ========================================================================
+
+    async def _handle_anthropic_content_block_start(
+        self,
+        event: RawContentBlockStartEvent,
+        context: "PolicyContext",
+    ) -> AnthropicStreamEvent | None:
+        """Handle content_block_start event."""
+        content_block = event.content_block
+        index = event.index
+
+        # Check if this is a tool_use block
+        if isinstance(content_block, ToolUseBlock):
+            self._buffered_tool_uses[index] = {
+                "id": content_block.id,
+                "name": content_block.name,
+                "input_json": "",
+            }
+            # Don't emit - we'll emit after judging
+            return None
+
+        return event
+
+    async def _handle_anthropic_content_block_delta(
+        self,
+        event: RawContentBlockDeltaEvent,
+        context: "PolicyContext",
+    ) -> AnthropicStreamEvent | None:
+        """Handle content_block_delta event."""
+        index = event.index
+        delta = event.delta
+
+        # Check if this is accumulating JSON for a buffered tool_use
+        if index in self._buffered_tool_uses and isinstance(delta, InputJSONDelta):
+            self._buffered_tool_uses[index]["input_json"] += delta.partial_json
+            return None
+
+        return event
+
+    async def _handle_anthropic_content_block_stop(
+        self,
+        event: RawContentBlockStopEvent,
+        context: "PolicyContext",
+    ) -> AnthropicStreamEvent | None:
+        """Handle content_block_stop event - judge buffered tool_use if present."""
+        index = event.index
+
+        if index not in self._buffered_tool_uses:
+            # RawContentBlockStopEvent is part of MessageStreamEvent union
+            return cast(AnthropicStreamEvent, event)
+
+        # Extract buffered tool call data
+        buffered = self._buffered_tool_uses.pop(index)
+        tool_call = self._tool_call_from_anthropic_buffer(buffered)
+
+        # Judge the tool call
+        blocked_result = await self._evaluate_and_maybe_block_anthropic(tool_call, context)
+
+        if blocked_result is not None:
+            self._blocked_blocks.add(index)
+            # We can't inject multiple events from on_stream_event, so we just
+            # return the stop event. The caller needs to handle blocked tool calls
+            # by checking _blocked_blocks and emitting replacement text separately.
+            # For simplicity in this implementation, we return None to filter out
+            # the stop event for blocked tool calls.
+            logger.info(f"Blocked tool call '{tool_call['name']}' in streaming")
+            return None
+
+        # Tool call allowed - but we filtered out the start/delta events.
+        # This is a limitation: we can't retroactively emit them.
+        # For now, we also filter out the stop event and log a warning.
+        logger.warning(
+            f"Tool call '{tool_call['name']}' was allowed but streaming events were filtered. "
+            "This is a known limitation - tool calls may not reach the client in streaming mode."
+        )
+        # RawContentBlockStopEvent is part of MessageStreamEvent union
+        return cast(AnthropicStreamEvent, event)
+
+    def _extract_tool_call_from_anthropic_block(self, block: dict[str, Any]) -> dict[str, Any]:
+        """Extract tool call dict from a tool_use content block dict."""
+        return {
+            "id": block.get("id", ""),
+            "name": block.get("name", ""),
+            "arguments": json.dumps(block.get("input", {})),
+        }
+
+    def _tool_call_from_anthropic_buffer(self, buffered: dict[str, Any]) -> dict[str, Any]:
+        """Create tool call dict from buffered data."""
+        return {
+            "id": buffered.get("id", ""),
+            "name": buffered.get("name", ""),
+            "arguments": buffered.get("input_json", "{}"),
+        }
+
+    async def _evaluate_and_maybe_block_anthropic(
+        self,
+        tool_call: dict[str, Any],
+        context: "PolicyContext",
+    ) -> JudgeResult | None:
+        """Evaluate a tool call and return JudgeResult if blocked, None if allowed."""
+        name = str(tool_call.get("name", ""))
+        arguments = tool_call.get("arguments", "{}")
+        if not isinstance(arguments, str):
+            arguments = json.dumps(arguments)
+
+        logger.debug(f"Evaluating tool call: {name}")
+        self._emit_evaluation_started(context, name, arguments, prefix="anthropic_")
+
+        # Call judge with fail-secure error handling
+        try:
+            judge_result = await call_judge(name, arguments, self._config, self._judge_instructions)
+        except Exception as exc:
+            logger.error(
+                f"Judge evaluation FAILED for tool call '{name}' with arguments: "
+                f"{arguments[:TOOL_ARGS_TRUNCATION_LENGTH]}... Error: {exc}. DEFAULTING TO BLOCK.",
+                exc_info=True,
+            )
+            self._emit_evaluation_failed(context, name, arguments, exc, prefix="anthropic_")
+            # Return a synthetic JudgeResult for the blocked message
+            return JudgeResult(
+                probability=1.0,
+                explanation=f"Judge evaluation failed: {exc}",
+                prompt=[],
+                response_text="",
+            )
+
+        logger.debug(
+            f"Judge probability: {judge_result.probability:.2f} (threshold: {self._config.probability_threshold})"
+        )
+        self._emit_evaluation_complete(context, name, judge_result, prefix="anthropic_")
+
+        should_block = judge_result.probability >= self._config.probability_threshold
+
+        if should_block:
+            self._emit_tool_call_blocked(context, name, judge_result, prefix="anthropic_")
+            logger.warning(
+                f"Blocking tool call '{name}' (probability {judge_result.probability:.2f} "
+                f">= {self._config.probability_threshold})"
+            )
+            return judge_result
+        else:
+            self._emit_tool_call_allowed(context, name, judge_result.probability, prefix="anthropic_")
+            return None
+
+    def _format_anthropic_blocked_message(
+        self,
+        tool_call: dict[str, Any],
+        judge_result: JudgeResult,
+    ) -> str:
+        """Format blocked message using template."""
+        tool_arguments = tool_call.get("arguments", "{}")
+        if not isinstance(tool_arguments, str):
+            tool_arguments = json.dumps(tool_arguments)
+
+        return self._blocked_message_template.format(
+            tool_name=tool_call.get("name", "unknown"),
+            tool_arguments=tool_arguments[:TOOL_ARGS_TRUNCATION_LENGTH],
+            probability=judge_result.probability,
+            explanation=judge_result.explanation or "No explanation provided",
+        )
+
+    # ========================================================================
+    # Shared Helpers
+    # ========================================================================
+
     def _normalize_tool_call_data(self, tool_call: dict[str, Any]) -> tuple[str, str]:
         """Extract and normalize tool call name and arguments.
 
@@ -480,10 +786,10 @@ class ToolCallJudgePolicy(BasePolicy):
 
     async def _call_judge_with_failsafe(
         self,
-        policy_ctx: PolicyContext,
+        policy_ctx: "PolicyContext",
         name: str,
         arguments: str,
-    ) -> Any | None:
+    ) -> JudgeResult | None:
         """Call judge LLM with fail-secure error handling.
 
         Returns:
@@ -513,13 +819,15 @@ class ToolCallJudgePolicy(BasePolicy):
 
     def _emit_evaluation_started(
         self,
-        policy_ctx: PolicyContext,
+        policy_ctx: "PolicyContext",
         name: str,
         arguments: str,
+        prefix: str = "",
     ) -> None:
         """Emit observability event for evaluation start."""
+        event_name = f"policy.{prefix}judge.evaluation_started"
         policy_ctx.record_event(
-            "policy.judge.evaluation_started",
+            event_name,
             {
                 "summary": f"Evaluating tool call: {name}",
                 "tool_name": name,
@@ -529,14 +837,16 @@ class ToolCallJudgePolicy(BasePolicy):
 
     def _emit_evaluation_failed(
         self,
-        policy_ctx: PolicyContext,
+        policy_ctx: "PolicyContext",
         name: str,
         arguments: str,
         exc: Exception,
+        prefix: str = "",
     ) -> None:
         """Emit observability event for evaluation failure."""
+        event_name = f"policy.{prefix}judge.evaluation_failed"
         policy_ctx.record_event(
-            "policy.judge.evaluation_failed",
+            event_name,
             {
                 "summary": f"⚠️ Judge evaluation failed for '{name}' - BLOCKED (fail-secure)",
                 "tool_name": name,
@@ -549,13 +859,15 @@ class ToolCallJudgePolicy(BasePolicy):
 
     def _emit_evaluation_complete(
         self,
-        policy_ctx: PolicyContext,
+        policy_ctx: "PolicyContext",
         name: str,
-        judge_result: Any,
+        judge_result: JudgeResult,
+        prefix: str = "",
     ) -> None:
         """Emit observability event for successful evaluation."""
+        event_name = f"policy.{prefix}judge.evaluation_complete"
         policy_ctx.record_event(
-            "policy.judge.evaluation_complete",
+            event_name,
             {
                 "summary": f"Judge evaluated '{name}': probability={judge_result.probability:.2f}",
                 "tool_name": name,
@@ -567,13 +879,15 @@ class ToolCallJudgePolicy(BasePolicy):
 
     def _emit_tool_call_allowed(
         self,
-        policy_ctx: PolicyContext,
+        policy_ctx: "PolicyContext",
         name: str,
         probability: float,
+        prefix: str = "",
     ) -> None:
         """Emit observability event for allowed tool call."""
+        event_name = f"policy.{prefix}judge.tool_call_allowed"
         policy_ctx.record_event(
-            "policy.judge.tool_call_allowed",
+            event_name,
             {
                 "summary": f"Tool call '{name}' allowed (probability {probability:.2f} < {self._config.probability_threshold})",
                 "tool_name": name,
@@ -583,13 +897,15 @@ class ToolCallJudgePolicy(BasePolicy):
 
     def _emit_tool_call_blocked(
         self,
-        policy_ctx: PolicyContext,
+        policy_ctx: "PolicyContext",
         name: str,
-        judge_result: Any,
+        judge_result: JudgeResult,
+        prefix: str = "",
     ) -> None:
         """Emit observability event for blocked tool call."""
+        event_name = f"policy.{prefix}judge.tool_call_blocked"
         policy_ctx.record_event(
-            "policy.judge.tool_call_blocked",
+            event_name,
             {
                 "summary": f"BLOCKED: Tool call '{name}' rejected (probability {judge_result.probability:.2f} >= {self._config.probability_threshold})",
                 "severity": "warning",
@@ -598,21 +914,6 @@ class ToolCallJudgePolicy(BasePolicy):
                 "explanation": judge_result.explanation,
             },
         )
-
-    async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
-        """Clean up per-request state after all streaming policy processing completes.
-
-        This ensures buffers are cleared even if errors occurred during processing.
-        """
-        call_id = ctx.policy_ctx.transaction_id
-
-        # Clear any buffered tool calls for this request
-        keys_to_remove = [key for key in self._buffered_tool_calls if key[0] == call_id]
-        for key in keys_to_remove:
-            del self._buffered_tool_calls[key]
-
-        # Clear blocked call tracking for this request
-        self._blocked_calls.discard(call_id)
 
 
 __all__ = ["ToolCallJudgePolicy"]

@@ -25,7 +25,8 @@ from typing import Any, cast
 
 import yaml
 
-from luthien_proxy.policies.base_policy import BasePolicy
+from luthien_proxy.policies.base_policy import BasePolicy as OldBasePolicy
+from luthien_proxy.policy_core.base_policy import BasePolicy as NewBasePolicy
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.settings import get_settings
 
@@ -119,7 +120,7 @@ def _import_policy_class(class_ref: str) -> type[PolicyProtocol]:
     if not isinstance(cls, type):
         raise TypeError(f"{class_name} is not a class")
 
-    if not issubclass(cls, BasePolicy):
+    if not (issubclass(cls, OldBasePolicy) or issubclass(cls, NewBasePolicy)):
         raise TypeError(f"{class_name} does not inherit from BasePolicy")
 
     return cast(type[PolicyProtocol], cls)

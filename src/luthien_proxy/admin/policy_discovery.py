@@ -14,7 +14,8 @@ import types
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
 import luthien_proxy.policies as policies_package
-from luthien_proxy.policies.base_policy import BasePolicy
+from luthien_proxy.policies.base_policy import BasePolicy as OldBasePolicy
+from luthien_proxy.policy_core.base_policy import BasePolicy as NewBasePolicy
 
 logger = logging.getLogger(__name__)
 
@@ -222,8 +223,10 @@ def discover_policies() -> list[dict[str, Any]]:
             if attr.__module__ != f"luthien_proxy.policies.{module_name}":
                 continue
 
-            # Check if it's a subclass of BasePolicy (but not BasePolicy itself)
-            if not issubclass(attr, BasePolicy) or attr is BasePolicy:
+            # Check if it's a subclass of either BasePolicy (but not BasePolicy itself)
+            is_old_base = issubclass(attr, OldBasePolicy) and attr is not OldBasePolicy
+            is_new_base = issubclass(attr, NewBasePolicy) and attr is not NewBasePolicy
+            if not (is_old_base or is_new_base):
                 continue
 
             # Skip base classes meant to be subclassed

@@ -25,7 +25,10 @@ from anthropic.types import (
     TextDelta,
 )
 
-from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol, AnthropicStreamEvent
+from luthien_proxy.policy_core.anthropic_interface import (
+    AnthropicPolicyInterface,
+    AnthropicStreamEvent,
+)
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.anthropic_executor import AnthropicStreamExecutor
 
@@ -104,24 +107,26 @@ def policy_ctx() -> PolicyContext:
 # =============================================================================
 
 
-class PassthroughPolicy:
+class PassthroughPolicy(AnthropicPolicyInterface):
     """Policy that passes all events through unchanged."""
 
     @property
     def short_policy_name(self) -> str:
         return "Passthrough"
 
-    async def on_request(self, request: Any, context: PolicyContext) -> Any:
+    async def on_anthropic_request(self, request: Any, context: PolicyContext) -> Any:
         return request
 
-    async def on_response(self, response: Any, context: PolicyContext) -> Any:
+    async def on_anthropic_response(self, response: Any, context: PolicyContext) -> Any:
         return response
 
-    async def on_stream_event(self, event: AnthropicStreamEvent, context: PolicyContext) -> AnthropicStreamEvent | None:
+    async def on_anthropic_stream_event(
+        self, event: AnthropicStreamEvent, context: PolicyContext
+    ) -> AnthropicStreamEvent | None:
         return event
 
 
-class FilteringPolicy:
+class FilteringPolicy(AnthropicPolicyInterface):
     """Policy that filters out events containing specific text."""
 
     def __init__(self, filter_text: str = "secret"):
@@ -131,13 +136,15 @@ class FilteringPolicy:
     def short_policy_name(self) -> str:
         return "Filtering"
 
-    async def on_request(self, request: Any, context: PolicyContext) -> Any:
+    async def on_anthropic_request(self, request: Any, context: PolicyContext) -> Any:
         return request
 
-    async def on_response(self, response: Any, context: PolicyContext) -> Any:
+    async def on_anthropic_response(self, response: Any, context: PolicyContext) -> Any:
         return response
 
-    async def on_stream_event(self, event: AnthropicStreamEvent, context: PolicyContext) -> AnthropicStreamEvent | None:
+    async def on_anthropic_stream_event(
+        self, event: AnthropicStreamEvent, context: PolicyContext
+    ) -> AnthropicStreamEvent | None:
         if isinstance(event, RawContentBlockDeltaEvent):
             if isinstance(event.delta, TextDelta):
                 text = event.delta.text
@@ -146,27 +153,29 @@ class FilteringPolicy:
         return event
 
 
-class TransformingPolicy:
+class TransformingPolicy(AnthropicPolicyInterface):
     """Policy that transforms text deltas to uppercase."""
 
     @property
     def short_policy_name(self) -> str:
         return "Transforming"
 
-    async def on_request(self, request: Any, context: PolicyContext) -> Any:
+    async def on_anthropic_request(self, request: Any, context: PolicyContext) -> Any:
         return request
 
-    async def on_response(self, response: Any, context: PolicyContext) -> Any:
+    async def on_anthropic_response(self, response: Any, context: PolicyContext) -> Any:
         return response
 
-    async def on_stream_event(self, event: AnthropicStreamEvent, context: PolicyContext) -> AnthropicStreamEvent | None:
+    async def on_anthropic_stream_event(
+        self, event: AnthropicStreamEvent, context: PolicyContext
+    ) -> AnthropicStreamEvent | None:
         if isinstance(event, RawContentBlockDeltaEvent):
             if isinstance(event.delta, TextDelta):
                 event.delta.text = event.delta.text.upper()
         return event
 
 
-class ErrorThrowingPolicy:
+class ErrorThrowingPolicy(AnthropicPolicyInterface):
     """Policy that throws an error on specific events."""
 
     def __init__(self, error_on_text: str = "error"):
@@ -176,13 +185,15 @@ class ErrorThrowingPolicy:
     def short_policy_name(self) -> str:
         return "ErrorThrowing"
 
-    async def on_request(self, request: Any, context: PolicyContext) -> Any:
+    async def on_anthropic_request(self, request: Any, context: PolicyContext) -> Any:
         return request
 
-    async def on_response(self, response: Any, context: PolicyContext) -> Any:
+    async def on_anthropic_response(self, response: Any, context: PolicyContext) -> Any:
         return response
 
-    async def on_stream_event(self, event: AnthropicStreamEvent, context: PolicyContext) -> AnthropicStreamEvent | None:
+    async def on_anthropic_stream_event(
+        self, event: AnthropicStreamEvent, context: PolicyContext
+    ) -> AnthropicStreamEvent | None:
         if isinstance(event, RawContentBlockDeltaEvent):
             if isinstance(event.delta, TextDelta):
                 text = event.delta.text
@@ -425,7 +436,7 @@ class TestAnthropicStreamExecutorErrorHandling:
         assert delta2.delta.text == "World"
 
         # Check that the error was logged
-        assert "Error in policy on_stream_event" in caplog.text
+        assert "Error in policy on_anthropic_stream_event" in caplog.text
 
     @pytest.mark.asyncio
     async def test_policy_error_on_first_event(self, policy_ctx: PolicyContext, caplog):
@@ -471,13 +482,13 @@ class TestAnthropicStreamExecutorProtocolCompliance:
             def short_policy_name(self) -> str:
                 return "ContextTracking"
 
-            async def on_request(self, request: Any, context: PolicyContext) -> Any:
+            async def on_anthropic_request(self, request: Any, context: PolicyContext) -> Any:
                 return request
 
-            async def on_response(self, response: Any, context: PolicyContext) -> Any:
+            async def on_anthropic_response(self, response: Any, context: PolicyContext) -> Any:
                 return response
 
-            async def on_stream_event(
+            async def on_anthropic_stream_event(
                 self, event: AnthropicStreamEvent, context: PolicyContext
             ) -> AnthropicStreamEvent | None:
                 self.received_contexts.append(context)
@@ -495,20 +506,23 @@ class TestAnthropicStreamExecutorProtocolCompliance:
         assert len(policy.received_contexts) == 1
         assert policy.received_contexts[0] is policy_ctx
 
-    @pytest.mark.asyncio
-    async def test_passthrough_policy_implements_protocol(self):
-        """Test that our test policies implement the protocol."""
+    def test_passthrough_policy_has_required_methods(self):
+        """Test that our test policies have the required methods."""
         policy = PassthroughPolicy()
-        assert isinstance(policy, AnthropicPolicyProtocol)
+        assert hasattr(policy, "on_anthropic_stream_event")
+        assert hasattr(policy, "on_anthropic_request")
+        assert hasattr(policy, "on_anthropic_response")
 
-    @pytest.mark.asyncio
-    async def test_filtering_policy_implements_protocol(self):
-        """Test that filtering policy implements the protocol."""
+    def test_filtering_policy_has_required_methods(self):
+        """Test that filtering policy has the required methods."""
         policy = FilteringPolicy()
-        assert isinstance(policy, AnthropicPolicyProtocol)
+        assert hasattr(policy, "on_anthropic_stream_event")
+        assert hasattr(policy, "on_anthropic_request")
+        assert hasattr(policy, "on_anthropic_response")
 
-    @pytest.mark.asyncio
-    async def test_transforming_policy_implements_protocol(self):
-        """Test that transforming policy implements the protocol."""
+    def test_transforming_policy_has_required_methods(self):
+        """Test that transforming policy has the required methods."""
         policy = TransformingPolicy()
-        assert isinstance(policy, AnthropicPolicyProtocol)
+        assert hasattr(policy, "on_anthropic_stream_event")
+        assert hasattr(policy, "on_anthropic_request")
+        assert hasattr(policy, "on_anthropic_response")

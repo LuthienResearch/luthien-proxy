@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, Request
 from redis.asyncio import Redis
@@ -14,13 +13,11 @@ from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
-from luthien_proxy.policies.anthropic.noop import AnthropicNoOpPolicy
-from luthien_proxy.policy_core.anthropic_protocol import AnthropicPolicyProtocol
+from luthien_proxy.policies.noop_policy import NoOpPolicy
+from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
+from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.utils import db
-
-if TYPE_CHECKING:
-    from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 
 
 @dataclass
@@ -40,7 +37,7 @@ class Dependencies:
     api_key: str
     admin_key: str | None
     anthropic_client: AnthropicClient | None = field(default=None)
-    anthropic_policy: AnthropicPolicyProtocol | None = field(default=None)
+    anthropic_policy: AnthropicPolicyInterface | None = field(default=None)
 
     @cached_property
     def event_publisher(self) -> RedisEventPublisher | None:
@@ -54,9 +51,9 @@ class Dependencies:
         return RedisEventPublisher(self.redis_client)
 
     @property
-    def policy(self) -> PolicyProtocol:
+    def policy(self) -> OpenAIPolicyInterface:
         """Get current active policy from policy manager."""
-        return self.policy_manager.current_policy
+        return self.policy_manager.current_policy  # type: ignore[return-value]
 
     def get_anthropic_client(self) -> AnthropicClient:
         """Get or create the Anthropic client.
@@ -79,17 +76,17 @@ class Dependencies:
         self.anthropic_client = AnthropicClient(api_key=api_key)
         return self.anthropic_client
 
-    def get_anthropic_policy(self) -> AnthropicPolicyProtocol:
+    def get_anthropic_policy(self) -> AnthropicPolicyInterface:
         """Get the current Anthropic policy.
 
-        For now, returns a hardcoded AnthropicNoOpPolicy.
+        For now, returns a hardcoded NoOpPolicy.
         Future: will integrate with policy config system.
         """
         if self.anthropic_policy is not None:
             return self.anthropic_policy
 
         # Default to NoOp policy for now
-        self.anthropic_policy = AnthropicNoOpPolicy()
+        self.anthropic_policy = NoOpPolicy()
         return self.anthropic_policy
 
 
@@ -178,7 +175,7 @@ def get_emitter(request: Request) -> EventEmitterProtocol:
     return get_dependencies(request).emitter
 
 
-def get_policy(request: Request) -> PolicyProtocol:
+def get_policy(request: Request) -> OpenAIPolicyInterface:
     """Get current policy from dependencies.
 
     Args:
@@ -243,7 +240,7 @@ def get_anthropic_client(request: Request) -> AnthropicClient:
     return get_dependencies(request).get_anthropic_client()
 
 
-def get_anthropic_policy(request: Request) -> AnthropicPolicyProtocol:
+def get_anthropic_policy(request: Request) -> AnthropicPolicyInterface:
     """Get current Anthropic policy from dependencies.
 
     Args:

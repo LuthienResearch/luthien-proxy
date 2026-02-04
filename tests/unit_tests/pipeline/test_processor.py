@@ -17,7 +17,47 @@ from luthien_proxy.pipeline.processor import (
     _process_request,
     process_llm_request,
 )
+from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
+from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
+
+
+class MockOpenAIPolicy(OpenAIPolicyInterface):
+    """Mock policy implementing OpenAIPolicyInterface for testing."""
+
+    @property
+    def short_policy_name(self) -> str:
+        return "MockOpenAI"
+
+    async def on_openai_request(self, request, context):
+        return request
+
+    async def on_openai_response(self, response, context):
+        return response
+
+    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_content_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_finish_reason(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
 
 
 class TestGetClientFormatter:
@@ -285,11 +325,8 @@ class TestProcessLlmRequest:
 
     @pytest.fixture
     def mock_policy(self):
-        """Create a mock policy."""
-        policy = MagicMock()
-        policy.on_request = AsyncMock(side_effect=lambda req, ctx: req)
-        policy.on_response = AsyncMock(side_effect=lambda resp, ctx: resp)
-        return policy
+        """Create a mock policy implementing OpenAIPolicyInterface."""
+        return MockOpenAIPolicy()
 
     @pytest.fixture
     def mock_llm_client(self):
@@ -342,7 +379,6 @@ class TestProcessLlmRequest:
 
         assert isinstance(response, JSONResponse)
         mock_llm_client.complete.assert_called_once()
-        mock_policy.on_request.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_streaming_request_returns_streaming_response(

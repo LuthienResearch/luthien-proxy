@@ -2,6 +2,14 @@
 
 ## Unreleased | TBA
 
+- Refactor policies to use platform-specific interfaces (split-apis)
+  - Add `BasePolicy`, `OpenAIPolicyInterface`, `AnthropicPolicyInterface` ABCs
+  - Unified policies implement both OpenAI and Anthropic interfaces
+  - Rename hooks to `on_openai_*` and `on_anthropic_*` for clarity
+  - Processors use `isinstance` checks for interface dispatch
+  - Delete `policies/anthropic/` directory - all policies now in main `policies/`
+  - Delete deprecated `AnthropicPolicyProtocol`
+
 - Fix StringReplacementPolicy dropping finish_reason causing blank responses in Claude Code
   - Content and finish_reason must be emitted as separate chunks
   - SSE assembler's `convert_chunk_to_event()` returns early on content, ignoring finish_reason

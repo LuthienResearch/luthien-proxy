@@ -25,8 +25,8 @@ class TestPolicyProtocolShortName:
         policy = NoOpPolicy()
         assert hasattr(policy, "short_policy_name")
         assert isinstance(policy.short_policy_name, str)
-        # NoOpPolicy inherits from BasePolicy, so it should have class name
-        assert policy.short_policy_name == "NoOpPolicy"
+        # NoOpPolicy overrides to return a short name
+        assert policy.short_policy_name == "NoOp"
 
     def test_all_caps_policy_has_short_name(self):
         """Test that AllCapsPolicy has short_policy_name property."""
