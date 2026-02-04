@@ -107,6 +107,25 @@ class TestAnthropicClientInit:
         """Test client initialization with defaults."""
         client = AnthropicClient(api_key="test-key")
         assert client._base_url is None
+        assert client._client is None
+
+    def test_client_caching(self):
+        """Test that _get_client returns the same instance on repeated calls."""
+        client = AnthropicClient(api_key="test-key")
+
+        first_call = client._get_client()
+        second_call = client._get_client()
+
+        assert first_call is second_call
+        assert client._client is first_call
+
+    def test_client_caching_with_base_url(self):
+        """Test that cached client uses configured base_url."""
+        client = AnthropicClient(api_key="test-key", base_url="https://custom.api.com")
+
+        sdk_client = client._get_client()
+
+        assert sdk_client.base_url == "https://custom.api.com"
 
 
 class TestAnthropicClientComplete:

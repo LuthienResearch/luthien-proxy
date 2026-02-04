@@ -30,13 +30,20 @@ class AnthropicClient:
         """
         self._api_key = api_key
         self._base_url = base_url
+        self._client: anthropic.AsyncAnthropic | None = None
 
     def _get_client(self) -> anthropic.AsyncAnthropic:
-        """Create and return an AsyncAnthropic client instance."""
-        kwargs: dict = {"api_key": self._api_key}
-        if self._base_url:
-            kwargs["base_url"] = self._base_url
-        return anthropic.AsyncAnthropic(**kwargs)
+        """Get or create the cached AsyncAnthropic client instance.
+
+        Uses lazy initialization to create the client on first use,
+        then returns the same instance for connection pooling benefits.
+        """
+        if self._client is None:
+            kwargs: dict = {"api_key": self._api_key}
+            if self._base_url:
+                kwargs["base_url"] = self._base_url
+            self._client = anthropic.AsyncAnthropic(**kwargs)
+        return self._client
 
     def _prepare_request_kwargs(self, request: AnthropicRequest) -> dict:
         """Extract non-None values from request for SDK call.
