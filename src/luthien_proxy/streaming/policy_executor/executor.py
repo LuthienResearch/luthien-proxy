@@ -8,8 +8,8 @@ from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
 from luthien_proxy.observability.transaction_recorder import TransactionRecorder
+from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 from luthien_proxy.streaming.policy_executor.interface import (
     PolicyExecutorProtocol,
@@ -105,7 +105,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
         self,
         input_stream: AsyncIterator[ModelResponse],
         output_queue: asyncio.Queue[ModelResponse | None],
-        policy: PolicyProtocol,
+        policy: OpenAIPolicyInterface,
         policy_ctx: PolicyContext,
     ) -> None:
         """Execute policy processing on streaming chunks.
@@ -120,7 +120,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
         Args:
             input_stream: Stream of ModelResponse chunks from backend
             output_queue: Queue to write policy-approved chunks to
-            policy: Policy instance implementing PolicyProtocol (on_chunk_received, etc.)
+            policy: Policy instance implementing OpenAIPolicyInterface
             policy_ctx: Policy context for shared state
 
         Raises:
@@ -212,10 +212,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
                 raise
             finally:
                 # Call cleanup hook regardless of success/failure
-                try:
-                    await policy.on_streaming_policy_complete(streaming_ctx)
-                except Exception:
-                    logger.exception("Error in on_streaming_policy_complete - ignoring")
+                await policy.on_streaming_policy_complete(streaming_ctx)
 
                 # Ensure both tasks are cancelled if still running
                 await self._cancel_task(stream_task)
@@ -227,7 +224,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
         self,
         streaming_ctx: StreamingPolicyContext,
         output_queue: asyncio.Queue[ModelResponse | None],
-        policy: PolicyProtocol,
+        policy: OpenAIPolicyInterface,
     ):
         """Create callback for assembler to invoke on each chunk.
 
@@ -240,7 +237,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
         Args:
             streaming_ctx: Streaming policy context for hook invocations
             output_queue: Queue to write chunks to after policy processing
-            policy: Policy instance implementing PolicyProtocol
+            policy: Policy instance implementing OpenAIPolicyInterface
 
         Returns:
             Tuple of (async callback function, chunk count getter)

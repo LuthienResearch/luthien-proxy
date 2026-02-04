@@ -1,9 +1,5 @@
 """LLM integration using LiteLLM as a library."""
 
-from .llm_format_utils import (
-    anthropic_to_openai_request,
-    openai_to_anthropic_response,
-)
 from .types import (
     # Anthropic messages
     AnthropicAssistantMessage,
@@ -45,9 +41,6 @@ from .types import (
 )
 
 __all__ = [
-    # Format converters
-    "anthropic_to_openai_request",
-    "openai_to_anthropic_response",
     # OpenAI content parts
     "ImageUrl",
     "TextContentPart",

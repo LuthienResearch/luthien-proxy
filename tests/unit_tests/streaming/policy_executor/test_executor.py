@@ -101,6 +101,7 @@ class TestPolicyExecutorTimeoutEnforcement:
         policy.on_tool_call_complete = AsyncMock()
         policy.on_finish_reason = AsyncMock()
         policy.on_stream_complete = AsyncMock()
+        policy.on_streaming_policy_complete = AsyncMock()
         return policy
 
     async def async_iter_from_list(self, items: list):
@@ -242,6 +243,7 @@ class TestPolicyExecutorTimeoutEnforcement:
         failing_policy = Mock()
         failing_policy.on_chunk_received = AsyncMock(side_effect=ValueError("Policy error"))
         failing_policy.on_stream_complete = AsyncMock()
+        failing_policy.on_streaming_policy_complete = AsyncMock()
 
         chunks = [make_streaming_chunk(content="Test")]
         input_stream = self.async_iter_from_list(chunks)
@@ -272,6 +274,7 @@ class TestPolicyExecutorTimeoutEnforcement:
         policy.on_tool_call_complete = AsyncMock()
         policy.on_finish_reason = AsyncMock()
         policy.on_stream_complete = AsyncMock()
+        policy.on_streaming_policy_complete = AsyncMock()
 
         chunks = [
             make_streaming_chunk(content="Test1"),

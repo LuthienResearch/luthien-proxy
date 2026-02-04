@@ -179,4 +179,27 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Anthropic Streaming Event Types: TypedDicts vs SDK Types (2026-02-03)
+
+**Decision**: Define our own TypedDicts for Anthropic streaming events rather than using the Anthropic SDK's Pydantic types.
+
+**Options considered**:
+1. **TypedDicts (own definitions)**: Flexible for JSON manipulation, matches existing codebase pattern
+2. **Anthropic SDK Pydantic types**: Already tested, always up-to-date with SDK
+
+**Rationale**:
+- **Consistency**: The existing `anthropic.py` already uses TypedDicts for requests/responses and content blocks. Streaming events are just different wrappers around the same content blocks.
+- **Flexibility**: TypedDicts work naturally with `json.dumps()` and dict manipulation. The streaming code creates dicts inline - TypedDicts provide type safety without changing the code patterns.
+- **Simplicity**: We only need the core event types we actually emit. The SDK types include citations, web search results, and many optional fields we never use.
+- **No runtime cost**: TypedDicts are purely for type checking, no Pydantic validation overhead.
+
+**Types added**:
+- `AnthropicMessageStartEvent`, `AnthropicMessageStopEvent`
+- `AnthropicContentBlockStartEvent`, `AnthropicContentBlockDeltaEvent`, `AnthropicContentBlockStopEvent`
+- `AnthropicMessageDeltaEvent`
+- Delta types: `AnthropicTextDelta`, `AnthropicThinkingDelta`, `AnthropicInputJSONDelta`, `AnthropicSignatureDelta`
+- Union types: `AnthropicStreamingEvent`, `AnthropicStreamingContentBlock`, `AnthropicStreamingDelta`
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)
