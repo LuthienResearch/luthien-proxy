@@ -13,7 +13,6 @@ from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
-from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_manager import PolicyManager
@@ -81,22 +80,19 @@ class Dependencies:
         self.anthropic_client = AnthropicClient(api_key=api_key)
         return self.anthropic_client
 
-    _fallback_noop: NoOpPolicy | None = None
-
     def get_anthropic_policy(self) -> AnthropicPolicyInterface:
         """Get the current Anthropic policy.
 
-        Uses the policy from policy_manager if it implements AnthropicPolicyInterface,
-        otherwise falls back to a cached NoOpPolicy singleton.
+        Raises:
+            HTTPException: If current policy doesn't implement AnthropicPolicyInterface
         """
         current = self.policy_manager.current_policy
-        if isinstance(current, AnthropicPolicyInterface):
-            return current
-
-        # Fall back to cached NoOp if current policy doesn't support Anthropic
-        if Dependencies._fallback_noop is None:
-            Dependencies._fallback_noop = NoOpPolicy()
-        return Dependencies._fallback_noop
+        if not isinstance(current, AnthropicPolicyInterface):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Current policy {type(current).__name__} does not implement AnthropicPolicyInterface",
+            )
+        return current
 
 
 # === FastAPI Dependency Functions ===
