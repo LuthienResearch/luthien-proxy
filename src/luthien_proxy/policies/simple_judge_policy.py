@@ -366,8 +366,7 @@ explanation: Brief explanation of your decision"""
                 block_name = block.get("name")
                 if block_id is None or block_name is None:
                     raise ValueError(
-                        f"Malformed tool_use block: missing required field(s) "
-                        f"(id={block_id!r}, name={block_name!r})"
+                        f"Malformed tool_use block: missing required field(s) (id={block_id!r}, name={block_name!r})"
                     )
                 tool_block: AnthropicToolUseBlock = {
                     "type": "tool_use",

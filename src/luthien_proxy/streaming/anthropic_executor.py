@@ -51,7 +51,8 @@ class AnthropicStreamExecutor:
         """
         with tracer.start_as_current_span("anthropic.stream_executor") as span:
             span.set_attribute("policy.class", policy.__class__.__name__)
-            span.set_attribute("policy.name", policy.short_policy_name)
+            # short_policy_name comes from BasePolicy, not the interface
+            span.set_attribute("policy.name", getattr(policy, "short_policy_name", policy.__class__.__name__))
             event_count = 0
             yielded_count = 0
 

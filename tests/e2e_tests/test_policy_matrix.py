@@ -10,9 +10,7 @@ Runs a simple request through the gateway for each policy to verify:
 """
 
 import pytest
-
-from tests.e2e_tests.conftest import GATEWAY_URL, API_KEY, policy_context
-
+from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
 
 # Policy configurations: (policy_class_ref, config, description)
 POLICY_CONFIGS = [
@@ -59,7 +57,6 @@ POLICY_CONFIGS = [
 @pytest.mark.parametrize("policy_class_ref,config", POLICY_CONFIGS)
 async def test_policy_openai_non_streaming(policy_class_ref: str, config: dict, http_client):
     """Test each policy works with OpenAI client, non-streaming."""
-    import httpx
 
     async with policy_context(policy_class_ref, config):
         response = await http_client.post(
