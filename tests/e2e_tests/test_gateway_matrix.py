@@ -220,33 +220,6 @@ async def test_anthropic_client_anthropic_backend_non_streaming(http_client):
     assert len(data["content"][0]["text"]) > 0
 
 
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_anthropic_client_openai_backend_streaming(http_client):
-    """E2E: Anthropic client → OpenAI backend (gpt-3.5-turbo), streaming."""
-    async with http_client.stream(
-        "POST",
-        f"{GATEWAY_URL}/v1/messages",
-        json={
-            "model": "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": "Say hello"}],
-            "max_tokens": 20,
-            "stream": True,
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    ) as response:
-        assert response.status_code == 200
-        assert "text/event-stream" in response.headers["content-type"]
-
-        # Collect Anthropic SSE events (translated from OpenAI backend)
-        event_lines = []
-        async for line in response.aiter_lines():
-            if line.startswith("event: "):
-                event_lines.append(line)
-
-        assert len(event_lines) > 0, "Should receive Anthropic SSE events"
-
-
-# NOTE: Cross-format test removed - PR #169 uses endpoint-based routing.
+# NOTE: Cross-format tests removed - PR #169 uses endpoint-based routing.
 # /v1/messages always uses Anthropic backend regardless of model name.
 # Model-based routing is Phase 2 work.
