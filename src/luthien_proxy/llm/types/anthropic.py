@@ -249,9 +249,174 @@ class AnthropicResponse(TypedDict, total=False):
     role: Required[Literal["assistant"]]
     content: Required[list[AnthropicContentBlock]]
     model: Required[str]
-    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"] | None
+    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn", "refusal"] | None
     stop_sequence: str | None
     usage: Required[AnthropicUsage]
+
+
+# =============================================================================
+# Streaming Event Types (Anthropic API spec)
+# =============================================================================
+# These types define the Server-Sent Events (SSE) format for streaming responses.
+# Event sequence: message_start -> content_block_start -> content_block_delta* ->
+#                 content_block_stop -> (repeat for each block) -> message_delta -> message_stop
+
+
+class AnthropicStreamingMessage(TypedDict, total=False):
+    """Message object in message_start event (partial, updated as stream progresses)."""
+
+    id: Required[str]
+    type: Required[Literal["message"]]
+    role: Required[Literal["assistant"]]
+    content: Required[list[AnthropicContentBlock]]
+    model: Required[str]
+    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn", "refusal"] | None
+    stop_sequence: str | None
+    usage: Required[AnthropicUsage]
+
+
+class AnthropicMessageStartEvent(TypedDict):
+    """First event in streaming response, contains message metadata."""
+
+    type: Literal["message_start"]
+    message: AnthropicStreamingMessage
+
+
+# -----------------------------------------------------------------------------
+# Streaming Content Block Types (for content_block_start events)
+# -----------------------------------------------------------------------------
+# These are slightly different from response content blocks - they start empty
+
+
+class AnthropicStreamingThinkingBlock(TypedDict):
+    """Thinking block as it appears in content_block_start (starts with empty thinking)."""
+
+    type: Literal["thinking"]
+    thinking: str  # Empty string at start, filled by deltas
+
+
+class AnthropicStreamingToolUseBlock(TypedDict):
+    """Tool use block as it appears in content_block_start."""
+
+    type: Literal["tool_use"]
+    id: str
+    name: str
+    input: JSONObject  # Empty dict at start, filled by input_json_delta
+
+
+# Union of block types that can appear in content_block_start
+AnthropicStreamingContentBlock = (
+    AnthropicTextBlock
+    | AnthropicStreamingThinkingBlock
+    | AnthropicStreamingToolUseBlock
+    | AnthropicRedactedThinkingBlock
+)
+
+
+class AnthropicContentBlockStartEvent(TypedDict):
+    """Signals start of a new content block."""
+
+    type: Literal["content_block_start"]
+    index: int  # Sequential index of this block (0, 1, 2...)
+    content_block: AnthropicStreamingContentBlock
+
+
+# -----------------------------------------------------------------------------
+# Delta Types (for content_block_delta events)
+# -----------------------------------------------------------------------------
+
+
+class AnthropicTextDelta(TypedDict):
+    """Delta for text content."""
+
+    type: Literal["text_delta"]
+    text: str
+
+
+class AnthropicThinkingDelta(TypedDict):
+    """Delta for thinking/reasoning content."""
+
+    type: Literal["thinking_delta"]
+    thinking: str
+
+
+class AnthropicInputJSONDelta(TypedDict):
+    """Delta for tool input JSON (streamed as partial JSON strings)."""
+
+    type: Literal["input_json_delta"]
+    partial_json: str
+
+
+class AnthropicSignatureDelta(TypedDict):
+    """Delta for thinking block signature (cryptographic verification)."""
+
+    type: Literal["signature_delta"]
+    signature: str
+
+
+# Union of all delta types
+AnthropicStreamingDelta = (
+    AnthropicTextDelta | AnthropicThinkingDelta | AnthropicInputJSONDelta | AnthropicSignatureDelta
+)
+
+
+class AnthropicContentBlockDeltaEvent(TypedDict):
+    """Incremental update to a content block."""
+
+    type: Literal["content_block_delta"]
+    index: int  # Index of the block this delta applies to
+    delta: AnthropicStreamingDelta
+
+
+class AnthropicContentBlockStopEvent(TypedDict):
+    """Signals end of a content block."""
+
+    type: Literal["content_block_stop"]
+    index: int  # Index of the completed block
+
+
+# -----------------------------------------------------------------------------
+# Message Delta and Stop Events
+# -----------------------------------------------------------------------------
+
+
+class AnthropicMessageDelta(TypedDict):
+    """Delta in message_delta event (contains stop_reason at end of stream)."""
+
+    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"] | None
+    stop_sequence: str | None
+
+
+class AnthropicMessageDeltaUsage(TypedDict, total=False):
+    """Usage in message_delta event (output_tokens is required, others optional)."""
+
+    output_tokens: Required[int]
+    input_tokens: int  # Sometimes included
+
+
+class AnthropicMessageDeltaEvent(TypedDict):
+    """Final message updates including stop_reason and usage."""
+
+    type: Literal["message_delta"]
+    delta: AnthropicMessageDelta
+    usage: AnthropicMessageDeltaUsage
+
+
+class AnthropicMessageStopEvent(TypedDict):
+    """Final event in streaming response."""
+
+    type: Literal["message_stop"]
+
+
+# Union of all streaming event types
+AnthropicStreamingEvent = (
+    AnthropicMessageStartEvent
+    | AnthropicContentBlockStartEvent
+    | AnthropicContentBlockDeltaEvent
+    | AnthropicContentBlockStopEvent
+    | AnthropicMessageDeltaEvent
+    | AnthropicMessageStopEvent
+)
 
 
 __all__ = [
@@ -294,4 +459,23 @@ __all__ = [
     # Response types
     "AnthropicUsage",
     "AnthropicResponse",
+    # Streaming event types
+    "AnthropicStreamingMessage",
+    "AnthropicMessageStartEvent",
+    "AnthropicStreamingThinkingBlock",
+    "AnthropicStreamingToolUseBlock",
+    "AnthropicStreamingContentBlock",
+    "AnthropicContentBlockStartEvent",
+    "AnthropicTextDelta",
+    "AnthropicThinkingDelta",
+    "AnthropicInputJSONDelta",
+    "AnthropicSignatureDelta",
+    "AnthropicStreamingDelta",
+    "AnthropicContentBlockDeltaEvent",
+    "AnthropicContentBlockStopEvent",
+    "AnthropicMessageDelta",
+    "AnthropicMessageDeltaUsage",
+    "AnthropicMessageDeltaEvent",
+    "AnthropicMessageStopEvent",
+    "AnthropicStreamingEvent",
 ]
