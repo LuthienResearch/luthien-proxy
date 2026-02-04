@@ -40,10 +40,6 @@ class TestAnthropicPolicyInterface:
         """Subclass implementing all methods should be instantiable."""
 
         class CompletePolicy(AnthropicPolicyInterface):
-            @property
-            def short_policy_name(self) -> str:
-                return "CompletePolicy"
-
             async def on_anthropic_request(self, request, context):
                 return request
 
@@ -61,10 +57,6 @@ class TestAnthropicPolicyInterface:
         """All interface methods should be async."""
 
         class TestPolicy(AnthropicPolicyInterface):
-            @property
-            def short_policy_name(self) -> str:
-                return "TestPolicy"
-
             async def on_anthropic_request(self, request, context):
                 return request
 
@@ -95,10 +87,6 @@ class TestAnthropicPolicyInterface:
         """on_anthropic_stream_event can return None to filter events."""
 
         class FilteringPolicy(AnthropicPolicyInterface):
-            @property
-            def short_policy_name(self) -> str:
-                return "FilteringPolicy"
-
             async def on_anthropic_request(self, request, context):
                 return request
 
@@ -106,7 +94,6 @@ class TestAnthropicPolicyInterface:
                 return response
 
             async def on_anthropic_stream_event(self, event, context):
-                # Filter out all events
                 return None
 
         policy = FilteringPolicy()
@@ -122,7 +109,6 @@ class TestAnthropicPolicyInterface:
             "on_anthropic_request",
             "on_anthropic_response",
             "on_anthropic_stream_event",
-            "short_policy_name",
         }
         assert AnthropicPolicyInterface.__abstractmethods__ == expected_methods
 

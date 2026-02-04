@@ -37,10 +37,6 @@ class TestOpenAIPolicyInterface:
         """Subclass implementing all methods should be instantiable."""
 
         class CompletePolicy(OpenAIPolicyInterface):
-            @property
-            def short_policy_name(self) -> str:
-                return "CompletePolicy"
-
             async def on_openai_request(self, request, context):
                 return request
 
@@ -79,10 +75,6 @@ class TestOpenAIPolicyInterface:
         """All interface methods should be async."""
 
         class TestPolicy(OpenAIPolicyInterface):
-            @property
-            def short_policy_name(self) -> str:
-                return "TestPolicy"
-
             async def on_openai_request(self, request, context):
                 return request
 
@@ -149,6 +141,5 @@ class TestOpenAIPolicyInterface:
             "on_finish_reason",
             "on_stream_complete",
             "on_streaming_policy_complete",
-            "short_policy_name",
         }
         assert OpenAIPolicyInterface.__abstractmethods__ == expected_methods

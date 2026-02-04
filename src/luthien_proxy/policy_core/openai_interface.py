@@ -48,16 +48,6 @@ class OpenAIPolicyInterface(ABC):
     - on_streaming_policy_complete: Called after all streaming processing
     """
 
-    @property
-    @abstractmethod
-    def short_policy_name(self) -> str:
-        """Return a short, human-readable name for this policy.
-
-        Used for logging, tracing, and observability. Should be concise
-        (e.g., "NoOp", "AllCaps", "StringReplace").
-        """
-        ...
-
     @abstractmethod
     async def on_openai_request(self, request: "Request", context: "PolicyContext") -> "Request":
         """Process request before sending to LLM.

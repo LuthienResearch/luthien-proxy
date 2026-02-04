@@ -52,7 +52,13 @@ class Dependencies:
     @property
     def policy(self) -> OpenAIPolicyInterface:
         """Get current active policy from policy manager."""
-        return self.policy_manager.current_policy  # type: ignore[return-value]
+        current = self.policy_manager.current_policy
+        if not isinstance(current, OpenAIPolicyInterface):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Current policy {type(current).__name__} does not implement OpenAIPolicyInterface",
+            )
+        return current
 
     def get_anthropic_client(self) -> AnthropicClient:
         """Get or create the Anthropic client.
@@ -75,21 +81,22 @@ class Dependencies:
         self.anthropic_client = AnthropicClient(api_key=api_key)
         return self.anthropic_client
 
+    _fallback_noop: NoOpPolicy | None = None
+
     def get_anthropic_policy(self) -> AnthropicPolicyInterface:
         """Get the current Anthropic policy.
 
         Uses the policy from policy_manager if it implements AnthropicPolicyInterface,
-        otherwise falls back to NoOpPolicy.
-
-        Note: Not cached because policy can change at runtime via admin API.
+        otherwise falls back to a cached NoOpPolicy singleton.
         """
-        # Check if the current policy supports Anthropic
         current = self.policy_manager.current_policy
         if isinstance(current, AnthropicPolicyInterface):
             return current
 
-        # Fall back to NoOp if current policy doesn't support Anthropic
-        return NoOpPolicy()
+        # Fall back to cached NoOp if current policy doesn't support Anthropic
+        if Dependencies._fallback_noop is None:
+            Dependencies._fallback_noop = NoOpPolicy()
+        return Dependencies._fallback_noop
 
 
 # === FastAPI Dependency Functions ===

@@ -44,16 +44,6 @@ class AnthropicPolicyInterface(ABC):
     - on_anthropic_stream_event: Process each streaming event, can filter or transform
     """
 
-    @property
-    @abstractmethod
-    def short_policy_name(self) -> str:
-        """Return a short, human-readable name for this policy.
-
-        Used for logging, tracing, and observability. Should be concise
-        (e.g., "NoOp", "AllCaps", "StringReplace").
-        """
-        ...
-
     @abstractmethod
     async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
         """Process request before sending to Anthropic API.
