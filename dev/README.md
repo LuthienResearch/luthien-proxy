@@ -33,6 +33,9 @@ Then explore:
 
 Choose the guide that matches your goal:
 
+- **New to observability?** → [OBSERVABILITY_DEMO.md](OBSERVABILITY_DEMO.md)
+  *Step-by-step walkthrough using the UppercaseNthWordPolicy to explore all V2 observability features*
+
 - **Need to view a specific trace?** → [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md)
   *Quick reference for accessing traces and logs in Grafana/Tempo*
 
