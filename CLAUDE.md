@@ -63,7 +63,8 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
    - Format everything with `./scripts/format_all.sh`.
    - Full lint + tests + type check: `./scripts/dev_checks.sh`.
    - Quick unit pass: `uv run pytest tests/unit_tests`.
-   - *infrequenty* run full e2e tests using `uv run pytest -m e2e`. This is SLOW and should be used sparingly to validate that core functionality remains intact.
+   - *infrequently* run full e2e tests using `uv run pytest -m e2e`. This is SLOW and should be used sparingly to validate that core functionality remains intact.
+   - **Prefer targeted e2e tests**: Run specific test files first to identify issues before running the full suite: `uv run pytest tests/e2e_tests/test_specific_file.py -v`
    - Commit in small chunks with clear messages.
 
 3. **Wrap up the objective**
