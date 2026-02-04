@@ -8,186 +8,46 @@ This module defines AnthropicPolicyProtocol with hooks for:
 
 Policies implementing this protocol work with native Anthropic types,
 avoiding format conversion overhead and preserving Anthropic-specific features.
+
+Streaming event types are imported from luthien_proxy.llm.types.anthropic and
+re-exported here with shorter aliases for backward compatibility.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Protocol, Required, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+# Import canonical streaming event types with backward-compatible short aliases
+# ruff: noqa: E501
+from luthien_proxy.llm.types.anthropic import AnthropicContentBlockDeltaEvent as ContentBlockDelta
+from luthien_proxy.llm.types.anthropic import AnthropicContentBlockStartEvent as ContentBlockStart
+from luthien_proxy.llm.types.anthropic import AnthropicContentBlockStopEvent as ContentBlockStop
+from luthien_proxy.llm.types.anthropic import AnthropicErrorEvent as ErrorEvent
+from luthien_proxy.llm.types.anthropic import AnthropicInputJSONDelta as InputJsonDelta
+from luthien_proxy.llm.types.anthropic import AnthropicMessageDelta as MessageDeltaDelta
+from luthien_proxy.llm.types.anthropic import AnthropicMessageDeltaEvent as MessageDelta
+from luthien_proxy.llm.types.anthropic import AnthropicMessageDeltaUsage as MessageDeltaUsage
+from luthien_proxy.llm.types.anthropic import AnthropicMessageStartEvent as MessageStart
+from luthien_proxy.llm.types.anthropic import AnthropicMessageStopEvent as MessageStop
+from luthien_proxy.llm.types.anthropic import AnthropicPingEvent as Ping
+from luthien_proxy.llm.types.anthropic import AnthropicSignatureDelta as SignatureDelta
+from luthien_proxy.llm.types.anthropic import AnthropicStreamingContentBlock as ContentBlockStartBlock
+from luthien_proxy.llm.types.anthropic import AnthropicStreamingDelta as ContentBlockDeltaType
+from luthien_proxy.llm.types.anthropic import AnthropicStreamingEvent as AnthropicStreamEvent
+from luthien_proxy.llm.types.anthropic import AnthropicStreamingMessage as MessageStartMessage
+from luthien_proxy.llm.types.anthropic import AnthropicStreamingThinkingBlock as ThinkingBlockStart
+from luthien_proxy.llm.types.anthropic import AnthropicStreamingToolUseBlock as ToolUseBlockStart
+from luthien_proxy.llm.types.anthropic import AnthropicTextBlock as TextBlockStart
+from luthien_proxy.llm.types.anthropic import AnthropicTextDelta as TextDelta
+from luthien_proxy.llm.types.anthropic import AnthropicThinkingDelta as ThinkingDelta
+from luthien_proxy.llm.types.anthropic import AnthropicUsage as MessageStartUsage
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
-        AnthropicContentBlock,
         AnthropicRequest,
         AnthropicResponse,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
-
-
-# =============================================================================
-# Streaming Event Types (Anthropic Messages API streaming format)
-# =============================================================================
-
-
-class MessageStartMessage(TypedDict, total=False):
-    """The message object in a message_start event."""
-
-    id: Required[str]
-    type: Required[Literal["message"]]
-    role: Required[Literal["assistant"]]
-    content: Required[list["AnthropicContentBlock"]]
-    model: Required[str]
-    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"] | None
-    stop_sequence: str | None
-    usage: Required["MessageStartUsage"]
-
-
-class MessageStartUsage(TypedDict):
-    """Usage info in message_start event."""
-
-    input_tokens: int
-    output_tokens: int
-
-
-class MessageStart(TypedDict):
-    """Event sent at the start of a message stream."""
-
-    type: Literal["message_start"]
-    message: MessageStartMessage
-
-
-# Content block types for streaming
-class TextBlockStart(TypedDict):
-    """Text content block at start (empty text)."""
-
-    type: Literal["text"]
-    text: str
-
-
-class ThinkingBlockStart(TypedDict):
-    """Thinking content block at start."""
-
-    type: Literal["thinking"]
-    thinking: str
-
-
-class ToolUseBlockStart(TypedDict, total=False):
-    """Tool use content block at start."""
-
-    type: Required[Literal["tool_use"]]
-    id: Required[str]
-    name: Required[str]
-    input: Required[dict]
-
-
-ContentBlockStartBlock = TextBlockStart | ThinkingBlockStart | ToolUseBlockStart
-
-
-class ContentBlockStart(TypedDict):
-    """Event sent when a content block starts."""
-
-    type: Literal["content_block_start"]
-    index: int
-    content_block: ContentBlockStartBlock
-
-
-# Delta types for streaming
-class TextDelta(TypedDict):
-    """Text content delta."""
-
-    type: Literal["text_delta"]
-    text: str
-
-
-class ThinkingDelta(TypedDict):
-    """Thinking content delta."""
-
-    type: Literal["thinking_delta"]
-    thinking: str
-
-
-class SignatureDelta(TypedDict):
-    """Signature delta for thinking blocks."""
-
-    type: Literal["signature_delta"]
-    signature: str
-
-
-class InputJsonDelta(TypedDict):
-    """Tool input JSON delta."""
-
-    type: Literal["input_json_delta"]
-    partial_json: str
-
-
-ContentBlockDeltaType = TextDelta | ThinkingDelta | SignatureDelta | InputJsonDelta
-
-
-class ContentBlockDelta(TypedDict):
-    """Event sent when content is added to a block."""
-
-    type: Literal["content_block_delta"]
-    index: int
-    delta: ContentBlockDeltaType
-
-
-class ContentBlockStop(TypedDict):
-    """Event sent when a content block completes."""
-
-    type: Literal["content_block_stop"]
-    index: int
-
-
-class MessageDeltaDelta(TypedDict, total=False):
-    """Delta info in message_delta event."""
-
-    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"] | None
-    stop_sequence: str | None
-
-
-class MessageDeltaUsage(TypedDict):
-    """Usage info in message_delta event."""
-
-    output_tokens: int
-
-
-class MessageDelta(TypedDict):
-    """Event sent when message-level data changes (e.g., stop_reason)."""
-
-    type: Literal["message_delta"]
-    delta: MessageDeltaDelta
-    usage: MessageDeltaUsage
-
-
-class MessageStop(TypedDict):
-    """Event sent at the end of a message stream."""
-
-    type: Literal["message_stop"]
-
-
-class Ping(TypedDict):
-    """Keepalive ping event."""
-
-    type: Literal["ping"]
-
-
-class ErrorEvent(TypedDict):
-    """Error event during streaming."""
-
-    type: Literal["error"]
-    error: dict
-
-
-# Union of all stream event types
-AnthropicStreamEvent = (
-    MessageStart
-    | ContentBlockStart
-    | ContentBlockDelta
-    | ContentBlockStop
-    | MessageDelta
-    | MessageStop
-    | Ping
-    | ErrorEvent
-)
 
 
 # =============================================================================
@@ -264,7 +124,7 @@ class AnthropicPolicyProtocol(Protocol):
 __all__ = [
     # Protocol
     "AnthropicPolicyProtocol",
-    # Stream events
+    # Stream events (backward-compatible short names)
     "AnthropicStreamEvent",
     "MessageStart",
     "MessageStartMessage",

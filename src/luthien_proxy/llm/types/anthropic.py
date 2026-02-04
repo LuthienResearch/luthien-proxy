@@ -408,6 +408,19 @@ class AnthropicMessageStopEvent(TypedDict):
     type: Literal["message_stop"]
 
 
+class AnthropicPingEvent(TypedDict):
+    """Keepalive ping event during streaming."""
+
+    type: Literal["ping"]
+
+
+class AnthropicErrorEvent(TypedDict):
+    """Error event during streaming."""
+
+    type: Literal["error"]
+    error: JSONObject
+
+
 # Union of all streaming event types
 AnthropicStreamingEvent = (
     AnthropicMessageStartEvent
@@ -416,6 +429,8 @@ AnthropicStreamingEvent = (
     | AnthropicContentBlockStopEvent
     | AnthropicMessageDeltaEvent
     | AnthropicMessageStopEvent
+    | AnthropicPingEvent
+    | AnthropicErrorEvent
 )
 
 
@@ -477,5 +492,7 @@ __all__ = [
     "AnthropicMessageDeltaUsage",
     "AnthropicMessageDeltaEvent",
     "AnthropicMessageStopEvent",
+    "AnthropicPingEvent",
+    "AnthropicErrorEvent",
     "AnthropicStreamingEvent",
 ]
