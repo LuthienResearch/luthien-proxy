@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import AsyncIterator
+from typing import AsyncIterator, TypedDict
 
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
@@ -51,6 +51,21 @@ from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.anthropic_executor import AnthropicStreamExecutor
 from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
+
+
+class _ErrorDetail(TypedDict):
+    """Error detail structure for mid-stream error events."""
+
+    type: str
+    message: str
+
+
+class _StreamErrorEvent(TypedDict):
+    """Error event for mid-stream failures (when HTTP headers already sent)."""
+
+    type: str
+    error: _ErrorDetail
+
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -330,7 +345,7 @@ async def _handle_non_streaming(
         )
 
 
-def _format_sse_event(event: MessageStreamEvent | dict[str, object]) -> str:
+def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:
     """Format an Anthropic stream event as an SSE line.
 
     Args:
@@ -339,10 +354,10 @@ def _format_sse_event(event: MessageStreamEvent | dict[str, object]) -> str:
     Returns:
         SSE-formatted string with event type and JSON data.
     """
-    # Handle both SDK Pydantic models and plain dicts (e.g., error events)
+    # Handle both SDK Pydantic models and TypedDicts (error events)
     if isinstance(event, dict):
         event_type = str(event.get("type", "unknown"))
-        event_data = event
+        event_data: dict = dict(event)
     else:
         event_type = event.type
         event_data = event.model_dump()
@@ -351,7 +366,7 @@ def _format_sse_event(event: MessageStreamEvent | dict[str, object]) -> str:
     return f"event: {event_type}\ndata: {json_data}\n\n"
 
 
-def _build_error_event(e: Exception, call_id: str) -> dict:
+def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
     """Build an Anthropic-format error event for mid-stream errors.
 
     When errors occur after headers are sent, we can't return an HTTP error.
@@ -377,13 +392,13 @@ def _build_error_event(e: Exception, call_id: str) -> dict:
         message = str(e)
         logger.warning(f"[{call_id}] Mid-stream error: {message}")
 
-    return {
-        "type": "error",
-        "error": {
-            "type": error_type,
-            "message": message,
-        },
-    }  # type: ignore[return-value]
+    return _StreamErrorEvent(
+        type="error",
+        error=_ErrorDetail(
+            type=error_type,
+            message=message,
+        ),
+    )
 
 
 def _handle_anthropic_error(e: Exception, call_id: str) -> None:

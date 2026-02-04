@@ -57,6 +57,7 @@ class AnthropicStreamExecutor:
             span.set_attribute("policy.name", policy.short_policy_name)
             event_count = 0
             yielded_count = 0
+            error_count = 0
 
             async for sdk_event in stream:
                 event_count += 1
@@ -67,15 +68,18 @@ class AnthropicStreamExecutor:
                         yielded_count += 1
                         yield result
                 except Exception:
+                    error_count += 1
                     logger.warning(
-                        "Error in policy on_stream_event for event type %s",
+                        "Error in policy on_stream_event for event type %s (error %d)",
                         getattr(sdk_event, "type", "unknown"),
+                        error_count,
                         exc_info=True,
                     )
                     # Skip the event on error but continue processing
 
             span.set_attribute("streaming.event_count", event_count)
             span.set_attribute("streaming.yielded_count", yielded_count)
+            span.set_attribute("streaming.error_count", error_count)
 
 
 __all__ = ["AnthropicStreamExecutor"]

@@ -258,6 +258,30 @@ class TestAnthropicAllCapsPolicyStreamEvent:
         assert result_event.delta.text == "HELLO WORLD"
 
     @pytest.mark.asyncio
+    async def test_on_stream_event_does_not_mutate_original_event(self):
+        """on_stream_event creates new event instead of mutating original."""
+        policy = AnthropicAllCapsPolicy()
+        ctx = PolicyContext.for_testing()
+
+        original_text = "hello world"
+        text_delta = TextDelta.model_construct(type="text_delta", text=original_text)
+        event = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=text_delta,
+        )
+
+        result = await policy.on_stream_event(event, ctx)
+
+        # Result should be a different object
+        assert result is not event
+        # Original event should be unchanged
+        assert event.delta.text == original_text
+        # Result should have uppercase text
+        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert result_event.delta.text == "HELLO WORLD"
+
+    @pytest.mark.asyncio
     async def test_on_stream_event_leaves_thinking_delta_unchanged(self):
         """on_stream_event does not modify thinking_delta events."""
         policy = AnthropicAllCapsPolicy()

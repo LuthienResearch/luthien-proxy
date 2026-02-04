@@ -61,13 +61,15 @@ class AnthropicAllCapsPolicy:
         """Transform text_delta events to uppercase.
 
         For content_block_delta events with delta.type == "text_delta",
-        converts the text to uppercase. All other events pass through unchanged.
+        creates a new event with uppercase text instead of mutating the original.
+        This avoids potential issues with SDK internal state.
         """
         if not isinstance(event, RawContentBlockDeltaEvent):
             return event
 
         if isinstance(event.delta, TextDelta):
-            event.delta.text = event.delta.text.upper()
+            new_delta = event.delta.model_copy(update={"text": event.delta.text.upper()})
+            return event.model_copy(update={"delta": new_delta})
 
         return event
 
