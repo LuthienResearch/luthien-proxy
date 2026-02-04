@@ -383,7 +383,7 @@ class AnthropicContentBlockStopEvent(TypedDict):
 class AnthropicMessageDelta(TypedDict):
     """Delta in message_delta event (contains stop_reason at end of stream)."""
 
-    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"] | None
+    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn", "refusal"] | None
     stop_sequence: str | None
 
 
