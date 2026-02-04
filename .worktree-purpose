@@ -1,1 +1,0 @@
-remove the ollama docker container and everything that depends on or relates to it, as well as all associated config.
