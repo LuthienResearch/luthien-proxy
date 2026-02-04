@@ -24,26 +24,16 @@ class AnthropicClient:
     def __init__(self, api_key: str, base_url: str | None = None):
         """Initialize the Anthropic client.
 
+        Creates the AsyncAnthropic client immediately for thread safety.
+
         Args:
             api_key: Anthropic API key for authentication.
             base_url: Optional custom base URL for the API.
         """
-        self._api_key = api_key
-        self._base_url = base_url
-        self._client: anthropic.AsyncAnthropic | None = None
-
-    def _get_client(self) -> anthropic.AsyncAnthropic:
-        """Get or create the cached AsyncAnthropic client instance.
-
-        Uses lazy initialization to create the client on first use,
-        then returns the same instance for connection pooling benefits.
-        """
-        if self._client is None:
-            kwargs: dict = {"api_key": self._api_key}
-            if self._base_url:
-                kwargs["base_url"] = self._base_url
-            self._client = anthropic.AsyncAnthropic(**kwargs)
-        return self._client
+        kwargs: dict = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        self._client = anthropic.AsyncAnthropic(**kwargs)
 
     def _prepare_request_kwargs(self, request: AnthropicRequest) -> dict:
         """Extract non-None values from request for SDK call.
@@ -51,28 +41,31 @@ class AnthropicClient:
         The Anthropic SDK uses Omit sentinels for optional parameters,
         so we only pass keys that are explicitly set in the request.
         """
-        kwargs: dict = {}
+        kwargs: dict = {
+            "model": request["model"],
+            "messages": request["messages"],
+            "max_tokens": request["max_tokens"],
+        }
 
-        # Required fields
-        kwargs["model"] = request["model"]
-        kwargs["messages"] = request["messages"]
-        kwargs["max_tokens"] = request["max_tokens"]
-
-        # Optional fields - only include if present
-        optional_keys = [
-            "system",
-            "tools",
-            "tool_choice",
-            "temperature",
-            "top_p",
-            "top_k",
-            "stop_sequences",
-            "metadata",
-            "thinking",
-        ]
-        for key in optional_keys:
-            if key in request:
-                kwargs[key] = request[key]  # type: ignore[literal-required]
+        # Optional fields - only include if present in request
+        if "system" in request:
+            kwargs["system"] = request["system"]
+        if "tools" in request:
+            kwargs["tools"] = request["tools"]
+        if "tool_choice" in request:
+            kwargs["tool_choice"] = request["tool_choice"]
+        if "temperature" in request:
+            kwargs["temperature"] = request["temperature"]
+        if "top_p" in request:
+            kwargs["top_p"] = request["top_p"]
+        if "top_k" in request:
+            kwargs["top_k"] = request["top_k"]
+        if "stop_sequences" in request:
+            kwargs["stop_sequences"] = request["stop_sequences"]
+        if "metadata" in request:
+            kwargs["metadata"] = request["metadata"]
+        if "thinking" in request:
+            kwargs["thinking"] = request["thinking"]
 
         return kwargs
 
@@ -110,10 +103,8 @@ class AnthropicClient:
             span.set_attribute("llm.model", request["model"])
             span.set_attribute("llm.stream", False)
 
-            client = self._get_client()
             kwargs = self._prepare_request_kwargs(request)
-
-            message = await client.messages.create(**kwargs)
+            message = await self._client.messages.create(**kwargs)
             return self._message_to_response(message)
 
     async def stream(self, request: AnthropicRequest) -> AsyncIterator["MessageStreamEvent"]:
@@ -129,10 +120,8 @@ class AnthropicClient:
             span.set_attribute("llm.model", request["model"])
             span.set_attribute("llm.stream", True)
 
-            client = self._get_client()
             kwargs = self._prepare_request_kwargs(request)
-
-            async with client.messages.stream(**kwargs) as stream:
+            async with self._client.messages.stream(**kwargs) as stream:
                 async for event in stream:
                     yield event
 

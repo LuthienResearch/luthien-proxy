@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from functools import cached_property
 
@@ -60,24 +59,19 @@ class Dependencies:
         return current
 
     def get_anthropic_client(self) -> AnthropicClient:
-        """Get or create the Anthropic client.
+        """Get the Anthropic client.
 
-        Creates the client lazily on first access using ANTHROPIC_API_KEY
-        from environment variables.
+        Returns:
+            The pre-configured AnthropicClient instance.
 
         Raises:
-            HTTPException: If ANTHROPIC_API_KEY is not set
+            HTTPException: If ANTHROPIC_API_KEY was not set at startup
         """
-        if self.anthropic_client is not None:
-            return self.anthropic_client
-
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
+        if self.anthropic_client is None:
             raise HTTPException(
                 status_code=500,
                 detail="ANTHROPIC_API_KEY not configured for native Anthropic path",
             )
-        self.anthropic_client = AnthropicClient(api_key=api_key)
         return self.anthropic_client
 
     def get_anthropic_policy(self) -> AnthropicPolicyInterface:
@@ -231,8 +225,6 @@ def get_admin_key(request: Request) -> str | None:
 def get_anthropic_client(request: Request) -> AnthropicClient:
     """Get Anthropic client from dependencies.
 
-    Creates the client lazily if not already initialized.
-
     Args:
         request: FastAPI request object
 
@@ -240,7 +232,7 @@ def get_anthropic_client(request: Request) -> AnthropicClient:
         Anthropic client instance
 
     Raises:
-        HTTPException: If ANTHROPIC_API_KEY is not configured
+        HTTPException: If ANTHROPIC_API_KEY was not configured at startup
     """
     return get_dependencies(request).get_anthropic_client()
 

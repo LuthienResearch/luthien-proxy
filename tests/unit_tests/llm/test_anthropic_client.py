@@ -1,6 +1,6 @@
 """Unit tests for AnthropicClient."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from anthropic.types import (
@@ -96,36 +96,17 @@ class TestAnthropicClientInit:
     def test_init_with_api_key(self):
         """Test client initialization with API key."""
         client = AnthropicClient(api_key="test-key")
-        assert client._api_key == "test-key"
+        assert client._client is not None
 
     def test_init_with_base_url(self):
         """Test client initialization with custom base URL."""
         client = AnthropicClient(api_key="test-key", base_url="https://custom.api.com")
-        assert client._base_url == "https://custom.api.com"
+        assert client._client.base_url == "https://custom.api.com"
 
-    def test_init_defaults(self):
-        """Test client initialization with defaults."""
+    def test_init_creates_client_immediately(self):
+        """Test that client is created during initialization (not lazily)."""
         client = AnthropicClient(api_key="test-key")
-        assert client._base_url is None
-        assert client._client is None
-
-    def test_client_caching(self):
-        """Test that _get_client returns the same instance on repeated calls."""
-        client = AnthropicClient(api_key="test-key")
-
-        first_call = client._get_client()
-        second_call = client._get_client()
-
-        assert first_call is second_call
-        assert client._client is first_call
-
-    def test_client_caching_with_base_url(self):
-        """Test that cached client uses configured base_url."""
-        client = AnthropicClient(api_key="test-key", base_url="https://custom.api.com")
-
-        sdk_client = client._get_client()
-
-        assert sdk_client.base_url == "https://custom.api.com"
+        assert client._client is not None
 
 
 class TestAnthropicClientComplete:
@@ -136,27 +117,26 @@ class TestAnthropicClientComplete:
         """Test successful non-streaming completion."""
         client = AnthropicClient(api_key="test-key")
 
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_async_client = AsyncMock()
-            mock_async_client.messages.create = AsyncMock(return_value=sample_message)
-            mock_get_client.return_value = mock_async_client
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
 
-            result = await client.complete(sample_request)
+        result = await client.complete(sample_request)
 
-            assert result["id"] == "msg_123"
-            assert result["type"] == "message"
-            assert result["role"] == "assistant"
-            assert result["model"] == "claude-sonnet-4-20250514"
-            assert result["stop_reason"] == "end_turn"
-            assert len(result["content"]) == 1
-            assert result["content"][0]["type"] == "text"
-            assert result["content"][0]["text"] == "Hi there!"
+        assert result["id"] == "msg_123"
+        assert result["type"] == "message"
+        assert result["role"] == "assistant"
+        assert result["model"] == "claude-sonnet-4-20250514"
+        assert result["stop_reason"] == "end_turn"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+        assert result["content"][0]["text"] == "Hi there!"
 
-            mock_async_client.messages.create.assert_called_once()
-            call_kwargs = mock_async_client.messages.create.call_args.kwargs
-            assert call_kwargs["model"] == "claude-sonnet-4-20250514"
-            assert call_kwargs["max_tokens"] == 100
-            assert len(call_kwargs["messages"]) == 1
+        mock_async_client.messages.create.assert_called_once()
+        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        assert call_kwargs["model"] == "claude-sonnet-4-20250514"
+        assert call_kwargs["max_tokens"] == 100
+        assert len(call_kwargs["messages"]) == 1
 
     @pytest.mark.asyncio
     async def test_complete_with_system_prompt(self, sample_message: Message):
@@ -169,15 +149,14 @@ class TestAnthropicClientComplete:
             system="You are a helpful assistant.",
         )
 
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_async_client = AsyncMock()
-            mock_async_client.messages.create = AsyncMock(return_value=sample_message)
-            mock_get_client.return_value = mock_async_client
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
 
-            await client.complete(request)
+        await client.complete(request)
 
-            call_kwargs = mock_async_client.messages.create.call_args.kwargs
-            assert call_kwargs["system"] == "You are a helpful assistant."
+        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        assert call_kwargs["system"] == "You are a helpful assistant."
 
     @pytest.mark.asyncio
     async def test_complete_with_optional_params(self, sample_message: Message):
@@ -193,18 +172,17 @@ class TestAnthropicClientComplete:
             stop_sequences=["END"],
         )
 
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_async_client = AsyncMock()
-            mock_async_client.messages.create = AsyncMock(return_value=sample_message)
-            mock_get_client.return_value = mock_async_client
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
 
-            await client.complete(request)
+        await client.complete(request)
 
-            call_kwargs = mock_async_client.messages.create.call_args.kwargs
-            assert call_kwargs["temperature"] == 0.7
-            assert call_kwargs["top_p"] == 0.9
-            assert call_kwargs["top_k"] == 40
-            assert call_kwargs["stop_sequences"] == ["END"]
+        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        assert call_kwargs["temperature"] == 0.7
+        assert call_kwargs["top_p"] == 0.9
+        assert call_kwargs["top_k"] == 40
+        assert call_kwargs["stop_sequences"] == ["END"]
 
     @pytest.mark.asyncio
     async def test_complete_excludes_none_values(self, sample_message: Message):
@@ -217,15 +195,14 @@ class TestAnthropicClientComplete:
             # temperature not set - should not be in call
         )
 
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_async_client = AsyncMock()
-            mock_async_client.messages.create = AsyncMock(return_value=sample_message)
-            mock_get_client.return_value = mock_async_client
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
 
-            await client.complete(request)
+        await client.complete(request)
 
-            call_kwargs = mock_async_client.messages.create.call_args.kwargs
-            assert "temperature" not in call_kwargs
+        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        assert "temperature" not in call_kwargs
 
     @pytest.mark.asyncio
     async def test_complete_with_thinking(self, sample_message: Message):
@@ -238,15 +215,14 @@ class TestAnthropicClientComplete:
             thinking={"type": "enabled", "budget_tokens": 10000},
         )
 
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_async_client = AsyncMock()
-            mock_async_client.messages.create = AsyncMock(return_value=sample_message)
-            mock_get_client.return_value = mock_async_client
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
 
-            await client.complete(request)
+        await client.complete(request)
 
-            call_kwargs = mock_async_client.messages.create.call_args.kwargs
-            assert call_kwargs["thinking"] == {"type": "enabled", "budget_tokens": 10000}
+        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        assert call_kwargs["thinking"] == {"type": "enabled", "budget_tokens": 10000}
 
 
 class TestAnthropicClientStream:
@@ -261,27 +237,26 @@ class TestAnthropicClientStream:
             for event in sample_stream_events:
                 yield event
 
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_async_client = AsyncMock()
-            mock_stream = MagicMock()
-            mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-            mock_stream.__aexit__ = AsyncMock(return_value=None)
-            mock_stream.__aiter__ = lambda self: mock_stream_iter()
-            mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
-            mock_get_client.return_value = mock_async_client
+        mock_async_client = AsyncMock()
+        mock_stream = MagicMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        mock_stream.__aiter__ = lambda self: mock_stream_iter()
+        mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+        client._client = mock_async_client
 
-            events = []
-            async for event in client.stream(sample_request):
-                events.append(event)
+        events = []
+        async for event in client.stream(sample_request):
+            events.append(event)
 
-            assert len(events) == 7
-            assert events[0].type == "message_start"
-            assert events[1].type == "content_block_start"
-            assert events[2].type == "content_block_delta"
-            assert events[3].type == "content_block_delta"
-            assert events[4].type == "content_block_stop"
-            assert events[5].type == "message_delta"
-            assert events[6].type == "message_stop"
+        assert len(events) == 7
+        assert events[0].type == "message_start"
+        assert events[1].type == "content_block_start"
+        assert events[2].type == "content_block_delta"
+        assert events[3].type == "content_block_delta"
+        assert events[4].type == "content_block_stop"
+        assert events[5].type == "message_delta"
+        assert events[6].type == "message_stop"
 
     @pytest.mark.asyncio
     async def test_stream_passes_parameters(self, sample_stream_events: list):
@@ -299,24 +274,23 @@ class TestAnthropicClientStream:
             for event in sample_stream_events:
                 yield event
 
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_async_client = AsyncMock()
-            mock_stream = MagicMock()
-            mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-            mock_stream.__aexit__ = AsyncMock(return_value=None)
-            mock_stream.__aiter__ = lambda self: mock_stream_iter()
-            mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
-            mock_get_client.return_value = mock_async_client
+        mock_async_client = AsyncMock()
+        mock_stream = MagicMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        mock_stream.__aiter__ = lambda self: mock_stream_iter()
+        mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+        client._client = mock_async_client
 
-            async for _ in client.stream(request):
-                pass
+        async for _ in client.stream(request):
+            pass
 
-            mock_async_client.messages.stream.assert_called_once()
-            call_kwargs = mock_async_client.messages.stream.call_args.kwargs
-            assert call_kwargs["model"] == "claude-sonnet-4-20250514"
-            assert call_kwargs["max_tokens"] == 100
-            assert call_kwargs["temperature"] == 0.5
-            assert call_kwargs["system"] == "Be concise."
+        mock_async_client.messages.stream.assert_called_once()
+        call_kwargs = mock_async_client.messages.stream.call_args.kwargs
+        assert call_kwargs["model"] == "claude-sonnet-4-20250514"
+        assert call_kwargs["max_tokens"] == 100
+        assert call_kwargs["temperature"] == 0.5
+        assert call_kwargs["system"] == "Be concise."
 
     @pytest.mark.asyncio
     async def test_stream_text_delta_content(self, sample_request: AnthropicRequest, sample_stream_events: list):
@@ -327,18 +301,17 @@ class TestAnthropicClientStream:
             for event in sample_stream_events:
                 yield event
 
-        with patch.object(client, "_get_client") as mock_get_client:
-            mock_async_client = AsyncMock()
-            mock_stream = MagicMock()
-            mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-            mock_stream.__aexit__ = AsyncMock(return_value=None)
-            mock_stream.__aiter__ = lambda self: mock_stream_iter()
-            mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
-            mock_get_client.return_value = mock_async_client
+        mock_async_client = AsyncMock()
+        mock_stream = MagicMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        mock_stream.__aiter__ = lambda self: mock_stream_iter()
+        mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+        client._client = mock_async_client
 
-            text_deltas = []
-            async for event in client.stream(sample_request):
-                if event.type == "content_block_delta":
-                    text_deltas.append(event.delta.text)
+        text_deltas = []
+        async for event in client.stream(sample_request):
+            if event.type == "content_block_delta":
+                text_deltas.append(event.delta.text)
 
-            assert text_deltas == ["Hi", " there!"]
+        assert text_deltas == ["Hi", " there!"]

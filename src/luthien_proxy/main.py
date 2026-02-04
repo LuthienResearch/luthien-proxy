@@ -20,6 +20,7 @@ from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
+from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
@@ -109,6 +110,15 @@ def create_app(
         _llm_client = LiteLLMClient()
         logger.info("LLM client initialized")
 
+        # Create Anthropic client if API key is configured
+        _anthropic_client: AnthropicClient | None = None
+        anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if anthropic_api_key:
+            _anthropic_client = AnthropicClient(api_key=anthropic_api_key)
+            logger.info("Anthropic client initialized")
+        else:
+            logger.info("ANTHROPIC_API_KEY not set - native Anthropic path disabled")
+
         # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
@@ -118,6 +128,7 @@ def create_app(
             emitter=_emitter,
             api_key=api_key,
             admin_key=admin_key,
+            anthropic_client=_anthropic_client,
         )
 
         # Store dependencies container in app state
