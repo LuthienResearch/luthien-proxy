@@ -456,8 +456,8 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is not None
-        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert len(result) == 1
+        result_event = cast(RawContentBlockDeltaEvent, result[0])
         assert result_event.type == "content_block_delta"
         assert isinstance(result_event.delta, TextDelta)
         assert result_event.delta.text == "hello bar world"
@@ -478,12 +478,13 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        # Result should be a different object
-        assert result is not event
+        # Result should contain a different object
+        assert len(result) == 1
+        assert result[0] is not event
         # Original event should be unchanged
         assert event.delta.text == original_text
         # Result should have replaced text
-        result_event = cast(RawContentBlockDeltaEvent, result)
+        result_event = cast(RawContentBlockDeltaEvent, result[0])
         assert result_event.delta.text == "hello bar world"
 
     @pytest.mark.asyncio
@@ -504,8 +505,8 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is not None
-        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert len(result) == 1
+        result_event = cast(RawContentBlockDeltaEvent, result[0])
         assert result_event.delta.text == "GOODBYE world"
 
     @pytest.mark.asyncio
@@ -523,8 +524,8 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is not None
-        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert len(result) == 1
+        result_event = cast(RawContentBlockDeltaEvent, result[0])
         assert isinstance(result_event.delta, ThinkingDelta)
         assert result_event.delta.thinking == "Let me consider..."
 
@@ -543,8 +544,8 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is not None
-        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert len(result) == 1
+        result_event = cast(RawContentBlockDeltaEvent, result[0])
         assert isinstance(result_event.delta, InputJSONDelta)
         assert result_event.delta.partial_json == '{"loc'
 
@@ -569,7 +570,7 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_content_block_start(self):
@@ -585,7 +586,7 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_content_block_stop(self):
@@ -600,7 +601,7 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_message_delta(self):
@@ -616,7 +617,7 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_message_stop(self):
@@ -628,7 +629,7 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
 
 class TestAnthropicEdgeCases:

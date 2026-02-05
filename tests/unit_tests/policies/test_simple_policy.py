@@ -913,7 +913,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_stream_event_passes_through_message_delta(self):
@@ -929,7 +929,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_stream_event_passes_through_message_stop(self):
@@ -941,7 +941,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_stream_event_passes_through_thinking_delta(self):
@@ -958,7 +958,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
 
 class TestSimplePolicyAnthropicStreamEventText:
@@ -978,7 +978,7 @@ class TestSimplePolicyAnthropicStreamEventText:
         )
         await policy.on_anthropic_stream_event(start_event, ctx)
 
-        # Send text delta - should be buffered and return None
+        # Send text delta - should be buffered and return empty list
         text_delta = TextDelta.model_construct(type="text_delta", text="hello")
         delta_event = RawContentBlockDeltaEvent.model_construct(
             type="content_block_delta",
@@ -988,7 +988,7 @@ class TestSimplePolicyAnthropicStreamEventText:
 
         result = await policy.on_anthropic_stream_event(delta_event, ctx)
 
-        assert result is None
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_on_stream_event_emits_transformed_text_on_stop(self):
@@ -1022,46 +1022,13 @@ class TestSimplePolicyAnthropicStreamEventText:
 
         result = await policy.on_anthropic_stream_event(stop_event, ctx)
 
-        # Should emit a delta event with transformed text
-        assert result is not None
-        assert isinstance(result, RawContentBlockDeltaEvent)
-        assert isinstance(result.delta, TextDelta)
-        assert result.delta.text == "HELLO WORLD"
-
-    @pytest.mark.asyncio
-    async def test_on_stream_event_has_pending_stop_after_transform(self):
-        """After emitting transformed text, pending stop event is available."""
-        policy = AnthropicUppercasePolicy()
-        ctx = PolicyContext.for_testing()
-
-        # Start text block
-        start_event = RawContentBlockStartEvent.model_construct(
-            type="content_block_start",
-            index=0,
-            content_block=TextBlock.model_construct(type="text", text=""),
-        )
-        await policy.on_anthropic_stream_event(start_event, ctx)
-
-        # Send text delta
-        delta = TextDelta.model_construct(type="text_delta", text="hello")
-        delta_event = RawContentBlockDeltaEvent.model_construct(
-            type="content_block_delta",
-            index=0,
-            delta=delta,
-        )
-        await policy.on_anthropic_stream_event(delta_event, ctx)
-
-        # Stop block
-        stop_event = RawContentBlockStopEvent.model_construct(
-            type="content_block_stop",
-            index=0,
-        )
-        await policy.on_anthropic_stream_event(stop_event, ctx)
-
-        # Check pending stop event
-        pending = policy.get_pending_stop_event()
-        assert pending is not None
-        assert pending.type == "content_block_stop"
+        # Should emit a delta event followed by the stop event
+        assert len(result) == 2
+        assert isinstance(result[0], RawContentBlockDeltaEvent)
+        assert isinstance(result[0].delta, TextDelta)
+        assert result[0].delta.text == "HELLO WORLD"
+        assert isinstance(result[1], RawContentBlockStopEvent)
+        assert result[1].type == "content_block_stop"
 
 
 class TestSimplePolicyAnthropicStreamEventToolUse:
@@ -1086,7 +1053,7 @@ class TestSimplePolicyAnthropicStreamEventToolUse:
         )
         await policy.on_anthropic_stream_event(start_event, ctx)
 
-        # Send JSON delta - should be buffered and return None
+        # Send JSON delta - should be buffered and return empty list
         json_delta = InputJSONDelta.model_construct(type="input_json_delta", partial_json='{"loc')
         delta_event = RawContentBlockDeltaEvent.model_construct(
             type="content_block_delta",
@@ -1096,7 +1063,7 @@ class TestSimplePolicyAnthropicStreamEventToolUse:
 
         result = await policy.on_anthropic_stream_event(delta_event, ctx)
 
-        assert result is None
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_on_stream_event_emits_transformed_tool_on_stop(self):
@@ -1135,12 +1102,13 @@ class TestSimplePolicyAnthropicStreamEventToolUse:
 
         result = await policy.on_anthropic_stream_event(stop_event, ctx)
 
-        # Should emit a delta event with transformed JSON
-        assert result is not None
-        assert isinstance(result, RawContentBlockDeltaEvent)
-        assert isinstance(result.delta, InputJSONDelta)
+        # Should emit a delta event followed by the stop event
+        assert len(result) == 2
+        assert isinstance(result[0], RawContentBlockDeltaEvent)
+        assert isinstance(result[0].delta, InputJSONDelta)
         # The transformed input should contain the original data
-        assert "NYC" in result.delta.partial_json
+        assert "NYC" in result[0].delta.partial_json
+        assert isinstance(result[1], RawContentBlockStopEvent)
 
 
 # ===== Anthropic Buffer Management Tests =====
@@ -1154,13 +1122,11 @@ class TestSimplePolicyAnthropicBufferManagement:
         policy = SimplePolicy()
         policy._text_buffer[0] = "some text"
         policy._tool_buffer[1] = {"id": "test", "name": "tool", "input_json": "{}"}
-        policy._pending_stop_event = RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0)
 
         policy.clear_buffers()
 
         assert policy._text_buffer == {}
         assert policy._tool_buffer == {}
-        assert policy.get_pending_stop_event() is None
 
     @pytest.mark.asyncio
     async def test_multiple_content_blocks(self):
@@ -1198,16 +1164,15 @@ class TestSimplePolicyAnthropicBufferManagement:
         stop_event0 = RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0)
         result0 = await policy.on_anthropic_stream_event(stop_event0, ctx)
 
-        # Clear pending for next check
-        policy.get_pending_stop_event()
-
         # Stop second block
         stop_event1 = RawContentBlockStopEvent.model_construct(type="content_block_stop", index=1)
         result1 = await policy.on_anthropic_stream_event(stop_event1, ctx)
 
-        # Verify both were transformed independently
-        result0_event = cast(RawContentBlockDeltaEvent, result0)
-        result1_event = cast(RawContentBlockDeltaEvent, result1)
+        # Verify both were transformed independently (each returns [delta, stop])
+        assert len(result0) == 2
+        assert len(result1) == 2
+        result0_event = cast(RawContentBlockDeltaEvent, result0[0])
+        result1_event = cast(RawContentBlockDeltaEvent, result1[0])
         assert result0_event.delta.text == "FIRST"
         assert result1_event.delta.text == "SECOND"
 

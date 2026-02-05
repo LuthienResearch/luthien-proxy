@@ -1065,7 +1065,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventNonToolUse:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_text_delta(self):
@@ -1082,7 +1082,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventNonToolUse:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_text_block_start(self):
@@ -1098,7 +1098,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventNonToolUse:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_message_stop(self):
@@ -1110,7 +1110,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventNonToolUse:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_message_delta(self):
@@ -1126,7 +1126,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventNonToolUse:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
 
 class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
@@ -1151,8 +1151,8 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        # Should filter out (return None) while buffering
-        assert result is None
+        # Should filter out (return empty list) while buffering
+        assert result == []
         # Should have buffered the data
         assert 0 in policy._buffered_tool_uses
         assert policy._buffered_tool_uses[0]["id"] == "tool_123"
@@ -1192,9 +1192,9 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         result1 = await policy.on_anthropic_stream_event(delta1, ctx)
         result2 = await policy.on_anthropic_stream_event(delta2, ctx)
 
-        # Should filter out both
-        assert result1 is None
-        assert result2 is None
+        # Should filter out both (return empty lists)
+        assert result1 == []
+        assert result2 == []
         # Should have accumulated the JSON
         assert policy._buffered_tool_uses[0]["input_json"] == '{"location": "SF"}'
 
@@ -1242,8 +1242,21 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         ):
             result = await policy.on_anthropic_stream_event(stop_event, ctx)
 
-        # Should pass through the stop event
-        assert result is stop_event
+        # Should return reconstructed event sequence: [start, delta, stop]
+        assert len(result) == 3
+        # First event: reconstructed content_block_start with tool_use block
+        assert isinstance(result[0], RawContentBlockStartEvent)
+        assert result[0].index == 0
+        assert isinstance(result[0].content_block, ToolUseBlock)
+        assert result[0].content_block.name == "get_weather"
+        assert result[0].content_block.id == "tool_123"
+        # Second event: reconstructed content_block_delta with full JSON
+        assert isinstance(result[1], RawContentBlockDeltaEvent)
+        assert result[1].index == 0
+        assert isinstance(result[1].delta, InputJSONDelta)
+        assert result[1].delta.partial_json == '{"location": "SF"}'
+        # Third event: the original stop event
+        assert isinstance(result[2], RawContentBlockStopEvent)
         # Buffer should be cleared
         assert 0 not in policy._buffered_tool_uses
 
@@ -1291,8 +1304,19 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         ):
             result = await policy.on_anthropic_stream_event(stop_event, ctx)
 
-        # Should filter out the stop event for blocked tool
-        assert result is None
+        # Should return replacement text events: [start, delta, stop]
+        assert len(result) == 3
+        # First event: text block start
+        assert isinstance(result[0], RawContentBlockStartEvent)
+        assert result[0].index == 0
+        assert isinstance(result[0].content_block, TextBlock)
+        # Second event: text delta with blocked message
+        assert isinstance(result[1], RawContentBlockDeltaEvent)
+        assert result[1].index == 0
+        assert isinstance(result[1].delta, TextDelta)
+        assert "dangerous_tool" in result[1].delta.text
+        # Third event: the original stop event
+        assert isinstance(result[2], RawContentBlockStopEvent)
         # Should have marked the block as blocked
         assert 0 in policy._blocked_blocks
         # Buffer should be cleared
@@ -1342,8 +1366,14 @@ class TestToolCallJudgePolicyAnthropicStreamingErrorHandling:
         ):
             result = await policy.on_anthropic_stream_event(stop_event, ctx)
 
-        # Should block (filter out) due to fail-secure
-        assert result is None
+        # Should return replacement text events due to fail-secure blocking
+        assert len(result) == 3
+        assert isinstance(result[0], RawContentBlockStartEvent)
+        assert isinstance(result[0].content_block, TextBlock)
+        assert isinstance(result[1], RawContentBlockDeltaEvent)
+        assert isinstance(result[1].delta, TextDelta)
+        assert "test_tool" in result[1].delta.text
+        assert isinstance(result[2], RawContentBlockStopEvent)
         assert 0 in policy._blocked_blocks
 
 

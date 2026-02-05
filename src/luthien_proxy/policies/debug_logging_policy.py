@@ -184,7 +184,7 @@ class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInter
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         """Log stream event data."""
         event_dict = _event_to_dict(event)
         logger.info(f"[ANTHROPIC_STREAM_EVENT] {_safe_json_dump(event_dict)}")
@@ -196,7 +196,7 @@ class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInter
             },
         )
 
-        return event
+        return [event]
 
 
 __all__ = ["DebugLoggingPolicy"]

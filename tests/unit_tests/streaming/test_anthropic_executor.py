@@ -5,8 +5,9 @@
 
 Verifies that the executor correctly:
 - Passes events through with NoOp-like policies
-- Filters events when policy returns None
+- Filters events when policy returns []
 - Transforms events when policy returns modified events
+- Emits multiple events when policy returns a multi-element list
 - Propagates policy errors to the caller
 """
 
@@ -121,8 +122,8 @@ class PassthroughPolicy(AnthropicPolicyInterface):
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: PolicyContext
-    ) -> AnthropicStreamEvent | None:
-        return event
+    ) -> list[AnthropicStreamEvent]:
+        return [event]
 
 
 class FilteringPolicy(AnthropicPolicyInterface):
@@ -143,13 +144,13 @@ class FilteringPolicy(AnthropicPolicyInterface):
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: PolicyContext
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         if isinstance(event, RawContentBlockDeltaEvent):
             if isinstance(event.delta, TextDelta):
                 text = event.delta.text
                 if self.filter_text in text.lower():
-                    return None
-        return event
+                    return []
+        return [event]
 
 
 class TransformingPolicy(AnthropicPolicyInterface):
@@ -167,11 +168,11 @@ class TransformingPolicy(AnthropicPolicyInterface):
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: PolicyContext
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         if isinstance(event, RawContentBlockDeltaEvent):
             if isinstance(event.delta, TextDelta):
                 event.delta.text = event.delta.text.upper()
-        return event
+        return [event]
 
 
 class ErrorThrowingPolicy(AnthropicPolicyInterface):
@@ -192,13 +193,13 @@ class ErrorThrowingPolicy(AnthropicPolicyInterface):
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: PolicyContext
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         if isinstance(event, RawContentBlockDeltaEvent):
             if isinstance(event.delta, TextDelta):
                 text = event.delta.text
                 if self.error_on_text in text.lower():
                     raise ValueError(f"Policy error on text: {text}")
-        return event
+        return [event]
 
 
 # =============================================================================
@@ -482,9 +483,9 @@ class TestAnthropicStreamExecutorProtocolCompliance:
 
             async def on_anthropic_stream_event(
                 self, event: AnthropicStreamEvent, context: PolicyContext
-            ) -> AnthropicStreamEvent | None:
+            ) -> list[AnthropicStreamEvent]:
                 self.received_contexts.append(context)
-                return event
+                return [event]
 
         executor = AnthropicStreamExecutor()
         policy = ContextTrackingPolicy()
@@ -518,3 +519,145 @@ class TestAnthropicStreamExecutorProtocolCompliance:
         assert hasattr(policy, "on_anthropic_stream_event")
         assert hasattr(policy, "on_anthropic_request")
         assert hasattr(policy, "on_anthropic_response")
+
+
+# =============================================================================
+# Tests for Multi-Event Returns
+# =============================================================================
+
+
+class MultiEventPolicy(AnthropicPolicyInterface):
+    """Policy that returns multiple events for a single input event."""
+
+    @property
+    def short_policy_name(self) -> str:
+        return "MultiEvent"
+
+    async def on_anthropic_request(self, request: Any, context: PolicyContext) -> Any:
+        return request
+
+    async def on_anthropic_response(self, response: Any, context: PolicyContext) -> Any:
+        return response
+
+    async def on_anthropic_stream_event(
+        self, event: AnthropicStreamEvent, context: PolicyContext
+    ) -> list[AnthropicStreamEvent]:
+        """Expand each text delta into three events: original + two extras."""
+        if isinstance(event, RawContentBlockDeltaEvent) and isinstance(event.delta, TextDelta):
+            extra1 = make_text_delta_event(f"[extra1:{event.delta.text}]", index=event.index)
+            extra2 = make_text_delta_event(f"[extra2:{event.delta.text}]", index=event.index)
+            return [event, extra1, extra2]
+        return [event]
+
+
+class SelectiveMultiEventPolicy(AnthropicPolicyInterface):
+    """Policy that returns varying numbers of events per input."""
+
+    @property
+    def short_policy_name(self) -> str:
+        return "SelectiveMultiEvent"
+
+    async def on_anthropic_request(self, request: Any, context: PolicyContext) -> Any:
+        return request
+
+    async def on_anthropic_response(self, response: Any, context: PolicyContext) -> Any:
+        return response
+
+    async def on_anthropic_stream_event(
+        self, event: AnthropicStreamEvent, context: PolicyContext
+    ) -> list[AnthropicStreamEvent]:
+        """First text delta -> [event], second -> [], third -> [event, extra]."""
+        if isinstance(event, RawContentBlockDeltaEvent) and isinstance(event.delta, TextDelta):
+            text = event.delta.text
+            if text == "first":
+                return [event]
+            elif text == "second":
+                return []
+            elif text == "third":
+                extra = make_text_delta_event("[bonus]", index=event.index)
+                return [event, extra]
+        return [event]
+
+
+class TestAnthropicStreamExecutorMultiEvent:
+    """Tests for multi-event returns from policies."""
+
+    @pytest.mark.asyncio
+    async def test_policy_returns_multiple_events_for_single_input(self, policy_ctx: PolicyContext):
+        """Test that when a policy returns [event1, event2, event3], the executor yields all three in order."""
+        executor = AnthropicStreamExecutor()
+        policy = MultiEventPolicy()
+
+        events: list[AnthropicStreamEvent] = [make_text_delta_event("Hello")]
+        stream = async_iter_from_list(events)
+
+        results = []
+        async for result in executor.process(stream, policy, policy_ctx):
+            results.append(result)
+
+        assert len(results) == 3
+        # First is the original
+        assert isinstance(results[0], RawContentBlockDeltaEvent)
+        assert isinstance(results[0].delta, TextDelta)
+        assert results[0].delta.text == "Hello"
+        # Second is extra1
+        assert isinstance(results[1], RawContentBlockDeltaEvent)
+        assert isinstance(results[1].delta, TextDelta)
+        assert results[1].delta.text == "[extra1:Hello]"
+        # Third is extra2
+        assert isinstance(results[2], RawContentBlockDeltaEvent)
+        assert isinstance(results[2].delta, TextDelta)
+        assert results[2].delta.text == "[extra2:Hello]"
+
+    @pytest.mark.asyncio
+    async def test_mixed_single_empty_and_multi_event_returns(self, policy_ctx: PolicyContext):
+        """Test [event1] for first, [] for second, [event2, event3] for third -> yields event1, event2, event3."""
+        executor = AnthropicStreamExecutor()
+        policy = SelectiveMultiEventPolicy()
+
+        events: list[AnthropicStreamEvent] = [
+            make_text_delta_event("first"),
+            make_text_delta_event("second"),
+            make_text_delta_event("third"),
+        ]
+        stream = async_iter_from_list(events)
+
+        results = []
+        async for result in executor.process(stream, policy, policy_ctx):
+            results.append(result)
+
+        assert len(results) == 3
+        # "first" -> [event] -> 1 result
+        assert isinstance(results[0], RawContentBlockDeltaEvent)
+        assert isinstance(results[0].delta, TextDelta)
+        assert results[0].delta.text == "first"
+        # "second" -> [] -> 0 results (filtered)
+        # "third" -> [event, extra] -> 2 results
+        assert isinstance(results[1], RawContentBlockDeltaEvent)
+        assert isinstance(results[1].delta, TextDelta)
+        assert results[1].delta.text == "third"
+        assert isinstance(results[2], RawContentBlockDeltaEvent)
+        assert isinstance(results[2].delta, TextDelta)
+        assert results[2].delta.text == "[bonus]"
+
+    @pytest.mark.asyncio
+    async def test_yielded_count_accounts_for_multi_event_returns(self, policy_ctx: PolicyContext):
+        """Test that yielded_count span attribute counts all events from multi-event returns."""
+        executor = AnthropicStreamExecutor()
+        policy = MultiEventPolicy()
+
+        # 2 text deltas, each expands to 3 events = 6 yielded
+        # plus 1 message_start that passes through = 7 total
+        events: list[AnthropicStreamEvent] = [
+            make_message_start_event(),
+            make_text_delta_event("A"),
+            make_text_delta_event("B"),
+        ]
+        stream = async_iter_from_list(events)
+
+        results = []
+        async for result in executor.process(stream, policy, policy_ctx):
+            results.append(result)
+
+        # 1 (message_start) + 3 (A expanded) + 3 (B expanded) = 7
+        assert len(results) == 7

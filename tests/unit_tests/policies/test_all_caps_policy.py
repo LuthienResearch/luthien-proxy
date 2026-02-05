@@ -592,8 +592,8 @@ class TestAllCapsPolicyAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is not None
-        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert len(result) == 1
+        result_event = cast(RawContentBlockDeltaEvent, result[0])
         assert result_event.type == "content_block_delta"
         assert isinstance(result_event.delta, TextDelta)
         assert result_event.delta.text == "HELLO WORLD"
@@ -614,9 +614,10 @@ class TestAllCapsPolicyAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is not event
+        assert len(result) == 1
+        assert result[0] is not event
         assert event.delta.text == original_text
-        result_event = cast(RawContentBlockDeltaEvent, result)
+        result_event = cast(RawContentBlockDeltaEvent, result[0])
         assert result_event.delta.text == "HELLO WORLD"
 
     @pytest.mark.asyncio
@@ -634,8 +635,8 @@ class TestAllCapsPolicyAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is not None
-        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert len(result) == 1
+        result_event = cast(RawContentBlockDeltaEvent, result[0])
         assert isinstance(result_event.delta, ThinkingDelta)
         assert result_event.delta.thinking == "Let me consider..."
 
@@ -654,8 +655,8 @@ class TestAllCapsPolicyAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is not None
-        result_event = cast(RawContentBlockDeltaEvent, result)
+        assert len(result) == 1
+        result_event = cast(RawContentBlockDeltaEvent, result[0])
         assert isinstance(result_event.delta, InputJSONDelta)
         assert result_event.delta.partial_json == '{"loc'
 
@@ -680,7 +681,7 @@ class TestAllCapsPolicyAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_passes_through_content_block_start(self):
@@ -696,7 +697,7 @@ class TestAllCapsPolicyAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_passes_through_content_block_stop(self):
@@ -711,7 +712,7 @@ class TestAllCapsPolicyAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_passes_through_message_delta(self):
@@ -727,7 +728,7 @@ class TestAllCapsPolicyAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_passes_through_message_stop(self):
@@ -739,11 +740,11 @@ class TestAllCapsPolicyAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
-    async def test_never_returns_none(self):
-        """on_anthropic_stream_event never filters out events (returns None)."""
+    async def test_never_returns_empty_list(self):
+        """on_anthropic_stream_event never filters out events (returns empty list)."""
         policy = AllCapsPolicy()
         ctx = PolicyContext.for_testing()
 
@@ -781,7 +782,7 @@ class TestAllCapsPolicyAnthropicStreamEvent:
 
         for event in events:
             result = await policy.on_anthropic_stream_event(event, ctx)
-            assert result is not None, f"Event of type {event.type} was filtered out"
+            assert len(result) > 0, f"Event of type {event.type} was filtered out"
 
 
 __all__ = [
