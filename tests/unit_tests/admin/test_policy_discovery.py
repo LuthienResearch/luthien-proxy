@@ -318,6 +318,46 @@ class TestDiscoverPolicies:
         assert names == sorted(names)
 
 
+# Module-level test classes for $defs aggregation tests
+# Defined at module level so get_type_hints() can resolve them
+class _NestedConfig(BaseModel):
+    """Nested config for testing schema extraction."""
+
+    value: int = 0
+
+
+class _ParentConfig(BaseModel):
+    """Parent config with nested model for testing."""
+
+    nested: _NestedConfig
+    name: str = "default"
+
+
+class _FakePolicyWithNestedConfig:
+    """A fake policy for testing schema extraction with nested Pydantic models."""
+
+    def __init__(self, config: _ParentConfig, enabled: bool = True) -> None:
+        self.config = config
+        self.enabled = enabled
+
+
+class TestDefsAggregation:
+    """Tests for $defs aggregation in config schemas with nested Pydantic models."""
+
+    def test_extract_config_schema_with_defs(self) -> None:
+        """Config schema should include $defs for nested Pydantic models."""
+        schema, example = extract_config_schema(_FakePolicyWithNestedConfig)
+
+        # Should have config parameter with nested structure
+        assert "config" in schema
+        config_schema = schema["config"]
+
+        # Should have $defs at top level or within config schema
+        assert "$defs" in config_schema or "definitions" in config_schema
+        defs = config_schema.get("$defs") or config_schema.get("definitions", {})
+        assert "_NestedConfig" in defs
+
+
 class TestSkipModules:
     """Tests for module filtering."""
 
