@@ -41,7 +41,7 @@ async def _lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Luthien Proxy — Instance Manager (Demo)", lifespan=_lifespan)
+app = FastAPI(title="Luthien Proxy — Deployment Manager (Demo)", lifespan=_lifespan)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -155,7 +155,7 @@ PAGE_HTML = """\
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Luthien Proxy — Instance Manager</title>
+<title>Luthien Proxy — Deployment Manager</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -555,13 +555,13 @@ PAGE_HTML = """\
 
   <header>
     <h1>Luthien Proxy<span class="tag">Demo</span></h1>
-    <p>Provision and manage isolated proxy instances on Railway</p>
+    <p>Deploy and manage luthien-proxy systems on Railway</p>
   </header>
 
   <section>
-    <div class="section-label">Deploy New Instance</div>
+    <div class="section-label">New Deployment</div>
     <div class="create-form">
-      <input id="instance-name" type="text" placeholder="instance-name" spellcheck="false" autocomplete="off">
+      <input id="instance-name" type="text" placeholder="deployment-name" spellcheck="false" autocomplete="off">
       <input id="instance-repo" type="text" placeholder="owner/repo (optional)" spellcheck="false" autocomplete="off">
       <button class="btn btn-primary" id="create-btn" onclick="createInstance()">Deploy</button>
     </div>
@@ -569,7 +569,7 @@ PAGE_HTML = """\
   </section>
 
   <section>
-    <div class="section-label">Instances</div>
+    <div class="section-label">Deployments</div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -593,8 +593,8 @@ PAGE_HTML = """\
 
 <div class="confirm-overlay" id="confirm-overlay">
   <div class="confirm-box">
-    <h3>Delete Instance</h3>
-    <p>Permanently delete <strong id="confirm-name"></strong> and all its services? This cannot be undone.</p>
+    <h3>Delete Deployment</h3>
+    <p>Permanently delete <strong id="confirm-name"></strong> and all its services (gateway, database, cache)? This cannot be undone.</p>
     <div class="confirm-actions">
       <button class="btn btn-cancel" onclick="closeConfirm()">Cancel</button>
       <button class="btn btn-confirm-delete" id="confirm-delete-btn" onclick="confirmDelete()">Delete</button>
@@ -621,7 +621,7 @@ async function loadInstances() {
 function renderInstances(instances) {
   const tbody = document.getElementById('instance-list');
   if (!instances.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No instances. Deploy one above.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No deployments. Create one above.</td></tr>';
     return;
   }
   tbody.innerHTML = '';
@@ -704,7 +704,7 @@ async function createInstance() {
 
   btn.disabled = true;
   status.className = 'status-bar visible working';
-  status.innerHTML = '<span class="spinner"></span>Provisioning <strong>' + esc(name) + '</strong> &mdash; this takes about a minute...';
+  status.innerHTML = '<span class="spinner"></span>Deploying <strong>' + esc(name) + '</strong> (gateway + postgres + redis) &mdash; this takes about a minute...';
 
   try {
     const body = { name };
