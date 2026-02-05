@@ -64,6 +64,15 @@ class AnthropicStreamExecutor:
                     yielded_count += 1
                     yield result
 
+                    # Check for pending stop event (used by SimplePolicy for buffered content)
+                    # After emitting a transformed delta, SimplePolicy stores the stop event
+                    # for separate emission to maintain proper event ordering
+                    if hasattr(policy, "get_pending_stop_event"):
+                        pending = policy.get_pending_stop_event()
+                        if pending is not None:
+                            yielded_count += 1
+                            yield pending
+
             span.set_attribute("streaming.event_count", event_count)
             span.set_attribute("streaming.yielded_count", yielded_count)
 

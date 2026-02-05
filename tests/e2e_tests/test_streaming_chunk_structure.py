@@ -658,7 +658,7 @@ async def tool_call_judge_policy_active():
             json={
                 "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
                 "config": {
-                    "model": "openai/gpt-4o-mini",
+                    "model": "claude-haiku-4-5",
                     "probability_threshold": 0.99,  # High threshold = allow most tool calls
                     "temperature": 0.0,
                     "max_tokens": 256,
@@ -819,7 +819,7 @@ async def test_anthropic_buffered_tool_call_emits_message_delta(http_client, too
             "messages": [
                 {
                     "role": "user",
-                    "content": "What's the weather in San Francisco? Use the get_weather tool.",
+                    "content": "Call the get_weather tool with location set to 'San Francisco'. Do not respond with text, only use the tool.",
                 }
             ],
             "tools": [
