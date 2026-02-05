@@ -142,7 +142,7 @@ policy:
     timeout_seconds: 5
     reviewers:
       - name: "CodeSafetyReviewer"
-        model: "ollama/gemma2:2b"
+        model: "your-reviewer-model"
         rules:
           - "Block rm -rf commands"
           - "Block git push --force to main"
@@ -150,7 +150,7 @@ policy:
         triggers: ["delete", "rm", "git", "file"]
 
       - name: "DataPrivacyReviewer"
-        model: "ollama/gemma2:2b"
+        model: "your-reviewer-model"
         rules:
           - "Block exposure of PII"
           - "Block credential logging"
@@ -158,7 +158,7 @@ policy:
         triggers: ["customer", "user", "password", "database", "records"]
 
       - name: "ResourceReviewer"
-        model: "ollama/gemma2:2b"
+        model: "your-reviewer-model"
         rules:
           - "Warn on unbounded loops"
           - "Block large file downloads"
@@ -167,7 +167,7 @@ policy:
 
     rephrasing:
       enabled: true
-      model: "ollama/gemma2:2b"
+      model: "your-rephrasing-model"
       style: "helpful_assistant"  # helpful_assistant | formal | brief
 ```
 

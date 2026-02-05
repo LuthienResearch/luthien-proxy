@@ -601,7 +601,7 @@ class TestParallelRulesPolicyNonStreaming:
             "luthien_proxy.policies.parallel_rules_policy.call_rule_judge",
             side_effect=mock_call_judge,
         ):
-            result = await policy.on_response(response, ctx)
+            result = await policy.on_openai_response(response, ctx)
 
         assert result is response
 
@@ -640,7 +640,7 @@ class TestParallelRulesPolicyNonStreaming:
             "luthien_proxy.policies.parallel_rules_policy.call_rule_judge",
             side_effect=mock_call_judge,
         ):
-            result = await policy.on_response(response, ctx)
+            result = await policy.on_openai_response(response, ctx)
 
         assert result is not response
         assert "BLOCKED" in result.choices[0].message.content
@@ -685,7 +685,7 @@ class TestParallelRulesPolicyParallelExecution:
             "luthien_proxy.policies.parallel_rules_policy.call_rule_judge",
             side_effect=mock_call_judge,
         ):
-            await policy.on_response(response, ctx)
+            await policy.on_openai_response(response, ctx)
 
         # All 3 rules should be called
         assert call_count == 3
@@ -724,7 +724,7 @@ class TestParallelRulesPolicyParallelExecution:
             "luthien_proxy.policies.parallel_rules_policy.call_rule_judge",
             side_effect=mock_call_judge,
         ):
-            await policy.on_response(response, ctx)
+            await policy.on_openai_response(response, ctx)
 
         # Only text_rule should be evaluated for text content
         assert evaluated_rules == ["text_rule"]
@@ -770,7 +770,7 @@ class TestParallelRulesPolicyParallelExecution:
             "luthien_proxy.policies.parallel_rules_policy.call_rule_judge",
             side_effect=mock_call_judge,
         ):
-            result = await policy.on_response(response, ctx)
+            result = await policy.on_openai_response(response, ctx)
 
         # Both violations should be in the message
         assert "Violation1" in result.choices[0].message.content
@@ -815,7 +815,7 @@ class TestParallelRulesPolicyErrorHandling:
             "luthien_proxy.policies.parallel_rules_policy.call_rule_judge",
             side_effect=mock_call_judge,
         ):
-            result = await policy.on_response(response, ctx)
+            result = await policy.on_openai_response(response, ctx)
 
         # Should block (fail-secure)
         assert result is not response

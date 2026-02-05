@@ -3,6 +3,8 @@
 This policy replaces specified strings in response content with replacement values.
 It supports case-insensitive matching with intelligent capitalization preservation.
 
+Supports both OpenAI-format (via LiteLLM) and native Anthropic APIs.
+
 Example config:
     policy:
       class: "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
@@ -18,16 +20,30 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, cast
 
+from anthropic.types import (
+    RawContentBlockDeltaEvent,
+    TextDelta,
+)
 from litellm.types.utils import Choices, StreamingChoices
 
-from luthien_proxy.policies.base_policy import BasePolicy
-from luthien_proxy.policy_core import PolicyContext
+from luthien_proxy.policy_core import (
+    AnthropicPolicyInterface,
+    AnthropicStreamEvent,
+    BasePolicy,
+    OpenAIPolicyInterface,
+    PolicyContext,
+)
 from luthien_proxy.policy_core.chunk_builders import create_finish_chunk, create_text_chunk
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock
 
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse
 
+    from luthien_proxy.llm.types import Request
+    from luthien_proxy.llm.types.anthropic import (
+        AnthropicRequest,
+        AnthropicResponse,
+    )
     from luthien_proxy.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
     )
@@ -151,13 +167,14 @@ def apply_replacements(
     return result
 
 
-class StringReplacementPolicy(BasePolicy):
+class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
     """Policy that replaces specified strings in response content.
 
     This policy supports:
     - Multiple string replacements applied in order
     - Case-insensitive matching with capitalization preservation
     - Both streaming and non-streaming responses
+    - Both OpenAI-format (via LiteLLM) and native Anthropic APIs
 
     Capitalization preservation (when match_capitalization=True):
     - ALL CAPS source -> ALL CAPS replacement
@@ -202,9 +219,53 @@ class StringReplacementPolicy(BasePolicy):
         """Apply all configured replacements to the given text."""
         return apply_replacements(text, self._replacements, self._match_capitalization)
 
-    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
+    # -------------------------------------------------------------------------
+    # OpenAI Interface Methods
+    # -------------------------------------------------------------------------
+
+    async def on_openai_request(self, request: "Request", context: PolicyContext) -> "Request":
+        """Pass through request unchanged."""
+        return request
+
+    async def on_openai_response(self, response: "ModelResponse", context: PolicyContext) -> "ModelResponse":
+        """Apply string replacements to non-streaming response content.
+
+        Args:
+            response: Complete ModelResponse from LLM
+            context: Policy context
+
+        Returns:
+            Response with string replacements applied
+        """
+        if not response.choices:
+            return response
+
+        for choice in response.choices:
+            if not (isinstance(choice, Choices) and isinstance(choice.message.content, str)):
+                context.record_event(
+                    "policy.string_replacement.response_content_warning",
+                    {"summary": "Response choice content is not a string, skipping"},
+                )
+                continue
+
+            original = choice.message.content
+            transformed = self._apply_replacements(original)
+            choice.message.content = transformed
+
+            if original != transformed:
+                context.record_event(
+                    "policy.string_replacement.response_content_transformed",
+                    {
+                        "original_length": len(original),
+                        "transformed_length": len(transformed),
+                        "replacements_count": len(self._replacements),
+                    },
+                )
+        return response
+
+    async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
         """Push non-content chunks immediately; content is handled in on_content_complete."""
-        last_chunk: ModelResponse = ctx.last_chunk_received
+        last_chunk: "ModelResponse" = ctx.last_chunk_received
         if not last_chunk.choices:
             ctx.push_chunk(last_chunk)
             return
@@ -222,7 +283,7 @@ class StringReplacementPolicy(BasePolicy):
         # All other chunks (tool calls, finish reasons, etc.) pass through
         ctx.push_chunk(last_chunk)
 
-    async def on_content_complete(self, ctx: StreamingPolicyContext) -> None:
+    async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
         """Apply string replacements to the complete content block.
 
         Waits for the full content block to be accumulated, then applies
@@ -276,41 +337,82 @@ class StringReplacementPolicy(BasePolicy):
                 },
             )
 
-    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
-        """Apply string replacements to non-streaming response content.
+    async def on_content_delta(self, ctx: "StreamingPolicyContext") -> None:
+        """Content deltas are buffered for batch replacement in on_content_complete."""
+        pass
 
-        Args:
-            response: Complete ModelResponse from LLM
-            context: Policy context
+    async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
+        """Tool call deltas pass through unchanged."""
+        pass
 
-        Returns:
-            Response with string replacements applied
+    async def on_tool_call_complete(self, ctx: "StreamingPolicyContext") -> None:
+        """Tool calls are not modified by string replacement."""
+        pass
+
+    async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
+        """Finish reason is handled in on_chunk_received."""
+        pass
+
+    async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
+        """No cleanup needed on stream complete."""
+        pass
+
+    async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
+        """No cleanup needed after streaming policy processing."""
+        pass
+
+    # -------------------------------------------------------------------------
+    # Anthropic Interface Methods
+    # -------------------------------------------------------------------------
+
+    async def on_anthropic_request(self, request: "AnthropicRequest", context: PolicyContext) -> "AnthropicRequest":
+        """Pass through request unchanged."""
+        return request
+
+    async def on_anthropic_response(self, response: "AnthropicResponse", context: PolicyContext) -> "AnthropicResponse":
+        """Transform text content blocks with string replacements.
+
+        Iterates through content blocks and applies replacements to text blocks.
+        Tool use, thinking, and other block types remain unchanged.
         """
-        if not response.choices:
-            return response
+        for block in response.get("content", []):
+            if isinstance(block, dict) and block.get("type") == "text" and "text" in block:
+                text = block.get("text")
+                if isinstance(text, str):
+                    original = text
+                    transformed = self._apply_replacements(text)
+                    block["text"] = transformed
 
-        for choice in response.choices:
-            if not (isinstance(choice, Choices) and isinstance(choice.message.content, str)):
-                context.record_event(
-                    "policy.string_replacement.response_content_warning",
-                    {"summary": "Response choice content is not a string, skipping"},
-                )
-                continue
-
-            original = choice.message.content
-            transformed = self._apply_replacements(original)
-            choice.message.content = transformed
-
-            if original != transformed:
-                context.record_event(
-                    "policy.string_replacement.response_content_transformed",
-                    {
-                        "original_length": len(original),
-                        "transformed_length": len(transformed),
-                        "replacements_count": len(self._replacements),
-                    },
-                )
+                    if original != transformed:
+                        context.record_event(
+                            "policy.anthropic_string_replacement.content_transformed",
+                            {
+                                "original_length": len(original),
+                                "transformed_length": len(transformed),
+                                "replacements_count": len(self._replacements),
+                            },
+                        )
         return response
+
+    async def on_anthropic_stream_event(
+        self, event: AnthropicStreamEvent, context: PolicyContext
+    ) -> list[AnthropicStreamEvent]:
+        """Transform text_delta events with string replacements.
+
+        For content_block_delta events with delta.type == "text_delta",
+        creates a new event with replaced text instead of mutating the original.
+        This avoids potential issues with SDK internal state.
+        """
+        if not isinstance(event, RawContentBlockDeltaEvent):
+            return [event]
+
+        if isinstance(event.delta, TextDelta):
+            original = event.delta.text
+            transformed = self._apply_replacements(original)
+            new_delta = event.delta.model_copy(update={"text": transformed})
+            return [event.model_copy(update={"delta": new_delta})]
+
+        return [event]
 
 
 __all__ = [

@@ -25,7 +25,7 @@ from typing import Any, cast
 
 import yaml
 
-from luthien_proxy.policies.base_policy import BasePolicy
+from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.settings import get_settings
 

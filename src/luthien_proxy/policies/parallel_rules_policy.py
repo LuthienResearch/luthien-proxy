@@ -34,7 +34,6 @@ from litellm.types.utils import (
     StreamingChoices,
 )
 
-from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policies.parallel_rules_config import (
     ParallelRulesJudgeConfig,
     ResponseType,
@@ -53,17 +52,20 @@ from luthien_proxy.policy_core import (
     create_tool_call_chunk,
     extract_tool_calls_from_response,
 )
+from luthien_proxy.policy_core.base_policy import BasePolicy
+from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.settings import get_settings
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
 if TYPE_CHECKING:
+    from luthien_proxy.llm.types import Request
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
 logger = logging.getLogger(__name__)
 
 
-class ParallelRulesPolicy(BasePolicy):
+class ParallelRulesPolicy(BasePolicy, OpenAIPolicyInterface):
     """Policy that evaluates responses against multiple rules in parallel.
 
     Each rule specifies:
@@ -301,6 +303,14 @@ class ParallelRulesPolicy(BasePolicy):
             # No violations - forward the tool call
             await self._send_original_tool_call_streaming(ctx, tool_call)
 
+    async def on_finish_reason(self, ctx: StreamingPolicyContext) -> None:
+        """No-op: finish reason handling is done in on_stream_complete.
+
+        Args:
+            ctx: Streaming response context
+        """
+        pass
+
     async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
         """Emit finish chunk if needed.
 
@@ -331,7 +341,19 @@ class ParallelRulesPolicy(BasePolicy):
             )
             await ctx.egress_queue.put(finish_chunk)
 
-    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+    async def on_openai_request(self, request: Request, context: PolicyContext) -> Request:
+        """Pass through request without modification.
+
+        Args:
+            request: Incoming request from client
+            context: Policy context
+
+        Returns:
+            Unmodified request
+        """
+        return request
+
+    async def on_openai_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
         """Evaluate non-streaming response against all applicable rules.
 
         Args:

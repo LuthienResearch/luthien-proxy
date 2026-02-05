@@ -128,6 +128,7 @@ def tracking_policy():
     policy.on_tool_call_complete = AsyncMock(side_effect=track_tool_call_complete)
     policy.on_finish_reason = AsyncMock(side_effect=track_finish_reason)
     policy.on_stream_complete = AsyncMock(side_effect=track_stream_complete)
+    policy.on_streaming_policy_complete = AsyncMock()
 
     policy.tracker = tracker
     return policy

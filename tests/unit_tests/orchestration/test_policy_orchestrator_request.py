@@ -10,24 +10,57 @@ from luthien_proxy.llm.types import Request
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.policies import PolicyContext
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
+from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
+from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
 
-class MockPolicy(PolicyProtocol):
+class MockPolicy(OpenAIPolicyInterface):
     """Mock policy for testing."""
 
     def __init__(self):
         self.on_request_called = False
         self.request_seen = None
 
-    async def on_request(self, request: Request, context: PolicyContext) -> Request:
-        """Track that on_request was called."""
+    @property
+    def short_policy_name(self) -> str:
+        return "MockPolicy"
+
+    async def on_openai_request(self, request: Request, context: PolicyContext) -> Request:
+        """Track that on_openai_request was called."""
         self.on_request_called = True
         self.request_seen = request
         # Modify request to verify transformation
         modified = request.model_copy(deep=True)
         modified.temperature = 0.5
         return modified
+
+    async def on_openai_response(self, response, context):
+        """Passthrough response."""
+        return response
+
+    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_content_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_finish_reason(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
 
 
 class MockLLMClient(LLMClient):

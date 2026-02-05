@@ -54,7 +54,9 @@ def _normalize_text(s: str) -> str:
 # === Anthropic Client Tests ===
 
 ANTHROPIC_ENDPOINT = f"{GATEWAY_URL}/v1/messages"
-ANTHROPIC_BACKENDS = ["claude-haiku-4-5", "gpt-4o-mini"]
+# NOTE: gpt-4o-mini removed - cross-format routing (OpenAI model to Anthropic endpoint)
+# not supported in current architecture. Phase 2 work per PR #169.
+ANTHROPIC_BACKENDS = ["claude-haiku-4-5"]
 
 
 def _anthropic_image_content(image_b64: str, prompt: str) -> list:

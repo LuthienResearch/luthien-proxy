@@ -3,11 +3,11 @@
 """Tests for PolicyProtocol short_policy_name property."""
 
 from luthien_proxy.policies.all_caps_policy import AllCapsPolicy
-from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policies.debug_logging_policy import DebugLoggingPolicy
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.policies.tool_call_judge_policy import ToolCallJudgePolicy
+from luthien_proxy.policy_core.base_policy import BasePolicy
 
 
 class TestPolicyProtocolShortName:
@@ -25,8 +25,8 @@ class TestPolicyProtocolShortName:
         policy = NoOpPolicy()
         assert hasattr(policy, "short_policy_name")
         assert isinstance(policy.short_policy_name, str)
-        # NoOpPolicy inherits from BasePolicy, so it should have class name
-        assert policy.short_policy_name == "NoOpPolicy"
+        # NoOpPolicy overrides to return a short name
+        assert policy.short_policy_name == "NoOp"
 
     def test_all_caps_policy_has_short_name(self):
         """Test that AllCapsPolicy has short_policy_name property."""

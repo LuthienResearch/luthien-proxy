@@ -19,17 +19,9 @@ from litellm.types.utils import Delta, ModelResponse
 from luthien_proxy.llm.types import Request
 from luthien_proxy.observability.transaction_recorder import TransactionRecorder
 from luthien_proxy.policies import PolicyContext
-from luthien_proxy.policies.base_policy import BasePolicy
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
-
-
-class PassthroughPolicy(BasePolicy):
-    """Pure passthrough policy - just forwards all chunks unchanged."""
-
-    pass
-
 
 FIXTURE_DIR = Path(__file__).parent.parent / "streaming" / "chunk_fixtures"
 
@@ -161,57 +153,6 @@ async def test_simple_policy_multiple_tool_calls_finish_reason():
         f"Expected exactly 1 chunk with finish_reason='tool_calls', "
         f"but got {len(tool_calls_finish_reasons)}. "
         f"This confirms the duplicate response bug."
-    )
-
-
-@pytest.mark.asyncio
-async def test_passthrough_policy_multiple_tool_calls_finish_reason():
-    """Test that BasePolicy (passthrough) emits correct number of finish_reason chunks.
-
-    This tests whether the issue is in SimplePolicy or in the base flow.
-    """
-    # Load multiple tool call fixture (4 tool calls)
-    chunks = load_chunks("anthropic_multiple_tools_chunks.json")
-
-    # Setup with passthrough policy
-    policy = PassthroughPolicy()
-    policy_ctx = create_mock_policy_context()
-    recorder = create_mock_recorder()
-
-    executor = PolicyExecutor(recorder=recorder, timeout_seconds=30.0)
-    output_queue: asyncio.Queue[ModelResponse | None] = asyncio.Queue()
-
-    # Run the executor
-    await executor.process(
-        input_stream=simulate_stream(chunks),
-        output_queue=output_queue,
-        policy=policy,
-        policy_ctx=policy_ctx,
-    )
-
-    # Collect all output chunks
-    output_chunks = []
-    while True:
-        chunk = await output_queue.get()
-        if chunk is None:
-            break
-        output_chunks.append(chunk)
-
-    # Count chunks with finish_reason
-    chunks_with_finish_reason = [c for c in output_chunks if c.choices and c.choices[0].finish_reason]
-
-    finish_reasons = [c.choices[0].finish_reason for c in chunks_with_finish_reason]
-    tool_calls_finish_reasons = [fr for fr in finish_reasons if fr == "tool_calls"]
-
-    print("\n=== Passthrough Policy Results ===")
-    print(f"Total output chunks: {len(output_chunks)}")
-    print(f"Chunks with finish_reason: {len(chunks_with_finish_reason)}")
-    print(f"Finish reasons: {finish_reasons}")
-    print(f"Chunks with finish_reason='tool_calls': {len(tool_calls_finish_reasons)}")
-
-    # Passthrough should have exactly 1 finish_reason (from the original stream)
-    assert len(tool_calls_finish_reasons) == 1, (
-        f"Expected exactly 1 chunk with finish_reason='tool_calls', but got {len(tool_calls_finish_reasons)}."
     )
 
 

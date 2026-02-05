@@ -531,42 +531,9 @@ async def test_openai_client_anthropic_backend_preserves_openai_format(http_clie
         assert len(chunks) > 0
 
 
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_anthropic_client_openai_backend_preserves_anthropic_format(http_client):
-    """Verify Anthropic client API with OpenAI backend produces Anthropic SSE format."""
-    async with http_client.stream(
-        "POST",
-        f"{GATEWAY_URL}/v1/messages",
-        json={
-            "model": "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 10,
-            "stream": True,
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    ) as response:
-        assert response.status_code == 200
-
-        lines = []
-        async for line in response.aiter_lines():
-            lines.append(line)
-
-        # Should use Anthropic format (event: lines)
-        event_lines = [line for line in lines if line.startswith("event: ")]
-        done_markers = [line for line in lines if "data: [DONE]" in line]
-
-        assert len(event_lines) > 0, "Should have Anthropic-style event lines"
-        assert len(done_markers) == 0, "Should NOT have OpenAI [DONE] marker"
-
-        # Should parse as Anthropic events
-        events = parse_anthropic_sse_stream(lines)
-        assert len(events) > 0
-
-        # Should have proper Anthropic event sequence
-        event_types = [event_type for event_type, _ in events]
-        assert "message_start" in event_types
-        assert "message_stop" in event_types
+# NOTE: test_anthropic_client_openai_backend_preserves_anthropic_format removed
+# Cross-format routing (OpenAI model to Anthropic endpoint) not supported in current
+# architecture. Phase 2 work per PR #169. See PR #172 for similar test removals.
 
 
 # === Tool Call Tests ===
@@ -691,7 +658,7 @@ async def tool_call_judge_policy_active():
             json={
                 "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
                 "config": {
-                    "model": "openai/gpt-4o-mini",
+                    "model": "claude-haiku-4-5",
                     "probability_threshold": 0.99,  # High threshold = allow most tool calls
                     "temperature": 0.0,
                     "max_tokens": 256,
@@ -837,12 +804,8 @@ async def test_anthropic_streaming_tool_use_structure(http_client, noop_policy_a
 async def test_anthropic_buffered_tool_call_emits_message_delta(http_client, tool_call_judge_policy_active):
     """Test that policy-buffered tool calls emit proper message_delta with stop_reason.
 
-    This test specifically validates the fix for the bug where create_tool_call_chunk
-    was using Choices instead of StreamingChoices, and the AnthropicSSEAssembler
-    wasn't emitting message_delta after complete tool calls.
-
-    The ToolCallJudgePolicy buffers tool calls and re-emits them using
-    create_tool_call_chunk, which exercises the fixed code path.
+    ToolCallJudgePolicy buffers tool_use events, judges the complete call, then
+    re-emits the full event sequence (start, delta, stop) if allowed.
     """
     async with http_client.stream(
         "POST",
@@ -852,7 +815,7 @@ async def test_anthropic_buffered_tool_call_emits_message_delta(http_client, too
             "messages": [
                 {
                     "role": "user",
-                    "content": "What's the weather in San Francisco? Use the get_weather tool.",
+                    "content": "Call the get_weather tool with location set to 'San Francisco'. Do not respond with text, only use the tool.",
                 }
             ],
             "tools": [

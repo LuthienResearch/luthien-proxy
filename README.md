@@ -109,7 +109,6 @@ Restart the gateway and your policy appears in the Policy Config UI automaticall
 
 - **Gateway** (OpenAI/Anthropic-compatible) at <http://localhost:8000>
 - **PostgreSQL** and **Redis** fully configured
-- **Local LLM** (Ollama) at <http://localhost:11434>
 - **Real-time monitoring** at <http://localhost:8000/activity/monitor>
 - **Policy management UI** at <http://localhost:8000/policy-config>
 
@@ -290,9 +289,7 @@ Example policy configuration:
 policy:
   class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
   config:
-    model: "ollama/gemma2:2b"
-    api_base: "http://local-llm:11434"
-    api_key: "ollama"
+    model: "openai/gpt-4o-mini"
     probability_threshold: 0.6
     temperature: 0.0
     max_tokens: 256

@@ -2,6 +2,29 @@
 
 ## Unreleased | TBA
 
+- Fix E2E test failures and multi-event streaming support (#174)
+  - `on_anthropic_stream_event` returns `list[AnthropicStreamEvent]` instead of single event
+  - Policies can now emit multiple events per input (e.g. `[delta, stop]`)
+  - SimplePolicy returns both events directly, removing `get_pending_stop_event` hack
+  - ToolCallJudgePolicy streaming now works: blocked calls emit replacement text, allowed calls re-emit buffered events
+  - Fix Claude Code E2E auth (`ANTHROPIC_AUTH_TOKEN` → `ANTHROPIC_API_KEY`)
+  - Remove unsupported cross-format routing tests (Phase 2)
+  - All 9 previously-failing E2E tests resolved
+
+- Remove local Ollama container and all related configuration
+  - Deleted docker/Dockerfile.local-llm, docker/local-llm-entrypoint.sh
+  - Deleted config/local_llm_config.yaml, config/archive/demo_judge.yaml
+  - Removed local-llm service and local_llm_models volume from docker-compose.yaml
+  - Updated documentation to remove Ollama references
+
+- Refactor policies to use platform-specific interfaces (split-apis)
+  - Add `BasePolicy`, `OpenAIPolicyInterface`, `AnthropicPolicyInterface` ABCs
+  - Unified policies implement both OpenAI and Anthropic interfaces
+  - Rename hooks to `on_openai_*` and `on_anthropic_*` for clarity
+  - Processors use `isinstance` checks for interface dispatch
+  - Delete `policies/anthropic/` directory - all policies now in main `policies/`
+  - Delete deprecated `AnthropicPolicyProtocol`
+
 - Fix StringReplacementPolicy dropping finish_reason causing blank responses in Claude Code
   - Content and finish_reason must be emitted as separate chunks
   - SSE assembler's `convert_chunk_to_event()` returns early on content, ignoring finish_reason

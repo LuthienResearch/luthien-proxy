@@ -305,6 +305,50 @@ class TestCallJudge:
         call_kwargs = mock_acompletion.call_args[1]
         assert "response_format" not in call_kwargs
 
+    @pytest.mark.asyncio
+    async def test_call_judge_fails_on_missing_probability(self):
+        """Test that missing probability field raises ValueError (fail-secure).
+
+        This is a security-critical test: if the judge response is malformed
+        and lacks a probability field, we must NOT default to 0.0 (allow).
+        Instead, we raise an exception to block the request.
+        """
+        config = JudgeConfig(
+            model="test-model",
+            api_base=None,
+            api_key=None,
+            probability_threshold=0.5,
+            temperature=0.0,
+            max_tokens=256,
+        )
+
+        # Response missing the required 'probability' field
+        mock_response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"explanation": "test without probability"}',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+
+        with patch("luthien_proxy.policies.tool_call_judge_utils.acompletion", return_value=mock_response):
+            with pytest.raises(ValueError, match="missing required 'probability' field"):
+                await call_judge(
+                    name="test_tool",
+                    arguments="{}",
+                    config=config,
+                    judge_instructions="You are a judge",
+                )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
