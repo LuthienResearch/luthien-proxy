@@ -49,31 +49,34 @@ async def _index():
     return PAGE_HTML
 
 
+def _instance_to_dict(inst):
+    return {
+        "name": inst.name,
+        "project_id": inst.project_id,
+        "status": inst.status.value,
+        "url": inst.url,
+        "railway_url": f"https://railway.com/project/{inst.project_id}",
+        "created_at": inst.created_at.isoformat() if inst.created_at else None,
+        "deletion_scheduled_at": (inst.deletion_scheduled_at.isoformat() if inst.deletion_scheduled_at else None),
+        "services": {
+            name: {"id": svc.id, "name": svc.name, "status": svc.status.value, "url": svc.url}
+            for name, svc in inst.services.items()
+        },
+    }
+
+
 @app.get("/api/instances")
 async def _list_instances():
     try:
         client = _get_client()
-        instances = client.list_luthien_instances()
-        return {
-            "instances": [
-                {
-                    "name": inst.name,
-                    "project_id": inst.project_id,
-                    "status": inst.status.value,
-                    "url": inst.url,
-                    "railway_url": f"https://railway.com/project/{inst.project_id}",
-                    "created_at": inst.created_at.isoformat() if inst.created_at else None,
-                    "deletion_scheduled_at": (
-                        inst.deletion_scheduled_at.isoformat() if inst.deletion_scheduled_at else None
-                    ),
-                    "services": {
-                        name: {"id": svc.id, "name": svc.name, "status": svc.status.value, "url": svc.url}
-                        for name, svc in inst.services.items()
-                    },
-                }
-                for inst in instances
-            ]
-        }
+        # list_luthien_instances is fast but doesn't include domains,
+        # so fetch full details for each to get gateway URLs
+        brief_list = client.list_luthien_instances()
+        instances = []
+        for brief in brief_list:
+            detailed = client.get_instance(brief.name)
+            instances.append(_instance_to_dict(detailed if detailed else brief))
+        return {"instances": instances}
     except RailwayAPIError as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
