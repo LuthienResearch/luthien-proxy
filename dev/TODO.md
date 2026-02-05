@@ -71,7 +71,8 @@
 ### Testing (Medium)
 
 - [x] **Fix Claude Code E2E tests failing with 401** - Fixed: changed `ANTHROPIC_AUTH_TOKEN` to `ANTHROPIC_API_KEY` in `run_claude_code()`. Basic and NoOpPolicy tests now pass. Reference: 2026-02-05.
-- [ ] **Fix test_claude_code_with_simple_noop_policy** - Fails with tool use under SimpleNoOpPolicy even with auth working. NoOpPolicy test passes. Needs investigation into SimpleNoOpPolicy streaming/tool handling. Reference: 2026-02-05.
+- [x] **Fix test_claude_code_with_simple_noop_policy** - Fixed: AnthropicStreamExecutor wasn't emitting pending stop events from SimplePolicy after yielding transformed deltas. Reference: 2026-02-05.
+- [ ] **ToolCallJudgePolicy streaming limitation** - Can't re-emit buffered tool calls in streaming because `on_stream_event` only returns single events. Needs architectural change to allow multiple events. Test `test_anthropic_buffered_tool_call_emits_message_delta` is skipped. Reference: 2026-02-05.
 - [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
