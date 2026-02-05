@@ -459,13 +459,9 @@ async def test_claude_code_with_tool_judge_high_threshold(claude_available, gate
 async def test_claude_code_with_tool_judge_low_threshold(claude_available, gateway_healthy, tmp_path):
     """Test Claude Code tool use blocked under ToolCallJudgePolicy with low threshold (0.01).
 
-    NOTE: This test is skipped because ToolCallJudgePolicy has a known limitation where
-    it cannot emit the blocked message text in streaming mode. When a tool call is blocked,
-    the policy filters out the events but cannot inject a replacement text block due to
-    the on_stream_event interface only allowing single event returns.
-
     With threshold=0.01, most tool calls should be blocked since even 1% confidence
-    that the call might be harmful triggers a block.
+    that the call might be harmful triggers a block. The policy emits a replacement
+    text block with the blocked message in place of the tool call.
     """
     async with policy_context(
         "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
