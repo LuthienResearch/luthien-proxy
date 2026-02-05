@@ -454,11 +454,6 @@ async def test_claude_code_with_tool_judge_high_threshold(claude_available, gate
         assert "should be readable" in result.final_result.lower() or "content" in result.final_result.lower()
 
 
-@pytest.mark.skip(
-    reason="Known limitation: ToolCallJudgePolicy cannot emit blocked message in streaming. "
-    "See tool_call_judge_policy.py lines 658-666. Needs architectural change to allow "
-    "policies to emit multiple events from on_stream_event."
-)
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_claude_code_with_tool_judge_low_threshold(claude_available, gateway_healthy, tmp_path):

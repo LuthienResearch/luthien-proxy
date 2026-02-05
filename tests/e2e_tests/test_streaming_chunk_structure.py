@@ -799,11 +799,6 @@ async def test_anthropic_streaming_tool_use_structure(http_client, noop_policy_a
         )
 
 
-@pytest.mark.skip(
-    reason="Known limitation: ToolCallJudgePolicy cannot re-emit buffered tool calls in streaming. "
-    "See tool_call_judge_policy.py lines 668-676. Needs architectural change to allow "
-    "policies to emit multiple events from on_stream_event."
-)
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_anthropic_buffered_tool_call_emits_message_delta(http_client, tool_call_judge_policy_active):
