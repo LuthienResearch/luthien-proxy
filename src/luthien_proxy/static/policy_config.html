@@ -636,6 +636,116 @@
         .quick-links a:hover {
             color: #60a5fa;
         }
+
+        /* Dynamic form styles */
+        .form-fieldset {
+            border: 1px solid var(--border-color, #333);
+            border-radius: 4px;
+            padding: 1rem;
+            margin: 0.5rem 0;
+        }
+
+        .form-fieldset legend {
+            font-weight: 500;
+            padding: 0 0.5rem;
+        }
+
+        .form-fieldset.depth-1 {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .form-fieldset.depth-2 {
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .form-field-array .array-item {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .form-field-array .array-item input {
+            flex: 1;
+        }
+
+        .form-field-array .array-item-complex {
+            background: var(--input-bg, #1a1a1a);
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+
+        .form-field-array .item-summary {
+            flex: 1;
+            font-family: monospace;
+            font-size: 0.875rem;
+            color: var(--text-secondary, #888);
+        }
+
+        .btn-remove {
+            background: var(--error-color, #ff4444);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-size: 1rem;
+            line-height: 1;
+        }
+
+        .btn-add {
+            background: transparent;
+            border: 1px dashed var(--border-color, #333);
+            color: var(--text-secondary, #888);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 0.5rem;
+        }
+
+        .btn-add:hover {
+            border-color: var(--accent-color, #4a9eff);
+            color: var(--accent-color, #4a9eff);
+        }
+
+        .btn-edit {
+            background: var(--accent-color, #4a9eff);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 0.25rem 0.5rem;
+            cursor: pointer;
+            font-size: 0.75rem;
+        }
+
+        .form-field-union select {
+            margin-bottom: 0.5rem;
+        }
+
+        .union-fields {
+            padding-left: 1rem;
+            border-left: 2px solid var(--border-color, #333);
+        }
+
+        .field-hint {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-secondary, #888);
+            margin-top: 0.25rem;
+        }
+
+        .form-field-checkbox label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+        }
+
+        .form-field-checkbox input[type="checkbox"] {
+            width: auto;
+        }
     </style>
 </head>
 <body>
