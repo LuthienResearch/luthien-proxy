@@ -5,6 +5,8 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from luthien_proxy.admin.policy_discovery import (
     SKIP_MODULES,
     SKIP_SUFFIXES,
@@ -68,6 +70,36 @@ class TestPythonTypeToJsonSchema:
     def test_empty_annotation(self) -> None:
         result = python_type_to_json_schema(inspect.Parameter.empty)
         assert result == {"type": "string"}
+
+    def test_pydantic_model_schema_extraction(self) -> None:
+        """Pydantic models should produce full JSON Schema with constraints."""
+
+        class SampleConfig(BaseModel):
+            """A sample config for testing."""
+
+            name: str = Field(description="The name")
+            temperature: float = Field(default=0.5, ge=0, le=2)
+            api_key: str | None = Field(default=None, json_schema_extra={"format": "password"})
+
+        schema = python_type_to_json_schema(SampleConfig)
+
+        assert schema["type"] == "object"
+        assert "properties" in schema
+
+        # Check name field has description
+        assert schema["properties"]["name"]["type"] == "string"
+        assert schema["properties"]["name"]["description"] == "The name"
+
+        # Check temperature has constraints
+        temp = schema["properties"]["temperature"]
+        assert temp["type"] == "number"
+        assert temp["minimum"] == 0
+        assert temp["maximum"] == 2
+        assert temp["default"] == 0.5
+
+        # Check api_key has password format
+        key = schema["properties"]["api_key"]
+        assert key.get("format") == "password"
 
 
 class TestExtractDescription:

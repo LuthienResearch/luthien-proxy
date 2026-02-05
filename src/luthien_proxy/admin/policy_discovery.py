@@ -13,6 +13,8 @@ import pkgutil
 import types
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
+from pydantic import BaseModel
+
 import luthien_proxy.policies as policies_package
 from luthien_proxy.policy_core.base_policy import BasePolicy
 
@@ -40,6 +42,14 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
     Returns:
         A JSON Schema type definition dict
     """
+    # Handle Pydantic models - extract full schema
+    if isinstance(python_type, type):
+        try:
+            if issubclass(python_type, BaseModel):
+                return python_type.model_json_schema()
+        except TypeError:
+            pass
+
     if python_type is inspect.Parameter.empty:
         return {"type": "string"}
 
