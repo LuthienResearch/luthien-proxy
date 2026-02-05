@@ -381,7 +381,7 @@ explanation: Brief explanation of your decision"""
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         """Pass through stream events with SimplePolicy buffering.
 
         Note: Stream-level blocking is not implemented for the simple judge.

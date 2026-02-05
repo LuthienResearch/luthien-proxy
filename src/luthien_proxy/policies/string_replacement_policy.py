@@ -396,7 +396,7 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicy
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: PolicyContext
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         """Transform text_delta events with string replacements.
 
         For content_block_delta events with delta.type == "text_delta",
@@ -404,15 +404,15 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicy
         This avoids potential issues with SDK internal state.
         """
         if not isinstance(event, RawContentBlockDeltaEvent):
-            return event
+            return [event]
 
         if isinstance(event.delta, TextDelta):
             original = event.delta.text
             transformed = self._apply_replacements(original)
             new_delta = event.delta.model_copy(update={"text": transformed})
-            return event.model_copy(update={"delta": new_delta})
+            return [event.model_copy(update={"delta": new_delta})]
 
-        return event
+        return [event]
 
 
 __all__ = [

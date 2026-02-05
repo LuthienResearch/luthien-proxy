@@ -355,10 +355,10 @@ class TestNoOpPolicyAnthropicStreaming:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
-    async def test_on_anthropic_stream_event_never_returns_none(self):
+    async def test_on_anthropic_stream_event_never_returns_empty_list(self):
         """on_anthropic_stream_event never filters out events."""
         policy = NoOpPolicy()
         ctx = PolicyContext.for_testing()
@@ -400,8 +400,8 @@ class TestNoOpPolicyAnthropicStreaming:
 
         for event in events:
             result = await policy.on_anthropic_stream_event(event, ctx)
-            assert result is not None, f"Event of type {event.type} was filtered out"
-            assert result is event
+            assert len(result) > 0, f"Event of type {event.type} was filtered out"
+            assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_handles_all_event_types(self):
@@ -447,12 +447,12 @@ class TestNoOpPolicyAnthropicStreaming:
 
         message_stop = RawMessageStopEvent.model_construct(type="message_stop")
 
-        assert await policy.on_anthropic_stream_event(message_start, ctx) is message_start
-        assert await policy.on_anthropic_stream_event(content_block_start, ctx) is content_block_start
-        assert await policy.on_anthropic_stream_event(content_block_delta, ctx) is content_block_delta
-        assert await policy.on_anthropic_stream_event(content_block_stop, ctx) is content_block_stop
-        assert await policy.on_anthropic_stream_event(message_delta, ctx) is message_delta
-        assert await policy.on_anthropic_stream_event(message_stop, ctx) is message_stop
+        assert await policy.on_anthropic_stream_event(message_start, ctx) == [message_start]
+        assert await policy.on_anthropic_stream_event(content_block_start, ctx) == [content_block_start]
+        assert await policy.on_anthropic_stream_event(content_block_delta, ctx) == [content_block_delta]
+        assert await policy.on_anthropic_stream_event(content_block_stop, ctx) == [content_block_stop]
+        assert await policy.on_anthropic_stream_event(message_delta, ctx) == [message_delta]
+        assert await policy.on_anthropic_stream_event(message_stop, ctx) == [message_stop]
 
 
 if __name__ == "__main__":

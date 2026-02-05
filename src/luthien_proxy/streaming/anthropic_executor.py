@@ -26,9 +26,10 @@ class AnthropicStreamExecutor:
     This executor sits between the Anthropic SDK stream and the client response
     formatter. It processes each streaming event through the policy's
     on_stream_event hook, which can:
-    - Return the event unchanged (passthrough)
-    - Return a modified event (transformation)
-    - Return None to filter out the event
+    - Return [event] to pass through unchanged
+    - Return [modified_event] to transform
+    - Return [] to filter out the event
+    - Return [event1, event2, ...] to emit multiple events
 
     Policy errors propagate to the caller - if something fails, it fails loudly.
     """
@@ -59,20 +60,10 @@ class AnthropicStreamExecutor:
             async for sdk_event in stream:
                 event_count += 1
 
-                result = await policy.on_anthropic_stream_event(sdk_event, context)
-                if result is not None:
+                results = await policy.on_anthropic_stream_event(sdk_event, context)
+                for result in results:
                     yielded_count += 1
                     yield result
-
-                    # Check for pending stop event (used by SimplePolicy for buffered content)
-                    # After emitting a transformed delta, SimplePolicy stores the stop event
-                    # for separate emission to maintain proper event ordering
-                    get_pending = getattr(policy, "get_pending_stop_event", None)
-                    if get_pending is not None:
-                        pending = get_pending()
-                        if pending is not None:
-                            yielded_count += 1
-                            yield pending
 
             span.set_attribute("streaming.event_count", event_count)
             span.set_attribute("streaming.yielded_count", yielded_count)
