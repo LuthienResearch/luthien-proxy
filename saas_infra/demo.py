@@ -61,6 +61,7 @@ async def _list_instances():
                     "project_id": inst.project_id,
                     "status": inst.status.value,
                     "url": inst.url,
+                    "railway_url": f"https://railway.com/project/{inst.project_id}",
                     "created_at": inst.created_at.isoformat() if inst.created_at else None,
                     "deletion_scheduled_at": (
                         inst.deletion_scheduled_at.isoformat() if inst.deletion_scheduled_at else None
@@ -99,6 +100,7 @@ async def _create_instance(req: CreateRequest):
             "name": inst.name,
             "project_id": inst.project_id,
             "url": inst.url,
+            "railway_url": f"https://railway.com/project/{inst.project_id}",
             "status": inst.status.value,
             "proxy_api_key": result.proxy_api_key,
             "admin_api_key": result.admin_api_key,
@@ -571,13 +573,14 @@ PAGE_HTML = """\
           <tr>
             <th>Name</th>
             <th>Status</th>
-            <th>URL</th>
+            <th>Gateway</th>
+            <th>Console</th>
             <th>Created</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="instance-list">
-          <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+          <tr><td colspan="6" class="empty-state">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -608,14 +611,14 @@ async function loadInstances() {
     renderInstances(data.instances);
   } catch (e) {
     document.getElementById('instance-list').innerHTML =
-      '<tr><td colspan="5" class="empty-state">Failed to load: ' + esc(e.message) + '</td></tr>';
+      '<tr><td colspan="6" class="empty-state">Failed to load: ' + esc(e.message) + '</td></tr>';
   }
 }
 
 function renderInstances(instances) {
   const tbody = document.getElementById('instance-list');
   if (!instances.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No instances. Deploy one above.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No instances. Deploy one above.</td></tr>';
     return;
   }
   tbody.innerHTML = '';
@@ -628,8 +631,12 @@ function renderInstances(instances) {
       ? new Date(inst.created_at).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
       : '—';
 
-    const urlCell = inst.url
+    const gatewayCell = inst.url
       ? '<a class="url-link" href="' + esc(inst.url) + '" target="_blank" onclick="event.stopPropagation()">' + esc(inst.url.replace('https://', '')) + '</a>'
+      : '<span style="color:var(--text-dim)">—</span>';
+
+    const consoleCell = inst.railway_url
+      ? '<a class="url-link" href="' + esc(inst.railway_url) + '" target="_blank" onclick="event.stopPropagation()">railway.com/project/...</a>'
       : '<span style="color:var(--text-dim)">—</span>';
 
     const delBtn = document.createElement('button');
@@ -640,7 +647,8 @@ function renderInstances(instances) {
     tr.innerHTML =
       '<td><span class="instance-name">' + esc(inst.name) + '</span></td>' +
       '<td><span class="status-dot ' + esc(inst.status) + '"></span>' + esc(inst.status.replace('_', ' ')) + '</td>' +
-      '<td>' + urlCell + '</td>' +
+      '<td>' + gatewayCell + '</td>' +
+      '<td>' + consoleCell + '</td>' +
       '<td class="date-cell">' + esc(created) + '</td>' +
       '<td class="actions-cell"></td>';
     tr.querySelector('.actions-cell').appendChild(delBtn);
@@ -661,7 +669,7 @@ function toggleDetail(inst, tr) {
   const detail = document.createElement('tr');
   detail.classList.add('detail-row');
   const td = document.createElement('td');
-  td.colSpan = 5;
+  td.colSpan = 6;
 
   const services = inst.services || {};
   const keys = Object.keys(services);
@@ -714,7 +722,8 @@ async function createInstance() {
       status.className = 'status-bar visible success';
       status.innerHTML =
         '<strong>' + esc(data.name) + '</strong> deployed<br>' +
-        '<span class="key-value"><strong>URL:</strong> <a class="url-link" href="' + esc(data.url) + '" target="_blank">' + esc(data.url) + '</a></span><br>' +
+        '<span class="key-value"><strong>Gateway:</strong> <a class="url-link" href="' + esc(data.url) + '" target="_blank">' + esc(data.url) + '</a></span><br>' +
+        '<span class="key-value"><strong>Console:</strong> <a class="url-link" href="' + esc(data.railway_url) + '" target="_blank">' + esc(data.railway_url) + '</a></span><br>' +
         '<span class="key-value"><strong>PROXY_API_KEY:</strong> ' + esc(data.proxy_api_key) + '</span><br>' +
         '<span class="key-value"><strong>ADMIN_API_KEY:</strong> ' + esc(data.admin_api_key) + '</span>';
       nameInput.value = '';
