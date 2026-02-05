@@ -320,8 +320,11 @@ function renderConfigForm(policy) {
     const schema = policy.config_schema || {};
     const example = policy.example_config || {};
 
-    // Check if schema has Pydantic structure (properties at root or $defs)
-    const hasPydanticSchema = schema.properties || schema.$defs;
+    // Check if any parameter schema has Pydantic structure (properties or $defs)
+    // Schema is {paramName: paramSchema, ...} so we check each parameter
+    const hasPydanticSchema = Object.values(schema).some(
+        paramSchema => paramSchema && (paramSchema.properties || paramSchema.$defs)
+    );
 
     if (hasPydanticSchema && window.FormRenderer) {
         // Use new recursive renderer for Pydantic schemas
@@ -333,9 +336,14 @@ function renderConfigForm(policy) {
 }
 
 function renderWithAlpine(container, schema, initialData) {
-    // Initialize form data with defaults merged with example/initial data
+    // Initialize form data with defaults from schema
     const formData = window.FormRenderer.getDefaultValue(schema, schema);
-    Object.assign(formData, initialData);
+    // Merge initial data, but skip null values that would overwrite defaults
+    for (const [key, value] of Object.entries(initialData || {})) {
+        if (value !== null) {
+            formData[key] = value;
+        }
+    }
 
     // Store in state for submission
     state.currentFormData = formData;
@@ -345,9 +353,12 @@ function renderWithAlpine(container, schema, initialData) {
     // Generate form HTML
     const formHtml = window.FormRenderer.generateForm(schema);
 
+    // Escape JSON for HTML attribute embedding (replace quotes with HTML entities)
+    const escapedFormData = JSON.stringify(formData).replace(/"/g, '&quot;');
+
     // Create Alpine component
     container.innerHTML = `
-        <div x-data="{ formData: ${JSON.stringify(formData)} }"
+        <div x-data="{ formData: ${escapedFormData} }"
              x-init="$watch('formData', value => window.updateFormData(value))">
             ${formHtml}
         </div>

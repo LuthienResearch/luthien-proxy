@@ -36,16 +36,41 @@ const FormRenderer = {
 
   /**
    * Get default value for a schema type
+   * Handles both standard JSON Schema and parameter schema dicts
    */
   getDefaultValue(schema, rootSchema) {
     schema = this.resolveRef(schema, rootSchema);
-    if (schema.default !== undefined) return schema.default;
+    // Use default value unless it's null and schema is an object with properties
+    // In that case, we want to construct the object with property defaults
+    if (schema.default !== undefined && schema.default !== null) {
+      return schema.default;
+    }
+    if (schema.default === null && schema.type !== "object") {
+      return null;
+    }
 
     // Handle discriminated unions - pick first variant
     if (schema.oneOf || schema.anyOf) {
       const variants = schema.oneOf || schema.anyOf;
       const firstVariant = this.resolveRef(variants[0], rootSchema);
       return this.getDefaultValue(firstVariant, rootSchema);
+    }
+
+    // If no type but has nested schemas (parameter dict format), build object
+    if (!schema.type && !schema.properties) {
+      const hasNestedSchemas = Object.values(schema).some(
+        (v) => v && typeof v === "object" && (v.type || v.properties || v.$defs)
+      );
+      if (hasNestedSchemas) {
+        const obj = {};
+        for (const [key, paramSchema] of Object.entries(schema)) {
+          if (paramSchema && typeof paramSchema === "object") {
+            const paramRoot = paramSchema.$defs ? paramSchema : rootSchema;
+            obj[key] = this.getDefaultValue(paramSchema, paramRoot);
+          }
+        }
+        return obj;
+      }
     }
 
     switch (schema.type) {
@@ -78,7 +103,20 @@ const FormRenderer = {
   renderField(schema, path, rootSchema, depth = 0) {
     schema = this.resolveRef(schema, rootSchema);
 
-    // Discriminated union
+    // Handle anyOf with [type, null] as nullable - not a union
+    if (schema.anyOf) {
+      const nonNullTypes = schema.anyOf.filter(
+        (s) => s.type !== "null" && s !== null
+      );
+      if (nonNullTypes.length === 1) {
+        // This is a nullable type, merge the non-null schema
+        const mergedSchema = { ...schema, ...nonNullTypes[0] };
+        delete mergedSchema.anyOf;
+        return this.renderField(mergedSchema, path, rootSchema, depth);
+      }
+    }
+
+    // Discriminated union (oneOf or anyOf with multiple non-null types)
     if (schema.oneOf || schema.anyOf) {
       return this.renderUnionField(schema, path, rootSchema, depth);
     }
@@ -289,14 +327,27 @@ const FormRenderer = {
 
   /**
    * Generate full form HTML for a schema
+   * Handles two formats:
+   * 1. Standard JSON Schema: {properties: {field1: {...}, field2: {...}}}
+   * 2. Parameter schema dict: {param1: {properties: {...}}, param2: {...}}
    */
   generateForm(schema, rootSchema = null) {
     rootSchema = rootSchema || schema;
     let html = "";
 
     if (schema.properties) {
+      // Standard JSON Schema with properties at root
       for (const [key, propSchema] of Object.entries(schema.properties)) {
         html += this.renderField(propSchema, key, rootSchema, 0);
+      }
+    } else {
+      // Parameter schema dict - each key is a parameter name with its own schema
+      for (const [paramName, paramSchema] of Object.entries(schema)) {
+        if (paramSchema && typeof paramSchema === "object") {
+          // Use the parameter's schema as the rootSchema for $ref resolution
+          const paramRoot = paramSchema.$defs ? paramSchema : rootSchema;
+          html += this.renderField(paramSchema, paramName, paramRoot, 0);
+        }
       }
     }
 

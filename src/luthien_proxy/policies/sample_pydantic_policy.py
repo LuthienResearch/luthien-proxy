@@ -57,8 +57,19 @@ class SamplePydanticPolicy(BasePolicy):
     """
 
     def __init__(self, config: SampleConfig | None = None):
-        """Initialize the policy with optional config."""
-        self.config = config or SampleConfig()
+        """Initialize the policy with optional config.
+
+        Args:
+            config: A SampleConfig instance or None for defaults.
+                   Also accepts a dict at runtime which will be parsed into SampleConfig.
+        """
+        if config is None:
+            self.config = SampleConfig()
+        elif isinstance(config, dict):
+            # Handle dict passed from policy manager at runtime
+            self.config = SampleConfig.model_validate(config)
+        else:
+            self.config = config
 
     def get_config(self) -> dict:
         """Return the configuration for this policy instance."""
