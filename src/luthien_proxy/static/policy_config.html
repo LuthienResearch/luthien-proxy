@@ -746,6 +746,91 @@
         .form-field-checkbox input[type="checkbox"] {
             width: auto;
         }
+
+        /* Drawer styles */
+        .drawer {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+        }
+
+        .drawer-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        .drawer-content {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 400px;
+            max-width: 90vw;
+            background: var(--bg-primary, #0a0a0a);
+            display: flex;
+            flex-direction: column;
+            box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .drawer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color, #333);
+        }
+
+        .drawer-header h3 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #e5e5e5;
+        }
+
+        .drawer-close {
+            background: none;
+            border: none;
+            color: var(--text-primary, #fff);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .drawer-close:hover {
+            color: #f87171;
+        }
+
+        .drawer-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+        }
+
+        .drawer-footer {
+            padding: 1rem;
+            border-top: 1px solid var(--border-color, #333);
+        }
+
+        .btn-primary {
+            background: #2563eb;
+            border: 1px solid #2563eb;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+        }
+
+        [x-cloak] {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -820,6 +905,24 @@
                 <div class="config-panel-empty">
                     Select a policy to configure
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Drawer for editing complex items -->
+    <div id="form-drawer" class="drawer" x-data x-show="$store.drawer.open" x-cloak>
+        <div class="drawer-backdrop" @click="$store.drawer.open = false"></div>
+        <div class="drawer-content">
+            <div class="drawer-header">
+                <h3 x-text="'Edit ' + $store.drawer.path + '[' + $store.drawer.index + ']'"></h3>
+                <button @click="$store.drawer.open = false" class="drawer-close">&times;</button>
+            </div>
+            <div class="drawer-body" id="drawer-form">
+                <!-- Drawer form content will be rendered here -->
+                <p style="color: #888;">Item editing will be implemented in a future task.</p>
+            </div>
+            <div class="drawer-footer">
+                <button @click="$store.drawer.open = false" class="btn-primary">Done</button>
             </div>
         </div>
     </div>

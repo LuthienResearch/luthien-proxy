@@ -12,6 +12,15 @@ const state = {
     currentFormData: null  // For Alpine-based form data
 };
 
+// Initialize Alpine store for drawer state
+document.addEventListener('alpine:init', () => {
+    Alpine.store('drawer', {
+        open: false,
+        path: '',
+        index: -1
+    });
+});
+
 // Check if current editor config matches the active policy
 function isConfigMatchingActive() {
     if (!state.currentPolicy || !state.selectedPolicy) return false;
@@ -467,8 +476,17 @@ function renderLegacyForm(container, schema, example) {
 
 // Global functions needed by FormRenderer
 window.openDrawer = function(path, index) {
-    // Will be implemented in Task 8 (drawer component)
-    console.log('openDrawer', path, index);
+    if (window.Alpine) {
+        Alpine.store('drawer').open = true;
+        Alpine.store('drawer').path = path;
+        Alpine.store('drawer').index = index;
+    }
+};
+
+window.closeDrawer = function() {
+    if (window.Alpine) {
+        Alpine.store('drawer').open = false;
+    }
 };
 
 window.addArrayItem = function(path) {
