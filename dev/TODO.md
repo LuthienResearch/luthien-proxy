@@ -70,7 +70,8 @@
 
 ### Testing (Medium)
 
-- [ ] **Fix Claude Code E2E tests timing out** - `test_claude_code_*` tests timeout (120s). Root cause: Claude Code 2.x ignores `ANTHROPIC_BASE_URL` env var and sends requests directly to `api.anthropic.com` (uses OAuth). Need alternative routing method or mark tests as requiring special setup. Gateway works fine (curl passes). Other 93 E2E tests pass. Reference: 2026-01-25.
+- [x] **Fix Claude Code E2E tests failing with 401** - Fixed: changed `ANTHROPIC_AUTH_TOKEN` to `ANTHROPIC_API_KEY` in `run_claude_code()`. Basic and NoOpPolicy tests now pass. Reference: 2026-02-05.
+- [ ] **Fix test_claude_code_with_simple_noop_policy** - Fails with tool use under SimpleNoOpPolicy even with auth working. NoOpPolicy test passes. Needs investigation into SimpleNoOpPolicy streaming/tool handling. Reference: 2026-02-05.
 - [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
@@ -91,6 +92,7 @@
 
 ## Low Priority / Future Work
 
+- [ ] **Support ANTHROPIC_AUTH_TOKEN header** - Claude Code uses `x-api-key` header with value from `ANTHROPIC_API_KEY` env var. Some tools may use `Authorization: Bearer` with `ANTHROPIC_AUTH_TOKEN`. Consider supporting both auth header formats for broader compatibility.
 - [ ] **Simplify db.py abstractions** - Remove redundant protocol wrappers
 - [ ] **Review observability stack** - Consolidate observability docs, verify Grafana/Loki integration
 - [ ] Increase unit test coverage (currently ~90%, target 95%+)
