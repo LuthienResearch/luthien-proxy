@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -100,6 +100,30 @@ class TestPythonTypeToJsonSchema:
         # Check api_key has password format
         key = schema["properties"]["api_key"]
         assert key.get("format") == "password"
+
+    def test_discriminated_union_schema(self) -> None:
+        """Discriminated unions should include oneOf with discriminator info."""
+
+        class RegexRule(BaseModel):
+            type: Literal["regex"] = "regex"
+            pattern: str
+
+        class KeywordRule(BaseModel):
+            type: Literal["keyword"] = "keyword"
+            keywords: list[str]
+
+        RuleUnion = Annotated[RegexRule | KeywordRule, Field(discriminator="type")]
+
+        schema = python_type_to_json_schema(RuleUnion)
+
+        # Should have oneOf structure
+        assert "oneOf" in schema or "anyOf" in schema
+        variants = schema.get("oneOf") or schema.get("anyOf")
+        assert len(variants) == 2
+
+        # Should have discriminator metadata
+        assert "discriminator" in schema
+        assert schema["discriminator"]["propertyName"] == "type"
 
 
 class TestExtractDescription:
