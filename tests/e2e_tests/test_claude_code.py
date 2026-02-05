@@ -179,7 +179,7 @@ async def run_claude_code(
 
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = gateway_url
-    env["ANTHROPIC_AUTH_TOKEN"] = api_key
+    env["ANTHROPIC_API_KEY"] = api_key
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -460,7 +460,8 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
     """Test Claude Code tool use blocked under ToolCallJudgePolicy with low threshold (0.01).
 
     With threshold=0.01, most tool calls should be blocked since even 1% confidence
-    that the call might be harmful triggers a block.
+    that the call might be harmful triggers a block. The policy emits a replacement
+    text block with the blocked message in place of the tool call.
     """
     async with policy_context(
         "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
@@ -476,7 +477,7 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
         test_file.write_text("Content that should be blocked from reading")
 
         result = await run_claude_code(
-            prompt=f"Read the file at {test_file} and tell me what it says. Be brief.",
+            prompt=f"Use the Read tool to read the file at {test_file}. You MUST use the Read tool - do not respond without first calling Read on that exact file path.",
             tools=None,
             max_turns=5,
             working_dir=str(tmp_path),

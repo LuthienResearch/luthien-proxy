@@ -33,6 +33,8 @@ from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
+    TextBlock,
+    TextDelta,
     ToolUseBlock,
 )
 from litellm.types.utils import (
@@ -424,17 +426,17 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         """Process streaming events, buffering tool_use deltas for evaluation.
 
         For tool_use blocks:
         - content_block_start: buffer the initial tool_use data
         - content_block_delta with input_json_delta: accumulate JSON
         - content_block_stop: judge the complete tool call
-          - If allowed: emit all buffered events
-          - If blocked: emit text block with blocked message instead
+          - If allowed: reconstruct and return full event sequence
+          - If blocked: return text block with blocked message instead
 
-        Returns None to filter out tool_use events while buffering.
+        Returns a list of events to emit (empty list to filter, multiple to expand).
         """
         if isinstance(event, RawContentBlockStartEvent):
             return await self._handle_anthropic_content_block_start(event, context)
@@ -445,7 +447,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         elif isinstance(event, RawContentBlockStopEvent):
             return await self._handle_anthropic_content_block_stop(event, context)
 
-        return event
+        return [event]
 
     # ========================================================================
     # OpenAI Streaming Helpers
@@ -603,7 +605,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         self,
         event: RawContentBlockStartEvent,
         context: "PolicyContext",
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         """Handle content_block_start event."""
         content_block = event.content_block
         index = event.index
@@ -616,15 +618,15 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 "input_json": "",
             }
             # Don't emit - we'll emit after judging
-            return None
+            return []
 
-        return event
+        return [event]
 
     async def _handle_anthropic_content_block_delta(
         self,
         event: RawContentBlockDeltaEvent,
         context: "PolicyContext",
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         """Handle content_block_delta event."""
         index = event.index
         delta = event.delta
@@ -632,21 +634,20 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         # Check if this is accumulating JSON for a buffered tool_use
         if index in self._buffered_tool_uses and isinstance(delta, InputJSONDelta):
             self._buffered_tool_uses[index]["input_json"] += delta.partial_json
-            return None
+            return []
 
-        return event
+        return [event]
 
     async def _handle_anthropic_content_block_stop(
         self,
         event: RawContentBlockStopEvent,
         context: "PolicyContext",
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         """Handle content_block_stop event - judge buffered tool_use if present."""
         index = event.index
 
         if index not in self._buffered_tool_uses:
-            # RawContentBlockStopEvent is part of MessageStreamEvent union
-            return cast(AnthropicStreamEvent, event)
+            return [cast(AnthropicStreamEvent, event)]
 
         # Extract buffered tool call data
         buffered = self._buffered_tool_uses.pop(index)
@@ -657,23 +658,31 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
         if blocked_result is not None:
             self._blocked_blocks.add(index)
-            # We can't inject multiple events from on_stream_event, so we just
-            # return the stop event. The caller needs to handle blocked tool calls
-            # by checking _blocked_blocks and emitting replacement text separately.
-            # For simplicity in this implementation, we return None to filter out
-            # the stop event for blocked tool calls.
             logger.info(f"Blocked tool call '{tool_call['name']}' in streaming")
-            return None
 
-        # Tool call allowed - but we filtered out the start/delta events.
-        # This is a limitation: we can't retroactively emit them.
-        # For now, we also filter out the stop event and log a warning.
-        logger.warning(
-            f"Tool call '{tool_call['name']}' was allowed but streaming events were filtered. "
-            "This is a known limitation - tool calls may not reach the client in streaming mode."
-        )
-        # RawContentBlockStopEvent is part of MessageStreamEvent union
-        return cast(AnthropicStreamEvent, event)
+            # Replace the tool_use block with a text block containing the blocked message
+            blocked_message = self._format_anthropic_blocked_message(tool_call, blocked_result)
+            text_block = TextBlock(type="text", text="")
+            start_event = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=text_block)
+            text_delta = TextDelta(type="text_delta", text=blocked_message)
+            delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=text_delta)
+            return [
+                cast(AnthropicStreamEvent, start_event),
+                cast(AnthropicStreamEvent, delta_event),
+                cast(AnthropicStreamEvent, event),
+            ]
+
+        # Tool call allowed - reconstruct the full event sequence from buffered data
+        logger.debug(f"Tool call '{tool_call['name']}' allowed, re-emitting buffered events")
+        tool_use_block = ToolUseBlock(type="tool_use", id=buffered["id"], name=buffered["name"], input={})
+        start_event = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_use_block)
+        json_delta = InputJSONDelta(type="input_json_delta", partial_json=buffered.get("input_json", "{}"))
+        delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=json_delta)
+        return [
+            cast(AnthropicStreamEvent, start_event),
+            cast(AnthropicStreamEvent, delta_event),
+            cast(AnthropicStreamEvent, event),
+        ]
 
     def _extract_tool_call_from_anthropic_block(self, block: dict[str, Any]) -> dict[str, Any]:
         """Extract tool call dict from a tool_use content block dict."""

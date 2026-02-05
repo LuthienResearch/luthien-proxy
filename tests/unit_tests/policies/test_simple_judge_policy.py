@@ -735,9 +735,9 @@ class TestSimpleJudgePolicyAnthropicStreamEvent:
 
     SimpleJudgePolicy inherits from SimplePolicy, which buffers content blocks
     for transformation. This means:
-    - Content block deltas are buffered (returns None)
+    - Content block deltas are buffered (returns [])
     - Content block start/stop trigger buffering logic
-    - Message-level events pass through
+    - Message-level events pass through as [event]
     """
 
     @pytest.fixture
@@ -772,8 +772,8 @@ class TestSimpleJudgePolicyAnthropicStreamEvent:
 
         result = await policy_with_rules.on_anthropic_stream_event(event, ctx)
 
-        # SimplePolicy buffers content deltas, so it returns None
-        assert result is None
+        # SimplePolicy buffers content deltas, so it returns []
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_message_start(self, policy_with_rules):
@@ -795,7 +795,7 @@ class TestSimpleJudgePolicyAnthropicStreamEvent:
 
         result = await policy_with_rules.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_content_block_start(self, policy_with_rules):
@@ -810,7 +810,7 @@ class TestSimpleJudgePolicyAnthropicStreamEvent:
 
         result = await policy_with_rules.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_message_delta(self, policy_with_rules):
@@ -825,7 +825,7 @@ class TestSimpleJudgePolicyAnthropicStreamEvent:
 
         result = await policy_with_rules.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_message_stop(self, policy_with_rules):
@@ -836,7 +836,7 @@ class TestSimpleJudgePolicyAnthropicStreamEvent:
 
         result = await policy_with_rules.on_anthropic_stream_event(event, ctx)
 
-        assert result is event
+        assert result == [event]
 
 
 # ========== Content Extraction Tests ==========

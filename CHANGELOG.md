@@ -2,6 +2,15 @@
 
 ## Unreleased | TBA
 
+- Fix E2E test failures and multi-event streaming support (#174)
+  - `on_anthropic_stream_event` returns `list[AnthropicStreamEvent]` instead of single event
+  - Policies can now emit multiple events per input (e.g. `[delta, stop]`)
+  - SimplePolicy returns both events directly, removing `get_pending_stop_event` hack
+  - ToolCallJudgePolicy streaming now works: blocked calls emit replacement text, allowed calls re-emit buffered events
+  - Fix Claude Code E2E auth (`ANTHROPIC_AUTH_TOKEN` → `ANTHROPIC_API_KEY`)
+  - Remove unsupported cross-format routing tests (Phase 2)
+  - All 9 previously-failing E2E tests resolved
+
 - Remove local Ollama container and all related configuration
   - Deleted docker/Dockerfile.local-llm, docker/local-llm-entrypoint.sh
   - Deleted config/local_llm_config.yaml, config/archive/demo_judge.yaml

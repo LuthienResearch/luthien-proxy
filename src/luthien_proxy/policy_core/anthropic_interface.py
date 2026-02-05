@@ -75,21 +75,22 @@ class AnthropicPolicyInterface(ABC):
     @abstractmethod
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         """Process a streaming event from Anthropic.
 
         This hook is called for each SSE event in a streaming response.
         Policies can:
-        - Return the event unchanged (passthrough)
-        - Return a modified event (transformation)
-        - Return None to filter out the event
+        - Return [event] to pass through unchanged
+        - Return [modified_event] to transform
+        - Return [] to filter out the event
+        - Return [event1, event2, ...] to emit multiple events
 
         Args:
             event: The Anthropic streaming event
             context: Policy context with scratchpad, emitter, etc.
 
         Returns:
-            The event to emit (possibly modified), or None to filter it out
+            List of events to emit. Empty list filters the event out.
         """
         ...
 

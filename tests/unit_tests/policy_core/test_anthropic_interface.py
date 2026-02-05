@@ -47,7 +47,7 @@ class TestAnthropicPolicyInterface:
                 return response
 
             async def on_anthropic_stream_event(self, event, context):
-                return event
+                return [event]
 
         policy = CompletePolicy()
         assert isinstance(policy, AnthropicPolicyInterface)
@@ -64,7 +64,7 @@ class TestAnthropicPolicyInterface:
                 return response
 
             async def on_anthropic_stream_event(self, event, context):
-                return event
+                return [event]
 
         policy = TestPolicy()
         mock_request = MagicMock()
@@ -80,11 +80,11 @@ class TestAnthropicPolicyInterface:
         assert result is mock_response
 
         result = await policy.on_anthropic_stream_event(mock_event, mock_context)
-        assert result is mock_event
+        assert result == [mock_event]
 
     @pytest.mark.asyncio
-    async def test_stream_event_can_return_none(self):
-        """on_anthropic_stream_event can return None to filter events."""
+    async def test_stream_event_can_return_empty_list(self):
+        """on_anthropic_stream_event can return [] to filter events."""
 
         class FilteringPolicy(AnthropicPolicyInterface):
             async def on_anthropic_request(self, request, context):
@@ -94,14 +94,14 @@ class TestAnthropicPolicyInterface:
                 return response
 
             async def on_anthropic_stream_event(self, event, context):
-                return None
+                return []
 
         policy = FilteringPolicy()
         mock_event = MagicMock()
         mock_context = MagicMock()
 
         result = await policy.on_anthropic_stream_event(mock_event, mock_context)
-        assert result is None
+        assert result == []
 
     def test_abstract_methods_list(self):
         """Verify the expected abstract methods are defined."""
