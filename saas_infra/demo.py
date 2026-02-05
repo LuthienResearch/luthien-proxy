@@ -91,9 +91,7 @@ async def _create_instance(req: CreateRequest):
 
         provisioner = Provisioner(client, config)
 
-        # Run in thread pool since CLI calls block
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, provisioner.create_instance, req.name)
+        result = await asyncio.to_thread(provisioner.create_instance, req.name)
 
         if not result.success or result.instance is None:
             return JSONResponse({"error": result.error or "Unknown error"}, status_code=400)
@@ -142,8 +140,7 @@ async def _get_instance(name: str):
 async def _delete_instance(name: str):
     try:
         client = _get_client()
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, client.force_delete_instance, name)
+        await asyncio.to_thread(client.force_delete_instance, name)
         return {"deleted": name}
     except RailwayAPIError as e:
         return JSONResponse({"error": str(e)}, status_code=500)

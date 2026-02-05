@@ -3,7 +3,6 @@
 
 import json
 import sys
-from typing import Optional
 
 import click
 
@@ -63,7 +62,7 @@ def cli():
 def create(
     name: str,
     json_output: bool,
-    repo: Optional[str],
+    repo: str | None,
 ):
     """Create a new luthien-proxy instance.
 

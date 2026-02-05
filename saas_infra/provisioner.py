@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from .models import InstanceInfo, InstanceStatus, ProvisioningResult, ServiceInfo, ServiceStatus
-from .railway_client import RailwayAPIError, RailwayClient
+from .railway_client import RailwayAPIError, RailwayAuthError, RailwayClient
 from .utils import (
     NameValidationError,
     generate_api_key,
@@ -141,7 +141,7 @@ class Provisioner:
                 admin_api_key=admin_api_key,
             )
 
-        except Exception as e:
+        except (RailwayAPIError, RailwayAuthError, KeyError, ValueError) as e:
             if created_project_id:
                 try:
                     self.client.delete_project(created_project_id)
