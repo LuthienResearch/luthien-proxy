@@ -10,8 +10,9 @@ import litellm
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 
-from luthien_proxy.admin.policy_discovery import discover_policies
+from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
 from luthien_proxy.auth import verify_admin_token
+from luthien_proxy.config import _import_policy_class
 from luthien_proxy.dependencies import get_policy_manager
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
@@ -162,9 +163,13 @@ async def set_policy(
     Requires admin authentication.
     """
     try:
+        # Import policy class and validate config before enabling
+        policy_class = _import_policy_class(body.policy_class_ref)
+        validated_config = validate_policy_config(policy_class, body.config or {})
+
         result: PolicyEnableResult = await manager.enable_policy(
             policy_class_ref=body.policy_class_ref,
-            config=body.config,
+            config=validated_config,
             enabled_by=body.enabled_by,
         )
 

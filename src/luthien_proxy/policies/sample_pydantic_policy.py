@@ -71,9 +71,8 @@ class SamplePydanticPolicy(BasePolicy):
         else:
             self.config = config
 
-    def get_config(self) -> dict:
-        """Return the configuration for this policy instance."""
-        return {"config": self.config.model_dump()}
+    # get_config() is inherited from BasePolicy - automatically serializes
+    # the self.config Pydantic model
 
 
 __all__ = [
