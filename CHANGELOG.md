@@ -2,6 +2,15 @@
 
 ## Unreleased | TBA
 
+- Add SaaS infrastructure provisioning CLI for Railway (saas-infra)
+  - New `saas_infra/` package with CLI for managing multi-tenant proxy instances
+  - Commands: create, list, status, delete, redeploy, cancel-delete, whoami
+  - Each instance gets isolated Railway project with Postgres + Redis + gateway
+  - Soft delete with 7-day grace period before permanent deletion
+  - Railway GraphQL API integration via httpx
+  - JSON output mode for scripting (`--json` flag)
+  - See `saas_infra/README.md` for usage documentation
+
 - Remove local Ollama container and all related configuration
   - Deleted docker/Dockerfile.local-llm, docker/local-llm-entrypoint.sh
   - Deleted config/local_llm_config.yaml, config/archive/demo_judge.yaml
