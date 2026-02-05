@@ -186,9 +186,7 @@ async def set_policy(
         return PolicyEnableResponse(
             success=False,
             error="Validation error",
-            troubleshooting=[
-                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()
-            ],
+            troubleshooting=[f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()],
             validation_errors=[dict(err) for err in e.errors()],
         )
     except HTTPException:

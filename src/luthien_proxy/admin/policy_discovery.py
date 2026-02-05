@@ -13,7 +13,7 @@ import pkgutil
 import types
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 import luthien_proxy.policies as policies_package
 from luthien_proxy.policy_core.base_policy import BasePolicy
@@ -62,8 +62,6 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
                 union_args = get_args(base_type)
                 if all(isinstance(a, type) and issubclass(a, BaseModel) for a in union_args):
                     # Use TypeAdapter to generate proper discriminated union schema
-                    from pydantic import TypeAdapter
-
                     adapter = TypeAdapter(python_type)
                     return adapter.json_schema()
             # Not a discriminated union, handle base type
