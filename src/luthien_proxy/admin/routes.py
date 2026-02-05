@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import litellm
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from luthien_proxy.admin.policy_discovery import discover_policies
 from luthien_proxy.auth import verify_admin_token
@@ -40,11 +40,12 @@ class PolicyEnableResponse(BaseModel):
     """Response from enabling a policy."""
 
     success: bool
-    message: str
+    message: str | None = None
     policy: str | None = None
     restart_duration_ms: int | None = None
     error: str | None = None
     troubleshooting: list[str] | None = None
+    validation_errors: list[dict] | None = None
 
 
 class PolicyCurrentResponse(BaseModel):
@@ -180,6 +181,15 @@ async def set_policy(
             message=f"Policy set to {body.policy_class_ref}",
             policy=result.policy,
             restart_duration_ms=result.restart_duration_ms,
+        )
+    except ValidationError as e:
+        return PolicyEnableResponse(
+            success=False,
+            error="Validation error",
+            troubleshooting=[
+                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()
+            ],
+            validation_errors=[dict(err) for err in e.errors()],
         )
     except HTTPException:
         raise
