@@ -72,7 +72,6 @@ Creates a new fully-isolated luthien-proxy instance with:
 uv run python -m saas_infra.cli create <name> [options]
 
 Options:
-  --no-wait    Don't wait for deployment to complete
   --repo       Custom GitHub repo in owner/repo format (default: LuthienResearch/luthien-proxy)
   --json       Output as JSON
 ```
@@ -131,6 +130,22 @@ Shows current Railway user info and teams.
 ```bash
 uv run python -m saas_infra.cli whoami [--json]
 ```
+
+## Demo Web UI
+
+A standalone web UI is available for trying out instance management in the browser:
+
+```bash
+# Load Railway credentials
+set -a && source .env && set +a
+
+# Start the demo server on port 8899
+uv run python -m saas_infra.demo
+```
+
+Then open [http://localhost:8899](http://localhost:8899). The UI lets you create, inspect, and delete instances. Each instance row links to both the public gateway endpoint and the Railway console.
+
+This is a demo tool, not a production service — no auth, no persistence, no error recovery.
 
 ## Instance Naming
 
