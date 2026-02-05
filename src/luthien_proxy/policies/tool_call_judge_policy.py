@@ -663,13 +663,9 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             # Replace the tool_use block with a text block containing the blocked message
             blocked_message = self._format_anthropic_blocked_message(tool_call, blocked_result)
             text_block = TextBlock(type="text", text="")
-            start_event = RawContentBlockStartEvent(
-                type="content_block_start", index=index, content_block=text_block
-            )
+            start_event = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=text_block)
             text_delta = TextDelta(type="text_delta", text=blocked_message)
-            delta_event = RawContentBlockDeltaEvent(
-                type="content_block_delta", index=index, delta=text_delta
-            )
+            delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=text_delta)
             return [
                 cast(AnthropicStreamEvent, start_event),
                 cast(AnthropicStreamEvent, delta_event),
@@ -678,18 +674,10 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
         # Tool call allowed - reconstruct the full event sequence from buffered data
         logger.debug(f"Tool call '{tool_call['name']}' allowed, re-emitting buffered events")
-        tool_use_block = ToolUseBlock(
-            type="tool_use", id=buffered["id"], name=buffered["name"], input={}
-        )
-        start_event = RawContentBlockStartEvent(
-            type="content_block_start", index=index, content_block=tool_use_block
-        )
-        json_delta = InputJSONDelta(
-            type="input_json_delta", partial_json=buffered.get("input_json", "{}")
-        )
-        delta_event = RawContentBlockDeltaEvent(
-            type="content_block_delta", index=index, delta=json_delta
-        )
+        tool_use_block = ToolUseBlock(type="tool_use", id=buffered["id"], name=buffered["name"], input={})
+        start_event = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_use_block)
+        json_delta = InputJSONDelta(type="input_json_delta", partial_json=buffered.get("input_json", "{}"))
+        delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=json_delta)
         return [
             cast(AnthropicStreamEvent, start_event),
             cast(AnthropicStreamEvent, delta_event),
