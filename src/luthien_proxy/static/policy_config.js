@@ -8,7 +8,8 @@ const state = {
     invalidFields: new Set(),  // Track fields with invalid JSON
     isActivating: false,
     isSending: false,
-    selectedModel: null
+    selectedModel: null,
+    currentFormData: null  // For Alpine-based form data
 };
 
 // Check if current editor config matches the active policy
@@ -309,12 +310,64 @@ function renderConfigForm(policy) {
 
     const schema = policy.config_schema || {};
     const example = policy.example_config || {};
+
+    // Check if schema has Pydantic structure (properties at root or $defs)
+    const hasPydanticSchema = schema.properties || schema.$defs;
+
+    if (hasPydanticSchema && window.FormRenderer) {
+        // Use new recursive renderer for Pydantic schemas
+        renderWithAlpine(container, schema, example);
+    } else {
+        // Fallback to legacy rendering for non-Pydantic configs
+        renderLegacyForm(container, schema, example);
+    }
+}
+
+function renderWithAlpine(container, schema, initialData) {
+    // Initialize form data with defaults merged with example/initial data
+    const formData = window.FormRenderer.getDefaultValue(schema, schema);
+    Object.assign(formData, initialData);
+
+    // Store in state for submission
+    state.currentFormData = formData;
+    // Also sync to configValues for consistency with existing code paths
+    state.configValues = formData;
+
+    // Generate form HTML
+    const formHtml = window.FormRenderer.generateForm(schema);
+
+    // Create Alpine component
+    container.innerHTML = `
+        <div x-data="{ formData: ${JSON.stringify(formData)} }"
+             x-init="$watch('formData', value => window.updateFormData(value))">
+            ${formHtml}
+        </div>
+    `;
+
+    // Re-init Alpine on new content
+    if (window.Alpine) {
+        Alpine.initTree(container);
+    }
+}
+
+// Global callback for Alpine data binding
+window.updateFormData = function(data) {
+    state.currentFormData = data;
+    state.configValues = data;
+    updateActivateButton();
+    updateConfigStatus();
+};
+
+function renderLegacyForm(container, schema, example) {
     const keys = Object.keys(schema);
 
     if (keys.length === 0) {
         container.innerHTML = '<p class="no-config-message">This policy has no configuration options.</p>';
         return;
     }
+
+    // Clear Alpine form data since we're using legacy rendering
+    state.currentFormData = null;
 
     container.innerHTML = '';
 
@@ -411,6 +464,33 @@ function renderConfigForm(policy) {
         container.appendChild(fieldDiv);
     });
 }
+
+// Global functions needed by FormRenderer
+window.openDrawer = function(path, index) {
+    // Will be implemented in Task 8 (drawer component)
+    console.log('openDrawer', path, index);
+};
+
+window.addArrayItem = function(path) {
+    // Add new item to array in Alpine data
+    // For now, just log - will be properly implemented with Alpine integration
+    console.log('addArrayItem', path);
+};
+
+window.validateJson = function(event, path) {
+    // JSON validation for freeform objects
+    try {
+        JSON.parse(event.target.value);
+        event.target.classList.remove('invalid');
+    } catch (e) {
+        event.target.classList.add('invalid');
+    }
+};
+
+window.onUnionTypeChange = function(path, newType) {
+    // Reset fields when union type changes
+    console.log('onUnionTypeChange', path, newType);
+};
 
 function updateActivateButton() {
     const btn = document.getElementById('activate-btn');
