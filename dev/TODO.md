@@ -4,15 +4,15 @@
 
 ### Failing E2E Tests (2026-02-03)
 
-- [ ] **test_anthropic_metadata_parameter_accepted** - Anthropic API rejects custom metadata fields (`metadata.custom_field: Extra inputs are not permitted`). Either test expectation is wrong or API behavior changed.
-- [ ] **test_anthropic_client_to_openai_backend_with_extra_params** - Same metadata rejection issue as above.
-- [ ] **test_anthropic_client_openai_backend_preserves_anthropic_format** - Model didn't use tools when expected. May be flaky or model behavior change.
-- [ ] **test_anthropic_buffered_tool_call_emits_message_delta** - Related to above tool use expectations.
-- [ ] **test_claude_code_with_simple_noop_policy** - Needs investigation.
-- [ ] **test_claude_code_with_tool_judge_low_threshold** - Model responded without using tools, so judge policy never triggered. Test may need different prompt.
-- [ ] **test_anthropic_client_image_passthrough[gpt-4o-mini]** - Image handling test failure.
-- [ ] **test_anthropic_client_semantic_image[gpt-4o-mini]** - Image handling test failure.
-- [ ] **test_gateway_matrix::test_anthropic_client_openai_backend_non_streaming** - Cross-format test failure.
+- [x] **test_anthropic_metadata_parameter_accepted** - Fixed in PR #172.
+- [x] **test_anthropic_client_to_openai_backend_with_extra_params** - Removed (cross-format routing, Phase 2). PR #174.
+- [x] **test_anthropic_client_openai_backend_preserves_anthropic_format** - Removed (cross-format routing, Phase 2). PR #174.
+- [x] **test_anthropic_buffered_tool_call_emits_message_delta** - Fixed: multi-event `on_anthropic_stream_event` enables re-emitting buffered tool calls. PR #174.
+- [x] **test_claude_code_with_simple_noop_policy** - Fixed: SimplePolicy returns `[delta, stop]` directly instead of pending stop hack. PR #174.
+- [x] **test_claude_code_with_tool_judge_low_threshold** - Fixed: multi-event emission enables blocked message in streaming + explicit tool prompt. PR #174.
+- [x] **test_anthropic_client_image_passthrough[gpt-4o-mini]** - Removed (cross-format routing, Phase 2). PR #174.
+- [x] **test_anthropic_client_semantic_image[gpt-4o-mini]** - Removed (cross-format routing, Phase 2). PR #174.
+- [x] **test_gateway_matrix::test_anthropic_client_openai_backend_non_streaming** - Removed (cross-format routing, Phase 2). PR #172.
 
 ### Bugs
 
@@ -70,9 +70,9 @@
 
 ### Testing (Medium)
 
-- [x] **Fix Claude Code E2E tests failing with 401** - Fixed: changed `ANTHROPIC_AUTH_TOKEN` to `ANTHROPIC_API_KEY` in `run_claude_code()`. Basic and NoOpPolicy tests now pass. Reference: 2026-02-05.
-- [x] **Fix test_claude_code_with_simple_noop_policy** - Fixed: AnthropicStreamExecutor wasn't emitting pending stop events from SimplePolicy after yielding transformed deltas. Reference: 2026-02-05.
-- [ ] **ToolCallJudgePolicy streaming limitation** - Can't re-emit buffered tool calls in streaming because `on_stream_event` only returns single events. Needs architectural change to allow multiple events. Test `test_anthropic_buffered_tool_call_emits_message_delta` is skipped. Reference: 2026-02-05.
+- [x] **Fix Claude Code E2E tests failing with 401** - Fixed: changed `ANTHROPIC_AUTH_TOKEN` to `ANTHROPIC_API_KEY` in `run_claude_code()`. PR #174.
+- [x] **Fix test_claude_code_with_simple_noop_policy** - Fixed: SimplePolicy now returns `[delta, stop]` directly via multi-event interface. PR #174.
+- [x] **ToolCallJudgePolicy streaming limitation** - Fixed: `on_anthropic_stream_event` now returns `list[AnthropicStreamEvent]`, enabling multi-event emission. Blocked tool calls emit replacement text; allowed tool calls re-emit buffered events. PR #174.
 - [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
