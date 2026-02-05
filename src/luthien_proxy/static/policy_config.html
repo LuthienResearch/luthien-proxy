@@ -326,6 +326,23 @@
             display: block;
         }
 
+        /* Server-side validation error styles */
+        .form-field.has-error input,
+        .form-field.has-error textarea,
+        .form-field.has-error select,
+        .config-field.has-error input,
+        .config-field.has-error textarea,
+        .config-field.has-error select {
+            border-color: var(--error-color, #f87171);
+        }
+
+        .field-error {
+            display: block;
+            color: var(--error-color, #f87171);
+            font-size: 0.75rem;
+            margin-top: 0.25rem;
+        }
+
         button.disabled-error {
             background: #3d0a0a !important;
             border-color: #f87171 !important;

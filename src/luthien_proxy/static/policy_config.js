@@ -567,6 +567,9 @@ async function handleActivate() {
     const btn = document.getElementById('activate-btn');
     const statusContainer = document.getElementById('status-container');
 
+    // Clear previous validation errors
+    clearValidationErrors();
+
     state.isActivating = true;
     btn.disabled = true;
     btn.textContent = 'Activating...';
@@ -582,22 +585,62 @@ async function handleActivate() {
             })
         });
 
-        if (!result.success) {
-            throw new Error(result.error || 'Failed to activate policy');
+        if (result.success) {
+            // Refresh current policy
+            await loadCurrentPolicy();
+            renderPolicyList();
+
+            statusContainer.innerHTML = `<div class="status-message success">✓ ${state.selectedPolicy.name} activated successfully</div>`;
+            btn.textContent = 'Reactivate Policy';
+        } else {
+            // Handle validation errors
+            if (result.validation_errors && result.validation_errors.length > 0) {
+                highlightValidationErrors(result.validation_errors);
+                statusContainer.innerHTML = '<div class="status-message error">Validation errors - check highlighted fields</div>';
+            } else {
+                statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(result.error || 'Failed to activate policy')}</div>`;
+            }
+            btn.textContent = 'Retry Activation';
         }
-
-        // Refresh current policy
-        await loadCurrentPolicy();
-        renderPolicyList();
-
-        statusContainer.innerHTML = `<div class="status-message success">✓ ${state.selectedPolicy.name} activated successfully</div>`;
-        btn.textContent = 'Reactivate Policy';
     } catch (err) {
         statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(err.message)}</div>`;
         btn.textContent = 'Retry Activation';
     } finally {
         state.isActivating = false;
         btn.disabled = false;
+    }
+}
+
+function clearValidationErrors() {
+    document.querySelectorAll('.field-error').forEach(el => el.remove());
+    document.querySelectorAll('.form-field.has-error').forEach(el => {
+        el.classList.remove('has-error');
+    });
+    document.querySelectorAll('.config-field.has-error').forEach(el => {
+        el.classList.remove('has-error');
+    });
+}
+
+function highlightValidationErrors(errors) {
+    clearValidationErrors();
+
+    for (const error of errors) {
+        const path = error.loc.join('.');
+        // Find field by path (data attribute or name or id)
+        const field = document.querySelector(
+            `[data-path="${path}"], [name="${path}"], #config-${path}`
+        );
+        if (field) {
+            // Find the container - could be .form-field (Alpine) or .config-field (legacy)
+            const container = field.closest('.form-field') || field.closest('.config-field');
+            if (container) {
+                container.classList.add('has-error');
+                const errorEl = document.createElement('span');
+                errorEl.className = 'field-error';
+                errorEl.textContent = error.msg;
+                container.appendChild(errorEl);
+            }
+        }
     }
 }
 
