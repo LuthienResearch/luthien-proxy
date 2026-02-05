@@ -570,19 +570,14 @@ class RailwayClient:
                     svc_status = ServiceStatus.FAILED
 
             svc_url = None
-            is_database = svc_name in ("postgres", "redis")
-            if not is_database and environment_id:
+            if svc_name == "gateway" and environment_id:
                 try:
                     domains = self.get_service_domains(project["id"], environment_id, svc["id"])
                     if domains:
                         svc_url = f"https://{domains[0]}"
+                        gateway_url = svc_url
                 except RailwayAPIError:
                     pass
-
-            # Only treat the main proxy service as the gateway
-            is_gateway = svc_name in ("gateway", "luthien-proxy", "luthien_control")
-            if is_gateway and svc_url:
-                gateway_url = svc_url
 
             services[svc_name] = ServiceInfo(
                 id=svc["id"],
