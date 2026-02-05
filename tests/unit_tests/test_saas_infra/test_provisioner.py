@@ -48,7 +48,7 @@ class TestProvisionerCreateInstance:
         assert result.instance is not None
         assert result.instance.name == "test"
         assert result.instance.url == "https://luthien-test-prod.railway.app"
-        assert result.instance.status == InstanceStatus.RUNNING
+        assert result.instance.status == InstanceStatus.PROVISIONING
         assert result.proxy_api_key is not None
         assert result.admin_api_key is not None
 

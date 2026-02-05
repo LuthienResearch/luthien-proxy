@@ -104,26 +104,31 @@ class Provisioner:
             )
             gateway_url = f"https://{domain}"
 
+            # The initial gateway deploy races against Postgres/Redis
+            # initialization and fails the healthcheck. Trigger a fresh
+            # deploy now that all services and variables are configured.
+            self.client.trigger_deployment(gateway_id, environment_id)
+
             instance = InstanceInfo(
                 name=name,
                 project_id=created_project_id,
-                status=InstanceStatus.RUNNING,
+                status=InstanceStatus.PROVISIONING,
                 url=gateway_url,
                 services={
                     "postgres": ServiceInfo(
                         id=postgres["id"],
                         name="Postgres",
-                        status=ServiceStatus.RUNNING,
+                        status=ServiceStatus.DEPLOYING,
                     ),
                     "redis": ServiceInfo(
                         id=redis["id"],
                         name="Redis",
-                        status=ServiceStatus.RUNNING,
+                        status=ServiceStatus.DEPLOYING,
                     ),
                     "gateway": ServiceInfo(
                         id=gateway_id,
                         name="gateway",
-                        status=ServiceStatus.RUNNING,
+                        status=ServiceStatus.DEPLOYING,
                         url=gateway_url,
                     ),
                 },

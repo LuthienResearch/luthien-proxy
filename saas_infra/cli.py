@@ -340,18 +340,11 @@ def redeploy(name: str, json_output: bool):
     environment_id = env_edges[0]["node"]["id"]
 
     try:
-        deployment = client.trigger_deployment(gateway.id, environment_id)
+        client.trigger_deployment(gateway.id, environment_id)
         if json_output:
-            output_json(
-                {
-                    "instance": name,
-                    "deployment_id": deployment.get("id"),
-                    "status": deployment.get("status"),
-                }
-            )
+            output_json({"instance": name, "redeployed": True})
         else:
             click.echo(f"Redeployment triggered for instance '{name}'.")
-            click.echo(f"Deployment ID: {deployment.get('id')}")
     except RailwayAPIError as e:
         output_error(str(e), json_output)
         sys.exit(1)

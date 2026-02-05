@@ -402,26 +402,18 @@ class RailwayClient:
             )
         return True
 
-    def trigger_deployment(self, service_id: str, environment_id: str) -> dict:
+    def trigger_deployment(self, service_id: str, environment_id: str) -> bool:
         """Trigger a new deployment for a service."""
         query = """
-        mutation($input: DeploymentTriggerInput!) {
-            deploymentTrigger(input: $input) {
-                id
-                status
-            }
+        mutation($environmentId: String!, $serviceId: String!) {
+            serviceInstanceRedeploy(environmentId: $environmentId, serviceId: $serviceId)
         }
         """
-        result = self._execute(
+        self._execute(
             query,
-            {
-                "input": {
-                    "serviceId": service_id,
-                    "environmentId": environment_id,
-                }
-            },
+            {"environmentId": environment_id, "serviceId": service_id},
         )
-        return result["deploymentTrigger"]
+        return True
 
     def get_service_domains(self, project_id: str, environment_id: str, service_id: str) -> list[str]:
         """Get domains for a service."""
