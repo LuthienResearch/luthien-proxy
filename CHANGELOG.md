@@ -2,6 +2,15 @@
 
 ## Unreleased | TBA
 
+- Add SaaS infrastructure provisioning CLI for Railway (saas-infra)
+  - New `saas_infra/` package with CLI for managing multi-tenant proxy instances
+  - Commands: create, list, status, delete, redeploy, cancel-delete, whoami
+  - Each instance gets isolated Railway project with Postgres + Redis + gateway
+  - Soft delete with 7-day grace period before permanent deletion
+  - Railway GraphQL API integration via httpx
+  - JSON output mode for scripting (`--json` flag)
+  - See `saas_infra/README.md` for usage documentation
+
 - Fix E2E test failures and multi-event streaming support (#174)
   - `on_anthropic_stream_event` returns `list[AnthropicStreamEvent]` instead of single event
   - Policies can now emit multiple events per input (e.g. `[delta, stop]`)

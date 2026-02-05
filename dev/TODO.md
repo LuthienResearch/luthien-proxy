@@ -91,6 +91,18 @@
 - [ ] Document timeout configuration rationale
 - [ ] Document data retention policy
 
+### SaaS Infra (Medium)
+
+- [ ] **`create` returns before gateway is reachable** — Provisioning completes and prints the URL, but the gateway hasn't finished building/deploying yet (takes several minutes). The URL doesn't work until the deploy completes. Need either a `--wait` flag that polls deployment status, or at minimum a warning in the output. (2026-02-05)
+- [ ] **Service status shows "unknown" after create** — `status` command shows all services as "unknown" for freshly created instances. Deployments exist but status detection in `get_instance()` may not be matching Railway's actual status values. Needs investigation — could be a status string mismatch, a timing issue, or the deployment query not returning the right data. (2026-02-05)
+- [ ] **`railway init` times out intermittently** — During e2e testing, `railway init` timed out with a connection error to `backboard.railway.com`. Succeeded on immediate retry. Cause unclear — could be Railway API instability, DNS resolution, local network hiccup, or something about the subprocess environment. No retry logic exists; a single transient failure kills the entire provisioning flow. (2026-02-05)
+- [ ] **Orphaned projects on partial provisioning failure** — If provisioning fails after project creation, cleanup `delete_project()` runs best-effort. If cleanup also fails, the project is orphaned with no record of it. Could add a reconciliation/audit command that compares Railway projects against expected state. (2026-02-05)
+- [ ] **`list` shows all `luthien-*` projects including manually-created ones** — No way to distinguish tool-managed instances from projects that happen to start with `luthien-` (e.g. `luthien-control-dev`, `luthien-proxy-demo`). Could use a description tag or Railway project metadata to mark tool-managed instances. (2026-02-05)
+- [ ] **API keys are fire-and-forget** — Keys generated at create time are displayed once. No retrieval, rotation, or reset mechanism. Losing keys requires Railway dashboard access to read/update the env vars manually. (2026-02-05)
+- [ ] **`redeploy` uses GraphQL mutation — may hit state transition errors** — `trigger_deployment()` still uses the `deploymentTrigger` GraphQL mutation. This is the same pattern that caused problems for other mutations. Hasn't been tested e2e yet; may work fine or may need CLI migration. (2026-02-05)
+- [ ] **`cancel-delete` not tested e2e** — Soft-delete and cancel-delete flow is unit tested but hasn't been verified against live Railway. (2026-02-05)
+- [ ] **Single environment assumed** — Code always uses `env_edges[0]` (first environment). If additional Railway environments exist on a project, they're ignored. May be fine as a simplifying assumption, but should be documented or validated. (2026-02-05)
+
 ## Low Priority / Future Work
 
 - [ ] **Support ANTHROPIC_AUTH_TOKEN header** - Claude Code uses `x-api-key` header with value from `ANTHROPIC_API_KEY` env var. Some tools may use `Authorization: Bearer` with `ANTHROPIC_AUTH_TOKEN`. Consider supporting both auth header formats for broader compatibility.
