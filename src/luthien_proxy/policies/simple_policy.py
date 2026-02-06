@@ -84,7 +84,6 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
         # Buffer for Anthropic streaming content: maps block index to accumulated content
         self._text_buffer: dict[int, str] = {}
         self._tool_buffer: dict[int, dict] = {}
-        self._pending_stop_event: RawContentBlockStopEvent | None = None
 
     # ===== Simple methods that subclasses override =====
 
@@ -372,7 +371,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: PolicyContext
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         """Process streaming events with buffering for content transformation.
 
         Buffers content_block_delta events and emits transformed content on
@@ -383,7 +382,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
             context: Policy context
 
         Returns:
-            Event to emit (possibly transformed), or None to filter
+            List of events to emit (possibly transformed), or empty list to filter
         """
         # Content block start: initialize buffer
         if isinstance(event, RawContentBlockStartEvent):
@@ -403,7 +402,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
                             "input_json": "",
                         }
 
-            return event
+            return [event]
 
         # Content block delta: accumulate in buffer, suppress output
         if isinstance(event, RawContentBlockDeltaEvent):
@@ -419,7 +418,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
                     )
                 self._text_buffer[index] += delta.text
                 # Suppress the delta - we'll emit on stop
-                return None
+                return []
 
             if isinstance(delta, InputJSONDelta):
                 # Accumulate JSON delta for tool calls
@@ -430,10 +429,10 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
                     )
                 self._tool_buffer[index]["input_json"] += delta.partial_json
                 # Suppress the delta - we'll emit on stop
-                return None
+                return []
 
             # Other delta types (thinking, etc.) pass through unchanged
-            return event
+            return [event]
 
         # Content block stop: emit transformed content
         if isinstance(event, RawContentBlockStopEvent):
@@ -451,14 +450,11 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
                     index=index,
                     delta=text_delta,
                 )
-                # Record that we need to emit both the delta and the stop
                 context.record_event(
                     "policy.simple_policy.emit_transformed",
                     {"index": index, "content_length": len(transformed)},
                 )
-                # Return the delta event; store pending stop for later emission
-                self._pending_stop_event = event
-                return delta_event
+                return [delta_event, event]
 
             # Handle tool call completion
             if index in self._tool_buffer:
@@ -488,35 +484,20 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
                     "policy.simple_policy.emit_transformed_tool",
                     {"index": index, "tool_name": transformed["name"]},
                 )
-                # Store pending stop for later emission
-                self._pending_stop_event = event
-                return delta_event
+                return [delta_event, event]
 
             # No buffered content for this index, just pass through the stop
-            return event
+            return [event]
 
         # All other events (message_start, message_delta, message_stop) pass through
-        return event
+        return [event]
 
     # ===== Anthropic buffer management =====
-
-    def get_pending_stop_event(self) -> RawContentBlockStopEvent | None:
-        """Get and clear any pending stop event that needs to be emitted after a transformed delta.
-
-        This is used by the orchestrator to emit the stop event after the transformed content.
-
-        Returns:
-            The pending stop event if one exists, None otherwise
-        """
-        event = getattr(self, "_pending_stop_event", None)
-        self._pending_stop_event = None
-        return event
 
     def clear_buffers(self) -> None:
         """Clear all streaming buffers. Call this between requests."""
         self._text_buffer.clear()
         self._tool_buffer.clear()
-        self._pending_stop_event = None
 
 
 __all__ = ["SimplePolicy"]

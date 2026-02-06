@@ -100,9 +100,9 @@ class NoOpPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: PolicyContext
-    ) -> AnthropicStreamEvent | None:
+    ) -> list[AnthropicStreamEvent]:
         """Pass through Anthropic stream event unchanged."""
-        return event
+        return [event]
 
 
 __all__ = ["NoOpPolicy"]

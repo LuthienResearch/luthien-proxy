@@ -77,7 +77,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.gateway
+    env_file: .env
     environment:
+      # Non-sensitive config can use shell override via ${VAR} syntax
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - PROXY_API_KEY=${PROXY_API_KEY}
@@ -86,10 +88,12 @@ services:
       - GATEWAY_PORT=${GATEWAY_PORT:-8000}
       - POLICY_CONFIG=${POLICY_CONFIG:-/app/config/policy_config.yaml}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - OTEL_SERVICE_NAME=luthien-gateway
+      # API keys loaded from .env file only (not from shell) to prevent
+      # shell environment from overriding .env values. This fixes issues
+      # where users have API keys in their shell profile that differ from
+      # the project's .env file.
     ports:
       - "${GATEWAY_PORT:-8000}:8000"
     volumes:

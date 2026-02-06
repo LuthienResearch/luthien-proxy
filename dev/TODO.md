@@ -4,15 +4,15 @@
 
 ### Failing E2E Tests (2026-02-03)
 
-- [ ] **test_anthropic_metadata_parameter_accepted** - Anthropic API rejects custom metadata fields (`metadata.custom_field: Extra inputs are not permitted`). Either test expectation is wrong or API behavior changed.
-- [ ] **test_anthropic_client_to_openai_backend_with_extra_params** - Same metadata rejection issue as above.
-- [ ] **test_anthropic_client_openai_backend_preserves_anthropic_format** - Model didn't use tools when expected. May be flaky or model behavior change.
-- [ ] **test_anthropic_buffered_tool_call_emits_message_delta** - Related to above tool use expectations.
-- [ ] **test_claude_code_with_simple_noop_policy** - Needs investigation.
-- [ ] **test_claude_code_with_tool_judge_low_threshold** - Model responded without using tools, so judge policy never triggered. Test may need different prompt.
-- [ ] **test_anthropic_client_image_passthrough[gpt-4o-mini]** - Image handling test failure.
-- [ ] **test_anthropic_client_semantic_image[gpt-4o-mini]** - Image handling test failure.
-- [ ] **test_gateway_matrix::test_anthropic_client_openai_backend_non_streaming** - Cross-format test failure.
+- [x] **test_anthropic_metadata_parameter_accepted** - Fixed in PR #172.
+- [x] **test_anthropic_client_to_openai_backend_with_extra_params** - Removed (cross-format routing, Phase 2). PR #174.
+- [x] **test_anthropic_client_openai_backend_preserves_anthropic_format** - Removed (cross-format routing, Phase 2). PR #174.
+- [x] **test_anthropic_buffered_tool_call_emits_message_delta** - Fixed: multi-event `on_anthropic_stream_event` enables re-emitting buffered tool calls. PR #174.
+- [x] **test_claude_code_with_simple_noop_policy** - Fixed: SimplePolicy returns `[delta, stop]` directly instead of pending stop hack. PR #174.
+- [x] **test_claude_code_with_tool_judge_low_threshold** - Fixed: multi-event emission enables blocked message in streaming + explicit tool prompt. PR #174.
+- [x] **test_anthropic_client_image_passthrough[gpt-4o-mini]** - Removed (cross-format routing, Phase 2). PR #174.
+- [x] **test_anthropic_client_semantic_image[gpt-4o-mini]** - Removed (cross-format routing, Phase 2). PR #174.
+- [x] **test_gateway_matrix::test_anthropic_client_openai_backend_non_streaming** - Removed (cross-format routing, Phase 2). PR #172.
 
 ### Bugs
 
@@ -70,7 +70,9 @@
 
 ### Testing (Medium)
 
-- [ ] **Fix Claude Code E2E tests timing out** - `test_claude_code_*` tests timeout (120s). Root cause: Claude Code 2.x ignores `ANTHROPIC_BASE_URL` env var and sends requests directly to `api.anthropic.com` (uses OAuth). Need alternative routing method or mark tests as requiring special setup. Gateway works fine (curl passes). Other 93 E2E tests pass. Reference: 2026-01-25.
+- [x] **Fix Claude Code E2E tests failing with 401** - Fixed: changed `ANTHROPIC_AUTH_TOKEN` to `ANTHROPIC_API_KEY` in `run_claude_code()`. PR #174.
+- [x] **Fix test_claude_code_with_simple_noop_policy** - Fixed: SimplePolicy now returns `[delta, stop]` directly via multi-event interface. PR #174.
+- [x] **ToolCallJudgePolicy streaming limitation** - Fixed: `on_anthropic_stream_event` now returns `list[AnthropicStreamEvent]`, enabling multi-event emission. Blocked tool calls emit replacement text; allowed tool calls re-emit buffered events. PR #174.
 - [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
@@ -89,8 +91,21 @@
 - [ ] Document timeout configuration rationale
 - [ ] Document data retention policy
 
+### SaaS Infra (Medium)
+
+- [ ] **`create` returns before gateway is reachable** — Provisioning completes and prints the URL, but the gateway hasn't finished building/deploying yet (takes several minutes). The URL doesn't work until the deploy completes. Need either a `--wait` flag that polls deployment status, or at minimum a warning in the output. (2026-02-05)
+- [ ] **Service status shows "unknown" after create** — `status` command shows all services as "unknown" for freshly created instances. Deployments exist but status detection in `get_instance()` may not be matching Railway's actual status values. Needs investigation — could be a status string mismatch, a timing issue, or the deployment query not returning the right data. (2026-02-05)
+- [ ] **`railway init` times out intermittently** — During e2e testing, `railway init` timed out with a connection error to `backboard.railway.com`. Succeeded on immediate retry. Cause unclear — could be Railway API instability, DNS resolution, local network hiccup, or something about the subprocess environment. No retry logic exists; a single transient failure kills the entire provisioning flow. (2026-02-05)
+- [ ] **Orphaned projects on partial provisioning failure** — If provisioning fails after project creation, cleanup `delete_project()` runs best-effort. If cleanup also fails, the project is orphaned with no record of it. Could add a reconciliation/audit command that compares Railway projects against expected state. (2026-02-05)
+- [ ] **`list` shows all `luthien-*` projects including manually-created ones** — No way to distinguish tool-managed instances from projects that happen to start with `luthien-` (e.g. `luthien-control-dev`, `luthien-proxy-demo`). Could use a description tag or Railway project metadata to mark tool-managed instances. (2026-02-05)
+- [ ] **API keys are fire-and-forget** — Keys generated at create time are displayed once. No retrieval, rotation, or reset mechanism. Losing keys requires Railway dashboard access to read/update the env vars manually. (2026-02-05)
+- [ ] **`redeploy` uses GraphQL mutation — may hit state transition errors** — `trigger_deployment()` still uses the `deploymentTrigger` GraphQL mutation. This is the same pattern that caused problems for other mutations. Hasn't been tested e2e yet; may work fine or may need CLI migration. (2026-02-05)
+- [ ] **`cancel-delete` not tested e2e** — Soft-delete and cancel-delete flow is unit tested but hasn't been verified against live Railway. (2026-02-05)
+- [ ] **Single environment assumed** — Code always uses `env_edges[0]` (first environment). If additional Railway environments exist on a project, they're ignored. May be fine as a simplifying assumption, but should be documented or validated. (2026-02-05)
+
 ## Low Priority / Future Work
 
+- [ ] **Support ANTHROPIC_AUTH_TOKEN header** - Claude Code uses `x-api-key` header with value from `ANTHROPIC_API_KEY` env var. Some tools may use `Authorization: Bearer` with `ANTHROPIC_AUTH_TOKEN`. Consider supporting both auth header formats for broader compatibility.
 - [ ] **Simplify db.py abstractions** - Remove redundant protocol wrappers
 - [ ] **Review observability stack** - Consolidate observability docs, verify Grafana/Loki integration
 - [ ] Increase unit test coverage (currently ~90%, target 95%+)
