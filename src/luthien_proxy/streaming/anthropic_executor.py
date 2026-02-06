@@ -61,8 +61,13 @@ class AnthropicStreamExecutor:
 
                 result = await policy.on_anthropic_stream_event(sdk_event, context)
                 if result is not None:
-                    yielded_count += 1
-                    yield result
+                    if isinstance(result, list):
+                        for r in result:
+                            yielded_count += 1
+                            yield r
+                    else:
+                        yielded_count += 1
+                        yield result
 
             span.set_attribute("streaming.event_count", event_count)
             span.set_attribute("streaming.yielded_count", yielded_count)

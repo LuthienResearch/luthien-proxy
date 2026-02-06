@@ -1307,8 +1307,17 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         ):
             result = await policy.on_anthropic_stream_event(stop_event, ctx)
 
-        # Should filter out the stop event for blocked tool
-        assert result is None
+        # Should return replacement text events for the blocked tool
+        assert isinstance(result, list)
+        assert len(result) == 3
+        # First event: content_block_start with text block
+        assert result[0].type == "content_block_start"
+        assert result[0].content_block.type == "text"
+        # Second event: content_block_delta with blocked message
+        assert result[1].type == "content_block_delta"
+        assert "BLOCKED" in result[1].delta.text
+        # Third event: content_block_stop
+        assert result[2].type == "content_block_stop"
         # Should have marked the block as blocked
         assert 0 in policy._blocked_blocks
         # Buffer should be cleared
@@ -1358,8 +1367,10 @@ class TestToolCallJudgePolicyAnthropicStreamingErrorHandling:
         ):
             result = await policy.on_anthropic_stream_event(stop_event, ctx)
 
-        # Should block (filter out) due to fail-secure
-        assert result is None
+        # Should block with replacement text due to fail-secure
+        assert isinstance(result, list)
+        assert len(result) == 3
+        assert "BLOCKED" in result[1].delta.text
         assert 0 in policy._blocked_blocks
 
 

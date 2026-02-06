@@ -34,6 +34,8 @@ from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
+    TextBlock,
+    TextDelta,
     ToolUseBlock,
 )
 from litellm.types.utils import (
@@ -440,7 +442,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
     async def on_anthropic_stream_event(
         self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> AnthropicStreamEvent | None:
+    ) -> AnthropicStreamEvent | list[AnthropicStreamEvent] | None:
         """Process streaming events, buffering tool_use deltas for evaluation.
 
         For tool_use blocks:
@@ -656,39 +658,56 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         self,
         event: RawContentBlockStopEvent,
         context: "PolicyContext",
-    ) -> AnthropicStreamEvent | None:
+    ) -> AnthropicStreamEvent | list[AnthropicStreamEvent] | None:
         """Handle content_block_stop event - judge buffered tool_use if present."""
         index = event.index
 
         if index not in self._buffered_tool_uses:
-            # RawContentBlockStopEvent is part of MessageStreamEvent union
             return cast(AnthropicStreamEvent, event)
 
-        # Extract buffered tool call data
         buffered = self._buffered_tool_uses.pop(index)
         tool_call = self._tool_call_from_anthropic_buffer(buffered)
 
-        # Judge the tool call
         blocked_result = await self._evaluate_and_maybe_block_anthropic(tool_call, context)
 
         if blocked_result is not None:
             self._blocked_blocks.add(index)
-            # We can't inject multiple events from on_stream_event, so we just
-            # return the stop event. The caller needs to handle blocked tool calls
-            # by checking _blocked_blocks and emitting replacement text separately.
-            # For simplicity in this implementation, we return None to filter out
-            # the stop event for blocked tool calls.
+            blocked_text = self._format_anthropic_blocked_message(tool_call, blocked_result)
             logger.info(f"Blocked tool call '{tool_call['name']}' in streaming")
-            return None
+
+            # Emit a text block replacing the blocked tool_use
+            return [
+                cast(
+                    AnthropicStreamEvent,
+                    RawContentBlockStartEvent(
+                        type="content_block_start",
+                        index=index,
+                        content_block=TextBlock(type="text", text=""),
+                    ),
+                ),
+                cast(
+                    AnthropicStreamEvent,
+                    RawContentBlockDeltaEvent(
+                        type="content_block_delta",
+                        index=index,
+                        delta=TextDelta(type="text_delta", text=blocked_text),
+                    ),
+                ),
+                cast(
+                    AnthropicStreamEvent,
+                    RawContentBlockStopEvent(
+                        type="content_block_stop",
+                        index=index,
+                    ),
+                ),
+            ]
 
         # Tool call allowed - but we filtered out the start/delta events.
-        # This is a limitation: we can't retroactively emit them.
-        # For now, we also filter out the stop event and log a warning.
+        # This is a known limitation of buffering: we can't retroactively emit them.
         logger.warning(
             f"Tool call '{tool_call['name']}' was allowed but streaming events were filtered. "
             "This is a known limitation - tool calls may not reach the client in streaming mode."
         )
-        # RawContentBlockStopEvent is part of MessageStreamEvent union
         return cast(AnthropicStreamEvent, event)
 
     def _extract_tool_call_from_anthropic_block(self, block: dict[str, Any]) -> dict[str, Any]:
