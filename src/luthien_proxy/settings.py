@@ -39,8 +39,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
 
     # Policy configuration
-    # If set, loads policy from this YAML file at startup (overrides DB, persists to DB)
-    # If not set (empty string), loads from DB only
+    policy_source: str = "db-fallback-file"
     policy_config: str = ""
 
     # OpenTelemetry / Observability
