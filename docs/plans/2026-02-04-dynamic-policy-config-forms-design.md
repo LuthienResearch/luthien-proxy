@@ -1,8 +1,11 @@
 # Dynamic Policy Config Forms Design
 
 **Date:** 2026-02-04
-**Status:** Approved
+**Status:** Implemented
+**Last Updated:** 2026-02-05
+**Commit:** 2cdfb94 (feat: add API-level validation and standardize get_config)
 **Branch:** policy-config-ux
+**PR:** #175
 
 ## Goal
 
@@ -423,3 +426,50 @@ function showValidationErrors(errors) {
 - Create policy with nested config, verify form usability
 - Test keyboard navigation in dynamic forms
 - Verify drawer works on mobile/narrow screens
+
+---
+
+## Implementation Notes (2026-02-05)
+
+### What Was Built
+
+All core features from the design were implemented:
+
+1. **Schema Extraction** - `python_type_to_json_schema()` extracts full JSON Schema from Pydantic models including `$defs`, discriminators, and constraints
+2. **Discriminated Unions** - Uses `TypeAdapter` for proper oneOf/discriminator schema generation
+3. **Alpine.js Integration** - Reactive forms with two-way data binding via x-model
+4. **Recursive Renderer** - `FormRenderer` handles nested objects, arrays, unions, and $ref resolution
+5. **Validation Errors** - Server returns structured errors; UI highlights affected fields
+
+### Additions Beyond Original Design
+
+1. **API-Level Validation** - Added `validate_policy_config()` to validate configs before policy instantiation, catching Pydantic errors early with structured error responses
+
+2. **Automatic `get_config()`** - `BasePolicy` now auto-generates `get_config()` by inspecting Pydantic model attributes, eliminating boilerplate in policies
+
+3. **HTML Escaping** - `FormRenderer.escapeHtml()` prevents XSS in schema-derived content
+
+4. **Dual Schema Format** - Renderer handles both standard JSON Schema (`{properties: {...}}`) and parameter-dict format (`{param1: {schema}, param2: {schema}}`)
+
+5. **Nullable Type Handling** - Properly unwraps `anyOf: [Type, null]` patterns as nullable fields rather than unions
+
+### Files Changed
+
+```
+src/luthien_proxy/admin/policy_discovery.py  - Schema extraction + validation
+src/luthien_proxy/admin/routes.py            - API validation before enable
+src/luthien_proxy/policy_core/base_policy.py - Auto get_config()
+src/luthien_proxy/policies/sample_pydantic_policy.py - Example policy
+src/luthien_proxy/static/vendor/alpine.min.js
+src/luthien_proxy/static/form_renderer.js
+src/luthien_proxy/static/policy_config.js
+src/luthien_proxy/static/policy_config.html
+tests/unit_tests/admin/test_policy_discovery.py
+tests/unit_tests/test_admin_routes.py
+```
+
+### Not Implemented
+
+- **Drawer for complex items** - Referenced in UI but not fully wired up; complex array items show JSON summary instead
+- **Client-side validation** - Deferred to server-side Pydantic validation
+- **Policy migration (Phase 4)** - Existing policies not yet converted to Pydantic configs
