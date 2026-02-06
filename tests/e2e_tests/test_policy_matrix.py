@@ -40,11 +40,6 @@ POLICY_CONFIGS = [
         id="StringReplacementPolicy",
     ),
     pytest.param(
-        "luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
-        {},
-        id="SimpleJudgePolicy",
-    ),
-    pytest.param(
         "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
         {"probability_threshold": 0.5},
         id="ToolCallJudgePolicy",

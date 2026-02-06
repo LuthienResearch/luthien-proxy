@@ -46,7 +46,7 @@ from luthien_proxy.llm.types.anthropic import (
     AnthropicToolUseBlock,
 )
 from luthien_proxy.policies import PolicyContext
-from luthien_proxy.policies.tool_call_judge_policy import ToolCallJudgePolicy
+from luthien_proxy.policies.tool_call_judge_policy import ToolCallJudgeConfig, ToolCallJudgePolicy
 from luthien_proxy.policies.tool_call_judge_utils import JudgeResult
 from luthien_proxy.policy_core import (
     AnthropicPolicyInterface,
@@ -143,14 +143,16 @@ class TestToolCallJudgePolicyConfiguration:
     def test_init_with_custom_config(self):
         """Test initialization with custom configuration."""
         policy = ToolCallJudgePolicy(
-            model="claude-3-5-sonnet-20241022",
-            api_base="http://custom:8000",
-            api_key="test-key",
-            probability_threshold=0.8,
-            temperature=0.5,
-            max_tokens=512,
-            judge_instructions="Custom instructions",
-            blocked_message_template="Custom template: {tool_name}",
+            config=ToolCallJudgeConfig(
+                model="claude-3-5-sonnet-20241022",
+                api_base="http://custom:8000",
+                api_key="test-key",
+                probability_threshold=0.8,
+                temperature=0.5,
+                max_tokens=512,
+                judge_instructions="Custom instructions",
+                blocked_message_template="Custom template: {tool_name}",
+            )
         )
 
         assert policy._config.model == "claude-3-5-sonnet-20241022"
@@ -162,13 +164,27 @@ class TestToolCallJudgePolicyConfiguration:
         assert policy._judge_instructions == "Custom instructions"
         assert "Custom template" in policy._blocked_message_template
 
-    def test_init_invalid_threshold_raises(self):
-        """Test that invalid probability threshold raises ValueError."""
-        with pytest.raises(ValueError, match="probability_threshold must be between 0 and 1"):
-            ToolCallJudgePolicy(probability_threshold=1.5)
+    def test_init_with_dict_config(self):
+        """Test initialization with dict config (runtime policy manager path)."""
+        policy = ToolCallJudgePolicy(
+            config={
+                "model": "claude-3-5-sonnet-20241022",
+                "probability_threshold": 0.8,
+            }
+        )
 
-        with pytest.raises(ValueError, match="probability_threshold must be between 0 and 1"):
-            ToolCallJudgePolicy(probability_threshold=-0.1)
+        assert policy._config.model == "claude-3-5-sonnet-20241022"
+        assert policy._config.probability_threshold == 0.8
+
+    def test_init_invalid_threshold_raises(self):
+        """Test that invalid probability threshold raises ValidationError."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=1.5))
+
+        with pytest.raises(ValidationError):
+            ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=-0.1))
 
 
 # ==============================================================================
@@ -257,7 +273,7 @@ class TestToolCallJudgePolicyOpenAIBlockedMessageChunks:
         the content and miss the finish_reason, resulting in missing
         content_block_stop and message_delta events.
         """
-        policy = ToolCallJudgePolicy(probability_threshold=0.0)  # Block everything
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=0.0))  # Block everything
 
         ctx = create_mock_context(transaction_id="test-call")
 
@@ -311,7 +327,7 @@ class TestToolCallJudgePolicyOpenAIBlockedMessageChunks:
     @pytest.mark.asyncio
     async def test_allowed_tool_call_cleanup_deferred(self):
         """Test that allowed tool calls defer cleanup to on_streaming_policy_complete."""
-        policy = ToolCallJudgePolicy(probability_threshold=1.0)  # Allow everything
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=1.0))  # Allow everything
 
         # Buffer a tool call first using proper Delta object
         tc = ChatCompletionDeltaToolCall(
@@ -447,7 +463,7 @@ class TestToolCallJudgePolicyOpenAINonStreaming:
         """Test that on_openai_response blocks tool calls judged as harmful."""
         from litellm.types.utils import ChatCompletionMessageToolCall
 
-        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=0.5))
 
         # Create response with tool call
         response = ModelResponse(
@@ -495,7 +511,7 @@ class TestToolCallJudgePolicyOpenAINonStreaming:
         """Test that on_openai_response allows tool calls judged as safe."""
         from litellm.types.utils import ChatCompletionMessageToolCall
 
-        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=0.5))
 
         # Create response with tool call
         response = ModelResponse(
@@ -886,7 +902,7 @@ class TestToolCallJudgePolicyAnthropicResponseToolUse:
     @pytest.mark.asyncio
     async def test_on_anthropic_response_allows_safe_tool_call(self):
         """on_anthropic_response allows tool_use blocks judged as safe."""
-        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=0.5))
         ctx = PolicyContext.for_testing()
 
         tool_use_block: AnthropicToolUseBlock = {
@@ -923,7 +939,7 @@ class TestToolCallJudgePolicyAnthropicResponseToolUse:
     @pytest.mark.asyncio
     async def test_on_anthropic_response_blocks_harmful_tool_call(self):
         """on_anthropic_response blocks tool_use blocks judged as harmful."""
-        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=0.5))
         ctx = PolicyContext.for_testing()
 
         tool_use_block: AnthropicToolUseBlock = {
@@ -962,7 +978,7 @@ class TestToolCallJudgePolicyAnthropicResponseToolUse:
     @pytest.mark.asyncio
     async def test_on_anthropic_response_mixed_content_partial_block(self):
         """on_anthropic_response handles mixed content where only some tool_use is blocked."""
-        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=0.5))
         ctx = PolicyContext.for_testing()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "Let me help you"}
@@ -1201,7 +1217,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_judges_on_block_stop_allowed(self):
         """on_anthropic_stream_event judges tool call on content_block_stop and allows if safe."""
-        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=0.5))
         ctx = PolicyContext.for_testing()
 
         # Buffer a complete tool call
@@ -1250,7 +1266,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_judges_on_block_stop_blocked(self):
         """on_anthropic_stream_event judges tool call on content_block_stop and filters if blocked."""
-        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=0.5))
         ctx = PolicyContext.for_testing()
 
         # Buffer a complete tool call
@@ -1365,7 +1381,7 @@ class TestToolCallJudgePolicyObservability:
         """Policy emits observability events during OpenAI evaluation."""
         from litellm.types.utils import ChatCompletionMessageToolCall
 
-        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=0.5))
 
         # Use a capturing emitter to verify events
         emitter = CapturingEmitter()
@@ -1415,7 +1431,7 @@ class TestToolCallJudgePolicyObservability:
     @pytest.mark.asyncio
     async def test_anthropic_emits_evaluation_events(self):
         """Policy emits observability events during Anthropic evaluation."""
-        policy = ToolCallJudgePolicy(probability_threshold=0.5)
+        policy = ToolCallJudgePolicy(config=ToolCallJudgeConfig(probability_threshold=0.5))
 
         # Use a capturing emitter to verify events
         emitter = CapturingEmitter()

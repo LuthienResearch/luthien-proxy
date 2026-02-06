@@ -122,8 +122,7 @@ Each policy gets merged from separate OpenAI/Anthropic versions into one class.
 | 5 | DebugLoggingPolicy | `debug_logging_policy.py` + `anthropic/debug_logging.py` |
 | 6 | SimplePolicy | `simple_policy.py` + `anthropic/simple_policy.py` |
 | 7 | StringReplacementPolicy | `string_replacement_policy.py` + `anthropic/string_replacement.py` |
-| 8 | SimpleJudgePolicy | `simple_judge_policy.py` + `anthropic/simple_judge.py` |
-| 9 | ToolCallJudgePolicy | `tool_call_judge_policy.py` + `anthropic/tool_call_judge.py` |
+| 8 | ToolCallJudgePolicy | `tool_call_judge_policy.py` + `anthropic/tool_call_judge.py` |
 
 ---
 
@@ -169,7 +168,6 @@ Agent: Merge AllCapsPolicy - combine policies/all_caps_policy.py with policies/a
 Agent: Merge DebugLoggingPolicy - combine policies/debug_logging_policy.py with policies/anthropic/debug_logging.py
 Agent: Merge SimplePolicy - combine policies/simple_policy.py with policies/anthropic/simple_policy.py
 Agent: Merge StringReplacementPolicy - combine policies/string_replacement_policy.py with policies/anthropic/string_replacement.py
-Agent: Merge SimpleJudgePolicy - combine policies/simple_judge_policy.py with policies/anthropic/simple_judge.py
 Agent: Merge ToolCallJudgePolicy - combine policies/tool_call_judge_policy.py with policies/anthropic/tool_call_judge.py
 ```
 
@@ -178,5 +176,5 @@ Agent: Merge ToolCallJudgePolicy - combine policies/tool_call_judge_policy.py wi
 - Agents working on policy merges can assume interfaces exist (Workstream 1 output)
 - If an agent needs interface signatures, they can check the interface files
 - Keep existing test coverage - tests should be merged, not deleted
-- `simple_noop_policy.py` and `parallel_rules_policy.py` are low priority and can be done later
+- `simple_noop_policy.py` is low priority and can be done later
 - The `base_policy.py` that exists today has OpenAI-specific logic - it needs to be replaced with a minimal version

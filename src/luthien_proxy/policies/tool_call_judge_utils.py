@@ -16,31 +16,37 @@ from typing import Any, cast
 
 from litellm import acompletion
 from litellm.types.utils import Choices, Message, ModelResponse
+from pydantic import BaseModel, Field
 
 from luthien_proxy.policy_core import create_text_response
+from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class JudgeConfig:
-    """Configuration for LLM judge.
+class JudgeConfig(BaseModel):
+    """Configuration for LLM judge."""
 
-    Attributes:
-        model: LLM model identifier
-        api_base: API base URL (optional)
-        api_key: API key for authentication (optional)
-        probability_threshold: Threshold for blocking (0-1)
-        temperature: Sampling temperature for judge
-        max_tokens: Maximum output tokens for judge response
-    """
+    model: str = Field(description="LLM model identifier for the judge")
+    api_base: str | None = Field(default=None, description="API base URL")
+    api_key: str | None = Field(
+        default=None,
+        description="API key for authentication",
+        json_schema_extra={"format": "password"},
+    )
+    probability_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Threshold for blocking tool calls (0-1)",
+    )
+    temperature: float = Field(default=0.0, description="Sampling temperature for judge")
+    max_tokens: int = Field(
+        default=DEFAULT_JUDGE_MAX_TOKENS,
+        description="Maximum output tokens for judge response",
+    )
 
-    model: str
-    api_base: str | None
-    api_key: str | None
-    probability_threshold: float
-    temperature: float
-    max_tokens: int
+    model_config = {"frozen": True}
 
 
 @dataclass(frozen=True)

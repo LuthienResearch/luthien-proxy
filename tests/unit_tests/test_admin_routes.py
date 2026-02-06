@@ -75,20 +75,20 @@ class TestSetPolicyRoute:
     async def test_set_policy_with_config(self, mock_import, mock_validate):
         """Test policy set with configuration parameters."""
         mock_import.return_value = MagicMock()
-        config = {"judge_model": "claude-haiku-4-5", "block_threshold": 0.8}
+        config = {"probability_threshold": 0.8}
         mock_validate.return_value = config
 
         mock_manager = MagicMock()
         mock_manager.enable_policy = AsyncMock(
             return_value=PolicyEnableResult(
                 success=True,
-                policy="luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
+                policy="luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
                 restart_duration_ms=100,
             )
         )
 
         request = PolicySetRequest(
-            policy_class_ref="luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
+            policy_class_ref="luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
             config=config,
             enabled_by="e2e-test",
         )
@@ -97,7 +97,7 @@ class TestSetPolicyRoute:
 
         assert result.success is True
         mock_manager.enable_policy.assert_called_once_with(
-            policy_class_ref="luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
+            policy_class_ref="luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
             config=config,
             enabled_by="e2e-test",
         )

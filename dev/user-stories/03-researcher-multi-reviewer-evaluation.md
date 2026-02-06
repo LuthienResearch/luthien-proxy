@@ -99,14 +99,14 @@ Sam hypothesizes that specialized reviewers (one for code safety, one for data p
 - [ ] Test rule extraction accuracy
 
 ### Phase 2: Parallel Evaluation
-- [x] Implement parallel LLM call orchestration — `ParallelRulesPolicy` uses `asyncio.gather()` to run multiple `call_rule_judge()` LLM calls concurrently (verified: 41 unit tests pass)
+- [ ] Implement parallel LLM call orchestration (ParallelRulesPolicy was removed; needs reimplementation)
 - [ ] Add timeout handling for slow reviewers
 - [ ] Implement aggregation strategies (ANY_BLOCK, MAJORITY, UNANIMOUS)
-- [x] Handle partial failures gracefully — `return_exceptions=True` in gather, exceptions converted to `RuleViolation` with fail-secure blocking
+- [ ] Handle partial failures gracefully
 
 ### Phase 3: Decision Logging
-- [x] Design reviewer decision schema — `RuleResult` and `RuleViolation` dataclasses in `parallel_rules_config.py`; DB table `conversation_judge_decisions` exists but policy uses generic `conversation_events` table instead
-- [x] Store per-reviewer decisions with reasoning — events recorded via `record_event()` with `rule_name`, `probability`, `explanation`; verified event path works (800+ events in DB from other policies)
+- [ ] Design reviewer decision schema (ParallelRulesPolicy was removed; needs reimplementation)
+- [ ] Store per-reviewer decisions with reasoning
 - [ ] Add latency metrics per reviewer
 - [ ] Implement disagreement detection and logging
 

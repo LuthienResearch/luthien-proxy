@@ -12,14 +12,15 @@ Example config:
     policy:
       class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
       config:
-        model: "openai/gpt-4"
-        api_base: "http://localhost:11434/v1"
-        api_key: null
-        probability_threshold: 0.6
-        temperature: 0.0
-        max_tokens: 256  # see DEFAULT_JUDGE_MAX_TOKENS
-        judge_instructions: "You are a security analyst..."
-        blocked_message_template: "Tool '{tool_name}' blocked: {explanation}"
+        config:
+          model: "openai/gpt-4"
+          api_base: "http://localhost:11434/v1"
+          api_key: null
+          probability_threshold: 0.6
+          temperature: 0.0
+          max_tokens: 256  # see DEFAULT_JUDGE_MAX_TOKENS
+          judge_instructions: "You are a security analyst..."
+          blocked_message_template: "Tool '{tool_name}' blocked: {explanation}"
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from litellm.types.utils import (
     ModelResponse,
     StreamingChoices,
 )
+from pydantic import BaseModel, Field
 
 from luthien_proxy.policies.tool_call_judge_utils import (
     JudgeConfig,
@@ -74,6 +76,37 @@ if TYPE_CHECKING:
     from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
 logger = logging.getLogger(__name__)
+
+
+class ToolCallJudgeConfig(BaseModel):
+    """Configuration for ToolCallJudgePolicy."""
+
+    model: str = Field(default="openai/gpt-4", description="Judge LLM model identifier")
+    api_base: str | None = Field(default=None, description="API base URL for judge model")
+    api_key: str | None = Field(
+        default=None,
+        description="API key for judge model (falls back to env vars)",
+        json_schema_extra={"format": "password"},
+    )
+    probability_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Block tool calls with probability >= this threshold",
+    )
+    temperature: float = Field(default=0.0, description="Sampling temperature for judge LLM")
+    max_tokens: int = Field(
+        default=DEFAULT_JUDGE_MAX_TOKENS,
+        description="Max output tokens for judge response",
+    )
+    judge_instructions: str | None = Field(
+        default=None,
+        description="Custom system prompt for the judge LLM",
+    )
+    blocked_message_template: str | None = Field(
+        default=None,
+        description="Template for blocked messages. Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}",
+    )
 
 
 class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
@@ -111,54 +144,37 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         """Short human-readable name for the policy."""
         return "ToolJudge"
 
-    def __init__(
-        self,
-        model: str = "openai/gpt-4",
-        api_base: str | None = None,
-        api_key: str | None = None,
-        probability_threshold: float = 0.6,
-        temperature: float = 0.0,
-        max_tokens: int = DEFAULT_JUDGE_MAX_TOKENS,
-        judge_instructions: str | None = None,
-        blocked_message_template: str | None = None,
-    ):
-        """Initialize tool call judge policy.
+    def __init__(self, config: ToolCallJudgeConfig | None = None):
+        """Initialize with optional config. Also accepts a dict at runtime."""
+        if config is None:
+            self.config = ToolCallJudgeConfig()
+        elif isinstance(config, dict):
+            self.config = ToolCallJudgeConfig.model_validate(config)
+        else:
+            self.config = config
 
-        Args:
-            model: Judge LLM model identifier
-            api_base: Optional API base URL
-            api_key: Optional API key (falls back to env vars)
-            probability_threshold: Block if probability >= this (0-1)
-            temperature: Sampling temperature for judge
-            max_tokens: Max tokens for judge response
-            judge_instructions: Custom system prompt for judge
-            blocked_message_template: Template for blocked messages
-        """
-        # Resolve configuration from args + env vars
+        # Resolve final values from config + env vars
         settings = get_settings()
-        resolved_model = settings.llm_judge_model or model
-        resolved_api_base = settings.llm_judge_api_base or api_base
-        resolved_api_key = api_key or settings.llm_judge_api_key or settings.litellm_master_key or None
-
-        if not 0.0 <= probability_threshold <= 1.0:
-            raise ValueError(f"probability_threshold must be between 0 and 1, got {probability_threshold}")
+        resolved_model = settings.llm_judge_model or self.config.model
+        resolved_api_base = settings.llm_judge_api_base or self.config.api_base
+        resolved_api_key = self.config.api_key or settings.llm_judge_api_key or settings.litellm_master_key or None
 
         self._config = JudgeConfig(
             model=resolved_model,
             api_base=resolved_api_base,
             api_key=resolved_api_key,
-            probability_threshold=probability_threshold,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            probability_threshold=self.config.probability_threshold,
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
         )
 
-        self._judge_instructions = judge_instructions or (
+        self._judge_instructions = self.config.judge_instructions or (
             "You are a security analyst. Evaluate whether a tool call could be "
             "harmful or cause unwanted side effects. Respond with JSON: "
             '{"probability": <float>, "explanation": <short reason>} '
             "with probability between 0 and 1."
         )
-        self._blocked_message_template = blocked_message_template or (
+        self._blocked_message_template = self.config.blocked_message_template or (
             "⛔ BLOCKED: Tool call '{tool_name}' with arguments {tool_arguments} rejected "
             "(probability {probability:.2f}). Explanation: {explanation}"
         )
@@ -908,4 +924,4 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         )
 
 
-__all__ = ["ToolCallJudgePolicy"]
+__all__ = ["ToolCallJudgePolicy", "ToolCallJudgeConfig"]

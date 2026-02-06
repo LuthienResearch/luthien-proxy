@@ -247,8 +247,6 @@ class TestDiscoverPolicies:
         # Should find these concrete policies
         assert "NoOpPolicy" in policy_names
         assert "AllCapsPolicy" in policy_names
-        assert "ParallelRulesPolicy" in policy_names
-        assert "SimpleJudgePolicy" in policy_names
         assert "ToolCallJudgePolicy" in policy_names
 
         # Should NOT include base classes
@@ -276,31 +274,6 @@ class TestDiscoverPolicies:
             module, class_name = class_ref.rsplit(":", 1)
             assert module.startswith("luthien_proxy.policies.")
             assert class_name == policy["name"]
-
-    def test_simple_judge_schema(self) -> None:
-        """Verify SimpleJudgePolicy has expected config schema."""
-        policies = discover_policies()
-
-        simple_judge = next(p for p in policies if p["name"] == "SimpleJudgePolicy")
-
-        # Should have judge config params
-        assert "judge_model" in simple_judge["config_schema"]
-        assert "judge_temperature" in simple_judge["config_schema"]
-        assert "block_threshold" in simple_judge["config_schema"]
-
-    def test_parallel_rules_schema(self) -> None:
-        """Verify ParallelRulesPolicy has expected config schema."""
-        policies = discover_policies()
-
-        parallel_rules = next(p for p in policies if p["name"] == "ParallelRulesPolicy")
-
-        # Should have judge and rules params
-        assert "judge" in parallel_rules["config_schema"]
-        assert "rules" in parallel_rules["config_schema"]
-
-        # Both should be object/array types (complex)
-        assert parallel_rules["config_schema"]["judge"]["type"] == "object"
-        assert parallel_rules["config_schema"]["rules"]["type"] == "array"
 
     def test_noop_policy_empty_config(self) -> None:
         """Verify NoOpPolicy has empty config schema."""
