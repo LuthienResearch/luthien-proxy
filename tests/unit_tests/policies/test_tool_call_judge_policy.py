@@ -135,7 +135,7 @@ class TestToolCallJudgePolicyConfiguration:
         """Test initialization with default configuration."""
         policy = ToolCallJudgePolicy()
 
-        assert policy._config.model == "openai/gpt-4"
+        assert policy._config.model == "claude-haiku-4-5"
         assert policy._config.probability_threshold == 0.6
         assert policy._config.temperature == 0.0
         assert policy._config.max_tokens == 256

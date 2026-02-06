@@ -138,6 +138,46 @@ function initTestPanel() {
     }
 }
 
+function formatConfigValue(val, indent = 0) {
+    const pad = '  '.repeat(indent);
+    if (val === null || val === undefined) {
+        return `<span class="config-val">null</span>`;
+    }
+    if (typeof val === 'boolean') {
+        return `<span class="config-val-bool">${val}</span>`;
+    }
+    if (typeof val === 'number') {
+        return `<span class="config-val-number">${val}</span>`;
+    }
+    if (typeof val === 'string') {
+        const escaped = val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return `<span class="config-val-string">"${escaped}"</span>`;
+    }
+    if (Array.isArray(val)) {
+        if (val.length === 0) return `<span class="config-val">[]</span>`;
+        const items = val.map(v => `${pad}  ${formatConfigValue(v, indent + 1)}`).join('\n');
+        return `[\n${items}\n${pad}]`;
+    }
+    if (typeof val === 'object') {
+        return formatConfigAsHtml(val, indent);
+    }
+    const escaped = String(val).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<span class="config-val">${escaped}</span>`;
+}
+
+function formatConfigAsHtml(config, indent = 0) {
+    const pad = '  '.repeat(indent);
+    const innerPad = '  '.repeat(indent + 1);
+    const entries = Object.entries(config);
+    if (entries.length === 0) return `<span class="config-val">{}</span>`;
+
+    const lines = entries.map(([key, val]) => {
+        const escapedKey = key.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return `${innerPad}<span class="config-key">${escapedKey}</span>: ${formatConfigValue(val, indent + 1)}`;
+    });
+    return `{\n${lines.join('\n')}\n${pad}}`;
+}
+
 function renderCurrentPolicyBanner() {
     const nameEl = document.getElementById('current-policy-name');
     const metaEl = document.getElementById('current-policy-meta');
@@ -160,13 +200,7 @@ function renderCurrentPolicyBanner() {
             const config = state.currentPolicy.config || {};
             const configKeys = Object.keys(config);
             if (configKeys.length > 0) {
-                const configSummary = configKeys.map(k => {
-                    const val = config[k];
-                    const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
-                    const truncated = displayVal.length > 30 ? displayVal.slice(0, 30) + '...' : displayVal;
-                    return `${k}: ${truncated}`;
-                }).join(', ');
-                configEl.textContent = configSummary;
+                configEl.innerHTML = formatConfigAsHtml(config);
                 configEl.style.display = 'block';
             } else {
                 configEl.textContent = '(no config)';

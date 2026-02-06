@@ -13,7 +13,7 @@ Example config:
       class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
       config:
         config:
-          model: "openai/gpt-4"
+          model: "claude-haiku-4-5"
           api_base: "http://localhost:11434/v1"
           api_key: null
           probability_threshold: 0.6
@@ -83,7 +83,7 @@ logger = logging.getLogger(__name__)
 class ToolCallJudgeConfig(BaseModel):
     """Configuration for ToolCallJudgePolicy."""
 
-    model: str = Field(default="openai/gpt-4", description="Judge LLM model identifier")
+    model: str = Field(default="claude-haiku-4-5", description="Judge LLM model identifier")
     api_base: str | None = Field(default=None, description="API base URL for judge model")
     api_key: str | None = Field(
         default=None,
@@ -130,7 +130,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     - Either passes through or replaces with blocked text
 
     Config:
-        model: LLM model to use for judging (default: "openai/gpt-4")
+        model: LLM model to use for judging (default: "claude-haiku-4-5")
         api_base: Optional API base URL for judge model
         api_key: Optional API key for judge model (falls back to env vars)
         probability_threshold: Block if probability >= this (default: 0.6)

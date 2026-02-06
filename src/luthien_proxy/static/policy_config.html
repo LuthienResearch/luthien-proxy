@@ -100,12 +100,33 @@
             color: #888;
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
             background: #0a0a0a;
-            padding: 6px 10px;
+            padding: 10px 14px;
             border-radius: 4px;
             max-width: 600px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            max-height: 200px;
+            overflow: auto;
+            white-space: pre;
+            line-height: 1.5;
+        }
+
+        .current-policy-config .config-key {
+            color: #60a5fa;
+        }
+
+        .current-policy-config .config-val {
+            color: #d1d5db;
+        }
+
+        .current-policy-config .config-val-string {
+            color: #4ade80;
+        }
+
+        .current-policy-config .config-val-number {
+            color: #fbbf24;
+        }
+
+        .current-policy-config .config-val-bool {
+            color: #c084fc;
         }
 
         .current-policy-meta {
