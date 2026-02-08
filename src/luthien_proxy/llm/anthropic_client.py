@@ -1,7 +1,7 @@
 """Anthropic SDK client wrapper for making API calls."""
 
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import anthropic
 from opentelemetry import trace
@@ -35,11 +35,27 @@ class AnthropicClient:
             kwargs["base_url"] = base_url
         self._client = anthropic.AsyncAnthropic(**kwargs)
 
+    @staticmethod
+    def _sanitize_cache_control(obj: Any) -> Any:
+        """Strip extra fields from cache_control, keeping only 'type'.
+
+        The Anthropic API only accepts cache_control: {"type": "ephemeral"}.
+        Clients (e.g. Claude Code) may send extra fields like "scope" that
+        cause 400 errors. This strips unsupported fields.
+        """
+        if "cache_control" in obj and isinstance(obj["cache_control"], dict):
+            cc = obj["cache_control"]
+            if len(cc) > 1 and "type" in cc:
+                obj = {**obj, "cache_control": {"type": cc["type"]}}
+        return obj
+
     def _prepare_request_kwargs(self, request: AnthropicRequest) -> dict:
         """Extract non-None values from request for SDK call.
 
         The Anthropic SDK uses Omit sentinels for optional parameters,
         so we only pass keys that are explicitly set in the request.
+        Also sanitizes cache_control fields that may contain extra properties
+        not accepted by the Anthropic API.
         """
         kwargs: dict = {
             "model": request["model"],
@@ -49,9 +65,12 @@ class AnthropicClient:
 
         # Optional fields - only include if present in request
         if "system" in request:
-            kwargs["system"] = request["system"]
+            system = request["system"]
+            if isinstance(system, list):
+                system = [self._sanitize_cache_control(block) for block in system]
+            kwargs["system"] = system
         if "tools" in request:
-            kwargs["tools"] = request["tools"]
+            kwargs["tools"] = [self._sanitize_cache_control(tool) for tool in request["tools"]]
         if "tool_choice" in request:
             kwargs["tool_choice"] = request["tool_choice"]
         if "temperature" in request:

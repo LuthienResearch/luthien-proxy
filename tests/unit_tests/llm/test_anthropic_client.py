@@ -315,3 +315,82 @@ class TestAnthropicClientStream:
                 text_deltas.append(event.delta.text)
 
         assert text_deltas == ["Hi", " there!"]
+
+
+class TestPrepareRequestKwargs:
+    """Test _prepare_request_kwargs sanitization."""
+
+    def test_sanitizes_cache_control_extra_fields_on_tools(self):
+        """Tools with cache_control containing extra fields should be sanitized.
+
+        Claude Code sends cache_control: {"type": "ephemeral", "scope": "turn"}
+        but Anthropic API only accepts cache_control: {"type": "ephemeral"}.
+        The proxy should strip unsupported fields to prevent 400 errors.
+        """
+        client = AnthropicClient(api_key="test-key")
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+            "tools": [
+                {
+                    "name": "read_file",
+                    "description": "Read a file",
+                    "input_schema": {"type": "object", "properties": {}},
+                    "cache_control": {"type": "ephemeral", "scope": "turn"},
+                },
+                {
+                    "name": "write_file",
+                    "description": "Write a file",
+                    "input_schema": {"type": "object", "properties": {}},
+                },
+            ],
+        }
+
+        kwargs = client._prepare_request_kwargs(request)
+
+        # cache_control should only have "type", "scope" should be stripped
+        assert kwargs["tools"][0]["cache_control"] == {"type": "ephemeral"}
+        # Tool without cache_control should be unchanged
+        assert "cache_control" not in kwargs["tools"][1]
+
+    def test_preserves_valid_cache_control_on_tools(self):
+        """Tools with valid cache_control (no extra fields) should be unchanged."""
+        client = AnthropicClient(api_key="test-key")
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+            "tools": [
+                {
+                    "name": "read_file",
+                    "description": "Read a file",
+                    "input_schema": {"type": "object", "properties": {}},
+                    "cache_control": {"type": "ephemeral"},
+                },
+            ],
+        }
+
+        kwargs = client._prepare_request_kwargs(request)
+
+        assert kwargs["tools"][0]["cache_control"] == {"type": "ephemeral"}
+
+    def test_sanitizes_cache_control_on_system_blocks(self):
+        """System blocks with cache_control containing extra fields should be sanitized."""
+        client = AnthropicClient(api_key="test-key")
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+            "system": [
+                {
+                    "type": "text",
+                    "text": "You are helpful",
+                    "cache_control": {"type": "ephemeral", "scope": "session"},
+                },
+            ],
+        }
+
+        kwargs = client._prepare_request_kwargs(request)
+
+        assert kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
