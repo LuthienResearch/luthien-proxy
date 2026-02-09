@@ -2,7 +2,7 @@
 
 ### Make Claude Code follow your rules.
 
-Luthien sits between your AI coding agent and the LLM. Every request passes through your rules before anything executes. Every response passes through them again before reaching your agent. Block dangerous operations, enforce standards, clean up output — without changing anything about your development environment.
+Luthien sits between Claude Code (or Codex) and the LLM. Every request and response passes through your rules. Block dangerous operations, enforce standards, clean up output — without changing your development environment.
 
 [See it work](#see-it-work) · [Policies](#policies) · [Quick start](#quick-start)
 
@@ -20,7 +20,7 @@ Luthien sits between your AI coding agent and the LLM. Every request passes thro
 
 > Fix the login validation bug in `src/auth/login.py`
 
-**What the agent did without Luthien:**
+**What Claude Code did without Luthien:**
 - Rewrote `login.py` (good)
 - Also refactored `auth_middleware.py` (didn't ask)
 - Also updated 2 test files (didn't ask)
@@ -30,12 +30,12 @@ Luthien sits between your AI coding agent and the LLM. Every request passes thro
 </td>
 <td width="50%">
 
-### What the agent did with Luthien
+### What Claude Code did with Luthien
 
 - Fixed `login.py` (good)
-- Blocked: scope creep on `auth_middleware.py` — agent retried without it
-- Blocked: `pip install` — agent used `uv add` instead
-- Blocked: `rm -rf` — agent used targeted cleanup instead
+- Blocked: scope creep on `auth_middleware.py` — Claude retried without it
+- Blocked: `pip install` — Claude used `uv add` instead
+- Blocked: `rm -rf` — Claude used targeted cleanup instead
 
 **Result:** Clean diff. One file changed. Right package manager. No destructive commands.
 
@@ -47,58 +47,54 @@ Luthien sits between your AI coding agent and the LLM. Every request passes thro
 
 ## Who it's for
 
-If your team uses Claude Code for real work, someone owns one of these problems:
+Your team is already deep on Claude Code. Someone owns one of these problems:
 
 | | What keeps you up at night |
 |---|---|
-| **"Get more from AI tooling"** | You're the CTO or founding engineer who decided the team is using Claude Code. You wrote the `claude.md`. You want agents doing more — but you need guardrails before you give them more autonomy. |
-| **"Make sure it doesn't break things"** | You're the senior engineer or security lead who got paged when an agent ran `rm -rf` or pushed to prod. You need rules that apply to every LLM call, company-wide. |
+| **"Give Claude Code more autonomy"** | You're the technical lead. Your team is shipping fast with Claude Code — but you need guardrails before giving it more freedom. |
+| **"Don't let it break things"** | You got paged when Claude Code ran `rm -rf` or pushed to prod. You need rules on every LLM call, company-wide. |
 
-At most startups, that's the same person. Luthien intercepts every LLM API call and tool invocation — the layer you already own. No experience with proxies required.
+Luthien works at the layer you already own: LLM calls and tool usage.
 
 ---
 
 ## How it works
 
-Luthien is a local proxy. Instead of your agent talking directly to the LLM, it talks through Luthien. You set two environment variables and everything else stays the same — your agent, your editor, your workflow.
+Set two environment variables. Claude Code talks through Luthien instead of directly to the LLM. Everything else stays the same.
 
 ```
-Your agent ──→ Luthien proxy ──→ LLM
+Claude Code ──→ Luthien proxy ──→ LLM
                     │
               Your policies
               (Python classes)
                     │
               ┌─────┴─────┐
               │ On request │ Evaluate before sending to LLM
-              │ On response│ Evaluate before returning to agent
+              │ On response│ Evaluate before returning to Claude Code
               └────────────┘
                     │
            Pass / Block / Modify
 ```
 
-Every request passes through your policies before reaching the LLM. Every response passes through them again before reaching your agent. If a rule is violated, Luthien blocks the request, tells the agent why, and suggests an alternative. The agent retries. You don't have to intervene.
+If a rule is violated, Luthien blocks the request, tells Claude Code why, and suggests an alternative. Claude retries automatically.
 
 ---
 
 ## Policies
 
-Luthien handles the universal dangers so you can focus on your domain.
+### Built-in: common failure modes
 
-### Built-in: good defaults that ship on
-
-Dangers every team faces. Write rules in plain English — an LLM judge evaluates every tool call against them.
-
-**Block dangerous operations:**
+Ship enabled. No configuration needed.
 
 - **Block dangerous operations** — `rm -rf`, `git push --force`, dropping database tables
 - **Enforce package standards** — block `pip install`, suggest `uv add` instead
 - **Catch PII exposure** — block responses that contain or request sensitive data
 - **Flag unknown dependencies** — is this package legit?
 
-Write rules in plain English. An LLM judge evaluates every tool call against them. 8 lines of Python — the judge does the hard work.
+Write rules in plain English. An LLM judge evaluates them.
 
 <details>
-<summary>See what a built-in policy looks like</summary>
+<summary>See policy code</summary>
 
 ```python
 class PipBlockPolicy(SimpleJudgePolicy):
@@ -111,9 +107,9 @@ class PipBlockPolicy(SimpleJudgePolicy):
 
 </details>
 
-### Custom: your business, your rules
+### Custom policies for your use case
 
-Anything you can define in a Python function, Luthien can enforce. This is where it gets specific to your team.
+Anything you can define in a Python function.
 
 - **Clean up AI writing tics** — remove em-dashes, curly quotes, over-bulleting
 - **Enforce scope boundaries** — only allow changes to files mentioned in the request
@@ -121,7 +117,7 @@ Anything you can define in a Python function, Luthien can enforce. This is where
 - **Log everything for audit** — every request and response is already in PostgreSQL
 
 <details>
-<summary>See what a custom policy looks like</summary>
+<summary>See custom policy code</summary>
 
 ```python
 class DeSlop(SimplePolicy):
@@ -143,31 +139,34 @@ class ScopeGuard(SimpleJudgePolicy):
 
 ### Measurement
 
-Every policy action is logged — what got blocked, which policies fired, how often. Luthien stores every decision so you can measure, refine, and build trust in your rules over time.
+Every policy action is logged. Track what got blocked, false positives, false negatives, latency overhead.
 
 ---
 
 ## Quick start
 
-Two ways to get started. Both end with the same two env vars.
+<table>
+<tr>
+<td width="50%">
 
-### Option A: Run locally
+<details open>
+<summary><b>Run locally</b></summary>
 
 **Prerequisites:** [Docker](https://www.docker.com/) and an [Anthropic API key](https://console.anthropic.com/).
 
-**1. Clone the repo**
+**1. Clone**
 
 `git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy`
 
-**2. Add your API key**
+**2. Configure**
 
-`cp .env.example .env` — then edit `.env` and set `ANTHROPIC_API_KEY` to your real key.
+`cp .env.example .env` — set `ANTHROPIC_API_KEY`.
 
-**3. Start Luthien**
+**3. Start**
 
 `docker compose up -d`
 
-**4. Point your agent at Luthien**
+**4. Connect Claude Code**
 
 ```
 export ANTHROPIC_BASE_URL=http://localhost:8000/v1
@@ -175,26 +174,30 @@ export ANTHROPIC_API_KEY=sk-luthien-dev-key
 claude
 ```
 
-That's it. Your Claude Code now routes through Luthien.
-
 <details>
 <summary>What Docker spins up</summary>
 
-| Service | Port | What it does |
-|---------|------|-------------|
-| Gateway | 8000 | The proxy — your agent talks to this |
-| PostgreSQL | 5432 | Stores every request and response |
-| Redis | 6379 | Powers real-time activity streaming |
+| Service | Port | Purpose |
+|---------|------|---------|
+| Gateway | 8000 | Proxy endpoint |
+| PostgreSQL | 5432 | Request/response storage |
+| Redis | 6379 | Real-time streaming |
 
 Port conflict? Set `GATEWAY_PORT` in `.env`.
 
 </details>
 
-### Option B: Deploy to Railway (no Docker)
+</details>
+
+</td>
+<td width="50%">
+
+<details>
+<summary><b>Deploy to cloud</b></summary>
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/luthienresearch/luthien-proxy)
 
-Click the button. Railway provisions Postgres, Redis, and the gateway. You get a public URL in ~2 minutes. ~$5/month.
+One click. Railway provisions Postgres, Redis, and the gateway. Public URL in ~2 minutes.
 
 ```
 export ANTHROPIC_BASE_URL=https://your-app.railway.app/v1
@@ -202,7 +205,13 @@ export ANTHROPIC_API_KEY=your-proxy-api-key
 claude
 ```
 
-No Docker, no git clone, no local setup. Just a URL and two env vars.
+No Docker, no local setup. Just a URL and two env vars.
+
+</details>
+
+</td>
+</tr>
+</table>
 
 ---
 

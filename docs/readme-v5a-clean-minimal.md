@@ -2,7 +2,7 @@
 
 ### Let AI code. Stay in control.
 
-Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output — without changing your code or workflow.
+Luthien is a proxy that sits between Claude Code (or Codex) and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output — without changing your code or workflow.
 
 [See it work](#see-it-work) · [Policies](#policies) · [Quick start](#quick-start)
 
@@ -18,18 +18,18 @@ Luthien is a proxy that sits between your AI coding agent and the LLM. It interc
 
 ### Without Luthien
 
-<img src="https://placehold.co/400x250/1a0a0a/ff6b6b?text=Claude+runs+pip+install+requests%0AYour+team+uses+uv%0ABreaks+your+lockfile" alt="Before: wrong package manager" width="100%">
+<img src="https://placehold.co/500x300/1a0a0a/ff6b6b?text=pip+install+requests%0ATeam+uses+uv%0ALockfile+broken" alt="Before: wrong package manager" width="100%">
 
-Your agent runs `pip install` when your team uses `uv`. It installs packages you didn't ask for. Your lockfile is wrong and nobody noticed until production.
+Claude Code runs `pip install` when your team uses `uv`. Wrong lockfile. Nobody noticed until production.
 
 </td>
 <td width="50%">
 
 ### With Luthien
 
-<img src="https://placehold.co/400x250/0a1a0a/4ade80?text=Luthien+blocks+pip+install%0ASuggests+uv+add%0AAgent+retries+correctly" alt="After: Luthien blocks pip, suggests uv" width="100%">
+<img src="https://placehold.co/500x300/0a1a0a/4ade80?text=Blocked+pip+install%0ASuggests+uv+add%0AClaude+retries+correctly" alt="After: Luthien blocks pip, suggests uv" width="100%">
 
-Luthien intercepts the `pip install`, blocks it, tells the agent to use `uv add` instead. The agent retries with the right command. You didn't have to do anything.
+Luthien blocks the `pip install`, tells Claude Code to use `uv add`. Claude retries correctly. You didn't intervene.
 
 </td>
 </tr>
@@ -39,43 +39,37 @@ Luthien intercepts the `pip install`, blocks it, tells the agent to use `uv add`
 
 ## Who it's for
 
-You use Claude Code for production work. You're also the person who decides how your team adopts AI tooling — or the person who has to make sure it doesn't cause problems. Maybe both.
+- **The CTO who said "we're using Claude Code"** — and needs guardrails across the team
+- **The senior engineer who wrote the `claude.md`** — and is tired of Claude Code ignoring it
+- **The person who got paged when Claude Code deleted prod data** — never again
 
-- **The CTO who said "we're using Claude Code"** — and now needs guardrails across the team
-- **The senior engineer who wrote the company's `claude.md`** — and is tired of the agent ignoring it
-- **The person who got paged when the agent deleted prod data** — and never wants that again
-
-Luthien works at the layer you already manage — LLM calls and tool usage. If your team is making API calls to Claude or OpenAI, Luthien can enforce rules on every one of them.
+Luthien works at the layer you already manage: LLM calls and tool usage.
 
 ---
 
 ## How it works
 
-1. **Point your agent at Luthien** — two env vars, keep your own Claude Code
-2. **Write rules in Python** — plain English rules evaluated by an LLM judge, or write custom logic
-3. **Luthien enforces them on every request and response** — blocks, retries, or cleans up before you see it
-
-Nothing else changes. Your agent, your editor, your workflow — all the same.
+1. **Set two env vars** — keep your IDE, your tools, your workflow
+2. **Write rules in Python** — plain English evaluated by an LLM judge, or custom logic
+3. **Every request and response passes through your rules** — block, retry, or clean up
 
 ---
 
 ## Policies
 
-Luthien handles the universal dangers so you can focus on your domain.
+### Built-in: common failure modes
 
-### Built-in: good defaults that ship on
-
-Dangers every team faces. These ship enabled — you don't have to configure anything.
+Ship enabled. No configuration needed.
 
 - **Block dangerous operations** — `rm -rf`, `git push --force`, dropping database tables
 - **Enforce package standards** — block `pip install`, suggest `uv add` instead
 - **Catch PII exposure** — block responses that contain or request sensitive data
 - **Flag unknown dependencies** — is this package legit?
 
-Write rules in plain English. An LLM judge evaluates every tool call against them.
+Write rules in plain English. An LLM judge evaluates them.
 
 <details>
-<summary>See what a policy looks like (8 lines)</summary>
+<summary>See policy code</summary>
 
 ```python
 class PipBlockPolicy(SimpleJudgePolicy):
@@ -86,20 +80,19 @@ class PipBlockPolicy(SimpleJudgePolicy):
     ]
 ```
 
-That's the entire policy. The LLM judge does the hard work — you just describe what's not allowed.
 
 </details>
 
-### Custom: your business, your rules
+### Custom policies for your use case
 
-Anything you can define in a Python function, Luthien can enforce.
+Anything you can define in a Python function.
 
 - **Clean up AI writing tics** — remove em-dashes, curly quotes, over-bulleting
 - **Enforce scope boundaries** — only allow changes to files mentioned in the request
 - **Domain-specific compliance** — your internal LLM tool advises customers? Make sure it cites the right policy instead of hallucinating guidance
 
 <details>
-<summary>See what a custom policy looks like</summary>
+<summary>See custom policy code</summary>
 
 ```python
 class DeSlop(SimplePolicy):
@@ -121,29 +114,34 @@ class ScopeGuard(SimpleJudgePolicy):
 
 ### Measurement
 
-Every policy action is logged — what got blocked, which policies fired, how often. Luthien stores every decision so you can measure, refine, and trust your rules over time.
+Every policy action is logged. Measure what got blocked, track false positives and false negatives, monitor latency overhead.
 
 ---
 
 ## Quick start
 
-### Option A: Run locally
+<table>
+<tr>
+<td width="50%">
+
+<details open>
+<summary><b>Run locally</b></summary>
 
 **Prerequisites:** [Docker](https://www.docker.com/) and an [Anthropic API key](https://console.anthropic.com/).
 
-**1. Clone the repo**
+**1. Clone**
 
 `git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy`
 
-**2. Add your API key**
+**2. Configure**
 
-`cp .env.example .env` — then edit `.env` and set `ANTHROPIC_API_KEY` to your real key.
+`cp .env.example .env` — set `ANTHROPIC_API_KEY`.
 
-**3. Start Luthien**
+**3. Start**
 
 `docker compose up -d`
 
-**4. Point your agent at Luthien**
+**4. Connect Claude Code**
 
 ```
 export ANTHROPIC_BASE_URL=http://localhost:8000/v1
@@ -151,28 +149,30 @@ export ANTHROPIC_API_KEY=sk-luthien-dev-key
 claude
 ```
 
-That's it. Your Claude Code now routes through Luthien.
-
 <details>
 <summary>What Docker spins up</summary>
 
-| Service | Port | What it does |
-|---------|------|-------------|
-| Gateway | 8000 | The proxy — your agent talks to this |
-| PostgreSQL | 5432 | Stores every request and response |
-| Redis | 6379 | Powers real-time activity streaming |
+| Service | Port | Purpose |
+|---------|------|---------|
+| Gateway | 8000 | Proxy endpoint |
+| PostgreSQL | 5432 | Request/response storage |
+| Redis | 6379 | Real-time streaming |
 
 Port conflict? Set `GATEWAY_PORT` in `.env`.
 
 </details>
 
-### Option B: Deploy to cloud
+</details>
+
+</td>
+<td width="50%">
+
+<details>
+<summary><b>Deploy to cloud</b></summary>
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/luthienresearch/luthien-proxy)
 
-Click the button. Railway provisions Postgres, Redis, and the gateway. You get a public URL in ~2 minutes. ~$5/month.
-
-Then point your agent at your cloud instance:
+One click. Railway provisions Postgres, Redis, and the gateway. Public URL in ~2 minutes.
 
 ```
 export ANTHROPIC_BASE_URL=https://your-app.railway.app/v1
@@ -180,7 +180,13 @@ export ANTHROPIC_API_KEY=your-proxy-api-key
 claude
 ```
 
-No Docker, no git clone, no local setup. Just a URL and two env vars.
+No Docker, no local setup. Just a URL and two env vars.
+
+</details>
+
+</td>
+</tr>
+</table>
 
 ---
 
