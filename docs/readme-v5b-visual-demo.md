@@ -4,7 +4,7 @@
 
 ### Rules your AI agent can't ignore.
 
-Point your AI coding agent at Luthien instead of the LLM. Every request and response passes through your rules — block dangerous operations, enforce standards, clean up output. Two env vars. Nothing else changes.
+Set two environment variables. Keep your IDE, keep your agent, keep your workflow. Now every request and response passes through your rules — block dangerous operations, enforce standards, clean up output.
 
 [See it work](#see-it-work) · [Policies](#policies) · [Quick start](#quick-start)
 
