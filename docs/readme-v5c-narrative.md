@@ -91,16 +91,14 @@ Dangers every team faces. Write rules in plain English — an LLM judge evaluate
 
 **Block dangerous operations:**
 
-```python
-class SafetyPolicy(SimpleJudgePolicy):
-    RULES = [
-        "Block 'rm -rf' and any recursive delete commands",
-        "Block 'git push --force' to main or master",
-        "Block requests to drop database tables",
-    ]
-```
+- **Block dangerous operations** — `rm -rf`, `git push --force`, dropping database tables
+- **Enforce package standards** — block `pip install`, suggest `uv add` instead
+- **Flag unknown dependencies** — is this package legit?
 
-**Enforce package standards:**
+Write rules in plain English. An LLM judge evaluates every tool call against them. 8 lines of Python — the judge does the hard work.
+
+<details>
+<summary>See what a built-in policy looks like</summary>
 
 ```python
 class PipBlockPolicy(SimpleJudgePolicy):
@@ -111,25 +109,27 @@ class PipBlockPolicy(SimpleJudgePolicy):
     ]
 ```
 
-8 lines of Python. The LLM judge does the hard work — you just describe what's not allowed.
+</details>
 
 ### Custom: your business, your rules
 
-Anything you can define in Python, Luthien can enforce. These are where it gets specific to your team.
+Anything you can define in a Python function, Luthien can enforce. This is where it gets specific to your team.
 
-**Clean up AI writing tics:**
+- **Clean up AI writing tics** — remove em-dashes, curly quotes, over-bulleting
+- **Enforce scope boundaries** — only allow changes to files mentioned in the request
+- **Domain-specific rules** — PII protection, compliance checks, whatever your team needs
+- **Log everything for compliance** — every request and response is already in PostgreSQL
+
+<details>
+<summary>See what a custom policy looks like</summary>
 
 ```python
 class DeSlop(SimplePolicy):
-    """Remove em-dashes and other AI-isms from responses."""
-
-    def simple_on_response_content(self, content: str, context) -> str:
-        content = content.replace("\u2014", "-")   # em-dash
-        content = content.replace("\u2013", "-")   # en-dash
-        return content
+    def simple_on_response_content(self, content, context):
+        return content.replace("\u2014", "-").replace("\u2013", "-")
 ```
 
-**Enforce scope boundaries:**
+Or use the LLM judge with your own rules:
 
 ```python
 class ScopeGuard(SimpleJudgePolicy):
@@ -139,9 +139,7 @@ class ScopeGuard(SimpleJudgePolicy):
     ]
 ```
 
-**Log everything for compliance:**
-
-Every request and response is already stored in PostgreSQL. Query it, build dashboards, export for audit — no policy code needed.
+</details>
 
 ### Measurement
 
@@ -149,28 +147,38 @@ Every policy action is logged — what got blocked, which policies fired, how of
 
 ---
 
-| Base class | When to use | What you write |
-|-----------|------------|----------------|
-| `SimpleJudgePolicy` | Rules in plain English, LLM evaluates | A `RULES` list of strings |
-| `SimplePolicy` | Custom Python logic on requests/responses | Override `simple_on_request()` or `simple_on_response_content()` |
-
----
-
 ## Quick start
 
 Two ways to get started. Both end with the same two env vars.
 
-### Option A: Run locally (Docker)
+### Option A: Run locally
 
-```bash
-git clone https://github.com/LuthienResearch/luthien-proxy
-cd luthien-proxy
-cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY to your real Anthropic key
-docker compose up -d
+**Prerequisites:** [Docker](https://www.docker.com/) and an [Anthropic API key](https://console.anthropic.com/).
+
+**1. Clone the repo**
+
+`git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy`
+
+**2. Add your API key**
+
+`cp .env.example .env` — then edit `.env` and set `ANTHROPIC_API_KEY` to your real key.
+
+**3. Start Luthien**
+
+`docker compose up -d`
+
+**4. Point your agent at Luthien**
+
+```
+export ANTHROPIC_BASE_URL=http://localhost:8000/v1
+export ANTHROPIC_API_KEY=sk-luthien-dev-key
+claude
 ```
 
-**What Docker spins up:**
+That's it. Your Claude Code now routes through Luthien.
+
+<details>
+<summary>What Docker spins up</summary>
 
 | Service | Port | What it does |
 |---------|------|-------------|
@@ -178,25 +186,17 @@ docker compose up -d
 | PostgreSQL | 5432 | Stores every request and response |
 | Redis | 6379 | Powers real-time activity streaming |
 
-*Port conflict? Set `GATEWAY_PORT` in `.env`.*
+Port conflict? Set `GATEWAY_PORT` in `.env`.
 
-Then point your agent at Luthien:
-
-```bash
-export ANTHROPIC_BASE_URL=http://localhost:8000/v1
-export ANTHROPIC_API_KEY=sk-luthien-dev-key
-claude
-```
+</details>
 
 ### Option B: Deploy to Railway (no Docker)
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/luthienresearch/luthien-proxy)
 
-Click the button. Railway provisions Postgres, Redis, and the gateway automatically. You get a public URL in ~2 minutes. ~$5/month.
+Click the button. Railway provisions Postgres, Redis, and the gateway. You get a public URL in ~2 minutes. ~$5/month.
 
-Then point your agent at your cloud instance:
-
-```bash
+```
 export ANTHROPIC_BASE_URL=https://your-app.railway.app/v1
 export ANTHROPIC_API_KEY=your-proxy-api-key
 claude
@@ -206,22 +206,7 @@ No Docker, no git clone, no local setup. Just a URL and two env vars.
 
 ---
 
-**See it in action:**
-
-- Activity monitor: `/activity/monitor`
-- Policy config: `/policy-config`
-
----
-
-## Write your own policy
-
-Create a file in `src/luthien_proxy/policies/`, restart the gateway:
-
-```bash
-docker compose restart gateway
-```
-
-See the `policies/` directory for examples. Start from `SimpleJudgePolicy` (rules in plain English) or `SimplePolicy` (custom Python logic).
+**See it in action:** [Activity monitor](/activity/monitor) · [Policy config](/policy-config)
 
 ---
 
