@@ -47,15 +47,14 @@ Luthien sits between your AI coding agent and the LLM. Every request passes thro
 
 ## Who it's for
 
-**Built for developers who use AI coding agents daily and have been burned by:**
+If your team uses Claude Code for real work, someone owns one of these problems:
 
-- Scope creep — "I asked for one fix, got a full refactor"
-- Wrong tools — "It used `pip install` when we use `uv`"
-- Ignored instructions — "Did you even read my `claude.md`?"
-- Dangerous operations — "It tried to `rm -rf` my working directory"
-- AI writing tics — "Em dashes — everywhere — for — no — reason"
+| | What keeps you up at night |
+|---|---|
+| **"Get more from AI tooling"** | You're the CTO or founding engineer who decided the team is using Claude Code. You wrote the `claude.md`. You want agents doing more — but you need guardrails before you give them more autonomy. |
+| **"Make sure it doesn't break things"** | You're the senior engineer or security lead who got paged when an agent ran `rm -rf` or pushed to prod. You need rules that apply to every LLM call, company-wide. |
 
-If you use Claude Code, Codex, or Cursor 30+ hours a week and you've invested in a solid `claude.md` — but your agent still makes mistakes — Luthien gives you rules it can't skip.
+At most startups, that's the same person. Luthien intercepts every LLM API call and tool invocation — the layer you already own. No experience with proxies required.
 
 ---
 

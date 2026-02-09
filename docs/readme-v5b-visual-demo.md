@@ -76,14 +76,13 @@ See what got blocked, what got retried, what went through.
 
 ## Who it's for
 
-**You're shipping production code with AI agents every day** — Claude Code, Codex, Cursor. You've invested in shaping your agent's behavior. But you've also seen it:
+Two kinds of people want this:
 
-- Scope-creep a one-file fix into a full refactor
-- Install packages with `pip` when your stack requires `uv`
-- Ignore your `claude.md` and do its own thing
-- Attempt destructive operations you'd never approve
+**You're accelerating AI tooling at your company.** You decided your team is using Claude Code. You're writing the `claude.md`, picking the models, pushing adoption. You want more output from agents — but you need guardrails so one bad tool call doesn't wipe out the trust you've built.
 
-Luthien gives you rules that run on every request — rules your agent can't ignore.
+**You're making sure AI tools don't cause problems.** Your team is already using agents in production. You need to enforce company policies across every LLM call — what packages to use, what operations are allowed, what data can't leave the system.
+
+At a startup, you're probably the same person. Luthien works at the layer you already own: every LLM API call and every tool the agent tries to use.
 
 ---
 

@@ -39,14 +39,13 @@ Luthien intercepts the `pip install`, blocks it, tells the agent to use `uv add`
 
 ## Who it's for
 
-**You use Claude Code 30+ hours a week.** You've written a detailed `claude.md`. You trust your agent to write production code. But you're responsible for what it ships — and it still:
+You use Claude Code for production work. You're also the person who decides how your team adopts AI tooling — or the person who has to make sure it doesn't cause problems. Maybe both.
 
-- Touches files you didn't ask it to touch
-- Runs `pip install` when your team uses `uv`
-- Ignores instructions you've given it three times
-- Tries `rm -rf` or `git push --force` on a bad day
+- **The CTO who said "we're using Claude Code"** — and now needs guardrails across the team
+- **The senior engineer who wrote the company's `claude.md`** — and is tired of the agent ignoring it
+- **The person who got paged when the agent deleted prod data** — and never wants that again
 
-You need rules it can't skip.
+Luthien works at the layer you already manage — LLM calls and tool usage. If your team is making API calls to Claude or OpenAI, Luthien can enforce rules on every one of them.
 
 ---
 
