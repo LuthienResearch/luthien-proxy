@@ -5,9 +5,16 @@
 
 
 # Default Policy (pass-through)
+# policy:
+#   class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
+#   config: {}
+
+# Pip Block Policy - blocks pip install, requires uv instead (demo)
 policy:
-  class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
-  config: {}
+  class: "luthien_proxy.policies.pip_block_policy:PipBlockPolicy"
+  config:
+    judge_model: "claude-haiku-4-5-20251001"
+    block_threshold: 0.5
 
 # Debug Logging Policy - logs raw HTTP requests and chunks
 # policy:
