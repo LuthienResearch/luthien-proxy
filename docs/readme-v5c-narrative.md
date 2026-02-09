@@ -92,6 +92,7 @@ Dangers every team faces. Write rules in plain English — an LLM judge evaluate
 
 - **Block dangerous operations** — `rm -rf`, `git push --force`, dropping database tables
 - **Enforce package standards** — block `pip install`, suggest `uv add` instead
+- **Catch PII exposure** — block responses that contain or request sensitive data
 - **Flag unknown dependencies** — is this package legit?
 
 Write rules in plain English. An LLM judge evaluates every tool call against them. 8 lines of Python — the judge does the hard work.
@@ -116,8 +117,8 @@ Anything you can define in a Python function, Luthien can enforce. This is where
 
 - **Clean up AI writing tics** — remove em-dashes, curly quotes, over-bulleting
 - **Enforce scope boundaries** — only allow changes to files mentioned in the request
-- **Domain-specific rules** — PII protection, compliance checks, whatever your team needs
-- **Log everything for compliance** — every request and response is already in PostgreSQL
+- **Domain-specific compliance** — your internal LLM tool advises customers? Make sure it references the actual policy instead of hallucinating guidance
+- **Log everything for audit** — every request and response is already in PostgreSQL
 
 <details>
 <summary>See what a custom policy looks like</summary>

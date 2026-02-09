@@ -69,6 +69,7 @@ Dangers every team faces. These ship enabled — you don't have to configure any
 
 - **Block dangerous operations** — `rm -rf`, `git push --force`, dropping database tables
 - **Enforce package standards** — block `pip install`, suggest `uv add` instead
+- **Catch PII exposure** — block responses that contain or request sensitive data
 - **Flag unknown dependencies** — is this package legit?
 
 Write rules in plain English. An LLM judge evaluates every tool call against them.
@@ -95,7 +96,7 @@ Anything you can define in a Python function, Luthien can enforce.
 
 - **Clean up AI writing tics** — remove em-dashes, curly quotes, over-bulleting
 - **Enforce scope boundaries** — only allow changes to files mentioned in the request
-- **Domain-specific rules** — PII protection, compliance checks, whatever your team needs
+- **Domain-specific compliance** — your internal LLM tool advises customers? Make sure it cites the right policy instead of hallucinating guidance
 
 <details>
 <summary>See what a custom policy looks like</summary>
