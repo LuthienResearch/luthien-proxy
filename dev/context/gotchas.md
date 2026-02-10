@@ -163,6 +163,45 @@ if stream_state.finish_reason:
 
 **Affected policies**: Any policy that buffers content and emits it in `on_content_complete()`. See `StringReplacementPolicy`, `ParallelRulesPolicy` for correct patterns.
 
+## E2E Test Debugging: Direct API vs Proxy (2026-02-04)
+
+**Gotcha**: When an E2E test fails through the proxy but works with direct API calls, the issue is in the proxy's format conversion or streaming pipeline—not the test itself.
+
+**Debugging pattern**:
+1. Run the same request directly against Anthropic/OpenAI API (bypassing proxy)
+2. If direct API works but proxy fails: problem is in proxy's request conversion or response assembly
+3. Compare raw SSE output from both endpoints to find divergence
+4. Common culprits: thinking blocks ordering, tool call chunk assembly, finish_reason handling
+
+**Example**: `test_anthropic_client_openai_backend_preserves_anthropic_format` - model uses tools correctly via direct API but not through proxy → indicates request conversion drops tool instructions or response doesn't preserve tool call format.
+
+## Debugging Proxy Issues: Jai's Checklist (2026-02-04)
+
+**Context**: Common debugging steps for proxy issues (from co-founder debugging sessions).
+
+1. **Check the raw request/response**: Use `/debug/calls/{call_id}` endpoint to see original vs transformed payloads
+2. **Compare streaming chunks**: Enable debug logging to see each SSE chunk as it flows through pipeline
+3. **Isolate the layer**: Is it request conversion? Response assembly? Policy transformation?
+4. **Reproduce minimally**: Strip the request down to simplest failing case
+5. **Check LiteLLM version**: Breaking changes in LiteLLM streaming have caused issues (see litellm >= 1.81.0 gotcha)
+
+**Tools available**:
+- Activity monitor: `/activity/monitor` - live SSE stream
+- Debug diff viewer: `/debug/diff?call_id=X` - before/after comparison
+- Grafana traces: Search by `luthien.call_id` attribute
+
+## Policy Config Dynamic Loading Security (2026-02-04)
+
+**Gotcha**: `POLICY_CONFIG` allows loading arbitrary Python classes at runtime. This is intentional for flexibility but has security implications.
+
+**Security considerations**:
+- Only trusted users should have access to modify `policy_config.yaml` or set `POLICY_CONFIG` env var
+- Policy classes are instantiated with full Python capabilities
+- In production: ensure config files have proper filesystem permissions
+- The Admin API requires `ADMIN_API_KEY` authentication for runtime policy changes
+
+**Related TODO item**: Add security documentation for dynamic policy loading.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

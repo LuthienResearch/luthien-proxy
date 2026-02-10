@@ -202,4 +202,34 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Documentation Split: Public vs Private Repos (2026-02-04)
+
+**Decision**: Keep technical implementation docs in public `luthien-proxy` repo; move planning, strategy, and user stories to private `luthien-org` repo.
+
+**What stays in luthien-proxy (public)**:
+- Architecture docs (REQUEST_PROCESSING_ARCHITECTURE.md, observability.md)
+- Developer guides (VIEWING_TRACES_GUIDE.md, event_driven_policy_guide.md)
+- Context files (gotchas.md, decisions.md, codebase_learnings.md)
+- Active tracking (TODO.md, OBJECTIVE.md, NOTES.md)
+- CHANGELOG.md
+
+**What goes in luthien-org (private)**:
+- User stories and product roadmap
+- UI/UX specs and mockups
+- Historical planning docs (archived)
+- Competitive research
+- Demo scripts and success stories
+
+**Rationale**:
+- **Signal-to-noise**: Public repo should help contributors understand the codebase, not internal planning
+- **Industry norm**: LiteLLM uses GitHub Issues/Projects for planning, not in-repo docs
+- **Focus**: Developers cloning the repo need implementation context, not product strategy
+
+**How LiteLLM handles this** (for reference):
+- Planning in GitHub Issues and Projects
+- README + docs/ for public technical docs
+- No in-repo planning docs or user stories
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

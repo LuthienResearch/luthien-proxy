@@ -19,7 +19,6 @@ Then explore:
 - **[TODO.md](TODO.md)** - Current backlog and known issues (check here for work that needs doing)
 - **[OBJECTIVE.md](OBJECTIVE.md)** - Current objective being worked on (empty when between objectives)
 - **[NOTES.md](NOTES.md)** - Implementation scratchpad for active objective
-- **[success.md](success.md)** - Log of completed debugging and implementation wins
 
 ### Understanding the Architecture
 
@@ -40,7 +39,7 @@ Choose the guide that matches your goal:
 - **Need to view a specific trace?** → [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md)
   *Quick reference for accessing traces and logs in Grafana/Tempo*
 
-- **Understanding the observability system?** → [observability-v2.md](observability-v2.md)
+- **Understanding the observability system?** → [observability.md](observability.md)
   *Complete architecture, implementation status, and design decisions*
 
 ### Context Files (Persistent Knowledge)
@@ -126,7 +125,7 @@ Run the full test suite before opening PRs for review: `./scripts/dev_checks.sh`
 
 ## Archive
 
-Completed planning documents and historical designs are moved to `archive/` subdirectories with timestamps. Archives help maintain clean active documentation while preserving historical context.
+Historical planning documents have been moved to the private [luthien-org](https://github.com/LuthienResearch/luthien-org) repo under `claude-code-docs/archive/`. This keeps the public repo focused on active documentation while preserving historical context for team members.
 
 ## Contributing to Documentation
 
@@ -141,9 +140,8 @@ Completed planning documents and historical designs are moved to `archive/` subd
 ### Documentation Hygiene
 
 - Keep `OBJECTIVE.md` and `NOTES.md` clear between objectives (per workflow)
-- Archive completed planning docs promptly after objective completion
-- Update `success.md` when completing significant debugging or implementation work you're proud of.
-- Link to specific files with line numbers when referencing code (e.g., `[gateway_routes.py:42](../src/luthien_proxy/v2/gateway_routes.py#L42)`)
+- Archive completed planning docs to [luthien-org](https://github.com/LuthienResearch/luthien-org) after objective completion
+- Link to specific files with line numbers when referencing code (e.g., `[gateway_routes.py:42](../src/luthien_proxy/gateway_routes.py#L42)`)
 
 ---
 
