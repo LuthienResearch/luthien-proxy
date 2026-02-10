@@ -72,6 +72,10 @@
 - [ ] Document timeout configuration rationale
 - [ ] Document data retention policy
 
+### Workflow
+
+- [ ] **Rework OBJECTIVE.md and TODO.md instructions** - Current workflow has OBJECTIVE.md accumulating session-specific notes (progress summaries, findings, etc.) that shouldn't be committed to PRs. TODO.md instructions in CLAUDE.md also need review — clarify what belongs in OBJECTIVE vs TODO vs NOTES, and when each should be cleared. Reference: PR #160 cleanup, 2026-02-10.
+
 ## Low Priority / Future Work
 
 - [ ] **Simplify db.py abstractions** - Remove redundant protocol wrappers
