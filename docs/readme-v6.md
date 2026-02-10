@@ -39,10 +39,10 @@ Luthien blocks the `pip install`, tells Claude Code to use `uv add`. Claude retr
 
 ## Who it's for
 
-| | You own Claude Code policy |
+| | |
 |---|---|
-| **"Give Claude Code more autonomy"** | You're the technical lead. Your team is shipping fast with Claude Code — but you need guardrails before giving it more freedom. |
-| **"Don't let it break things"** | You got paged when Claude Code ran `rm -rf` or pushed to prod. You need rules on every LLM call, company-wide. |
+| **You use Claude Code daily** | You've seen it delete files, install wrong packages, and ignore your `claude.md`. You know the failure modes — you want rules that actually stick. |
+| **You own Claude Code policy for your org** | You provision API keys for devs, own the team's `claude.md` files, and ensure use complies with company policy. |
 
 Luthien works at the layer you already manage: LLM calls and tool usage.
 
