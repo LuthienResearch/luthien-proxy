@@ -1,36 +1,8 @@
 # Luthien Control — Reference
 
-Detailed configuration, development setup, architecture, and troubleshooting.
+Configuration, architecture, API endpoints, and troubleshooting.
 
-For a quick overview and getting started, see the [README](../README.md).
-
-## Development
-
-```bash
-# After code changes, restart the gateway
-docker compose restart gateway
-
-# Run unit tests
-uv run pytest tests/unit_tests
-
-# Run integration tests
-uv run pytest tests/integration_tests
-
-# Run e2e tests (slow, use sparingly)
-uv run pytest -m e2e
-
-# Test the gateway
-./scripts/test_gateway.sh
-
-# Format and lint
-./scripts/format_all.sh
-
-# Full dev checks (format + lint + tests + type check)
-./scripts/dev_checks.sh
-
-# Type check only
-uv run pyright
-```
+For getting started, see the [README](../README.md). For development setup and workflow, see [dev/README.md](../dev/README.md).
 
 ## Observability (Optional)
 
