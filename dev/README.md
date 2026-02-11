@@ -72,6 +72,15 @@ This project follows a structured workflow documented in the root [CLAUDE.md](..
 ### Key Commands
 
 ```bash
+# Start the full stack (with dependency checks, .env setup, health waits)
+./scripts/quick_start.sh
+
+# Or just use Docker directly (if .env already configured)
+docker compose up -d
+
+# After code changes, restart the gateway to pick them up
+docker compose restart gateway
+
 # Format everything
 ./scripts/format_all.sh
 
@@ -81,9 +90,23 @@ This project follows a structured workflow documented in the root [CLAUDE.md](..
 # Quick unit tests
 uv run pytest tests/unit_tests
 
+# Run integration tests
+uv run pytest tests/integration_tests
+
 # E2E tests (slow, use sparingly)
 uv run pytest -m e2e
+
+# Type check only
+uv run pyright
+
+# Test the gateway
+./scripts/test_gateway.sh
+
+# View logs
+docker compose logs -f gateway
 ```
+
+> **Note:** The public README tells users `docker compose up -d` (simpler). `quick_start.sh` adds dependency checks, `.env` auto-creation, and security credential warnings — useful for developers but not needed for users who follow the README steps.
 
 ## Architecture Overview
 
