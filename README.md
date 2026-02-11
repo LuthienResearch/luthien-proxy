@@ -57,7 +57,7 @@ Luthien works at the layer you already manage: LLM calls and tool usage.
 2. **Write rules in Python** - plain English evaluated by an LLM judge, or custom logic
 3. **Every request and response passes through your rules** - block, retry, or clean up
 
-All traffic stays on your infrastructure. Nothing is sent to Luthien servers. See [Security and trust](#security-and-trust).
+Nothing is sent to Luthien servers. See [Security and trust](#security-and-trust).
 
 ---
 
