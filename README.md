@@ -151,7 +151,7 @@ See `src/luthien_proxy/policies/` for more examples.
 
 ## Further Reading
 
-For development setup, configuration reference, architecture details, API endpoints, and troubleshooting, see **[docs/REFERENCE.md](docs/REFERENCE.md)**.
+For development setup, configuration reference, architecture details, API endpoints, and troubleshooting, see **[REFERENCE.md](REFERENCE.md)**.
 
 ## License
 

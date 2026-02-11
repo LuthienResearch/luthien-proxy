@@ -2,7 +2,7 @@
 
 Configuration, architecture, API endpoints, and troubleshooting.
 
-For getting started, see the [README](../README.md). For development setup and workflow, see [dev/README.md](../dev/README.md).
+For getting started, see the [README](README.md). For development setup and workflow, see [dev/README.md](dev/README.md).
 
 ## Observability (Optional)
 
@@ -49,8 +49,8 @@ ENVIRONMENT=development
 
 ### Observability Documentation
 
-- **Usage guide:** [dev/observability.md](../dev/observability.md)
-- **Conventions:** [dev/context/otel-conventions.md](../dev/context/otel-conventions.md)
+- **Usage guide:** [dev/observability.md](dev/observability.md)
+- **Conventions:** [dev/context/otel-conventions.md](dev/context/otel-conventions.md)
 - **Dashboard:** Import `observability/grafana-dashboards/luthien-traces.json` in Grafana
 
 ### Observability Services
@@ -203,12 +203,12 @@ The gateway integrates everything into a single FastAPI application:
 
 **Documentation**:
 
-- **Start here**: [Development docs index](../dev/README.md) - Guide to all documentation
-- Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](../dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
-- Live policy updates: [dev/LIVE_POLICY_DEMO.md](../dev/LIVE_POLICY_DEMO.md) - Switching policies without restart in Claude Code
-- Observability: [dev/observability.md](../dev/observability.md) - Tracing and monitoring
-- Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](../dev/VIEWING_TRACES_GUIDE.md) - Using Grafana/Tempo
-- Context files: [dev/context/](../dev/context/) - Architectural patterns, decisions, and gotchas
+- **Start here**: [Development docs index](dev/README.md) - Guide to all documentation
+- Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
+- Live policy updates: [dev/LIVE_POLICY_DEMO.md](dev/LIVE_POLICY_DEMO.md) - Switching policies without restart in Claude Code
+- Observability: [dev/observability.md](dev/observability.md) - Tracing and monitoring
+- Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](dev/VIEWING_TRACES_GUIDE.md) - Using Grafana/Tempo
+- Context files: [dev/context/](dev/context/) - Architectural patterns, decisions, and gotchas
 
 ## Endpoints
 
