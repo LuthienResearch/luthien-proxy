@@ -125,15 +125,14 @@ Every policy action is logged. Measure what got blocked, track false positives a
 
 ## Security and trust
 
-Luthien runs on **your infrastructure**. Your code, prompts, and API keys never touch our servers.
+Luthien runs on **infrastructure you control** - your machine or your cloud account. Your code, prompts, and API keys never touch our servers.
 
 | Concern | How Luthien handles it |
 |---------|----------------------|
-| **Data transmission** | All traffic stays between your machine and your LLM provider. Luthien is a local proxy, not a cloud service. |
-| **Encryption at rest** | Conversation logs are stored in your local PostgreSQL instance. Encrypt the volume to your standards. |
-| **Private code** | Your source code, prompts, and context files stay on your machine. Luthien adds rules to the traffic - it doesn't exfiltrate it. |
-| **What Luthien sees** | Everything your AI agent sends and receives. That's the point - you can't enforce rules on traffic you can't inspect. |
-| **SOC 2 / compliance** | Not yet. If this matters to your org, talk to us - it's on the roadmap. |
+| **Data transmission** | All traffic stays between you and your LLM provider. Luthien doesn't phone home. |
+| **Encryption at rest** | Conversation logs are stored in your PostgreSQL instance. Encrypt the volume to your standards. |
+| **Private code** | Your source code, prompts, and context files stay on your infrastructure. Luthien adds rules to the traffic - it doesn't exfiltrate it. |
+| **What Luthien sees** | Everything your AI agent sends and receives. |
 
 ---
 
