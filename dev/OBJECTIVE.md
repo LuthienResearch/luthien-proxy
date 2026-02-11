@@ -1,3 +1,0 @@
-# Objective
-
-(none)
