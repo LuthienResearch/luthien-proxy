@@ -188,12 +188,7 @@ Port conflict? Set `GATEWAY_PORT` in `.env`.
 </td>
 <td width="50%">
 
-<details>
-<summary><b>Deploy to cloud (Railway) - coming soon</b></summary>
-
-One-click Railway deployment is in progress. ETA: Feb 14, 2026.
-
-</details>
+**Deploy to cloud (Railway)** - ETA: Feb 14, 2026.
 
 </td>
 </tr>
