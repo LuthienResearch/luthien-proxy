@@ -7,7 +7,7 @@ Luthien is a proxy that sits between your AI coding agent and the LLM. It interc
 **Works with:** Claude Code, Codex, Cursor. Supports streaming.
 **Does not work with:** Windsurf (does not support custom proxy servers).
 
-[See it work](#see-it-work) | [Policies](#policies) | [Quick start](#quick-start) | [Security](#security-and-trust)
+[See it work](#see-it-work) | [What policies can do](#what-policies-can-do) | [Quick start](#quick-start) | [Security](#security-and-trust)
 
 ---
 
@@ -61,11 +61,9 @@ All traffic stays on your infrastructure. Nothing is sent to Luthien servers. Se
 
 ---
 
-## Policies
+## What policies can do
 
 ### Built-in: common failure modes
-
-Ship enabled. No configuration needed.
 
 - **Block dangerous operations** - `rm -rf`, `git push --force`, dropping database tables
 - **Enforce package standards** - block `pip install`, suggest `uv add` instead
