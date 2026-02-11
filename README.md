@@ -140,12 +140,7 @@ Luthien runs on **infrastructure you control**: your machine or your cloud accou
 
 **Supported:** Claude Code, Codex, Cursor (any client that lets you set a custom API base URL).
 
-<table>
-<tr>
-<td width="50%">
-
-<details open>
-<summary><b>Run locally</b></summary>
+### Run locally
 
 **Prerequisites:** [Docker](https://www.docker.com/) and an [Anthropic API key](https://console.anthropic.com/).
 
@@ -183,16 +178,9 @@ Port conflict? Set `GATEWAY_PORT` in `.env`.
 
 </details>
 
-</details>
+### Deploy to cloud (Railway)
 
-</td>
-<td width="50%">
-
-**Deploy to cloud (Railway):** ETA Feb 14, 2026.
-
-</td>
-</tr>
-</table>
+ETA Feb 14, 2026.
 
 ---
 
