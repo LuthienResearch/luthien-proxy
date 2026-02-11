@@ -145,7 +145,7 @@ Luthien runs on **infrastructure you control** - your machine or your cloud acco
 <td width="50%">
 
 <details open>
-<summary><b>Run locally (click to expand)</b></summary>
+<summary><b>Run locally</b></summary>
 
 **Prerequisites:** [Docker](https://www.docker.com/) and an [Anthropic API key](https://console.anthropic.com/).
 
