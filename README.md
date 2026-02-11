@@ -180,7 +180,7 @@ Port conflict? Set `GATEWAY_PORT` in `.env`.
 
 ### Deploy to cloud (Railway)
 
-ETA Feb 14, 2026.
+ETA Feb 16, 2026.
 
 ---
 
