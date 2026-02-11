@@ -20,9 +20,11 @@ cp .env.example .env
 #   OPENAI_API_KEY=sk-proj-...
 #   ANTHROPIC_API_KEY=sk-ant-...
 
-# Start the stack
+# Start the stack (handles Docker, DB, Redis, and gateway)
 ./scripts/quick_start.sh
 ```
+
+> **Note:** `quick_start.sh` runs `docker compose` for you — no need to run `docker compose up` separately.
 
 ### 2. Use Claude Code or Codex through the Proxy
 
