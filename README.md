@@ -131,7 +131,7 @@ Luthien runs on **infrastructure you control** - your machine or your cloud acco
 |---------|----------------------|
 | **Data transmission** | All traffic stays between you and your LLM provider. Luthien doesn't phone home. |
 | **Encryption at rest** | Conversation logs are stored in your PostgreSQL instance. Encrypt the volume to your standards. |
-| **Private code** | Your source code, prompts, and context files stay on your infrastructure. Luthien adds rules to the traffic - it doesn't exfiltrate it. |
+| **Prompts and context** | Your system prompts, tool calls, and context files stay on your infrastructure. Luthien sees the traffic to enforce rules - it doesn't exfiltrate it. |
 | **What Luthien sees** | Everything your AI agent sends and receives. |
 
 ---
