@@ -40,22 +40,23 @@ class MyPolicy(SimpleJudgePolicy):
 **Point your AI assistant at the proxy with 2 environment variables:**
 
 ```bash
+# These tell Claude Code to route through Luthien instead of directly to Anthropic
 export ANTHROPIC_BASE_URL=http://localhost:8000/v1
-export ANTHROPIC_API_KEY=sk-luthien-dev-key
+export ANTHROPIC_API_KEY=sk-luthien-dev-key          # proxy auth key (not your real Anthropic key)
 ```
 
 That's it. Your existing Claude Code (or any Anthropic-compatible client) now routes through Luthien.
 
 ### Start the Proxy
 
-<details>
+<details open>
 <summary><b>Run locally (Docker)</b></summary>
 
 ```bash
 git clone https://github.com/LuthienResearch/luthien-proxy
 cd luthien-proxy
 cp .env.example .env
-# Edit .env: add ANTHROPIC_API_KEY (your real Anthropic key)
+# Edit .env: add your real ANTHROPIC_API_KEY (the upstream key Luthien uses to call Anthropic)
 
 docker compose up -d
 ```
@@ -75,7 +76,7 @@ One-click Railway deployment is in progress. ETA: Feb 14, 2026.
 | Gateway | 8000 | The proxy — point your client here |
 | PostgreSQL | 5432 | Stores conversation events |
 | Redis | 6379 | Powers real-time activity streaming |
-| Local LLM | 11434 | Ollama for local judge policies |
+| Local LLM | 11434 | Ollama for local judge policies (optional — not needed for basic policies) |
 
 ### Verify It Works
 
@@ -88,6 +89,8 @@ Then launch Claude Code with the env vars above and make a request. You should s
 ```
 http://localhost:8000/activity/monitor
 ```
+
+> **First time?** Admin pages (activity monitor, policy config) require login. Default key: `admin-dev-key`
 
 ---
 
