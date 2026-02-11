@@ -2,7 +2,7 @@
 
 ### Let AI code. Stay in control.
 
-Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output - without changing your dev setup.
+Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output without changing your dev setup.
 
 **Works with:** Claude Code, Codex, Cursor. Supports streaming.
 **Does not work with:** Windsurf (does not support custom proxy servers).
@@ -44,7 +44,7 @@ Luthien blocks the `pip install`, tells Claude Code to use `uv add`. Claude retr
 
 | | |
 |---|---|
-| **You use AI coding agents daily** | You've seen them delete files, install wrong packages, and ignore your project rules. You know the failure modes - you want rules that actually stick. |
+| **You use AI coding agents daily** | You've seen them delete files, install wrong packages, and ignore your project rules. You know the failure modes; you want rules that actually stick. |
 | **You own AI coding policy for your org** | You provision API keys for devs, own the team's config files, and ensure use complies with company policy. |
 
 Luthien works at the layer you already manage: LLM calls and tool usage.
@@ -53,9 +53,9 @@ Luthien works at the layer you already manage: LLM calls and tool usage.
 
 ## How it works
 
-1. **Set two env vars** - keep your IDE, your tools, your workflow
-2. **Write rules in Python** - plain English evaluated by an LLM judge, or custom logic
-3. **Every request and response passes through your rules** - block, retry, or clean up
+1. **Set two env vars:** keep your IDE, your tools, your workflow
+2. **Write rules in Python:** plain English evaluated by an LLM judge, or custom logic
+3. **Every request and response passes through your rules:** block, retry, or clean up
 
 Nothing is sent to Luthien servers. See [Security and trust](#security-and-trust).
 
@@ -65,10 +65,10 @@ Nothing is sent to Luthien servers. See [Security and trust](#security-and-trust
 
 ### Built-in: common failure modes
 
-- **Block dangerous operations** - `rm -rf`, `git push --force`, dropping database tables
-- **Enforce package standards** - block `pip install`, suggest `uv add` instead
-- **Catch PII exposure** - block responses that contain or request sensitive data
-- **Flag unknown dependencies** - is this package legit?
+- **Block dangerous operations:** `rm -rf`, `git push --force`, dropping database tables
+- **Enforce package standards:** block `pip install`, suggest `uv add` instead
+- **Catch PII exposure:** block responses that contain or request sensitive data
+- **Flag unknown dependencies:** is this package legit?
 
 Write rules in plain English. An LLM judge evaluates them.
 
@@ -92,9 +92,9 @@ class PipBlockPolicy(SimpleJudgePolicy):
 
 Anything you can define in a Python function.
 
-- **Clean up AI writing tics** - remove curly quotes, over-bulleting, sloppy formatting
-- **Enforce scope boundaries** - only allow changes to files mentioned in the request
-- **Domain-specific compliance** - your internal LLM tool advises customers? Make sure it cites the right policy instead of hallucinating guidance
+- **Clean up AI writing tics:** remove curly quotes, over-bulleting, sloppy formatting
+- **Enforce scope boundaries:** only allow changes to files mentioned in the request
+- **Domain-specific compliance:** your internal LLM tool advises customers? Make sure it cites the right policy instead of hallucinating guidance
 
 <details>
 <summary><b>Example: DeSlop and ScopeGuard (click to expand)</b></summary>
@@ -125,13 +125,13 @@ Every policy action is logged. Measure what got blocked, track false positives a
 
 ## Security and trust
 
-Luthien runs on **infrastructure you control** - your machine or your cloud account. Your code, prompts, and API keys never touch our servers.
+Luthien runs on **infrastructure you control**: your machine or your cloud account. Your code, prompts, and API keys never touch our servers.
 
 | Concern | How Luthien handles it |
 |---------|----------------------|
 | **Data transmission** | All traffic stays between you and your LLM provider. Luthien doesn't phone home. |
 | **Encryption at rest** | Conversation logs are stored in your PostgreSQL instance. Encrypt the volume to your standards. |
-| **Prompts and context** | Your system prompts, tool calls, and context files stay on your infrastructure. Luthien sees the traffic to enforce rules - it doesn't exfiltrate it. |
+| **Prompts and context** | Your system prompts, tool calls, and context files stay on your infrastructure. Luthien sees the traffic to enforce rules; it doesn't exfiltrate it. |
 | **What Luthien sees** | Everything your AI agent sends and receives. |
 
 ---
@@ -155,7 +155,7 @@ Luthien runs on **infrastructure you control** - your machine or your cloud acco
 
 **2. Configure**
 
-`cp .env.example .env` - add your real `ANTHROPIC_API_KEY` (the upstream key Luthien uses to call Anthropic).
+`cp .env.example .env` then add your real `ANTHROPIC_API_KEY` (the upstream key Luthien uses to call Anthropic).
 
 **3. Start**
 
@@ -188,7 +188,7 @@ Port conflict? Set `GATEWAY_PORT` in `.env`.
 </td>
 <td width="50%">
 
-**Deploy to cloud (Railway)** - ETA: Feb 14, 2026.
+**Deploy to cloud (Railway):** ETA Feb 14, 2026.
 
 </td>
 </tr>
