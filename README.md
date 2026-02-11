@@ -140,26 +140,28 @@ Luthien runs on **infrastructure you control**: your machine or your cloud accou
 
 **Supported:** Claude Code, Codex, Cursor (any client that lets you set a custom API base URL).
 
-### Run locally
+### Run locally with Claude Code
+
+<details open>
+<summary><b>Steps (expanded by default)</b></summary>
 
 **Prerequisites:** [Docker](https://www.docker.com/) and an [Anthropic API key](https://console.anthropic.com/).
 
-**1. Clone**
+**1. Clone and configure**
 
-`git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy`
+```bash
+git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy
+cp .env.example .env
+# Edit .env: add your real ANTHROPIC_API_KEY (the upstream key Luthien uses to call Anthropic)
+```
 
-**2. Configure**
-
-`cp .env.example .env` then add your real `ANTHROPIC_API_KEY` (the upstream key Luthien uses to call Anthropic).
-
-**3. Start**
+**2. Start**
 
 `docker compose up -d`
 
-**4. Connect your AI coding agent**
+**3. Connect Claude Code**
 
 ```bash
-# These tell your agent to route through Luthien instead of directly to Anthropic
 export ANTHROPIC_BASE_URL=http://localhost:8000/v1
 export ANTHROPIC_API_KEY=sk-luthien-dev-key          # proxy auth key (not your real Anthropic key)
 claude
@@ -175,6 +177,23 @@ claude
 | Redis | 6379 | Real-time streaming |
 
 Port conflict? Set `GATEWAY_PORT` in `.env`.
+
+</details>
+
+</details>
+
+### Run locally with Codex
+
+<details>
+<summary><b>Steps (click to expand)</b></summary>
+
+Follow the same clone and configure steps as Claude Code above, then:
+
+```bash
+export OPENAI_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=sk-luthien-dev-key             # proxy auth key (not your real OpenAI key)
+codex
+```
 
 </details>
 
