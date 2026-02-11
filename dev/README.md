@@ -168,4 +168,4 @@ Historical planning documents have been moved to the private [luthien-org](https
 
 ---
 
-**Last Updated**: 2025-11-06
+**Last Updated**: 2026-02-10

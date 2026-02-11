@@ -184,7 +184,7 @@ ETA Feb 14, 2026.
 
 ---
 
-**See it in action:** [Activity monitor](/activity/monitor) | [Policy config](/policy-config)
+**See it in action:** `http://localhost:8000/activity/monitor` | `http://localhost:8000/policy-config`
 
 > **First time?** Admin pages require login. Default key: `admin-dev-key`
 

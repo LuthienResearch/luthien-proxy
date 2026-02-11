@@ -102,7 +102,7 @@ POLICY_SOURCE=db-fallback-file
 POLICY_CONFIG=/app/config/policy_config.yaml
 ```
 
-### Observability (Optional)
+### Observability Env Vars (Optional)
 
 ```bash
 # OpenTelemetry tracing
