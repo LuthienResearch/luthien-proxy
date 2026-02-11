@@ -48,6 +48,9 @@ That's it. Your existing Claude Code (or any Anthropic-compatible client) now ro
 
 ### Start the Proxy
 
+<details>
+<summary><b>Run locally (Docker)</b></summary>
+
 ```bash
 git clone https://github.com/LuthienResearch/luthien-proxy
 cd luthien-proxy
@@ -56,6 +59,15 @@ cp .env.example .env
 
 docker compose up -d
 ```
+
+</details>
+
+<details>
+<summary><b>Deploy to cloud (Railway) — coming soon</b></summary>
+
+One-click Railway deployment is in progress. ETA: Feb 14, 2026.
+
+</details>
 
 **What this starts (all in Docker):**
 | Service | Port | Description |
