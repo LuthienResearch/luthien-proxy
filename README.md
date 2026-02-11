@@ -1,515 +1,214 @@
-# Luthien Control
+# Luthien
 
-Redwood-style AI Control as an LLM proxy for production agentic deployments.
+### Let AI code. Stay in control.
 
-## Quick Start
+Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output without changing your dev setup.
 
-### 1. Install and Start
+**Works with:** Claude Code, Codex, Cursor. Supports streaming.
+**Does not work with:** Windsurf (does not support custom proxy servers).
 
-```bash
-# Install uv (if needed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Clone and start everything
-git clone https://github.com/LuthienResearch/luthien-proxy
-cd luthien-proxy
-
-# Configure API keys
-cp .env.example .env
-# Edit .env and add your keys:
-#   OPENAI_API_KEY=sk-proj-...
-#   ANTHROPIC_API_KEY=sk-ant-...
-
-# Start the stack
-./scripts/quick_start.sh
-```
-
-### 2. Use Claude Code or Codex through the Proxy
-
-Launch your AI assistant through the proxy using the built-in scripts:
-
-**Claude Code:**
-
-```bash
-./scripts/launch_claude_code.sh
-```
-
-**Codex:**
-
-```bash
-./scripts/launch_codex.sh
-```
-
-These scripts automatically configure the proxy settings. All requests now flow through the policy enforcement layer!
-
-### 3. Log In to Admin UI
-
-When you first visit any admin page (Activity Monitor, Policy Config, or Debug views), you'll be redirected to:
-
-```
-http://localhost:8000/login
-```
-
-**Default credentials (development):**
-- Admin API Key: `admin-dev-key`
-
-After logging in, your session persists across pages. Click "Sign Out" on any admin page to log out.
-
-⚠️ **For production deployments**: Change `ADMIN_API_KEY` in your `.env` file before exposing to a network.
-
-### 4. Monitor Activity
-
-Open the Activity Monitor in your browser to see requests in real-time:
-
-```
-http://localhost:8000/activity/monitor
-```
-
-Watch as requests flow through, see policy decisions, and inspect before/after diffs.
-
-### 5. Select a Policy
-
-Use the Policy Configuration UI to change policies without restart:
-
-```
-http://localhost:8000/policy-config
-```
-
-1. Browse available policies (NoOp, AllCaps, DebugLogging, etc.)
-2. Click to select and activate
-3. Test immediately - changes take effect instantly
-
-### 6. Create Your Own Policy
-
-Create a new policy by subclassing `SimpleJudgePolicy`:
-
-```python
-# src/luthien_proxy/policies/my_custom_policy.py
-
-from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
-
-class MyCustomPolicy(SimpleJudgePolicy):
-    """Block dangerous commands before they execute."""
-
-    RULES = [
-        "Never allow 'rm -rf' commands",
-        "Block requests to delete production data",
-        "Prevent executing untrusted code"
-    ]
-
-    # That's it! SimpleJudgePolicy handles the LLM judge logic for you.
-    # It evaluates both requests, responses, and tool calls against your rules.
-```
-
-Restart the gateway and your policy appears in the Policy Config UI automatically.
+[See it work](#see-it-work) | [What policies can do](#what-policies-can-do) | [Quick start](#quick-start) | [Security](#security-and-trust)
 
 ---
 
-## What You Get
+## See it work
 
-- **Gateway** (OpenAI/Anthropic-compatible) at <http://localhost:8000>
-- **PostgreSQL** and **Redis** fully configured
-- **Real-time monitoring** at <http://localhost:8000/activity/monitor>
-- **Policy management UI** at <http://localhost:8000/policy-config>
+<!-- TODO: Replace with actual demo GIF/video -->
 
-The gateway provides:
+<table>
+<tr>
+<td width="50%">
 
-- OpenAI Chat Completions API (`/v1/chat/completions`)
-- Anthropic Messages API (`/v1/messages`)
-- Integrated policy enforcement via control plane
-- Support for streaming and non-streaming requests
-- Hot-reload policy switching (no restart needed)
+### Without Luthien
 
-## Prerequisites
+<img src="https://placehold.co/500x300/1a0a0a/ff6b6b?text=pip+install+requests%0ATeam+uses+uv%0ALockfile+broken" alt="Before: wrong package manager" width="100%">
 
-- Docker
-- Python 3.13+
-- [uv](https://docs.astral.sh/uv/)
+Claude Code runs `pip install` when your team uses `uv`. Wrong lockfile. Nobody noticed until production.
 
-## Development
+</td>
+<td width="50%">
+
+### With Luthien
+
+<img src="https://placehold.co/500x300/0a1a0a/4ade80?text=Blocked+pip+install%0ASuggests+uv+add%0AClaude+retries+correctly" alt="After: Luthien blocks pip, suggests uv" width="100%">
+
+Luthien blocks the `pip install`, tells Claude Code to use `uv add`. Claude retries correctly. You didn't intervene.
+
+</td>
+</tr>
+</table>
+
+---
+
+## Who it's for
+
+| | |
+|---|---|
+| **You use AI coding agents daily** | You've seen them delete files, install wrong packages, and ignore your project rules. You know the failure modes; you want rules that actually stick. |
+| **You own AI coding policy for your org** | You provision API keys for devs, own the team's config files, and ensure use complies with company policy. |
+
+Luthien works at the layer you already manage: LLM calls and tool usage.
+
+---
+
+## How it works
+
+1. **Set two env vars:** keep your IDE, your tools, your workflow
+2. **Write rules in Python:** plain English evaluated by an LLM judge, or custom logic
+3. **Every request and response passes through your rules:** block, retry, or clean up
+
+Nothing is sent to Luthien servers. See [Security and trust](#security-and-trust).
+
+---
+
+## What policies can do
+
+### Built-in: common failure modes
+
+- **Block dangerous operations:** `rm -rf`, `git push --force`, dropping database tables
+- **Enforce package standards:** block `pip install`, suggest `uv add` instead
+- **Catch PII exposure:** block responses that contain or request sensitive data
+- **Flag unknown dependencies:** is this package legit?
+
+Write rules in plain English. An LLM judge evaluates them.
+
+> **Expand the sections below** to see example policy code.
+
+<details>
+<summary><b>Example: PipBlockPolicy (click to expand)</b></summary>
+
+```python
+class PipBlockPolicy(SimpleJudgePolicy):
+    RULES = [
+        "Block any 'pip install' or 'pip3 install' commands. Suggest 'uv add' instead.",
+        "Block 'python -m pip install' commands.",
+        "Allow all other tool calls.",
+    ]
+```
+
+</details>
+
+### Custom policies for your use case
+
+Anything you can define in a Python function.
+
+- **Clean up AI writing tics:** remove curly quotes, over-bulleting, sloppy formatting
+- **Enforce scope boundaries:** only allow changes to files mentioned in the request
+- **Domain-specific compliance:** your internal LLM tool advises customers? Make sure it cites the right policy instead of hallucinating guidance
+
+<details>
+<summary><b>Example: DeSlop and ScopeGuard (click to expand)</b></summary>
+
+```python
+class DeSlop(SimplePolicy):
+    def simple_on_response_content(self, content, context):
+        return content.replace("\u2014", "-").replace("\u2013", "-")
+```
+
+Or use the LLM judge with your own rules:
+
+```python
+class ScopeGuard(SimpleJudgePolicy):
+    RULES = [
+        "Only allow changes to files mentioned in the original request",
+        "Block creation of new test files unless tests were explicitly requested",
+    ]
+```
+
+</details>
+
+### Measurement
+
+Every policy action is logged. Measure what got blocked, track false positives and false negatives, monitor latency overhead.
+
+---
+
+## Security and trust
+
+Luthien runs on **infrastructure you control**: your machine or your cloud account. Your code, prompts, and API keys never touch our servers.
+
+| Concern | How Luthien handles it |
+|---------|----------------------|
+| **Data transmission** | All traffic stays between you and your LLM provider. Luthien doesn't phone home. |
+| **Encryption at rest** | Conversation logs are stored in your PostgreSQL instance. Encrypt the volume to your standards. |
+| **Prompts and context** | Your system prompts, tool calls, and context files stay on your infrastructure. Luthien sees the traffic to enforce rules; it doesn't exfiltrate it. |
+| **What Luthien sees** | Everything your AI agent sends and receives. |
+
+---
+
+## Quick start
+
+**Supported:** Claude Code, Codex, Cursor (any client that lets you set a custom API base URL).
+
+### Run locally with Claude Code
+
+<details open>
+<summary><b>Steps (expanded by default)</b></summary>
+
+**Prerequisites:** [Docker](https://www.docker.com/) and an [Anthropic API key](https://console.anthropic.com/).
+
+**1. Clone and configure**
 
 ```bash
-# After code changes, restart the gateway
-docker compose restart gateway
-
-# Run unit tests
-uv run pytest tests/unit_tests
-
-# Run integration tests
-uv run pytest tests/integration_tests
-
-# Run e2e tests (slow, use sparingly)
-uv run pytest -m e2e
-
-# Test the gateway
-./scripts/test_gateway.sh
-
-# Format and lint
-./scripts/format_all.sh
-
-# Full dev checks (format + lint + tests + type check)
-./scripts/dev_checks.sh
-
-# Type check only
-uv run pyright
+git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy
+cp .env.example .env
+# Edit .env: add your real ANTHROPIC_API_KEY (the upstream key Luthien uses to call Anthropic)
 ```
 
-## Observability (Optional)
+**2. Start**
 
-The gateway supports **OpenTelemetry** for distributed tracing and log correlation.
+`docker compose up -d`
 
-By default, the gateway runs **without** the observability stack. To enable it:
+**3. Connect Claude Code**
 
 ```bash
-# Start observability stack (Tempo, Loki, Promtail, Grafana)
-./scripts/observability.sh up -d
-
-# The gateway will automatically detect and use the observability stack
-
-# Access Grafana at http://localhost:3000
-# Username: admin, Password: admin
+export ANTHROPIC_BASE_URL=http://localhost:8000/v1
+export ANTHROPIC_API_KEY=sk-luthien-dev-key          # proxy auth key (not your real Anthropic key)
+claude
 ```
 
-The observability stack is completely optional and does not affect core functionality.
+<details>
+<summary><b>What Docker spins up (click to expand)</b></summary>
 
-### Features
+| Service | Port | Purpose |
+|---------|------|---------|
+| Gateway | 8000 | Proxy endpoint |
+| PostgreSQL | 5432 | Request/response storage |
+| Redis | 6379 | Real-time streaming |
 
-- **Distributed tracing** with OpenTelemetry → Grafana Tempo
-- **Structured logging** with trace context (trace_id, span_id)
-- **Log-trace correlation** in Grafana
-- **Real-time activity feed** at `/activity/monitor`
-- **Pre-built dashboard** for traces and logs
+Port conflict? Set `GATEWAY_PORT` in `.env`.
 
-### Configuration
+</details>
 
-OpenTelemetry is enabled by default. To configure the endpoint in `.env`:
+</details>
+
+### Run locally with Codex
+
+<details>
+<summary><b>Steps (click to expand)</b></summary>
+
+Follow the same clone and configure steps as Claude Code above, then:
 
 ```bash
-# OpenTelemetry endpoint (enabled by default)
-OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
-
-# Optional: customize service metadata
-SERVICE_NAME=luthien-proxy
-SERVICE_VERSION=2.0.0
-ENVIRONMENT=development
-
-# To disable tracing, set:
-# OTEL_ENABLED=false
+export OPENAI_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=sk-luthien-dev-key             # proxy auth key (not your real OpenAI key)
+codex
 ```
 
-### Documentation
+</details>
 
-- **Usage guide:** [dev/observability.md](dev/observability.md)
-- **Conventions:** [dev/context/otel-conventions.md](dev/context/otel-conventions.md)
-- **Dashboard:** Import `observability/grafana-dashboards/luthien-traces.json` in Grafana
+### Deploy to cloud (Railway)
 
-### Services
+ETA Feb 16, 2026.
 
-When observability is enabled:
+---
 
-- **Grafana** at http://localhost:3000 (dashboards and visualization)
-- **Tempo** at http://localhost:3200 (trace storage and query)
-- **Loki** at http://localhost:3100 (log aggregation)
+**See it in action:** `http://localhost:8000/activity/monitor` | `http://localhost:8000/policy-config`
 
-## Configuration
+> **First time?** Admin pages require login. Default key: `admin-dev-key`
 
-Copy `.env.example` to `.env` and configure your environment:
+For configuration, architecture, API endpoints, and troubleshooting, see **[REFERENCE.md](REFERENCE.md)**.
 
-### Required Configuration
+---
 
-```bash
-# Upstream LLM Provider API Keys
-OPENAI_API_KEY=your_openai_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-
-# Gateway Authentication
-PROXY_API_KEY=sk-luthien-dev-key     # API key for clients to access the proxy
-ADMIN_API_KEY=admin-dev-key          # API key for admin/policy management UI
-```
-
-### Core Infrastructure
-
-```bash
-# Database
-DATABASE_URL=postgresql://luthien:password@db:5432/luthien_control
-
-# Redis (for real-time activity streaming)
-REDIS_URL=redis://redis:6379
-
-# Gateway
-GATEWAY_HOST=localhost
-GATEWAY_PORT=8000
-```
-
-### Policy Configuration
-
-```bash
-# Policy loading strategy
-# Options: "db", "file", "db-fallback-file" (recommended), "file-fallback-db"
-POLICY_SOURCE=db-fallback-file
-
-# Path to YAML policy file (when POLICY_SOURCE includes "file")
-POLICY_CONFIG=/app/config/policy_config.yaml
-```
-
-### Observability (Optional)
-
-```bash
-# OpenTelemetry tracing
-OTEL_ENABLED=true                                    # Toggle tracing
-OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317       # OTLP endpoint
-
-# Service metadata for distributed tracing
-SERVICE_NAME=luthien-proxy
-SERVICE_VERSION=2.0.0
-ENVIRONMENT=development
-
-# Grafana for viewing traces
-GRAFANA_URL=http://localhost:3000
-```
-
-### LLM Judge Policies (Optional)
-
-```bash
-# Configuration for judge-based policies (ToolCallJudgePolicy, SimpleJudgePolicy)
-LLM_JUDGE_MODEL=openai/gpt-4                         # Model for judge
-LLM_JUDGE_API_BASE=http://localhost:11434/v1         # API base URL
-LLM_JUDGE_API_KEY=your_judge_api_key                 # API key for judge
-```
-
-See `.env.example` for all available options and defaults.
-
-### Policy File Format
-
-The gateway loads policies from `POLICY_CONFIG` (defaults to `config/policy_config.yaml`).
-
-Example policy configuration:
-
-```yaml
-policy:
-  class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
-  config:
-    model: "openai/gpt-4o-mini"
-    probability_threshold: 0.6
-    temperature: 0.0
-    max_tokens: 256
-```
-
-Available policies in `src/luthien_proxy/policies/`:
-
-- `noop_policy.py` - Pass-through (no filtering)
-- `all_caps_policy.py` - Simple transformation example
-- `debug_logging_policy.py` - Logs requests/responses for debugging
-- `tool_call_judge_policy.py` - AI-based tool call safety evaluation
-- `simple_policy.py` - Base class for custom policies
-- `simple_judge_policy.py` - Base class for LLM-based rule enforcement
-
-## Dev Tooling
-
-- Lint/format: `uv run ruff check` and `uv run ruff format`. Core rules enabled (E/F/I/D). Line length is 120; long-line lint (E501) is ignored to avoid churn after formatting.
-
-Editor setup (VS Code)
-- Install the Ruff extension.
-- In this repo, VS Code uses Ruff for both formatting and import organization via `.vscode/settings.json`.
-- Type checking: `uv run pyright` (configured in `[tool.pyright]` within `pyproject.toml`).
-- Tests: `uv run pytest -q` with coverage for `src/luthien_proxy/**` configured in `[tool.pytest.ini_options]`.
-- Config consolidation: Ruff, Pytest, and Pyright live in `pyproject.toml` to avoid extra files.
-
-## Architecture
-
-The gateway integrates everything into a single FastAPI application:
-
-- **Gateway** (`src/luthien_proxy/`): Unified FastAPI + LiteLLM integration
-  - OpenAI Chat Completions API compatibility
-  - Anthropic Messages API compatibility
-  - Event-driven policy system with streaming support
-  - OpenTelemetry instrumentation for observability
-
-- **Orchestration** (`src/luthien_proxy/orchestration/`): Request processing coordination
-  - `PolicyOrchestrator` coordinates the streaming pipeline
-  - Real-time event publishing for UI updates
-  - Trace context propagation
-
-- **Policy System** (`src/luthien_proxy/policies/`): Event-driven policy framework
-  - `SimplePolicy` - Base class for simple request/response policies
-  - `SimpleJudgePolicy` - Base class for LLM-based rule enforcement
-  - Examples: NoOpPolicy, AllCapsPolicy, DebugLoggingPolicy, ToolCallJudgePolicy
-
-- **Policy Core** (`src/luthien_proxy/policy_core/`): Policy protocol and contexts
-  - Policy protocol definitions
-  - Request/response contexts for policy processing
-  - Chunk builders for streaming
-
-- **Streaming** (`src/luthien_proxy/streaming/`): Streaming support
-  - Policy executor for stream processing
-  - Client formatters for OpenAI/Anthropic formats
-
-- **UI** (`src/luthien_proxy/ui/`): Real-time monitoring and debugging
-  - `/activity/monitor` - Live activity feed
-  - `/activity/live` - WebSocket activity stream
-  - Debug endpoints for inspection
-
-**Documentation**:
-
-- **Start here**: [Development docs index](dev/README.md) - Guide to all documentation
-- Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
-- Live policy updates: [dev/LIVE_POLICY_DEMO.md](dev/LIVE_POLICY_DEMO.md) - Switching policies without restart in Claude Code
-- Observability: [dev/observability.md](dev/observability.md) - Tracing and monitoring
-- Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](dev/VIEWING_TRACES_GUIDE.md) - Using Grafana/Tempo
-- Context files: [dev/context/](dev/context/) - Architectural patterns, decisions, and gotchas
-
-## Endpoints
-
-### Gateway (<http://localhost:8000>)
-
-**API Endpoints:**
-
-- `POST /v1/chat/completions` — OpenAI Chat Completions API (streaming and non-streaming)
-- `POST /v1/messages` — Anthropic Messages API (streaming and non-streaming)
-- `GET /health` — Health check
-
-**UI Endpoints:**
-
-- `GET /activity/monitor` — Real-time activity monitor (HTML)
-- `GET /activity/live` — WebSocket activity stream (JSON)
-- `GET /debug` — Debug information viewer
-
-**Authentication:**
-
-All API requests require the `Authorization: Bearer <PROXY_API_KEY>` header.
-
-### Admin API
-
-Admin endpoints manage policies at runtime without requiring a restart. All admin requests require the `Authorization: Bearer <ADMIN_API_KEY>` header.
-
-**Get current policy:**
-
-```bash
-curl http://localhost:8000/admin/policy/current \
-  -H "Authorization: Bearer admin-dev-key"
-```
-
-**Create a named policy instance:**
-
-```bash
-curl -X POST http://localhost:8000/admin/policy/create \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer admin-dev-key" \
-  -d '{
-    "name": "my-policy",
-    "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
-    "config": {
-      "model": "openai/gpt-4o-mini",
-      "probability_threshold": 0.99,
-      "temperature": 0.0,
-      "max_tokens": 256
-    }
-  }'
-```
-
-**Activate a policy:**
-
-```bash
-curl -X POST http://localhost:8000/admin/policy/activate \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer admin-dev-key" \
-  -d '{"name": "my-policy"}'
-```
-
-**List available policy classes:**
-
-```bash
-curl http://localhost:8000/admin/policy/list \
-  -H "Authorization: Bearer admin-dev-key"
-```
-
-**List saved policy instances:**
-
-```bash
-curl http://localhost:8000/admin/policy/instances \
-  -H "Authorization: Bearer admin-dev-key"
-```
-
-## Policy System
-
-The gateway uses an event-driven policy architecture with streaming support.
-
-### Key Components
-
-- `src/luthien_proxy/policies/base_policy.py` - Abstract policy interface
-- `src/luthien_proxy/policies/simple_policy.py` - Base class for custom policies
-- `src/luthien_proxy/policies/simple_judge_policy.py` - Base class for LLM-based rule enforcement
-- `src/luthien_proxy/orchestration/policy_orchestrator.py` - Policy orchestration
-- `src/luthien_proxy/gateway_routes.py` - API endpoint handlers with policy integration
-- `config/policy_config.yaml` - Policy configuration
-
-### Creating Custom Policies
-
-Subclass `SimplePolicy` for basic request/response transformations, or `SimpleJudgePolicy` for LLM-based rule enforcement. See `src/luthien_proxy/policies/` for examples.
-
-### Testing
-
-```bash
-# Start the gateway
-./scripts/quick_start.sh
-
-# Run automated tests
-./scripts/test_gateway.sh
-
-# View logs
-docker compose logs -f gateway
-```
-
-## Troubleshooting
-
-### Gateway not starting
-
-```bash
-# Check service status
-docker compose ps
-
-# View gateway logs
-docker compose logs gateway
-
-# Restart gateway
-docker compose restart gateway
-
-# Full restart
-docker compose down && ./scripts/quick_start.sh
-```
-
-### API requests failing
-
-1. **Check API key**: Ensure `Authorization: Bearer <PROXY_API_KEY>` header is set
-2. **Check upstream credentials**: Verify `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in `.env`
-3. **Check logs**: `docker compose logs -f gateway`
-
-### Tests failing
-
-```bash
-# Ensure services are running
-docker compose ps
-
-# Check service health
-curl http://localhost:8000/health
-
-# View detailed logs
-docker compose logs gateway | tail -50
-```
-
-### Database connection issues
-
-```bash
-# Check database is running
-docker compose ps db
-
-# Restart database
-docker compose restart db
-
-# Re-run migrations
-docker compose run --rm db-migrations
-```
-
-## License
-
-Apache License 2.0
+*[Apache License 2.0](LICENSE)*
