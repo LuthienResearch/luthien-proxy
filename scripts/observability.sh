@@ -77,9 +77,9 @@ case "${1:-help}" in
     logs)
         shift
         if [[ $# -eq 0 ]] || [[ "$1" == -* ]]; then
-            docker compose logs "$@" tempo
+            docker compose --profile observability logs "$@" tempo
         else
-            docker compose logs "$@"
+            docker compose --profile observability logs "$@"
         fi
         ;;
 

@@ -40,6 +40,12 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.gateway_port == 8000
 
+    def test_default_tempo_url(self, monkeypatch):
+        """Test default Tempo URL for local development."""
+        monkeypatch.delenv("TEMPO_URL", raising=False)
+        settings = Settings(_env_file=None)
+        assert settings.tempo_url == "http://localhost:3200"
+
     def test_optional_fields_default_to_none(self, monkeypatch):
         """Test optional fields default to None."""
         for var in [
@@ -100,6 +106,12 @@ class TestSettingsFromEnv:
         monkeypatch.setenv("GATEWAY_PORT", "3000")
         settings = Settings()
         assert settings.gateway_port == 3000
+
+    def test_loads_tempo_url(self, monkeypatch):
+        """Test TEMPO_URL overrides default."""
+        monkeypatch.setenv("TEMPO_URL", "http://tempo.prod:3200")
+        settings = Settings()
+        assert settings.tempo_url == "http://tempo.prod:3200"
 
 
 class TestEffectiveOtelEndpoint:

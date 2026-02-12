@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from luthien_proxy.utils.db import DatabasePool
 
+from luthien_proxy.settings import get_settings
+
 from .models import (
     CallDiffResponse,
     CallEventsResponse,
@@ -36,13 +38,13 @@ def build_tempo_url(call_id: str, tempo_url: str | None = None) -> str:
 
     Args:
         call_id: Unique identifier for the request/response cycle
-        tempo_url: Base URL for the Tempo HTTP API (defaults to http://localhost:3200)
+        tempo_url: Base URL for the Tempo HTTP API (defaults to settings.tempo_url)
 
     Returns:
         Tempo API search URL with a TraceQL query for this call_id
     """
     if tempo_url is None:
-        tempo_url = "http://localhost:3200"
+        tempo_url = get_settings().tempo_url
     traceql_query = f'{{ span."luthien.call_id" = "{call_id}" }}'
     encoded_query = urllib.parse.quote(traceql_query)
     return f"{tempo_url}/api/search?q={encoded_query}"
