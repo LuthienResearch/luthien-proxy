@@ -214,12 +214,13 @@ async def run_claude_code(
     session_id = ""
 
     for event in events:
-        if event.is_result:
-            final_result = event.raw.get("result", "")
-            is_success = event.subtype == "success" and not event.raw.get("is_error", False)
-            num_turns = event.raw.get("num_turns", 0)
-            cost_usd = event.raw.get("total_cost_usd", 0.0)
-            session_id = event.raw.get("session_id", "")
+        if not event.is_result:
+            continue
+        final_result = event.raw.get("result", "")
+        is_success = event.is_success
+        num_turns = event.raw.get("num_turns", 0)
+        cost_usd = event.raw.get("total_cost_usd", 0.0)
+        session_id = event.raw.get("session_id", "")
 
     return ClaudeCodeResult(
         events=events,
@@ -377,7 +378,7 @@ async def test_claude_code_cost_tracking(claude_available, gateway_healthy):
     assert result.cost_usd > 0, f"Should have non-zero cost: {result.cost_usd}"
 
     result_event = next((e for e in result.events if e.is_result), None)
-    assert result_event is not None
+    assert result_event, "Should have a result event"
     assert "usage" in result_event.raw or "modelUsage" in result_event.raw
 
 
@@ -494,13 +495,11 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
         # but the tool call should be blocked by the policy
         assert result.is_success, f"Request failed: {result.stderr}"
 
-        # Check that no tool calls were made (blocked before execution)
+        # Tool calls should be blocked before execution
         assert len(result.tool_results) == 0, f"Expected no tool results (blocked), got {len(result.tool_results)}"
 
-        # Check that the configured block message appears in output
-        assert "⛔ TEST_BLOCK" in result.final_result, (
-            f"Expected block message '⛔ TEST_BLOCK' in output, got: {result.final_result[:200]}"
-        )
+        # Block message should appear in output
+        assert "⛔ TEST_BLOCK" in result.final_result, f"Expected block message in output: {result.final_result[:200]}"
 
 
 # === Multi-turn Session Tests ===
