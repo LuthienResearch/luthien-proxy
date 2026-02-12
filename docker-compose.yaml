@@ -1,3 +1,6 @@
+# Launch with ./scripts/quick_start.sh (auto-selects free ports).
+# Running `docker compose up` directly uses default ports without auto-selection.
+#
 # For distributed tracing (Tempo), use:
 #   ./scripts/observability.sh up -d
 # Or:
