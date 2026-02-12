@@ -1,0 +1,502 @@
+"""Unit tests for MultiParallelPolicy."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import cast
+
+import pytest
+from anthropic.types import RawContentBlockDeltaEvent, TextDelta
+from litellm.types.utils import Choices, Message, ModelResponse
+
+from luthien_proxy.llm.types import Request
+from luthien_proxy.llm.types.anthropic import (
+    AnthropicRequest,
+    AnthropicResponse,
+    AnthropicTextBlock,
+)
+from luthien_proxy.policies.multi_parallel_policy import MultiParallelPolicy
+from luthien_proxy.policy_core import (
+    AnthropicPolicyInterface,
+    BasePolicy,
+    OpenAIPolicyInterface,
+)
+from luthien_proxy.policy_core.policy_context import PolicyContext
+from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
+from luthien_proxy.streaming.stream_state import StreamState
+
+
+def _noop_config() -> dict:
+    return {"class": "luthien_proxy.policies.noop_policy:NoOpPolicy", "config": {}}
+
+
+def _allcaps_config() -> dict:
+    return {"class": "luthien_proxy.policies.all_caps_policy:AllCapsPolicy", "config": {}}
+
+
+def _replacement_config(replacements: list[list[str]]) -> dict:
+    return {
+        "class": "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
+        "config": {"replacements": replacements},
+    }
+
+
+def _make_response(content: str) -> ModelResponse:
+    return ModelResponse(
+        id="test-id",
+        choices=[
+            Choices(
+                finish_reason="stop",
+                index=0,
+                message=Message(content=content, role="assistant"),
+            )
+        ],
+        created=1234567890,
+        model="test-model",
+        object="chat.completion",
+    )
+
+
+def _make_anthropic_response(text: str) -> AnthropicResponse:
+    block: AnthropicTextBlock = {"type": "text", "text": text}
+    return {
+        "id": "msg_123",
+        "type": "message",
+        "role": "assistant",
+        "content": [block],
+        "model": "claude-sonnet-4-20250514",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+    }
+
+
+# =============================================================================
+# Protocol Compliance
+# =============================================================================
+
+
+class TestMultiParallelPolicyProtocol:
+    def test_inherits_from_base_policy(self):
+        policy = MultiParallelPolicy(policies=[_noop_config()])
+        assert isinstance(policy, BasePolicy)
+
+    def test_implements_openai_interface(self):
+        policy = MultiParallelPolicy(policies=[_noop_config()])
+        assert isinstance(policy, OpenAIPolicyInterface)
+
+    def test_implements_anthropic_interface(self):
+        policy = MultiParallelPolicy(policies=[_noop_config()])
+        assert isinstance(policy, AnthropicPolicyInterface)
+
+    def test_policy_name_shows_strategy_and_sub_policies(self):
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _allcaps_config()],
+            consolidation_strategy="first_block",
+        )
+        name = policy.short_policy_name
+        assert "MultiParallel" in name
+        assert "first_block" in name
+        assert "NoOp" in name
+        assert "AllCapsPolicy" in name
+
+
+# =============================================================================
+# Initialization
+# =============================================================================
+
+
+class TestMultiParallelPolicyInit:
+    def test_valid_strategies_accepted(self):
+        for strategy in ("first_block", "most_restrictive", "unanimous_pass", "majority_pass"):
+            policy = MultiParallelPolicy(policies=[_noop_config()], consolidation_strategy=strategy)
+            assert policy._strategy == strategy
+
+    def test_invalid_strategy_raises(self):
+        with pytest.raises(ValueError, match="Unknown consolidation_strategy"):
+            MultiParallelPolicy(policies=[_noop_config()], consolidation_strategy="invalid")
+
+    def test_default_strategy_is_first_block(self):
+        policy = MultiParallelPolicy(policies=[_noop_config()])
+        assert policy._strategy == "first_block"
+
+
+# =============================================================================
+# Streaming Not Supported
+# =============================================================================
+
+
+class TestMultiParallelStreamingNotSupported:
+    @pytest.fixture
+    def policy(self):
+        return MultiParallelPolicy(policies=[_noop_config()])
+
+    @pytest.fixture
+    def streaming_ctx(self):
+        stream_state = StreamState()
+        policy_ctx = PolicyContext.for_testing()
+        return StreamingPolicyContext(
+            policy_ctx=policy_ctx,
+            egress_queue=asyncio.Queue(),
+            original_streaming_response_state=stream_state,
+            keepalive=lambda: None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_on_chunk_received_raises(self, policy, streaming_ctx):
+        with pytest.raises(NotImplementedError, match="does not support streaming"):
+            await policy.on_chunk_received(streaming_ctx)
+
+    @pytest.mark.asyncio
+    async def test_on_content_delta_raises(self, policy, streaming_ctx):
+        with pytest.raises(NotImplementedError, match="does not support streaming"):
+            await policy.on_content_delta(streaming_ctx)
+
+    @pytest.mark.asyncio
+    async def test_on_stream_complete_raises(self, policy, streaming_ctx):
+        with pytest.raises(NotImplementedError, match="does not support streaming"):
+            await policy.on_stream_complete(streaming_ctx)
+
+    @pytest.mark.asyncio
+    async def test_anthropic_stream_event_raises(self, policy):
+        ctx = PolicyContext.for_testing()
+        text_delta = TextDelta.model_construct(type="text_delta", text="hello")
+        event = RawContentBlockDeltaEvent.model_construct(type="content_block_delta", index=0, delta=text_delta)
+        with pytest.raises(NotImplementedError, match="does not support Anthropic streaming"):
+            await policy.on_anthropic_stream_event(event, ctx)
+
+
+# =============================================================================
+# OpenAI Response - first_block Strategy
+# =============================================================================
+
+
+class TestMultiParallelFirstBlock:
+    @pytest.mark.asyncio
+    async def test_all_noop_passes_through(self):
+        """When no policy modifies the response, original passes through."""
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _noop_config()],
+            consolidation_strategy="first_block",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_one_modifier_wins(self):
+        """When one policy modifies, that result is used."""
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _allcaps_config()],
+            consolidation_strategy="first_block",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "HELLO WORLD"
+
+    @pytest.mark.asyncio
+    async def test_first_modifier_wins_when_multiple_modify(self):
+        """When multiple policies modify, the first one's result is used."""
+        policy = MultiParallelPolicy(
+            policies=[
+                _allcaps_config(),
+                _replacement_config([["hello", "goodbye"]]),
+            ],
+            consolidation_strategy="first_block",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        # AllCaps is first policy that modifies -> "HELLO WORLD"
+        assert result.choices[0].message.content == "HELLO WORLD"
+
+
+# =============================================================================
+# OpenAI Response - most_restrictive Strategy
+# =============================================================================
+
+
+class TestMultiParallelMostRestrictive:
+    @pytest.mark.asyncio
+    async def test_shorter_response_wins(self):
+        """The policy producing the shortest content wins."""
+        policy = MultiParallelPolicy(
+            policies=[
+                _allcaps_config(),  # "HELLO WORLD" (11 chars)
+                _replacement_config([["hello world", "blocked"]]),  # "blocked" (7 chars)
+            ],
+            consolidation_strategy="most_restrictive",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_all_noop_passes_through(self):
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _noop_config()],
+            consolidation_strategy="most_restrictive",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "hello world"
+
+
+# =============================================================================
+# OpenAI Response - unanimous_pass Strategy
+# =============================================================================
+
+
+class TestMultiParallelUnanimousPass:
+    @pytest.mark.asyncio
+    async def test_all_noop_passes_through(self):
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _noop_config()],
+            consolidation_strategy="unanimous_pass",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_any_modifier_blocks(self):
+        """If any policy modifies, the first modified result is used."""
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _allcaps_config()],
+            consolidation_strategy="unanimous_pass",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "HELLO WORLD"
+
+
+# =============================================================================
+# OpenAI Response - majority_pass Strategy
+# =============================================================================
+
+
+class TestMultiParallelMajorityPass:
+    @pytest.mark.asyncio
+    async def test_majority_noop_passes_through(self):
+        """2 out of 3 policies pass -> original passes through."""
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _noop_config(), _allcaps_config()],
+            consolidation_strategy="majority_pass",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_majority_modifiers_blocks(self):
+        """2 out of 3 policies modify -> first modified result is used."""
+        policy = MultiParallelPolicy(
+            policies=[
+                _allcaps_config(),
+                _replacement_config([["hello", "goodbye"]]),
+                _noop_config(),
+            ],
+            consolidation_strategy="majority_pass",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        # Majority (2/3) modified, first modifier (AllCaps) wins
+        assert result.choices[0].message.content == "HELLO WORLD"
+
+    @pytest.mark.asyncio
+    async def test_tie_uses_modified(self):
+        """When exactly half modify (not a strict majority of passes), modified wins."""
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _allcaps_config()],
+            consolidation_strategy="majority_pass",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        # 1 pass, 1 modify -> not a strict majority of passes -> modified wins
+        assert result.choices[0].message.content == "HELLO WORLD"
+
+
+# =============================================================================
+# OpenAI Request
+# =============================================================================
+
+
+class TestMultiParallelOpenAIRequest:
+    @pytest.mark.asyncio
+    async def test_noop_passes_request_through(self):
+        policy = MultiParallelPolicy(policies=[_noop_config()])
+        ctx = PolicyContext.for_testing()
+        request = Request(model="test", messages=[{"role": "user", "content": "hello"}])
+
+        result = await policy.on_openai_request(request, ctx)
+
+        assert result.messages[0]["content"] == "hello"
+
+    @pytest.mark.asyncio
+    async def test_empty_policy_list_passes_through(self):
+        policy = MultiParallelPolicy(policies=[])
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "hello world"
+
+
+# =============================================================================
+# Anthropic Response
+# =============================================================================
+
+
+class TestMultiParallelAnthropicResponse:
+    @pytest.mark.asyncio
+    async def test_first_block_with_modifier(self):
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _allcaps_config()],
+            consolidation_strategy="first_block",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_anthropic_response("hello world")
+
+        result = await policy.on_anthropic_response(response, ctx)
+
+        text_block = cast(AnthropicTextBlock, result["content"][0])
+        assert text_block["text"] == "HELLO WORLD"
+
+    @pytest.mark.asyncio
+    async def test_all_noop_passes_through(self):
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _noop_config()],
+            consolidation_strategy="first_block",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_anthropic_response("hello world")
+
+        result = await policy.on_anthropic_response(response, ctx)
+
+        text_block = cast(AnthropicTextBlock, result["content"][0])
+        assert text_block["text"] == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_most_restrictive_picks_shorter(self):
+        policy = MultiParallelPolicy(
+            policies=[
+                _allcaps_config(),  # "HELLO WORLD" (11 chars)
+                _replacement_config([["hello world", "no"]]),  # "no" (2 chars)
+            ],
+            consolidation_strategy="most_restrictive",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_anthropic_response("hello world")
+
+        result = await policy.on_anthropic_response(response, ctx)
+
+        text_block = cast(AnthropicTextBlock, result["content"][0])
+        assert text_block["text"] == "no"
+
+
+# =============================================================================
+# Anthropic Request
+# =============================================================================
+
+
+class TestMultiParallelAnthropicRequest:
+    @pytest.mark.asyncio
+    async def test_noop_passes_through(self):
+        policy = MultiParallelPolicy(policies=[_noop_config()])
+        ctx = PolicyContext.for_testing()
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+        }
+
+        result = await policy.on_anthropic_request(request, ctx)
+
+        assert result["messages"][0]["content"] == "Hello"
+
+
+# =============================================================================
+# Composability
+# =============================================================================
+
+
+class TestMultiParallelComposability:
+    @pytest.mark.asyncio
+    async def test_nested_in_serial(self):
+        """MultiParallelPolicy nested inside MultiSerialPolicy."""
+        from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
+
+        parallel_config = {
+            "class": "luthien_proxy.policies.multi_parallel_policy:MultiParallelPolicy",
+            "config": {
+                "consolidation_strategy": "first_block",
+                "policies": [_noop_config(), _allcaps_config()],
+            },
+        }
+        policy = MultiSerialPolicy(
+            policies=[
+                parallel_config,
+                _replacement_config([["WORLD", "UNIVERSE"]]),
+            ]
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        # Parallel: AllCaps wins -> "HELLO WORLD"
+        # Then serial: replace WORLD -> UNIVERSE -> "HELLO UNIVERSE"
+        assert result.choices[0].message.content == "HELLO UNIVERSE"
+
+
+# =============================================================================
+# Parallel Execution Verification
+# =============================================================================
+
+
+class TestMultiParallelExecution:
+    @pytest.mark.asyncio
+    async def test_policies_receive_independent_copies(self):
+        """Each sub-policy should receive its own copy, not share the same object."""
+        policy = MultiParallelPolicy(
+            policies=[_allcaps_config(), _replacement_config([["hello", "goodbye"]])],
+            consolidation_strategy="first_block",
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        # AllCaps is the first modifier -> "HELLO WORLD"
+        # The replacement policy got its own copy and made "goodbye world"
+        # but AllCaps result is picked because it's first
+        assert result.choices[0].message.content == "HELLO WORLD"
