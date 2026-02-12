@@ -114,22 +114,17 @@ cd "$PROJECT_ROOT"
 # --- Auto-detect port offset if not specified ---
 
 if [[ -z "$PORT_OFFSET" ]]; then
-    # Scan existing .env* files to find the highest offset in use
     max_gateway=8000
     for envfile in .env .env.*; do
         [[ -f "$envfile" ]] || continue
-        gw_port=$(grep "^GATEWAY_PORT=" "$envfile" 2>/dev/null | sed 's/^[^=]*=//')
+        gw_port=$(grep "^GATEWAY_PORT=" "$envfile" 2>/dev/null | cut -d= -f2)
         if [[ -n "$gw_port" ]] && [[ "$gw_port" =~ ^[0-9]+$ ]] && [[ "$gw_port" -gt "$max_gateway" ]]; then
             max_gateway="$gw_port"
         fi
     done
 
-    if [[ "$max_gateway" -eq 8000 ]]; then
-        PORT_OFFSET=100
-    else
-        current_offset=$((max_gateway - 8000))
-        PORT_OFFSET=$((current_offset + 100))
-    fi
+    current_offset=$((max_gateway - 8000))
+    PORT_OFFSET=$((current_offset + 100))
 
     echo "Auto-selected port offset: $PORT_OFFSET"
 fi
@@ -156,14 +151,10 @@ OPENAI_API_KEY="your_openai_api_key_here"
 ANTHROPIC_API_KEY="your_anthropic_api_key_here"
 
 if [[ -f .env ]]; then
-    existing_openai=$(grep "^OPENAI_API_KEY=" .env 2>/dev/null | sed 's/^[^=]*=//')
-    existing_anthropic=$(grep "^ANTHROPIC_API_KEY=" .env 2>/dev/null | sed 's/^[^=]*=//')
-    if [[ -n "$existing_openai" ]]; then
-        OPENAI_API_KEY="$existing_openai"
-    fi
-    if [[ -n "$existing_anthropic" ]]; then
-        ANTHROPIC_API_KEY="$existing_anthropic"
-    fi
+    existing_openai=$(grep "^OPENAI_API_KEY=" .env 2>/dev/null | cut -d= -f2)
+    existing_anthropic=$(grep "^ANTHROPIC_API_KEY=" .env 2>/dev/null | cut -d= -f2)
+    [[ -n "$existing_openai" ]] && OPENAI_API_KEY="$existing_openai"
+    [[ -n "$existing_anthropic" ]] && ANTHROPIC_API_KEY="$existing_anthropic"
 fi
 
 # --- Generate .env content ---
