@@ -51,9 +51,6 @@ class Settings(BaseSettings):
     service_version: str = "2.0.0"
     environment: str = "development"
 
-    # Debug/UI configuration
-    grafana_url: str = "http://localhost:3000"
-
     # LLM Judge policy configuration
     llm_judge_model: str | None = None
     llm_judge_api_base: str | None = None

@@ -1,5 +1,5 @@
 #!/bin/bash
-# ABOUTME: Helper script to manage observability stack (Grafana/Loki/Tempo)
+# ABOUTME: Helper script to manage observability stack (Tempo distributed tracing)
 
 set -e
 
@@ -16,7 +16,7 @@ print_usage() {
     cat <<EOF
 ${GREEN}Luthien Observability Stack${NC}
 
-Manage Grafana + Loki + Tempo observability services.
+Manage Tempo distributed tracing service.
 
 ${YELLOW}Usage:${NC}
   $0 <command> [options]
@@ -28,22 +28,19 @@ ${YELLOW}Commands:${NC}
   logs [options]    View logs from observability services
   status            Show status of observability services
   clean             Stop and remove all observability data
-  url               Print Grafana URL
   help              Show this help message
 
 ${YELLOW}Examples:${NC}
   $0 up -d                    # Start in background
   $0 logs -f                  # Follow logs
-  $0 logs -f grafana          # Follow logs for grafana only
   $0 down                     # Stop stack
   $0 clean                    # Remove all data and stop
 
 ${YELLOW}Access:${NC}
-  Grafana UI: http://localhost:3000 (auto-login, no password)
+  Tempo HTTP API: http://localhost:3200
 
 ${YELLOW}Documentation:${NC}
   - Quick start: observability/README.md
-  - Full guide: dev/context/observability-guide.md
 
 EOF
 }
@@ -58,8 +55,9 @@ case "${1:-help}" in
         echo -e "${GREEN}Starting observability stack...${NC}"
         docker compose --profile observability up "$@"
         if [[ "$*" == *"-d"* ]]; then
-            echo -e "${GREEN}✓ Observability stack started${NC}"
-            echo -e "  Grafana UI: ${YELLOW}http://localhost:3000${NC}"
+            echo -e "${GREEN}Observability stack started${NC}"
+            echo -e "  Tempo HTTP API: ${YELLOW}http://localhost:3200${NC}"
+            echo -e "  OTLP gRPC:     ${YELLOW}localhost:4317${NC}"
         fi
         ;;
 
@@ -67,20 +65,19 @@ case "${1:-help}" in
         shift
         echo -e "${YELLOW}Stopping observability stack...${NC}"
         docker compose --profile observability down "$@"
-        echo -e "${GREEN}✓ Observability stack stopped${NC}"
+        echo -e "${GREEN}Observability stack stopped${NC}"
         ;;
 
     restart)
         echo -e "${YELLOW}Restarting observability stack...${NC}"
         docker compose --profile observability restart
-        echo -e "${GREEN}✓ Observability stack restarted${NC}"
+        echo -e "${GREEN}Observability stack restarted${NC}"
         ;;
 
     logs)
         shift
-        # If no service specified, show all observability services
         if [[ $# -eq 0 ]] || [[ "$1" == -* ]]; then
-            docker compose logs "$@" tempo loki grafana
+            docker compose logs "$@" tempo
         else
             docker compose logs "$@"
         fi
@@ -88,7 +85,7 @@ case "${1:-help}" in
 
     status)
         echo -e "${GREEN}Observability Stack Status:${NC}"
-        docker compose ps tempo loki grafana
+        docker compose ps tempo
         ;;
 
     clean)
@@ -100,14 +97,10 @@ case "${1:-help}" in
             docker compose --profile observability down -v
             echo -e "${YELLOW}Removing data directory...${NC}"
             rm -rf observability/data
-            echo -e "${GREEN}✓ Observability data cleaned${NC}"
+            echo -e "${GREEN}Observability data cleaned${NC}"
         else
             echo -e "${YELLOW}Cancelled.${NC}"
         fi
-        ;;
-
-    url)
-        echo "http://localhost:3000"
         ;;
 
     help|--help|-h)

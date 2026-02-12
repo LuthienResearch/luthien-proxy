@@ -34,12 +34,6 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.service_name == "luthien-proxy"
 
-    def test_default_grafana_url(self, monkeypatch):
-        """Test default Grafana URL."""
-        monkeypatch.delenv("GRAFANA_URL", raising=False)
-        settings = Settings(_env_file=None)
-        assert settings.grafana_url == "http://localhost:3000"
-
     def test_default_gateway_port(self, monkeypatch):
         """Test default gateway port is 8000."""
         monkeypatch.delenv("GATEWAY_PORT", raising=False)

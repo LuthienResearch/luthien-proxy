@@ -26,16 +26,16 @@ from luthien_proxy.debug.service import (
 class TestBuildTempoUrl:
     """Test Tempo URL building."""
 
-    def test_default_grafana_url(self):
-        """Test URL building with default Grafana URL."""
+    def test_default_tempo_url(self):
+        """Test URL building with default Tempo URL."""
         url = build_tempo_url("test-call-id")
-        assert "localhost:3000" in url
+        assert "localhost:3200" in url
         assert "test-call-id" in url
 
-    def test_custom_grafana_url(self):
-        """Test URL building with custom Grafana URL."""
-        url = build_tempo_url("test-call-id", grafana_url="https://grafana.example.com")
-        assert "grafana.example.com" in url
+    def test_custom_tempo_url(self):
+        """Test URL building with custom Tempo URL."""
+        url = build_tempo_url("test-call-id", tempo_url="https://tempo.example.com")
+        assert "tempo.example.com" in url
         assert "test-call-id" in url
 
 

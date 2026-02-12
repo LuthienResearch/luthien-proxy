@@ -10,15 +10,12 @@ These functions are designed to be easily testable without FastAPI dependencies.
 
 from __future__ import annotations
 
-import json
 import urllib.parse
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from luthien_proxy.utils.db import DatabasePool
-
-from luthien_proxy.settings import get_settings
 
 from .models import (
     CallDiffResponse,
@@ -34,32 +31,21 @@ from .models import (
 # === URL Building ===
 
 
-def build_tempo_url(call_id: str, grafana_url: str | None = None) -> str:
-    """Build Grafana Tempo trace URL for a call_id.
+def build_tempo_url(call_id: str, tempo_url: str | None = None) -> str:
+    """Build a Tempo API search URL for a call_id.
 
     Args:
         call_id: Unique identifier for the request/response cycle
-        grafana_url: Base URL for Grafana instance (defaults to settings.grafana_url)
+        tempo_url: Base URL for the Tempo HTTP API (defaults to http://localhost:3200)
 
     Returns:
-        URL-encoded Grafana Tempo search URL
+        Tempo API search URL with a TraceQL query for this call_id
     """
-    if grafana_url is None:
-        grafana_url = get_settings().grafana_url
-    # TraceQL query: { span."luthien.call_id" = "call_id_value" }
-    # The attribute name contains a dot, so it must be quoted per TraceQL syntax.
-    # We also need the span. scope prefix for span attributes.
+    if tempo_url is None:
+        tempo_url = "http://localhost:3200"
     traceql_query = f'{{ span."luthien.call_id" = "{call_id}" }}'
-
-    # Build the Grafana Explore left pane JSON structure
-    left_pane = {
-        "datasource": "tempo",
-        "queries": [{"refId": "A", "queryType": "traceql", "query": traceql_query}],
-        "range": {"from": "now-1h", "to": "now"},
-    }
-    # URL-encode the entire JSON to avoid issues with double quotes breaking URLs
-    encoded_left = urllib.parse.quote(json.dumps(left_pane), safe="")
-    return f"{grafana_url}/explore?orgId=1&left={encoded_left}"
+    encoded_query = urllib.parse.quote(traceql_query)
+    return f"{tempo_url}/api/search?q={encoded_query}"
 
 
 # === Message Content Extraction ===
