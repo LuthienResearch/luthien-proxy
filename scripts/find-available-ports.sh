@@ -21,6 +21,10 @@ declare -A PORT_DEFAULTS=(
 
 is_port_free() {
     local port="$1"
+    # Validate port range (1024-65535 for unprivileged ports)
+    if [[ "$port" -lt 1024 || "$port" -gt 65535 ]]; then
+        return 1
+    fi
     if command -v ss &>/dev/null; then
         ! ss -tlnH "sport = :${port}" | grep -q .
     else
@@ -29,6 +33,8 @@ is_port_free() {
 }
 
 find_free_port() {
+    # Note: inherent TOCTOU race between checking port availability and Docker binding.
+    # This is acceptable for dev tooling — collisions are rare and easily resolved by retry.
     local start="$1"
     local port="$start"
     local max_attempts=100
@@ -41,7 +47,7 @@ find_free_port() {
         port=$((port + 1))
     done
 
-    echo "Error: could not find a free port starting from ${start}" >&2
+    echo "Error: could not find a free port starting from ${start} after ${max_attempts} attempts" >&2
     return 1
 }
 
