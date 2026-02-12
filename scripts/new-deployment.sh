@@ -3,6 +3,7 @@
 # ABOUTME: Enables running multiple luthien-proxy instances on the same machine without conflicts.
 
 set -e
+set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -20,6 +21,7 @@ Options:
   --offset N        Port offset from defaults (default: auto-detect from existing .env files)
   --output FILE     Write to FILE instead of .env (useful for managing multiple .env files)
   --dry-run         Print the .env contents without writing
+  -f, --force       Skip confirmation prompt (useful for CI/automation)
   -h, --help        Show this help
 
 Examples:
@@ -47,19 +49,32 @@ DEPLOYMENT_NAME=""
 PORT_OFFSET=""
 OUTPUT_FILE=".env"
 DRY_RUN=false
+FORCE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --offset)
+            if [[ $# -lt 2 ]] || [[ "$2" == -* ]]; then
+                echo "Error: --offset requires a numeric value"
+                exit 1
+            fi
             PORT_OFFSET="$2"
             shift 2
             ;;
         --output)
+            if [[ $# -lt 2 ]] || [[ "$2" == -* ]]; then
+                echo "Error: --output requires a filename"
+                exit 1
+            fi
             OUTPUT_FILE="$2"
             shift 2
             ;;
         --dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        -f|--force)
+            FORCE=true
             shift
             ;;
         -h|--help)
@@ -103,8 +118,8 @@ if [[ -z "$PORT_OFFSET" ]]; then
     max_gateway=8000
     for envfile in .env .env.*; do
         [[ -f "$envfile" ]] || continue
-        gw_port=$(grep "^GATEWAY_PORT=" "$envfile" 2>/dev/null | cut -d'=' -f2)
-        if [[ -n "$gw_port" ]] && [[ "$gw_port" -gt "$max_gateway" ]] 2>/dev/null; then
+        gw_port=$(grep "^GATEWAY_PORT=" "$envfile" 2>/dev/null | sed 's/^[^=]*=//')
+        if [[ -n "$gw_port" ]] && [[ "$gw_port" =~ ^[0-9]+$ ]] && [[ "$gw_port" -gt "$max_gateway" ]]; then
             max_gateway="$gw_port"
         fi
     done
@@ -141,8 +156,8 @@ OPENAI_API_KEY="your_openai_api_key_here"
 ANTHROPIC_API_KEY="your_anthropic_api_key_here"
 
 if [[ -f .env ]]; then
-    existing_openai=$(grep "^OPENAI_API_KEY=" .env 2>/dev/null | cut -d'=' -f2)
-    existing_anthropic=$(grep "^ANTHROPIC_API_KEY=" .env 2>/dev/null | cut -d'=' -f2)
+    existing_openai=$(grep "^OPENAI_API_KEY=" .env 2>/dev/null | sed 's/^[^=]*=//')
+    existing_anthropic=$(grep "^ANTHROPIC_API_KEY=" .env 2>/dev/null | sed 's/^[^=]*=//')
     if [[ -n "$existing_openai" ]]; then
         OPENAI_API_KEY="$existing_openai"
     fi
@@ -215,7 +230,7 @@ if [[ "$OUTPUT_FILE" != /* ]]; then
     OUTPUT_FILE="${PROJECT_ROOT}/${OUTPUT_FILE}"
 fi
 
-if [[ -f "$OUTPUT_FILE" ]]; then
+if [[ -f "$OUTPUT_FILE" ]] && [[ "$FORCE" != "true" ]]; then
     echo "Warning: $OUTPUT_FILE already exists."
     read -p "Overwrite? (y/N) " -n 1 -r
     echo
@@ -226,6 +241,7 @@ if [[ -f "$OUTPUT_FILE" ]]; then
 fi
 
 echo "$ENV_CONTENT" > "$OUTPUT_FILE"
+chmod 600 "$OUTPUT_FILE"
 
 echo ""
 echo "Created deployment '${DEPLOYMENT_NAME}' -> ${OUTPUT_FILE}"
