@@ -103,8 +103,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         """Initialize with sub-policy configs and a consolidation strategy."""
         if consolidation_strategy not in VALID_STRATEGIES:
             raise ValueError(
-                f"Unknown consolidation_strategy '{consolidation_strategy}'. "
-                f"Valid options: {sorted(VALID_STRATEGIES)}"
+                f"Unknown consolidation_strategy '{consolidation_strategy}'. Valid options: {sorted(VALID_STRATEGIES)}"
             )
 
         self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
@@ -142,9 +141,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         )
         return self._consolidate_requests(request, results)
 
-    async def on_openai_response(
-        self, response: "ModelResponse", context: "PolicyContext"
-    ) -> "ModelResponse":
+    async def on_openai_response(self, response: "ModelResponse", context: "PolicyContext") -> "ModelResponse":
         """Run all OpenAI-compatible sub-policies on the response in parallel."""
         openai_policies = [p for p in self._sub_policies if isinstance(p, OpenAIPolicyInterface)]
         if not openai_policies:
@@ -268,9 +265,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     # Anthropic Interface - Non-streaming
     # =========================================================================
 
-    async def on_anthropic_request(
-        self, request: "AnthropicRequest", context: "PolicyContext"
-    ) -> "AnthropicRequest":
+    async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
         """Run all Anthropic-compatible sub-policies on the request in parallel."""
         anthropic_policies = [p for p in self._sub_policies if isinstance(p, AnthropicPolicyInterface)]
         if not anthropic_policies:

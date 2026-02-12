@@ -140,9 +140,7 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
     # Anthropic Interface
     # =========================================================================
 
-    async def on_anthropic_request(
-        self, request: "AnthropicRequest", context: "PolicyContext"
-    ) -> "AnthropicRequest":
+    async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
         """Chain request through each Anthropic-compatible sub-policy."""
         for policy in self._sub_policies:
             if isinstance(policy, AnthropicPolicyInterface):
