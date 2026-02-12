@@ -164,25 +164,25 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         object reference. Policies should return the original object if unchanged,
         not a copy with identical values.
         """
-        modified = [(i, r) for i, r in enumerate(results) if r != original]
+        modified = [r for r in results if r != original]
 
         if not modified:
             return original
 
         if self._strategy == "first_block":
-            return modified[0][1]
+            return modified[0]
 
         if self._strategy == "most_restrictive":
-            return min(modified, key=lambda pair: len(str(pair[1].messages)))[1]
+            return min(modified, key=lambda r: len(str(r.messages)))
 
         if self._strategy == "unanimous_pass":
-            return modified[0][1]
+            return modified[0]
 
         if self._strategy == "majority_pass":
             passed = len(results) - len(modified)
             if passed > len(results) / 2:
                 return original
-            return modified[0][1]
+            return modified[0]
 
         return original
 
@@ -195,25 +195,25 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         object reference. Policies should return the original object if unchanged,
         not a copy with identical values.
         """
-        modified = [(i, r) for i, r in enumerate(results) if r != original]
+        modified = [r for r in results if r != original]
 
         if not modified:
             return original
 
         if self._strategy == "first_block":
-            return modified[0][1]
+            return modified[0]
 
         if self._strategy == "most_restrictive":
-            return min(modified, key=lambda pair: _response_content_length(pair[1]))[1]
+            return min(modified, key=_response_content_length)
 
         if self._strategy == "unanimous_pass":
-            return modified[0][1]
+            return modified[0]
 
         if self._strategy == "majority_pass":
             passed = len(results) - len(modified)
             if passed > len(results) / 2:
                 return original
-            return modified[0][1]
+            return modified[0]
 
         return original
 
@@ -308,25 +308,25 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         object reference. Policies should return the original object if unchanged,
         not a copy with identical values.
         """
-        modified = [(_, r) for _, r in enumerate(results) if r != original]
+        modified = [r for r in results if r != original]
 
         if not modified:
             return original
 
         if self._strategy == "first_block":
-            return modified[0][1]
+            return modified[0]
 
         if self._strategy == "most_restrictive":
-            return min(modified, key=lambda pair: len(str(pair[1].get("messages", []))))[1]
+            return min(modified, key=lambda r: len(str(r.get("messages", []))))
 
         if self._strategy == "unanimous_pass":
-            return modified[0][1]
+            return modified[0]
 
         if self._strategy == "majority_pass":
             passed = len(results) - len(modified)
             if passed > len(results) / 2:
                 return original
-            return modified[0][1]
+            return modified[0]
 
         return original
 
@@ -339,25 +339,25 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         object reference. Policies should return the original object if unchanged,
         not a copy with identical values.
         """
-        modified = [(_, r) for _, r in enumerate(results) if r != original]
+        modified = [r for r in results if r != original]
 
         if not modified:
             return original
 
         if self._strategy == "first_block":
-            return modified[0][1]
+            return modified[0]
 
         if self._strategy == "most_restrictive":
-            return min(modified, key=lambda pair: _anthropic_response_content_length(pair[1]))[1]
+            return min(modified, key=_anthropic_response_content_length)
 
         if self._strategy == "unanimous_pass":
-            return modified[0][1]
+            return modified[0]
 
         if self._strategy == "majority_pass":
             passed = len(results) - len(modified)
             if passed > len(results) / 2:
                 return original
-            return modified[0][1]
+            return modified[0]
 
         return original
 
