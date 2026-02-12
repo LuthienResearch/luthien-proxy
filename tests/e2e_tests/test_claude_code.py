@@ -16,6 +16,8 @@ Prerequisites:
 import asyncio
 import json
 import os
+import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 
 import pytest
@@ -151,6 +153,7 @@ async def run_claude_code(
     api_key: str = API_KEY,
     system_prompt: str | None = None,
     working_dir: str | None = None,
+    resume_session_id: str | None = None,
 ) -> ClaudeCodeResult:
     """Run claude CLI in print mode and parse the output.
 
@@ -163,11 +166,15 @@ async def run_claude_code(
         api_key: API key for authentication
         system_prompt: Optional system prompt override
         working_dir: Working directory for claude command
+        resume_session_id: Session ID to resume (for multi-turn conversations)
 
     Returns:
         ClaudeCodeResult with parsed events and metadata
     """
     cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose"]
+
+    if resume_session_id:
+        cmd.extend(["--resume", resume_session_id])
 
     if tools:
         cmd.extend(["--tools", " ".join(tools)])
@@ -494,3 +501,91 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
         assert "⛔ TEST_BLOCK" in result.final_result, (
             f"Expected block message '⛔ TEST_BLOCK' in output, got: {result.final_result[:200]}"
         )
+
+
+# === Multi-turn Session Tests ===
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_claude_code_multiturn_with_compact(claude_available, gateway_healthy, tmp_path):
+    """Test a multi-turn Claude Code session with tool calls, /compact, and post-compact interaction.
+
+    This exercises the full session lifecycle through the proxy:
+    1. Initial prompt triggers 3+ tool calls (at least 2 of the same tool type)
+    2. Resume the session and send /compact to compress context
+    3. Resume again and verify the session still functions
+    """
+    test_id = uuid.uuid4().hex[:8]
+    test_dir = tmp_path / f"test_e2e_{test_id}"
+    test_dir.mkdir()
+
+    # --- Step 1: Create files and read them back (produces Write x3 + Read x2 tool calls) ---
+
+    step1_prompt = (
+        f"Create three files:\n"
+        f"  1. {test_dir}/a.txt containing exactly 'hello'\n"
+        f"  2. {test_dir}/b.txt containing exactly 'world'\n"
+        f"  3. {test_dir}/c.txt containing exactly 'test'\n"
+        f"Then read back a.txt and b.txt to confirm their contents. Be brief."
+    )
+
+    step1 = await run_claude_code(
+        prompt=step1_prompt,
+        tools=None,
+        max_turns=10,
+        timeout_seconds=120,
+        working_dir=str(tmp_path),
+    )
+
+    assert step1.is_success, f"Step 1 failed: {step1.stderr}\nOutput: {step1.raw_output[:500]}"
+    assert step1.session_id, "Step 1 must produce a session_id for resumption"
+
+    # Verify at least 3 tool uses total
+    assert len(step1.tool_uses) >= 3, (
+        f"Expected at least 3 tool uses, got {len(step1.tool_uses)}: {[u.get('name') for u in step1.tool_uses]}"
+    )
+
+    # Verify at least 2 uses of the same tool
+    tool_counts = Counter(u.get("name", "") for u in step1.tool_uses)
+    max_same_tool = max(tool_counts.values())
+    assert max_same_tool >= 2, f"Expected at least 2 uses of the same tool, got counts: {dict(tool_counts)}"
+
+    # Verify the files were actually created
+    assert (test_dir / "a.txt").exists(), "a.txt should have been created"
+    assert (test_dir / "b.txt").exists(), "b.txt should have been created"
+    assert (test_dir / "c.txt").exists(), "c.txt should have been created"
+
+    session_id = step1.session_id
+
+    # --- Step 2: Resume session and send /compact ---
+
+    step2 = await run_claude_code(
+        prompt="/compact",
+        max_turns=1,
+        timeout_seconds=120,
+        resume_session_id=session_id,
+        working_dir=str(tmp_path),
+    )
+
+    # /compact should complete without error.
+    # It may return is_success=True with an empty result, or produce a compact_boundary event.
+    assert step2.is_success or any(e.raw.get("subtype") == "compact_boundary" for e in step2.events), (
+        f"Step 2 (/compact) failed: {step2.stderr}\nOutput: {step2.raw_output[:500]}"
+    )
+
+    # --- Step 3: Resume again and verify the session still works ---
+
+    step3 = await run_claude_code(
+        prompt="What files did you create earlier? List their names briefly.",
+        max_turns=3,
+        timeout_seconds=120,
+        resume_session_id=session_id,
+        working_dir=str(tmp_path),
+    )
+
+    assert step3.is_success, f"Step 3 (post-compact query) failed: {step3.stderr}\nOutput: {step3.raw_output[:500]}"
+
+    # After compact, Claude may or may not remember exact details.
+    # The key assertion: the session is still functional and produces a response.
+    assert step3.final_result, "Step 3 should produce a non-empty response"
