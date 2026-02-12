@@ -61,9 +61,8 @@ for var in POSTGRES_PORT REDIS_PORT GATEWAY_PORT TEMPO_OTLP_PORT TEMPO_HTTP_PORT
         continue
     fi
 
-    port=$(find_free_port "$default")
-    if [[ $? -ne 0 ]]; then
-        echo "FATAL: ${var} — ${port}" >&2
+    if ! port=$(find_free_port "$default"); then
+        echo "FATAL: ${var} could not find a free port" >&2
         exit 1
     fi
 

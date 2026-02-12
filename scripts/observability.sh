@@ -58,9 +58,6 @@ fi
 # Auto-select free ports for any not pinned in .env
 source "${SCRIPT_DIR}/find-available-ports.sh"
 
-TEMPO_HTTP_PORT="${TEMPO_HTTP_PORT:-3200}"
-TEMPO_OTLP_PORT="${TEMPO_OTLP_PORT:-4317}"
-
 # Main command router
 case "${1:-help}" in
     up)
