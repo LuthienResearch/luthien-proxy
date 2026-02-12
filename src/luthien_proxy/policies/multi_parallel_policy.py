@@ -24,8 +24,9 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from luthien_proxy.policies.multi_policy_utils import load_sub_policy
 from luthien_proxy.policy_core import (
     AnthropicPolicyInterface,
     AnthropicStreamEvent,
@@ -35,6 +36,8 @@ from luthien_proxy.policy_core import (
 )
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from litellm.types.utils import ModelResponse
 
     from luthien_proxy.llm.types import Request
@@ -50,16 +53,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 VALID_STRATEGIES = frozenset({"first_block", "most_restrictive", "unanimous_pass", "majority_pass"})
-
-
-def _load_sub_policy(policy_config: dict[str, Any]) -> PolicyProtocol:
-    """Load a single sub-policy from its config dict."""
-    from luthien_proxy.config import _import_policy_class, _instantiate_policy  # noqa: PLC0415
-
-    class_ref = policy_config["class"]
-    config = policy_config.get("config", {})
-    policy_class = _import_policy_class(class_ref)
-    return _instantiate_policy(policy_class, config)
 
 
 def _response_content_length(response: "ModelResponse") -> int:
@@ -97,6 +90,9 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
       leave it unchanged. If any policy modifies it, use the first modified version.
     - "majority_pass": The response passes unchanged if a strict majority
       of policies leave it unchanged. Otherwise use the first modified version.
+
+    Note: If any sub-policy raises an exception during parallel execution,
+    the exception will propagate and fail the entire request/response processing.
     """
 
     def __init__(
@@ -111,7 +107,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 f"Valid options: {sorted(VALID_STRATEGIES)}"
             )
 
-        self._sub_policies: list[PolicyProtocol] = [_load_sub_policy(cfg) for cfg in policies]
+        self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
         self._strategy = consolidation_strategy
 
         names = [p.short_policy_name for p in self._sub_policies]
@@ -136,9 +132,13 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if not openai_policies:
             return request
 
-        copies = [request.model_copy(deep=True) for _ in openai_policies]
+        request_copies = [request.model_copy(deep=True) for _ in openai_policies]
+        context_copies = [copy.deepcopy(context) for _ in openai_policies]
         results = await asyncio.gather(
-            *(p.on_openai_request(req_copy, context) for p, req_copy in zip(openai_policies, copies))
+            *(
+                p.on_openai_request(req_copy, ctx_copy)
+                for p, req_copy, ctx_copy in zip(openai_policies, request_copies, context_copies)
+            )
         )
         return self._consolidate_requests(request, results)
 
@@ -150,14 +150,23 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if not openai_policies:
             return response
 
-        copies = [copy.deepcopy(response) for _ in openai_policies]
+        response_copies = [copy.deepcopy(response) for _ in openai_policies]
+        context_copies = [copy.deepcopy(context) for _ in openai_policies]
         results = await asyncio.gather(
-            *(p.on_openai_response(resp_copy, context) for p, resp_copy in zip(openai_policies, copies))
+            *(
+                p.on_openai_response(resp_copy, ctx_copy)
+                for p, resp_copy, ctx_copy in zip(openai_policies, response_copies, context_copies)
+            )
         )
         return self._consolidate_openai_responses(response, results)
 
     def _consolidate_requests(self, original: "Request", results: list["Request"]) -> "Request":
-        """Pick the winning request based on the consolidation strategy."""
+        """Pick the winning request based on the consolidation strategy.
+
+        Modification detection uses != to check if the policy returned a different
+        object reference. Policies should return the original object if unchanged,
+        not a copy with identical values.
+        """
         modified = [(i, r) for i, r in enumerate(results) if r != original]
 
         if not modified:
@@ -183,7 +192,12 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     def _consolidate_openai_responses(
         self, original: "ModelResponse", results: list["ModelResponse"]
     ) -> "ModelResponse":
-        """Pick the winning OpenAI response based on the consolidation strategy."""
+        """Pick the winning OpenAI response based on the consolidation strategy.
+
+        Modification detection uses != to check if the policy returned a different
+        object reference. Policies should return the original object if unchanged,
+        not a copy with identical values.
+        """
         modified = [(i, r) for i, r in enumerate(results) if r != original]
 
         if not modified:
@@ -262,9 +276,13 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if not anthropic_policies:
             return request
 
-        copies = [copy.deepcopy(request) for _ in anthropic_policies]
+        request_copies = [copy.deepcopy(request) for _ in anthropic_policies]
+        context_copies = [copy.deepcopy(context) for _ in anthropic_policies]
         results = await asyncio.gather(
-            *(p.on_anthropic_request(req_copy, context) for p, req_copy in zip(anthropic_policies, copies))
+            *(
+                p.on_anthropic_request(req_copy, ctx_copy)
+                for p, req_copy, ctx_copy in zip(anthropic_policies, request_copies, context_copies)
+            )
         )
         return self._consolidate_anthropic_requests(request, results)
 
@@ -276,17 +294,26 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if not anthropic_policies:
             return response
 
-        copies = [copy.deepcopy(response) for _ in anthropic_policies]
+        response_copies = [copy.deepcopy(response) for _ in anthropic_policies]
+        context_copies = [copy.deepcopy(context) for _ in anthropic_policies]
         results = await asyncio.gather(
-            *(p.on_anthropic_response(resp_copy, context) for p, resp_copy in zip(anthropic_policies, copies))
+            *(
+                p.on_anthropic_response(resp_copy, ctx_copy)
+                for p, resp_copy, ctx_copy in zip(anthropic_policies, response_copies, context_copies)
+            )
         )
         return self._consolidate_anthropic_responses(response, results)
 
     def _consolidate_anthropic_requests(
         self, original: "AnthropicRequest", results: list["AnthropicRequest"]
     ) -> "AnthropicRequest":
-        """Pick the winning Anthropic request based on the consolidation strategy."""
-        modified = [(i, r) for i, r in enumerate(results) if r != original]
+        """Pick the winning Anthropic request based on the consolidation strategy.
+
+        Modification detection uses != to check if the policy returned a different
+        object reference. Policies should return the original object if unchanged,
+        not a copy with identical values.
+        """
+        modified = [(_, r) for _, r in enumerate(results) if r != original]
 
         if not modified:
             return original
@@ -311,8 +338,13 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     def _consolidate_anthropic_responses(
         self, original: "AnthropicResponse", results: list["AnthropicResponse"]
     ) -> "AnthropicResponse":
-        """Pick the winning Anthropic response based on the consolidation strategy."""
-        modified = [(i, r) for i, r in enumerate(results) if r != original]
+        """Pick the winning Anthropic response based on the consolidation strategy.
+
+        Modification detection uses != to check if the policy returned a different
+        object reference. Policies should return the original object if unchanged,
+        not a copy with identical values.
+        """
+        modified = [(_, r) for _, r in enumerate(results) if r != original]
 
         if not modified:
             return original
