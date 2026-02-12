@@ -8,6 +8,10 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# Port variable names and their base (default) values
+PORT_VARS=(POSTGRES_PORT REDIS_PORT GATEWAY_PORT TEMPO_OTLP_PORT TEMPO_HTTP_PORT)
+PORT_DEFAULTS=(5433 6379 8000 4317 3200)
+
 usage() {
     cat <<EOF
 Create a new luthien-proxy deployment with unique ports.
@@ -26,17 +30,15 @@ Options:
 
 Examples:
   $0 experiment1                  # Auto-picks available port offset
-  $0 experiment2 --offset 100     # Explicit offset: gateway=8100, postgres=5532, etc.
+  $0 experiment2 --offset 100     # Explicit offset: gateway=8100, postgres=5533, etc.
   $0 staging --output .env.staging
 
 Port mapping with --offset 100:
   Gateway:    8000 -> 8100
-  PostgreSQL: 5432 -> 5532
+  PostgreSQL: 5433 -> 5533
   Redis:      6379 -> 6479
   Tempo OTLP: 4317 -> 4417
   Tempo HTTP: 3200 -> 3300
-  Loki:       3100 -> 3200
-  Grafana:    3000 -> 3100
 
 To use a non-default .env file:
   docker compose --env-file .env.staging up -d
@@ -112,20 +114,30 @@ SANITIZED_NAME=$(echo "$DEPLOYMENT_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[
 cd "$PROJECT_ROOT"
 
 # --- Auto-detect port offset if not specified ---
+# Scans ALL port variables across all .env* files, computes each one's offset
+# relative to its default, and picks max_offset + 100 as the new offset.
 
 if [[ -z "$PORT_OFFSET" ]]; then
-    max_gateway=8000
+    max_offset=0
+
     for envfile in .env .env.*; do
         [[ -f "$envfile" ]] || continue
-        gw_port=$(grep "^GATEWAY_PORT=" "$envfile" 2>/dev/null | cut -d= -f2)
-        if [[ -n "$gw_port" ]] && [[ "$gw_port" =~ ^[0-9]+$ ]] && [[ "$gw_port" -gt "$max_gateway" ]]; then
-            max_gateway="$gw_port"
-        fi
+
+        for i in "${!PORT_VARS[@]}"; do
+            var_name="${PORT_VARS[$i]}"
+            base_value="${PORT_DEFAULTS[$i]}"
+
+            port_value=$(grep "^${var_name}=" "$envfile" 2>/dev/null | cut -d= -f2)
+            if [[ -n "$port_value" ]] && [[ "$port_value" =~ ^[0-9]+$ ]]; then
+                offset=$((port_value - base_value))
+                if [[ "$offset" -gt "$max_offset" ]]; then
+                    max_offset="$offset"
+                fi
+            fi
+        done
     done
 
-    current_offset=$((max_gateway - 8000))
-    PORT_OFFSET=$((current_offset + 100))
-
+    PORT_OFFSET=$((max_offset + 100))
     echo "Auto-selected port offset: $PORT_OFFSET"
 fi
 
@@ -138,12 +150,10 @@ fi
 # --- Compute ports ---
 
 GATEWAY_PORT=$((8000 + PORT_OFFSET))
-POSTGRES_PORT=$((5432 + PORT_OFFSET))
+POSTGRES_PORT=$((5433 + PORT_OFFSET))
 REDIS_PORT=$((6379 + PORT_OFFSET))
 TEMPO_OTLP_PORT=$((4317 + PORT_OFFSET))
 TEMPO_HTTP_PORT=$((3200 + PORT_OFFSET))
-LOKI_PORT=$((3100 + PORT_OFFSET))
-GRAFANA_PORT=$((3000 + PORT_OFFSET))
 
 # --- Source API keys from existing .env if available ---
 
@@ -202,11 +212,6 @@ ENVIRONMENT=development
 # Observability Ports
 TEMPO_OTLP_PORT=${TEMPO_OTLP_PORT}
 TEMPO_HTTP_PORT=${TEMPO_HTTP_PORT}
-LOKI_PORT=${LOKI_PORT}
-GRAFANA_PORT=${GRAFANA_PORT}
-
-# Grafana URL (adjusted for this deployment's port)
-GRAFANA_URL=http://localhost:${GRAFANA_PORT}
 "
 
 # --- Output ---
@@ -243,8 +248,6 @@ echo "  PostgreSQL: ${POSTGRES_PORT}"
 echo "  Redis:      ${REDIS_PORT}"
 echo "  Tempo OTLP: ${TEMPO_OTLP_PORT}  (observability profile)"
 echo "  Tempo HTTP: ${TEMPO_HTTP_PORT}  (observability profile)"
-echo "  Loki:       ${LOKI_PORT}  (observability profile)"
-echo "  Grafana:    ${GRAFANA_PORT}  (observability profile)"
 echo ""
 
 if [[ "$OUTPUT_FILE" == "${PROJECT_ROOT}/.env" ]]; then
