@@ -47,12 +47,10 @@ class Settings(BaseSettings):
     otel_enabled: bool = True
     otel_exporter_otlp_endpoint: str | None = None
     otel_endpoint: str = "http://tempo:4317"  # Legacy fallback
+    tempo_url: str = "http://localhost:3200"
     service_name: str = "luthien-proxy"
     service_version: str = "2.0.0"
     environment: str = "development"
-
-    # Debug/UI configuration
-    grafana_url: str = "http://localhost:3000"
 
     # LLM Judge policy configuration
     llm_judge_model: str | None = None

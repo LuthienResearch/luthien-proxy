@@ -34,17 +34,17 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.service_name == "luthien-proxy"
 
-    def test_default_grafana_url(self, monkeypatch):
-        """Test default Grafana URL."""
-        monkeypatch.delenv("GRAFANA_URL", raising=False)
-        settings = Settings(_env_file=None)
-        assert settings.grafana_url == "http://localhost:3000"
-
     def test_default_gateway_port(self, monkeypatch):
         """Test default gateway port is 8000."""
         monkeypatch.delenv("GATEWAY_PORT", raising=False)
         settings = Settings(_env_file=None)
         assert settings.gateway_port == 8000
+
+    def test_default_tempo_url(self, monkeypatch):
+        """Test default Tempo URL for local development."""
+        monkeypatch.delenv("TEMPO_URL", raising=False)
+        settings = Settings(_env_file=None)
+        assert settings.tempo_url == "http://localhost:3200"
 
     def test_optional_fields_default_to_none(self, monkeypatch):
         """Test optional fields default to None."""
@@ -106,6 +106,12 @@ class TestSettingsFromEnv:
         monkeypatch.setenv("GATEWAY_PORT", "3000")
         settings = Settings()
         assert settings.gateway_port == 3000
+
+    def test_loads_tempo_url(self, monkeypatch):
+        """Test TEMPO_URL overrides default."""
+        monkeypatch.setenv("TEMPO_URL", "http://tempo.prod:3200")
+        settings = Settings()
+        assert settings.tempo_url == "http://tempo.prod:3200"
 
 
 class TestEffectiveOtelEndpoint:

@@ -37,7 +37,7 @@ Choose the guide that matches your goal:
   *Step-by-step walkthrough using the UppercaseNthWordPolicy to explore all V2 observability features*
 
 - **Need to view a specific trace?** → [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md)
-  *Quick reference for accessing traces and logs in Grafana/Tempo*
+  *Quick reference for accessing traces in Tempo*
 
 - **Understanding the observability system?** → [observability.md](observability.md)
   *Complete architecture, implementation status, and design decisions*
