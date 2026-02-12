@@ -85,7 +85,7 @@ services:
       - PROXY_API_KEY=${PROXY_API_KEY}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - POLICY_SOURCE=${POLICY_SOURCE:-db-fallback-file}
-      - GATEWAY_PORT=${GATEWAY_PORT:-8000}
+      - GATEWAY_PORT=8000
       - POLICY_CONFIG=${POLICY_CONFIG:-/app/config/policy_config.yaml}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
