@@ -18,8 +18,9 @@ Example config:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from luthien_proxy.policies.multi_policy_utils import load_sub_policy
 from luthien_proxy.policy_core import (
     AnthropicPolicyInterface,
     AnthropicStreamEvent,
@@ -29,6 +30,8 @@ from luthien_proxy.policy_core import (
 )
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from litellm.types.utils import ModelResponse
 
     from luthien_proxy.llm.types import Request
@@ -44,20 +47,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _load_sub_policy(policy_config: dict[str, Any]) -> PolicyProtocol:
-    """Load a single sub-policy from its config dict.
-
-    Reuses the existing config loading machinery so nested policies
-    (including other Multi* policies) work recursively.
-    """
-    from luthien_proxy.config import _import_policy_class, _instantiate_policy  # noqa: PLC0415
-
-    class_ref = policy_config["class"]
-    config = policy_config.get("config", {})
-    policy_class = _import_policy_class(class_ref)
-    return _instantiate_policy(policy_class, config)
-
-
 class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
     """Run multiple policies sequentially, piping each output to the next.
 
@@ -71,7 +60,7 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
 
     def __init__(self, policies: list[dict[str, Any]]) -> None:
         """Initialize with a list of policy config dicts to run in sequence."""
-        self._sub_policies: list[PolicyProtocol] = [_load_sub_policy(cfg) for cfg in policies]
+        self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
         names = [p.short_policy_name for p in self._sub_policies]
         logger.info(f"MultiSerialPolicy initialized with {len(self._sub_policies)} policies: {names}")
 
