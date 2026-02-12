@@ -37,7 +37,7 @@ ${YELLOW}Examples:${NC}
   $0 clean                    # Remove all data and stop
 
 ${YELLOW}Access:${NC}
-  Tempo HTTP API: http://localhost:3200
+  Tempo HTTP API: http://localhost:\${TEMPO_HTTP_PORT:-3200}
 
 ${YELLOW}Documentation:${NC}
   - Quick start: observability/README.md
@@ -48,6 +48,16 @@ EOF
 # Ensure we're in project root
 cd "$PROJECT_ROOT"
 
+# Load .env for port variables
+if [[ -f .env ]]; then
+    set -a
+    source .env
+    set +a
+fi
+
+TEMPO_HTTP_PORT="${TEMPO_HTTP_PORT:-3200}"
+TEMPO_OTLP_PORT="${TEMPO_OTLP_PORT:-4317}"
+
 # Main command router
 case "${1:-help}" in
     up)
@@ -56,8 +66,8 @@ case "${1:-help}" in
         docker compose --profile observability up "$@"
         if [[ "$*" == *"-d"* ]]; then
             echo -e "${GREEN}Observability stack started${NC}"
-            echo -e "  Tempo HTTP API: ${YELLOW}http://localhost:3200${NC}"
-            echo -e "  OTLP gRPC:     ${YELLOW}localhost:4317${NC}"
+            echo -e "  Tempo HTTP API: ${YELLOW}http://localhost:${TEMPO_HTTP_PORT}${NC}"
+            echo -e "  OTLP gRPC:     ${YELLOW}localhost:${TEMPO_OTLP_PORT}${NC}"
         fi
         ;;
 
