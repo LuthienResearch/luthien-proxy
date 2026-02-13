@@ -91,8 +91,13 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     - "majority_pass": The response passes unchanged if a strict majority
       of policies leave it unchanged. Otherwise use the first modified version.
 
-    Note: If any sub-policy raises an exception during parallel execution,
-    the exception will propagate and fail the entire request/response processing.
+    Context isolation: Each sub-policy receives a deep copy of the context.
+    Any mutations made to context by sub-policies are discarded after parallel
+    execution completes. Context modifications are not propagated back.
+
+    Error handling: If any sub-policy raises an exception during parallel execution
+    (asyncio.gather without return_exceptions=True), the exception propagates
+    immediately and fails the entire request/response processing for all policies.
     """
 
     def __init__(
@@ -160,9 +165,9 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     def _consolidate_requests(self, original: "Request", results: list["Request"]) -> "Request":
         """Pick the winning request based on the consolidation strategy.
 
-        Modification detection uses != to check if the policy returned a different
-        object reference. Policies should return the original object if unchanged,
-        not a copy with identical values.
+        Modification detection uses != to check value equality (Pydantic model __eq__),
+        not object identity. Since each policy receives a deep copy, a modified result
+        will have different field values even if it's a different object reference.
         """
         modified = [r for r in results if r != original]
 
@@ -191,9 +196,9 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     ) -> "ModelResponse":
         """Pick the winning OpenAI response based on the consolidation strategy.
 
-        Modification detection uses != to check if the policy returned a different
-        object reference. Policies should return the original object if unchanged,
-        not a copy with identical values.
+        Modification detection uses != to check value equality (Pydantic model __eq__),
+        not object identity. Since each policy receives a deep copy, a modified result
+        will have different field values even if it's a different object reference.
         """
         modified = [r for r in results if r != original]
 
@@ -304,9 +309,9 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     ) -> "AnthropicRequest":
         """Pick the winning Anthropic request based on the consolidation strategy.
 
-        Modification detection uses != to check if the policy returned a different
-        object reference. Policies should return the original object if unchanged,
-        not a copy with identical values.
+        Modification detection uses != to check value equality (dict __eq__),
+        not object identity. Since each policy receives a deep copy, a modified result
+        will have different field values even if it's a different object reference.
         """
         modified = [r for r in results if r != original]
 
@@ -335,9 +340,9 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     ) -> "AnthropicResponse":
         """Pick the winning Anthropic response based on the consolidation strategy.
 
-        Modification detection uses != to check if the policy returned a different
-        object reference. Policies should return the original object if unchanged,
-        not a copy with identical values.
+        Modification detection uses != to check value equality (dict __eq__),
+        not object identity. Since each policy receives a deep copy, a modified result
+        will have different field values even if it's a different object reference.
         """
         modified = [r for r in results if r != original]
 
