@@ -154,6 +154,7 @@ async def run_claude_code(
     system_prompt: str | None = None,
     working_dir: str | None = None,
     resume_session_id: str | None = None,
+    allowed_tools: list[str] | None = None,
 ) -> ClaudeCodeResult:
     """Run claude CLI in print mode and parse the output.
 
@@ -172,6 +173,9 @@ async def run_claude_code(
         ClaudeCodeResult with parsed events and metadata
     """
     cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose"]
+
+    if allowed_tools:
+        cmd.extend(["--permission-mode", "dontAsk", "--allowedTools"] + allowed_tools)
 
     if resume_session_id:
         cmd.extend(["--resume", resume_session_id])
@@ -535,6 +539,7 @@ async def test_claude_code_multiturn_with_compact(claude_available, gateway_heal
         max_turns=10,
         timeout_seconds=120,
         working_dir=str(tmp_path),
+        allowed_tools=["Write", "Read", "Bash"],
     )
 
     assert step1.is_success, f"Step 1 failed: {step1.stderr}\nOutput: {step1.raw_output[:500]}"
