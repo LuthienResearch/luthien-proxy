@@ -115,7 +115,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 ## Build, Test, and Development Commands
 
 - Install dev deps: `uv sync --dev`
-- Start full stack: `./scripts/quick_start.sh`
+- Start full stack: `./scripts/quick_start.sh` (handles auto-port-selection; raw `docker compose up` skips this)
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
 - Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
 - Type check: `uv run pyright`

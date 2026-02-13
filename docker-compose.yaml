@@ -1,3 +1,6 @@
+# Launch with ./scripts/quick_start.sh (auto-selects free ports).
+# Running `docker compose up` directly uses default ports without auto-selection.
+#
 # For distributed tracing (Tempo), use:
 #   ./scripts/observability.sh up -d
 # Or:
@@ -14,7 +17,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -57,7 +60,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "${REDIS_PORT}:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -85,7 +88,7 @@ services:
       - PROXY_API_KEY=${PROXY_API_KEY}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - POLICY_SOURCE=${POLICY_SOURCE:-db-fallback-file}
-      - GATEWAY_PORT=${GATEWAY_PORT:-8000}
+      - GATEWAY_PORT=8000
       - POLICY_CONFIG=${POLICY_CONFIG:-/app/config/policy_config.yaml}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
@@ -133,8 +136,8 @@ services:
       - ./observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
       - ./observability/data/tempo:/var/tempo
     ports:
-      - "4317:4317"  # OTLP gRPC (application sends traces here)
-      - "3200:3200"  # Tempo HTTP API
+      - "${TEMPO_OTLP_PORT:-4317}:4317"  # OTLP gRPC (application sends traces here)
+      - "${TEMPO_HTTP_PORT:-3200}:3200"  # Tempo HTTP API
     networks:
       - default
     deploy:

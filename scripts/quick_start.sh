@@ -64,6 +64,10 @@ if [ -f .env ]; then
     set +a
 fi
 
+# Auto-select free ports for any port variables not pinned in .env
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/find-available-ports.sh"
+
 # Check for insecure default credentials
 echo "🔒 Checking for insecure default credentials..."
 insecure_defaults=false
