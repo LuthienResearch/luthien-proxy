@@ -54,7 +54,7 @@ Luthien works at the layer you already manage: LLM calls and tool usage.
 ## How it works
 
 1. **Set two env vars** - keep your IDE, your tools, your workflow
-2. **Write rules in Python** - plain English evaluated by an LLM judge, or custom logic
+2. **Write rules in English or Python**
 3. **Every request and response passes through your rules** - block, retry, or clean up
 
 All traffic stays on your infrastructure. Nothing is sent to Luthien servers. See [Security and trust](#security-and-trust).
