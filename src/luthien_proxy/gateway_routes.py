@@ -64,7 +64,8 @@ async def verify_token(
         return token
 
     # both mode: try proxy key first, fall through to passthrough
-    assert auth_mode == AuthMode.BOTH
+    if auth_mode != AuthMode.BOTH:
+        raise RuntimeError(f"Unexpected auth_mode: {auth_mode}")
     if secrets.compare_digest(token, api_key):
         return token
     if not credential_manager:

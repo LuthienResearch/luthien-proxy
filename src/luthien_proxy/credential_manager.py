@@ -226,7 +226,12 @@ class CredentialManager:
             raw = await self._redis.get(key)
             if raw is None:
                 continue
-            data = json.loads(raw)
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                key_str = key if isinstance(key, str) else key.decode()
+                logger.warning(f"Corrupted cached credential data for {key_str}, skipping")
+                continue
             key_str = key if isinstance(key, str) else key.decode()
             results.append(
                 CachedCredential(
@@ -246,7 +251,11 @@ class CredentialManager:
         raw = await self._redis.get(f"{REDIS_KEY_PREFIX}{key_hash}")
         if raw is None:
             return None
-        data = json.loads(raw)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning(f"Corrupted cached credential data for {key_hash[:16]}..., treating as cache miss")
+            return None
         return CachedCredential(
             key_hash=key_hash,
             valid=data["valid"],
@@ -275,7 +284,11 @@ class CredentialManager:
         raw = await self._redis.get(redis_key)
         if raw is None:
             return
-        data = json.loads(raw)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning(f"Corrupted cached credential data for {key_hash[:16]}..., skipping touch")
+            return
         data["last_used_at"] = time.time()
         ttl = await self._redis.ttl(redis_key)
         if ttl > 0:
