@@ -111,6 +111,27 @@ class TestMultiParallelPolicyInit:
             policy = MultiParallelPolicy(policies=[_noop_config()], consolidation_strategy=strategy)
             assert policy._strategy == strategy
 
+    def test_designated_strategy_accepted(self):
+        policy = MultiParallelPolicy(
+            policies=[_noop_config()],
+            consolidation_strategy="designated",
+            designated_policy_index=0,
+        )
+        assert policy._strategy == "designated"
+        assert policy._designated_policy_index == 0
+
+    def test_designated_requires_index(self):
+        with pytest.raises(ValueError, match="designated_policy_index is required"):
+            MultiParallelPolicy(policies=[_noop_config()], consolidation_strategy="designated")
+
+    def test_designated_index_out_of_range(self):
+        with pytest.raises(ValueError, match="out of range"):
+            MultiParallelPolicy(
+                policies=[_noop_config()],
+                consolidation_strategy="designated",
+                designated_policy_index=5,
+            )
+
     def test_invalid_strategy_raises(self):
         with pytest.raises(ValueError, match="Unknown consolidation_strategy"):
             MultiParallelPolicy(policies=[_noop_config()], consolidation_strategy="invalid")
@@ -342,6 +363,110 @@ class TestMultiParallelMajorityPass:
 
         # 1 pass, 1 modify -> not a strict majority of passes -> modified wins
         assert result.choices[0].message.content == "HELLO WORLD"
+
+
+# =============================================================================
+# OpenAI Response - designated Strategy
+# =============================================================================
+
+
+class TestMultiParallelDesignated:
+    @pytest.mark.asyncio
+    async def test_designated_policy_modifies_response(self):
+        """When the designated policy modifies the response, use its result."""
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _allcaps_config()],
+            consolidation_strategy="designated",
+            designated_policy_index=1,
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "HELLO WORLD"
+
+    @pytest.mark.asyncio
+    async def test_designated_noop_returns_original(self):
+        """When the designated policy doesn't modify, return the original."""
+        policy = MultiParallelPolicy(
+            policies=[_allcaps_config(), _noop_config()],
+            consolidation_strategy="designated",
+            designated_policy_index=1,
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_designated_ignores_other_modifiers(self):
+        """Only the designated policy's result matters, others are ignored."""
+        policy = MultiParallelPolicy(
+            policies=[
+                _allcaps_config(),
+                _replacement_config([["hello", "goodbye"]]),
+                _noop_config(),
+            ],
+            consolidation_strategy="designated",
+            designated_policy_index=1,
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_response("hello world")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        # Designated is index 1 (replacement policy), AllCaps at index 0 is ignored
+        assert result.choices[0].message.content == "goodbye world"
+
+    @pytest.mark.asyncio
+    async def test_designated_request_noop_returns_original(self):
+        """When designated policy doesn't modify request, return original."""
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _noop_config()],
+            consolidation_strategy="designated",
+            designated_policy_index=1,
+        )
+        ctx = PolicyContext.for_testing()
+        request = Request(model="test", messages=[{"role": "user", "content": "hello"}])
+
+        result = await policy.on_openai_request(request, ctx)
+
+        assert result.messages[0]["content"] == "hello"
+
+    @pytest.mark.asyncio
+    async def test_designated_anthropic_response(self):
+        """Designated strategy works for Anthropic responses."""
+        policy = MultiParallelPolicy(
+            policies=[_noop_config(), _allcaps_config()],
+            consolidation_strategy="designated",
+            designated_policy_index=1,
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_anthropic_response("hello world")
+
+        result = await policy.on_anthropic_response(response, ctx)
+
+        text_block = cast(AnthropicTextBlock, result["content"][0])
+        assert text_block["text"] == "HELLO WORLD"
+
+    @pytest.mark.asyncio
+    async def test_designated_anthropic_response_noop_returns_original(self):
+        """When designated Anthropic policy doesn't modify, return original."""
+        policy = MultiParallelPolicy(
+            policies=[_allcaps_config(), _noop_config()],
+            consolidation_strategy="designated",
+            designated_policy_index=1,
+        )
+        ctx = PolicyContext.for_testing()
+        response = _make_anthropic_response("hello world")
+
+        result = await policy.on_anthropic_response(response, ctx)
+
+        text_block = cast(AnthropicTextBlock, result["content"][0])
+        assert text_block["text"] == "hello world"
 
 
 # =============================================================================
