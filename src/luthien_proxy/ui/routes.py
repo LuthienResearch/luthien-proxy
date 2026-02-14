@@ -149,4 +149,14 @@ async def conversation_live_view(
     return FileResponse(os.path.join(STATIC_DIR, "conversation_live.html"))
 
 
+@router.get("/deploy-instructions")
+async def deploy_instructions():
+    """Deploy instructions page.
+
+    Returns the HTML page with step-by-step setup instructions for getting
+    Claude Code working through the Luthien proxy. Public endpoint.
+    """
+    return FileResponse(os.path.join(STATIC_DIR, "deploy_instructions.html"))
+
+
 __all__ = ["router"]

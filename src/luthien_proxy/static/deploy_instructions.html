@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploy Instructions — Luthien Proxy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0e0e10;
+            --bg-surface: #18181c;
+            --bg-code: #121215;
+            --border: #2a2a30;
+            --border-accent: #d4881e;
+            --text: #e0ddd8;
+            --text-muted: #8a8880;
+            --text-dim: #5a5850;
+            --amber: #d4881e;
+            --amber-glow: rgba(212, 136, 30, 0.12);
+            --green: #4ade80;
+            --red: #f87171;
+            --blue: #60a5fa;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            min-height: 100vh;
+        }
+
+        /* Subtle grain overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        .container {
+            max-width: 780px;
+            margin: 0 auto;
+            padding: 60px 24px 120px;
+        }
+
+        /* Header */
+        .header {
+            margin-bottom: 56px;
+        }
+        .header .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 13px;
+            letter-spacing: 0.03em;
+            margin-bottom: 28px;
+            transition: color 0.2s;
+        }
+        .header .back-link:hover { color: var(--amber); }
+        .header h1 {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: var(--text);
+            margin-bottom: 12px;
+        }
+        .header h1 .accent { color: var(--amber); }
+        .header .subtitle {
+            color: var(--text-muted);
+            font-size: 16px;
+            max-width: 520px;
+        }
+
+        /* Prerequisites */
+        .prereqs {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 48px;
+            padding: 20px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .prereqs .label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
+            width: 100%;
+            margin-bottom: 4px;
+        }
+        .prereq-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        .prereq-item .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+        }
+
+        /* Steps */
+        .step {
+            position: relative;
+            margin-bottom: 40px;
+            padding-left: 40px;
+        }
+        .step::before {
+            content: '';
+            position: absolute;
+            left: 14px;
+            top: 32px;
+            bottom: -40px;
+            width: 1px;
+            background: var(--border);
+        }
+        .step:last-child::before { display: none; }
+        .step-number {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 30px;
+            height: 30px;
+            background: var(--bg-surface);
+            border: 1.5px solid var(--amber);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--amber);
+        }
+        .step h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            padding-top: 3px;
+        }
+        .step p {
+            color: var(--text-muted);
+            font-size: 15px;
+            margin-bottom: 14px;
+        }
+
+        /* Code blocks */
+        .code-block {
+            position: relative;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin: 12px 0 16px;
+            overflow: hidden;
+        }
+        .code-block .code-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px;
+            background: rgba(255,255,255,0.02);
+            border-bottom: 1px solid var(--border);
+        }
+        .code-block .code-lang {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .copy-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .copy-btn:hover {
+            border-color: var(--amber);
+            color: var(--amber);
+        }
+        .copy-btn.copied {
+            border-color: var(--green);
+            color: var(--green);
+        }
+        .code-block pre {
+            padding: 16px;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text);
+        }
+        .code-block pre .comment { color: var(--text-dim); }
+        .code-block pre .var { color: var(--amber); }
+        .code-block pre .string { color: var(--green); }
+        .code-block pre .cmd { color: var(--blue); }
+
+        /* Env table */
+        .env-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0 16px;
+            font-size: 14px;
+        }
+        .env-table th {
+            text-align: left;
+            padding: 10px 14px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .env-table td {
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            vertical-align: top;
+        }
+        .env-table td:first-child {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: var(--amber);
+            white-space: nowrap;
+        }
+        .env-table td:last-child {
+            color: var(--text-muted);
+        }
+
+        /* Expandable sections */
+        details {
+            margin: 12px 0;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        details summary {
+            padding: 14px 18px;
+            background: var(--bg-surface);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: color 0.2s;
+        }
+        details summary::-webkit-details-marker { display: none; }
+        details summary::before {
+            content: '\25B6';
+            font-size: 10px;
+            color: var(--text-dim);
+            transition: transform 0.2s;
+        }
+        details[open] summary::before { transform: rotate(90deg); }
+        details[open] summary { color: var(--text); border-bottom: 1px solid var(--border); }
+        details .details-content {
+            padding: 16px 18px;
+            font-size: 14px;
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+        details .details-content code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            background: var(--bg);
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: var(--amber);
+        }
+        details .details-content p { margin-bottom: 10px; }
+        details .details-content p:last-child { margin-bottom: 0; }
+
+        /* Tip callout */
+        .tip {
+            padding: 16px 18px;
+            background: var(--amber-glow);
+            border-left: 3px solid var(--amber);
+            border-radius: 0 8px 8px 0;
+            margin: 14px 0;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+        .tip strong { color: var(--amber); }
+
+        /* Links */
+        a { color: var(--amber); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* Footer */
+        .footer {
+            margin-top: 64px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+        .footer a {
+            font-size: 13px;
+            color: var(--text-dim);
+            transition: color 0.2s;
+        }
+        .footer a:hover { color: var(--amber); text-decoration: none; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .container { padding: 32px 16px 80px; }
+            .header h1 { font-size: 22px; }
+            .step { padding-left: 36px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <a href="/" class="back-link">&larr; Back to gateway</a>
+            <h1><span class="accent">$</span> Deploy Instructions</h1>
+            <p class="subtitle">Get Claude Code running through Luthien Proxy in five steps. Copy-paste each command block to go from zero to policy-enforced AI coding.</p>
+        </div>
+
+        <div class="prereqs">
+            <div class="label">Prerequisites</div>
+            <div class="prereq-item"><span class="dot"></span> Docker</div>
+            <div class="prereq-item"><span class="dot"></span> Python 3.13+</div>
+            <div class="prereq-item"><span class="dot"></span> uv</div>
+            <div class="prereq-item"><span class="dot"></span> Claude Code CLI</div>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="step">
+            <div class="step-number">1</div>
+            <h2>Clone the repository</h2>
+            <p>Grab the source and move into the project directory.</p>
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">bash</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre>git clone https://github.com/LuthienResearch/luthien-proxy
+cd luthien-proxy</pre>
+            </div>
+            <details>
+                <summary>Don't have uv installed?</summary>
+                <div class="details-content">
+                    <p>Install <a href="https://docs.astral.sh/uv/" target="_blank">uv</a> (a fast Python package manager):</p>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">bash</span>
+                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <pre>curl -LsSf https://astral.sh/uv/install.sh | sh</pre>
+                    </div>
+                </div>
+            </details>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step">
+            <div class="step-number">2</div>
+            <h2>Configure environment variables</h2>
+            <p>Copy the example env file and add your real API keys.</p>
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">bash</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre>cp .env.example .env</pre>
+            </div>
+            <p>Open <code style="font-family:'JetBrains Mono',monospace;font-size:13px;background:var(--bg-surface);padding:2px 6px;border-radius:3px;color:var(--amber)">.env</code> in your editor and set the following keys:</p>
+
+            <table class="env-table">
+                <thead>
+                    <tr>
+                        <th>Variable</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>OPENAI_API_KEY</td>
+                        <td>Your OpenAI API key (e.g. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">sk-proj-...</code>). Required if proxying OpenAI models.</td>
+                    </tr>
+                    <tr>
+                        <td>ANTHROPIC_API_KEY</td>
+                        <td>Your Anthropic API key (e.g. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">sk-ant-...</code>). Required for Claude models.</td>
+                    </tr>
+                    <tr>
+                        <td>PROXY_API_KEY</td>
+                        <td>The key clients use to authenticate to the proxy. Default: <code style="font-family:'JetBrains Mono',monospace;font-size:12px">sk-luthien-dev-key</code></td>
+                    </tr>
+                    <tr>
+                        <td>ADMIN_API_KEY</td>
+                        <td>Key for the admin UI and management API. Default: <code style="font-family:'JetBrains Mono',monospace;font-size:12px">admin-dev-key</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="tip">
+                <strong>Tip:</strong> For production, change <code style="font-family:'JetBrains Mono',monospace;font-size:12px">PROXY_API_KEY</code> and <code style="font-family:'JetBrains Mono',monospace;font-size:12px">ADMIN_API_KEY</code> to strong, unique values.
+            </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="step">
+            <div class="step-number">3</div>
+            <h2>Start the proxy</h2>
+            <p>The quick-start script validates dependencies, starts Docker services (PostgreSQL, Redis, gateway), runs migrations, and auto-selects free ports.</p>
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">bash</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre>./scripts/quick_start.sh</pre>
+            </div>
+            <p>When it finishes, note the gateway URL printed in the output (usually <code style="font-family:'JetBrains Mono',monospace;font-size:13px;background:var(--bg-surface);padding:2px 6px;border-radius:3px;color:var(--amber)">http://localhost:8000</code>). The port may differ if 8000 was taken.</p>
+            <details>
+                <summary>Verify the gateway is healthy</summary>
+                <div class="details-content">
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">bash</span>
+                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <pre>curl http://localhost:8000/health</pre>
+                    </div>
+                    <p>You should see a JSON response with <code>"status": "ok"</code>.</p>
+                </div>
+            </details>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="step">
+            <div class="step-number">4</div>
+            <h2>Launch Claude Code through the proxy</h2>
+            <p>The easiest way is the built-in launch script, which sets up all environment variables automatically:</p>
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">bash</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre>./scripts/launch_claude_code.sh</pre>
+            </div>
+            <details>
+                <summary>Manual setup (without the launch script)</summary>
+                <div class="details-content">
+                    <p>Set these environment variables before running <code>claude</code>:</p>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">bash</span>
+                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <pre><span class="comment"># Point Claude Code at the proxy (don't include /v1 — the SDK adds it)</span>
+<span class="var">ANTHROPIC_BASE_URL</span>=<span class="string">"http://localhost:8000/"</span>
+
+<span class="comment"># Authenticate with your proxy API key</span>
+<span class="var">ANTHROPIC_AUTH_TOKEN</span>=<span class="string">"sk-luthien-dev-key"</span>
+
+<span class="comment"># Launch Claude Code</span>
+<span class="cmd">env</span> \
+  ANTHROPIC_BASE_URL=<span class="string">"http://localhost:8000/"</span> \
+  ANTHROPIC_AUTH_TOKEN=<span class="string">"sk-luthien-dev-key"</span> \
+  <span class="cmd">claude</span></pre>
+                    </div>
+                    <div class="tip">
+                        <strong>Important:</strong> Do not include <code>/v1</code> in <code>ANTHROPIC_BASE_URL</code>. The Anthropic SDK appends it automatically.
+                    </div>
+                </div>
+            </details>
+            <details>
+                <summary>Don't have Claude Code CLI installed?</summary>
+                <div class="details-content">
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-lang">bash</span>
+                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <pre>npm install -g @anthropic-ai/claude-cli</pre>
+                    </div>
+                </div>
+            </details>
+        </div>
+
+        <!-- Step 5 -->
+        <div class="step">
+            <div class="step-number">5</div>
+            <h2>Verify it works</h2>
+            <p>Send a test request through the proxy to confirm everything is connected:</p>
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">bash</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre>curl -s http://localhost:8000/v1/chat/completions \
+  -H <span class="string">"Authorization: Bearer sk-luthien-dev-key"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "Say hello"}],
+    "max_tokens": 50
+  }'</span></pre>
+            </div>
+            <p>You should receive a chat completion response. Open the <a href="/activity/monitor">Activity Monitor</a> to see the request flow through in real-time.</p>
+            <div class="tip">
+                <strong>Next steps:</strong> Configure policies via the <a href="/policy-config">Policy Config UI</a>, or browse past sessions in <a href="/history">Conversation History</a>.
+            </div>
+        </div>
+
+        <!-- Troubleshooting -->
+        <h2 style="margin-top:48px;margin-bottom:20px;font-size:18px;font-weight:600;">Troubleshooting</h2>
+
+        <details>
+            <summary>Gateway won't start / port conflict</summary>
+            <div class="details-content">
+                <p>The quick-start script auto-selects free ports. If you need a fixed port, uncomment <code>GATEWAY_PORT=8000</code> in your <code>.env</code> file. Check for conflicts with:</p>
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">bash</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <pre>lsof -i :8000</pre>
+                </div>
+            </div>
+        </details>
+
+        <details>
+            <summary>Docker containers failing</summary>
+            <div class="details-content">
+                <p>Check container status and logs:</p>
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">bash</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <pre>docker compose ps
+docker compose logs gateway --tail 50</pre>
+                </div>
+                <p>If containers are stuck, try a clean restart:</p>
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">bash</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <pre>docker compose down
+./scripts/quick_start.sh</pre>
+                </div>
+            </div>
+        </details>
+
+        <details>
+            <summary>Claude Code can't connect to the proxy</summary>
+            <div class="details-content">
+                <p>Verify the gateway is healthy:</p>
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">bash</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <pre>curl http://localhost:8000/health</pre>
+                </div>
+                <p>Common issues:</p>
+                <p>&#8226; <code>ANTHROPIC_BASE_URL</code> should NOT include <code>/v1</code> — the SDK appends it.</p>
+                <p>&#8226; Make sure you're using <code>ANTHROPIC_AUTH_TOKEN</code> (not <code>ANTHROPIC_API_KEY</code>) — the proxy needs the proxy key, not your real Anthropic key.</p>
+                <p>&#8226; The trailing slash in the URL matters: use <code>http://localhost:8000/</code></p>
+            </div>
+        </details>
+
+        <details>
+            <summary>Authentication errors (401 / 403)</summary>
+            <div class="details-content">
+                <p>The proxy uses two separate keys:</p>
+                <p>&#8226; <code>PROXY_API_KEY</code> — for LLM requests (used by Claude Code as <code>ANTHROPIC_AUTH_TOKEN</code>)</p>
+                <p>&#8226; <code>ADMIN_API_KEY</code> — for the admin UI and debug endpoints</p>
+                <p>Make sure the key in your client matches <code>PROXY_API_KEY</code> in your <code>.env</code>.</p>
+            </div>
+        </details>
+
+        <div class="footer">
+            <a href="https://github.com/LuthienResearch/luthien-proxy" target="_blank">GitHub Repository</a>
+            <a href="https://github.com/LuthienResearch/luthien-proxy/blob/main/README.md" target="_blank">README</a>
+            <a href="/activity/monitor">Activity Monitor</a>
+            <a href="/policy-config">Policy Config</a>
+            <a href="/">Gateway Home</a>
+        </div>
+    </div>
+
+    <script>
+        function copyCode(btn) {
+            const pre = btn.closest('.code-block').querySelector('pre');
+            const text = pre.innerText;
+            navigator.clipboard.writeText(text).then(function () {
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(function () {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 1500);
+            });
+        }
+    </script>
+</body>
+</html>
