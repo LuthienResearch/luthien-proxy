@@ -117,6 +117,7 @@ class TestLoginPageHTML:
 
     def test_includes_next_url(self):
         html = get_login_page_html(next_url="/debug/diff")
+        assert 'name="next_url"' in html
         assert 'value="/debug/diff"' in html
 
     def test_escapes_next_url(self):
@@ -239,3 +240,98 @@ class TestGetSessionUser:
 
         result = get_session_user(mock_request, "admin-key")
         assert result is None
+
+
+@pytest.fixture
+def auth_app():
+    """Minimal FastAPI app with just the session/auth routes for testing."""
+    from fastapi import FastAPI
+
+    from luthien_proxy.dependencies import get_admin_key
+    from luthien_proxy.session import login_page_router, router
+
+    app = FastAPI()
+    app.include_router(router)
+    app.include_router(login_page_router)
+
+    test_admin_key = "test-admin-key"
+    app.dependency_overrides[get_admin_key] = lambda: test_admin_key
+
+    return app, test_admin_key
+
+
+@pytest.fixture
+def auth_client(auth_app):
+    """TestClient for the auth app."""
+    from starlette.testclient import TestClient
+
+    app, _ = auth_app
+    return TestClient(app, follow_redirects=False)
+
+
+class TestLoginRedirectFlow:
+    """Test the full login redirect flow — the fix for the next_url bug."""
+
+    def test_login_redirects_to_next_url(self, auth_app):
+        """After successful login with next_url, user is sent to that URL."""
+        from starlette.testclient import TestClient
+
+        app, admin_key = auth_app
+        client = TestClient(app, follow_redirects=False)
+
+        resp = client.post(
+            "/auth/login",
+            data={"password": admin_key, "next_url": "/activity/monitor"},
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/activity/monitor"
+
+    def test_login_defaults_to_root(self, auth_app):
+        """Without next_url, successful login redirects to /."""
+        from starlette.testclient import TestClient
+
+        app, admin_key = auth_app
+        client = TestClient(app, follow_redirects=False)
+
+        resp = client.post("/auth/login", data={"password": admin_key})
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/"
+
+    def test_login_page_preserves_next_in_form(self, auth_client):
+        """GET /login?next=/debug/diff produces a form with next_url field."""
+        resp = auth_client.get("/login?next=/debug/diff")
+        assert resp.status_code == 200
+        assert 'name="next_url"' in resp.text
+        assert 'value="/debug/diff"' in resp.text
+
+    def test_failed_login_preserves_next_url(self, auth_client):
+        """Wrong password redirects back to login keeping the next param."""
+        resp = auth_client.post(
+            "/auth/login",
+            data={"password": "wrong", "next_url": "/activity/monitor"},
+        )
+        assert resp.status_code == 303
+        location = resp.headers["location"]
+        assert "error=invalid" in location
+        assert "next=" in location
+        assert "%2Factivity%2Fmonitor" in location
+
+    def test_full_round_trip(self, auth_app):
+        """Simulate: visit login with next → authenticate → arrive at target."""
+        from starlette.testclient import TestClient
+
+        app, admin_key = auth_app
+        client = TestClient(app, follow_redirects=False)
+
+        # Step 1: GET login page with next param
+        resp = client.get("/login?next=/credentials")
+        assert resp.status_code == 200
+        assert 'value="/credentials"' in resp.text
+
+        # Step 2: POST login with the next_url from the form
+        resp = client.post(
+            "/auth/login",
+            data={"password": admin_key, "next_url": "/credentials"},
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/credentials"

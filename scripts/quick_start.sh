@@ -68,6 +68,13 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/find-available-ports.sh"
 
+# Derive project name from worktree directory to avoid collisions between worktrees
+if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+    worktree_dir="$(basename "$(pwd)")"
+    export COMPOSE_PROJECT_NAME="luthien-${worktree_dir}"
+fi
+echo "📦 Docker project: ${COMPOSE_PROJECT_NAME}"
+
 # Check for insecure default credentials
 echo "🔒 Checking for insecure default credentials..."
 insecure_defaults=false
