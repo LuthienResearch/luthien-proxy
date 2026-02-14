@@ -508,83 +508,22 @@ class TestMultiParallelDesignated:
         assert text_block["text"] == "hello world"
 
     @pytest.mark.asyncio
-    async def test_designated_with_mixed_interface_types(self):
-        """Designated index correctly maps through filtered policy list.
-
-        When sub-policies have mixed interface types, the filtered list is
-        shorter than self._sub_policies. The designated index must be remapped
-        to the filtered list, not used as a raw index into results.
-
-        Setup: [OpenAI-only, AllCaps(both), NoOp(both)] with designated_policy_index=2
-        For Anthropic calls, OpenAI-only is filtered out -> [AllCaps, NoOp]
-        The designated NoOp is at filtered index 1, not the original index 2.
-        """
+    async def test_incompatible_sub_policy_raises_on_anthropic_call(self):
+        """When a sub-policy doesn't implement AnthropicPolicyInterface, raise TypeError."""
         policy = MultiParallelPolicy(
-            policies=[noop_config(), allcaps_config(), noop_config()],
+            policies=[noop_config(), allcaps_config()],
             consolidation_strategy="designated",
-            designated_policy_index=2,
+            designated_policy_index=1,
         )
 
-        # Replace the first sub-policy with an OpenAI-only stub to simulate mixed types
-        openai_only = _OpenAIOnlyPolicy()
-        policy._sub_policies[0] = openai_only
+        # Replace the first sub-policy with an OpenAI-only stub
+        policy._sub_policies[0] = _OpenAIOnlyPolicy()
 
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello world")
 
-        result = await policy.on_anthropic_response(response, ctx)
-
-        # Designated is the NoOp at original index 2, which doesn't modify -> original
-        text_block = cast(AnthropicTextBlock, result["content"][0])
-        assert text_block["text"] == "hello world"
-
-    @pytest.mark.asyncio
-    async def test_designated_with_mixed_types_selects_correct_modifier(self):
-        """Designated policy is correctly found when it modifies after filtering.
-
-        Setup: [OpenAI-only, NoOp(both), AllCaps(both)] with designated_policy_index=2
-        For Anthropic calls, OpenAI-only filtered out -> [NoOp, AllCaps]
-        The designated AllCaps is at filtered index 1.
-        """
-        policy = MultiParallelPolicy(
-            policies=[noop_config(), noop_config(), allcaps_config()],
-            consolidation_strategy="designated",
-            designated_policy_index=2,
-        )
-
-        openai_only = _OpenAIOnlyPolicy()
-        policy._sub_policies[0] = openai_only
-
-        ctx = PolicyContext.for_testing()
-        response = make_anthropic_response("hello world")
-
-        result = await policy.on_anthropic_response(response, ctx)
-
-        # Designated is AllCaps at original index 2 -> "HELLO WORLD"
-        text_block = cast(AnthropicTextBlock, result["content"][0])
-        assert text_block["text"] == "HELLO WORLD"
-
-    @pytest.mark.asyncio
-    async def test_designated_returns_original_when_designated_excluded_by_filter(self):
-        """When the designated policy doesn't implement the relevant interface, return original."""
-        policy = MultiParallelPolicy(
-            policies=[noop_config(), allcaps_config(), noop_config()],
-            consolidation_strategy="designated",
-            designated_policy_index=0,
-        )
-
-        # Make the designated policy (index 0) OpenAI-only
-        openai_only = _OpenAIOnlyPolicy()
-        policy._sub_policies[0] = openai_only
-
-        ctx = PolicyContext.for_testing()
-        response = make_anthropic_response("hello world")
-
-        result = await policy.on_anthropic_response(response, ctx)
-
-        # Designated policy excluded from Anthropic filtering -> original unchanged
-        text_block = cast(AnthropicTextBlock, result["content"][0])
-        assert text_block["text"] == "hello world"
+        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicPolicyInterface"):
+            await policy.on_anthropic_response(response, ctx)
 
 
 # =============================================================================
@@ -719,6 +658,62 @@ class TestMultiParallelComposability:
         # Parallel: AllCaps wins -> "HELLO WORLD"
         # Then serial: replace WORLD -> UNIVERSE -> "HELLO UNIVERSE"
         assert result.choices[0].message.content == "HELLO UNIVERSE"
+
+
+# =============================================================================
+# Interface Validation
+# =============================================================================
+
+
+class TestMultiParallelInterfaceValidation:
+    @pytest.mark.asyncio
+    async def test_openai_request_raises_for_incompatible_policy(self):
+        """OpenAI call raises TypeError when a sub-policy lacks OpenAIPolicyInterface."""
+        policy = MultiParallelPolicy(policies=[noop_config()])
+        # Inject a stub that only implements Anthropic (simulated via a bare BasePolicy)
+
+        class _AnthropicOnlyPolicy(BasePolicy, AnthropicPolicyInterface):
+            @property
+            def short_policy_name(self) -> str:
+                return "AnthropicOnly"
+
+            async def on_anthropic_request(self, request, context):
+                return request
+
+            async def on_anthropic_response(self, response, context):
+                return response
+
+            async def on_anthropic_stream_event(self, event, context):
+                return [event]
+
+        policy._sub_policies.append(_AnthropicOnlyPolicy())
+        ctx = PolicyContext.for_testing()
+        request = Request(model="test", messages=[{"role": "user", "content": "hi"}])
+
+        with pytest.raises(TypeError, match="AnthropicOnly.*does not implement OpenAIPolicyInterface"):
+            await policy.on_openai_request(request, ctx)
+
+    @pytest.mark.asyncio
+    async def test_anthropic_response_raises_for_incompatible_policy(self):
+        """Anthropic call raises TypeError when a sub-policy lacks AnthropicPolicyInterface."""
+        policy = MultiParallelPolicy(policies=[noop_config()])
+        policy._sub_policies.append(_OpenAIOnlyPolicy())
+        ctx = PolicyContext.for_testing()
+        response = make_anthropic_response("hello")
+
+        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicPolicyInterface"):
+            await policy.on_anthropic_response(response, ctx)
+
+    @pytest.mark.asyncio
+    async def test_all_compatible_policies_pass_validation(self):
+        """No error when all sub-policies implement the required interface."""
+        policy = MultiParallelPolicy(policies=[noop_config(), allcaps_config()])
+        ctx = PolicyContext.for_testing()
+        response = make_response("hello")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "HELLO"
 
 
 # =============================================================================

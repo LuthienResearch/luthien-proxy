@@ -156,55 +156,51 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         names = [p.short_policy_name for p in self._sub_policies]
         return f"MultiParallel[{self._strategy}]({', '.join(names)})"
 
-    def _find_designated_in_filtered(self, filtered_policies: list[PolicyProtocol]) -> int | None:
-        """Map the designated policy index from self._sub_policies to the filtered list.
-
-        Returns None if the designated policy wasn't included in the filtered list
-        (e.g. it doesn't implement the relevant interface).
-        """
-        if self._designated_policy_index is None:
-            return None
-        designated_policy = self._sub_policies[self._designated_policy_index]
-        for i, p in enumerate(filtered_policies):
-            if p is designated_policy:
-                return i
-        return None
+    def _validate_interface(self, interface: type, interface_name: str) -> None:
+        """Raise TypeError if any sub-policy doesn't implement the required interface."""
+        for policy in self._sub_policies:
+            if not isinstance(policy, interface):
+                raise TypeError(
+                    f"Policy '{policy.short_policy_name}' does not implement {interface_name}, "
+                    f"but MultiParallelPolicy received a {interface_name} call. "
+                    f"All sub-policies must implement the interface being called."
+                )
 
     # =========================================================================
     # OpenAI Interface - Non-streaming
     # =========================================================================
 
     async def on_openai_request(self, request: "Request", context: "PolicyContext") -> "Request":
-        """Run all OpenAI-compatible sub-policies on the request in parallel."""
-        openai_policies = [p for p in self._sub_policies if isinstance(p, OpenAIPolicyInterface)]
-        if not openai_policies:
+        """Run all sub-policies on the request in parallel."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
+        if not self._sub_policies:
             return request
 
-        request_copies = [request.model_copy(deep=True) for _ in openai_policies]
-        context_copies = [copy.deepcopy(context) for _ in openai_policies]
+        request_copies = [request.model_copy(deep=True) for _ in self._sub_policies]
+        context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
         results = await asyncio.gather(
             *(
-                p.on_openai_request(req_copy, ctx_copy)
-                for p, req_copy, ctx_copy in zip(openai_policies, request_copies, context_copies)
+                p.on_openai_request(req_copy, ctx_copy)  # type: ignore[union-attr]
+                for p, req_copy, ctx_copy in zip(self._sub_policies, request_copies, context_copies)
             )
         )
-        return self._consolidate_requests(request, results, openai_policies)
+        return self._consolidate_requests(request, list(results))
 
     async def on_openai_response(self, response: "ModelResponse", context: "PolicyContext") -> "ModelResponse":
-        """Run all OpenAI-compatible sub-policies on the response in parallel."""
-        openai_policies = [p for p in self._sub_policies if isinstance(p, OpenAIPolicyInterface)]
-        if not openai_policies:
+        """Run all sub-policies on the response in parallel."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
+        if not self._sub_policies:
             return response
 
-        response_copies = [copy.deepcopy(response) for _ in openai_policies]
-        context_copies = [copy.deepcopy(context) for _ in openai_policies]
+        response_copies = [copy.deepcopy(response) for _ in self._sub_policies]
+        context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
         results = await asyncio.gather(
             *(
-                p.on_openai_response(resp_copy, ctx_copy)
-                for p, resp_copy, ctx_copy in zip(openai_policies, response_copies, context_copies)
+                p.on_openai_response(resp_copy, ctx_copy)  # type: ignore[union-attr]
+                for p, resp_copy, ctx_copy in zip(self._sub_policies, response_copies, context_copies)
             )
         )
-        return self._consolidate_openai_responses(response, results, openai_policies)
+        return self._consolidate_openai_responses(response, list(results))
 
     def _consolidate(
         self,
@@ -212,13 +208,11 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         results: list[T],
         *,
         size_fn: Callable[[T], int],
-        filtered_designated_index: int | None,
     ) -> T:
         """Pick the winning value based on the configured consolidation strategy."""
         if self._strategy == "designated":
-            if filtered_designated_index is None:
-                return original
-            designated = results[filtered_designated_index]
+            assert self._designated_policy_index is not None
+            designated = results[self._designated_policy_index]
             return designated if designated != original else original
 
         modified = [r for r in results if r != original]
@@ -242,9 +236,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
         raise AssertionError(f"Unsupported consolidation strategy: {self._strategy}")
 
-    def _consolidate_requests(
-        self, original: "Request", results: list["Request"], filtered_policies: list[PolicyProtocol]
-    ) -> "Request":
+    def _consolidate_requests(self, original: "Request", results: list["Request"]) -> "Request":
         """Pick the winning request based on the consolidation strategy.
 
         Modification detection uses != to check value equality (Pydantic model __eq__),
@@ -255,11 +247,10 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             original,
             results,
             size_fn=lambda r: len(str(r.messages)),
-            filtered_designated_index=self._find_designated_in_filtered(filtered_policies),
         )
 
     def _consolidate_openai_responses(
-        self, original: "ModelResponse", results: list["ModelResponse"], filtered_policies: list[PolicyProtocol]
+        self, original: "ModelResponse", results: list["ModelResponse"]
     ) -> "ModelResponse":
         """Pick the winning OpenAI response based on the consolidation strategy.
 
@@ -271,7 +262,6 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             original,
             results,
             size_fn=_response_content_length,
-            filtered_designated_index=self._find_designated_in_filtered(filtered_policies),
         )
 
     # =========================================================================
@@ -323,44 +313,43 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     # =========================================================================
 
     async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
-        """Run all Anthropic-compatible sub-policies on the request in parallel."""
-        anthropic_policies = [p for p in self._sub_policies if isinstance(p, AnthropicPolicyInterface)]
-        if not anthropic_policies:
+        """Run all sub-policies on the request in parallel."""
+        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+        if not self._sub_policies:
             return request
 
-        request_copies = [copy.deepcopy(request) for _ in anthropic_policies]
-        context_copies = [copy.deepcopy(context) for _ in anthropic_policies]
+        request_copies = [copy.deepcopy(request) for _ in self._sub_policies]
+        context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
         results = await asyncio.gather(
             *(
-                p.on_anthropic_request(req_copy, ctx_copy)
-                for p, req_copy, ctx_copy in zip(anthropic_policies, request_copies, context_copies)
+                p.on_anthropic_request(req_copy, ctx_copy)  # type: ignore[union-attr]
+                for p, req_copy, ctx_copy in zip(self._sub_policies, request_copies, context_copies)
             )
         )
-        return self._consolidate_anthropic_requests(request, results, anthropic_policies)
+        return self._consolidate_anthropic_requests(request, list(results))
 
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
     ) -> "AnthropicResponse":
-        """Run all Anthropic-compatible sub-policies on the response in parallel."""
-        anthropic_policies = [p for p in self._sub_policies if isinstance(p, AnthropicPolicyInterface)]
-        if not anthropic_policies:
+        """Run all sub-policies on the response in parallel."""
+        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+        if not self._sub_policies:
             return response
 
-        response_copies = [copy.deepcopy(response) for _ in anthropic_policies]
-        context_copies = [copy.deepcopy(context) for _ in anthropic_policies]
+        response_copies = [copy.deepcopy(response) for _ in self._sub_policies]
+        context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
         results = await asyncio.gather(
             *(
-                p.on_anthropic_response(resp_copy, ctx_copy)
-                for p, resp_copy, ctx_copy in zip(anthropic_policies, response_copies, context_copies)
+                p.on_anthropic_response(resp_copy, ctx_copy)  # type: ignore[union-attr]
+                for p, resp_copy, ctx_copy in zip(self._sub_policies, response_copies, context_copies)
             )
         )
-        return self._consolidate_anthropic_responses(response, results, anthropic_policies)
+        return self._consolidate_anthropic_responses(response, list(results))
 
     def _consolidate_anthropic_requests(
         self,
         original: "AnthropicRequest",
         results: list["AnthropicRequest"],
-        filtered_policies: list[PolicyProtocol],
     ) -> "AnthropicRequest":
         """Pick the winning Anthropic request based on the consolidation strategy.
 
@@ -372,14 +361,12 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             original,
             results,
             size_fn=lambda r: len(str(r.get("messages", []))),
-            filtered_designated_index=self._find_designated_in_filtered(filtered_policies),
         )
 
     def _consolidate_anthropic_responses(
         self,
         original: "AnthropicResponse",
         results: list["AnthropicResponse"],
-        filtered_policies: list[PolicyProtocol],
     ) -> "AnthropicResponse":
         """Pick the winning Anthropic response based on the consolidation strategy.
 
@@ -391,7 +378,6 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             original,
             results,
             size_fn=_anthropic_response_content_length,
-            filtered_designated_index=self._find_designated_in_filtered(filtered_policies),
         )
 
     # =========================================================================

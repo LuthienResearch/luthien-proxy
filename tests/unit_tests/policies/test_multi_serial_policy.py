@@ -23,6 +23,61 @@ from luthien_proxy.policy_core import (
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
+class _OpenAIOnlyPolicy(BasePolicy, OpenAIPolicyInterface):
+    """Stub policy implementing only OpenAIPolicyInterface (not Anthropic)."""
+
+    @property
+    def short_policy_name(self) -> str:
+        return "OpenAIOnly"
+
+    async def on_openai_request(self, request, context):
+        return request
+
+    async def on_openai_response(self, response, context):
+        return response
+
+    async def on_chunk_received(self, ctx):
+        pass
+
+    async def on_content_delta(self, ctx):
+        pass
+
+    async def on_content_complete(self, ctx):
+        pass
+
+    async def on_tool_call_delta(self, ctx):
+        pass
+
+    async def on_tool_call_complete(self, ctx):
+        pass
+
+    async def on_finish_reason(self, ctx):
+        pass
+
+    async def on_stream_complete(self, ctx):
+        pass
+
+    async def on_streaming_policy_complete(self, ctx):
+        pass
+
+
+class _AnthropicOnlyPolicy(BasePolicy, AnthropicPolicyInterface):
+    """Stub policy implementing only AnthropicPolicyInterface (not OpenAI)."""
+
+    @property
+    def short_policy_name(self) -> str:
+        return "AnthropicOnly"
+
+    async def on_anthropic_request(self, request, context):
+        return request
+
+    async def on_anthropic_response(self, response, context):
+        return response
+
+    async def on_anthropic_stream_event(self, event, context):
+        return [event]
+
+
 def noop_config() -> dict:
     return {"class": "luthien_proxy.policies.noop_policy:NoOpPolicy", "config": {}}
 
@@ -331,3 +386,92 @@ class TestMultiSerialComposability:
         result = await policy.on_openai_response(response, ctx)
 
         assert result.choices[0].message.content == "GOODBYE WORLD"
+
+
+# =============================================================================
+# Interface Validation
+# =============================================================================
+
+
+class TestMultiSerialInterfaceValidation:
+    @pytest.mark.asyncio
+    async def test_openai_request_raises_for_incompatible_policy(self):
+        """OpenAI call raises TypeError when a sub-policy lacks OpenAIPolicyInterface."""
+        policy = MultiSerialPolicy(policies=[noop_config()])
+        policy._sub_policies.append(_AnthropicOnlyPolicy())
+        ctx = PolicyContext.for_testing()
+        request = Request(model="test", messages=[{"role": "user", "content": "hi"}])
+
+        with pytest.raises(TypeError, match="AnthropicOnly.*does not implement OpenAIPolicyInterface"):
+            await policy.on_openai_request(request, ctx)
+
+    @pytest.mark.asyncio
+    async def test_openai_response_raises_for_incompatible_policy(self):
+        """OpenAI response call raises TypeError for incompatible sub-policy."""
+        policy = MultiSerialPolicy(policies=[noop_config()])
+        policy._sub_policies.append(_AnthropicOnlyPolicy())
+        ctx = PolicyContext.for_testing()
+        response = make_response("hello")
+
+        with pytest.raises(TypeError, match="AnthropicOnly.*does not implement OpenAIPolicyInterface"):
+            await policy.on_openai_response(response, ctx)
+
+    @pytest.mark.asyncio
+    async def test_anthropic_request_raises_for_incompatible_policy(self):
+        """Anthropic call raises TypeError when a sub-policy lacks AnthropicPolicyInterface."""
+        policy = MultiSerialPolicy(policies=[noop_config()])
+        policy._sub_policies.append(_OpenAIOnlyPolicy())
+        ctx = PolicyContext.for_testing()
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+        }
+
+        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicPolicyInterface"):
+            await policy.on_anthropic_request(request, ctx)
+
+    @pytest.mark.asyncio
+    async def test_anthropic_response_raises_for_incompatible_policy(self):
+        """Anthropic response call raises TypeError for incompatible sub-policy."""
+        policy = MultiSerialPolicy(policies=[noop_config()])
+        policy._sub_policies.append(_OpenAIOnlyPolicy())
+        ctx = PolicyContext.for_testing()
+        response = make_anthropic_response("hello")
+
+        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicPolicyInterface"):
+            await policy.on_anthropic_response(response, ctx)
+
+    @pytest.mark.asyncio
+    async def test_anthropic_stream_event_raises_for_incompatible_policy(self):
+        """Anthropic stream event raises TypeError for incompatible sub-policy."""
+        policy = MultiSerialPolicy(policies=[noop_config()])
+        policy._sub_policies.append(_OpenAIOnlyPolicy())
+        ctx = PolicyContext.for_testing()
+        text_delta = TextDelta.model_construct(type="text_delta", text="hello")
+        event = RawContentBlockDeltaEvent.model_construct(type="content_block_delta", index=0, delta=text_delta)
+
+        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicPolicyInterface"):
+            await policy.on_anthropic_stream_event(event, ctx)
+
+    @pytest.mark.asyncio
+    async def test_all_compatible_policies_pass_validation(self):
+        """No error when all sub-policies implement the required interface."""
+        policy = MultiSerialPolicy(policies=[noop_config(), allcaps_config()])
+        ctx = PolicyContext.for_testing()
+        response = make_response("hello")
+
+        result = await policy.on_openai_response(response, ctx)
+
+        assert result.choices[0].message.content == "HELLO"
+
+    @pytest.mark.asyncio
+    async def test_empty_policy_list_passes_validation(self):
+        """Empty policy list doesn't raise -- nothing to validate."""
+        policy = MultiSerialPolicy(policies=[])
+        ctx = PolicyContext.for_testing()
+        request = Request(model="test", messages=[{"role": "user", "content": "hi"}])
+
+        result = await policy.on_openai_request(request, ctx)
+
+        assert result.messages[0]["content"] == "hi"

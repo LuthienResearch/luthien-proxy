@@ -1,8 +1,8 @@
 """MultiSerialPolicy - Run multiple policies sequentially.
 
 Each policy's output becomes the next policy's input, forming a pipeline.
-Supports both OpenAI and Anthropic interfaces by checking which interfaces
-each sub-policy implements.
+All sub-policies must implement the interface being called; a TypeError is
+raised if any sub-policy is incompatible.
 
 Example config:
     policy:
@@ -53,9 +53,8 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
     For requests: request flows through policy1 -> policy2 -> ... -> policyN
     For responses: response flows through policy1 -> policy2 -> ... -> policyN
 
-    Only delegates to sub-policies that implement the relevant interface.
-    For example, on_openai_request only calls sub-policies that implement
-    OpenAIPolicyInterface.
+    All sub-policies must implement the interface being called. If any sub-policy
+    doesn't implement the required interface, a TypeError is raised at call time.
     """
 
     def __init__(self, policies: list[dict[str, Any]]) -> None:
@@ -74,90 +73,100 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
         names = [p.short_policy_name for p in self._sub_policies]
         return f"MultiSerial({', '.join(names)})"
 
+    def _validate_interface(self, interface: type, interface_name: str) -> None:
+        """Raise TypeError if any sub-policy doesn't implement the required interface."""
+        for policy in self._sub_policies:
+            if not isinstance(policy, interface):
+                raise TypeError(
+                    f"Policy '{policy.short_policy_name}' does not implement {interface_name}, "
+                    f"but MultiSerialPolicy received a {interface_name} call. "
+                    f"All sub-policies must implement the interface being called."
+                )
+
     # =========================================================================
     # OpenAI Interface
     # =========================================================================
 
     async def on_openai_request(self, request: "Request", context: "PolicyContext") -> "Request":
-        """Chain request through each OpenAI-compatible sub-policy."""
+        """Chain request through each sub-policy."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, OpenAIPolicyInterface):
-                request = await policy.on_openai_request(request, context)
+            request = await policy.on_openai_request(request, context)  # type: ignore[union-attr]
         return request
 
     async def on_openai_response(self, response: "ModelResponse", context: "PolicyContext") -> "ModelResponse":
-        """Chain response through each OpenAI-compatible sub-policy."""
+        """Chain response through each sub-policy."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, OpenAIPolicyInterface):
-                response = await policy.on_openai_response(response, context)
+            response = await policy.on_openai_response(response, context)  # type: ignore[union-attr]
         return response
 
     async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
-        """Delegate to each OpenAI-compatible sub-policy in sequence."""
+        """Delegate to each sub-policy in sequence."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, OpenAIPolicyInterface):
-                await policy.on_chunk_received(ctx)
+            await policy.on_chunk_received(ctx)  # type: ignore[union-attr]
 
     async def on_content_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """Delegate to each OpenAI-compatible sub-policy in sequence."""
+        """Delegate to each sub-policy in sequence."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, OpenAIPolicyInterface):
-                await policy.on_content_delta(ctx)
+            await policy.on_content_delta(ctx)  # type: ignore[union-attr]
 
     async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Delegate to each OpenAI-compatible sub-policy in sequence."""
+        """Delegate to each sub-policy in sequence."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, OpenAIPolicyInterface):
-                await policy.on_content_complete(ctx)
+            await policy.on_content_complete(ctx)  # type: ignore[union-attr]
 
     async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """Delegate to each OpenAI-compatible sub-policy in sequence."""
+        """Delegate to each sub-policy in sequence."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, OpenAIPolicyInterface):
-                await policy.on_tool_call_delta(ctx)
+            await policy.on_tool_call_delta(ctx)  # type: ignore[union-attr]
 
     async def on_tool_call_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Delegate to each OpenAI-compatible sub-policy in sequence."""
+        """Delegate to each sub-policy in sequence."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, OpenAIPolicyInterface):
-                await policy.on_tool_call_complete(ctx)
+            await policy.on_tool_call_complete(ctx)  # type: ignore[union-attr]
 
     async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
-        """Delegate to each OpenAI-compatible sub-policy in sequence."""
+        """Delegate to each sub-policy in sequence."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, OpenAIPolicyInterface):
-                await policy.on_finish_reason(ctx)
+            await policy.on_finish_reason(ctx)  # type: ignore[union-attr]
 
     async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Delegate to each OpenAI-compatible sub-policy in sequence."""
+        """Delegate to each sub-policy in sequence."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, OpenAIPolicyInterface):
-                await policy.on_stream_complete(ctx)
+            await policy.on_stream_complete(ctx)  # type: ignore[union-attr]
 
     async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Delegate to each OpenAI-compatible sub-policy in sequence."""
+        """Delegate to each sub-policy in sequence."""
+        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, OpenAIPolicyInterface):
-                await policy.on_streaming_policy_complete(ctx)
+            await policy.on_streaming_policy_complete(ctx)  # type: ignore[union-attr]
 
     # =========================================================================
     # Anthropic Interface
     # =========================================================================
 
     async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
-        """Chain request through each Anthropic-compatible sub-policy."""
+        """Chain request through each sub-policy."""
+        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, AnthropicPolicyInterface):
-                request = await policy.on_anthropic_request(request, context)
+            request = await policy.on_anthropic_request(request, context)  # type: ignore[union-attr]
         return request
 
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
     ) -> "AnthropicResponse":
-        """Chain response through each Anthropic-compatible sub-policy."""
+        """Chain response through each sub-policy."""
+        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
         for policy in self._sub_policies:
-            if isinstance(policy, AnthropicPolicyInterface):
-                response = await policy.on_anthropic_response(response, context)
+            response = await policy.on_anthropic_response(response, context)  # type: ignore[union-attr]
         return response
 
     async def on_anthropic_stream_event(
@@ -169,13 +178,12 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
         one policy become the input events for the next. If any policy filters
         out all events (returns []), the chain short-circuits.
         """
+        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
         events = [event]
         for policy in self._sub_policies:
-            if not isinstance(policy, AnthropicPolicyInterface):
-                continue
             next_events: list[AnthropicStreamEvent] = []
             for evt in events:
-                next_events.extend(await policy.on_anthropic_stream_event(evt, context))
+                next_events.extend(await policy.on_anthropic_stream_event(evt, context))  # type: ignore[union-attr]
             events = next_events
             if not events:
                 break
