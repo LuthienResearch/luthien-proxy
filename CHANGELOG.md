@@ -4,6 +4,59 @@
 
 - Add `/client-setup` endpoint with setup guide for connecting Claude Code to the proxy (deploy-instructions)
 
+- Add conversation live view with diff display (#186)
+  - New `/conversation/live/{id}` endpoint for real-time conversation monitoring with diff visualization
+  - "Live View" link from history detail page
+  - E2E tests for conversation live view
+
+- Fix login redirect to send user back to original page after auth (#195)
+  - Hidden form field was named `next` but POST handler expected `next_url`
+  - Integration tests for redirect behavior
+
+- Add multi-turn e2e test with /compact for Claude Code sessions (#182)
+  - `test_claude_code_multiturn_with_compact` exercises full multi-turn session lifecycle through the proxy
+  - `run_claude_code()` now supports `resume_session_id` parameter for `--resume`
+
+- Support multiple dev docker deployments on the same machine (#183)
+  - Parameterize all hardcoded ports in `docker-compose.yaml` via env vars with sensible defaults
+  - `COMPOSE_PROJECT_NAME` in `.env.example` isolates networks, volumes, and container names per deployment
+
+- Add Apache 2.0 LICENSE file (#181)
+
+- Move internal planning docs to luthien-org (#173)
+  - Remove 38 historical planning files from `dev/archive/` and 4 outdated v1 docs from `docs/archive/`
+  - Reduces noise for contributors in the public repo
+
+- Document web UI consolidation strategy with endpoint inventory (#189)
+
+- Fix E2E test failures: docker env override and metadata validation (#172)
+  - Fix shell env vars overriding `.env` file API keys
+  - Update tests for Anthropic API metadata validation changes
+
+- Fix SimplePolicy non-streaming support (#147, #168)
+  - SimplePolicy-based policies previously only worked for streaming responses
+  - Add `on_response()` hook so policies work when `stream: false`
+
+- Forward backend API errors to clients with proper format (#146)
+  - Backend LLM errors (auth failure, rate limit, invalid request) now return properly formatted responses matching the client's API format
+  - Previously caused generic 500 errors that made clients like Claude Code hang
+
+- Fix compatibility issues caused by litellm update (#143)
+
+- Refactor: stricter typing in history service (#139)
+  - Add `event_types.py` with TypedDicts for structured event data
+  - Discriminated unions for content blocks (text, tool_use, tool_result, image)
+  - Replace `dict[str, Any]` with proper typed dicts
+
+- Refactor: use dedicated `thinking_blocks` field instead of overloading content (#138)
+  - Add `ThinkingBlock` and `RedactedThinkingBlock` TypedDict types
+  - Revert `content` back to `str | None` with separate `thinking_blocks` field
+
+- Improve gateway homepage (#132)
+  - Add missing UI links (`/policy-config`, `/history`)
+  - Add "Auth Required" badges to protected endpoints
+  - Add Quick Start shortcuts for common tasks
+
 - Fix docker-compose project name collision across worktrees (fix/docker-project-names)
   - Derive `COMPOSE_PROJECT_NAME` from worktree directory name (e.g. `luthien-main`, `luthien-deploy-instructions`)
   - Add `name:` field to `docker-compose.yaml` with `luthien` default for raw `docker compose up`
