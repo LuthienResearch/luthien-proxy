@@ -4,6 +4,11 @@
 
 - Add `/deploy-instructions` endpoint with setup guide for connecting Claude Code to the proxy (deploy-instructions)
 
+- Fix docker-compose project name collision across worktrees (fix/docker-project-names)
+  - Derive `COMPOSE_PROJECT_NAME` from worktree directory name (e.g. `luthien-main`, `luthien-deploy-instructions`)
+  - Add `name:` field to `docker-compose.yaml` with `luthien` default for raw `docker compose up`
+  - Comment out `COMPOSE_PROJECT_NAME` in `.env.example` so new setups get auto-derivation
+
 - Remove Grafana, Loki, and Promtail from observability stack (remove-loki-grafana)
   - Keep Tempo for distributed tracing and OpenTelemetry instrumentation
   - Remove `observability/grafana/`, `observability/grafana-dashboards/`, `observability/loki/`, `observability/promtail/` directories

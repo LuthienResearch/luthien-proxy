@@ -8,6 +8,8 @@
 #
 # See observability/README.md for details.
 
+name: ${COMPOSE_PROJECT_NAME:-luthien}
+
 services:
   # PostgreSQL database for persistent state
   db:
