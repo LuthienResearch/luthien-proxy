@@ -129,6 +129,8 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
         self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
         if not self._sub_policies:
+            # Warning (not error) because an empty list is a valid degenerate case:
+            # the multi-policy becomes a no-op passthrough, which is safe and predictable.
             logger.warning(
                 "MultiParallelPolicy initialized with empty policy list — requests will pass through unchanged"
             )
@@ -161,8 +163,8 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         for policy in self._sub_policies:
             if not isinstance(policy, interface):
                 raise TypeError(
-                    f"Policy '{policy.short_policy_name}' does not implement {interface_name}, "
-                    f"but MultiParallelPolicy received a {interface_name} call. "
+                    f"Policy '{policy.short_policy_name}' ({type(policy).__name__}) does not implement "
+                    f"{interface_name}, but MultiParallelPolicy received a {interface_name} call. "
                     f"All sub-policies must implement the interface being called."
                 )
 
@@ -177,6 +179,8 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             return request
 
         request_copies = [request.model_copy(deep=True) for _ in self._sub_policies]
+        # Deep copying contexts is O(context size) per policy — may be expensive for
+        # large conversation histories. Necessary to guarantee context isolation.
         context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
         results = await asyncio.gather(
             *(
@@ -192,6 +196,8 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if not self._sub_policies:
             return response
 
+        # Deep copying responses and contexts is O(size) per policy — may be expensive
+        # for large payloads. Necessary to guarantee each policy sees independent state.
         response_copies = [copy.deepcopy(response) for _ in self._sub_policies]
         context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
         results = await asyncio.gather(
@@ -318,6 +324,8 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if not self._sub_policies:
             return request
 
+        # Deep copying dicts and contexts is O(size) per policy — may be expensive
+        # for large payloads. Necessary to guarantee each policy sees independent state.
         request_copies = [copy.deepcopy(request) for _ in self._sub_policies]
         context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
         results = await asyncio.gather(
@@ -336,6 +344,8 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if not self._sub_policies:
             return response
 
+        # Deep copying responses and contexts is O(size) per policy — may be expensive
+        # for large payloads. Necessary to guarantee each policy sees independent state.
         response_copies = [copy.deepcopy(response) for _ in self._sub_policies]
         context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
         results = await asyncio.gather(

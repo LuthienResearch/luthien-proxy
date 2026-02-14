@@ -61,6 +61,8 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
         """Initialize with a list of policy config dicts to run in sequence."""
         self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
         if not self._sub_policies:
+            # Warning (not error) because an empty list is a valid degenerate case:
+            # the multi-policy becomes a no-op passthrough, which is safe and predictable.
             logger.warning(
                 "MultiSerialPolicy initialized with empty policy list — requests will pass through unchanged"
             )
@@ -78,8 +80,8 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
         for policy in self._sub_policies:
             if not isinstance(policy, interface):
                 raise TypeError(
-                    f"Policy '{policy.short_policy_name}' does not implement {interface_name}, "
-                    f"but MultiSerialPolicy received a {interface_name} call. "
+                    f"Policy '{policy.short_policy_name}' ({type(policy).__name__}) does not implement "
+                    f"{interface_name}, but MultiSerialPolicy received a {interface_name} call. "
                     f"All sub-policies must implement the interface being called."
                 )
 
