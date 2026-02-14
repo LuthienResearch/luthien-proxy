@@ -27,6 +27,44 @@ from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyCo
 from luthien_proxy.streaming.stream_state import StreamState
 
 
+class _OpenAIOnlyPolicy(BasePolicy, OpenAIPolicyInterface):
+    """Stub policy implementing only OpenAIPolicyInterface (not Anthropic)."""
+
+    @property
+    def short_policy_name(self) -> str:
+        return "OpenAIOnly"
+
+    async def on_openai_request(self, request, context):
+        return request
+
+    async def on_openai_response(self, response, context):
+        return response
+
+    async def on_chunk_received(self, ctx):
+        pass
+
+    async def on_content_delta(self, ctx):
+        pass
+
+    async def on_content_complete(self, ctx):
+        pass
+
+    async def on_tool_call_delta(self, ctx):
+        pass
+
+    async def on_tool_call_complete(self, ctx):
+        pass
+
+    async def on_finish_reason(self, ctx):
+        pass
+
+    async def on_stream_complete(self, ctx):
+        pass
+
+    async def on_streaming_policy_complete(self, ctx):
+        pass
+
+
 def noop_config() -> dict:
     return {"class": "luthien_proxy.policies.noop_policy:NoOpPolicy", "config": {}}
 
@@ -466,6 +504,85 @@ class TestMultiParallelDesignated:
 
         result = await policy.on_anthropic_response(response, ctx)
 
+        text_block = cast(AnthropicTextBlock, result["content"][0])
+        assert text_block["text"] == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_designated_with_mixed_interface_types(self):
+        """Designated index correctly maps through filtered policy list.
+
+        When sub-policies have mixed interface types, the filtered list is
+        shorter than self._sub_policies. The designated index must be remapped
+        to the filtered list, not used as a raw index into results.
+
+        Setup: [OpenAI-only, AllCaps(both), NoOp(both)] with designated_policy_index=2
+        For Anthropic calls, OpenAI-only is filtered out -> [AllCaps, NoOp]
+        The designated NoOp is at filtered index 1, not the original index 2.
+        """
+        policy = MultiParallelPolicy(
+            policies=[noop_config(), allcaps_config(), noop_config()],
+            consolidation_strategy="designated",
+            designated_policy_index=2,
+        )
+
+        # Replace the first sub-policy with an OpenAI-only stub to simulate mixed types
+        openai_only = _OpenAIOnlyPolicy()
+        policy._sub_policies[0] = openai_only
+
+        ctx = PolicyContext.for_testing()
+        response = make_anthropic_response("hello world")
+
+        result = await policy.on_anthropic_response(response, ctx)
+
+        # Designated is the NoOp at original index 2, which doesn't modify -> original
+        text_block = cast(AnthropicTextBlock, result["content"][0])
+        assert text_block["text"] == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_designated_with_mixed_types_selects_correct_modifier(self):
+        """Designated policy is correctly found when it modifies after filtering.
+
+        Setup: [OpenAI-only, NoOp(both), AllCaps(both)] with designated_policy_index=2
+        For Anthropic calls, OpenAI-only filtered out -> [NoOp, AllCaps]
+        The designated AllCaps is at filtered index 1.
+        """
+        policy = MultiParallelPolicy(
+            policies=[noop_config(), noop_config(), allcaps_config()],
+            consolidation_strategy="designated",
+            designated_policy_index=2,
+        )
+
+        openai_only = _OpenAIOnlyPolicy()
+        policy._sub_policies[0] = openai_only
+
+        ctx = PolicyContext.for_testing()
+        response = make_anthropic_response("hello world")
+
+        result = await policy.on_anthropic_response(response, ctx)
+
+        # Designated is AllCaps at original index 2 -> "HELLO WORLD"
+        text_block = cast(AnthropicTextBlock, result["content"][0])
+        assert text_block["text"] == "HELLO WORLD"
+
+    @pytest.mark.asyncio
+    async def test_designated_returns_original_when_designated_excluded_by_filter(self):
+        """When the designated policy doesn't implement the relevant interface, return original."""
+        policy = MultiParallelPolicy(
+            policies=[noop_config(), allcaps_config(), noop_config()],
+            consolidation_strategy="designated",
+            designated_policy_index=0,
+        )
+
+        # Make the designated policy (index 0) OpenAI-only
+        openai_only = _OpenAIOnlyPolicy()
+        policy._sub_policies[0] = openai_only
+
+        ctx = PolicyContext.for_testing()
+        response = make_anthropic_response("hello world")
+
+        result = await policy.on_anthropic_response(response, ctx)
+
+        # Designated policy excluded from Anthropic filtering -> original unchanged
         text_block = cast(AnthropicTextBlock, result["content"][0])
         assert text_block["text"] == "hello world"
 

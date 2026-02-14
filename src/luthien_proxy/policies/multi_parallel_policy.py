@@ -156,6 +156,20 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         names = [p.short_policy_name for p in self._sub_policies]
         return f"MultiParallel[{self._strategy}]({', '.join(names)})"
 
+    def _find_designated_in_filtered(self, filtered_policies: list[PolicyProtocol]) -> int | None:
+        """Map the designated policy index from self._sub_policies to the filtered list.
+
+        Returns None if the designated policy wasn't included in the filtered list
+        (e.g. it doesn't implement the relevant interface).
+        """
+        if self._designated_policy_index is None:
+            return None
+        designated_policy = self._sub_policies[self._designated_policy_index]
+        for i, p in enumerate(filtered_policies):
+            if p is designated_policy:
+                return i
+        return None
+
     # =========================================================================
     # OpenAI Interface - Non-streaming
     # =========================================================================
@@ -174,7 +188,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 for p, req_copy, ctx_copy in zip(openai_policies, request_copies, context_copies)
             )
         )
-        return self._consolidate_requests(request, results)
+        return self._consolidate_requests(request, results, openai_policies)
 
     async def on_openai_response(self, response: "ModelResponse", context: "PolicyContext") -> "ModelResponse":
         """Run all OpenAI-compatible sub-policies on the response in parallel."""
@@ -190,13 +204,21 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 for p, resp_copy, ctx_copy in zip(openai_policies, response_copies, context_copies)
             )
         )
-        return self._consolidate_openai_responses(response, results)
+        return self._consolidate_openai_responses(response, results, openai_policies)
 
-    def _consolidate(self, original: T, results: list[T], *, size_fn: Callable[[T], int]) -> T:
+    def _consolidate(
+        self,
+        original: T,
+        results: list[T],
+        *,
+        size_fn: Callable[[T], int],
+        filtered_designated_index: int | None,
+    ) -> T:
         """Pick the winning value based on the configured consolidation strategy."""
         if self._strategy == "designated":
-            assert self._designated_policy_index is not None
-            designated = results[self._designated_policy_index]
+            if filtered_designated_index is None:
+                return original
+            designated = results[filtered_designated_index]
             return designated if designated != original else original
 
         modified = [r for r in results if r != original]
@@ -220,17 +242,24 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
         raise AssertionError(f"Unsupported consolidation strategy: {self._strategy}")
 
-    def _consolidate_requests(self, original: "Request", results: list["Request"]) -> "Request":
+    def _consolidate_requests(
+        self, original: "Request", results: list["Request"], filtered_policies: list[PolicyProtocol]
+    ) -> "Request":
         """Pick the winning request based on the consolidation strategy.
 
         Modification detection uses != to check value equality (Pydantic model __eq__),
         not object identity. Since each policy receives a deep copy, a modified result
         will have different field values even if it's a different object reference.
         """
-        return self._consolidate(original, results, size_fn=lambda r: len(str(r.messages)))
+        return self._consolidate(
+            original,
+            results,
+            size_fn=lambda r: len(str(r.messages)),
+            filtered_designated_index=self._find_designated_in_filtered(filtered_policies),
+        )
 
     def _consolidate_openai_responses(
-        self, original: "ModelResponse", results: list["ModelResponse"]
+        self, original: "ModelResponse", results: list["ModelResponse"], filtered_policies: list[PolicyProtocol]
     ) -> "ModelResponse":
         """Pick the winning OpenAI response based on the consolidation strategy.
 
@@ -238,7 +267,12 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         not object identity. Since each policy receives a deep copy, a modified result
         will have different field values even if it's a different object reference.
         """
-        return self._consolidate(original, results, size_fn=_response_content_length)
+        return self._consolidate(
+            original,
+            results,
+            size_fn=_response_content_length,
+            filtered_designated_index=self._find_designated_in_filtered(filtered_policies),
+        )
 
     # =========================================================================
     # OpenAI Interface - Streaming (not supported)
@@ -302,7 +336,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 for p, req_copy, ctx_copy in zip(anthropic_policies, request_copies, context_copies)
             )
         )
-        return self._consolidate_anthropic_requests(request, results)
+        return self._consolidate_anthropic_requests(request, results, anthropic_policies)
 
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
@@ -320,10 +354,13 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 for p, resp_copy, ctx_copy in zip(anthropic_policies, response_copies, context_copies)
             )
         )
-        return self._consolidate_anthropic_responses(response, results)
+        return self._consolidate_anthropic_responses(response, results, anthropic_policies)
 
     def _consolidate_anthropic_requests(
-        self, original: "AnthropicRequest", results: list["AnthropicRequest"]
+        self,
+        original: "AnthropicRequest",
+        results: list["AnthropicRequest"],
+        filtered_policies: list[PolicyProtocol],
     ) -> "AnthropicRequest":
         """Pick the winning Anthropic request based on the consolidation strategy.
 
@@ -331,10 +368,18 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         not object identity. Since each policy receives a deep copy, a modified result
         will have different field values even if it's a different object reference.
         """
-        return self._consolidate(original, results, size_fn=lambda r: len(str(r.get("messages", []))))
+        return self._consolidate(
+            original,
+            results,
+            size_fn=lambda r: len(str(r.get("messages", []))),
+            filtered_designated_index=self._find_designated_in_filtered(filtered_policies),
+        )
 
     def _consolidate_anthropic_responses(
-        self, original: "AnthropicResponse", results: list["AnthropicResponse"]
+        self,
+        original: "AnthropicResponse",
+        results: list["AnthropicResponse"],
+        filtered_policies: list[PolicyProtocol],
     ) -> "AnthropicResponse":
         """Pick the winning Anthropic response based on the consolidation strategy.
 
@@ -342,7 +387,12 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         not object identity. Since each policy receives a deep copy, a modified result
         will have different field values even if it's a different object reference.
         """
-        return self._consolidate(original, results, size_fn=_anthropic_response_content_length)
+        return self._consolidate(
+            original,
+            results,
+            size_fn=_anthropic_response_content_length,
+            filtered_designated_index=self._find_designated_in_filtered(filtered_policies),
+        )
 
     # =========================================================================
     # Anthropic Interface - Streaming (not supported)
