@@ -232,9 +232,7 @@ def validate_policy_config(policy_class: type, config: dict[str, Any]) -> dict[s
             validated_config[param_name] = value
             continue
         else:
-            raise ValueError(
-                f"Required parameter '{param_name}' is missing from config"
-            )
+            raise ValueError(f"Required parameter '{param_name}' is missing from config")
 
         annotation = type_hints.get(param_name, param.annotation)
 
