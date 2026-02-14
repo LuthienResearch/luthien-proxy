@@ -276,22 +276,22 @@
         <div class="header">
             <a href="/" class="back-link">&larr; Back to gateway</a>
             <h1><span class="accent">$</span> Connect Claude Code</h1>
-            <p class="subtitle">Point Claude Code at this Luthien Proxy instance. Two environment variables, then you're ready.</p>
+            <p class="subtitle">Point Claude Code at this proxy. One environment variable, then you're ready.</p>
         </div>
 
-        <!-- Step 1: Set environment variables -->
+        <!-- Step 1: Set base URL -->
         <div class="step">
             <div class="step-number">1</div>
-            <h2>Set environment variables</h2>
-            <p>Run these in your terminal before launching Claude Code:</p>
+            <h2>Set the proxy URL</h2>
+            <p>Run this in your terminal before launching Claude Code:</p>
             <div class="code-block">
                 <div class="code-header">
                     <span class="code-lang">bash</span>
                     <button class="copy-btn" onclick="copyCode(this)">Copy</button>
                 </div>
-                <pre><span class="var">export</span> ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span>
-<span class="var">export</span> ANTHROPIC_API_KEY=<span class="val">{{PROXY_API_KEY}}</span></pre>
+                <pre><span class="var">export</span> ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span></pre>
             </div>
+            <p>Your existing Anthropic credentials (API key or OAuth) pass through automatically.</p>
             <div class="tip">
                 <strong>Note:</strong> Do not append <code>/v1</code> to the URL &mdash; the Anthropic SDK adds it automatically.
             </div>
@@ -312,10 +312,10 @@
             <p>All requests will now route through the proxy.</p>
         </div>
 
-        <!-- Step 3: Verify -->
+        <!-- Step 3: Verify (optional) -->
         <div class="step">
             <div class="step-number">3</div>
-            <h2>Verify the connection</h2>
+            <h2>Verify the connection <span style="font-size:14px;font-weight:400;color:var(--text-dim)">(optional)</span></h2>
             <p>Confirm the proxy is reachable:</p>
             <div class="code-block">
                 <div class="code-header">
@@ -324,7 +324,7 @@
                 </div>
                 <pre>curl <span class="val">{{BASE_URL}}/health</span></pre>
             </div>
-            <p>You should see <code style="font-family:'JetBrains Mono',monospace;font-size:13px;background:var(--bg-surface);padding:2px 6px;border-radius:3px;color:var(--green)">{"status": "ok"}</code>. If Claude Code connects successfully, requests will appear in the <a href="/activity/monitor">Activity Monitor</a>.</p>
+            <p>You should see <code style="font-family:'JetBrains Mono',monospace;font-size:13px;background:var(--bg-surface);padding:2px 6px;border-radius:3px;color:var(--green)">{"status": "ok"}</code>. Once Claude Code connects, requests will appear in the <a href="/activity/monitor">Activity Monitor</a>.</p>
         </div>
 
         <!-- Troubleshooting -->
@@ -332,15 +332,7 @@
             <summary>Claude Code can't connect</summary>
             <div class="details-content">
                 <p>Check that <code>ANTHROPIC_BASE_URL</code> does <strong>not</strong> include <code>/v1</code> &mdash; the SDK appends it.</p>
-                <p>Make sure <code>ANTHROPIC_API_KEY</code> matches the proxy's <code>PROXY_API_KEY</code>, not your real Anthropic key.</p>
-            </div>
-        </details>
-
-        <details>
-            <summary>Authentication errors (401 / 403)</summary>
-            <div class="details-content">
-                <p>The proxy uses <code>PROXY_API_KEY</code> to authenticate LLM requests. Set <code>ANTHROPIC_API_KEY</code> to the value shown above.</p>
-                <p>The separate <code>ADMIN_API_KEY</code> is only for the admin UI &mdash; it is not used by Claude Code.</p>
+                <p>Verify the proxy is running with <code>curl {{BASE_URL}}/health</code>.</p>
             </div>
         </details>
 
