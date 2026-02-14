@@ -2,6 +2,8 @@
 
 ## Unreleased | TBA
 
+- Add `/deploy-instructions` endpoint with setup guide for connecting Claude Code to the proxy (deploy-instructions)
+
 - Remove Grafana, Loki, and Promtail from observability stack (remove-loki-grafana)
   - Keep Tempo for distributed tracing and OpenTelemetry instrumentation
   - Remove `observability/grafana/`, `observability/grafana-dashboards/`, `observability/loki/`, `observability/promtail/` directories
