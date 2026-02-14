@@ -2,6 +2,13 @@
 
 ## Unreleased | TBA
 
+- Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
+  - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
+  - MultiParallelPolicy: parallel execution with configurable consolidation strategies
+    (first_block, most_restrictive, unanimous_pass, majority_pass, designated)
+  - Both support OpenAI and Anthropic interfaces with interface compatibility validation
+  - Shared `load_sub_policy` utility for recursive policy loading from YAML config
+
 - Add SaaS infrastructure provisioning CLI for Railway (saas-infra)
   - New `saas_infra/` package with CLI for managing multi-tenant proxy instances
   - Commands: create, list, status, delete, redeploy, cancel-delete, whoami
