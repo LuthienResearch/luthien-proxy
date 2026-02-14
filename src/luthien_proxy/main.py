@@ -186,7 +186,15 @@ def create_app(
 
         Formats the error response according to the client's API format
         (Anthropic or OpenAI) so clients receive properly structured errors.
+        Also invalidates cached credentials on 401 so stale "valid" entries
+        don't let rejected keys keep passing auth.
         """
+        if exc.status_code == 401 and hasattr(request.state, "passthrough_api_key"):
+            deps = getattr(request.app.state, "dependencies", None)
+            cm = getattr(deps, "credential_manager", None) if deps else None
+            if cm is not None:
+                await cm.on_backend_401(request.state.passthrough_api_key)
+
         if exc.client_format == ClientFormat.ANTHROPIC:
             content = {
                 "type": "error",

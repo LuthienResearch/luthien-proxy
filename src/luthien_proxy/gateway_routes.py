@@ -69,12 +69,12 @@ async def verify_token(
     if auth_mode == AuthMode.BOTH:
         if secrets.compare_digest(token, api_key):
             return token
-        if credential_manager and credential_manager.config.validate_credentials:
+        if not credential_manager:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        if credential_manager.config.validate_credentials:
             is_valid = await credential_manager.validate_credential(token)
             if not is_valid:
                 raise HTTPException(status_code=401, detail="Invalid API key or credential")
-        elif not credential_manager:
-            raise HTTPException(status_code=401, detail="Invalid API key")
         request.state.passthrough_api_key = token
         return token
 

@@ -4,6 +4,7 @@ import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from luthien_proxy.credential_manager import (
@@ -110,6 +111,19 @@ class TestValidateCredential:
             ttl_arg = call_args[0][1]
             assert ttl_arg == 300  # invalid_cache_ttl_seconds default
 
+    @pytest.mark.asyncio
+    async def test_network_error_not_cached(self):
+        """Network errors should not cache a result, so the next request retries."""
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = None
+
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+
+        with patch.object(manager, "_call_count_tokens", new_callable=AsyncMock, return_value=None):
+            result = await manager.validate_credential("some-key")
+            assert result is False
+            mock_redis.setex.assert_not_called()
+
 
 class TestCallCountTokens:
     @pytest.mark.asyncio
@@ -135,6 +149,28 @@ class TestCallCountTokens:
         manager._http_client = mock_client
         result = await manager._call_count_tokens("invalid-key")
         assert result is False
+
+    @pytest.mark.asyncio
+    async def test_network_error_returns_none(self):
+        mock_client = AsyncMock()
+        mock_client.post.side_effect = httpx.ConnectError("connection refused")
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        result = await manager._call_count_tokens("some-key")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_unexpected_status_returns_none(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        result = await manager._call_count_tokens("some-key")
+        assert result is None
 
 
 class TestInvalidation:

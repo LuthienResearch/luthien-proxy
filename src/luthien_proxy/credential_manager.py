@@ -183,6 +183,10 @@ class CredentialManager:
 
         # Cache miss - validate against Anthropic API
         is_valid = await self._call_count_tokens(api_key)
+        if is_valid is None:
+            # Inconclusive (network error, unexpected status) -- don't cache,
+            # so the next request retries instead of locking out a valid key.
+            return False
         await self._cache_result(key_hash, is_valid)
         logger.info(f"Credential validated: hash={key_hash[:16]}... valid={is_valid}")
         return is_valid
@@ -255,7 +259,12 @@ class CredentialManager:
         await self._redis.setex(f"{REDIS_KEY_PREFIX}{key_hash}", ttl, data)
 
     async def _touch_last_used(self, key_hash: str) -> None:
-        """Update last_used_at without resetting TTL."""
+        """Update last_used_at without resetting TTL.
+
+        Best-effort: the key could expire between get() and setex().
+        This only affects the last_used_at metadata, not auth decisions,
+        so a missed update is harmless.
+        """
         if self._redis is None:
             return
         redis_key = f"{REDIS_KEY_PREFIX}{key_hash}"
@@ -264,7 +273,6 @@ class CredentialManager:
             return
         data = json.loads(raw)
         data["last_used_at"] = time.time()
-        # Preserve remaining TTL
         ttl = await self._redis.ttl(redis_key)
         if ttl > 0:
             await self._redis.setex(redis_key, ttl, json.dumps(data))
@@ -275,8 +283,13 @@ class CredentialManager:
         result = await self._redis.delete(f"{REDIS_KEY_PREFIX}{key_hash}")
         return result > 0
 
-    async def _call_count_tokens(self, api_key: str) -> bool:
-        """Validate a credential by calling the free count_tokens endpoint."""
+    async def _call_count_tokens(self, api_key: str) -> bool | None:
+        """Validate a credential by calling the free count_tokens endpoint.
+
+        Returns True/False for definitive results, None for inconclusive
+        (network errors, unexpected status codes) so callers can avoid
+        caching a bad result.
+        """
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(timeout=10.0)
 
@@ -296,10 +309,10 @@ class CredentialManager:
             if response.status_code == 401:
                 return False
             logger.warning(f"Credential validation got unexpected status: {response.status_code}")
-            return False
+            return None
         except httpx.RequestError as e:
             logger.warning(f"Credential validation network error: {e}")
-            return False
+            return None
 
     async def close(self) -> None:
         """Clean up HTTP client."""

@@ -14,8 +14,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from luthien_proxy.admin.routes import (
+    AuthConfigUpdateRequest,
     ChatRequest,
     ChatResponse,
     PolicyEnableResponse,
@@ -452,3 +454,25 @@ class TestSendChatRoute:
         call_args = mock_client.post.call_args
         url = call_args[0][0]
         assert url.startswith("http://"), f"URL should remain http:// locally, got: {url}"
+
+
+class TestAuthConfigUpdateRequestValidation:
+    """Test Pydantic validation on AuthConfigUpdateRequest."""
+
+    def test_rejects_zero_valid_ttl(self):
+        with pytest.raises(ValidationError):
+            AuthConfigUpdateRequest(valid_cache_ttl_seconds=0)
+
+    def test_rejects_negative_invalid_ttl(self):
+        with pytest.raises(ValidationError):
+            AuthConfigUpdateRequest(invalid_cache_ttl_seconds=-1)
+
+    def test_accepts_positive_ttl(self):
+        req = AuthConfigUpdateRequest(valid_cache_ttl_seconds=60, invalid_cache_ttl_seconds=30)
+        assert req.valid_cache_ttl_seconds == 60
+        assert req.invalid_cache_ttl_seconds == 30
+
+    def test_accepts_none_ttl(self):
+        req = AuthConfigUpdateRequest()
+        assert req.valid_cache_ttl_seconds is None
+        assert req.invalid_cache_ttl_seconds is None

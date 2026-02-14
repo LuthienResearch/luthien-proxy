@@ -108,8 +108,8 @@ class AuthConfigUpdateRequest(BaseModel):
 
     auth_mode: str | None = Field(default=None, description="Auth mode: proxy_key, passthrough, or both")
     validate_credentials: bool | None = Field(default=None)
-    valid_cache_ttl_seconds: int | None = Field(default=None)
-    invalid_cache_ttl_seconds: int | None = Field(default=None)
+    valid_cache_ttl_seconds: int | None = Field(default=None, gt=0)
+    invalid_cache_ttl_seconds: int | None = Field(default=None, gt=0)
 
 
 class CachedCredentialResponse(BaseModel):

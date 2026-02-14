@@ -236,6 +236,28 @@ class TestVerifyTokenAuthModes:
         )
         assert response.status_code == 401
 
+    def test_both_mode_no_validation_sets_passthrough(self, mock_app):
+        """In BOTH mode with validate_credentials=False, non-proxy tokens pass through."""
+        app, mock_anthropic_client, credential_manager, _ = mock_app
+        credential_manager.config.auth_mode = AuthMode.BOTH
+        credential_manager.config.validate_credentials = False
+
+        with patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = MagicMock()
+            client = TestClient(app, raise_server_exceptions=False)
+            response = client.post(
+                "/v1/messages",
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 10,
+                },
+                headers={"Authorization": "Bearer some-anthropic-token"},
+            )
+            assert response.status_code == 200
+            credential_manager.validate_credential.assert_not_called()
+            mock_anthropic_client.with_api_key.assert_called_once_with("some-anthropic-token")
+
     def test_passthrough_key_used_for_upstream(self, mock_app):
         """In passthrough mode, the auth credential is used as the upstream API key."""
         app, mock_anthropic_client, credential_manager, _ = mock_app
