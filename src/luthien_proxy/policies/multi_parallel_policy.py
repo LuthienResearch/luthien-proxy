@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, TypeVar
 
 from luthien_proxy.policies.multi_policy_utils import load_sub_policy
 from luthien_proxy.policy_core import (
@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 VALID_STRATEGIES = frozenset({"first_block", "most_restrictive", "unanimous_pass", "majority_pass"})
 
@@ -90,7 +91,6 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
       leave it unchanged. If any policy modifies it, use the first modified version.
     - "majority_pass": The response passes unchanged if a strict majority
       of policies leave it unchanged. Otherwise use the first modified version.
-
     Context isolation: Each sub-policy receives a deep copy of the context.
     Any mutations made to context by sub-policies are discarded after parallel
     execution completes. Context modifications are not propagated back.
@@ -162,15 +162,9 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         )
         return self._consolidate_openai_responses(response, results)
 
-    def _consolidate_requests(self, original: "Request", results: list["Request"]) -> "Request":
-        """Pick the winning request based on the consolidation strategy.
-
-        Modification detection uses != to check value equality (Pydantic model __eq__),
-        not object identity. Since each policy receives a deep copy, a modified result
-        will have different field values even if it's a different object reference.
-        """
+    def _consolidate(self, original: T, results: list[T], *, size_fn: Callable[[T], int]) -> T:
+        """Pick the winning value based on the configured consolidation strategy."""
         modified = [r for r in results if r != original]
-
         if not modified:
             return original
 
@@ -178,7 +172,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             return modified[0]
 
         if self._strategy == "most_restrictive":
-            return min(modified, key=lambda r: len(str(r.messages)))
+            return min(modified, key=size_fn)
 
         if self._strategy == "unanimous_pass":
             return modified[0]
@@ -189,7 +183,16 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 return original
             return modified[0]
 
-        return original
+        raise AssertionError(f"Unsupported consolidation strategy: {self._strategy}")
+
+    def _consolidate_requests(self, original: "Request", results: list["Request"]) -> "Request":
+        """Pick the winning request based on the consolidation strategy.
+
+        Modification detection uses != to check value equality (Pydantic model __eq__),
+        not object identity. Since each policy receives a deep copy, a modified result
+        will have different field values even if it's a different object reference.
+        """
+        return self._consolidate(original, results, size_fn=lambda r: len(str(r.messages)))
 
     def _consolidate_openai_responses(
         self, original: "ModelResponse", results: list["ModelResponse"]
@@ -200,27 +203,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         not object identity. Since each policy receives a deep copy, a modified result
         will have different field values even if it's a different object reference.
         """
-        modified = [r for r in results if r != original]
-
-        if not modified:
-            return original
-
-        if self._strategy == "first_block":
-            return modified[0]
-
-        if self._strategy == "most_restrictive":
-            return min(modified, key=_response_content_length)
-
-        if self._strategy == "unanimous_pass":
-            return modified[0]
-
-        if self._strategy == "majority_pass":
-            passed = len(results) - len(modified)
-            if passed > len(results) / 2:
-                return original
-            return modified[0]
-
-        return original
+        return self._consolidate(original, results, size_fn=_response_content_length)
 
     # =========================================================================
     # OpenAI Interface - Streaming (not supported)
@@ -313,27 +296,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         not object identity. Since each policy receives a deep copy, a modified result
         will have different field values even if it's a different object reference.
         """
-        modified = [r for r in results if r != original]
-
-        if not modified:
-            return original
-
-        if self._strategy == "first_block":
-            return modified[0]
-
-        if self._strategy == "most_restrictive":
-            return min(modified, key=lambda r: len(str(r.get("messages", []))))
-
-        if self._strategy == "unanimous_pass":
-            return modified[0]
-
-        if self._strategy == "majority_pass":
-            passed = len(results) - len(modified)
-            if passed > len(results) / 2:
-                return original
-            return modified[0]
-
-        return original
+        return self._consolidate(original, results, size_fn=lambda r: len(str(r.get("messages", []))))
 
     def _consolidate_anthropic_responses(
         self, original: "AnthropicResponse", results: list["AnthropicResponse"]
@@ -344,27 +307,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         not object identity. Since each policy receives a deep copy, a modified result
         will have different field values even if it's a different object reference.
         """
-        modified = [r for r in results if r != original]
-
-        if not modified:
-            return original
-
-        if self._strategy == "first_block":
-            return modified[0]
-
-        if self._strategy == "most_restrictive":
-            return min(modified, key=_anthropic_response_content_length)
-
-        if self._strategy == "unanimous_pass":
-            return modified[0]
-
-        if self._strategy == "majority_pass":
-            passed = len(results) - len(modified)
-            if passed > len(results) / 2:
-                return original
-            return modified[0]
-
-        return original
+        return self._consolidate(original, results, size_fn=_anthropic_response_content_length)
 
     # =========================================================================
     # Anthropic Interface - Streaming (not supported)
