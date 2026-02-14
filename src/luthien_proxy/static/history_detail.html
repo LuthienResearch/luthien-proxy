@@ -364,6 +364,7 @@
                 <p class="session-id" id="session-id">Loading...</p>
             </div>
             <div class="header-right">
+                <a href="#" class="export-btn" id="live-view-btn">Live View</a>
                 <a href="#" class="export-btn" id="export-btn">Export Markdown</a>
                 <a href="/auth/logout" class="nav-link">Sign Out</a>
             </div>
@@ -397,6 +398,7 @@
 
             sessionIdEl.textContent = sessionId;
             exportBtn.href = `/history/api/sessions/${encodeURIComponent(sessionId)}/export`;
+            document.getElementById('live-view-btn').href = `/conversation/live/${encodeURIComponent(sessionId)}`;
 
             try {
                 const response = await fetch(`/history/api/sessions/${encodeURIComponent(sessionId)}`, {

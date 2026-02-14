@@ -107,7 +107,7 @@
 
 - [ ] **Support ANTHROPIC_AUTH_TOKEN header** - Claude Code uses `x-api-key` header with value from `ANTHROPIC_API_KEY` env var. Some tools may use `Authorization: Bearer` with `ANTHROPIC_AUTH_TOKEN`. Consider supporting both auth header formats for broader compatibility.
 - [ ] **Simplify db.py abstractions** - Remove redundant protocol wrappers
-- [ ] **Review observability stack** - Consolidate observability docs, verify Grafana/Loki integration
+- [ ] **Review observability stack** - Consolidate observability docs, verify Tempo integration
 - [ ] Increase unit test coverage (currently ~90%, target 95%+)
 - [ ] Add config schema validation (Pydantic model for policy_config.yaml)
 - [ ] Implement adaptive timeout based on model type

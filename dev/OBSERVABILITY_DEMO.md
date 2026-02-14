@@ -23,13 +23,13 @@ This guide walks through testing the UppercaseNthWordPolicy and exploring all ob
    This starts:
    - Gateway (with UppercaseNthWordPolicy)
    - PostgreSQL and Redis
-   - Tempo (traces), Loki (logs), Promtail (log collector), and Grafana
+   - Tempo (distributed tracing)
 
 3. **Verify services are running**:
    ```bash
    docker compose --profile observability ps
    ```
-   Should show: gateway, db, redis, tempo, loki, promtail, grafana all running and healthy.
+   Should show: gateway, db, redis, tempo all running and healthy.
 
 ## Part 1: Verify Gateway
 
@@ -171,9 +171,9 @@ open http://localhost:8000/debug/diff
 - Changed text is highlighted in orange
 - Word-by-word comparison
 
-**Grafana Trace Link**:
-- Click the "📊 View Trace in Grafana" button
-- Opens Tempo with the full distributed trace
+**Tempo Trace Link**:
+- Click the "View Trace in Tempo" button
+- Opens the Tempo API search for the full distributed trace
 
 ### Browse Recent Calls:
 
@@ -188,64 +188,7 @@ If the response contains JSON (from a tool call or structured output), you'll se
 - Pretty-printed formatting
 - But the policy doesn't uppercase JSON - only text content!
 
-## Part 5: Performance Analysis with Grafana
-
-Open Grafana:
-
-```bash
-open http://localhost:3000
-```
-
-Navigate to **"Metrics & Performance"** dashboard (should auto-provision).
-
-### Panels to Explore:
-
-**1. Request Rate by Model** (Top Left)
-- Time series showing requests/second
-- Grouped by model (gpt-3.5-turbo, gpt-4, claude, etc.)
-- See traffic patterns in real-time
-
-**2. Policy Execution Latency (p95)** (Top Right)
-- 95th percentile latency for policy operations
-- Separate lines for:
-  - `control_plane.process_request` (request policies)
-  - `control_plane.process_response` (response policies)
-  - `control_plane.process_streaming_response` (streaming policies)
-- **Question**: Is the uppercase policy adding latency? Check the graph!
-
-**3. Total Requests** (Middle Left)
-- Gauge showing total request count
-- Color changes: Green → Yellow (50+) → Red (100+)
-
-**4. Avg Request Latency** (Middle Center)
-- Average end-to-end latency
-- Shows if system is getting slower
-
-**5. Recent Traces** (Middle Bottom Left)
-- Table of last 20 traces
-- **Call ID column** - Copy this to use in diff viewer!
-- Click a row → opens full trace view in Tempo
-
-**6. Errors & Warnings** (Middle Bottom Right)
-- Live log stream filtered to errors/warnings
-- If policy fails, you'll see it here
-
-**7. Latency Breakdown** (Bottom - Full Width)
-- Stacked bar chart showing where time is spent:
-  - Gateway overhead
-  - Policy processing time
-  - LLM response time
-- **Question**: Is policy processing fast compared to LLM?
-
-### Try This:
-
-1. Send 10-20 requests in quick succession
-2. Watch the request rate spike in the graph
-3. Check if policy latency stays consistent
-4. Click a trace, then use its call_id in the diff viewer
-5. From the trace view, click "View Logs" → see correlated logs in Loki
-
-## Part 6: Trace Correlation (The Full Picture)
+## Part 5: Trace Correlation (The Full Picture)
 
 Let's trace a single request through the entire system:
 
@@ -256,9 +199,9 @@ Let's trace a single request through the entire system:
 
 3. **Diff Viewer** → Paste call_id
    - See the before/after transformation
-   - Click "View Trace in Grafana"
+   - Click "View Trace in Tempo"
 
-4. **Grafana Tempo** → Examine the trace:
+4. **Tempo API** → Examine the trace:
    - `gateway.chat_completions` span (root)
      - `control_plane.process_request` span
        - `policy.process_request` span
@@ -266,13 +209,9 @@ Let's trace a single request through the entire system:
      - `control_plane.process_response` span
        - `policy.process_full_response` span
 
-5. **From the trace** → Click "Logs for this span"
-   - See structured logs with full context
-   - Filter by span_id or trace_id
+5. **Back to Diff Viewer** → Verify the transformation matches what you saw
 
-6. **Back to Diff Viewer** → Verify the transformation matches what you saw
-
-## Part 7: Testing Edge Cases
+## Part 6: Testing Edge Cases
 
 ### Very Short Response
 
@@ -310,10 +249,9 @@ wait
 
 Then check:
 - Activity Monitor → See all 5 requests
-- Grafana → See the request rate spike
 - Diff Viewer → Browse recent calls to see all 5
 
-## Part 8: Policy Events in Detail
+## Part 7: Policy Events in Detail
 
 Back to the **Activity Monitor**, filter to show only **Policy Events**:
 
@@ -328,12 +266,10 @@ Back to the **Activity Monitor**, filter to show only **Policy Events**:
 
 ## Summary: What We've Demonstrated
 
-✅ **Real-time Monitoring**: Activity Monitor showing live events with filtering
-✅ **Policy Debugging**: Diff Viewer showing exact before/after changes
-✅ **Performance Metrics**: Grafana dashboard with latency, rates, and traces
-✅ **Distributed Tracing**: Tempo traces correlating requests across components
-✅ **Log Correlation**: Loki logs linked to traces via call_id
-✅ **Event Emission**: Policy emitting structured events for observability
+- **Real-time Monitoring**: Activity Monitor showing live events with filtering
+- **Policy Debugging**: Diff Viewer showing exact before/after changes
+- **Distributed Tracing**: Tempo traces correlating requests across components
+- **Event Emission**: Policy emitting structured events for observability
 
 ## Key Observability Features
 
@@ -341,8 +277,7 @@ Back to the **Activity Monitor**, filter to show only **Policy Events**:
 2. **Non-blocking Persistence**: Events written to PostgreSQL via background queue (no request latency impact)
 3. **Real-time Streaming**: SSE-based activity monitor updates instantly
 4. **Structured Diffs**: API computes diffs server-side for easy visualization
-5. **Trace-to-Logs**: Click from trace spans directly to correlated log entries
-6. **Policy Transparency**: Every policy transformation is visible and traceable
+5. **Policy Transparency**: Every policy transformation is visible and traceable
 
 ## Troubleshooting
 
@@ -353,11 +288,6 @@ Back to the **Activity Monitor**, filter to show only **Policy Events**:
 **Diff Viewer returns 404?**
 - Check PostgreSQL is running: `docker compose ps postgres`
 - Verify events were written: `uv run python scripts/query_debug_logs.py --call-id <call_id>`
-
-**Grafana dashboard empty?**
-- Check Tempo is receiving traces: `docker compose logs tempo`
-- Verify OTEL_ENABLED=true in environment
-- Check traces: `curl http://localhost:3200/api/search`
 
 **Policy not transforming text?**
 - Check gateway logs for policy initialization
@@ -379,5 +309,4 @@ This stops all services (gateway, databases, observability stack).
 - Try changing `n` to a different value in [main.py:78](../src/luthien_proxy/main.py#L78) (e.g., n=2 for every other word, n=1 for all words)
 - Create your own policy by copying [UppercaseNthWordPolicy](../src/luthien_proxy/policies/uppercase_nth_word.py)
 - Add more complex transformations (e.g., word filtering, content moderation)
-- Set up alerting rules in Grafana for policy failures or high latency
 - Export interesting traces and diffs for documentation

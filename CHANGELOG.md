@@ -9,6 +9,21 @@
   - Both support OpenAI and Anthropic interfaces with interface compatibility validation
   - Shared `load_sub_policy` utility for recursive policy loading from YAML config
 
+- Fix docker-compose project name collision across worktrees (fix/docker-project-names)
+  - Derive `COMPOSE_PROJECT_NAME` from worktree directory name (e.g. `luthien-main`, `luthien-deploy-instructions`)
+  - Add `name:` field to `docker-compose.yaml` with `luthien` default for raw `docker compose up`
+  - Comment out `COMPOSE_PROJECT_NAME` in `.env.example` so new setups get auto-derivation
+
+- Remove Grafana, Loki, and Promtail from observability stack (remove-loki-grafana)
+  - Keep Tempo for distributed tracing and OpenTelemetry instrumentation
+  - Remove `observability/grafana/`, `observability/grafana-dashboards/`, `observability/loki/`, `observability/promtail/` directories
+  - Remove Grafana/Loki/Promtail services from docker-compose.yaml
+  - Remove `GRAFANA_URL` setting from `.env.example` and `Settings` class
+  - Update `build_tempo_url()` to generate direct Tempo API URLs instead of Grafana Explore URLs
+  - Update `scripts/observability.sh` for Tempo-only stack
+  - Remove `scripts/test_observability.sh` (was Loki-dependent)
+  - Update all documentation references
+
 - Add SaaS infrastructure provisioning CLI for Railway (saas-infra)
   - New `saas_infra/` package with CLI for managing multi-tenant proxy instances
   - Commands: create, list, status, delete, redeploy, cancel-delete, whoami

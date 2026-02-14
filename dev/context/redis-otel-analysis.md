@@ -13,7 +13,7 @@ We currently maintain two separate observability channels:
 
 1. **OpenTelemetry (OTel)** - Distributed tracing and historical analysis
    - Spans exported to Tempo via OTLP/gRPC
-   - Viewed in Grafana (query by trace_id, call_id, etc.)
+   - Queryable via Tempo HTTP API (by trace_id, call_id, etc.)
    - Batch processing with ~seconds delay
    - Rich structured data with full context
 
@@ -69,7 +69,7 @@ This dual-channel approach is "clunky" because:
 ### OTel's Weaknesses for Real-Time
 - **Batching delay**: BatchSpanProcessor batches spans before export (~seconds)
 - **Backend delay**: Tempo ingestion and indexing adds latency
-- **Query-based**: Must poll/query Grafana, not push-based
+- **Query-based**: Must poll/query Tempo API, not push-based
 - **Heavy**: Full span data is overkill for "what's happening right now?"
 
 ### Redis's Strengths

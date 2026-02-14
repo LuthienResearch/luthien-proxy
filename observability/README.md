@@ -1,6 +1,6 @@
 # Luthien Observability Stack
 
-Distributed tracing (Tempo) + Log aggregation (Loki) + Visualization (Grafana).
+Distributed tracing via Tempo with OpenTelemetry instrumentation.
 
 ## Quick Start
 
@@ -29,97 +29,52 @@ Distributed tracing (Tempo) + Log aggregation (Loki) + Visualization (Grafana).
 # Start with main app
 docker compose --profile observability up -d
 
-# Start observability only
-docker compose --profile observability up -d tempo loki grafana
-
-# Stop observability services
-docker compose stop tempo loki grafana
-
-# View logs
-docker compose logs -f tempo loki grafana
+# Stop
+docker compose --profile observability down
 ```
 
 ## Access
 
-- **Grafana UI:** http://localhost:3000 (auto-login, no password needed)
-- **Tempo API:** http://localhost:3200 (backend only, used by Grafana)
-- **Loki API:** http://localhost:3100 (backend only, used by Grafana)
+- **Tempo HTTP API:** http://localhost:3200
+- **OTLP gRPC endpoint:** localhost:4317 (application sends traces here)
 
 ## Application Integration
 
-The Luthien application automatically sends telemetry when observability stack is running:
+The Luthien gateway automatically sends traces to Tempo via OTLP when the observability stack is running.
 
-- **Traces** → Tempo (via OTLP at `tempo:4317`)
-- **Logs** → Structured logs with trace correlation (viewable in Grafana)
+Configuration is in `src/luthien_proxy/telemetry.py`.
 
-Configuration is in `src/luthien_proxy/v2/telemetry.py`.
+## Querying Traces
+
+Search traces via the Tempo HTTP API:
+
+```bash
+# Search recent traces
+curl http://localhost:3200/api/search
+
+# Search by TraceQL query
+curl 'http://localhost:3200/api/search?q=%7B%20span.%22luthien.call_id%22%20%3D%20%22your-call-id%22%20%7D'
+```
 
 ## Data Storage
 
-All data is stored in `observability/data/` (gitignored):
-- `data/tempo/` - Trace data (24h retention)
-- `data/loki/` - Log data (24h retention)
-- `data/grafana/` - Grafana settings & dashboards
+Trace data is stored in `observability/data/tempo/` (gitignored).
 
 **Retention:** 24 hours (automatic cleanup)
-**Disk usage:** ~750MB steady state
-
-## Architecture
-
-```
-Luthien App
-    ↓ (traces via OTLP gRPC)
-    ↓ port 4317
-Tempo ─────┐
-           │
-    ↓ (structured logs)
-    ↓ stdout
-Loki ──────┤
-           │
-           ↓ (queries both)
-        Grafana
-           ↓
-    http://localhost:3000
-```
-
-## Dashboards
-
-Pre-configured dashboards (auto-loaded):
-- **Luthien Overview** - Request timeline, latency, errors, recent traces
-
-You can:
-- Modify existing dashboards in the Grafana UI
-- Create new dashboards (will be saved in `data/grafana/`)
-- Export dashboards to `grafana/dashboards/*.json` for version control
 
 ## Troubleshooting
 
-**Services won't start:**
+**Tempo won't start:**
 ```bash
-# Check status
-docker compose ps tempo loki grafana
-
-# View logs
+docker compose ps tempo
 ./scripts/observability.sh logs
 ```
 
-**Can't connect to Grafana:**
-- Check it's running: `docker compose ps grafana`
-- Check port 3000 isn't in use: `lsof -i :3000`
-- Try restarting: `./scripts/observability.sh restart`
-
-**No traces/logs appearing:**
+**No traces appearing:**
 - Check app has `OTEL_ENABLED=true` (default)
 - Verify Tempo is healthy: `docker compose ps tempo`
-- Check app logs: `docker compose logs control-plane`
+- Check gateway can reach Tempo: `docker compose exec gateway curl -v http://tempo:4317`
 
 **Disk space issues:**
 - Clean old data: `./scripts/observability.sh clean`
 - Data auto-deletes after 24h
-
-## Documentation
-
-- **Full observability guide:** [../dev/context/observability-guide.md](../dev/context/observability-guide.md)
-- **Query languages:**
-  - TraceQL (searching traces): https://grafana.com/docs/tempo/latest/traceql/
-  - LogQL (searching logs): https://grafana.com/docs/loki/latest/query/

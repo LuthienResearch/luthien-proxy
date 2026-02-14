@@ -188,7 +188,7 @@ if stream_state.finish_reason:
 **Tools available**:
 - Activity monitor: `/activity/monitor` - live SSE stream
 - Debug diff viewer: `/debug/diff?call_id=X` - before/after comparison
-- Grafana traces: Search by `luthien.call_id` attribute
+- Tempo traces: Search by `luthien.call_id` attribute via `http://localhost:3200/api/search`
 
 ## Policy Config Dynamic Loading Security (2026-02-04)
 
