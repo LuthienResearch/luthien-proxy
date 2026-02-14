@@ -17,6 +17,18 @@ Example config:
             config: { model: "openai/gpt-4o-mini" }
           - class: "luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy"
             config: {}
+
+    # "designated" strategy example - always use the second policy's result:
+    policy:
+      class: "luthien_proxy.policies.multi_parallel_policy:MultiParallelPolicy"
+      config:
+        consolidation_strategy: "designated"
+        designated_policy_index: 1
+        policies:
+          - class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+            config: {}
+          - class: "luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy"
+            config: {}
 """
 
 from __future__ import annotations
@@ -53,7 +65,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
-VALID_STRATEGIES = frozenset({"first_block", "most_restrictive", "unanimous_pass", "majority_pass"})
+VALID_STRATEGIES = frozenset({"first_block", "most_restrictive", "unanimous_pass", "majority_pass", "designated"})
 
 
 def _response_content_length(response: "ModelResponse") -> int:
@@ -91,6 +103,9 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
       leave it unchanged. If any policy modifies it, use the first modified version.
     - "majority_pass": The response passes unchanged if a strict majority
       of policies leave it unchanged. Otherwise use the first modified version.
+    - "designated": Use the result from the policy at designated_policy_index.
+      If that policy didn't modify the response, return the original unchanged.
+
     Context isolation: Each sub-policy receives a deep copy of the context.
     Any mutations made to context by sub-policies are discarded after parallel
     execution completes. Context modifications are not propagated back.
@@ -104,6 +119,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         self,
         policies: list[dict[str, Any]],
         consolidation_strategy: str = "first_block",
+        designated_policy_index: int | None = None,
     ) -> None:
         """Initialize with sub-policy configs and a consolidation strategy."""
         if consolidation_strategy not in VALID_STRATEGIES:
@@ -113,6 +129,16 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
         self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
         self._strategy = consolidation_strategy
+
+        if consolidation_strategy == "designated":
+            if designated_policy_index is None:
+                raise ValueError("designated_policy_index is required when using the 'designated' strategy")
+            if not (0 <= designated_policy_index < len(self._sub_policies)):
+                raise ValueError(
+                    f"designated_policy_index {designated_policy_index} is out of range "
+                    f"(have {len(self._sub_policies)} policies)"
+                )
+        self._designated_policy_index = designated_policy_index
 
         names = [p.short_policy_name for p in self._sub_policies]
         logger.info(
@@ -164,6 +190,11 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
     def _consolidate(self, original: T, results: list[T], *, size_fn: Callable[[T], int]) -> T:
         """Pick the winning value based on the configured consolidation strategy."""
+        if self._strategy == "designated":
+            assert self._designated_policy_index is not None
+            designated = results[self._designated_policy_index]
+            return designated if designated != original else original
+
         modified = [r for r in results if r != original]
         if not modified:
             return original
