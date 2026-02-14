@@ -196,18 +196,22 @@ const FormRenderer = {
       : "";
 
     if (isSimple) {
-      // Inline array of simple items
+      const isNumeric = itemSchema && (itemSchema.type === "number" || itemSchema.type === "integer");
+      const inputType = isNumeric ? "number" : "text";
+      const modelModifier = isNumeric ? ".number" : "";
+      const defaultValue = isNumeric ? "0" : "''";
+      const step = itemSchema?.type === "integer" ? ' step="1"' : "";
       return `
         <div class="form-field form-field-array">
           <label>${this.escapeHtml(this.pathToLabel(path))}</label>
           ${desc}
           <template x-for="(item, index) in formData.${path}" :key="index">
             <div class="array-item">
-              <input type="text" x-model="formData.${path}[index]">
+              <input type="${inputType}" x-model${modelModifier}="formData.${path}[index]"${step}>
               <button type="button" class="btn-remove" @click="formData.${path}.splice(index, 1)">&times;</button>
             </div>
           </template>
-          <button type="button" class="btn-add" @click="formData.${path}.push('')">+ Add</button>
+          <button type="button" class="btn-add" @click="formData.${path}.push(${defaultValue})">+ Add</button>
         </div>
       `;
     } else {
@@ -223,7 +227,7 @@ const FormRenderer = {
               <button type="button" class="btn-remove" @click="formData.${path}.splice(index, 1)">&times;</button>
             </div>
           </template>
-          <button type="button" class="btn-add" @click="addArrayItem('${path}')">+ Add</button>
+          <!-- Add button hidden until drawer supports creating new items -->
         </div>
       `;
     }
@@ -277,7 +281,7 @@ const FormRenderer = {
           resolved.properties?.[discriminator]?.default ||
           i;
         return `
-              <template x-if="formData.${path}.${discriminator} === '${typeValue}'">
+              <template x-if="formData.${path}.${discriminator} === '${this.escapeHtml(String(typeValue))}'">
                 <div>${this.renderObjectField(resolved, path, rootSchema, depth + 1)}</div>
               </template>
             `;

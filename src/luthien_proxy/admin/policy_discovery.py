@@ -203,7 +203,8 @@ def validate_policy_config(policy_class: type, config: dict[str, Any]) -> dict[s
         Validated config dict (with Pydantic models converted to dicts)
 
     Raises:
-        ValidationError: If validation fails
+        ValueError: If a required parameter is missing
+        ValidationError: If Pydantic model validation fails
     """
     try:
         sig = inspect.signature(policy_class.__init__)
@@ -231,8 +232,9 @@ def validate_policy_config(policy_class: type, config: dict[str, Any]) -> dict[s
             validated_config[param_name] = value
             continue
         else:
-            # Required parameter missing - will fail at instantiation
-            continue
+            raise ValueError(
+                f"Required parameter '{param_name}' is missing from config"
+            )
 
         annotation = type_hints.get(param_name, param.annotation)
 
@@ -308,13 +310,22 @@ def extract_description(policy_class: type) -> str:
     return ""
 
 
+_discovered_policies_cache: list[dict[str, Any]] | None = None
+
+
 def discover_policies() -> list[dict[str, Any]]:
     """Discover all policy classes in the luthien_proxy.policies package.
+
+    Results are cached since the policy set is static at runtime.
 
     Returns:
         List of policy info dicts with keys: name, class_ref, description,
         config_schema, example_config
     """
+    global _discovered_policies_cache
+    if _discovered_policies_cache is not None:
+        return _discovered_policies_cache
+
     policies: list[dict[str, Any]] = []
 
     try:
@@ -377,4 +388,5 @@ def discover_policies() -> list[dict[str, Any]]:
     # Sort by name for consistent ordering
     policies.sort(key=lambda p: p["name"])
 
+    _discovered_policies_cache = policies
     return policies

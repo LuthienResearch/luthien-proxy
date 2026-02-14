@@ -48,21 +48,10 @@ class BasePolicy:
         """
         config: dict[str, Any] = {}
 
-        # Look for instance attributes that are Pydantic models
-        for attr_name in dir(self):
+        for attr_name, value in vars(self).items():
             if attr_name.startswith("_"):
                 continue
 
-            try:
-                value = getattr(self, attr_name)
-            except AttributeError:
-                continue
-
-            # Skip methods and properties
-            if callable(value) and not isinstance(value, BaseModel):
-                continue
-
-            # Serialize Pydantic models
             if isinstance(value, BaseModel):
                 config[attr_name] = value.model_dump()
 

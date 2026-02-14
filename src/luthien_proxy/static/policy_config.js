@@ -534,12 +534,6 @@ window.closeDrawer = function() {
     }
 };
 
-window.addArrayItem = function(path) {
-    // Add new item to array in Alpine data
-    // For now, just log - will be properly implemented with Alpine integration
-    console.log('addArrayItem', path);
-};
-
 window.validateJson = function(event, path) {
     // JSON validation for freeform objects
     try {

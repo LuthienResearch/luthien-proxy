@@ -194,6 +194,12 @@ async def set_policy(
             troubleshooting=[f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()],
             validation_errors=[dict(err) for err in e.errors()],
         )
+    except ValueError as e:
+        return PolicyEnableResponse(
+            success=False,
+            error="Validation error",
+            troubleshooting=[str(e)],
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -218,8 +224,6 @@ async def list_available_policies(
 
     Requires admin authentication.
     """
-    # Note: Policy discovery is performed on every request. Since the policy set
-    # is static at runtime, this could be cached if performance becomes a concern.
     discovered = discover_policies()
     policies = [
         PolicyClassInfo(
