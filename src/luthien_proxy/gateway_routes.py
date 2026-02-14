@@ -48,13 +48,11 @@ async def verify_token(
 
     auth_mode = credential_manager.config.auth_mode if credential_manager else AuthMode.PROXY_KEY
 
-    # proxy_key mode: only accept the configured PROXY_API_KEY
     if auth_mode == AuthMode.PROXY_KEY:
         if secrets.compare_digest(token, api_key):
             return token
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    # passthrough mode: validate credential via CredentialManager
     if auth_mode == AuthMode.PASSTHROUGH:
         if not credential_manager:
             raise HTTPException(status_code=500, detail="Passthrough auth not available")
@@ -66,19 +64,17 @@ async def verify_token(
         return token
 
     # both mode: try proxy key first, fall through to passthrough
-    if auth_mode == AuthMode.BOTH:
-        if secrets.compare_digest(token, api_key):
-            return token
-        if not credential_manager:
-            raise HTTPException(status_code=401, detail="Invalid API key")
-        if credential_manager.config.validate_credentials:
-            is_valid = await credential_manager.validate_credential(token)
-            if not is_valid:
-                raise HTTPException(status_code=401, detail="Invalid API key or credential")
-        request.state.passthrough_api_key = token
+    assert auth_mode == AuthMode.BOTH
+    if secrets.compare_digest(token, api_key):
         return token
-
-    raise HTTPException(status_code=401, detail="Invalid API key")
+    if not credential_manager:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    if credential_manager.config.validate_credentials:
+        is_valid = await credential_manager.validate_credential(token)
+        if not is_valid:
+            raise HTTPException(status_code=401, detail="Invalid API key or credential")
+    request.state.passthrough_api_key = token
+    return token
 
 
 def hash_api_key(key: str) -> str:

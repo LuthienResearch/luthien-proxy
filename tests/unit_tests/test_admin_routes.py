@@ -17,16 +17,24 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from luthien_proxy.admin.routes import (
+    AuthConfigResponse,
     AuthConfigUpdateRequest,
+    CachedCredentialsListResponse,
     ChatRequest,
     ChatResponse,
     PolicyEnableResponse,
     PolicySetRequest,
+    get_auth_config,
     get_available_models,
+    invalidate_all_credentials,
+    invalidate_credential,
+    list_cached_credentials,
     list_models,
     send_chat,
     set_policy,
+    update_auth_config,
 )
+from luthien_proxy.credential_manager import AuthConfig, AuthMode, CachedCredential
 from luthien_proxy.policy_manager import PolicyEnableResult
 
 AUTH_TOKEN = "test-admin-key"
@@ -476,3 +484,170 @@ class TestAuthConfigUpdateRequestValidation:
         req = AuthConfigUpdateRequest()
         assert req.valid_cache_ttl_seconds is None
         assert req.invalid_cache_ttl_seconds is None
+
+
+class TestGetAuthConfig:
+    """Test get_auth_config route handler."""
+
+    def _make_manager(self, **overrides):
+        config = AuthConfig(
+            auth_mode=AuthMode.PASSTHROUGH,
+            validate_credentials=True,
+            valid_cache_ttl_seconds=3600,
+            invalid_cache_ttl_seconds=300,
+            updated_at="2025-01-01 00:00:00",
+            updated_by="admin",
+            **overrides,
+        )
+        manager = MagicMock()
+        manager.config = config
+        return manager
+
+    @pytest.mark.asyncio
+    async def test_returns_current_config(self):
+        manager = self._make_manager()
+        result = await get_auth_config(_=AUTH_TOKEN, credential_manager=manager)
+        assert isinstance(result, AuthConfigResponse)
+        assert result.auth_mode == "passthrough"
+        assert result.validate_credentials is True
+        assert result.valid_cache_ttl_seconds == 3600
+        assert result.updated_by == "admin"
+
+    @pytest.mark.asyncio
+    async def test_no_credential_manager_returns_503(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await get_auth_config(_=AUTH_TOKEN, credential_manager=None)
+        assert exc_info.value.status_code == 503
+
+
+class TestUpdateAuthConfig:
+    """Test update_auth_config route handler."""
+
+    @pytest.mark.asyncio
+    async def test_updates_config(self):
+        updated = AuthConfig(
+            auth_mode=AuthMode.BOTH,
+            validate_credentials=False,
+            valid_cache_ttl_seconds=7200,
+            invalid_cache_ttl_seconds=600,
+            updated_at="2025-06-01 00:00:00",
+            updated_by="admin-api",
+        )
+        manager = MagicMock()
+        manager.update_config = AsyncMock(return_value=updated)
+
+        body = AuthConfigUpdateRequest(auth_mode="both", validate_credentials=False)
+        result = await update_auth_config(body=body, _=AUTH_TOKEN, credential_manager=manager)
+
+        assert isinstance(result, AuthConfigResponse)
+        assert result.auth_mode == "both"
+        assert result.validate_credentials is False
+        manager.update_config.assert_called_once_with(
+            auth_mode="both",
+            validate_credentials=False,
+            valid_cache_ttl_seconds=None,
+            invalid_cache_ttl_seconds=None,
+            updated_by="admin-api",
+        )
+
+    @pytest.mark.asyncio
+    async def test_invalid_auth_mode_returns_400(self):
+        manager = MagicMock()
+        body = AuthConfigUpdateRequest(auth_mode="invalid_mode")
+        with pytest.raises(HTTPException) as exc_info:
+            await update_auth_config(body=body, _=AUTH_TOKEN, credential_manager=manager)
+        assert exc_info.value.status_code == 400
+        assert "Invalid auth_mode" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_no_credential_manager_returns_503(self):
+        body = AuthConfigUpdateRequest(auth_mode="passthrough")
+        with pytest.raises(HTTPException) as exc_info:
+            await update_auth_config(body=body, _=AUTH_TOKEN, credential_manager=None)
+        assert exc_info.value.status_code == 503
+
+
+class TestListCachedCredentials:
+    """Test list_cached_credentials route handler."""
+
+    @pytest.mark.asyncio
+    async def test_returns_cached_list(self):
+        manager = MagicMock()
+        manager.list_cached = AsyncMock(
+            return_value=[
+                CachedCredential(key_hash="abc123", valid=True, validated_at=1000.0, last_used_at=2000.0),
+                CachedCredential(key_hash="def456", valid=False, validated_at=1500.0, last_used_at=1500.0),
+            ]
+        )
+
+        result = await list_cached_credentials(_=AUTH_TOKEN, credential_manager=manager)
+        assert isinstance(result, CachedCredentialsListResponse)
+        assert result.count == 2
+        assert result.credentials[0].key_hash == "abc123"
+        assert result.credentials[0].valid is True
+        assert result.credentials[1].valid is False
+
+    @pytest.mark.asyncio
+    async def test_empty_cache(self):
+        manager = MagicMock()
+        manager.list_cached = AsyncMock(return_value=[])
+        result = await list_cached_credentials(_=AUTH_TOKEN, credential_manager=manager)
+        assert result.count == 0
+        assert result.credentials == []
+
+    @pytest.mark.asyncio
+    async def test_no_credential_manager_returns_503(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await list_cached_credentials(_=AUTH_TOKEN, credential_manager=None)
+        assert exc_info.value.status_code == 503
+
+
+class TestInvalidateCredential:
+    """Test invalidate_credential route handler."""
+
+    @pytest.mark.asyncio
+    async def test_invalidates_existing(self):
+        manager = MagicMock()
+        manager.invalidate_credential = AsyncMock(return_value=True)
+        result = await invalidate_credential(key_hash="abc123", _=AUTH_TOKEN, credential_manager=manager)
+        assert result["success"] is True
+        manager.invalidate_credential.assert_called_once_with("abc123")
+
+    @pytest.mark.asyncio
+    async def test_not_found_returns_404(self):
+        manager = MagicMock()
+        manager.invalidate_credential = AsyncMock(return_value=False)
+        with pytest.raises(HTTPException) as exc_info:
+            await invalidate_credential(key_hash="missing", _=AUTH_TOKEN, credential_manager=manager)
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_no_credential_manager_returns_503(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await invalidate_credential(key_hash="abc", _=AUTH_TOKEN, credential_manager=None)
+        assert exc_info.value.status_code == 503
+
+
+class TestInvalidateAllCredentials:
+    """Test invalidate_all_credentials route handler."""
+
+    @pytest.mark.asyncio
+    async def test_invalidates_all(self):
+        manager = MagicMock()
+        manager.invalidate_all = AsyncMock(return_value=5)
+        result = await invalidate_all_credentials(_=AUTH_TOKEN, credential_manager=manager)
+        assert result["success"] is True
+        assert result["count"] == 5
+
+    @pytest.mark.asyncio
+    async def test_empty_cache(self):
+        manager = MagicMock()
+        manager.invalidate_all = AsyncMock(return_value=0)
+        result = await invalidate_all_credentials(_=AUTH_TOKEN, credential_manager=manager)
+        assert result["count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_no_credential_manager_returns_503(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await invalidate_all_credentials(_=AUTH_TOKEN, credential_manager=None)
+        assert exc_info.value.status_code == 503

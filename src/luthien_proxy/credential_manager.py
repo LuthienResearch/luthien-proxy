@@ -206,11 +206,15 @@ class CredentialManager:
         if self._redis is None:
             return 0
 
-        count = 0
+        keys: list[bytes | str] = []
         async for key in self._redis.scan_iter(match=f"{REDIS_KEY_PREFIX}*"):
-            await self._redis.delete(key)
-            count += 1
-        return count
+            keys.append(key)
+
+        if not keys:
+            return 0
+
+        # Single UNLINK is non-blocking and handles the batch atomically
+        return int(await self._redis.unlink(*keys))
 
     async def list_cached(self) -> list[CachedCredential]:
         """List all cached credentials (hashes and metadata only)."""
@@ -319,6 +323,14 @@ class CredentialManager:
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
+
+    async def __aenter__(self) -> CredentialManager:
+        """Enter async context."""
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        """Clean up resources on context exit."""
+        await self.close()
 
 
 __all__ = [

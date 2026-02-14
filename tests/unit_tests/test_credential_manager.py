@@ -200,6 +200,101 @@ class TestInvalidation:
         mock_redis.delete.assert_called_once_with(f"luthien:auth:cred:{expected_hash}")
 
 
+class TestListCached:
+    @pytest.mark.asyncio
+    async def test_returns_empty_without_redis(self):
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        result = await manager.list_cached()
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_cached_entries(self):
+        now = time.time()
+        entry = json.dumps({"valid": True, "validated_at": now, "last_used_at": now})
+        mock_redis = AsyncMock()
+
+        async def fake_scan_iter(match=None):
+            yield b"luthien:auth:cred:abc123"
+            yield b"luthien:auth:cred:def456"
+
+        mock_redis.scan_iter = fake_scan_iter
+        mock_redis.get = AsyncMock(return_value=entry.encode())
+
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        result = await manager.list_cached()
+        assert len(result) == 2
+        assert result[0].key_hash == "abc123"
+        assert result[0].valid is True
+
+    @pytest.mark.asyncio
+    async def test_skips_expired_keys(self):
+        """Keys that expire between scan and get are skipped."""
+        mock_redis = AsyncMock()
+
+        async def fake_scan_iter(match=None):
+            yield b"luthien:auth:cred:gone"
+
+        mock_redis.scan_iter = fake_scan_iter
+        mock_redis.get = AsyncMock(return_value=None)
+
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        result = await manager.list_cached()
+        assert result == []
+
+
+class TestInvalidateAll:
+    @pytest.mark.asyncio
+    async def test_returns_zero_without_redis(self):
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        result = await manager.invalidate_all()
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_deletes_all_matching_keys(self):
+        mock_redis = AsyncMock()
+
+        async def fake_scan_iter(match=None):
+            yield b"luthien:auth:cred:abc"
+            yield b"luthien:auth:cred:def"
+
+        mock_redis.scan_iter = fake_scan_iter
+        mock_redis.unlink = AsyncMock(return_value=2)
+
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        result = await manager.invalidate_all()
+        assert result == 2
+        mock_redis.unlink.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_no_keys_returns_zero(self):
+        mock_redis = AsyncMock()
+
+        async def fake_scan_iter(match=None):
+            return
+            yield  # make it an async generator
+
+        mock_redis.scan_iter = fake_scan_iter
+
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        result = await manager.invalidate_all()
+        assert result == 0
+        mock_redis.unlink.assert_not_called()
+
+
+class TestContextManager:
+    @pytest.mark.asyncio
+    async def test_close_called_on_exit(self):
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        mock_client = AsyncMock()
+        manager._http_client = mock_client
+
+        async with manager:
+            pass
+
+        mock_client.aclose.assert_called_once()
+        assert manager._http_client is None
+
+
 class TestUpdateConfig:
     @pytest.mark.asyncio
     async def test_update_without_db(self):
