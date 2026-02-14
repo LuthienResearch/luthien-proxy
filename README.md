@@ -119,6 +119,28 @@ The gateway provides:
 - Integrated policy enforcement via control plane
 - Support for streaming and non-streaming requests
 - Hot-reload policy switching (no restart needed)
+- Client-provided Anthropic API keys (passthrough authentication)
+
+## Using Your Own Anthropic API Key
+
+By default, the proxy uses its configured `ANTHROPIC_API_KEY` for all Anthropic API calls. Clients can optionally provide their own key via the `x-anthropic-api-key` header to use their own credentials and billing:
+
+```bash
+curl -X POST http://localhost:8000/v1/messages \
+  -H "Authorization: Bearer $PROXY_API_KEY" \
+  -H "x-anthropic-api-key: $YOUR_ANTHROPIC_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-20250514",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 100
+  }'
+```
+
+- The `Authorization` header (proxy API key) is always required for gateway access
+- If `x-anthropic-api-key` is provided, it's used for the upstream Anthropic API call
+- If omitted, the proxy's own `ANTHROPIC_API_KEY` is used (backward compatible)
+- Policy enforcement applies regardless of which key is used
 
 ## Prerequisites
 
