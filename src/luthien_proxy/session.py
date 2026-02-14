@@ -362,7 +362,7 @@ def get_login_page_html(error: str | None = None, next_url: str = "/") -> str:
         <p class="subtitle">Admin Authentication Required</p>
         {error_html}
         <form method="POST" action="/auth/login">
-            <input type="hidden" name="next_url" value="{safe_next_url}">
+            <input type="hidden" name="next" value="{safe_next_url}">
             <div class="form-group">
                 <label for="password">Admin API Key</label>
                 <div class="password-wrapper">
