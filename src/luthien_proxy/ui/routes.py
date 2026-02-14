@@ -10,7 +10,7 @@ import os
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from redis.asyncio import Redis
 
@@ -18,6 +18,7 @@ from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_redis_client
 from luthien_proxy.observability import stream_activity_events
 from luthien_proxy.session import get_session_user
+from luthien_proxy.settings import get_settings
 
 router = APIRouter(prefix="", tags=["ui"])
 
@@ -150,13 +151,27 @@ async def conversation_live_view(
 
 
 @router.get("/deploy-instructions")
-async def deploy_instructions():
-    """Deploy instructions page.
+async def deploy_instructions(request: Request):
+    """Deploy instructions page with actual server configuration values.
 
-    Returns the HTML page with step-by-step setup instructions for getting
-    Claude Code working through the Luthien proxy. Public endpoint.
+    Reads the HTML template and injects the proxy's base URL and API key
+    so users can copy-paste directly into their shell. Public endpoint.
     """
-    return FileResponse(os.path.join(STATIC_DIR, "deploy_instructions.html"))
+    settings = get_settings()
+    proxy_api_key = settings.proxy_api_key or "(not configured)"
+
+    # Derive base URL from the incoming request so it works regardless of
+    # where the proxy is hosted (localhost, remote server, behind a reverse proxy).
+    base_url = str(request.base_url).rstrip("/")
+
+    template_path = os.path.join(STATIC_DIR, "deploy_instructions.html")
+    with open(template_path) as f:
+        html = f.read()
+
+    html = html.replace("{{PROXY_API_KEY}}", proxy_api_key)
+    html = html.replace("{{BASE_URL}}", base_url)
+
+    return HTMLResponse(html)
 
 
 __all__ = ["router"]

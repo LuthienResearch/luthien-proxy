@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Deploy Instructions — Luthien Proxy</title>
+    <title>Connect Claude Code — Luthien Proxy</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -34,7 +34,6 @@
             min-height: 100vh;
         }
 
-        /* Subtle grain overlay */
         body::before {
             content: '';
             position: fixed;
@@ -46,14 +45,13 @@
         }
 
         .container {
-            max-width: 780px;
+            max-width: 680px;
             margin: 0 auto;
             padding: 60px 24px 120px;
         }
 
-        /* Header */
         .header {
-            margin-bottom: 56px;
+            margin-bottom: 48px;
         }
         .header .back-link {
             display: inline-flex;
@@ -80,45 +78,6 @@
             color: var(--text-muted);
             font-size: 16px;
             max-width: 520px;
-        }
-
-        /* Prerequisites */
-        .prereqs {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin-bottom: 48px;
-            padding: 20px;
-            background: var(--bg-surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-        }
-        .prereqs .label {
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-dim);
-            width: 100%;
-            margin-bottom: 4px;
-        }
-        .prereq-item {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 14px;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-        .prereq-item .dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--green);
         }
 
         /* Steps */
@@ -219,41 +178,26 @@
         }
         .code-block pre .comment { color: var(--text-dim); }
         .code-block pre .var { color: var(--amber); }
-        .code-block pre .string { color: var(--green); }
-        .code-block pre .cmd { color: var(--blue); }
+        .code-block pre .val { color: var(--green); }
 
-        /* Env table */
-        .env-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 12px 0 16px;
+        /* Tip callout */
+        .tip {
+            padding: 16px 18px;
+            background: var(--amber-glow);
+            border-left: 3px solid var(--amber);
+            border-radius: 0 8px 8px 0;
+            margin: 14px 0;
             font-size: 14px;
+            color: var(--text-muted);
         }
-        .env-table th {
-            text-align: left;
-            padding: 10px 14px;
-            background: var(--bg-surface);
-            border: 1px solid var(--border);
+        .tip strong { color: var(--amber); }
+        .tip code {
             font-family: 'JetBrains Mono', monospace;
             font-size: 12px;
-            font-weight: 600;
-            color: var(--text-dim);
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-        .env-table td {
-            padding: 10px 14px;
-            border: 1px solid var(--border);
-            vertical-align: top;
-        }
-        .env-table td:first-child {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
+            background: var(--bg);
+            padding: 2px 6px;
+            border-radius: 3px;
             color: var(--amber);
-            white-space: nowrap;
-        }
-        .env-table td:last-child {
-            color: var(--text-muted);
         }
 
         /* Expandable sections */
@@ -302,23 +246,9 @@
         details .details-content p { margin-bottom: 10px; }
         details .details-content p:last-child { margin-bottom: 0; }
 
-        /* Tip callout */
-        .tip {
-            padding: 16px 18px;
-            background: var(--amber-glow);
-            border-left: 3px solid var(--amber);
-            border-radius: 0 8px 8px 0;
-            margin: 14px 0;
-            font-size: 14px;
-            color: var(--text-muted);
-        }
-        .tip strong { color: var(--amber); }
-
-        /* Links */
         a { color: var(--amber); text-decoration: none; }
         a:hover { text-decoration: underline; }
 
-        /* Footer */
         .footer {
             margin-top: 64px;
             padding-top: 24px;
@@ -334,7 +264,6 @@
         }
         .footer a:hover { color: var(--amber); text-decoration: none; }
 
-        /* Responsive */
         @media (max-width: 600px) {
             .container { padding: 32px 16px 80px; }
             .header h1 { font-size: 22px; }
@@ -346,271 +275,78 @@
     <div class="container">
         <div class="header">
             <a href="/" class="back-link">&larr; Back to gateway</a>
-            <h1><span class="accent">$</span> Deploy Instructions</h1>
-            <p class="subtitle">Get Claude Code running through Luthien Proxy in five steps. Copy-paste each command block to go from zero to policy-enforced AI coding.</p>
+            <h1><span class="accent">$</span> Connect Claude Code</h1>
+            <p class="subtitle">Point Claude Code at this Luthien Proxy instance. Two environment variables, then you're ready.</p>
         </div>
 
-        <div class="prereqs">
-            <div class="label">Prerequisites</div>
-            <div class="prereq-item"><span class="dot"></span> Docker</div>
-            <div class="prereq-item"><span class="dot"></span> Python 3.13+</div>
-            <div class="prereq-item"><span class="dot"></span> uv</div>
-            <div class="prereq-item"><span class="dot"></span> Claude Code CLI</div>
-        </div>
-
-        <!-- Step 1 -->
+        <!-- Step 1: Set environment variables -->
         <div class="step">
             <div class="step-number">1</div>
-            <h2>Clone the repository</h2>
-            <p>Grab the source and move into the project directory.</p>
+            <h2>Set environment variables</h2>
+            <p>Run these in your terminal before launching Claude Code:</p>
             <div class="code-block">
                 <div class="code-header">
                     <span class="code-lang">bash</span>
                     <button class="copy-btn" onclick="copyCode(this)">Copy</button>
                 </div>
-                <pre>git clone https://github.com/LuthienResearch/luthien-proxy
-cd luthien-proxy</pre>
+                <pre><span class="var">export</span> ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span>
+<span class="var">export</span> ANTHROPIC_API_KEY=<span class="val">{{PROXY_API_KEY}}</span></pre>
             </div>
-            <details>
-                <summary>Don't have uv installed?</summary>
-                <div class="details-content">
-                    <p>Install <a href="https://docs.astral.sh/uv/" target="_blank">uv</a> (a fast Python package manager):</p>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span class="code-lang">bash</span>
-                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                        </div>
-                        <pre>curl -LsSf https://astral.sh/uv/install.sh | sh</pre>
-                    </div>
-                </div>
-            </details>
+            <div class="tip">
+                <strong>Note:</strong> Do not append <code>/v1</code> to the URL &mdash; the Anthropic SDK adds it automatically.
+            </div>
         </div>
 
-        <!-- Step 2 -->
+        <!-- Step 2: Launch Claude Code -->
         <div class="step">
             <div class="step-number">2</div>
-            <h2>Configure environment variables</h2>
-            <p>Copy the example env file and add your real API keys.</p>
+            <h2>Launch Claude Code</h2>
+            <p>Start Claude Code as you normally would:</p>
             <div class="code-block">
                 <div class="code-header">
                     <span class="code-lang">bash</span>
                     <button class="copy-btn" onclick="copyCode(this)">Copy</button>
                 </div>
-                <pre>cp .env.example .env</pre>
+                <pre>claude</pre>
             </div>
-            <p>Open <code style="font-family:'JetBrains Mono',monospace;font-size:13px;background:var(--bg-surface);padding:2px 6px;border-radius:3px;color:var(--amber)">.env</code> in your editor and set the following keys:</p>
-
-            <table class="env-table">
-                <thead>
-                    <tr>
-                        <th>Variable</th>
-                        <th>Description</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>OPENAI_API_KEY</td>
-                        <td>Your OpenAI API key (e.g. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">sk-proj-...</code>). Required if proxying OpenAI models.</td>
-                    </tr>
-                    <tr>
-                        <td>ANTHROPIC_API_KEY</td>
-                        <td>Your Anthropic API key (e.g. <code style="font-family:'JetBrains Mono',monospace;font-size:12px">sk-ant-...</code>). Required for Claude models.</td>
-                    </tr>
-                    <tr>
-                        <td>PROXY_API_KEY</td>
-                        <td>The key clients use to authenticate to the proxy. Default: <code style="font-family:'JetBrains Mono',monospace;font-size:12px">sk-luthien-dev-key</code></td>
-                    </tr>
-                    <tr>
-                        <td>ADMIN_API_KEY</td>
-                        <td>Key for the admin UI and management API. Default: <code style="font-family:'JetBrains Mono',monospace;font-size:12px">admin-dev-key</code></td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <div class="tip">
-                <strong>Tip:</strong> For production, change <code style="font-family:'JetBrains Mono',monospace;font-size:12px">PROXY_API_KEY</code> and <code style="font-family:'JetBrains Mono',monospace;font-size:12px">ADMIN_API_KEY</code> to strong, unique values.
-            </div>
+            <p>All requests will now route through the proxy.</p>
         </div>
 
-        <!-- Step 3 -->
+        <!-- Step 3: Verify -->
         <div class="step">
             <div class="step-number">3</div>
-            <h2>Start the proxy</h2>
-            <p>The quick-start script validates dependencies, starts Docker services (PostgreSQL, Redis, gateway), runs migrations, and auto-selects free ports.</p>
+            <h2>Verify the connection</h2>
+            <p>Confirm the proxy is reachable:</p>
             <div class="code-block">
                 <div class="code-header">
                     <span class="code-lang">bash</span>
                     <button class="copy-btn" onclick="copyCode(this)">Copy</button>
                 </div>
-                <pre>./scripts/quick_start.sh</pre>
+                <pre>curl <span class="val">{{BASE_URL}}/health</span></pre>
             </div>
-            <p>When it finishes, note the gateway URL printed in the output (usually <code style="font-family:'JetBrains Mono',monospace;font-size:13px;background:var(--bg-surface);padding:2px 6px;border-radius:3px;color:var(--amber)">http://localhost:8000</code>). The port may differ if 8000 was taken.</p>
-            <details>
-                <summary>Verify the gateway is healthy</summary>
-                <div class="details-content">
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span class="code-lang">bash</span>
-                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                        </div>
-                        <pre>curl http://localhost:8000/health</pre>
-                    </div>
-                    <p>You should see a JSON response with <code>"status": "ok"</code>.</p>
-                </div>
-            </details>
-        </div>
-
-        <!-- Step 4 -->
-        <div class="step">
-            <div class="step-number">4</div>
-            <h2>Launch Claude Code through the proxy</h2>
-            <p>The easiest way is the built-in launch script, which sets up all environment variables automatically:</p>
-            <div class="code-block">
-                <div class="code-header">
-                    <span class="code-lang">bash</span>
-                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                </div>
-                <pre>./scripts/launch_claude_code.sh</pre>
-            </div>
-            <details>
-                <summary>Manual setup (without the launch script)</summary>
-                <div class="details-content">
-                    <p>Set these environment variables before running <code>claude</code>:</p>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span class="code-lang">bash</span>
-                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                        </div>
-                        <pre><span class="comment"># Point Claude Code at the proxy (don't include /v1 — the SDK adds it)</span>
-<span class="var">ANTHROPIC_BASE_URL</span>=<span class="string">"http://localhost:8000/"</span>
-
-<span class="comment"># Authenticate with your proxy API key</span>
-<span class="var">ANTHROPIC_AUTH_TOKEN</span>=<span class="string">"sk-luthien-dev-key"</span>
-
-<span class="comment"># Launch Claude Code</span>
-<span class="cmd">env</span> \
-  ANTHROPIC_BASE_URL=<span class="string">"http://localhost:8000/"</span> \
-  ANTHROPIC_AUTH_TOKEN=<span class="string">"sk-luthien-dev-key"</span> \
-  <span class="cmd">claude</span></pre>
-                    </div>
-                    <div class="tip">
-                        <strong>Important:</strong> Do not include <code>/v1</code> in <code>ANTHROPIC_BASE_URL</code>. The Anthropic SDK appends it automatically.
-                    </div>
-                </div>
-            </details>
-            <details>
-                <summary>Don't have Claude Code CLI installed?</summary>
-                <div class="details-content">
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span class="code-lang">bash</span>
-                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                        </div>
-                        <pre>npm install -g @anthropic-ai/claude-cli</pre>
-                    </div>
-                </div>
-            </details>
-        </div>
-
-        <!-- Step 5 -->
-        <div class="step">
-            <div class="step-number">5</div>
-            <h2>Verify it works</h2>
-            <p>Send a test request through the proxy to confirm everything is connected:</p>
-            <div class="code-block">
-                <div class="code-header">
-                    <span class="code-lang">bash</span>
-                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                </div>
-                <pre>curl -s http://localhost:8000/v1/chat/completions \
-  -H <span class="string">"Authorization: Bearer sk-luthien-dev-key"</span> \
-  -H <span class="string">"Content-Type: application/json"</span> \
-  -d <span class="string">'{
-    "model": "gpt-4o-mini",
-    "messages": [{"role": "user", "content": "Say hello"}],
-    "max_tokens": 50
-  }'</span></pre>
-            </div>
-            <p>You should receive a chat completion response. Open the <a href="/activity/monitor">Activity Monitor</a> to see the request flow through in real-time.</p>
-            <div class="tip">
-                <strong>Next steps:</strong> Configure policies via the <a href="/policy-config">Policy Config UI</a>, or browse past sessions in <a href="/history">Conversation History</a>.
-            </div>
+            <p>You should see <code style="font-family:'JetBrains Mono',monospace;font-size:13px;background:var(--bg-surface);padding:2px 6px;border-radius:3px;color:var(--green)">{"status": "ok"}</code>. If Claude Code connects successfully, requests will appear in the <a href="/activity/monitor">Activity Monitor</a>.</p>
         </div>
 
         <!-- Troubleshooting -->
-        <h2 style="margin-top:48px;margin-bottom:20px;font-size:18px;font-weight:600;">Troubleshooting</h2>
-
         <details>
-            <summary>Gateway won't start / port conflict</summary>
+            <summary>Claude Code can't connect</summary>
             <div class="details-content">
-                <p>The quick-start script auto-selects free ports. If you need a fixed port, uncomment <code>GATEWAY_PORT=8000</code> in your <code>.env</code> file. Check for conflicts with:</p>
-                <div class="code-block">
-                    <div class="code-header">
-                        <span class="code-lang">bash</span>
-                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                    </div>
-                    <pre>lsof -i :8000</pre>
-                </div>
-            </div>
-        </details>
-
-        <details>
-            <summary>Docker containers failing</summary>
-            <div class="details-content">
-                <p>Check container status and logs:</p>
-                <div class="code-block">
-                    <div class="code-header">
-                        <span class="code-lang">bash</span>
-                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                    </div>
-                    <pre>docker compose ps
-docker compose logs gateway --tail 50</pre>
-                </div>
-                <p>If containers are stuck, try a clean restart:</p>
-                <div class="code-block">
-                    <div class="code-header">
-                        <span class="code-lang">bash</span>
-                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                    </div>
-                    <pre>docker compose down
-./scripts/quick_start.sh</pre>
-                </div>
-            </div>
-        </details>
-
-        <details>
-            <summary>Claude Code can't connect to the proxy</summary>
-            <div class="details-content">
-                <p>Verify the gateway is healthy:</p>
-                <div class="code-block">
-                    <div class="code-header">
-                        <span class="code-lang">bash</span>
-                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                    </div>
-                    <pre>curl http://localhost:8000/health</pre>
-                </div>
-                <p>Common issues:</p>
-                <p>&#8226; <code>ANTHROPIC_BASE_URL</code> should NOT include <code>/v1</code> — the SDK appends it.</p>
-                <p>&#8226; Make sure you're using <code>ANTHROPIC_AUTH_TOKEN</code> (not <code>ANTHROPIC_API_KEY</code>) — the proxy needs the proxy key, not your real Anthropic key.</p>
-                <p>&#8226; The trailing slash in the URL matters: use <code>http://localhost:8000/</code></p>
+                <p>Check that <code>ANTHROPIC_BASE_URL</code> does <strong>not</strong> include <code>/v1</code> &mdash; the SDK appends it.</p>
+                <p>Make sure <code>ANTHROPIC_API_KEY</code> matches the proxy's <code>PROXY_API_KEY</code>, not your real Anthropic key.</p>
             </div>
         </details>
 
         <details>
             <summary>Authentication errors (401 / 403)</summary>
             <div class="details-content">
-                <p>The proxy uses two separate keys:</p>
-                <p>&#8226; <code>PROXY_API_KEY</code> — for LLM requests (used by Claude Code as <code>ANTHROPIC_AUTH_TOKEN</code>)</p>
-                <p>&#8226; <code>ADMIN_API_KEY</code> — for the admin UI and debug endpoints</p>
-                <p>Make sure the key in your client matches <code>PROXY_API_KEY</code> in your <code>.env</code>.</p>
+                <p>The proxy uses <code>PROXY_API_KEY</code> to authenticate LLM requests. Set <code>ANTHROPIC_API_KEY</code> to the value shown above.</p>
+                <p>The separate <code>ADMIN_API_KEY</code> is only for the admin UI &mdash; it is not used by Claude Code.</p>
             </div>
         </details>
 
         <div class="footer">
-            <a href="https://github.com/LuthienResearch/luthien-proxy" target="_blank">GitHub Repository</a>
-            <a href="https://github.com/LuthienResearch/luthien-proxy/blob/main/README.md" target="_blank">README</a>
+            <a href="https://github.com/LuthienResearch/luthien-proxy" target="_blank">GitHub</a>
             <a href="/activity/monitor">Activity Monitor</a>
-            <a href="/policy-config">Policy Config</a>
             <a href="/">Gateway Home</a>
         </div>
     </div>
@@ -618,8 +354,7 @@ docker compose logs gateway --tail 50</pre>
     <script>
         function copyCode(btn) {
             const pre = btn.closest('.code-block').querySelector('pre');
-            const text = pre.innerText;
-            navigator.clipboard.writeText(text).then(function () {
+            navigator.clipboard.writeText(pre.innerText).then(function () {
                 btn.textContent = 'Copied!';
                 btn.classList.add('copied');
                 setTimeout(function () {
