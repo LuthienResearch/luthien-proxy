@@ -1,0 +1,913 @@
+commit f353cfd031db3dd09e54e186a90ded63803796bf
+Author: Jai <jai@jai.one>
+Date:   Fri Feb 13 17:03:38 2026 -0800
+
+    docs: web UI consolidation strategy with endpoint inventory
+    
+    Comprehensive analysis of all 28 web UI and API endpoints. Documents
+    navigation gaps, code duplication, and overlapping views. Proposes
+    phased consolidation with shared nav bar as the highest-impact quick win.
+    
+    Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+diff --git a/src/luthien_proxy/static/conversation_live.html b/src/luthien_proxy/static/conversation_live.html
+new file mode 100644
+index 0000000..4570955
+--- /dev/null
++++ b/src/luthien_proxy/static/conversation_live.html
+@@ -0,0 +1,895 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++    <meta charset="UTF-8">
++    <meta name="viewport" content="width=device-width, initial-scale=1.0">
++    <title>Live Conversation View</title>
++    <style>
++        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap');
++
++        * {
++            margin: 0;
++            padding: 0;
++            box-sizing: border-box;
++        }
++
++        body {
++            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
++            background: #09090b;
++            color: #e4e4e7;
++            line-height: 1.6;
++        }
++
++        .container {
++            max-width: 1400px;
++            margin: 0 auto;
++            padding: 24px;
++        }
++
++        /* Header */
++        header {
++            display: flex;
++            justify-content: space-between;
++            align-items: flex-start;
++            margin-bottom: 28px;
++            padding-bottom: 20px;
++            border-bottom: 1px solid #27272a;
++        }
++
++        .header-left { flex: 1; }
++
++        .back-link {
++            color: #71717a;
++            text-decoration: none;
++            font-size: 13px;
++            display: inline-flex;
++            align-items: center;
++            gap: 6px;
++            margin-bottom: 12px;
++            transition: color 0.2s;
++        }
++
++        .back-link:hover { color: #a1a1aa; }
++
++        h1 {
++            font-size: 22px;
++            font-weight: 700;
++            color: #fafafa;
++            letter-spacing: -0.3px;
++            display: flex;
++            align-items: center;
++            gap: 12px;
++        }
++
++        .live-badge {
++            display: inline-flex;
++            align-items: center;
++            gap: 6px;
++            font-size: 11px;
++            font-weight: 600;
++            letter-spacing: 0.8px;
++            text-transform: uppercase;
++            color: #4ade80;
++            background: #4ade8015;
++            padding: 4px 10px;
++            border-radius: 20px;
++            border: 1px solid #4ade8030;
++        }
++
++        .live-dot {
++            width: 7px;
++            height: 7px;
++            background: #4ade80;
++            border-radius: 50%;
++            animation: pulse 2s ease-in-out infinite;
++        }
++
++        .live-badge.paused {
++            color: #71717a;
++            background: #71717a15;
++            border-color: #71717a30;
++        }
++
++        .live-badge.paused .live-dot {
++            background: #71717a;
++            animation: none;
++        }
++
++        @keyframes pulse {
++            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 #4ade8060; }
++            50% { opacity: 0.6; box-shadow: 0 0 0 4px #4ade8000; }
++        }
++
++        .session-id {
++            font-family: 'JetBrains Mono', monospace;
++            font-size: 12px;
++            color: #52525b;
++            margin-top: 6px;
++            word-break: break-all;
++        }
++
++        .header-right {
++            display: flex;
++            gap: 10px;
++            align-items: center;
++        }
++
++        .header-btn {
++            padding: 7px 14px;
++            background: #18181b;
++            border: 1px solid #27272a;
++            border-radius: 6px;
++            color: #a1a1aa;
++            font-size: 12px;
++            font-family: inherit;
++            cursor: pointer;
++            transition: all 0.15s;
++            text-decoration: none;
++            display: inline-flex;
++            align-items: center;
++            gap: 6px;
++        }
++
++        .header-btn:hover {
++            border-color: #3f3f46;
++            color: #e4e4e7;
++            background: #1c1c1f;
++        }
++
++        /* Stats bar */
++        .stats-bar {
++            display: flex;
++            gap: 20px;
++            padding: 14px 18px;
++            background: #18181b;
++            border: 1px solid #27272a;
++            border-radius: 8px;
++            margin-bottom: 24px;
++            font-size: 13px;
++            color: #71717a;
++            flex-wrap: wrap;
++        }
++
++        .stat-value {
++            color: #e4e4e7;
++            font-weight: 600;
++            font-variant-numeric: tabular-nums;
++        }
++
++        .stat-value.warning { color: #fbbf24; }
++
++        /* Conversation timeline */
++        .timeline {
++            display: flex;
++            flex-direction: column;
++            gap: 20px;
++            position: relative;
++        }
++
++        /* Turn card */
++        .turn {
++            background: #18181b;
++            border: 1px solid #27272a;
++            border-radius: 10px;
++            overflow: hidden;
++            transition: border-color 0.3s;
++        }
++
++        .turn.has-intervention {
++            border-color: #fbbf2440;
++        }
++
++        .turn.new-turn {
++            animation: slideIn 0.4s ease-out;
++        }
++
++        @keyframes slideIn {
++            from { opacity: 0; transform: translateY(12px); }
++            to { opacity: 1; transform: translateY(0); }
++        }
++
++        .turn-header {
++            display: flex;
++            justify-content: space-between;
++            align-items: center;
++            padding: 10px 16px;
++            background: #1c1c1f;
++            border-bottom: 1px solid #27272a;
++            font-size: 12px;
++            color: #71717a;
++        }
++
++        .turn-label {
++            display: flex;
++            align-items: center;
++            gap: 10px;
++        }
++
++        .turn-number {
++            font-weight: 700;
++            color: #e4e4e7;
++            font-size: 13px;
++        }
++
++        .turn-model {
++            font-family: 'JetBrains Mono', monospace;
++            font-size: 11px;
++            padding: 2px 8px;
++            background: #09090b;
++            border-radius: 4px;
++            color: #71717a;
++        }
++
++        .intervention-badge {
++            font-size: 10px;
++            font-weight: 600;
++            letter-spacing: 0.5px;
++            text-transform: uppercase;
++            color: #fbbf24;
++            background: #fbbf2415;
++            padding: 3px 8px;
++            border-radius: 4px;
++            border: 1px solid #fbbf2430;
++        }
++
++        .turn-body {
++            padding: 16px;
++        }
++
++        /* Messages */
++        .messages {
++            display: flex;
++            flex-direction: column;
++            gap: 12px;
++        }
++
++        .message {
++            padding: 12px 16px;
++            border-radius: 8px;
++            position: relative;
++            border-left: 3px solid transparent;
++        }
++
++        .message.system  { background: #13132a; border-left-color: #6366f1; }
++        .message.user    { background: #0f1f0f; border-left-color: #4ade80; }
++        .message.assistant { background: #0f1420; border-left-color: #3b82f6; }
++        .message.tool_call { background: #1a1708; border-left-color: #f59e0b; }
++        .message.tool_result { background: #0a1a1a; border-left-color: #06b6d4; }
++
++        .message-header {
++            display: flex;
++            align-items: center;
++            gap: 8px;
++            margin-bottom: 6px;
++        }
++
++        .message-type {
++            font-size: 10px;
++            font-weight: 700;
++            text-transform: uppercase;
++            letter-spacing: 0.6px;
++        }
++
++        .message.system .message-type  { color: #818cf8; }
++        .message.user .message-type    { color: #4ade80; }
++        .message.assistant .message-type { color: #60a5fa; }
++        .message.tool_call .message-type { color: #fbbf24; }
++        .message.tool_result .message-type { color: #22d3ee; }
++
++        .tool-name {
++            font-family: 'JetBrains Mono', monospace;
++            font-size: 12px;
++            color: #fbbf24;
++            background: #fbbf2410;
++            padding: 1px 7px;
++            border-radius: 3px;
++        }
++
++        .tool-call-id {
++            font-family: 'JetBrains Mono', monospace;
++            font-size: 10px;
++            color: #52525b;
++        }
++
++        .message-content {
++            font-size: 14px;
++            color: #d4d4d8;
++            white-space: pre-wrap;
++            word-break: break-word;
++        }
++
++        .message-content.truncated {
++            max-height: 280px;
++            overflow: hidden;
++            position: relative;
++        }
++
++        .message-content.truncated::after {
++            content: '';
++            position: absolute;
++            bottom: 0;
++            left: 0;
++            right: 0;
++            height: 50px;
++            background: linear-gradient(transparent, #18181b);
++            pointer-events: none;
++        }
++
++        .expand-btn {
++            display: inline-block;
++            margin-top: 6px;
++            padding: 3px 10px;
++            background: transparent;
++            border: 1px solid #27272a;
++            border-radius: 4px;
++            color: #71717a;
++            font-size: 11px;
++            font-family: inherit;
++            cursor: pointer;
++            transition: all 0.15s;
++        }
++
++        .expand-btn:hover {
++            border-color: #4ade80;
++            color: #4ade80;
++        }
++
++        .tool-input {
++            margin-top: 8px;
++            padding: 10px 12px;
++            background: #09090b;
++            border-radius: 6px;
++            border: 1px solid #27272a;
++            font-family: 'JetBrains Mono', monospace;
++            font-size: 12px;
++            color: #a1a1aa;
++            overflow-x: auto;
++        }
++
++        /* Diff view */
++        .diff-section {
++            margin-top: 16px;
++            border-top: 1px solid #27272a;
++            padding-top: 16px;
++        }
++
++        .diff-toggle {
++            display: inline-flex;
++            align-items: center;
++            gap: 6px;
++            padding: 6px 12px;
++            background: #fbbf2410;
++            border: 1px solid #fbbf2430;
++            border-radius: 6px;
++            color: #fbbf24;
++            font-size: 12px;
++            font-family: inherit;
++            font-weight: 500;
++            cursor: pointer;
++            transition: all 0.15s;
++            margin-bottom: 12px;
++        }
++
++        .diff-toggle:hover {
++            background: #fbbf2420;
++            border-color: #fbbf2450;
++        }
++
++        .diff-toggle .arrow {
++            transition: transform 0.2s;
++            font-size: 10px;
++        }
++
++        .diff-toggle.open .arrow {
++            transform: rotate(90deg);
++        }
++
++        .diff-panels {
++            display: none;
++        }
++
++        .diff-panels.visible {
++            display: grid;
++            grid-template-columns: 1fr 1fr;
++            gap: 12px;
++        }
++
++        .diff-panel {
++            background: #09090b;
++            border: 1px solid #27272a;
++            border-radius: 8px;
++            overflow: hidden;
++        }
++
++        .diff-panel-header {
++            padding: 8px 14px;
++            font-size: 11px;
++            font-weight: 600;
++            text-transform: uppercase;
++            letter-spacing: 0.5px;
++            border-bottom: 1px solid #27272a;
++        }
++
++        .diff-panel-header.original {
++            color: #f87171;
++            background: #f8717108;
++        }
++
++        .diff-panel-header.final {
++            color: #4ade80;
++            background: #4ade8008;
++        }
++
++        .diff-panel-body {
++            padding: 12px;
++            max-height: 500px;
++            overflow-y: auto;
++        }
++
++        .diff-message {
++            padding: 8px 10px;
++            margin-bottom: 8px;
++            border-radius: 4px;
++            background: #18181b;
++            border-left: 2px solid #3f3f46;
++        }
++
++        .diff-message.changed {
++            border-left-color: #fbbf24;
++            background: #fbbf2408;
++        }
++
++        .diff-message-role {
++            font-size: 10px;
++            text-transform: uppercase;
++            letter-spacing: 0.5px;
++            color: #52525b;
++            margin-bottom: 4px;
++            font-weight: 600;
++        }
++
++        .diff-message-content {
++            font-size: 13px;
++            color: #a1a1aa;
++            white-space: pre-wrap;
++            word-break: break-word;
++        }
++
++        /* Annotations */
++        .annotations {
++            margin-top: 14px;
++            padding-top: 14px;
++            border-top: 1px solid #27272a;
++        }
++
++        .annotations-title {
++            font-size: 10px;
++            font-weight: 700;
++            text-transform: uppercase;
++            letter-spacing: 0.6px;
++            color: #fbbf24;
++            margin-bottom: 8px;
++        }
++
++        .annotation {
++            font-size: 12px;
++            color: #fbbf24;
++            padding: 8px 12px;
++            background: #fbbf2408;
++            border: 1px solid #fbbf2420;
++            border-radius: 6px;
++            margin-bottom: 4px;
++        }
++
++        .annotation-policy {
++            font-weight: 700;
++        }
++
++        /* States */
++        .empty-state {
++            text-align: center;
++            padding: 80px 20px;
++            color: #52525b;
++            font-size: 14px;
++        }
++
++        .loading-state {
++            text-align: center;
++            padding: 60px 20px;
++            color: #71717a;
++            font-size: 14px;
++        }
++
++        .loading-state .spinner {
++            display: inline-block;
++            width: 20px;
++            height: 20px;
++            border: 2px solid #27272a;
++            border-top-color: #4ade80;
++            border-radius: 50%;
++            animation: spin 0.8s linear infinite;
++            margin-bottom: 12px;
++        }
++
++        @keyframes spin {
++            to { transform: rotate(360deg); }
++        }
++
++        .error-state {
++            text-align: center;
++            padding: 40px;
++            color: #f87171;
++            background: #f8717108;
++            border: 1px solid #f8717120;
++            border-radius: 8px;
++            font-size: 14px;
++        }
++
++        /* Last-updated indicator */
++        .update-indicator {
++            font-size: 11px;
++            color: #52525b;
++            text-align: right;
++            margin-top: 12px;
++            font-variant-numeric: tabular-nums;
++        }
++
++        /* Responsive */
++        @media (max-width: 768px) {
++            .diff-panels.visible {
++                grid-template-columns: 1fr;
++            }
++            .stats-bar {
++                gap: 12px;
++            }
++        }
++    </style>
++</head>
++<body>
++    <div class="container">
++        <header>
++            <div class="header-left">
++                <a href="/history" class="back-link">&#8592; Sessions</a>
++                <h1>
++                    Conversation
++                    <span class="live-badge" id="live-badge">
++                        <span class="live-dot"></span>
++                        Live
++                    </span>
++                </h1>
++                <p class="session-id" id="session-id">Loading...</p>
++            </div>
++            <div class="header-right">
++                <button class="header-btn" id="pause-btn" onclick="togglePolling()">Pause</button>
++                <a href="#" class="header-btn" id="export-btn">Export</a>
++                <a href="/auth/logout" class="header-btn">Sign Out</a>
++            </div>
++        </header>
++
++        <div class="stats-bar">
++            <span>Turns: <span class="stat-value" id="turn-count">-</span></span>
++            <span>Policy interventions: <span class="stat-value" id="intervention-count">-</span></span>
++            <span>Models: <span class="stat-value" id="models-used">-</span></span>
++        </div>
++
++        <div id="conversation-container" class="timeline">
++            <div class="loading-state">
++                <div class="spinner"></div>
++                <div>Loading conversation...</div>
++            </div>
++        </div>
++
++        <div class="update-indicator" id="update-indicator"></div>
++    </div>
++
++    <script>
++        const pathParts = window.location.pathname.split('/');
++        const conversationId = decodeURIComponent(pathParts[pathParts.length - 1]);
++        let pollingActive = true;
++        let pollTimer = null;
++        let lastTurnCount = 0;
++        let lastEventCount = 0;
++
++        const POLL_INTERVAL_MS = 2000;
++
++        function init() {
++            document.getElementById('session-id').textContent = conversationId;
++            document.getElementById('export-btn').href =
++                `/history/api/sessions/${encodeURIComponent(conversationId)}/export`;
++            loadConversation();
++        }
++
++        async function loadConversation() {
++            try {
++                const resp = await fetch(
++                    `/history/api/sessions/${encodeURIComponent(conversationId)}`,
++                    { headers: { 'Accept': 'application/json' } }
++                );
++
++                if (!resp.ok) {
++                    if (resp.status === 403) {
++                        window.location.href = '/login?error=required&next=' +
++                            encodeURIComponent(window.location.pathname);
++                        return;
++                    }
++                    if (resp.status === 404) throw new Error('Conversation not found');
++                    throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
++                }
++
++                const data = await resp.json();
++                renderConversation(data);
++                scheduleNextPoll();
++            } catch (err) {
++                document.getElementById('conversation-container').innerHTML =
++                    `<div class="error-state">Failed to load: ${escapeHtml(err.message)}</div>`;
++                scheduleNextPoll();
++            }
++        }
++
++        function renderConversation(data) {
++            const container = document.getElementById('conversation-container');
++            const turnCountEl = document.getElementById('turn-count');
++            const interventionEl = document.getElementById('intervention-count');
++            const modelsEl = document.getElementById('models-used');
++            const indicatorEl = document.getElementById('update-indicator');
++
++            turnCountEl.textContent = data.turns.length;
++            interventionEl.textContent = data.total_policy_interventions;
++            if (data.total_policy_interventions > 0) {
++                interventionEl.classList.add('warning');
++            }
++            modelsEl.textContent = data.models_used.join(', ') || 'None';
++
++            if (data.turns.length === 0) {
++                container.innerHTML = '<div class="empty-state">Waiting for conversation events...</div>';
++                lastTurnCount = 0;
++                return;
++            }
++
++            const isNewData = data.turns.length !== lastTurnCount;
++            lastTurnCount = data.turns.length;
++
++            container.innerHTML = data.turns.map((turn, i) =>
++                renderTurn(turn, i + 1, isNewData && i === data.turns.length - 1)
++            ).join('');
++
++            indicatorEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
++
++            if (isNewData) {
++                const lastTurn = container.lastElementChild;
++                if (lastTurn) {
++                    lastTurn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
++                }
++            }
++        }
++
++        function renderTurn(turn, number, isNew) {
++            const hasIntervention = turn.had_policy_intervention;
++            const classes = ['turn'];
++            if (hasIntervention) classes.push('has-intervention');
++            if (isNew) classes.push('new-turn');
++
++            const requestHtml = turn.request_messages.map(m => renderMessage(m)).join('');
++            const responseHtml = turn.response_messages.map(m => renderMessage(m)).join('');
++
++            let diffHtml = '';
++            if (turn.request_was_modified || turn.response_was_modified) {
++                diffHtml = renderDiffSection(turn);
++            }
++
++            let annotationsHtml = '';
++            if (turn.annotations.length > 0) {
++                annotationsHtml = `
++                    <div class="annotations">
++                        <div class="annotations-title">Policy Annotations</div>
++                        ${turn.annotations.map(a => `
++                            <div class="annotation">
++                                <span class="annotation-policy">${escapeHtml(a.policy_name)}:</span>
++                                ${escapeHtml(a.summary)}
++                            </div>
++                        `).join('')}
++                    </div>
++                `;
++            }
++
++            return `
++                <div class="${classes.join(' ')}" data-call-id="${escapeHtml(turn.call_id)}">
++                    <div class="turn-header">
++                        <div class="turn-label">
++                            <span class="turn-number">Turn ${number}</span>
++                            ${turn.model ? `<span class="turn-model">${escapeHtml(turn.model)}</span>` : ''}
++                        </div>
++                        ${hasIntervention ? '<span class="intervention-badge">Policy Modified</span>' : ''}
++                    </div>
++                    <div class="turn-body">
++                        <div class="messages">
++                            ${requestHtml}
++                            ${responseHtml}
++                        </div>
++                        ${diffHtml}
++                        ${annotationsHtml}
++                    </div>
++                </div>
++            `;
++        }
++
++        function renderMessage(msg) {
++            const typeClass = msg.message_type.toLowerCase();
++            const typeLabel = {
++                'system': 'System', 'user': 'User', 'assistant': 'Assistant',
++                'tool_call': 'Tool Call', 'tool_result': 'Tool Result'
++            }[typeClass] || msg.message_type;
++
++            let headerExtra = '';
++            if (msg.message_type === 'tool_call' && msg.tool_name) {
++                headerExtra += `<span class="tool-name">${escapeHtml(msg.tool_name)}</span>`;
++            }
++            if (msg.tool_call_id) {
++                headerExtra += `<span class="tool-call-id">${escapeHtml(msg.tool_call_id)}</span>`;
++            }
++
++            const content = msg.content || '';
++            const shouldTruncate = content.length > 800;
++            const contentId = `c-${Math.random().toString(36).substr(2, 8)}`;
++
++            let toolInputHtml = '';
++            if (msg.message_type === 'tool_call' && msg.tool_input) {
++                toolInputHtml = `
++                    <div class="tool-input">
++                        <pre>${escapeHtml(JSON.stringify(msg.tool_input, null, 2))}</pre>
++                    </div>
++                `;
++            }
++
++            const expandBtn = shouldTruncate
++                ? `<button class="expand-btn" onclick="toggleExpand('${contentId}', this)">Show more</button>`
++                : '';
++
++            return `
++                <div class="message ${typeClass}">
++                    <div class="message-header">
++                        <span class="message-type">${typeLabel}</span>
++                        ${headerExtra}
++                    </div>
++                    <div class="${shouldTruncate ? 'message-content truncated' : 'message-content'}" id="${contentId}">${escapeHtml(content)}</div>
++                    ${expandBtn}
++                    ${toolInputHtml}
++                </div>
++            `;
++        }
++
++        function renderDiffSection(turn) {
++            const diffId = `diff-${turn.call_id}`;
++
++            let requestDiffHtml = '';
++            if (turn.request_was_modified && turn.original_request_messages) {
++                requestDiffHtml = renderDiffPanels(
++                    'Request',
++                    turn.original_request_messages,
++                    turn.request_messages
++                );
++            }
++
++            let responseDiffHtml = '';
++            if (turn.response_was_modified && turn.original_response_messages) {
++                responseDiffHtml = renderDiffPanels(
++                    'Response',
++                    turn.original_response_messages,
++                    turn.response_messages
++                );
++            }
++
++            return `
++                <div class="diff-section">
++                    <button class="diff-toggle" onclick="toggleDiff('${diffId}', this)">
++                        <span class="arrow">&#9654;</span>
++                        View Policy Divergence
++                    </button>
++                    <div class="diff-panels" id="${diffId}">
++                        ${requestDiffHtml}
++                        ${responseDiffHtml}
++                    </div>
++                </div>
++            `;
++        }
++
++        function renderDiffPanels(label, originalMsgs, finalMsgs) {
++            const maxLen = Math.max(originalMsgs.length, finalMsgs.length);
++
++            let origContent = '';
++            let finalContent = '';
++
++            for (let i = 0; i < maxLen; i++) {
++                const origMsg = originalMsgs[i];
++                const finalMsg = finalMsgs[i];
++
++                const origText = origMsg ? (origMsg.content || '') : '';
++                const finalText = finalMsg ? (finalMsg.content || '') : '';
++                const changed = origText !== finalText;
++
++                const role = (origMsg && origMsg.message_type) || (finalMsg && finalMsg.message_type) || 'unknown';
++
++                origContent += `
++                    <div class="diff-message ${changed ? 'changed' : ''}">
++                        <div class="diff-message-role">${escapeHtml(role)}</div>
++                        <div class="diff-message-content">${escapeHtml(origText || '(empty)')}</div>
++                    </div>
++                `;
++
++                finalContent += `
++                    <div class="diff-message ${changed ? 'changed' : ''}">
++                        <div class="diff-message-role">${escapeHtml(role)}</div>
++                        <div class="diff-message-content">${escapeHtml(finalText || '(empty)')}</div>
++                    </div>
++                `;
++            }
++
++            return `
++                <div class="diff-panel">
++                    <div class="diff-panel-header original">Original ${label}</div>
++                    <div class="diff-panel-body">${origContent}</div>
++                </div>
++                <div class="diff-panel">
++                    <div class="diff-panel-header final">Final ${label} (sent to LLM)</div>
++                    <div class="diff-panel-body">${finalContent}</div>
++                </div>
++            `;
++        }
++
++        function toggleDiff(id, btn) {
++            const panel = document.getElementById(id);
++            const isVisible = panel.classList.contains('visible');
++            panel.classList.toggle('visible');
++            btn.classList.toggle('open');
++        }
++
++        function toggleExpand(contentId, btn) {
++            const el = document.getElementById(contentId);
++            if (el.classList.contains('truncated')) {
++                el.classList.remove('truncated');
++                btn.textContent = 'Show less';
++            } else {
++                el.classList.add('truncated');
++                btn.textContent = 'Show more';
++            }
++        }
++
++        function togglePolling() {
++            pollingActive = !pollingActive;
++            const btn = document.getElementById('pause-btn');
++            const badge = document.getElementById('live-badge');
++
++            if (pollingActive) {
++                btn.textContent = 'Pause';
++                badge.classList.remove('paused');
++                badge.querySelector('.live-dot + span') || null;
++                badge.innerHTML = '<span class="live-dot"></span>Live';
++                scheduleNextPoll();
++            } else {
++                btn.textContent = 'Resume';
++                badge.classList.add('paused');
++                badge.innerHTML = '<span class="live-dot"></span>Paused';
++                if (pollTimer) {
++                    clearTimeout(pollTimer);
++                    pollTimer = null;
++                }
++            }
++        }
++
++        function scheduleNextPoll() {
++            if (!pollingActive) return;
++            if (pollTimer) clearTimeout(pollTimer);
++            pollTimer = setTimeout(loadConversation, POLL_INTERVAL_MS);
++        }
++
++        function escapeHtml(str) {
++            if (str === null || str === undefined) return '';
++            const div = document.createElement('div');
++            div.textContent = String(str);
++            return div.innerHTML;
++        }
++
++        init();
++    </script>
++</body>
++</html>

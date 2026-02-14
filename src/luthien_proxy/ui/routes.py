@@ -131,4 +131,22 @@ async def policy_config(
     return FileResponse(os.path.join(STATIC_DIR, "policy_config.html"))
 
 
+@router.get("/conversation/live/{conversation_id}")
+async def conversation_live_view(
+    request: Request,
+    conversation_id: str,  # noqa: ARG001 - path param required by FastAPI
+    admin_key: str | None = Depends(get_admin_key),
+):
+    """Live conversation viewer.
+
+    Returns the HTML page for viewing a conversation in real-time with
+    message timeline, tool calls, and policy divergence diffs.
+    Requires admin authentication.
+    """
+    redirect = _check_auth_or_redirect(request, admin_key)
+    if redirect:
+        return redirect
+    return FileResponse(os.path.join(STATIC_DIR, "conversation_live.html"))
+
+
 __all__ = ["router"]
