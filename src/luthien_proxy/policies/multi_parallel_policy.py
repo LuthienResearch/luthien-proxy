@@ -128,6 +128,10 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             )
 
         self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
+        if not self._sub_policies:
+            logger.warning(
+                "MultiParallelPolicy initialized with empty policy list — requests will pass through unchanged"
+            )
         self._strategy = consolidation_strategy
 
         if consolidation_strategy == "designated":

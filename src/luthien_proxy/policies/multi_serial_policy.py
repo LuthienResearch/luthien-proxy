@@ -61,6 +61,10 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
     def __init__(self, policies: list[dict[str, Any]]) -> None:
         """Initialize with a list of policy config dicts to run in sequence."""
         self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
+        if not self._sub_policies:
+            logger.warning(
+                "MultiSerialPolicy initialized with empty policy list — requests will pass through unchanged"
+            )
         names = [p.short_policy_name for p in self._sub_policies]
         logger.info(f"MultiSerialPolicy initialized with {len(self._sub_policies)} policies: {names}")
 
