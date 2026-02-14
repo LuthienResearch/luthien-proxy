@@ -42,7 +42,7 @@ Launch your AI assistant through the proxy using the built-in scripts:
 
 These scripts automatically configure the proxy settings. All requests now flow through the policy enforcement layer!
 
-Visit <http://localhost:8000/deploy-instructions> for step-by-step setup commands for using Claude Code with the proxy.
+Visit <http://localhost:8000/client-setup> for step-by-step setup commands for using Claude Code with the proxy.
 
 ### 3. Log In to Admin UI
 

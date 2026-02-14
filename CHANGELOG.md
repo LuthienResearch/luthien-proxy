@@ -2,7 +2,7 @@
 
 ## Unreleased | TBA
 
-- Add `/deploy-instructions` endpoint with setup guide for connecting Claude Code to the proxy (deploy-instructions)
+- Add `/client-setup` endpoint with setup guide for connecting Claude Code to the proxy (deploy-instructions)
 
 - Fix docker-compose project name collision across worktrees (fix/docker-project-names)
   - Derive `COMPOSE_PROJECT_NAME` from worktree directory name (e.g. `luthien-main`, `luthien-deploy-instructions`)
