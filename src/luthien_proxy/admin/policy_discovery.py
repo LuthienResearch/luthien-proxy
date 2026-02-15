@@ -11,7 +11,10 @@ import inspect
 import logging
 import pkgutil
 import types
-from typing import Any, Union, get_args, get_origin, get_type_hints
+import typing
+from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
+
+from pydantic import BaseModel, TypeAdapter
 
 import luthien_proxy.policies as policies_package
 from luthien_proxy.policy_core.base_policy import BasePolicy
@@ -40,10 +43,34 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
     Returns:
         A JSON Schema type definition dict
     """
+    # Handle Pydantic models - extract full schema
+    if isinstance(python_type, type):
+        try:
+            if issubclass(python_type, BaseModel):
+                return python_type.model_json_schema()
+        except TypeError:
+            pass
+
+    # Handle Annotated types (may contain discriminated unions)
+    origin = get_origin(python_type)
+    if origin is Annotated:
+        args = get_args(python_type)
+        if args:
+            base_type = args[0]
+            base_origin = get_origin(base_type)
+            # Check if it's a Union with Pydantic models (discriminated union)
+            if base_origin is Union or base_origin is types.UnionType:
+                union_args = get_args(base_type)
+                if all(isinstance(a, type) and issubclass(a, BaseModel) for a in union_args):
+                    # Use TypeAdapter to generate proper discriminated union schema
+                    adapter = TypeAdapter(python_type)
+                    return adapter.json_schema()
+            # Not a discriminated union, handle base type
+            return python_type_to_json_schema(base_type)
+
     if python_type is inspect.Parameter.empty:
         return {"type": "string"}
 
-    origin = get_origin(python_type)
     args = get_args(python_type)
 
     # Handle Union types (e.g., str | None, Union[str, None])
@@ -89,6 +116,43 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
     return {"type": "string", "description": f"Python type: {python_type}"}
 
 
+def _resolve_string_annotation(annotation_str: str, policy_class: type) -> Any:
+    """Resolve a string annotation to a real type using typing + module globals.
+
+    When `from __future__ import annotations` is used and `get_type_hints()` fails
+    (e.g. because `Any` is only imported under TYPE_CHECKING), param.annotation is
+    a raw string like "list[dict[str, Any]]". This function evals it with a namespace
+    containing typing exports so the string becomes a real type object.
+    """
+    ns: dict[str, Any] = {name: getattr(typing, name) for name in dir(typing) if not name.startswith("_")}
+
+    module = inspect.getmodule(policy_class)
+    if module:
+        ns.update(vars(module))
+
+    try:
+        return eval(annotation_str, ns)  # noqa: S307
+    except Exception:
+        return annotation_str
+
+
+def _is_sub_policy_list_type(annotation: Any) -> bool:
+    """Check if the annotation is list[dict[str, Any]] — the sub-policy config format."""
+    origin = get_origin(annotation)
+    if origin is not list:
+        return False
+    args = get_args(annotation)
+    if not args:
+        return False
+    item_origin = get_origin(args[0])
+    if item_origin is not dict:
+        return False
+    item_args = get_args(args[0])
+    if len(item_args) != 2:
+        return False
+    return item_args[0] is str and item_args[1] is Any
+
+
 def extract_config_schema(policy_class: type) -> tuple[dict[str, Any], dict[str, Any]]:
     """Extract config schema and example config from a policy class constructor.
 
@@ -123,8 +187,17 @@ def extract_config_schema(policy_class: type) -> tuple[dict[str, Any], dict[str,
         # Get the resolved type hint, falling back to param.annotation
         annotation = type_hints.get(param_name, param.annotation)
 
+        # from __future__ import annotations makes all annotations strings;
+        # resolve them so python_type_to_json_schema gets a real type object
+        if isinstance(annotation, str):
+            annotation = _resolve_string_annotation(annotation, policy_class)
+
         # Build schema for this parameter
         param_schema = python_type_to_json_schema(annotation)
+
+        # Mark sub-policy list parameters so the UI renders a policy picker
+        if param_name == "policies" and _is_sub_policy_list_type(annotation):
+            param_schema["x-sub-policy-list"] = True
 
         # Add default if present
         if param.default is not inspect.Parameter.empty:
@@ -160,6 +233,84 @@ def _get_example_value(schema: dict[str, Any]) -> Any:
     return None
 
 
+def validate_policy_config(policy_class: type, config: dict[str, Any]) -> dict[str, Any]:
+    """Validate config against a policy class constructor and return validated config.
+
+    For Pydantic model parameters, performs full Pydantic validation.
+    For other types, performs basic type checking.
+
+    Args:
+        policy_class: The policy class to validate against
+        config: The config dict to validate
+
+    Returns:
+        Validated config dict (with Pydantic models converted to dicts)
+
+    Raises:
+        ValueError: If a required parameter is missing
+        ValidationError: If Pydantic model validation fails
+    """
+    try:
+        sig = inspect.signature(policy_class.__init__)
+    except (ValueError, TypeError):
+        return config
+
+    try:
+        type_hints = get_type_hints(policy_class.__init__)
+    except Exception:
+        type_hints = {}
+
+    validated_config: dict[str, Any] = {}
+
+    for param_name, param in sig.parameters.items():
+        if param_name == "self":
+            continue
+        if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+            continue
+
+        annotation = type_hints.get(param_name, param.annotation)
+        model_class = _extract_pydantic_model(annotation)
+
+        # Get value from config, or use default
+        if param_name in config:
+            value = config[param_name]
+        elif model_class and config and (set(config.keys()) & set(model_class.model_fields.keys())):
+            # Config keys match the Pydantic model's fields — user provided
+            # model fields directly instead of wrapping under the param name
+            value = config
+        elif param.default is not inspect.Parameter.empty:
+            validated_config[param_name] = param.default
+            continue
+        else:
+            raise ValueError(f"Required parameter '{param_name}' is missing from config")
+
+        # Validate Pydantic model parameters, pass others through
+        validated_value = value
+        if model_class and value is not None:
+            if isinstance(value, dict):
+                validated_value = model_class.model_validate(value).model_dump()
+            elif isinstance(value, BaseModel):
+                validated_value = value.model_dump()
+        validated_config[param_name] = validated_value
+
+    return validated_config
+
+
+def _extract_pydantic_model(annotation: Any) -> type[BaseModel] | None:
+    """Extract the Pydantic model class from an annotation."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+
+    origin = get_origin(annotation)
+    if origin is Union or origin is types.UnionType:
+        args = get_args(annotation)
+        for arg in args:
+            if arg is not type(None) and isinstance(arg, type) and issubclass(arg, BaseModel):
+                return arg
+
+    return None
+
+
 def extract_description(policy_class: type) -> str:
     """Extract description from a policy class docstring.
 
@@ -179,13 +330,22 @@ def extract_description(policy_class: type) -> str:
     return ""
 
 
+_discovered_policies_cache: list[dict[str, Any]] | None = None
+
+
 def discover_policies() -> list[dict[str, Any]]:
     """Discover all policy classes in the luthien_proxy.policies package.
+
+    Results are cached since the policy set is static at runtime.
 
     Returns:
         List of policy info dicts with keys: name, class_ref, description,
         config_schema, example_config
     """
+    global _discovered_policies_cache
+    if _discovered_policies_cache is not None:
+        return _discovered_policies_cache
+
     policies: list[dict[str, Any]] = []
 
     try:
@@ -248,4 +408,5 @@ def discover_policies() -> list[dict[str, Any]]:
     # Sort by name for consistent ordering
     policies.sort(key=lambda p: p["name"])
 
+    _discovered_policies_cache = policies
     return policies

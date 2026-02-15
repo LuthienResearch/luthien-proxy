@@ -46,8 +46,13 @@ class TestSetPolicyRoute:
     """Test set_policy route handler."""
 
     @pytest.mark.asyncio
-    async def test_successful_set_policy(self):
+    @patch("luthien_proxy.admin.routes.validate_policy_config")
+    @patch("luthien_proxy.admin.routes._import_policy_class")
+    async def test_successful_set_policy(self, mock_import, mock_validate):
         """Test successful policy set returns success response."""
+        mock_import.return_value = MagicMock()
+        mock_validate.return_value = {}
+
         mock_manager = MagicMock()
         mock_manager.enable_policy = AsyncMock(
             return_value=PolicyEnableResult(
@@ -77,20 +82,25 @@ class TestSetPolicyRoute:
         )
 
     @pytest.mark.asyncio
-    async def test_set_policy_with_config(self):
+    @patch("luthien_proxy.admin.routes.validate_policy_config")
+    @patch("luthien_proxy.admin.routes._import_policy_class")
+    async def test_set_policy_with_config(self, mock_import, mock_validate):
         """Test policy set with configuration parameters."""
+        mock_import.return_value = MagicMock()
+        config = {"probability_threshold": 0.8}
+        mock_validate.return_value = config
+
         mock_manager = MagicMock()
         mock_manager.enable_policy = AsyncMock(
             return_value=PolicyEnableResult(
                 success=True,
-                policy="luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
+                policy="luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
                 restart_duration_ms=100,
             )
         )
 
-        config = {"judge_model": "claude-haiku-4-5", "block_threshold": 0.8}
         request = PolicySetRequest(
-            policy_class_ref="luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
+            policy_class_ref="luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
             config=config,
             enabled_by="e2e-test",
         )
@@ -99,14 +109,19 @@ class TestSetPolicyRoute:
 
         assert result.success is True
         mock_manager.enable_policy.assert_called_once_with(
-            policy_class_ref="luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
+            policy_class_ref="luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
             config=config,
             enabled_by="e2e-test",
         )
 
     @pytest.mark.asyncio
-    async def test_set_policy_failure(self):
+    @patch("luthien_proxy.admin.routes.validate_policy_config")
+    @patch("luthien_proxy.admin.routes._import_policy_class")
+    async def test_set_policy_failure(self, mock_import, mock_validate):
         """Test policy set failure returns error response."""
+        mock_import.return_value = MagicMock()
+        mock_validate.return_value = {}
+
         mock_manager = MagicMock()
         mock_manager.enable_policy = AsyncMock(
             return_value=PolicyEnableResult(
@@ -130,8 +145,13 @@ class TestSetPolicyRoute:
         assert len(result.troubleshooting) > 0
 
     @pytest.mark.asyncio
-    async def test_set_policy_http_exception_passthrough(self):
+    @patch("luthien_proxy.admin.routes.validate_policy_config")
+    @patch("luthien_proxy.admin.routes._import_policy_class")
+    async def test_set_policy_http_exception_passthrough(self, mock_import, mock_validate):
         """Test that HTTPExceptions from manager are passed through."""
+        mock_import.return_value = MagicMock()
+        mock_validate.return_value = {}
+
         mock_manager = MagicMock()
         mock_manager.enable_policy = AsyncMock(
             side_effect=HTTPException(status_code=403, detail="Policy changes disabled")
@@ -149,8 +169,13 @@ class TestSetPolicyRoute:
         assert "Policy changes disabled" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_set_policy_unexpected_exception(self):
+    @patch("luthien_proxy.admin.routes.validate_policy_config")
+    @patch("luthien_proxy.admin.routes._import_policy_class")
+    async def test_set_policy_unexpected_exception(self, mock_import, mock_validate):
         """Test that unexpected exceptions become 500 errors."""
+        mock_import.return_value = MagicMock()
+        mock_validate.return_value = {}
+
         mock_manager = MagicMock()
         mock_manager.enable_policy = AsyncMock(side_effect=RuntimeError("Unexpected database error"))
 

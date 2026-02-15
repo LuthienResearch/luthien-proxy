@@ -8,10 +8,11 @@ from typing import Any
 import httpx
 import litellm
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from luthien_proxy.admin.policy_discovery import discover_policies
+from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
 from luthien_proxy.auth import verify_admin_token
+from luthien_proxy.config import _import_policy_class
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.dependencies import get_policy_manager, require_credential_manager
 from luthien_proxy.policy_manager import (
@@ -41,11 +42,12 @@ class PolicyEnableResponse(BaseModel):
     """Response from enabling a policy."""
 
     success: bool
-    message: str
+    message: str | None = None
     policy: str | None = None
     restart_duration_ms: int | None = None
     error: str | None = None
     troubleshooting: list[str] | None = None
+    validation_errors: list[dict] | None = None
 
 
 class PolicyCurrentResponse(BaseModel):
@@ -198,9 +200,13 @@ async def set_policy(
     Requires admin authentication.
     """
     try:
+        # Import policy class and validate config before enabling
+        policy_class = _import_policy_class(body.policy_class_ref)
+        validated_config = validate_policy_config(policy_class, body.config or {})
+
         result: PolicyEnableResult = await manager.enable_policy(
             policy_class_ref=body.policy_class_ref,
-            config=body.config,
+            config=validated_config,
             enabled_by=body.enabled_by,
         )
 
@@ -217,6 +223,29 @@ async def set_policy(
             message=f"Policy set to {body.policy_class_ref}",
             policy=result.policy,
             restart_duration_ms=result.restart_duration_ms,
+        )
+    except ValidationError as e:
+        return PolicyEnableResponse(
+            success=False,
+            error="Validation error",
+            troubleshooting=[f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()],
+            validation_errors=[dict(err) for err in e.errors()],
+        )
+    except ValueError as e:
+        return PolicyEnableResponse(
+            success=False,
+            error="Validation error",
+            troubleshooting=[str(e)],
+        )
+    except (ImportError, AttributeError, TypeError) as e:
+        return PolicyEnableResponse(
+            success=False,
+            error=str(e),
+            troubleshooting=[
+                "Check that the policy class reference is correct",
+                "Verify the policy module exists and is importable",
+                "Example format: 'luthien_proxy.policies.all_caps_policy:AllCapsPolicy'",
+            ],
         )
     except HTTPException:
         raise
@@ -242,8 +271,6 @@ async def list_available_policies(
 
     Requires admin authentication.
     """
-    # Note: Policy discovery is performed on every request. Since the policy set
-    # is static at runtime, this could be cached if performance becomes a concern.
     discovered = discover_policies()
     policies = [
         PolicyClassInfo(

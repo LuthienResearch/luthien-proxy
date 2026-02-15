@@ -161,7 +161,7 @@ if stream_state.finish_reason:
 
 **Why**: `convert_chunk_to_event()` checks content before finish_reason. If content exists, it returns a `text_delta` event immediately. The finish_reason check never runs.
 
-**Affected policies**: Any policy that buffers content and emits it in `on_content_complete()`. See `StringReplacementPolicy`, `ParallelRulesPolicy` for correct patterns.
+**Affected policies**: Any policy that buffers content and emits it in `on_content_complete()`. See `StringReplacementPolicy` for the correct pattern.
 
 ## E2E Test Debugging: Direct API vs Proxy (2026-02-04)
 

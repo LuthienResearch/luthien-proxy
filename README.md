@@ -83,24 +83,23 @@ http://localhost:8000/policy-config
 
 ### 6. Create Your Own Policy
 
-Create a new policy by subclassing `SimpleJudgePolicy`:
+Create a new policy by subclassing `SimplePolicy`:
 
 ```python
 # src/luthien_proxy/policies/my_custom_policy.py
 
-from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
+from luthien_proxy.policies.simple_policy import SimplePolicy
 
-class MyCustomPolicy(SimpleJudgePolicy):
-    """Block dangerous commands before they execute."""
+class MyCustomPolicy(SimplePolicy):
+    """Custom request/response transformation."""
 
-    RULES = [
-        "Never allow 'rm -rf' commands",
-        "Block requests to delete production data",
-        "Prevent executing untrusted code"
-    ]
+    async def simple_on_request(self, messages, ctx):
+        # Inspect or modify messages before they reach the LLM
+        return messages
 
-    # That's it! SimpleJudgePolicy handles the LLM judge logic for you.
-    # It evaluates both requests, responses, and tool calls against your rules.
+    async def simple_on_response_content(self, content, ctx):
+        # Inspect or modify the LLM response content
+        return content
 ```
 
 Restart the gateway and your policy appears in the Policy Config UI automatically.
@@ -264,7 +263,7 @@ ENVIRONMENT=development
 ### LLM Judge Policies (Optional)
 
 ```bash
-# Configuration for judge-based policies (ToolCallJudgePolicy, SimpleJudgePolicy)
+# Configuration for judge-based policies (ToolCallJudgePolicy)
 LLM_JUDGE_MODEL=openai/gpt-4                         # Model for judge
 LLM_JUDGE_API_BASE=http://localhost:11434/v1         # API base URL
 LLM_JUDGE_API_KEY=your_judge_api_key                 # API key for judge
@@ -295,7 +294,6 @@ Available policies in `src/luthien_proxy/policies/`:
 - `debug_logging_policy.py` - Logs requests/responses for debugging
 - `tool_call_judge_policy.py` - AI-based tool call safety evaluation
 - `simple_policy.py` - Base class for custom policies
-- `simple_judge_policy.py` - Base class for LLM-based rule enforcement
 
 ## Dev Tooling
 
@@ -325,7 +323,6 @@ The gateway integrates everything into a single FastAPI application:
 
 - **Policy System** (`src/luthien_proxy/policies/`): Event-driven policy framework
   - `SimplePolicy` - Base class for simple request/response policies
-  - `SimpleJudgePolicy` - Base class for LLM-based rule enforcement
   - Examples: NoOpPolicy, AllCapsPolicy, DebugLoggingPolicy, ToolCallJudgePolicy
 
 - **Policy Core** (`src/luthien_proxy/policy_core/`): Policy protocol and contexts
@@ -431,14 +428,13 @@ The gateway uses an event-driven policy architecture with streaming support.
 
 - `src/luthien_proxy/policies/base_policy.py` - Abstract policy interface
 - `src/luthien_proxy/policies/simple_policy.py` - Base class for custom policies
-- `src/luthien_proxy/policies/simple_judge_policy.py` - Base class for LLM-based rule enforcement
 - `src/luthien_proxy/orchestration/policy_orchestrator.py` - Policy orchestration
 - `src/luthien_proxy/gateway_routes.py` - API endpoint handlers with policy integration
 - `config/policy_config.yaml` - Policy configuration
 
 ### Creating Custom Policies
 
-Subclass `SimplePolicy` for basic request/response transformations, or `SimpleJudgePolicy` for LLM-based rule enforcement. See `src/luthien_proxy/policies/` for examples.
+Subclass `SimplePolicy` for basic request/response transformations. See `src/luthien_proxy/policies/` for examples.
 
 ### Testing
 

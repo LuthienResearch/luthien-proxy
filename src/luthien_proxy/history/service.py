@@ -46,10 +46,6 @@ _EVENT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "policy.judge.evaluation_started": "Policy evaluation started",
     "policy.judge.evaluation_complete": "Policy evaluation complete",
     "policy.judge.evaluation_failed": "Policy evaluation failed",
-    # Simple judge events
-    "policy.simple_judge.request_evaluated": "Request evaluated",
-    "policy.simple_judge.response_evaluated": "Response evaluated",
-    "policy.simple_judge.tool_call_evaluated": "Tool call evaluated",
     # All caps policy events
     "policy.all_caps.content_transformed": "Content transformed to uppercase",
     "policy.all_caps.content_delta_warning": "Lowercase content detected",

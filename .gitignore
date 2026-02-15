@@ -55,3 +55,4 @@ debug_multitool_nonstreaming.json
 
 # worktree meta
 .worktree-purpose
+.playwright-mcp/

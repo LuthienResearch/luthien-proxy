@@ -56,6 +56,7 @@ def create_app(
     db_pool: db.DatabasePool,
     redis_client: Redis,
     startup_policy_path: str | None = None,
+    policy_source: str = "db-fallback-file",
     auth_mode: str = "proxy_key",
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
@@ -66,7 +67,7 @@ def create_app(
         db_pool: Database connection pool (already initialized)
         redis_client: Redis client (already initialized)
         startup_policy_path: Optional path to YAML policy config to load at startup
-                             (overrides DB, persists to DB). If None, loads from DB only.
+        policy_source: Strategy for loading policy at startup (db, file, db-fallback-file, file-fallback-db)
         auth_mode: Authentication mode ("proxy_key", "passthrough", or "both")
 
     Returns:
@@ -102,6 +103,7 @@ def create_app(
                 db_pool=db_pool,
                 redis_client=redis_client,
                 startup_policy_path=startup_policy_path,
+                policy_source=policy_source,
             )
             await _policy_manager.initialize()
             logger.info(f"PolicyManager initialized (policy: {_policy_manager.current_policy.__class__.__name__})")
@@ -298,6 +300,7 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         "database_url": settings.database_url,
         "redis_url": settings.redis_url,
         "startup_policy_path": settings.policy_config if settings.policy_config else None,
+        "policy_source": settings.policy_source,
         "gateway_port": settings.gateway_port,
         "auth_mode": settings.auth_mode,
     }
@@ -330,6 +333,7 @@ if __name__ == "__main__":
                 db_pool=db_pool,
                 redis_client=redis_client,
                 startup_policy_path=startup_path,
+                policy_source=config["policy_source"],
                 auth_mode=config.get("auth_mode", "proxy_key"),
             )
 
