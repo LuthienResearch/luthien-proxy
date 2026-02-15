@@ -2,6 +2,12 @@
 
 ## Unreleased | TBA
 
+- Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
+  - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
+  - MultiParallelPolicy: parallel execution with configurable consolidation strategies
+    (first_block, most_restrictive, unanimous_pass, majority_pass, designated)
+  - Both support OpenAI and Anthropic interfaces with interface compatibility validation
+  - Shared `load_sub_policy` utility for recursive policy loading from YAML config
 - Add configurable passthrough authentication (passthrough-auth)
   - Three auth modes: `proxy_key` (default), `passthrough`, `both` - configurable at runtime via admin API
   - Credential validation via Anthropic's free `count_tokens` endpoint with Redis caching
