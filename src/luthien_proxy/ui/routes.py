@@ -7,10 +7,11 @@ Unauthenticated browser requests are redirected to /login.
 from __future__ import annotations
 
 import os
+from html import escape as html_escape
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from redis.asyncio import Redis
 
@@ -147,6 +148,28 @@ async def conversation_live_view(
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "conversation_live.html"))
+
+
+@router.get("/client-setup")
+async def client_setup(request: Request):
+    """Client setup page with the proxy's actual URL.
+
+    Injects the base URL derived from the incoming request so users can
+    copy-paste directly into their shell. Public endpoint.
+    """
+    base_url = str(request.base_url).rstrip("/")
+
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto == "https" and base_url.startswith("http://"):
+        base_url = "https://" + base_url[7:]
+
+    template_path = os.path.join(STATIC_DIR, "client_setup.html")
+    with open(template_path) as f:
+        html = f.read()
+
+    html = html.replace("{{BASE_URL}}", html_escape(base_url))
+
+    return HTMLResponse(html)
 
 
 __all__ = ["router"]

@@ -9,6 +9,8 @@
   - Both support OpenAI and Anthropic interfaces with interface compatibility validation
   - Shared `load_sub_policy` utility for recursive policy loading from YAML config
 
+- Add `/client-setup` endpoint with setup guide for connecting Claude Code to the proxy (deploy-instructions)
+
 - Add conversation live view with diff display (#186)
   - New `/conversation/live/{id}` endpoint for real-time conversation monitoring with diff visualization
   - "Live View" link from history detail page
