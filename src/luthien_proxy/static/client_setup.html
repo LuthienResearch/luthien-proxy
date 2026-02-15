@@ -80,51 +80,6 @@
             max-width: 520px;
         }
 
-        /* Steps */
-        .step {
-            position: relative;
-            margin-bottom: 40px;
-            padding-left: 40px;
-        }
-        .step::before {
-            content: '';
-            position: absolute;
-            left: 14px;
-            top: 32px;
-            bottom: -40px;
-            width: 1px;
-            background: var(--border);
-        }
-        .step:last-child::before { display: none; }
-        .step-number {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 30px;
-            height: 30px;
-            background: var(--bg-surface);
-            border: 1.5px solid var(--amber);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--amber);
-        }
-        .step h2 {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 10px;
-            padding-top: 3px;
-        }
-        .step p {
-            color: var(--text-muted);
-            font-size: 15px;
-            margin-bottom: 14px;
-        }
-
         /* Code blocks */
         .code-block {
             position: relative;
@@ -246,6 +201,15 @@
         details .details-content p { margin-bottom: 10px; }
         details .details-content p:last-child { margin-bottom: 0; }
 
+        .inline-code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            background: var(--bg-surface);
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: var(--amber);
+        }
+
         a { color: var(--amber); text-decoration: none; }
         a:hover { text-decoration: underline; }
 
@@ -276,56 +240,34 @@
         <div class="header">
             <a href="/" class="back-link">&larr; Back to gateway</a>
             <h1><span class="accent">$</span> Connect Claude Code</h1>
-            <p class="subtitle">Point Claude Code at this proxy. One environment variable, then you're ready.</p>
+            <p class="subtitle"><a href="/policy-config">Configure policies</a></p>
         </div>
 
-        <!-- Step 1: Set base URL -->
-        <div class="step">
-            <div class="step-number">1</div>
-            <h2>Set the proxy URL</h2>
-            <p>Run this in your terminal before launching Claude Code:</p>
-            <div class="code-block">
-                <div class="code-header">
-                    <span class="code-lang">bash</span>
-                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                </div>
-                <pre><span class="var">export</span> ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span></pre>
+        <div class="code-block">
+            <div class="code-header">
+                <span class="code-lang">bash</span>
+                <button class="copy-btn" onclick="copyCode(this)">Copy</button>
             </div>
-            <p>Your existing Anthropic credentials (API key or OAuth) pass through automatically.</p>
-            <div class="tip">
-                <strong>Note:</strong> Do not append <code>/v1</code> to the URL &mdash; the Anthropic SDK adds it automatically.
-            </div>
+            <pre>ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude</pre>
         </div>
 
-        <!-- Step 2: Launch Claude Code -->
-        <div class="step">
-            <div class="step-number">2</div>
-            <h2>Launch Claude Code</h2>
-            <p>Start Claude Code as you normally would:</p>
-            <div class="code-block">
-                <div class="code-header">
-                    <span class="code-lang">bash</span>
-                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                </div>
-                <pre>claude</pre>
+        <p style="color:var(--text-muted);font-size:15px;margin-bottom:14px;">Append any <code class="inline-code">claude</code> arguments as usual:</p>
+
+        <div class="code-block">
+            <div class="code-header">
+                <span class="code-lang">examples</span>
             </div>
-            <p>All requests will now route through the proxy.</p>
+            <pre><span class="comment"># interactive session</span>
+ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude
+
+<span class="comment"># run a one-shot prompt</span>
+ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude <span class="var">-p</span> <span class="val">"explain this repo"</span>
+
+<span class="comment"># continue the last conversation</span>
+ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude <span class="var">--continue</span></pre>
         </div>
 
-        <!-- Step 3: Verify (optional) -->
-        <div class="step">
-            <div class="step-number">3</div>
-            <h2>Verify the connection <span style="font-size:14px;font-weight:400;color:var(--text-dim)">(optional)</span></h2>
-            <p>Confirm the proxy is reachable:</p>
-            <div class="code-block">
-                <div class="code-header">
-                    <span class="code-lang">bash</span>
-                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                </div>
-                <pre>curl <span class="val">{{BASE_URL}}/health</span></pre>
-            </div>
-            <p>You should see <code style="font-family:'JetBrains Mono',monospace;font-size:13px;background:var(--bg-surface);padding:2px 6px;border-radius:3px;color:var(--green)">{"status": "ok"}</code>. Once Claude Code connects, requests will appear in the <a href="/activity/monitor">Activity Monitor</a>.</p>
-        </div>
+        <p style="color:var(--text-muted);font-size:14px;margin-bottom:14px;">Your existing Anthropic credentials (API key or OAuth) pass through automatically. Do not append <code class="inline-code">/v1</code> to the URL.</p>
 
         <!-- Troubleshooting -->
         <details>

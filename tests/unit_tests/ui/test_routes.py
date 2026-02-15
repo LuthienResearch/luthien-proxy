@@ -56,12 +56,6 @@ class TestClientSetup:
         assert "PROXY_API_KEY" not in response.text
 
     @pytest.mark.asyncio
-    async def test_no_auth_required(self, client: AsyncClient):
-        """Client setup page is public (no auth redirect)."""
-        response = await client.get("/client-setup")
-        assert response.status_code == 200
-
-    @pytest.mark.asyncio
     async def test_no_template_placeholders_remain(self, client: AsyncClient):
         """All template placeholders should be replaced."""
         response = await client.get("/client-setup")
@@ -69,11 +63,15 @@ class TestClientSetup:
 
     @pytest.mark.asyncio
     async def test_base_url_is_html_escaped(self, client: AsyncClient):
-        """Base URL should be HTML-escaped to prevent XSS."""
-        response = await client.get("/client-setup")
-        # The base URL "http://test" doesn't contain characters that need escaping,
-        # but verify the page renders correctly (escaping is applied server-side)
+        """HTML-special characters in the host header are escaped."""
+        response = await client.get(
+            "/client-setup",
+            headers={"host": 'example.com"><script>alert(1)</script>'},
+        )
         assert response.status_code == 200
+        body = response.text
+        assert "<script>alert(1)</script>" not in body
+        assert "&lt;script&gt;" in body or "&#x27;" in body
 
     @pytest.mark.asyncio
     async def test_x_forwarded_proto_https(self, client: AsyncClient):
