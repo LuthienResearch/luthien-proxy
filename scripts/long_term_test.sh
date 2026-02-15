@@ -173,7 +173,7 @@ print_summary() {
   Wall time:          $(format_duration "$wall_time")
   Avg call duration:  ${avg_duration}
   Total input tokens: ${TOTAL_INPUT_TOKENS}
-  Total output tokens:${TOTAL_OUTPUT_TOKENS}
+  Total output tokens: ${TOTAL_OUTPUT_TOKENS}
   Session ID:         ${SESSION_ID:-none}
 ══════════════════════════════════════════
 EOF
@@ -206,6 +206,18 @@ main() {
     log "  Output dir:  ${OUTPUT_DIR}"
     log ""
 
+    # ── Check dependencies (fail fast before starting anything) ──
+
+    if ! command -v claude &> /dev/null; then
+        log "${RED}claude CLI not found. Install with: npm install -g @anthropic-ai/claude-cli${NC}"
+        exit 1
+    fi
+
+    if ! command -v jq &> /dev/null; then
+        log "${RED}jq not found. Install with: sudo apt install jq${NC}"
+        exit 1
+    fi
+
     # ── Start proxy if needed ──
 
     if [[ "$START_PROXY" == true ]]; then
@@ -224,17 +236,6 @@ main() {
             exit 1
         fi
         log "${GREEN}Proxy is healthy${NC}"
-    fi
-
-    # Check that required tools exist
-    if ! command -v claude &> /dev/null; then
-        log "${RED}claude CLI not found. Install with: npm install -g @anthropic-ai/claude-cli${NC}"
-        exit 1
-    fi
-
-    if ! command -v jq &> /dev/null; then
-        log "${RED}jq not found. Install with: sudo apt install jq${NC}"
-        exit 1
     fi
 
     # Configure environment so Claude routes through proxy
