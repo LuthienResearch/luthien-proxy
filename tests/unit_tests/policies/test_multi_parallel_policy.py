@@ -8,12 +8,19 @@ from unittest.mock import AsyncMock
 
 import pytest
 from anthropic.types import RawContentBlockDeltaEvent, TextDelta
-from litellm.types.utils import Choices, Message, ModelResponse
+from multi_policy_helpers import (
+    AnthropicOnlyPolicy,
+    OpenAIOnlyPolicy,
+    allcaps_config,
+    make_anthropic_response,
+    make_response,
+    noop_config,
+    replacement_config,
+)
 
 from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
-    AnthropicResponse,
     AnthropicTextBlock,
 )
 from luthien_proxy.policies.multi_parallel_policy import MultiParallelPolicy
@@ -25,89 +32,6 @@ from luthien_proxy.policy_core import (
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 from luthien_proxy.streaming.stream_state import StreamState
-
-
-class _OpenAIOnlyPolicy(BasePolicy, OpenAIPolicyInterface):
-    """Stub policy implementing only OpenAIPolicyInterface (not Anthropic)."""
-
-    @property
-    def short_policy_name(self) -> str:
-        return "OpenAIOnly"
-
-    async def on_openai_request(self, request, context):
-        return request
-
-    async def on_openai_response(self, response, context):
-        return response
-
-    async def on_chunk_received(self, ctx):
-        pass
-
-    async def on_content_delta(self, ctx):
-        pass
-
-    async def on_content_complete(self, ctx):
-        pass
-
-    async def on_tool_call_delta(self, ctx):
-        pass
-
-    async def on_tool_call_complete(self, ctx):
-        pass
-
-    async def on_finish_reason(self, ctx):
-        pass
-
-    async def on_stream_complete(self, ctx):
-        pass
-
-    async def on_streaming_policy_complete(self, ctx):
-        pass
-
-
-def noop_config() -> dict:
-    return {"class": "luthien_proxy.policies.noop_policy:NoOpPolicy", "config": {}}
-
-
-def allcaps_config() -> dict:
-    return {"class": "luthien_proxy.policies.all_caps_policy:AllCapsPolicy", "config": {}}
-
-
-def replacement_config(replacements: list[list[str]]) -> dict:
-    return {
-        "class": "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
-        "config": {"replacements": replacements},
-    }
-
-
-def make_response(content: str) -> ModelResponse:
-    return ModelResponse(
-        id="test-id",
-        choices=[
-            Choices(
-                finish_reason="stop",
-                index=0,
-                message=Message(content=content, role="assistant"),
-            )
-        ],
-        created=1234567890,
-        model="test-model",
-        object="chat.completion",
-    )
-
-
-def make_anthropic_response(text: str) -> AnthropicResponse:
-    block: AnthropicTextBlock = {"type": "text", "text": text}
-    return {
-        "id": "msg_123",
-        "type": "message",
-        "role": "assistant",
-        "content": [block],
-        "model": "claude-sonnet-4-20250514",
-        "stop_reason": "end_turn",
-        "usage": {"input_tokens": 10, "output_tokens": 5},
-    }
-
 
 # =============================================================================
 # Protocol Compliance
@@ -517,7 +441,7 @@ class TestMultiParallelDesignated:
         )
 
         # Replace the first sub-policy with an OpenAI-only stub
-        policy._sub_policies[0] = _OpenAIOnlyPolicy()
+        policy._sub_policies[0] = OpenAIOnlyPolicy()
 
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello world")
@@ -670,23 +594,7 @@ class TestMultiParallelInterfaceValidation:
     async def test_openai_request_raises_for_incompatible_policy(self):
         """OpenAI call raises TypeError when a sub-policy lacks OpenAIPolicyInterface."""
         policy = MultiParallelPolicy(policies=[noop_config()])
-        # Inject a stub that only implements Anthropic (simulated via a bare BasePolicy)
-
-        class _AnthropicOnlyPolicy(BasePolicy, AnthropicPolicyInterface):
-            @property
-            def short_policy_name(self) -> str:
-                return "AnthropicOnly"
-
-            async def on_anthropic_request(self, request, context):
-                return request
-
-            async def on_anthropic_response(self, response, context):
-                return response
-
-            async def on_anthropic_stream_event(self, event, context):
-                return [event]
-
-        policy._sub_policies.append(_AnthropicOnlyPolicy())
+        policy._sub_policies.append(AnthropicOnlyPolicy())
         ctx = PolicyContext.for_testing()
         request = Request(model="test", messages=[{"role": "user", "content": "hi"}])
 
@@ -697,7 +605,7 @@ class TestMultiParallelInterfaceValidation:
     async def test_anthropic_response_raises_for_incompatible_policy(self):
         """Anthropic call raises TypeError when a sub-policy lacks AnthropicPolicyInterface."""
         policy = MultiParallelPolicy(policies=[noop_config()])
-        policy._sub_policies.append(_OpenAIOnlyPolicy())
+        policy._sub_policies.append(OpenAIOnlyPolicy())
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello")
 

@@ -188,7 +188,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 for p, req_copy, ctx_copy in zip(self._sub_policies, request_copies, context_copies)
             )
         )
-        return self._consolidate_requests(request, list(results))
+        return self._consolidate(request, list(results), size_fn=lambda r: len(str(r.messages)))
 
     async def on_openai_response(self, response: "ModelResponse", context: "PolicyContext") -> "ModelResponse":
         """Run all sub-policies on the response in parallel."""
@@ -206,7 +206,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 for p, resp_copy, ctx_copy in zip(self._sub_policies, response_copies, context_copies)
             )
         )
-        return self._consolidate_openai_responses(response, list(results))
+        return self._consolidate(response, list(results), size_fn=_response_content_length)
 
     def _consolidate(
         self,
@@ -225,50 +225,20 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if not modified:
             return original
 
-        if self._strategy == "first_block":
-            return modified[0]
-
-        if self._strategy == "most_restrictive":
-            return min(modified, key=size_fn)
-
-        if self._strategy == "unanimous_pass":
-            return modified[0]
-
         if self._strategy == "majority_pass":
             passed = len(results) - len(modified)
             if passed > len(results) / 2:
                 return original
-            return modified[0]
 
-        raise AssertionError(f"Unsupported consolidation strategy: {self._strategy}")
+        if self._strategy == "most_restrictive":
+            return min(modified, key=size_fn)
 
-    def _consolidate_requests(self, original: "Request", results: list["Request"]) -> "Request":
-        """Pick the winning request based on the consolidation strategy.
-
-        Modification detection uses != to check value equality (Pydantic model __eq__),
-        not object identity. Since each policy receives a deep copy, a modified result
-        will have different field values even if it's a different object reference.
-        """
-        return self._consolidate(
-            original,
-            results,
-            size_fn=lambda r: len(str(r.messages)),
-        )
-
-    def _consolidate_openai_responses(
-        self, original: "ModelResponse", results: list["ModelResponse"]
-    ) -> "ModelResponse":
-        """Pick the winning OpenAI response based on the consolidation strategy.
-
-        Modification detection uses != to check value equality (Pydantic model __eq__),
-        not object identity. Since each policy receives a deep copy, a modified result
-        will have different field values even if it's a different object reference.
-        """
-        return self._consolidate(
-            original,
-            results,
-            size_fn=_response_content_length,
-        )
+        # "unanimous_pass" and "first_block" share this code path intentionally.
+        # Both return modified[0] when any policy modifies the result. They're
+        # semantic aliases for different mental models (see class docstring):
+        # "first_block" emphasizes "use the first modification", while
+        # "unanimous_pass" emphasizes "only pass if ALL agree to pass".
+        return modified[0]
 
     # =========================================================================
     # OpenAI Interface - Streaming (not supported)
@@ -334,7 +304,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 for p, req_copy, ctx_copy in zip(self._sub_policies, request_copies, context_copies)
             )
         )
-        return self._consolidate_anthropic_requests(request, list(results))
+        return self._consolidate(request, list(results), size_fn=lambda r: len(str(r.get("messages", []))))
 
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
@@ -354,41 +324,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 for p, resp_copy, ctx_copy in zip(self._sub_policies, response_copies, context_copies)
             )
         )
-        return self._consolidate_anthropic_responses(response, list(results))
-
-    def _consolidate_anthropic_requests(
-        self,
-        original: "AnthropicRequest",
-        results: list["AnthropicRequest"],
-    ) -> "AnthropicRequest":
-        """Pick the winning Anthropic request based on the consolidation strategy.
-
-        Modification detection uses != to check value equality (dict __eq__),
-        not object identity. Since each policy receives a deep copy, a modified result
-        will have different field values even if it's a different object reference.
-        """
-        return self._consolidate(
-            original,
-            results,
-            size_fn=lambda r: len(str(r.get("messages", []))),
-        )
-
-    def _consolidate_anthropic_responses(
-        self,
-        original: "AnthropicResponse",
-        results: list["AnthropicResponse"],
-    ) -> "AnthropicResponse":
-        """Pick the winning Anthropic response based on the consolidation strategy.
-
-        Modification detection uses != to check value equality (dict __eq__),
-        not object identity. Since each policy receives a deep copy, a modified result
-        will have different field values even if it's a different object reference.
-        """
-        return self._consolidate(
-            original,
-            results,
-            size_fn=_anthropic_response_content_length,
-        )
+        return self._consolidate(response, list(results), size_fn=_anthropic_response_content_length)
 
     # =========================================================================
     # Anthropic Interface - Streaming (not supported)
