@@ -156,6 +156,23 @@ uv run pytest -m e2e
 uv run pyright
 ```
 
+### Long-Term Stress Testing
+
+`scripts/long_term_test.sh` makes repeated Claude API calls through the proxy over an extended period to validate stability, session continuity, and resource behavior.
+
+```bash
+# Run for 30 minutes with default settings
+./scripts/long_term_test.sh --max-time 1800
+
+# Run exactly 50 calls against an already-running proxy
+./scripts/long_term_test.sh --max-calls 50 --no-start-proxy
+
+# Custom prompt with 10-second cooldown
+./scripts/long_term_test.sh --max-time 600 --prompt "Explain a random CS concept" --cooldown 10
+```
+
+Run `./scripts/long_term_test.sh --help` for all options. The script requires the `claude` CLI and `jq`, and the environment must be configured so Claude calls route through the proxy (the script handles `ANTHROPIC_BASE_URL` automatically).
+
 ## Observability (Optional)
 
 The gateway supports **OpenTelemetry** for distributed tracing and log correlation.
