@@ -14,7 +14,7 @@
 3. Commit the changes, push to origin, and open a draft PR (to `main`)
 4. Implement the OBJECTIVE. Add any items that should be done but are out of scope for the current OBJECTIVE to `dev/TODO.md` (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
 5. Regularly format + test (`scripts/dev_checks.sh`), commit, and push to origin (on the feature branch).
-6. When the OBJECTIVE is complete, update `CHANGELOG.md`
+6. When the OBJECTIVE is complete, add a changelog fragment (see **Changelog Fragments** below)
 7. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
 8. Mark the PR as ready.
 
@@ -25,6 +25,15 @@
 - **Ask:** "Could these be reviewed/merged independently?" If yes, split them.
 
 This keeps PRs focused, easier to review, and allows independent merging. (Added 2026-01-29 after PR #141 bundled a SimplePolicy fix with the DeSlop feature.)
+
+### Changelog Fragments
+
+**Do not edit `CHANGELOG.md` directly.** Instead, drop a fragment file in `changelog.d/`:
+
+- **Filename:** `<PR-number>-<short-handle>.md` (e.g., `187-client-setup.md`)
+- **Contents:** One or more markdown bullet points describing the change
+
+At release time, run `uv run python scripts/assemble_changelog.py` to merge fragments into `CHANGELOG.md`.
 
 ### Maintaining Context
 
@@ -74,7 +83,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
    git status
    ```
 
-   - Update `CHANGELOG.md` with a bullet referencing the objective handle.
+   - Add a changelog fragment (see **Changelog Fragments** below).
    - Clear `dev/NOTES.md` and `dev/OBJECTIVE.md`.
 
    ```bash
@@ -93,7 +102,8 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
     - `codebase_learnings.md`: Patterns, architecture insights, gotchas discovered while working
     - `decisions.md`: Technical decisions made and their rationale
     - `gotchas.md`: Non-obvious behaviors, edge cases, things that are easy to get wrong
-- `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
+- `CHANGELOG.md`: Assembled changelog (do not edit directly — use `changelog.d/` fragments)
+- `changelog.d/`: Per-PR changelog fragments, assembled at release time via `scripts/assemble_changelog.py`
 - `src/luthien_proxy/`: core package
   - `orchestration/`: PolicyOrchestrator coordinates streaming pipeline
   - `policies/`: Event-driven policy implementations
