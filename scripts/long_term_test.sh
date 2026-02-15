@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# Long-term stress testing script for luthien-proxy.
-# Makes repeated Claude API calls through the proxy over extended periods
-# to validate stability, session continuity, and resource behavior.
+# ABOUTME: Long-term stress testing script for luthien-proxy stability validation
+# ABOUTME: Makes repeated Claude API calls to test session continuity and resource behavior
 
 set -euo pipefail
 
@@ -227,9 +226,14 @@ main() {
         log "${GREEN}Proxy is healthy${NC}"
     fi
 
-    # Check that claude CLI exists
+    # Check that required tools exist
     if ! command -v claude &> /dev/null; then
         log "${RED}claude CLI not found. Install with: npm install -g @anthropic-ai/claude-cli${NC}"
+        exit 1
+    fi
+
+    if ! command -v jq &> /dev/null; then
+        log "${RED}jq not found. Install with: sudo apt install jq${NC}"
         exit 1
     fi
 
@@ -241,7 +245,7 @@ main() {
         local proxy_key
         proxy_key=$(grep -E '^PROXY_API_KEY=' .env 2>/dev/null | cut -d '=' -f2- || true)
         if [[ -n "$proxy_key" ]]; then
-            export ANTHROPIC_AUTH_TOKEN="$proxy_key"
+            export ANTHROPIC_API_KEY="$proxy_key"
         fi
     fi
 
@@ -314,9 +318,7 @@ main() {
         else
             ERROR_COUNT=$((ERROR_COUNT + 1))
             CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
-            local stderr_snippet
-            stderr_snippet=$(head -c 200 "${OUTPUT_DIR}/call_${CALL_COUNT}_stderr.txt" 2>/dev/null || echo "no stderr")
-            log "${RED}  FAIL (exit ${exit_code})${NC} | ${duration}s | ${stderr_snippet}"
+            log "${RED}  FAIL (exit ${exit_code})${NC} | ${duration}s | see ${OUTPUT_DIR}/call_${CALL_COUNT}_stderr.txt"
         fi
 
         # Cooldown between calls (unless we're about to stop)
