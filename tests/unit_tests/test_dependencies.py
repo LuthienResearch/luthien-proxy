@@ -329,7 +329,9 @@ class TestDependenciesIntegrationWithMain:
     def mock_db_pool(self):
         """Create a mock database pool for testing."""
         mock = AsyncMock()
-        mock.get_pool = AsyncMock()
+        mock_pool = AsyncMock()
+        mock_pool.fetchrow = AsyncMock(return_value=None)
+        mock.get_pool = AsyncMock(return_value=mock_pool)
         mock.close = AsyncMock()
         return mock
 

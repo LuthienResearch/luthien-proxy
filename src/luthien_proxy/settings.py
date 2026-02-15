@@ -10,6 +10,7 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from luthien_proxy.credential_manager import AuthMode
 from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
 
 
@@ -30,6 +31,7 @@ class Settings(BaseSettings):
     # Core API keys
     proxy_api_key: str | None = None
     admin_api_key: str | None = None
+    auth_mode: AuthMode = AuthMode.PROXY_KEY
 
     # Server configuration
     gateway_port: int = Field(default=DEFAULT_GATEWAY_PORT)

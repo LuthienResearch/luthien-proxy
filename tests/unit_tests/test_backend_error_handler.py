@@ -1,5 +1,7 @@
 """Tests for the BackendAPIError exception handler in main.py."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -126,3 +128,79 @@ class TestBackendAPIErrorHandler:
 
         # OpenAI format should NOT have "type": "error" at root level
         assert data.get("type") != "error"
+
+
+class TestBackend401InvalidatesCredential:
+    """Test that backend 401 errors invalidate cached credentials."""
+
+    def test_401_calls_on_backend_401(self):
+        """When the backend returns 401, the passthrough credential is invalidated."""
+        from fastapi import Request
+        from fastapi.responses import JSONResponse
+
+        app = FastAPI()
+        mock_cm = AsyncMock()
+
+        mock_deps = MagicMock()
+        mock_deps.credential_manager = mock_cm
+        app.state.dependencies = mock_deps
+
+        @app.exception_handler(BackendAPIError)
+        async def handler(request: Request, exc: BackendAPIError) -> JSONResponse:
+            if exc.status_code == 401 and hasattr(request.state, "passthrough_api_key"):
+                deps = getattr(request.app.state, "dependencies", None)
+                cm = getattr(deps, "credential_manager", None) if deps else None
+                if cm is not None:
+                    await cm.on_backend_401(request.state.passthrough_api_key)
+            return JSONResponse(status_code=exc.status_code, content={"error": exc.message})
+
+        @app.get("/trigger-401")
+        async def trigger(request: Request):
+            request.state.passthrough_api_key = "user-api-key"
+            raise BackendAPIError(
+                status_code=401,
+                message="invalid key",
+                error_type="authentication_error",
+                client_format=ClientFormat.ANTHROPIC,
+            )
+
+        client = TestClient(app)
+        response = client.get("/trigger-401")
+        assert response.status_code == 401
+        mock_cm.on_backend_401.assert_awaited_once_with("user-api-key")
+
+    def test_non_401_does_not_invalidate(self):
+        """Non-401 errors should not trigger credential invalidation."""
+        from fastapi import Request
+        from fastapi.responses import JSONResponse
+
+        app = FastAPI()
+        mock_cm = AsyncMock()
+
+        mock_deps = MagicMock()
+        mock_deps.credential_manager = mock_cm
+        app.state.dependencies = mock_deps
+
+        @app.exception_handler(BackendAPIError)
+        async def handler(request: Request, exc: BackendAPIError) -> JSONResponse:
+            if exc.status_code == 401 and hasattr(request.state, "passthrough_api_key"):
+                deps = getattr(request.app.state, "dependencies", None)
+                cm = getattr(deps, "credential_manager", None) if deps else None
+                if cm is not None:
+                    await cm.on_backend_401(request.state.passthrough_api_key)
+            return JSONResponse(status_code=exc.status_code, content={"error": exc.message})
+
+        @app.get("/trigger-429")
+        async def trigger(request: Request):
+            request.state.passthrough_api_key = "user-api-key"
+            raise BackendAPIError(
+                status_code=429,
+                message="rate limit",
+                error_type="rate_limit_error",
+                client_format=ClientFormat.OPENAI,
+            )
+
+        client = TestClient(app)
+        response = client.get("/trigger-429")
+        assert response.status_code == 429
+        mock_cm.on_backend_401.assert_not_awaited()

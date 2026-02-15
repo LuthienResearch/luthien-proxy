@@ -132,6 +132,18 @@ async def policy_config(
     return FileResponse(os.path.join(STATIC_DIR, "policy_config.html"))
 
 
+@router.get("/credentials")
+async def credentials_page(
+    request: Request,
+    admin_key: str | None = Depends(get_admin_key),
+):
+    """Credentials and auth configuration management UI."""
+    redirect = _check_auth_or_redirect(request, admin_key)
+    if redirect:
+        return redirect
+    return FileResponse(os.path.join(STATIC_DIR, "credentials.html"))
+
+
 @router.get("/conversation/live/{conversation_id}")
 async def conversation_live_view(
     request: Request,

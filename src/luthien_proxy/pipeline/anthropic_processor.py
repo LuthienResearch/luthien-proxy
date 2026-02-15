@@ -421,6 +421,9 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
     if isinstance(e, AnthropicStatusError):
         status_code = e.status_code or 500
         logger.warning(f"[{call_id}] Anthropic API error: {status_code} {e.message}")
+        # TODO: invalidate cached credential on 401 (on_backend_401).
+        # The OpenAI/LiteLLM path handles this via BackendAPIError in main.py,
+        # but this path raises HTTPException which bypasses that handler.
         raise HTTPException(
             status_code=status_code,
             detail={"type": "error", "error": {"type": "api_error", "message": str(e.message)}},

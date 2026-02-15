@@ -2,6 +2,16 @@
 
 ## Unreleased | TBA
 
+- Add configurable passthrough authentication (passthrough-auth)
+  - Three auth modes: `proxy_key` (default), `passthrough`, `both` - configurable at runtime via admin API
+  - Credential validation via Anthropic's free `count_tokens` endpoint with Redis caching
+  - Configurable TTLs for valid (1hr default) and invalid (5min default) credential cache
+  - Admin API: `GET/POST /admin/auth/config`, `GET/DELETE /admin/auth/credentials`
+  - Admin UI: `/credentials` page for managing auth modes and viewing cached credentials
+  - Supports OAuth token passthrough for Claude Code
+  - `x-anthropic-api-key` header still supported for explicit client key override
+  - DB migration: `007_add_auth_config_table.sql`
+
 - Add `/client-setup` endpoint with setup guide for connecting Claude Code to the proxy (deploy-instructions)
 
 - Add conversation live view with diff display (#186)
