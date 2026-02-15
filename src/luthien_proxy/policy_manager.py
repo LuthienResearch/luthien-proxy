@@ -111,9 +111,7 @@ class PolicyManager:
 
         # Extract class ref and config for DB persistence
         policy_class_ref = f"{self._current_policy.__module__}:{self._current_policy.__class__.__name__}"
-        config: dict[str, Any] = {}
-        if hasattr(self._current_policy, "get_config") and callable(getattr(self._current_policy, "get_config")):
-            config = getattr(self._current_policy, "get_config")()
+        config = self._current_policy.get_config()
 
         await self._persist_to_db(policy_class_ref, config, "startup")
         logger.info(f"Loaded policy from {self.startup_policy_path} and persisted to DB")
@@ -274,10 +272,7 @@ class PolicyManager:
         except Exception as e:
             logger.warning(f"Could not fetch policy metadata from DB: {e}")
 
-        # Get config if the policy has a get_config method
-        config = {}
-        if hasattr(self._current_policy, "get_config") and callable(getattr(self._current_policy, "get_config")):
-            config = getattr(self._current_policy, "get_config")()
+        config = self._current_policy.get_config()
 
         return PolicyInfo(
             policy=self._current_policy.__class__.__name__,

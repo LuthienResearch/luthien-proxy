@@ -63,13 +63,7 @@ class SamplePydanticPolicy(BasePolicy):
             config: A SampleConfig instance or None for defaults.
                    Also accepts a dict at runtime which will be parsed into SampleConfig.
         """
-        if config is None:
-            self.config = SampleConfig()
-        elif isinstance(config, dict):
-            # Handle dict passed from policy manager at runtime
-            self.config = SampleConfig.model_validate(config)
-        else:
-            self.config = config
+        self.config = self._init_config(config, SampleConfig)
 
     # get_config() is inherited from BasePolicy - automatically serializes
     # the self.config Pydantic model

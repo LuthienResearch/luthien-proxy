@@ -315,18 +315,10 @@ const FormRenderer = {
   },
 
   /**
-   * Escape HTML special characters to prevent XSS
+   * Escape HTML — delegates to global escapeHtml (defined in policy_config.js)
    */
   escapeHtml(str) {
-    if (typeof str !== "string") return str;
-    const htmlEscapes = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return str.replace(/[&<>"']/g, (char) => htmlEscapes[char]);
+    return window.escapeHtml(str);
   },
 
   /**

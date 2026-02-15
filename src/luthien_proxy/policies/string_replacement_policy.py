@@ -200,12 +200,7 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicy
 
     def __init__(self, config: StringReplacementConfig | None = None):
         """Initialize with optional config. Accepts dict or Pydantic model."""
-        if config is None:
-            self.config = StringReplacementConfig()
-        elif isinstance(config, dict):
-            self.config = StringReplacementConfig.model_validate(config)
-        else:
-            self.config = config
+        self.config = self._init_config(config, StringReplacementConfig)
 
         self._replacements: list[tuple[str, str]] = [(pair[0], pair[1]) for pair in self.config.replacements]
         self._match_capitalization = self.config.match_capitalization

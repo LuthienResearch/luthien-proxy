@@ -150,8 +150,7 @@ function formatConfigValue(val, indent = 0) {
         return `<span class="config-val-number">${val}</span>`;
     }
     if (typeof val === 'string') {
-        const escaped = val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return `<span class="config-val-string">"${escaped}"</span>`;
+        return `<span class="config-val-string">"${escapeHtml(val)}"</span>`;
     }
     if (Array.isArray(val)) {
         if (val.length === 0) return `<span class="config-val">[]</span>`;
@@ -161,8 +160,7 @@ function formatConfigValue(val, indent = 0) {
     if (typeof val === 'object') {
         return formatConfigAsHtml(val, indent);
     }
-    const escaped = String(val).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return `<span class="config-val">${escaped}</span>`;
+    return `<span class="config-val">${escapeHtml(String(val))}</span>`;
 }
 
 function formatConfigAsHtml(config, indent = 0) {
@@ -172,8 +170,7 @@ function formatConfigAsHtml(config, indent = 0) {
     if (entries.length === 0) return `<span class="config-val">{}</span>`;
 
     const lines = entries.map(([key, val]) => {
-        const escapedKey = key.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return `${innerPad}<span class="config-key">${escapedKey}</span>: ${formatConfigValue(val, indent + 1)}`;
+        return `${innerPad}<span class="config-key">${escapeHtml(key)}</span>: ${formatConfigValue(val, indent + 1)}`;
     });
     return `{\n${lines.join('\n')}\n${pad}}`;
 }
@@ -545,8 +542,9 @@ window.validateJson = function(event, path) {
 };
 
 window.onUnionTypeChange = function(path, newType) {
-    // Reset fields when union type changes
-    console.log('onUnionTypeChange', path, newType);
+    // TODO: Reset stale form fields when union type changes.
+    // When the discriminator changes, fields from the previous variant remain
+    // in formData. This should clear those and populate defaults for newType.
 };
 
 function updateActivateButton() {
@@ -737,8 +735,10 @@ async function handleSendChat() {
     }
 }
 
-function escapeHtml(text) {
+// Shared HTML escaper — also used by FormRenderer
+window.escapeHtml = function(text) {
+    if (typeof text !== 'string') return text;
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
-}
+};

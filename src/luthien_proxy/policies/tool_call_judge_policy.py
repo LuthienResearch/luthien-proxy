@@ -148,12 +148,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
     def __init__(self, config: ToolCallJudgeConfig | None = None):
         """Initialize with optional config. Also accepts a dict at runtime."""
-        if config is None:
-            self.config = ToolCallJudgeConfig()
-        elif isinstance(config, dict):
-            self.config = ToolCallJudgeConfig.model_validate(config)
-        else:
-            self.config = config
+        self.config = self._init_config(config, ToolCallJudgeConfig)
 
         # Resolve final values from config + env vars
         settings = get_settings()

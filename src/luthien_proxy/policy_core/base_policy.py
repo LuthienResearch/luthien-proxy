@@ -9,9 +9,11 @@ automatic get_config() for Pydantic-based configs.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class BasePolicy:
@@ -55,6 +57,19 @@ class BasePolicy:
             if isinstance(value, BaseModel):
                 config[attr_name] = value.model_dump()
 
+        return config
+
+    @staticmethod
+    def _init_config(config: T | dict[str, Any] | None, config_class: type[T]) -> T:
+        """Parse a config value into a Pydantic model.
+
+        Handles the three forms every policy __init__ receives:
+        None (use defaults), dict (from policy manager), or an already-parsed model.
+        """
+        if config is None:
+            return config_class()
+        if isinstance(config, dict):
+            return config_class.model_validate(config)
         return config
 
 

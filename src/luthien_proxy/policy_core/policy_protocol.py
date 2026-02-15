@@ -8,7 +8,7 @@ This module defines PolicyProtocol with hooks for:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse
@@ -27,6 +27,10 @@ class PolicyProtocol(Protocol):
     @property
     def short_policy_name(self) -> str:
         """Short human-readable name for the policy (e.g., 'NoOp', 'AllCaps', 'ToolJudge')."""
+        ...
+
+    def get_config(self) -> dict[str, Any]:
+        """Get the configuration for this policy instance."""
         ...
 
     async def on_request(self, request: Request, context: PolicyContext) -> Request:
