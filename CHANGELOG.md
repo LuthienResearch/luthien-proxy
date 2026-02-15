@@ -12,6 +12,8 @@
   - `x-anthropic-api-key` header still supported for explicit client key override
   - DB migration: `007_add_auth_config_table.sql`
 
+- Add `/client-setup` endpoint with setup guide for connecting Claude Code to the proxy (deploy-instructions)
+
 - Add conversation live view with diff display (#186)
   - New `/conversation/live/{id}` endpoint for real-time conversation monitoring with diff visualization
   - "Live View" link from history detail page
