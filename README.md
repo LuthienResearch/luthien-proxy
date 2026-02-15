@@ -42,6 +42,8 @@ Launch your AI assistant through the proxy using the built-in scripts:
 
 These scripts automatically configure the proxy settings. All requests now flow through the policy enforcement layer!
 
+Visit <http://localhost:8000/client-setup> for step-by-step setup commands for using Claude Code with the proxy.
+
 ### 3. Log In to Admin UI
 
 When you first visit any admin page (Activity Monitor, Policy Config, or Debug views), you'll be redirected to:
@@ -109,7 +111,6 @@ Restart the gateway and your policy appears in the Policy Config UI automaticall
 
 - **Gateway** (OpenAI/Anthropic-compatible) at <http://localhost:8000>
 - **PostgreSQL** and **Redis** fully configured
-- **Local LLM** (Ollama) at <http://localhost:11434>
 - **Real-time monitoring** at <http://localhost:8000/activity/monitor>
 - **Policy management UI** at <http://localhost:8000/policy-config>
 
@@ -162,24 +163,20 @@ The gateway supports **OpenTelemetry** for distributed tracing and log correlati
 By default, the gateway runs **without** the observability stack. To enable it:
 
 ```bash
-# Start observability stack (Tempo, Loki, Promtail, Grafana)
+# Start observability stack (Tempo for distributed tracing)
 ./scripts/observability.sh up -d
 
 # The gateway will automatically detect and use the observability stack
-
-# Access Grafana at http://localhost:3000
-# Username: admin, Password: admin
+# Tempo HTTP API available at http://localhost:3200
 ```
 
 The observability stack is completely optional and does not affect core functionality.
 
 ### Features
 
-- **Distributed tracing** with OpenTelemetry → Grafana Tempo
+- **Distributed tracing** with OpenTelemetry and Tempo
 - **Structured logging** with trace context (trace_id, span_id)
-- **Log-trace correlation** in Grafana
 - **Real-time activity feed** at `/activity/monitor`
-- **Pre-built dashboard** for traces and logs
 
 ### Configuration
 
@@ -202,15 +199,12 @@ ENVIRONMENT=development
 
 - **Usage guide:** [dev/observability.md](dev/observability.md)
 - **Conventions:** [dev/context/otel-conventions.md](dev/context/otel-conventions.md)
-- **Dashboard:** Import `observability/grafana-dashboards/luthien-traces.json` in Grafana
 
 ### Services
 
 When observability is enabled:
 
-- **Grafana** at http://localhost:3000 (dashboards and visualization)
-- **Tempo** at http://localhost:3200 (trace storage and query)
-- **Loki** at http://localhost:3100 (log aggregation)
+- **Tempo** at http://localhost:3200 (trace storage and query via HTTP API)
 
 ## Configuration
 
@@ -265,8 +259,6 @@ SERVICE_NAME=luthien-proxy
 SERVICE_VERSION=2.0.0
 ENVIRONMENT=development
 
-# Grafana for viewing traces
-GRAFANA_URL=http://localhost:3000
 ```
 
 ### LLM Judge Policies (Optional)
@@ -290,9 +282,7 @@ Example policy configuration:
 policy:
   class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
   config:
-    model: "ollama/gemma2:2b"
-    api_base: "http://local-llm:11434"
-    api_key: "ollama"
+    model: "openai/gpt-4o-mini"
     probability_threshold: 0.6
     temperature: 0.0
     max_tokens: 256
@@ -358,7 +348,7 @@ The gateway integrates everything into a single FastAPI application:
 - Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
 - Live policy updates: [dev/LIVE_POLICY_DEMO.md](dev/LIVE_POLICY_DEMO.md) - Switching policies without restart in Claude Code
 - Observability: [dev/observability.md](dev/observability.md) - Tracing and monitoring
-- Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](dev/VIEWING_TRACES_GUIDE.md) - Using Grafana/Tempo
+- Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](dev/VIEWING_TRACES_GUIDE.md) - Using Tempo
 - Context files: [dev/context/](dev/context/) - Architectural patterns, decisions, and gotchas
 
 ## Endpoints

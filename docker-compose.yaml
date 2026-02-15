@@ -1,9 +1,14 @@
-# For observability (distributed tracing + logs), use:
+# Launch with ./scripts/quick_start.sh (auto-selects free ports).
+# Running `docker compose up` directly uses default ports without auto-selection.
+#
+# For distributed tracing (Tempo), use:
 #   ./scripts/observability.sh up -d
 # Or:
 #   docker compose --profile observability up -d
 #
 # See observability/README.md for details.
+
+name: ${COMPOSE_PROJECT_NAME:-luthien}
 
 services:
   # PostgreSQL database for persistent state
@@ -14,7 +19,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -57,7 +62,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "${REDIS_PORT}:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -72,50 +77,28 @@ services:
           cpus: '0.1'
           memory: 64M
 
-  # Single-container local LLM gateway (Ollama + LiteLLM)
-  local-llm:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.local-llm
-    environment:
-      - MODEL_NAME=${LOCAL_LLM_MODEL_NAME:-gemma2:2b}
-    volumes:
-      - local_llm_models:/root/.ollama
-    ports:
-      - "4010:4000"   # OpenAI-compatible API (LiteLLM)
-      - "11434:11434" # Ollama API with native OpenAI compatibility
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/test"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '4.0'
-          memory: 4G
-        reservations:
-          cpus: '1.0'
-          memory: 2G
-
   # Gateway (integrated FastAPI + LiteLLM architecture)
   gateway:
     build:
       context: .
       dockerfile: docker/Dockerfile.gateway
+    env_file: .env
     environment:
+      # Non-sensitive config can use shell override via ${VAR} syntax
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - PROXY_API_KEY=${PROXY_API_KEY}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - POLICY_SOURCE=${POLICY_SOURCE:-db-fallback-file}
-      - GATEWAY_PORT=${GATEWAY_PORT:-8000}
+      - GATEWAY_PORT=8000
       - POLICY_CONFIG=${POLICY_CONFIG:-/app/config/policy_config.yaml}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - OTEL_SERVICE_NAME=luthien-gateway
+      # API keys loaded from .env file only (not from shell) to prevent
+      # shell environment from overriding .env values. This fixes issues
+      # where users have API keys in their shell profile that differ from
+      # the project's .env file.
     ports:
       - "${GATEWAY_PORT:-8000}:8000"
     volumes:
@@ -144,7 +127,7 @@ services:
           memory: 256M
 
   # === OBSERVABILITY STACK ===
-  # Services: Tempo (traces), Loki (logs), Grafana (visualization)
+  # Services: Tempo (distributed tracing)
   # See: observability/README.md
 
   tempo:
@@ -155,79 +138,10 @@ services:
       - ./observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
       - ./observability/data/tempo:/var/tempo
     ports:
-      - "4317:4317"  # OTLP gRPC (application sends traces here)
-      - "3200:3200"  # Tempo HTTP API
+      - "${TEMPO_OTLP_PORT:-4317}:4317"  # OTLP gRPC (application sends traces here)
+      - "${TEMPO_HTTP_PORT:-3200}:3200"  # Tempo HTTP API
     networks:
       - default
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-
-  loki:
-    image: grafana/loki:latest
-    profiles: ["observability"]
-    command: ["-config.file=/etc/loki/local-config.yaml"]
-    volumes:
-      - ./observability/loki/loki.yaml:/etc/loki/local-config.yaml:ro
-      - ./observability/data/loki:/loki
-    ports:
-      - "3100:3100"  # Loki HTTP API
-    networks:
-      - default
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-
-  promtail:
-    image: grafana/promtail:latest
-    profiles: ["observability"]
-    command: ["-config.file=/etc/promtail/promtail.yaml"]
-    volumes:
-      - ./observability/promtail/promtail.yaml:/etc/promtail/promtail.yaml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-    networks:
-      - default
-    depends_on:
-      - loki
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
-        reservations:
-          cpus: '0.1'
-          memory: 64M
-
-  grafana:
-    image: grafana/grafana:latest
-    profiles: ["observability"]
-    environment:
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
-      - GF_AUTH_DISABLE_LOGIN_FORM=true
-      - GF_USERS_ALLOW_SIGN_UP=false
-    volumes:
-      - ./observability/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
-      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./observability/data/grafana:/var/lib/grafana
-    ports:
-      - "3000:3000"  # Grafana UI
-    networks:
-      - default
-    depends_on:
-      - tempo
-      - loki
     deploy:
       resources:
         limits:
@@ -239,7 +153,6 @@ services:
 
 volumes:
   postgres_data:
-  local_llm_models:
 
 networks:
   default:

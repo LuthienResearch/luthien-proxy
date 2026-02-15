@@ -39,6 +39,7 @@ def mock_policy():
     policy.on_tool_call_complete = AsyncMock()
     policy.on_finish_reason = AsyncMock()
     policy.on_stream_complete = AsyncMock()
+    policy.on_streaming_policy_complete = AsyncMock()
     return policy
 
 

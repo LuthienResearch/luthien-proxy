@@ -10,7 +10,7 @@
 This document defines naming conventions and attribute schemas for OpenTelemetry spans, events, and attributes in Luthien Proxy V2.
 
 Consistency in naming allows:
-- Easy searching in Grafana/Tempo
+- Easy searching in Tempo
 - Correlation across services
 - Clear understanding of trace data
 
@@ -335,7 +335,7 @@ logger.info("Processing request")
 # 2024-01-15 10:30:00 INFO [trace_id=4bf92f3577b34da6a3ce929d0e0e4736 span_id=00f067aa0ba902b7] Processing request
 ```
 
-This allows Grafana to correlate logs → traces.
+This allows trace correlation when viewing logs alongside traces.
 
 ---
 
@@ -368,7 +368,7 @@ Events published to Redis via `SimpleEventPublisher` follow this schema:
 
 ---
 
-## Searching Traces in Grafana
+## Searching Traces in Tempo
 
 ### By Call ID
 

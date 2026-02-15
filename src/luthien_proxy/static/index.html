@@ -117,6 +117,14 @@
 
         <div class="endpoint">
             <span class="method">GET</span>
+            <a href="/credentials" target="_blank">/credentials</a>
+            <span class="badge ui">UI</span>
+            <span class="badge">Auth Required</span>
+            <div class="description">Manage authentication modes and cached credentials</div>
+        </div>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
             <a href="/debug/diff" target="_blank">/debug/diff</a>
             <span class="badge ui">UI</span>
             <span class="badge">Auth Required</span>
@@ -129,6 +137,14 @@
             <span class="badge ui">UI</span>
             <span class="badge">Auth Required</span>
             <div class="description">Conversation history - browse past sessions with full message transcripts</div>
+        </div>
+
+        <div class="endpoint">
+            <span class="method">GET</span>
+            <span>/conversation/live/{session_id}</span>
+            <span class="badge ui">UI</span>
+            <span class="badge">Auth Required</span>
+            <div class="description">Live conversation viewer - real-time message timeline with policy divergence diffs</div>
         </div>
     </div>
 
@@ -204,6 +220,7 @@
 
     <div class="section quickstart">
         <h2>💡 Quick Start</h2>
+        <p><strong>New here?</strong> <a href="/client-setup" target="_blank">Client Setup</a> — step-by-step setup guide for Claude Code + Luthien Proxy</p>
         <p><strong>View real-time activity:</strong> <a href="/activity/monitor" target="_blank">Open Activity Monitor</a></p>
         <p><strong>Browse conversation history:</strong> <a href="/history" target="_blank">Open Conversation History</a></p>
         <p><strong>Inspect policy changes:</strong> <a href="/debug/diff" target="_blank">Open Diff Viewer</a> (requires admin API key)</p>

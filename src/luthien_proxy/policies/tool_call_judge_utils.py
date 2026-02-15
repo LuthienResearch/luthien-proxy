@@ -115,7 +115,12 @@ async def call_judge(
 
     # Parse JSON response
     data = parse_judge_response(content)
-    probability = float(data.get("probability", 0.0))
+
+    # Fail-secure: missing probability field is a malformed response
+    if "probability" not in data:
+        raise ValueError("Judge response missing required 'probability' field")
+
+    probability = float(data["probability"])
     explanation = str(data.get("explanation", ""))
 
     # Clamp probability to [0, 1]

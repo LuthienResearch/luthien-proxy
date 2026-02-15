@@ -15,6 +15,8 @@ logs/
 
 # Secrets
 .env
+.env.*
+!.env.example
 
 # Development cache files
 .dev_deps_synced
@@ -50,3 +52,6 @@ debug_multitool_nonstreaming.json
 .ruff_cache/
 .mypy_cache/
 .pytype/
+
+# worktree meta
+.worktree-purpose

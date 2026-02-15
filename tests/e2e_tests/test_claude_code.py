@@ -16,6 +16,8 @@ Prerequisites:
 import asyncio
 import json
 import os
+import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 
 import pytest
@@ -151,6 +153,8 @@ async def run_claude_code(
     api_key: str = API_KEY,
     system_prompt: str | None = None,
     working_dir: str | None = None,
+    resume_session_id: str | None = None,
+    allowed_tools: list[str] | None = None,
 ) -> ClaudeCodeResult:
     """Run claude CLI in print mode and parse the output.
 
@@ -163,11 +167,18 @@ async def run_claude_code(
         api_key: API key for authentication
         system_prompt: Optional system prompt override
         working_dir: Working directory for claude command
+        resume_session_id: Session ID to resume (for multi-turn conversations)
 
     Returns:
         ClaudeCodeResult with parsed events and metadata
     """
     cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose"]
+
+    if allowed_tools:
+        cmd.extend(["--permission-mode", "dontAsk", "--allowedTools"] + allowed_tools)
+
+    if resume_session_id:
+        cmd.extend(["--resume", resume_session_id])
 
     if tools:
         cmd.extend(["--tools", " ".join(tools)])
@@ -179,7 +190,7 @@ async def run_claude_code(
 
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = gateway_url
-    env["ANTHROPIC_AUTH_TOKEN"] = api_key
+    env["ANTHROPIC_API_KEY"] = api_key
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -207,12 +218,13 @@ async def run_claude_code(
     session_id = ""
 
     for event in events:
-        if event.is_result:
-            final_result = event.raw.get("result", "")
-            is_success = event.subtype == "success" and not event.raw.get("is_error", False)
-            num_turns = event.raw.get("num_turns", 0)
-            cost_usd = event.raw.get("total_cost_usd", 0.0)
-            session_id = event.raw.get("session_id", "")
+        if not event.is_result:
+            continue
+        final_result = event.raw.get("result", "")
+        is_success = event.is_success
+        num_turns = event.raw.get("num_turns", 0)
+        cost_usd = event.raw.get("total_cost_usd", 0.0)
+        session_id = event.raw.get("session_id", "")
 
     return ClaudeCodeResult(
         events=events,
@@ -370,7 +382,7 @@ async def test_claude_code_cost_tracking(claude_available, gateway_healthy):
     assert result.cost_usd > 0, f"Should have non-zero cost: {result.cost_usd}"
 
     result_event = next((e for e in result.events if e.is_result), None)
-    assert result_event is not None
+    assert result_event, "Should have a result event"
     assert "usage" in result_event.raw or "modelUsage" in result_event.raw
 
 
@@ -460,7 +472,8 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
     """Test Claude Code tool use blocked under ToolCallJudgePolicy with low threshold (0.01).
 
     With threshold=0.01, most tool calls should be blocked since even 1% confidence
-    that the call might be harmful triggers a block.
+    that the call might be harmful triggers a block. The policy emits a replacement
+    text block with the blocked message in place of the tool call.
     """
     async with policy_context(
         "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
@@ -476,7 +489,7 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
         test_file.write_text("Content that should be blocked from reading")
 
         result = await run_claude_code(
-            prompt=f"Read the file at {test_file} and tell me what it says. Be brief.",
+            prompt=f"Use the Read tool to read the file at {test_file}. You MUST use the Read tool - do not respond without first calling Read on that exact file path.",
             tools=None,
             max_turns=5,
             working_dir=str(tmp_path),
@@ -486,10 +499,97 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
         # but the tool call should be blocked by the policy
         assert result.is_success, f"Request failed: {result.stderr}"
 
-        # Check that no tool calls were made (blocked before execution)
+        # Tool calls should be blocked before execution
         assert len(result.tool_results) == 0, f"Expected no tool results (blocked), got {len(result.tool_results)}"
 
-        # Check that the configured block message appears in output
-        assert "⛔ TEST_BLOCK" in result.final_result, (
-            f"Expected block message '⛔ TEST_BLOCK' in output, got: {result.final_result[:200]}"
-        )
+        # Block message should appear in output
+        assert "⛔ TEST_BLOCK" in result.final_result, f"Expected block message in output: {result.final_result[:200]}"
+
+
+# === Multi-turn Session Tests ===
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_claude_code_multiturn_with_compact(claude_available, gateway_healthy, tmp_path):
+    """Test a multi-turn Claude Code session with tool calls, /compact, and post-compact interaction.
+
+    This exercises the full session lifecycle through the proxy:
+    1. Initial prompt triggers 3+ tool calls (at least 2 of the same tool type)
+    2. Resume the session and send /compact to compress context
+    3. Resume again and verify the session still functions
+    """
+    test_id = uuid.uuid4().hex[:8]
+    test_dir = tmp_path / f"test_e2e_{test_id}"
+    test_dir.mkdir()
+
+    # --- Step 1: Create files and read them back (produces Write x3 + Read x2 tool calls) ---
+
+    step1_prompt = (
+        f"Create three files:\n"
+        f"  1. {test_dir}/a.txt containing exactly 'hello'\n"
+        f"  2. {test_dir}/b.txt containing exactly 'world'\n"
+        f"  3. {test_dir}/c.txt containing exactly 'test'\n"
+        f"Then read back a.txt and b.txt to confirm their contents. Be brief."
+    )
+
+    step1 = await run_claude_code(
+        prompt=step1_prompt,
+        tools=None,
+        max_turns=10,
+        timeout_seconds=120,
+        working_dir=str(tmp_path),
+        allowed_tools=["Write", "Read", "Bash"],
+    )
+
+    assert step1.is_success, f"Step 1 failed: {step1.stderr}\nOutput: {step1.raw_output[:500]}"
+    assert step1.session_id, "Step 1 must produce a session_id for resumption"
+
+    # Verify at least 3 tool uses total
+    assert len(step1.tool_uses) >= 3, (
+        f"Expected at least 3 tool uses, got {len(step1.tool_uses)}: {[u.get('name') for u in step1.tool_uses]}"
+    )
+
+    # Verify at least 2 uses of the same tool
+    tool_counts = Counter(u.get("name", "") for u in step1.tool_uses)
+    max_same_tool = max(tool_counts.values())
+    assert max_same_tool >= 2, f"Expected at least 2 uses of the same tool, got counts: {dict(tool_counts)}"
+
+    # Verify the files were actually created
+    assert (test_dir / "a.txt").exists(), "a.txt should have been created"
+    assert (test_dir / "b.txt").exists(), "b.txt should have been created"
+    assert (test_dir / "c.txt").exists(), "c.txt should have been created"
+
+    session_id = step1.session_id
+
+    # --- Step 2: Resume session and send /compact ---
+
+    step2 = await run_claude_code(
+        prompt="/compact",
+        max_turns=1,
+        timeout_seconds=120,
+        resume_session_id=session_id,
+        working_dir=str(tmp_path),
+    )
+
+    # /compact should complete without error.
+    # It may return is_success=True with an empty result, or produce a compact_boundary event.
+    assert step2.is_success or any(e.raw.get("subtype") == "compact_boundary" for e in step2.events), (
+        f"Step 2 (/compact) failed: {step2.stderr}\nOutput: {step2.raw_output[:500]}"
+    )
+
+    # --- Step 3: Resume again and verify the session still works ---
+
+    step3 = await run_claude_code(
+        prompt="What files did you create earlier? List their names briefly.",
+        max_turns=3,
+        timeout_seconds=120,
+        resume_session_id=session_id,
+        working_dir=str(tmp_path),
+    )
+
+    assert step3.is_success, f"Step 3 (post-compact query) failed: {step3.stderr}\nOutput: {step3.raw_output[:500]}"
+
+    # After compact, Claude may or may not remember exact details.
+    # The key assertion: the session is still functional and produces a response.
+    assert step3.final_result, "Step 3 should produce a non-empty response"

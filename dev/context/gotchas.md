@@ -15,12 +15,13 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - **LiteLLM type warnings**: When working with `ModelResponse`, use proper typed objects (`Choices`, `StreamingChoices`, `Message`, `Delta`) to avoid Pydantic serialization warnings from LiteLLM's `Union` types. See test fixtures for examples.
 - **E2E tests**: E2E tests remain (test_gateway_matrix.py, test_streaming_chunk_structure.py).
 
-## Docker Development (2025-10-08, updated 2025-11-21)
+## Docker Development (2025-10-08, updated 2026-02-03)
 
+- **Shell env overrides .env for API keys**: Docker Compose's `${VAR}` syntax checks shell environment FIRST, `.env` file second. If `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set in your shell (e.g., from `~/.zshrc`), it will override `.env` values. The fix is to use `env_file: .env` in docker-compose.yaml and NOT list API keys in the `environment:` block.
 - **Env changes require recreate, not restart**: `docker compose restart gateway` updates the code, but does NOT reload `.env` changes - it reuses the existing container config. Use `docker compose up -d gateway` to recreate with updated env vars.
 - Check logs with `docker compose logs -f gateway` when debugging
 - Long-running compose or `uv` commands can hang the CLI; launch them via `scripts/run_bg_command.sh` so you can poll logs (`tail -f`) and terminate with the recorded PID if needed.
-- **Services**: gateway, local-llm, db, and redis
+- **Services**: gateway, db, and redis
 
 ## Observability Checks (2025-10-08, updated 2025-11-11)
 
@@ -161,6 +162,45 @@ if stream_state.finish_reason:
 **Why**: `convert_chunk_to_event()` checks content before finish_reason. If content exists, it returns a `text_delta` event immediately. The finish_reason check never runs.
 
 **Affected policies**: Any policy that buffers content and emits it in `on_content_complete()`. See `StringReplacementPolicy`, `ParallelRulesPolicy` for correct patterns.
+
+## E2E Test Debugging: Direct API vs Proxy (2026-02-04)
+
+**Gotcha**: When an E2E test fails through the proxy but works with direct API calls, the issue is in the proxy's format conversion or streaming pipeline—not the test itself.
+
+**Debugging pattern**:
+1. Run the same request directly against Anthropic/OpenAI API (bypassing proxy)
+2. If direct API works but proxy fails: problem is in proxy's request conversion or response assembly
+3. Compare raw SSE output from both endpoints to find divergence
+4. Common culprits: thinking blocks ordering, tool call chunk assembly, finish_reason handling
+
+**Example**: `test_anthropic_client_openai_backend_preserves_anthropic_format` - model uses tools correctly via direct API but not through proxy → indicates request conversion drops tool instructions or response doesn't preserve tool call format.
+
+## Debugging Proxy Issues: Jai's Checklist (2026-02-04)
+
+**Context**: Common debugging steps for proxy issues (from co-founder debugging sessions).
+
+1. **Check the raw request/response**: Use `/debug/calls/{call_id}` endpoint to see original vs transformed payloads
+2. **Compare streaming chunks**: Enable debug logging to see each SSE chunk as it flows through pipeline
+3. **Isolate the layer**: Is it request conversion? Response assembly? Policy transformation?
+4. **Reproduce minimally**: Strip the request down to simplest failing case
+5. **Check LiteLLM version**: Breaking changes in LiteLLM streaming have caused issues (see litellm >= 1.81.0 gotcha)
+
+**Tools available**:
+- Activity monitor: `/activity/monitor` - live SSE stream
+- Debug diff viewer: `/debug/diff?call_id=X` - before/after comparison
+- Tempo traces: Search by `luthien.call_id` attribute via `http://localhost:3200/api/search`
+
+## Policy Config Dynamic Loading Security (2026-02-04)
+
+**Gotcha**: `POLICY_CONFIG` allows loading arbitrary Python classes at runtime. This is intentional for flexibility but has security implications.
+
+**Security considerations**:
+- Only trusted users should have access to modify `policy_config.yaml` or set `POLICY_CONFIG` env var
+- Policy classes are instantiated with full Python capabilities
+- In production: ensure config files have proper filesystem permissions
+- The Admin API requires `ADMIN_API_KEY` authentication for runtime policy changes
+
+**Related TODO item**: Add security documentation for dynamic policy loading.
 
 ---
 

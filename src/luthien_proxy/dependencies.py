@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
-from typing import TYPE_CHECKING
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
 
+from luthien_proxy.credential_manager import CredentialManager
+from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
+from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
+from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.utils import db
-
-if TYPE_CHECKING:
-    from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 
 
 @dataclass
@@ -35,6 +35,8 @@ class Dependencies:
     emitter: EventEmitterProtocol
     api_key: str
     admin_key: str | None
+    anthropic_client: AnthropicClient | None = field(default=None)
+    credential_manager: CredentialManager | None = field(default=None)
 
     @cached_property
     def event_publisher(self) -> RedisEventPublisher | None:
@@ -48,9 +50,45 @@ class Dependencies:
         return RedisEventPublisher(self.redis_client)
 
     @property
-    def policy(self) -> PolicyProtocol:
+    def policy(self) -> OpenAIPolicyInterface:
         """Get current active policy from policy manager."""
-        return self.policy_manager.current_policy
+        current = self.policy_manager.current_policy
+        if not isinstance(current, OpenAIPolicyInterface):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Current policy {type(current).__name__} does not implement OpenAIPolicyInterface",
+            )
+        return current
+
+    def get_anthropic_client(self) -> AnthropicClient:
+        """Get the Anthropic client.
+
+        Returns:
+            The pre-configured AnthropicClient instance.
+
+        Raises:
+            HTTPException: If ANTHROPIC_API_KEY was not set at startup
+        """
+        if self.anthropic_client is None:
+            raise HTTPException(
+                status_code=500,
+                detail="ANTHROPIC_API_KEY not configured for native Anthropic path",
+            )
+        return self.anthropic_client
+
+    def get_anthropic_policy(self) -> AnthropicPolicyInterface:
+        """Get the current Anthropic policy.
+
+        Raises:
+            HTTPException: If current policy doesn't implement AnthropicPolicyInterface
+        """
+        current = self.policy_manager.current_policy
+        if not isinstance(current, AnthropicPolicyInterface):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Current policy {type(current).__name__} does not implement AnthropicPolicyInterface",
+            )
+        return current
 
 
 # === FastAPI Dependency Functions ===
@@ -138,7 +176,7 @@ def get_emitter(request: Request) -> EventEmitterProtocol:
     return get_dependencies(request).emitter
 
 
-def get_policy(request: Request) -> PolicyProtocol:
+def get_policy(request: Request) -> OpenAIPolicyInterface:
     """Get current policy from dependencies.
 
     Args:
@@ -186,6 +224,47 @@ def get_admin_key(request: Request) -> str | None:
     return get_dependencies(request).admin_key
 
 
+def get_anthropic_client(request: Request) -> AnthropicClient:
+    """Get Anthropic client from dependencies.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Anthropic client instance
+
+    Raises:
+        HTTPException: If ANTHROPIC_API_KEY was not configured at startup
+    """
+    return get_dependencies(request).get_anthropic_client()
+
+
+def get_anthropic_policy(request: Request) -> AnthropicPolicyInterface:
+    """Get current Anthropic policy from dependencies.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Current Anthropic policy
+    """
+    return get_dependencies(request).get_anthropic_policy()
+
+
+def get_credential_manager(request: Request) -> CredentialManager | None:
+    """Get credential manager from dependencies."""
+    return get_dependencies(request).credential_manager
+
+
+async def require_credential_manager(
+    credential_manager: CredentialManager | None = Depends(get_credential_manager),
+) -> CredentialManager:
+    """Get credential manager, raising 503 if not available."""
+    if credential_manager is None:
+        raise HTTPException(status_code=503, detail="Credential manager not available")
+    return credential_manager
+
+
 __all__ = [
     "Dependencies",
     "get_dependencies",
@@ -198,4 +277,8 @@ __all__ = [
     "get_policy_manager",
     "get_api_key",
     "get_admin_key",
+    "get_anthropic_client",
+    "get_anthropic_policy",
+    "get_credential_manager",
+    "require_credential_manager",
 ]

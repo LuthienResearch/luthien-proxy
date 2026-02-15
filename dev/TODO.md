@@ -91,10 +91,6 @@
 - [ ] Document timeout configuration rationale
 - [ ] Document data retention policy
 
-### Workflow
-
-- [ ] **Rework OBJECTIVE.md and TODO.md instructions** *(Owner: Jai)* - Current workflow has OBJECTIVE.md accumulating session-specific notes (progress summaries, findings, etc.) that shouldn't be committed to PRs. TODO.md instructions in CLAUDE.md also need review — clarify what belongs in OBJECTIVE vs TODO vs NOTES, and when each should be cleared. Reference: PR #160 cleanup, 2026-02-10.
-
 ### SaaS Infra (Medium)
 
 - [ ] **`create` returns before gateway is reachable** — Provisioning completes and prints the URL, but the gateway hasn't finished building/deploying yet (takes several minutes). The URL doesn't work until the deploy completes. Need either a `--wait` flag that polls deployment status, or at minimum a warning in the output. (2026-02-05)

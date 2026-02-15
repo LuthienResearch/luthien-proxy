@@ -47,8 +47,8 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 policy:
   class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
   config:
-    model: "ollama/gemma2:2b"
-    api_base: "http://local-llm:11434"
+    model: "your-model"
+    api_base: "http://your-llm-server:port"
 ```
 
 ## Conversation Storage (2025-10-24)
@@ -76,7 +76,7 @@ policy:
 - **Log correlation**: Inject trace_id/span_id into all log messages
 - **Optional**: Can run V2 without observability stack (degrades gracefully)
 
-**Stack**: Tempo (traces), Loki (logs), Promtail (collection), Grafana (visualization)
+**Stack**: Tempo (distributed tracing via OTLP)
 
 ## Platform Vision (2025-10-24)
 
@@ -150,7 +150,7 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 **Current architecture**:
 - **Layer 1 (Application)**: Code calls `obs_ctx.record(PipelineRecord(...))` or `logger.info()`
-- **Layer 2 (ObservabilityContext)**: Routes events to multiple sinks (Loki, PostgreSQL, Redis, OTel)
+- **Layer 2 (ObservabilityContext)**: Routes events to multiple sinks (PostgreSQL, Redis, OTel)
 - **Layer 3 (Sinks)**: Write to specific destinations (never called directly from app code)
 
 **Key principles**:
@@ -176,6 +176,59 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 **Decision**: Remove global EventEmitter and inject via `Dependencies` container and `PolicyContext`.
 
 **Rationale**: Functions that emit events should declare that dependency explicitly. This matches how Redis/DB/LLM are already injected, makes tests simpler (inject `NullEventEmitter` instead of mocking globals), and eliminates hidden side effects.
+
+---
+
+## Anthropic Streaming Event Types: TypedDicts vs SDK Types (2026-02-03)
+
+**Decision**: Define our own TypedDicts for Anthropic streaming events rather than using the Anthropic SDK's Pydantic types.
+
+**Options considered**:
+1. **TypedDicts (own definitions)**: Flexible for JSON manipulation, matches existing codebase pattern
+2. **Anthropic SDK Pydantic types**: Already tested, always up-to-date with SDK
+
+**Rationale**:
+- **Consistency**: The existing `anthropic.py` already uses TypedDicts for requests/responses and content blocks. Streaming events are just different wrappers around the same content blocks.
+- **Flexibility**: TypedDicts work naturally with `json.dumps()` and dict manipulation. The streaming code creates dicts inline - TypedDicts provide type safety without changing the code patterns.
+- **Simplicity**: We only need the core event types we actually emit. The SDK types include citations, web search results, and many optional fields we never use.
+- **No runtime cost**: TypedDicts are purely for type checking, no Pydantic validation overhead.
+
+**Types added**:
+- `AnthropicMessageStartEvent`, `AnthropicMessageStopEvent`
+- `AnthropicContentBlockStartEvent`, `AnthropicContentBlockDeltaEvent`, `AnthropicContentBlockStopEvent`
+- `AnthropicMessageDeltaEvent`
+- Delta types: `AnthropicTextDelta`, `AnthropicThinkingDelta`, `AnthropicInputJSONDelta`, `AnthropicSignatureDelta`
+- Union types: `AnthropicStreamingEvent`, `AnthropicStreamingContentBlock`, `AnthropicStreamingDelta`
+
+---
+
+## Documentation Split: Public vs Private Repos (2026-02-04)
+
+**Decision**: Keep technical implementation docs in public `luthien-proxy` repo; move planning, strategy, and user stories to private `luthien-org` repo.
+
+**What stays in luthien-proxy (public)**:
+- Architecture docs (REQUEST_PROCESSING_ARCHITECTURE.md, observability.md)
+- Developer guides (VIEWING_TRACES_GUIDE.md, event_driven_policy_guide.md)
+- Context files (gotchas.md, decisions.md, codebase_learnings.md)
+- Active tracking (TODO.md, OBJECTIVE.md, NOTES.md)
+- CHANGELOG.md
+
+**What goes in luthien-org (private)**:
+- User stories and product roadmap
+- UI/UX specs and mockups
+- Historical planning docs (archived)
+- Competitive research
+- Demo scripts and success stories
+
+**Rationale**:
+- **Signal-to-noise**: Public repo should help contributors understand the codebase, not internal planning
+- **Industry norm**: LiteLLM uses GitHub Issues/Projects for planning, not in-repo docs
+- **Focus**: Developers cloning the repo need implementation context, not product strategy
+
+**How LiteLLM handles this** (for reference):
+- Planning in GitHub Issues and Projects
+- README + docs/ for public technical docs
+- No in-repo planning docs or user stories
 
 ---
 

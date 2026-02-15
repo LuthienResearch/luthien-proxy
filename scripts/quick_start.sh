@@ -64,6 +64,17 @@ if [ -f .env ]; then
     set +a
 fi
 
+# Auto-select free ports for any port variables not pinned in .env
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/find-available-ports.sh"
+
+# Derive project name from worktree directory to avoid collisions between worktrees
+if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+    worktree_dir="$(basename "$(pwd)")"
+    export COMPOSE_PROJECT_NAME="luthien-${worktree_dir}"
+fi
+echo "📦 Docker project: ${COMPOSE_PROJECT_NAME}"
+
 # Check for insecure default credentials
 echo "🔒 Checking for insecure default credentials..."
 insecure_defaults=false
@@ -143,24 +154,6 @@ while ! docker compose exec -T redis redis-cli ping > /dev/null 2>&1; do
 done
 echo "✅ Redis is ready"
 
-# Start single-container local-llm (Ollama with native OpenAI API)
-# Commented out for faster startup - uncomment if you need local models
-# echo "🧰 Starting local-llm (Ollama with built-in OpenAI API)..."
-# docker compose up -d local-llm
-#
-# echo "⏳ Waiting for Ollama OpenAI API to be ready..."
-# ollama_port="${OLLAMA_PORT:-11434}"
-# timeout=120
-# while ! curl -sf "http://localhost:${ollama_port}/v1/models" > /dev/null 2>&1; do
-#     sleep 2
-#     timeout=$((timeout - 2))
-#     if [ $timeout -le 0 ]; then
-#         echo "❌ Ollama OpenAI API failed to start within expected time"
-#         exit 1
-#     fi
-# done
-# echo "✅ Ollama OpenAI API is ready"
-
 # Start gateway (integrated FastAPI + LiteLLM)
 echo "🚀 Starting gateway (integrated proxy)..."
 docker compose up -d gateway
@@ -182,7 +175,6 @@ if [ "$services_healthy" = true ]; then
     echo "   • Gateway (OpenAI-compatible): http://localhost:${GATEWAY_PORT:-8000}"
     echo "   • PostgreSQL:     localhost:${POSTGRES_PORT:-5432}"
     echo "   • Redis:          localhost:${REDIS_PORT:-6379}"
-    echo "   • Ollama OpenAI API: http://localhost:${ollama_port} (OpenAI-compatible)"
     echo ""
     echo "📊 To view logs:"
     echo "   docker compose logs -f gateway"

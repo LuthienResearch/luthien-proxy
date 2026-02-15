@@ -142,7 +142,7 @@ transaction_processing (root)
 - [ ] Policy hooks can create arbitrary nested spans
 - [ ] Span attributes include: `call_id`, `model`, `stream`, `client_format`
 - [ ] Span events log key transitions without creating span overhead
-- [ ] Grafana/Tempo can visualize the pipeline phases clearly
+- [ ] Tempo can visualize the pipeline phases clearly
 
 ## Required Features
 
@@ -183,7 +183,7 @@ transaction_processing (root)
 - [x] Pass span context to PolicyContext — `PolicyContext.span()` uses `_tracer` to create child spans
 - [x] Add `create_span()` helper to PolicyContext — `policy_context.py:117` (`span()` context manager) and `add_span_event()` at line 150
 - [ ] Document span creation for policy authors — inline docstrings exist, no external docs
-- [ ] Test nested policy spans in Grafana — unit tested, not verified in actual Grafana
+- [ ] Test nested policy spans in Tempo — unit tested, not verified in actual Tempo
 
 ### Phase 4: Span Events
 - [x] Add span events for format conversions — `processor.py:239` and `processor.py:363`

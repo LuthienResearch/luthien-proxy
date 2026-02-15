@@ -191,7 +191,7 @@ class TestSimpleNoOpPolicyNonStreaming:
         context = Mock(spec=PolicyContext)
         context.scratchpad = {}
 
-        result = await policy.on_request(request, context)
+        result = await policy.on_openai_request(request, context)
 
         # SimplePolicy converts request to string and calls simple_on_request
         # For SimpleNoOpPolicy, simple_on_request returns the input unchanged
@@ -199,14 +199,14 @@ class TestSimpleNoOpPolicyNonStreaming:
 
     @pytest.mark.asyncio
     async def test_on_response_returns_unchanged(self, make_model_response):
-        """Test that on_response returns the response unchanged."""
+        """Test that on_openai_response returns the response unchanged."""
         policy = SimpleNoOpPolicy()
 
         response = make_model_response(content="Hello from assistant")
         context = Mock(spec=PolicyContext)
         context.scratchpad = {}
 
-        result = await policy.on_response(response, context)
+        result = await policy.on_openai_response(response, context)
 
         # Should return unchanged
         assert result is not None

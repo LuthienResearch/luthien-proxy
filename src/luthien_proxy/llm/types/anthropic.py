@@ -249,7 +249,7 @@ class AnthropicResponse(TypedDict, total=False):
     role: Required[Literal["assistant"]]
     content: Required[list[AnthropicContentBlock]]
     model: Required[str]
-    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"] | None
+    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn", "refusal"] | None
     stop_sequence: str | None
     usage: Required[AnthropicUsage]
 

@@ -121,7 +121,10 @@ policy:
 def mock_db_pool():
     """Create a mock database pool for testing."""
     mock = AsyncMock()
-    mock.get_pool = AsyncMock()
+    mock_pool = AsyncMock()
+    # fetchrow returns None by default (no rows found)
+    mock_pool.fetchrow = AsyncMock(return_value=None)
+    mock.get_pool = AsyncMock(return_value=mock_pool)
     mock.close = AsyncMock()
     return mock
 

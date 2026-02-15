@@ -63,7 +63,8 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
    - Format everything with `./scripts/format_all.sh`.
    - Full lint + tests + type check: `./scripts/dev_checks.sh`.
    - Quick unit pass: `uv run pytest tests/unit_tests`.
-   - *infrequenty* run full e2e tests using `uv run pytest -m e2e`. This is SLOW and should be used sparingly to validate that core functionality remains intact.
+   - *infrequently* run full e2e tests using `uv run pytest -m e2e`. This is SLOW and should be used sparingly to validate that core functionality remains intact.
+   - **Prefer targeted e2e tests**: Run specific test files first to identify issues before running the full suite: `uv run pytest tests/e2e_tests/test_specific_file.py -v`
    - Commit in small chunks with clear messages.
 
 3. **Wrap up the objective**
@@ -105,16 +106,16 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `ui/`: Activity monitoring and diff viewer interfaces
   - `llm/`: LiteLLM client wrapper and format converters
   - `utils/`: Shared utilities (db, redis, validation)
-- `config/`: `policy_config.yaml`, `local_llm_config.yaml`
+- `config/`: `policy_config.yaml`
 - `scripts/`: developer helpers (`quick_start.sh`, `test_gateway.sh`)
-- `docker/` + `docker-compose.yaml`: local stack (db, redis, gateway, local-llm)
+- `docker/` + `docker-compose.yaml`: local stack (db, redis, gateway)
 - `migrations/`: SQL database migrations
 - `tests/`: unit/integration tests
 
 ## Build, Test, and Development Commands
 
 - Install dev deps: `uv sync --dev`
-- Start full stack: `./scripts/quick_start.sh`
+- Start full stack: `./scripts/quick_start.sh` (handles auto-port-selection; raw `docker compose up` skips this)
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
 - Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
 - Type check: `uv run pyright`
