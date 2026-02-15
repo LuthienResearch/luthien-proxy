@@ -662,3 +662,18 @@ class TestMultiParallelExecution:
 
         with pytest.raises(RuntimeError, match="policy exploded"):
             await policy.on_openai_response(response, ctx)
+
+    @pytest.mark.asyncio
+    async def test_sub_policy_exception_fails_entire_batch_anthropic(self):
+        """If any sub-policy raises on Anthropic path, the entire parallel execution fails."""
+        policy = MultiParallelPolicy(
+            policies=[noop_config(), allcaps_config()],
+            consolidation_strategy="first_block",
+        )
+        ctx = PolicyContext.for_testing()
+        response = make_anthropic_response("hello world")
+
+        policy._sub_policies[1].on_anthropic_response = AsyncMock(side_effect=RuntimeError("anthropic exploded"))
+
+        with pytest.raises(RuntimeError, match="anthropic exploded"):
+            await policy.on_anthropic_response(response, ctx)

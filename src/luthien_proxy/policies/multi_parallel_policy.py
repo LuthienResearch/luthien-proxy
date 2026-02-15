@@ -128,6 +128,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             )
 
         self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
+        self._validated_interfaces: set[type] = set()
         if not self._sub_policies:
             # Warning (not error) because an empty list is a valid degenerate case:
             # the multi-policy becomes a no-op passthrough, which is safe and predictable.
@@ -159,7 +160,12 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         return f"MultiParallel[{self._strategy}]({', '.join(names)})"
 
     def _validate_interface(self, interface: type, interface_name: str) -> None:
-        """Raise TypeError if any sub-policy doesn't implement the required interface."""
+        """Raise TypeError if any sub-policy doesn't implement the required interface.
+
+        Results are cached per interface type since sub-policies are immutable after init.
+        """
+        if interface in self._validated_interfaces:
+            return
         for policy in self._sub_policies:
             if not isinstance(policy, interface):
                 raise TypeError(
@@ -167,6 +173,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                     f"{interface_name}, but MultiParallelPolicy received a {interface_name} call. "
                     f"All sub-policies must implement the interface being called."
                 )
+        self._validated_interfaces.add(interface)
 
     # =========================================================================
     # OpenAI Interface - Non-streaming
