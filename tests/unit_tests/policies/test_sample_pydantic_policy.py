@@ -85,9 +85,8 @@ class TestSamplePydanticPolicyGetConfig:
         result = policy.get_config()
 
         assert isinstance(result, dict)
-        assert "config" in result
-        assert result["config"]["name"] == "test"
-        assert result["config"]["threshold"] == 0.7
+        assert result["name"] == "test"
+        assert result["threshold"] == 0.7
 
     def test_get_config_serializes_rules(self):
         """get_config correctly serializes rule configs."""
@@ -100,7 +99,7 @@ class TestSamplePydanticPolicyGetConfig:
         policy = SamplePydanticPolicy(config=config)
         result = policy.get_config()
 
-        rules = result["config"]["rules"]
+        rules = result["rules"]
         assert len(rules) == 1
         assert rules[0]["type"] == "keyword"
         assert rules[0]["keywords"] == ["word1", "word2"]

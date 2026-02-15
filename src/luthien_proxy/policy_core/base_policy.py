@@ -41,12 +41,11 @@ class BasePolicy:
         """Get the configuration for this policy instance.
 
         Automatically extracts configuration from instance attributes that
-        are Pydantic models. For each attribute that is a BaseModel, it's
-        serialized using model_dump().
+        are Pydantic models. When there's a single Pydantic model attribute,
+        returns its fields directly (flat) for clean API round-tripping.
 
         Returns:
-            Dict mapping attribute names to their values (Pydantic models
-            are converted to dicts).
+            Dict of configuration values.
         """
         config: dict[str, Any] = {}
 
@@ -56,6 +55,10 @@ class BasePolicy:
 
             if isinstance(value, BaseModel):
                 config[attr_name] = value.model_dump()
+
+        # Single Pydantic config model: return its fields directly
+        if len(config) == 1:
+            return next(iter(config.values()))
 
         return config
 

@@ -70,9 +70,6 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
     if python_type is inspect.Parameter.empty:
         return {"type": "string"}
 
-    # Re-compute origin/args in case we didn't go through the Annotated branch above
-    if origin is None:
-        origin = get_origin(python_type)
     args = get_args(python_type)
 
     # Handle Union types (e.g., str | None, Union[str, None])
@@ -224,54 +221,32 @@ def validate_policy_config(policy_class: type, config: dict[str, Any]) -> dict[s
         if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
             continue
 
+        annotation = type_hints.get(param_name, param.annotation)
+        model_class = _extract_pydantic_model(annotation)
+
         # Get value from config, or use default
         if param_name in config:
             value = config[param_name]
+        elif model_class and config and (set(config.keys()) & set(model_class.model_fields.keys())):
+            # Config keys match the Pydantic model's fields — user provided
+            # model fields directly instead of wrapping under the param name
+            value = config
         elif param.default is not inspect.Parameter.empty:
-            value = param.default
-            validated_config[param_name] = value
+            validated_config[param_name] = param.default
             continue
         else:
             raise ValueError(f"Required parameter '{param_name}' is missing from config")
 
-        annotation = type_hints.get(param_name, param.annotation)
-
-        # Handle Pydantic models
-        if _is_pydantic_model_type(annotation):
-            model_class = _extract_pydantic_model(annotation)
-            if model_class and value is not None:
-                if isinstance(value, dict):
-                    # Validate dict against Pydantic model
-                    validated = model_class.model_validate(value)
-                    validated_config[param_name] = validated.model_dump()
-                elif isinstance(value, BaseModel):
-                    validated_config[param_name] = value.model_dump()
-                else:
-                    validated_config[param_name] = value
-            else:
-                validated_config[param_name] = value
-        else:
-            validated_config[param_name] = value
+        # Validate Pydantic model parameters, pass others through
+        validated_value = value
+        if model_class and value is not None:
+            if isinstance(value, dict):
+                validated_value = model_class.model_validate(value).model_dump()
+            elif isinstance(value, BaseModel):
+                validated_value = value.model_dump()
+        validated_config[param_name] = validated_value
 
     return validated_config
-
-
-def _is_pydantic_model_type(annotation: Any) -> bool:
-    """Check if an annotation is or contains a Pydantic model."""
-    if annotation is inspect.Parameter.empty:
-        return False
-
-    # Direct Pydantic model
-    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-        return True
-
-    # Check Union types (e.g., SampleConfig | None)
-    origin = get_origin(annotation)
-    if origin is Union or origin is types.UnionType:
-        args = get_args(annotation)
-        return any(_is_pydantic_model_type(arg) for arg in args if arg is not type(None))
-
-    return False
 
 
 def _extract_pydantic_model(annotation: Any) -> type[BaseModel] | None:

@@ -200,6 +200,16 @@ async def set_policy(
             error="Validation error",
             troubleshooting=[str(e)],
         )
+    except (ImportError, AttributeError, TypeError) as e:
+        return PolicyEnableResponse(
+            success=False,
+            error=str(e),
+            troubleshooting=[
+                "Check that the policy class reference is correct",
+                "Verify the policy module exists and is importable",
+                "Example format: 'luthien_proxy.policies.all_caps_policy:AllCapsPolicy'",
+            ],
+        )
     except HTTPException:
         raise
     except Exception as e:

@@ -130,15 +130,15 @@ class TestImplementsInterfaces:
             )
         )
         config = policy.get_config()
-        assert config["config"]["replacements"] == [["foo", "bar"], ["hello", "goodbye"]]
-        assert config["config"]["match_capitalization"] is True
+        assert config["replacements"] == [["foo", "bar"], ["hello", "goodbye"]]
+        assert config["match_capitalization"] is True
 
     def test_get_config_empty_replacements(self):
         """get_config handles empty replacements."""
         policy = StringReplacementPolicy()
         config = policy.get_config()
-        assert config["config"]["replacements"] == []
-        assert config["config"]["match_capitalization"] is False
+        assert config["replacements"] == []
+        assert config["match_capitalization"] is False
 
 
 class TestOpenAINonStreaming:
