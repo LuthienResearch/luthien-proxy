@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from redis.asyncio import Redis
 
 from luthien_proxy.admin import router as admin_router
+from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
@@ -55,6 +56,7 @@ def create_app(
     db_pool: db.DatabasePool,
     redis_client: Redis,
     startup_policy_path: str | None = None,
+    auth_mode: str = "proxy_key",
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
 
@@ -65,6 +67,7 @@ def create_app(
         redis_client: Redis client (already initialized)
         startup_policy_path: Optional path to YAML policy config to load at startup
                              (overrides DB, persists to DB). If None, loads from DB only.
+        auth_mode: Authentication mode ("proxy_key", "passthrough", or "both")
 
     Returns:
         Configured FastAPI application with all routes and middleware
@@ -119,6 +122,11 @@ def create_app(
         else:
             logger.info("ANTHROPIC_API_KEY not set - native Anthropic path disabled")
 
+        # Initialize CredentialManager for passthrough auth
+        _credential_manager = CredentialManager(db_pool=db_pool, redis_client=redis_client)
+        await _credential_manager.initialize(default_auth_mode=auth_mode)
+        logger.info(f"CredentialManager initialized: mode={_credential_manager.config.auth_mode.value}")
+
         # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
@@ -129,6 +137,7 @@ def create_app(
             api_key=api_key,
             admin_key=admin_key,
             anthropic_client=_anthropic_client,
+            credential_manager=_credential_manager,
         )
 
         # Store dependencies container in app state
@@ -138,6 +147,7 @@ def create_app(
         yield
 
         # Shutdown
+        await _credential_manager.close()
         # Note: db_pool and redis_client are NOT closed here - they are owned by
         # the caller who passed them in. The caller is responsible for cleanup.
         logger.info("Luthien Gateway shutdown complete")
@@ -176,7 +186,15 @@ def create_app(
 
         Formats the error response according to the client's API format
         (Anthropic or OpenAI) so clients receive properly structured errors.
+        Also invalidates cached credentials on 401 so stale "valid" entries
+        don't let rejected keys keep passing auth.
         """
+        if exc.status_code == 401 and hasattr(request.state, "passthrough_api_key"):
+            deps = getattr(request.app.state, "dependencies", None)
+            cm = getattr(deps, "credential_manager", None) if deps else None
+            if cm is not None:
+                await cm.on_backend_401(request.state.passthrough_api_key)
+
         if exc.client_format == ClientFormat.ANTHROPIC:
             content = {
                 "type": "error",
@@ -281,6 +299,7 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         "redis_url": settings.redis_url,
         "startup_policy_path": settings.policy_config if settings.policy_config else None,
         "gateway_port": settings.gateway_port,
+        "auth_mode": settings.auth_mode,
     }
 
 
@@ -311,6 +330,7 @@ if __name__ == "__main__":
                 db_pool=db_pool,
                 redis_client=redis_client,
                 startup_policy_path=startup_path,
+                auth_mode=config.get("auth_mode", "proxy_key"),
             )
 
             server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="debug")
