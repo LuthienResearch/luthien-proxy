@@ -24,6 +24,7 @@ from luthien_proxy.admin.routes import (
     ChatResponse,
     PolicyEnableResponse,
     PolicySetRequest,
+    _config_to_response,
     get_auth_config,
     get_available_models,
     invalidate_all_credentials,
@@ -34,7 +35,8 @@ from luthien_proxy.admin.routes import (
     set_policy,
     update_auth_config,
 )
-from luthien_proxy.credential_manager import AuthConfig, AuthMode, CachedCredential
+from luthien_proxy.credential_manager import AuthConfig, AuthMode, CachedCredential, CredentialManager
+from luthien_proxy.dependencies import require_credential_manager
 from luthien_proxy.policy_manager import PolicyEnableResult
 
 AUTH_TOKEN = "test-admin-key"
@@ -513,12 +515,6 @@ class TestGetAuthConfig:
         assert result.valid_cache_ttl_seconds == 3600
         assert result.updated_by == "admin"
 
-    @pytest.mark.asyncio
-    async def test_no_credential_manager_returns_503(self):
-        with pytest.raises(HTTPException) as exc_info:
-            await get_auth_config(_=AUTH_TOKEN, credential_manager=None)
-        assert exc_info.value.status_code == 503
-
 
 class TestUpdateAuthConfig:
     """Test update_auth_config route handler."""
@@ -559,13 +555,6 @@ class TestUpdateAuthConfig:
         assert exc_info.value.status_code == 400
         assert "Invalid auth_mode" in exc_info.value.detail
 
-    @pytest.mark.asyncio
-    async def test_no_credential_manager_returns_503(self):
-        body = AuthConfigUpdateRequest(auth_mode="passthrough")
-        with pytest.raises(HTTPException) as exc_info:
-            await update_auth_config(body=body, _=AUTH_TOKEN, credential_manager=None)
-        assert exc_info.value.status_code == 503
-
 
 class TestListCachedCredentials:
     """Test list_cached_credentials route handler."""
@@ -595,12 +584,6 @@ class TestListCachedCredentials:
         assert result.count == 0
         assert result.credentials == []
 
-    @pytest.mark.asyncio
-    async def test_no_credential_manager_returns_503(self):
-        with pytest.raises(HTTPException) as exc_info:
-            await list_cached_credentials(_=AUTH_TOKEN, credential_manager=None)
-        assert exc_info.value.status_code == 503
-
 
 class TestInvalidateCredential:
     """Test invalidate_credential route handler."""
@@ -621,12 +604,6 @@ class TestInvalidateCredential:
             await invalidate_credential(key_hash="missing", _=AUTH_TOKEN, credential_manager=manager)
         assert exc_info.value.status_code == 404
 
-    @pytest.mark.asyncio
-    async def test_no_credential_manager_returns_503(self):
-        with pytest.raises(HTTPException) as exc_info:
-            await invalidate_credential(key_hash="abc", _=AUTH_TOKEN, credential_manager=None)
-        assert exc_info.value.status_code == 503
-
 
 class TestInvalidateAllCredentials:
     """Test invalidate_all_credentials route handler."""
@@ -646,8 +623,38 @@ class TestInvalidateAllCredentials:
         result = await invalidate_all_credentials(_=AUTH_TOKEN, credential_manager=manager)
         assert result["count"] == 0
 
+
+class TestRequireCredentialManager:
+    """Test require_credential_manager dependency."""
+
     @pytest.mark.asyncio
-    async def test_no_credential_manager_returns_503(self):
+    async def test_returns_manager_when_available(self):
+        manager = MagicMock(spec=CredentialManager)
+        result = await require_credential_manager(credential_manager=manager)
+        assert result is manager
+
+    @pytest.mark.asyncio
+    async def test_raises_503_when_none(self):
         with pytest.raises(HTTPException) as exc_info:
-            await invalidate_all_credentials(_=AUTH_TOKEN, credential_manager=None)
+            await require_credential_manager(credential_manager=None)
         assert exc_info.value.status_code == 503
+
+
+class TestConfigToResponse:
+    """Test _config_to_response helper."""
+
+    def test_converts_config_to_response(self):
+        config = AuthConfig(
+            auth_mode=AuthMode.PASSTHROUGH,
+            validate_credentials=True,
+            valid_cache_ttl_seconds=3600,
+            invalid_cache_ttl_seconds=300,
+            updated_at="2025-01-01 00:00:00",
+            updated_by="admin",
+        )
+        result = _config_to_response(config)
+        assert isinstance(result, AuthConfigResponse)
+        assert result.auth_mode == "passthrough"
+        assert result.validate_credentials is True
+        assert result.valid_cache_ttl_seconds == 3600
+        assert result.updated_by == "admin"

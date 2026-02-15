@@ -226,13 +226,10 @@ class CredentialManager:
             raw = await self._redis.get(key)
             if raw is None:
                 continue
-            try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                key_str = key if isinstance(key, str) else key.decode()
-                logger.warning(f"Corrupted cached credential data for {key_str}, skipping")
-                continue
             key_str = key if isinstance(key, str) else key.decode()
+            data = self._parse_cached_data(raw, key_str)
+            if data is None:
+                continue
             results.append(
                 CachedCredential(
                     key_hash=key_str.removeprefix(REDIS_KEY_PREFIX),
@@ -245,16 +242,21 @@ class CredentialManager:
 
     # --- Internal helpers ---
 
+    def _parse_cached_data(self, raw: str | bytes, context: str) -> dict | None:
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("Corrupted cache entry in %s, ignoring", context)
+            return None
+
     async def _get_cached(self, key_hash: str) -> CachedCredential | None:
         if self._redis is None:
             return None
         raw = await self._redis.get(f"{REDIS_KEY_PREFIX}{key_hash}")
         if raw is None:
             return None
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning(f"Corrupted cached credential data for {key_hash[:16]}..., treating as cache miss")
+        data = self._parse_cached_data(raw, f"{key_hash[:16]}...")
+        if data is None:
             return None
         return CachedCredential(
             key_hash=key_hash,
@@ -284,10 +286,8 @@ class CredentialManager:
         raw = await self._redis.get(redis_key)
         if raw is None:
             return
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning(f"Corrupted cached credential data for {key_hash[:16]}..., skipping touch")
+        data = self._parse_cached_data(raw, f"{key_hash[:16]}...")
+        if data is None:
             return
         data["last_used_at"] = time.time()
         ttl = await self._redis.ttl(redis_key)

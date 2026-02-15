@@ -1,5 +1,8 @@
 """Unit tests for Settings class and configuration management."""
 
+import pytest
+
+from luthien_proxy.credential_manager import AuthMode
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
 
 
@@ -168,3 +171,22 @@ class TestSettingsCache:
         assert settings1 is not settings2
         assert settings2.redis_url == "redis://different:6379"
         assert initial_redis != settings2.redis_url
+
+
+class TestAuthModeValidation:
+    """Test that auth_mode uses AuthMode enum for early validation."""
+
+    def test_default_auth_mode(self, monkeypatch):
+        monkeypatch.delenv("AUTH_MODE", raising=False)
+        settings = Settings(_env_file=None)
+        assert settings.auth_mode == AuthMode.PROXY_KEY
+
+    def test_valid_auth_mode_from_env(self, monkeypatch):
+        monkeypatch.setenv("AUTH_MODE", "passthrough")
+        settings = Settings(_env_file=None)
+        assert settings.auth_mode == AuthMode.PASSTHROUGH
+
+    def test_invalid_auth_mode_raises(self, monkeypatch):
+        monkeypatch.setenv("AUTH_MODE", "invalid_mode")
+        with pytest.raises(Exception):
+            Settings(_env_file=None)

@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 
 from luthien_proxy.admin.policy_discovery import discover_policies
 from luthien_proxy.auth import verify_admin_token
-from luthien_proxy.credential_manager import AuthMode, CredentialManager
-from luthien_proxy.dependencies import get_credential_manager, get_policy_manager
+from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
+from luthien_proxy.dependencies import get_policy_manager, require_credential_manager
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
@@ -365,15 +365,7 @@ async def send_chat(
 # === Auth Config Routes ===
 
 
-@router.get("/auth/config", response_model=AuthConfigResponse)
-async def get_auth_config(
-    _: str = Depends(verify_admin_token),
-    credential_manager: CredentialManager | None = Depends(get_credential_manager),
-):
-    """Get current authentication configuration."""
-    if not credential_manager:
-        raise HTTPException(status_code=503, detail="Credential manager not available")
-    config = credential_manager.config
+def _config_to_response(config: AuthConfig) -> AuthConfigResponse:
     return AuthConfigResponse(
         auth_mode=config.auth_mode.value,
         validate_credentials=config.validate_credentials,
@@ -384,16 +376,22 @@ async def get_auth_config(
     )
 
 
+@router.get("/auth/config", response_model=AuthConfigResponse)
+async def get_auth_config(
+    _: str = Depends(verify_admin_token),
+    credential_manager: CredentialManager = Depends(require_credential_manager),
+):
+    """Get current authentication configuration."""
+    return _config_to_response(credential_manager.config)
+
+
 @router.post("/auth/config", response_model=AuthConfigResponse)
 async def update_auth_config(
     body: AuthConfigUpdateRequest,
     _: str = Depends(verify_admin_token),
-    credential_manager: CredentialManager | None = Depends(get_credential_manager),
+    credential_manager: CredentialManager = Depends(require_credential_manager),
 ):
     """Update authentication configuration."""
-    if not credential_manager:
-        raise HTTPException(status_code=503, detail="Credential manager not available")
-
     if body.auth_mode is not None:
         try:
             AuthMode(body.auth_mode)
@@ -410,24 +408,15 @@ async def update_auth_config(
         invalid_cache_ttl_seconds=body.invalid_cache_ttl_seconds,
         updated_by="admin-api",
     )
-    return AuthConfigResponse(
-        auth_mode=config.auth_mode.value,
-        validate_credentials=config.validate_credentials,
-        valid_cache_ttl_seconds=config.valid_cache_ttl_seconds,
-        invalid_cache_ttl_seconds=config.invalid_cache_ttl_seconds,
-        updated_at=config.updated_at,
-        updated_by=config.updated_by,
-    )
+    return _config_to_response(config)
 
 
 @router.get("/auth/credentials", response_model=CachedCredentialsListResponse)
 async def list_cached_credentials(
     _: str = Depends(verify_admin_token),
-    credential_manager: CredentialManager | None = Depends(get_credential_manager),
+    credential_manager: CredentialManager = Depends(require_credential_manager),
 ):
     """List all cached credentials (hashes and metadata only)."""
-    if not credential_manager:
-        raise HTTPException(status_code=503, detail="Credential manager not available")
     cached = await credential_manager.list_cached()
     credentials = [
         CachedCredentialResponse(
@@ -445,11 +434,9 @@ async def list_cached_credentials(
 async def invalidate_credential(
     key_hash: str,
     _: str = Depends(verify_admin_token),
-    credential_manager: CredentialManager | None = Depends(get_credential_manager),
+    credential_manager: CredentialManager = Depends(require_credential_manager),
 ):
     """Invalidate a single cached credential by its hash."""
-    if not credential_manager:
-        raise HTTPException(status_code=503, detail="Credential manager not available")
     found = await credential_manager.invalidate_credential(key_hash)
     if not found:
         raise HTTPException(status_code=404, detail="Credential not found in cache")
@@ -459,11 +446,9 @@ async def invalidate_credential(
 @router.delete("/auth/credentials")
 async def invalidate_all_credentials(
     _: str = Depends(verify_admin_token),
-    credential_manager: CredentialManager | None = Depends(get_credential_manager),
+    credential_manager: CredentialManager = Depends(require_credential_manager),
 ):
     """Invalidate all cached credentials."""
-    if not credential_manager:
-        raise HTTPException(status_code=503, detail="Credential manager not available")
     count = await credential_manager.invalidate_all()
     return {"success": True, "count": count, "message": f"Invalidated {count} cached credentials"}
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import cached_property
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
 
 from luthien_proxy.credential_manager import CredentialManager
@@ -256,6 +256,15 @@ def get_credential_manager(request: Request) -> CredentialManager | None:
     return get_dependencies(request).credential_manager
 
 
+async def require_credential_manager(
+    credential_manager: CredentialManager | None = Depends(get_credential_manager),
+) -> CredentialManager:
+    """Get credential manager, raising 503 if not available."""
+    if credential_manager is None:
+        raise HTTPException(status_code=503, detail="Credential manager not available")
+    return credential_manager
+
+
 __all__ = [
     "Dependencies",
     "get_dependencies",
@@ -271,4 +280,5 @@ __all__ = [
     "get_anthropic_client",
     "get_anthropic_policy",
     "get_credential_manager",
+    "require_credential_manager",
 ]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -24,7 +23,6 @@ from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline import ClientFormat, process_anthropic_request, process_llm_request
 from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
-from luthien_proxy.utils.constants import API_KEY_HASH_LENGTH
 
 router = APIRouter(tags=["gateway"])
 security = HTTPBearer(auto_error=False)
@@ -38,11 +36,7 @@ async def verify_token(
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
 ) -> str:
     """Verify API key, supporting proxy_key, passthrough, and both auth modes."""
-    token = None
-    if credentials:
-        token = credentials.credentials
-    if not token:
-        token = request.headers.get("x-api-key")
+    token = (credentials.credentials if credentials else None) or request.headers.get("x-api-key")
     if not token:
         raise HTTPException(status_code=401, detail="Missing API key")
 
@@ -53,9 +47,12 @@ async def verify_token(
             return token
         raise HTTPException(status_code=401, detail="Invalid API key")
 
+    # PASSTHROUGH and BOTH require credential_manager
+    # (auth_mode defaults to PROXY_KEY when credential_manager is None)
+    if credential_manager is None:
+        raise RuntimeError("credential_manager must exist for non-proxy_key auth modes")
+
     if auth_mode == AuthMode.PASSTHROUGH:
-        if not credential_manager:
-            raise HTTPException(status_code=500, detail="Passthrough auth not available")
         if credential_manager.config.validate_credentials:
             is_valid = await credential_manager.validate_credential(token)
             if not is_valid:
@@ -63,24 +60,17 @@ async def verify_token(
         request.state.passthrough_api_key = token
         return token
 
-    # both mode: try proxy key first, fall through to passthrough
+    # BOTH mode: try proxy key first, fall through to passthrough
     if auth_mode != AuthMode.BOTH:
         raise RuntimeError(f"Unexpected auth_mode: {auth_mode}")
     if secrets.compare_digest(token, api_key):
         return token
-    if not credential_manager:
-        raise HTTPException(status_code=401, detail="Invalid API key")
     if credential_manager.config.validate_credentials:
         is_valid = await credential_manager.validate_credential(token)
         if not is_valid:
             raise HTTPException(status_code=401, detail="Invalid API key or credential")
     request.state.passthrough_api_key = token
     return token
-
-
-def hash_api_key(key: str) -> str:
-    """Hash API key for logging."""
-    return hashlib.sha256(key.encode()).hexdigest()[:API_KEY_HASH_LENGTH]
 
 
 # === ROUTES ===
