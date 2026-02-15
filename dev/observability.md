@@ -6,7 +6,6 @@
 **Status:** Complete ✅ (All phases 1-3 implemented)
 
 **Other observability docs:**
-- New to observability? Start with [OBSERVABILITY_DEMO.md](OBSERVABILITY_DEMO.md)
 - Need to view a trace? See [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md)
 
 ---
@@ -46,10 +45,10 @@ V2 observability provides comprehensive debugging and monitoring for policy deci
                       │                                    │
                       ▼                                    ▼
     ┌─────────────────────────────────┐   ┌────────────────────────────────┐
-    │  PostgreSQL                      │   │  Tempo (via Grafana)           │
+    │  PostgreSQL                      │   │  Tempo                         │
     │  (conversation_events table)     │   │  - Spans with luthien.call_id  │
     │  - Before/after payloads         │   │  - Performance traces          │
-    │  - Queryable by call_id          │   │  - Grafana dashboards          │
+    │  - Queryable by call_id          │   │  - HTTP API at :3200           │
     └─────────────────────────────────┘   └────────────────────────────────┘
                       │
                       ▼
@@ -110,7 +109,7 @@ Each event contains:
 #### Phase 1.2: OpenTelemetry Integration ✅
 - [x] Add `call_id` as span attribute in all control plane operations
 - [x] Verify spans are exported to Tempo with correct attributes
-- [x] Test trace correlation via Grafana
+- [x] Test trace correlation via Tempo
 
 **Files Modified**:
 - `src/luthien_proxy/control/local.py` - Added call_id to all spans
@@ -161,7 +160,7 @@ Each event contains:
 
 - [x] Create HTML template with side-by-side diff view
 - [x] Add automatic JSON detection and syntax highlighting
-- [x] Link to Grafana trace from diff page
+- [x] Link to Tempo trace from diff page
 - [x] Browse recent calls interface
 - [x] Query param support for direct links (`?call_id=...`)
 
@@ -176,7 +175,7 @@ Each event contains:
 - Metadata diffs (model, max_tokens, finish_reason)
 - Message-level diffs for requests
 - Content diffs for responses
-- Direct link to Grafana Tempo traces
+- Direct link to Tempo trace search
 - Clickable recent calls list for easy navigation
 
 **Actual Time**: ~1.5 hours
@@ -201,38 +200,6 @@ Each event contains:
 - Filters apply in real-time to live stream
 - Stored events (up to 100) can be retroactively filtered
 - Event type color coding for visual distinction
-
-**Actual Time**: ~1 hour
-
-### ✅ Phase 3.3: Grafana Dashboards (COMPLETE)
-
-**Goal**: Create Grafana dashboards for V2 metrics and traces
-
-- [x] Create dashboard showing V2 request rates by model
-- [x] Add panels for policy execution latency (from OTel spans)
-- [x] Add recent traces panel with call_id (linkable to debug endpoint)
-- [x] Add request count and latency gauges
-- [x] Add latency breakdown panel (gateway, policy, LLM)
-- [x] Add errors & warnings log panel
-- [x] Add links to diff viewer and activity monitor in dashboard
-
-**Files Created**:
-- `observability/grafana/dashboards/metrics.json` - Metrics & Performance dashboard
-
-**Features**:
-- **Request Rate by Model**: Time series showing requests/sec grouped by model (TraceQL rate query)
-- **Policy Execution Latency (p95)**: 95th percentile latency for policy operations
-- **Total Requests & Avg Latency**: Gauge panels for quick stats
-- **Recent Traces Table**: Shows last 20 traces with call_id visible for linking
-- **Errors & Warnings**: Log panel filtered to V2 errors/warnings
-- **Latency Breakdown**: Stacked bars showing gateway, policy, and LLM latency
-- **Quick Links**: Direct links to diff viewer and activity monitor from dashboard
-
-**How to Use**:
-1. Start observability stack: `./scripts/observability.sh start`
-2. Open Grafana: http://localhost:3000
-3. Navigate to "V2 Metrics & Performance" dashboard
-4. Copy call_id from traces table → Open diff viewer → Paste call_id to see policy changes
 
 **Actual Time**: ~1 hour
 
@@ -286,7 +253,7 @@ Each event contains:
 
 **Implementation**:
 - `call_id` links OTel spans to conversation events
-- Grafana queries both Tempo (spans) and PostgreSQL (payloads)
+- Tempo HTTP API exposes spans, PostgreSQL stores payloads
 
 ---
 
@@ -325,11 +292,8 @@ uv run python scripts/query_debug_logs.py --call-id <call_id>
 ### Verify OTel Spans
 
 ```bash
-# Open Grafana
-open http://localhost:3000
-
-# Navigate to Tempo data source
-# Search for trace with luthien.call_id=<call_id>
+# Search traces via Tempo HTTP API
+curl 'http://localhost:3200/api/search?q=%7B%20span.%22luthien.call_id%22%20%3D%20%22<call_id>%22%20%7D'
 ```
 
 ### Common Issues
@@ -354,15 +318,14 @@ open http://localhost:3000
 2. ✅ **Debug API** - REST endpoints for querying events and computing diffs
 3. ✅ **Diff Viewer UI** - Side-by-side comparison with JSON highlighting
 4. ✅ **Activity Monitor** - Real-time event stream with filtering
-5. ✅ **Grafana Dashboards** - Metrics, traces, and performance monitoring
+5. ✅ **Tempo Tracing** - Distributed tracing via Tempo HTTP API
 
 **Total Implementation Time**: ~6.5 hours (vs estimated 8-10 hours)
 
 **Next Steps** (future enhancements):
 - Add more sophisticated filtering to activity monitor (regex, time range)
-- Create alerting rules for policy failures or high latency
 - Add Prometheus for more detailed metrics (if needed)
-- Build policy-specific dashboards for custom policy implementations
+- Add a visualization frontend for Tempo traces if needed
 
 ---
 

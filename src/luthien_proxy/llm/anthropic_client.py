@@ -30,10 +30,15 @@ class AnthropicClient:
             api_key: Anthropic API key for authentication.
             base_url: Optional custom base URL for the API.
         """
+        self._base_url = base_url
         kwargs: dict = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
         self._client = anthropic.AsyncAnthropic(**kwargs)
+
+    def with_api_key(self, api_key: str) -> "AnthropicClient":
+        """Create a new client with a different API key, preserving base_url."""
+        return AnthropicClient(api_key=api_key, base_url=self._base_url)
 
     def _prepare_request_kwargs(self, request: AnthropicRequest) -> dict:
         """Extract non-None values from request for SDK call.

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.dependencies import (
     get_anthropic_client,
     get_anthropic_policy,
     get_api_key,
+    get_credential_manager,
     get_emitter,
     get_llm_client,
     get_policy,
@@ -21,32 +23,54 @@ from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline import ClientFormat, process_anthropic_request, process_llm_request
 from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
-from luthien_proxy.utils.constants import API_KEY_HASH_LENGTH
 
 router = APIRouter(tags=["gateway"])
 security = HTTPBearer(auto_error=False)
 
 
 # === AUTH ===
-def verify_token(
+async def verify_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     api_key: str = Depends(get_api_key),
+    credential_manager: CredentialManager | None = Depends(get_credential_manager),
 ) -> str:
-    """Verify API key from either Authorization header or x-api-key header."""
-    if credentials and credentials.credentials == api_key:
-        return credentials.credentials
+    """Verify API key, supporting proxy_key, passthrough, and both auth modes."""
+    token = (credentials.credentials if credentials else None) or request.headers.get("x-api-key")
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing API key")
 
-    x_api_key = request.headers.get("x-api-key")
-    if x_api_key and x_api_key == api_key:
-        return x_api_key
+    auth_mode = credential_manager.config.auth_mode if credential_manager else AuthMode.PROXY_KEY
 
-    raise HTTPException(status_code=401, detail="Invalid API key")
+    if auth_mode == AuthMode.PROXY_KEY:
+        if secrets.compare_digest(token, api_key):
+            return token
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
+    # PASSTHROUGH and BOTH require credential_manager
+    # (auth_mode defaults to PROXY_KEY when credential_manager is None)
+    if credential_manager is None:
+        raise RuntimeError("credential_manager must exist for non-proxy_key auth modes")
 
-def hash_api_key(key: str) -> str:
-    """Hash API key for logging."""
-    return hashlib.sha256(key.encode()).hexdigest()[:API_KEY_HASH_LENGTH]
+    if auth_mode == AuthMode.PASSTHROUGH:
+        if credential_manager.config.validate_credentials:
+            is_valid = await credential_manager.validate_credential(token)
+            if not is_valid:
+                raise HTTPException(status_code=401, detail="Invalid credential")
+        request.state.passthrough_api_key = token
+        return token
+
+    # BOTH mode: try proxy key first, fall through to passthrough
+    if auth_mode != AuthMode.BOTH:
+        raise RuntimeError(f"Unexpected auth_mode: {auth_mode}")
+    if secrets.compare_digest(token, api_key):
+        return token
+    if credential_manager.config.validate_credentials:
+        is_valid = await credential_manager.validate_credential(token)
+        if not is_valid:
+            raise HTTPException(status_code=401, detail="Invalid API key or credential")
+    request.state.passthrough_api_key = token
+    return token
 
 
 # === ROUTES ===
@@ -79,6 +103,15 @@ async def anthropic_messages(
     emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """Anthropic Messages API endpoint (native Anthropic path)."""
+    # Explicit x-anthropic-api-key header takes precedence
+    client_api_key = request.headers.get("x-anthropic-api-key")
+    if client_api_key is not None:
+        if not client_api_key.strip():
+            raise HTTPException(status_code=401, detail="x-anthropic-api-key header is empty")
+        anthropic_client = anthropic_client.with_api_key(client_api_key)
+    elif hasattr(request.state, "passthrough_api_key"):
+        anthropic_client = anthropic_client.with_api_key(request.state.passthrough_api_key)
+
     return await process_anthropic_request(
         request=request,
         policy=anthropic_policy,

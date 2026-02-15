@@ -7,10 +7,11 @@ Unauthenticated browser requests are redirected to /login.
 from __future__ import annotations
 
 import os
+from html import escape as html_escape
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from redis.asyncio import Redis
 
@@ -129,6 +130,58 @@ async def policy_config(
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "policy_config.html"))
+
+
+@router.get("/credentials")
+async def credentials_page(
+    request: Request,
+    admin_key: str | None = Depends(get_admin_key),
+):
+    """Credentials and auth configuration management UI."""
+    redirect = _check_auth_or_redirect(request, admin_key)
+    if redirect:
+        return redirect
+    return FileResponse(os.path.join(STATIC_DIR, "credentials.html"))
+
+
+@router.get("/conversation/live/{conversation_id}")
+async def conversation_live_view(
+    request: Request,
+    conversation_id: str,  # noqa: ARG001 - path param required by FastAPI
+    admin_key: str | None = Depends(get_admin_key),
+):
+    """Live conversation viewer.
+
+    Returns the HTML page for viewing a conversation in real-time with
+    message timeline, tool calls, and policy divergence diffs.
+    Requires admin authentication.
+    """
+    redirect = _check_auth_or_redirect(request, admin_key)
+    if redirect:
+        return redirect
+    return FileResponse(os.path.join(STATIC_DIR, "conversation_live.html"))
+
+
+@router.get("/client-setup")
+async def client_setup(request: Request):
+    """Client setup page with the proxy's actual URL.
+
+    Injects the base URL derived from the incoming request so users can
+    copy-paste directly into their shell. Public endpoint.
+    """
+    base_url = str(request.base_url).rstrip("/")
+
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto == "https" and base_url.startswith("http://"):
+        base_url = "https://" + base_url[7:]
+
+    template_path = os.path.join(STATIC_DIR, "client_setup.html")
+    with open(template_path) as f:
+        html = f.read()
+
+    html = html.replace("{{BASE_URL}}", html_escape(base_url))
+
+    return HTMLResponse(html)
 
 
 __all__ = ["router"]

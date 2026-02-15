@@ -67,7 +67,6 @@ echo -e "${GREEN}🎯 Claude Code will now route through the gateway with policy
 echo -e "${YELLOW}📊 Monitor requests at:${NC}"
 echo -e "   • Activity Monitor:  http://localhost:${GATEWAY_PORT_VAR}/activity/monitor"
 echo -e "   • Diff Viewer:       http://localhost:${GATEWAY_PORT_VAR}/debug/diff"
-echo -e "   • Grafana:           http://localhost:3000"
 echo ""
 
 # Launch Claude Code
