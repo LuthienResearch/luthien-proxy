@@ -331,6 +331,74 @@ class TestDefsAggregation:
         assert "_NestedConfig" in defs
 
 
+class TestSubPolicyListMarker:
+    """Tests for x-sub-policy-list marker in config schemas."""
+
+    def test_multi_serial_policy_has_marker(self) -> None:
+        """MultiSerialPolicy's policies param should have x-sub-policy-list marker."""
+        from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
+
+        schema, _ = extract_config_schema(MultiSerialPolicy)
+        assert "policies" in schema
+        assert schema["policies"].get("x-sub-policy-list") is True
+        assert schema["policies"]["type"] == "array"
+
+    def test_multi_parallel_policy_has_marker(self) -> None:
+        """MultiParallelPolicy's policies param should have x-sub-policy-list marker."""
+        from luthien_proxy.policies.multi_parallel_policy import MultiParallelPolicy
+
+        schema, _ = extract_config_schema(MultiParallelPolicy)
+        assert "policies" in schema
+        assert schema["policies"].get("x-sub-policy-list") is True
+        assert schema["policies"]["type"] == "array"
+
+    def test_multi_parallel_other_params_correct(self) -> None:
+        """MultiParallelPolicy's other params should be extracted correctly."""
+        from luthien_proxy.policies.multi_parallel_policy import MultiParallelPolicy
+
+        schema, example = extract_config_schema(MultiParallelPolicy)
+
+        assert "consolidation_strategy" in schema
+        assert schema["consolidation_strategy"]["type"] == "string"
+        assert schema["consolidation_strategy"]["default"] == "first_block"
+
+        assert "designated_policy_index" in schema
+        assert schema["designated_policy_index"]["type"] == "integer"
+        assert schema["designated_policy_index"]["nullable"] is True
+
+    def test_string_annotation_resolved_not_fallback(self) -> None:
+        """String annotations from __future__ should resolve to proper types."""
+        from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
+
+        schema, _ = extract_config_schema(MultiSerialPolicy)
+        # Should be a proper array type, not the string fallback
+        assert schema["policies"]["type"] == "array"
+        assert "Python type" not in schema["policies"].get("description", "")
+
+    def test_regular_list_no_marker(self) -> None:
+        """Regular list params should NOT have x-sub-policy-list marker."""
+
+        class TestPolicy:
+            def __init__(self, items: list[str]) -> None:
+                pass
+
+        schema, _ = extract_config_schema(TestPolicy)
+        assert "items" in schema
+        assert schema["items"]["type"] == "array"
+        assert "x-sub-policy-list" not in schema["items"]
+
+    def test_non_policies_name_no_marker(self) -> None:
+        """list[dict[str, Any]] with a different param name should NOT have marker."""
+
+        class TestPolicy:
+            def __init__(self, rules: list[dict[str, Any]]) -> None:
+                pass
+
+        schema, _ = extract_config_schema(TestPolicy)
+        assert "rules" in schema
+        assert "x-sub-policy-list" not in schema["rules"]
+
+
 class TestSkipModules:
     """Tests for module filtering."""
 

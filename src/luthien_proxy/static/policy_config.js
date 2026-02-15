@@ -77,6 +77,7 @@ async function loadPolicies() {
     try {
         const data = await apiCall('/admin/policy/list');
         state.availablePolicies = data.policies;
+        window.__policyList = data.policies;
         renderPolicyList();
     } catch (err) {
         console.error('Failed to load policies:', err);
@@ -354,7 +355,7 @@ function renderConfigForm(policy) {
     // Check if any parameter schema has Pydantic structure (properties or $defs)
     // Schema is {paramName: paramSchema, ...} so we check each parameter
     const hasPydanticSchema = Object.values(schema).some(
-        paramSchema => paramSchema && (paramSchema.properties || paramSchema.$defs)
+        paramSchema => paramSchema && (paramSchema.properties || paramSchema.$defs || paramSchema['x-sub-policy-list'])
     );
 
     if (hasPydanticSchema && window.FormRenderer) {
@@ -390,7 +391,7 @@ function renderWithAlpine(container, schema, initialData) {
     // Create Alpine component
     container.innerHTML = `
         <div x-data="{ formData: ${escapedFormData} }"
-             x-init="$watch('formData', value => window.updateFormData(value))">
+             x-init="window.__alpineData = $data; $watch('formData', value => window.updateFormData(value)); window.initSubPolicyForms()">
             ${formHtml}
         </div>
     `;
@@ -734,6 +735,158 @@ async function handleSendChat() {
         sendBtn.textContent = 'Send Message';
     }
 }
+
+// =========================================================================
+// Sub-policy list management
+// =========================================================================
+
+function getNestedValue(obj, path) {
+    return path.split(/[.\[\]]/).filter(Boolean).reduce((o, k) => o?.[k], obj);
+}
+
+window.initSubPolicyForms = function() {
+    document.querySelectorAll('.form-field-sub-policy-list').forEach(container => {
+        const cardsContainer = container.querySelector('.sub-policy-cards');
+        if (!cardsContainer) return;
+        const path = cardsContainer.id.replace('sub-policy-cards-', '');
+        window.renderAllSubPolicies(path);
+    });
+};
+
+window.renderAllSubPolicies = function(path) {
+    const data = window.__alpineData;
+    if (!data) return;
+
+    const policies = getNestedValue(data.formData, path) || [];
+    const container = document.getElementById(`sub-policy-cards-${path}`);
+    if (!container) return;
+
+    let html = '';
+    policies.forEach((subPolicy, index) => {
+        html += renderSubPolicyCardHtml(path, index, subPolicy);
+    });
+    container.innerHTML = html;
+
+    if (window.Alpine) {
+        Alpine.initTree(container);
+    }
+
+    // Recursively initialize nested sub-policy lists (multi-policy inside multi-policy)
+    container.querySelectorAll('[id^="sub-policy-cards-"]').forEach(nested => {
+        const nestedPath = nested.id.replace('sub-policy-cards-', '');
+        if (nestedPath !== path && nested.children.length === 0) {
+            const nestedPolicies = getNestedValue(data.formData, nestedPath);
+            if (nestedPolicies && nestedPolicies.length > 0) {
+                window.renderAllSubPolicies(nestedPath);
+            }
+        }
+    });
+};
+
+function renderSubPolicyCardHtml(path, index, subPolicy) {
+    const policyList = window.__policyList || [];
+    const selectedClass = subPolicy?.class || '';
+
+    let options = '<option value="">Select a policy...</option>';
+    policyList.forEach(p => {
+        const selected = p.class_ref === selectedClass ? 'selected' : '';
+        options += `<option value="${escapeHtml(p.class_ref)}" ${selected}>${escapeHtml(p.name)}</option>`;
+    });
+
+    let configHtml = '';
+    if (selectedClass) {
+        const policyInfo = policyList.find(p => p.class_ref === selectedClass);
+        if (policyInfo && policyInfo.config_schema && Object.keys(policyInfo.config_schema).length > 0) {
+            configHtml = window.FormRenderer.generateForm(
+                policyInfo.config_schema, null, `${path}[${index}].config`
+            );
+        }
+    }
+
+    return `
+        <div class="sub-policy-card" data-path="${path}" data-index="${index}">
+            <div class="sub-policy-card-header">
+                <select class="sub-policy-select"
+                        x-model="formData.${path}[${index}].class"
+                        @change="window.onSubPolicyClassChange('${path}', ${index}, $event.target.value)">
+                    ${options}
+                </select>
+                <div class="sub-policy-card-actions">
+                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${path}', ${index}, -1)" title="Move up">&uarr;</button>
+                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${path}', ${index}, 1)" title="Move down">&darr;</button>
+                    <button type="button" class="btn-remove-sub" onclick="window.removeSubPolicy('${path}', ${index})" title="Remove">&times;</button>
+                </div>
+            </div>
+            <div class="sub-policy-config" id="sub-policy-config-${path}-${index}">
+                ${configHtml}
+            </div>
+        </div>
+    `;
+}
+
+window.onSubPolicyClassChange = function(path, index, classRef) {
+    const data = window.__alpineData;
+    if (!data) return;
+
+    const policies = getNestedValue(data.formData, path);
+    if (!policies || !policies[index]) return;
+
+    policies[index].class = classRef;
+
+    const policyList = window.__policyList || [];
+    const policyInfo = policyList.find(p => p.class_ref === classRef);
+    policies[index].config = policyInfo ? { ...(policyInfo.example_config || {}) } : {};
+
+    const configContainer = document.getElementById(`sub-policy-config-${path}-${index}`);
+    if (!configContainer) return;
+
+    if (policyInfo && policyInfo.config_schema && Object.keys(policyInfo.config_schema).length > 0) {
+        configContainer.innerHTML = window.FormRenderer.generateForm(
+            policyInfo.config_schema, null, `${path}[${index}].config`
+        );
+        if (window.Alpine) {
+            Alpine.initTree(configContainer);
+        }
+    } else {
+        configContainer.innerHTML = '';
+    }
+};
+
+window.addSubPolicy = function(path) {
+    const data = window.__alpineData;
+    if (!data) return;
+
+    const policies = getNestedValue(data.formData, path);
+    if (!policies) return;
+
+    policies.push({ class: '', config: {} });
+    window.renderAllSubPolicies(path);
+};
+
+window.removeSubPolicy = function(path, index) {
+    const data = window.__alpineData;
+    if (!data) return;
+
+    const policies = getNestedValue(data.formData, path);
+    if (!policies) return;
+
+    policies.splice(index, 1);
+    window.renderAllSubPolicies(path);
+};
+
+window.moveSubPolicy = function(path, index, direction) {
+    const data = window.__alpineData;
+    if (!data) return;
+
+    const policies = getNestedValue(data.formData, path);
+    if (!policies) return;
+
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= policies.length) return;
+
+    [policies[index], policies[newIndex]] = [policies[newIndex], policies[index]];
+    window.renderAllSubPolicies(path);
+};
 
 // Shared HTML escaper — also used by FormRenderer
 window.escapeHtml = function(text) {

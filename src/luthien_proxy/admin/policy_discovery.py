@@ -11,6 +11,7 @@ import inspect
 import logging
 import pkgutil
 import types
+import typing
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel, TypeAdapter
@@ -115,6 +116,43 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
     return {"type": "string", "description": f"Python type: {python_type}"}
 
 
+def _resolve_string_annotation(annotation_str: str, policy_class: type) -> Any:
+    """Resolve a string annotation to a real type using typing + module globals.
+
+    When `from __future__ import annotations` is used and `get_type_hints()` fails
+    (e.g. because `Any` is only imported under TYPE_CHECKING), param.annotation is
+    a raw string like "list[dict[str, Any]]". This function evals it with a namespace
+    containing typing exports so the string becomes a real type object.
+    """
+    ns: dict[str, Any] = {name: getattr(typing, name) for name in dir(typing) if not name.startswith("_")}
+
+    module = inspect.getmodule(policy_class)
+    if module:
+        ns.update(vars(module))
+
+    try:
+        return eval(annotation_str, ns)  # noqa: S307
+    except Exception:
+        return annotation_str
+
+
+def _is_sub_policy_list_type(annotation: Any) -> bool:
+    """Check if the annotation is list[dict[str, Any]] — the sub-policy config format."""
+    origin = get_origin(annotation)
+    if origin is not list:
+        return False
+    args = get_args(annotation)
+    if not args:
+        return False
+    item_origin = get_origin(args[0])
+    if item_origin is not dict:
+        return False
+    item_args = get_args(args[0])
+    if len(item_args) != 2:
+        return False
+    return item_args[0] is str and item_args[1] is Any
+
+
 def extract_config_schema(policy_class: type) -> tuple[dict[str, Any], dict[str, Any]]:
     """Extract config schema and example config from a policy class constructor.
 
@@ -149,8 +187,17 @@ def extract_config_schema(policy_class: type) -> tuple[dict[str, Any], dict[str,
         # Get the resolved type hint, falling back to param.annotation
         annotation = type_hints.get(param_name, param.annotation)
 
+        # from __future__ import annotations makes all annotations strings;
+        # resolve them so python_type_to_json_schema gets a real type object
+        if isinstance(annotation, str):
+            annotation = _resolve_string_annotation(annotation, policy_class)
+
         # Build schema for this parameter
         param_schema = python_type_to_json_schema(annotation)
+
+        # Mark sub-policy list parameters so the UI renders a policy picker
+        if param_name == "policies" and _is_sub_policy_list_type(annotation):
+            param_schema["x-sub-policy-list"] = True
 
         # Add default if present
         if param.default is not inspect.Parameter.empty:

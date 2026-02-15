@@ -189,6 +189,10 @@ const FormRenderer = {
   },
 
   renderArrayField(schema, path, rootSchema, depth) {
+    if (schema['x-sub-policy-list']) {
+      return this.renderSubPolicyList(schema, path, rootSchema, depth);
+    }
+
     const itemSchema = this.resolveRef(schema.items, rootSchema);
     const isSimple = this.isSimpleType(itemSchema);
     const desc = schema.description
@@ -231,6 +235,17 @@ const FormRenderer = {
         </div>
       `;
     }
+  },
+
+  renderSubPolicyList(schema, path, rootSchema, depth) {
+    return `
+      <div class="form-field form-field-sub-policy-list">
+        <label>${this.escapeHtml(this.pathToLabel(path))}</label>
+        <div class="sub-policy-cards" id="sub-policy-cards-${path}"></div>
+        <button type="button" class="btn-add-sub-policy"
+                onclick="window.addSubPolicy('${path}')">+ Add Sub-Policy</button>
+      </div>
+    `;
   },
 
   renderObjectField(schema, path, rootSchema, depth) {
@@ -327,14 +342,15 @@ const FormRenderer = {
    * 1. Standard JSON Schema: {properties: {field1: {...}, field2: {...}}}
    * 2. Parameter schema dict: {param1: {properties: {...}}, param2: {...}}
    */
-  generateForm(schema, rootSchema = null) {
+  generateForm(schema, rootSchema = null, pathPrefix = '') {
     rootSchema = rootSchema || schema;
     let html = "";
 
     if (schema.properties) {
       // Standard JSON Schema with properties at root
       for (const [key, propSchema] of Object.entries(schema.properties)) {
-        html += this.renderField(propSchema, key, rootSchema, 0);
+        const fieldPath = pathPrefix ? `${pathPrefix}.${key}` : key;
+        html += this.renderField(propSchema, fieldPath, rootSchema, 0);
       }
     } else {
       // Parameter schema dict - each key is a parameter name with its own schema
@@ -342,7 +358,8 @@ const FormRenderer = {
         if (paramSchema && typeof paramSchema === "object") {
           // Use the parameter's schema as the rootSchema for $ref resolution
           const paramRoot = paramSchema.$defs ? paramSchema : rootSchema;
-          html += this.renderField(paramSchema, paramName, paramRoot, 0);
+          const fieldPath = pathPrefix ? `${pathPrefix}.${paramName}` : paramName;
+          html += this.renderField(paramSchema, fieldPath, paramRoot, 0);
         }
       }
     }

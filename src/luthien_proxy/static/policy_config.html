@@ -758,6 +758,128 @@
             font-size: 0.75rem;
         }
 
+        /* Sub-policy card styles */
+        .form-field-sub-policy-list {
+            margin-bottom: 1rem;
+        }
+
+        .form-field-sub-policy-list > label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #e5e5e5;
+            margin-bottom: 8px;
+        }
+
+        .sub-policy-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .sub-policy-card {
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #0f0f0f;
+            overflow: hidden;
+        }
+
+        .sub-policy-card-header {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            padding: 10px 12px;
+            background: #161616;
+            border-bottom: 1px solid #262626;
+        }
+
+        .sub-policy-select {
+            flex: 1;
+            padding: 6px 10px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #e5e5e5;
+            font-size: 13px;
+            font-family: inherit;
+        }
+
+        .sub-policy-select:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+
+        .sub-policy-card-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .btn-move {
+            background: transparent;
+            border: 1px solid #333;
+            color: #888;
+            border-radius: 4px;
+            width: 28px;
+            height: 28px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        .btn-move:hover {
+            border-color: #60a5fa;
+            color: #60a5fa;
+        }
+
+        .btn-remove-sub {
+            background: transparent;
+            border: 1px solid #333;
+            color: #888;
+            border-radius: 4px;
+            width: 28px;
+            height: 28px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        .btn-remove-sub:hover {
+            border-color: #f87171;
+            color: #f87171;
+        }
+
+        .sub-policy-config {
+            padding: 12px;
+            border-left: 3px solid #2563eb;
+        }
+
+        .sub-policy-config:empty {
+            display: none;
+        }
+
+        .btn-add-sub-policy {
+            background: transparent;
+            border: 1px dashed #333;
+            color: #888;
+            padding: 10px 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+
+        .btn-add-sub-policy:hover {
+            border-color: #4ade80;
+            color: #4ade80;
+        }
+
         .form-field-union select {
             margin-bottom: 0.5rem;
         }
