@@ -16,12 +16,26 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
+def _is_empty_text_block(block: Any) -> bool:
+    """Check if a content block is an empty or whitespace-only text block.
+
+    The Anthropic API rejects both:
+    - Empty text: {"type": "text", "text": ""} -> 'must be non-empty'
+    - Whitespace-only: {"type": "text", "text": " "} -> 'must contain non-whitespace text'
+    """
+    if not isinstance(block, dict) or block.get("type") != "text":
+        return False
+    text = block.get("text")
+    return isinstance(text, str) and text.strip() == ""
+
+
 def _sanitize_messages(messages: list[Any]) -> list[Any]:
-    """Remove empty text content blocks from messages.
+    """Remove empty/whitespace-only text content blocks from messages.
 
     Some clients (e.g., Claude Code) can produce messages with empty text blocks
     like {"type": "text", "text": ""} which the Anthropic API rejects with
-    'messages: text content blocks must be non-empty'.
+    'messages: text content blocks must be non-empty'. It also rejects
+    whitespace-only text with 'must contain non-whitespace text'.
 
     Only filters blocks from list-style content (not bare string content).
     Preserves messages even if all text blocks are empty (to avoid breaking
@@ -34,11 +48,7 @@ def _sanitize_messages(messages: list[Any]) -> list[Any]:
             sanitized.append(msg)
             continue
 
-        filtered = [
-            block
-            for block in content
-            if not (isinstance(block, dict) and block.get("type") == "text" and block.get("text") == "")
-        ]
+        filtered = [block for block in content if not _is_empty_text_block(block)]
 
         if filtered != content:
             logger.debug(
