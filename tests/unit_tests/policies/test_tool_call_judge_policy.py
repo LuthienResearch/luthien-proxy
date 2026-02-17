@@ -1326,6 +1326,8 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         assert isinstance(result[0], RawContentBlockStartEvent)
         assert result[0].index == 0
         assert isinstance(result[0].content_block, TextBlock)
+        assert result[0].content_block.text != "", "TextBlock must not be empty (causes API 400)"
+        assert "dangerous_tool" in result[0].content_block.text
         # Second event: text delta with blocked message
         assert isinstance(result[1], RawContentBlockDeltaEvent)
         assert result[1].index == 0
