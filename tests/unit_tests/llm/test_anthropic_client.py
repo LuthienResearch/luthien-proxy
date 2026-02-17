@@ -396,6 +396,38 @@ class TestSanitizeMessages:
         assert result[1]["content"][0]["text"] == "response"
         assert result[2]["content"] == [{"type": "text", "text": "follow up"}]
 
+    def test_strips_whitespace_only_text_block(self):
+        """Whitespace-only text blocks should also be removed (API rejects these too)."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": " "},
+                    {"type": "text", "text": "Hello!"},
+                ],
+            },
+        ]
+        result = _sanitize_messages(messages)
+        assert len(result[0]["content"]) == 1
+        assert result[0]["content"][0]["text"] == "Hello!"
+
+    def test_strips_various_whitespace_patterns(self):
+        """Tabs, newlines, and mixed whitespace should all be stripped."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "\t"},
+                    {"type": "text", "text": "\n"},
+                    {"type": "text", "text": "  \n\t  "},
+                    {"type": "text", "text": "keep this"},
+                ],
+            },
+        ]
+        result = _sanitize_messages(messages)
+        assert len(result[0]["content"]) == 1
+        assert result[0]["content"][0]["text"] == "keep this"
+
     def test_does_not_mutate_original(self):
         """Sanitization should not modify the original messages."""
         original_content = [
