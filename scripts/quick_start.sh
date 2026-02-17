@@ -124,6 +124,18 @@ uv sync --dev
 echo "🛑 Stopping any existing services..."
 docker compose down --remove-orphans
 
+# Also clean up containers from the default project name (directory-based).
+# quick_start.sh sets COMPOSE_PROJECT_NAME=luthien-<dir>, but running
+# `docker compose up` directly uses just the directory name. Those orphaned
+# containers can hold ports and cause bind failures on the next start.
+default_project="$(basename "$(pwd)")"
+if [ "$default_project" != "$COMPOSE_PROJECT_NAME" ]; then
+    if docker compose -p "$default_project" ps -q 2>/dev/null | grep -q .; then
+        echo "🧹 Cleaning up orphaned containers from project '$default_project'..."
+        docker compose -p "$default_project" down --remove-orphans
+    fi
+fi
+
 # Start core services
 echo "🐳 Starting core services..."
 docker compose up -d db redis
