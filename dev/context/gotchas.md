@@ -202,6 +202,16 @@ if stream_state.finish_reason:
 
 **Related TODO item**: Add security documentation for dynamic policy loading.
 
+## Empty Text Content Blocks Cause API 400 Errors (2026-02-17)
+
+**Gotcha**: The Anthropic API rejects messages containing `{"type": "text", "text": ""}` with `messages: text content blocks must be non-empty`. Clients like Claude Code can produce these, e.g., when MCP tool results are assembled into conversation history.
+
+**Defensive fix**: `AnthropicClient._prepare_request_kwargs()` now calls `_sanitize_messages()` to strip empty text blocks before forwarding. This runs on every request.
+
+**Also affected**: `ToolCallJudgePolicy` line 674 was creating `TextBlock(type="text", text="")` when blocking tool calls in streaming mode. Fixed to include the blocked message text directly.
+
+**Pattern**: When creating Anthropic `TextBlock` objects, always include non-empty text. Don't rely on a subsequent delta to fill empty initial text — clients may assemble the conversation history with the empty initial value.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
