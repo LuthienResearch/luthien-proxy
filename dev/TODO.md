@@ -80,6 +80,8 @@
 
 ### Infrastructure (Medium)
 
+- [ ] **`observability.sh` uses different Docker project name than `quick_start.sh`** - `observability.sh` does not set `COMPOSE_PROJECT_NAME`, so it uses the directory default while `quick_start.sh` uses `luthien-<dir>`. This is the same category of bug as PR #203. Fix: either set `COMPOSE_PROJECT_NAME` in `.env.example` (single source of truth) or have `observability.sh` use the same derivation logic. Reference: COE sweep from PR #203, 2026-02-17.
+- [ ] **Add `shellcheck` to CI or `dev_checks.sh`** - No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by `shellcheck --shell=bash`. Reference: COE from PR #202, 2026-02-17.
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints (debug endpoints have tests, UI routes do not)
 - [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production
 - [ ] **Implement circuit breaker for upstream calls** - Queue overflow protection exists, but not full circuit breaker pattern
