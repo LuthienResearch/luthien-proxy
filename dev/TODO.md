@@ -7,6 +7,12 @@
 - [ ] **Add `shellcheck --shell=bash` to `dev_checks.sh`** — No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by shellcheck. Prevents the entire class of bash version bugs.
 - [ ] **Add bash 3 shebang comment convention to all scripts** — Add `# Requires: bash 3.2+` to script headers to document the constraint for future contributors.
 
+### Request Validation Gap (COE from PR #201, 2026-02-17)
+
+- [ ] **Add integration tests for known Anthropic API rejection patterns** — Cover empty text blocks, whitespace-only text, extra `cache_control` fields (#178), unknown top-level params (#151), orphaned `tool_result` blocks (#167), thinking block ordering (#134). These are all variants of the same gap: no request validation before upstream.
+- [ ] **Audit Anthropic API docs for all validation rules** — Compile into `dev/context/anthropic-api-constraints.md`. Currently discovering constraints reactively via 400 errors.
+- [ ] **Add `_sanitize_messages()` to OpenAI/LiteLLM path** — Same vulnerability exists on the non-Anthropic pipeline. Check `llm_format_utils.py` and equivalent code paths.
+
 ### Bugs
 
 - [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Fix: [#208](https://github.com/LuthienResearch/luthien-proxy/pull/208). Reference: Dogfooding session 2025-12-16.

@@ -181,6 +181,12 @@ Common commands:
 - Update `config/policy_config.yaml` rather than hardcoding.
 - Validate setup with test requests to the gateway at `http://localhost:8000`.
 
+## COE Examples
+
+PRs with RCA/COE analysis. Check these before writing a new COE to identify recurring patterns.
+
+- [PR #201: Empty/whitespace text content blocks cause Anthropic API 400 errors](https://github.com/LuthienResearch/luthien-proxy/pull/201) (2026-02-17) — 4th instance of missing request validation layer
+
 ## Policy Selection
 
 - Policies are loaded from the YAML file pointed to by `POLICY_CONFIG` (default `config/policy_config.yaml`).
