@@ -1,5 +1,6 @@
 """Unit tests for AnthropicClient."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import anthropic
@@ -955,6 +956,43 @@ class TestTryAutoFix:
         kwargs = {"messages": [{"role": "user", "content": "Hello"}]}
         error = _make_bad_request_error("some completely unknown error message")
         assert _try_auto_fix(kwargs, error) is None
+
+    def test_unknown_400_logs_warning(self, caplog):
+        """Unknown 400 errors are logged at WARNING for runtime detection."""
+        kwargs = {"messages": [{"role": "user", "content": "Hello"}]}
+        error = _make_bad_request_error("brand new API error we've never seen")
+        with caplog.at_level(logging.WARNING, logger="luthien_proxy.llm.anthropic_client"):
+            _try_auto_fix(kwargs, error)
+        assert any("Unmatched 400" in record.message for record in caplog.records)
+        assert any("brand new API error" in record.message for record in caplog.records)
+
+    def test_unknown_400_fires_callback(self):
+        """Unknown 400 errors emit unmatched_400 event via callback."""
+        kwargs = {"messages": [{"role": "user", "content": "Hello"}]}
+        error = _make_bad_request_error("something unexpected from Anthropic")
+        fixes = []
+        _try_auto_fix(kwargs, error, on_fix=lambda t, d: fixes.append((t, d)))
+        assert len(fixes) == 1
+        assert fixes[0][0] == "unmatched_400"
+        assert "something unexpected from Anthropic" in fixes[0][1]["error_message"]
+
+    def test_known_errors_dont_fire_unmatched_callback(self):
+        """Known fixable errors should NOT fire the unmatched_400 callback."""
+        kwargs = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "text", "text": "real"},
+                    ],
+                },
+            ],
+        }
+        error = _make_bad_request_error("text content blocks must be non-empty")
+        fixes = []
+        _try_auto_fix(kwargs, error, on_fix=lambda t, d: fixes.append((t, d)))
+        assert not any(t == "unmatched_400" for t, _ in fixes)
 
     def test_returns_none_when_all_text_blocks_empty(self):
         """Returns None if all text blocks are empty (sanitization can't help)."""

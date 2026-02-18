@@ -226,6 +226,8 @@ if stream_state.finish_reason:
 
 **Key constraint**: The retry wraps around the entire `messages.create()` / `messages.stream()` call, NOT inside it. This means streaming errors that occur mid-stream (after data has been yielded) cannot be retried — only errors that occur before any data flows.
 
+**Runtime detection for API changes**: When `_try_auto_fix()` sees a 400 it can't pattern-match, it logs at WARNING and emits an `unmatched_400` event via the callback. Monitor these to detect new error patterns or Anthropic API changes. The error message patterns and `_KNOWN_API_KWARGS` should be reviewed when bumping the `anthropic` SDK version.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

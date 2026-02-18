@@ -203,11 +203,20 @@ def _sanitize_request(
 # ---------------------------------------------------------------------------
 
 
-def _try_auto_fix(kwargs: dict[str, Any], error: anthropic.BadRequestError) -> dict[str, Any] | None:
+def _try_auto_fix(
+    kwargs: dict[str, Any],
+    error: anthropic.BadRequestError,
+    on_fix: AutoFixCallback | None = None,
+) -> dict[str, Any] | None:
     """Attempt to fix a 400 error by pattern-matching the error message.
 
     Returns fixed kwargs if a fix was applied, None if the error is unfixable.
     Never changes semantic intent — only mechanical cleanup.
+
+    Review on anthropic SDK version bumps: if Anthropic changes error message
+    patterns, the matches below will stop firing (graceful degradation — the
+    error passes through unfixed, it doesn't crash). Update patterns when the
+    SDK changelog mentions error message changes.
     """
     msg = str(error.message).lower() if error.message else ""
 
@@ -239,7 +248,14 @@ def _try_auto_fix(kwargs: dict[str, Any], error: anthropic.BadRequestError) -> d
     if "prompt is too long" in msg or "too many tokens" in msg or "context length" in msg:
         return None
 
-    # Unknown 400 — don't auto-fix
+    # Unknown 400 — no matching pattern. Log for monitoring so we can detect
+    # new error patterns or Anthropic API changes.
+    logger.warning(
+        "[auto-fix] Unmatched 400 error pattern (no auto-fix available): %s",
+        error.message,
+    )
+    if on_fix:
+        on_fix("unmatched_400", {"error_message": str(error.message), "phase": "retry"})
     return None
 
 
@@ -359,6 +375,10 @@ _KNOWN_API_KWARGS = frozenset(
 
 Used by passthrough methods to filter out non-API keys that clients
 (e.g. Claude Code) may include in their request bodies.
+
+Review on anthropic SDK version bumps: if Anthropic adds new parameters,
+update this set. Unknown kwargs only affect the passthrough path — the
+normal path passes all kwargs from the typed AnthropicRequest.
 """
 
 
@@ -477,7 +497,7 @@ class AnthropicClient:
             try:
                 message = await self._client.messages.create(**kwargs)
             except anthropic.BadRequestError as e:
-                fixed_kwargs = _try_auto_fix(kwargs, e)
+                fixed_kwargs = _try_auto_fix(kwargs, e, on_fix=on_auto_fix)
                 if fixed_kwargs is not None:
                     logger.info("[auto-fix] %s — retrying", e.message)
                     span.set_attribute("luthien.auto_fix", True)
@@ -521,7 +541,7 @@ class AnthropicClient:
                     async for event in stream:
                         yield event
             except anthropic.BadRequestError as e:
-                fixed_kwargs = _try_auto_fix(kwargs, e)
+                fixed_kwargs = _try_auto_fix(kwargs, e, on_fix=on_auto_fix)
                 if fixed_kwargs is not None:
                     logger.info("[auto-fix] %s — retrying stream", e.message)
                     span.set_attribute("luthien.auto_fix", True)
