@@ -245,7 +245,9 @@ def _try_auto_fix(
         return None
 
     # Context overflow — don't auto-fix, user needs to decide
-    if "prompt is too long" in msg or "too many tokens" in msg or "context length" in msg:
+    if any(
+        phrase in msg for phrase in ["prompt is too long", "too many tokens", "context length", "exceeds the maximum"]
+    ):
         return None
 
     # Unknown 400 — no matching pattern. Log for monitoring so we can detect
@@ -369,6 +371,7 @@ _KNOWN_API_KWARGS = frozenset(
         "metadata",
         "thinking",
         "stream",
+        "service_tier",
     }
 )
 """Anthropic Messages API parameter names we forward to the SDK.

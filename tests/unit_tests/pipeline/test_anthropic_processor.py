@@ -1103,3 +1103,67 @@ class TestPassthroughFallback:
         # Should get the error event
         last_event = events[-1]
         assert "event: error" in last_event
+
+    @pytest.mark.asyncio
+    async def test_streaming_passthrough_error_propagates(self, mock_policy, mock_policy_ctx):
+        """When streaming passthrough itself fails, error propagates through generator."""
+        from anthropic import BadRequestError
+
+        original: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+        modified: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello (modified)"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        mock_response = HttpxResponse(400, request=mock_request)
+        error = BadRequestError(
+            message="pipeline error",
+            response=mock_response,
+            body=None,
+        )
+        passthrough_error = BadRequestError(
+            message="passthrough also failed",
+            response=mock_response,
+            body=None,
+        )
+
+        async def failing_stream(req, on_auto_fix=None):
+            raise error
+            yield  # Make this an async generator  # noqa: E501
+
+        async def failing_passthrough(body):
+            raise passthrough_error
+            yield  # Make this an async generator  # noqa: E501
+
+        mock_client = MagicMock()
+        mock_client.stream = failing_stream
+        mock_client.stream_passthrough = failing_passthrough
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await _handle_streaming(
+                final_request=modified,
+                original_request=original,
+                policy=mock_policy,
+                policy_ctx=mock_policy_ctx,
+                anthropic_client=mock_client,
+                emitter=MagicMock(),
+                call_id="test-stream-passthrough-error",
+                root_span=MagicMock(),
+            )
+
+            # The passthrough error should propagate through the generator
+            with pytest.raises(BadRequestError, match="passthrough also failed"):
+                async for _ in response.body_iterator:
+                    pass

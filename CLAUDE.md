@@ -177,12 +177,7 @@ Common commands:
 
 ## COE Examples
 
-PRs with RCA/COE analysis. Check these before writing a new COE to identify recurring patterns. Cross-project COE archive: [drive-sync/coes](https://github.com/scottwofford/drive-sync/tree/main/coes).
-
-- [PR #204: Self-healing Anthropic request pipeline](https://github.com/LuthienResearch/luthien-proxy/pull/204) (2026-02-17) — architectural fix for 5 instances of missing request validation
-- [PR #201: Empty/whitespace text content blocks cause Anthropic API 400 errors](https://github.com/LuthienResearch/luthien-proxy/pull/201) (2026-02-17) — 4th instance of missing request validation layer
-- [PR #202: find-available-ports.sh fails on macOS bash 3.2](https://github.com/LuthienResearch/luthien-proxy/pull/202) (2026-02-17) — no shell script linting/CI
-- [PR #203: Port bind failures from orphaned Docker containers](https://github.com/LuthienResearch/luthien-proxy/pull/203) (2026-02-17) — infrastructure change without transition plan
+When writing a COE for a bug fix PR, check `dev/context/gotchas.md` for existing COE examples to identify recurring patterns. Cross-project COE archive: [drive-sync/coes](https://github.com/scottwofford/drive-sync/tree/main/coes).
 
 ## Policy Selection
 

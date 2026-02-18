@@ -312,7 +312,9 @@ async def _handle_streaming(
                         yield sse_line
                 except AnthropicBadRequestError as e:
                     if chunk_count == 0 and _should_attempt_passthrough(original_request, final_request):
-                        logger.info("[%s] Pipeline 400 before stream started — trying passthrough", call_id)
+                        logger.warning(
+                            "[%s] Pipeline 400 before stream started — trying passthrough (bypasses policy)", call_id
+                        )
                         emitter.record(call_id, "pipeline.passthrough_fallback", {"error": str(e.message)})
                         response_span.set_attribute("luthien.passthrough_fallback", True)
                         passthrough_stream = anthropic_client.stream_passthrough(dict(original_request))
@@ -365,7 +367,7 @@ async def _handle_non_streaming(
             response: AnthropicResponse = await anthropic_client.complete(final_request, on_auto_fix=_on_auto_fix)
         except AnthropicBadRequestError as e:
             if _should_attempt_passthrough(original_request, final_request):
-                logger.info("[%s] Pipeline 400 — trying passthrough", call_id)
+                logger.warning("[%s] Pipeline 400 — trying passthrough (bypasses policy)", call_id)
                 emitter.record(call_id, "pipeline.passthrough_fallback", {"error": str(e.message)})
                 span.set_attribute("luthien.passthrough_fallback", True)
                 try:

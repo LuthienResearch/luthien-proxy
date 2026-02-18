@@ -1,7 +1,7 @@
 """Unit tests for AnthropicClient."""
 
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anthropic
 import httpx
@@ -1072,7 +1072,6 @@ class TestCompleteRetryWithFix:
         Uses patch to bypass pre-flight sanitization so the empty text block
         survives to trigger the retry-with-fix path.
         """
-        from unittest.mock import patch
 
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
@@ -1111,7 +1110,6 @@ class TestCompleteRetryWithFix:
     @pytest.mark.asyncio
     async def test_max_one_retry(self):
         """complete() retries at most once — second failure gets human-centered message."""
-        from unittest.mock import patch
 
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
@@ -1216,7 +1214,6 @@ class TestStreamRetryWithFix:
     @pytest.mark.asyncio
     async def test_retries_on_fixable_error(self, sample_stream_events: list):
         """stream() retries once when a fixable 400 occurs."""
-        from unittest.mock import patch
 
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
