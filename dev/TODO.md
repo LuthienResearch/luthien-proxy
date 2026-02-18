@@ -7,6 +7,16 @@
 - [ ] **Add `shellcheck --shell=bash` to `dev_checks.sh`** — No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by shellcheck. Prevents the entire class of bash version bugs.
 - [ ] **Add bash 3 shebang comment convention to all scripts** — Add `# Requires: bash 3.2+` to script headers to document the constraint for future contributors.
 
+### Shell Script Linting (COE from PR #202, 2026-02-17)
+
+- [ ] **Add `shellcheck --shell=bash` to `dev_checks.sh`** — No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by shellcheck. Prevents the entire class of bash version bugs.
+- [ ] **Add bash 3 shebang comment convention to all scripts** — Add `# Requires: bash 3.2+` to script headers to document the constraint for future contributors.
+
+### Docker Project Name Consistency (COE from PR #203, 2026-02-17)
+
+- [ ] **Add orphan cleanup logic to `observability.sh`** — Same vulnerability as `quick_start.sh` (fixed in PR #203). `observability.sh` does not set `COMPOSE_PROJECT_NAME`, so it uses the directory default while `quick_start.sh` uses `luthien-<dir>`.
+- [ ] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name.
+
 ### Request Validation Gap (COE from PR #201, 2026-02-17)
 
 - [ ] **Add integration tests for known Anthropic API rejection patterns** — Cover empty text blocks, whitespace-only text, extra `cache_control` fields (#178), unknown top-level params (#151), orphaned `tool_result` blocks (#167), thinking block ordering (#134). These are all variants of the same gap: no request validation before upstream.
