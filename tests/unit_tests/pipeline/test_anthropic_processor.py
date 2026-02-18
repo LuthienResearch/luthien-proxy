@@ -321,7 +321,9 @@ class TestHandleNonStreaming:
 
         assert isinstance(response, JSONResponse)
         assert response.headers.get("x-call-id") == "test-call-id"
-        mock_anthropic_client.complete.assert_called_once_with(request)
+        mock_anthropic_client.complete.assert_called_once()
+        call_args = mock_anthropic_client.complete.call_args
+        assert call_args[0][0] == request  # First positional arg is the request
 
     @pytest.mark.asyncio
     async def test_emits_client_response_event(
@@ -362,7 +364,7 @@ class TestHandleStreaming:
         """Create a mock AnthropicClient with stream method."""
         client = MagicMock()
 
-        async def mock_stream(request):
+        async def mock_stream(request, on_auto_fix=None):
             # Yield a few events using SDK types
             yield RawMessageStartEvent(
                 type="message_start",
@@ -383,6 +385,11 @@ class TestHandleStreaming:
         return client
 
     @pytest.fixture
+    def mock_emitter(self):
+        """Create a mock event emitter."""
+        return MagicMock()
+
+    @pytest.fixture
     def mock_policy(self):
         """Create a mock Anthropic policy."""
         policy = NoOpPolicy()
@@ -396,7 +403,9 @@ class TestHandleStreaming:
         return ctx
 
     @pytest.mark.asyncio
-    async def test_streaming_returns_streaming_response(self, mock_anthropic_client, mock_policy, mock_policy_ctx):
+    async def test_streaming_returns_streaming_response(
+        self, mock_anthropic_client, mock_policy, mock_policy_ctx, mock_emitter
+    ):
         """Test streaming handler returns FastAPIStreamingResponse."""
         request: AnthropicRequest = {
             "model": "claude-sonnet-4-20250514",
@@ -417,6 +426,7 @@ class TestHandleStreaming:
                 policy=mock_policy,
                 policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
                 call_id="test-call-id",
                 root_span=mock_root_span,
             )
@@ -507,7 +517,7 @@ class TestProcessAnthropicRequest:
         mock_request.json = AsyncMock(return_value=anthropic_body)
 
         # Create streaming client
-        async def mock_stream(request):
+        async def mock_stream(request, on_auto_fix=None):
             yield RawMessageStartEvent(
                 type="message_start",
                 message={
@@ -696,7 +706,7 @@ class TestMidStreamErrorHandling:
             body=None,
         )
 
-        async def failing_stream(req):
+        async def failing_stream(req, on_auto_fix=None):
             yield RawMessageStartEvent(
                 type="message_start",
                 message={
@@ -727,6 +737,7 @@ class TestMidStreamErrorHandling:
                 policy=mock_policy,
                 policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_client,
+                emitter=MagicMock(),
                 call_id="test-call-id",
                 root_span=mock_root_span,
             )
@@ -756,7 +767,7 @@ class TestMidStreamErrorHandling:
         mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
         connection_error = AnthropicConnectionError(request=mock_request)
 
-        async def failing_stream(req):
+        async def failing_stream(req, on_auto_fix=None):
             yield RawMessageStartEvent(
                 type="message_start",
                 message={
@@ -787,6 +798,7 @@ class TestMidStreamErrorHandling:
                 policy=mock_policy,
                 policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_client,
+                emitter=MagicMock(),
                 call_id="test-call-id",
                 root_span=mock_root_span,
             )

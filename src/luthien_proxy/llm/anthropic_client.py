@@ -6,7 +6,7 @@ Human-centered error messages guide users when auto-fix isn't possible.
 """
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
 import anthropic
@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+# Callback invoked when an auto-fix is applied. Args: (fix_type, detail_dict).
+AutoFixCallback = Callable[[str, dict[str, Any]], None]
 
 
 # ---------------------------------------------------------------------------
@@ -166,18 +169,31 @@ def _deduplicate_tools(tools: list[Any]) -> list[Any]:
     return deduped
 
 
-def _sanitize_request(kwargs: dict[str, Any]) -> dict[str, Any]:
+def _sanitize_request(
+    kwargs: dict[str, Any],
+    on_fix: AutoFixCallback | None = None,
+) -> dict[str, Any]:
     """Apply all known pre-flight fixes to request kwargs.
 
     Called before every API request. Fixes mechanical issues that would
     cause 400 errors. Never changes semantic intent.
     """
     if "messages" in kwargs:
-        kwargs["messages"] = _sanitize_messages(kwargs["messages"])
-        kwargs["messages"] = _prune_orphaned_tool_results(kwargs["messages"])
+        original = kwargs["messages"]
+        kwargs["messages"] = _sanitize_messages(original)
+        if kwargs["messages"] != original and on_fix:
+            on_fix("empty_text_blocks_stripped", {"phase": "pre-flight"})
+
+        before_prune = kwargs["messages"]
+        kwargs["messages"] = _prune_orphaned_tool_results(before_prune)
+        if kwargs["messages"] != before_prune and on_fix:
+            on_fix("orphaned_tool_results_pruned", {"phase": "pre-flight"})
 
     if "tools" in kwargs:
-        kwargs["tools"] = _deduplicate_tools(kwargs["tools"])
+        original_tools = kwargs["tools"]
+        kwargs["tools"] = _deduplicate_tools(original_tools)
+        if kwargs["tools"] != original_tools and on_fix:
+            on_fix("duplicate_tools_removed", {"phase": "pre-flight"})
 
     return kwargs
 
@@ -349,7 +365,11 @@ class AnthropicClient:
         """Create a new client with a different API key, preserving base_url."""
         return AnthropicClient(api_key=api_key, base_url=self._base_url)
 
-    def _prepare_request_kwargs(self, request: AnthropicRequest) -> dict:
+    def _prepare_request_kwargs(
+        self,
+        request: AnthropicRequest,
+        on_fix: AutoFixCallback | None = None,
+    ) -> dict:
         """Extract non-None values from request for SDK call.
 
         The Anthropic SDK uses Omit sentinels for optional parameters,
@@ -382,7 +402,7 @@ class AnthropicClient:
         if "thinking" in request:
             kwargs["thinking"] = request["thinking"]
 
-        return _sanitize_request(kwargs)
+        return _sanitize_request(kwargs, on_fix=on_fix)
 
     def _message_to_response(self, message: anthropic.types.Message) -> AnthropicResponse:
         """Convert SDK Message to AnthropicResponse TypedDict."""
@@ -405,7 +425,11 @@ class AnthropicClient:
             },
         )
 
-    async def complete(self, request: AnthropicRequest) -> AnthropicResponse:
+    async def complete(
+        self,
+        request: AnthropicRequest,
+        on_auto_fix: AutoFixCallback | None = None,
+    ) -> AnthropicResponse:
         """Get complete response from Anthropic API.
 
         Applies pre-flight sanitization, then retries once if the API returns
@@ -413,6 +437,7 @@ class AnthropicClient:
 
         Args:
             request: Anthropic Messages API request.
+            on_auto_fix: Optional callback invoked when a fix is applied.
 
         Returns:
             AnthropicResponse with the complete message.
@@ -421,7 +446,7 @@ class AnthropicClient:
             span.set_attribute("llm.model", request["model"])
             span.set_attribute("llm.stream", False)
 
-            kwargs = self._prepare_request_kwargs(request)
+            kwargs = self._prepare_request_kwargs(request, on_fix=on_auto_fix)
             try:
                 message = await self._client.messages.create(**kwargs)
             except anthropic.BadRequestError as e:
@@ -429,6 +454,8 @@ class AnthropicClient:
                 if fixed_kwargs is not None:
                     logger.info("[auto-fix] %s — retrying", e.message)
                     span.set_attribute("luthien.auto_fix", True)
+                    if on_auto_fix:
+                        on_auto_fix("retry_with_fix", {"phase": "retry", "error": str(e.message)})
                     message = await self._client.messages.create(**fixed_kwargs)
                 else:
                     raise _rewrite_bad_request_error(kwargs, e) from e
@@ -437,7 +464,11 @@ class AnthropicClient:
 
             return self._message_to_response(message)
 
-    async def stream(self, request: AnthropicRequest) -> AsyncIterator["MessageStreamEvent"]:
+    async def stream(
+        self,
+        request: AnthropicRequest,
+        on_auto_fix: AutoFixCallback | None = None,
+    ) -> AsyncIterator["MessageStreamEvent"]:
         """Stream response from Anthropic API.
 
         Applies pre-flight sanitization, then retries once if the API returns
@@ -445,6 +476,7 @@ class AnthropicClient:
 
         Args:
             request: Anthropic Messages API request.
+            on_auto_fix: Optional callback invoked when a fix is applied.
 
         Yields:
             Streaming events from the Anthropic SDK (includes text, thinking, etc.).
@@ -453,7 +485,7 @@ class AnthropicClient:
             span.set_attribute("llm.model", request["model"])
             span.set_attribute("llm.stream", True)
 
-            kwargs = self._prepare_request_kwargs(request)
+            kwargs = self._prepare_request_kwargs(request, on_fix=on_auto_fix)
             try:
                 async with self._client.messages.stream(**kwargs) as stream:
                     async for event in stream:
@@ -463,6 +495,8 @@ class AnthropicClient:
                 if fixed_kwargs is not None:
                     logger.info("[auto-fix] %s — retrying stream", e.message)
                     span.set_attribute("luthien.auto_fix", True)
+                    if on_auto_fix:
+                        on_auto_fix("retry_with_fix", {"phase": "retry", "error": str(e.message)})
                     async with self._client.messages.stream(**fixed_kwargs) as stream:
                         async for event in stream:
                             yield event
@@ -472,4 +506,4 @@ class AnthropicClient:
                 raise _rewrite_server_error(kwargs, e) from e
 
 
-__all__ = ["AnthropicClient"]
+__all__ = ["AnthropicClient", "AutoFixCallback"]

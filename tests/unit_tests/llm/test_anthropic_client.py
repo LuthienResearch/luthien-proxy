@@ -1242,3 +1242,186 @@ class TestStreamRetryWithFix:
                 pass
 
         assert "temporarily unavailable" in str(exc_info.value.message)
+
+
+# ---------------------------------------------------------------------------
+# AutoFixCallback tests
+# ---------------------------------------------------------------------------
+
+
+class TestAutoFixCallback:
+    """Test that on_auto_fix callback is invoked when fixes are applied."""
+
+    def test_sanitize_request_calls_on_fix_for_empty_text(self):
+        """on_fix callback fires when empty text blocks are stripped."""
+        fixes: list[tuple[str, dict]] = []
+
+        kwargs = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "text", "text": "keep"},
+                    ],
+                },
+            ],
+        }
+        _sanitize_request(kwargs, on_fix=lambda t, d: fixes.append((t, d)))
+        assert len(fixes) == 1
+        assert fixes[0][0] == "empty_text_blocks_stripped"
+        assert fixes[0][1]["phase"] == "pre-flight"
+
+    def test_sanitize_request_calls_on_fix_for_orphaned_tool_results(self):
+        """on_fix callback fires when orphaned tool_results are pruned."""
+        fixes: list[tuple[str, dict]] = []
+
+        kwargs = {
+            "messages": [
+                {"role": "user", "content": "Hello"},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "orphan", "content": "x"},
+                        {"type": "text", "text": "keep"},
+                    ],
+                },
+            ],
+        }
+        _sanitize_request(kwargs, on_fix=lambda t, d: fixes.append((t, d)))
+        assert len(fixes) == 1
+        assert fixes[0][0] == "orphaned_tool_results_pruned"
+
+    def test_sanitize_request_calls_on_fix_for_duplicate_tools(self):
+        """on_fix callback fires when duplicate tools are removed."""
+        fixes: list[tuple[str, dict]] = []
+
+        kwargs = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "tools": [
+                {"name": "bash", "description": "v1"},
+                {"name": "bash", "description": "v2"},
+            ],
+        }
+        _sanitize_request(kwargs, on_fix=lambda t, d: fixes.append((t, d)))
+        assert len(fixes) == 1
+        assert fixes[0][0] == "duplicate_tools_removed"
+
+    def test_sanitize_request_no_callback_when_no_fixes(self):
+        """on_fix callback is NOT called when no fixes are needed."""
+        fixes: list[tuple[str, dict]] = []
+
+        kwargs = {
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+        _sanitize_request(kwargs, on_fix=lambda t, d: fixes.append((t, d)))
+        assert len(fixes) == 0
+
+    def test_sanitize_request_multiple_fixes_fire_multiple_callbacks(self):
+        """All applicable fixes fire their own callback."""
+        fixes: list[tuple[str, dict]] = []
+
+        kwargs = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "tool_use", "id": "tu_1", "name": "bash", "input": {}},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "tu_1", "content": "ok"},
+                        {"type": "tool_result", "tool_use_id": "orphan", "content": "stale"},
+                    ],
+                },
+            ],
+            "tools": [
+                {"name": "bash", "description": "v1"},
+                {"name": "bash", "description": "v2"},
+            ],
+        }
+        _sanitize_request(kwargs, on_fix=lambda t, d: fixes.append((t, d)))
+        fix_types = [f[0] for f in fixes]
+        assert "empty_text_blocks_stripped" in fix_types
+        assert "orphaned_tool_results_pruned" in fix_types
+        assert "duplicate_tools_removed" in fix_types
+
+    @pytest.mark.asyncio
+    async def test_complete_calls_on_auto_fix_on_preflight(self):
+        """complete() passes on_auto_fix through to pre-flight sanitization."""
+        fixes: list[tuple[str, dict]] = []
+        client = AnthropicClient(api_key="test-key")
+
+        request = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "text", "text": "keep"},
+                    ],
+                },
+                {"role": "user", "content": "follow up"},
+            ],
+            max_tokens=100,
+        )
+
+        sample_message = Message(
+            id="msg_123",
+            type="message",
+            role="assistant",
+            content=[TextBlock(type="text", text="Hi!")],
+            model="claude-sonnet-4-20250514",
+            stop_reason="end_turn",
+            usage=Usage(input_tokens=10, output_tokens=5),
+        )
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
+
+        await client.complete(request, on_auto_fix=lambda t, d: fixes.append((t, d)))
+        assert len(fixes) == 1
+        assert fixes[0][0] == "empty_text_blocks_stripped"
+
+    @pytest.mark.asyncio
+    async def test_complete_calls_on_auto_fix_on_retry(self):
+        """complete() fires on_auto_fix callback when retry-with-fix succeeds."""
+        fixes: list[tuple[str, dict]] = []
+        client = AnthropicClient(api_key="test-key")
+
+        sample_message = Message(
+            id="msg_123",
+            type="message",
+            role="assistant",
+            content=[TextBlock(type="text", text="Hi!")],
+            model="claude-sonnet-4-20250514",
+            stop_reason="end_turn",
+            usage=Usage(input_tokens=10, output_tokens=5),
+        )
+
+        error = _make_bad_request_error("Tool names must be unique")
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(side_effect=[error, sample_message])
+        client._client = mock_async_client
+
+        request_with_tools = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+            tools=[
+                {"name": "bash", "description": "v1", "input_schema": {}},
+                {"name": "bash", "description": "v2", "input_schema": {}},
+            ],
+        )
+
+        await client.complete(request_with_tools, on_auto_fix=lambda t, d: fixes.append((t, d)))
+
+        fix_types = [f[0] for f in fixes]
+        assert "duplicate_tools_removed" in fix_types
+        assert "retry_with_fix" in fix_types

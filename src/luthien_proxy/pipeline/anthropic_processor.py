@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import AsyncIterator, TypedDict
+from typing import Any, AsyncIterator, TypedDict
 
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
@@ -163,6 +163,7 @@ async def process_anthropic_request(
                 policy=policy,
                 policy_ctx=policy_ctx,
                 anthropic_client=anthropic_client,
+                emitter=emitter,
                 call_id=call_id,
                 root_span=root_span,
             )
@@ -254,6 +255,7 @@ async def _handle_streaming(
     policy: AnthropicPolicyInterface,
     policy_ctx: PolicyContext,
     anthropic_client: AnthropicClient,
+    emitter: EventEmitterProtocol,
     call_id: str,
     root_span: Span,
 ) -> FastAPIStreamingResponse:
@@ -265,11 +267,14 @@ async def _handle_streaming(
     # Capture parent context before entering the generator
     parent_context = get_current()
 
+    def _on_auto_fix(fix_type: str, data: dict[str, Any]) -> None:
+        emitter.record(call_id, "pipeline.auto_fix", {"fix_type": fix_type, **data})
+
     with tracer.start_as_current_span("send_upstream") as span:
         span.set_attribute("luthien.phase", "send_upstream")
         # Note: stream() returns an async iterator, not an awaitable
         # The actual API call happens when we start iterating
-        backend_stream = anthropic_client.stream(final_request)
+        backend_stream = anthropic_client.stream(final_request, on_auto_fix=_on_auto_fix)
 
     # Create a wrapper generator that manages span context
     async def streaming_with_spans() -> AsyncIterator[str]:
@@ -322,11 +327,15 @@ async def _handle_non_streaming(
     call_id: str,
 ) -> JSONResponse:
     """Handle non-streaming response flow."""
+
+    def _on_auto_fix(fix_type: str, data: dict[str, Any]) -> None:
+        emitter.record(call_id, "pipeline.auto_fix", {"fix_type": fix_type, **data})
+
     # Phase 2: Send to upstream
     with tracer.start_as_current_span("send_upstream") as span:
         span.set_attribute("luthien.phase", "send_upstream")
         try:
-            response: AnthropicResponse = await anthropic_client.complete(final_request)
+            response: AnthropicResponse = await anthropic_client.complete(final_request, on_auto_fix=_on_auto_fix)
         except Exception as e:
             _handle_anthropic_error(e, call_id)
             raise  # Re-raise if not handled
