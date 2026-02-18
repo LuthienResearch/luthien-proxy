@@ -2,6 +2,13 @@
 
 ## Unreleased | TBA
 
+- Self-healing Anthropic request pipeline (#204)
+  - Pre-flight sanitization: strips empty text blocks, prunes orphaned tool_results, deduplicates tools
+  - Retry-with-fix: catches fixable 400s, applies mechanical correction, retries once
+  - Human-centered error messages: plain language with actionable suggestions
+  - Passthrough fallback: when pipeline modifications cause 400, falls back to original request
+  - AutoFixCallback: emits `pipeline.auto_fix` events to activity monitor SSE stream
+
 - Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
   - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
   - MultiParallelPolicy: parallel execution with configurable consolidation strategies
