@@ -21,7 +21,7 @@
 
 - [ ] **Add integration tests for known Anthropic API rejection patterns** — Cover empty text blocks, whitespace-only text, extra `cache_control` fields (#178), unknown top-level params (#151), orphaned `tool_result` blocks (#167), thinking block ordering (#134). These are all variants of the same gap: no request validation before upstream.
 - [ ] **Audit Anthropic API docs for all validation rules** — Compile into `dev/context/anthropic-api-constraints.md`. Currently discovering constraints reactively via 400 errors.
-- [ ] **Add `_sanitize_messages()` to OpenAI/LiteLLM path** — Same vulnerability exists on the non-Anthropic pipeline. Check `llm_format_utils.py` and equivalent code paths.
+- [ ] **Add equivalent self-healing to OpenAI/LiteLLM path** — PR #204 adds sanitization and retry-with-fix to the Anthropic pipeline only. `litellm_client.py` has no equivalent protection. After #204 merges, assess whether to port the same pattern or build a shared validation layer. Reference: COE from PR #201, remaining risk.
 
 ### Bugs
 
