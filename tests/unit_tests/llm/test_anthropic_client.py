@@ -1469,3 +1469,169 @@ class TestAutoFixCallback:
         fix_types = [f[0] for f in fixes]
         assert "duplicate_tools_removed" in fix_types
         assert "retry_with_fix" in fix_types
+
+
+# ---------------------------------------------------------------------------
+# Passthrough methods
+# ---------------------------------------------------------------------------
+
+
+class TestCompletePassthrough:
+    """Test complete_passthrough method."""
+
+    @pytest.mark.asyncio
+    async def test_sends_request_directly(self, sample_message: Message):
+        """Passthrough sends raw request body with no sanitization."""
+        client = AnthropicClient(api_key="test-key")
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
+
+        body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+        }
+
+        result = await client.complete_passthrough(body)
+        assert result["id"] == "msg_123"
+        mock_async_client.messages.create.assert_called_once_with(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filters_unknown_kwargs(self, sample_message: Message):
+        """Passthrough only passes known API kwargs, filtering out extras."""
+        client = AnthropicClient(api_key="test-key")
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
+
+        body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+            "context_management": {"enabled": True},  # Non-API field
+            "custom_field": "should be stripped",
+        }
+
+        await client.complete_passthrough(body)
+        call_kwargs = mock_async_client.messages.create.call_args[1]
+        assert "context_management" not in call_kwargs
+        assert "custom_field" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_strips_stream_param(self, sample_message: Message):
+        """Passthrough strips 'stream' from kwargs for complete()."""
+        client = AnthropicClient(api_key="test-key")
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
+
+        body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+            "stream": False,
+        }
+
+        await client.complete_passthrough(body)
+        call_kwargs = mock_async_client.messages.create.call_args[1]
+        assert "stream" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_no_sanitization_applied(self):
+        """Passthrough does NOT sanitize — empty text blocks pass through."""
+        client = AnthropicClient(api_key="test-key")
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(
+            side_effect=anthropic.BadRequestError(
+                message="text content blocks must be non-empty",
+                response=httpx.Response(400, request=httpx.Request("POST", "https://api.anthropic.com")),
+                body=None,
+            )
+        )
+        client._client = mock_async_client
+
+        body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": ""}]}],
+            "max_tokens": 100,
+        }
+
+        with pytest.raises(anthropic.BadRequestError):
+            await client.complete_passthrough(body)
+
+        # Verify the empty text block was NOT stripped (no sanitization)
+        call_kwargs = mock_async_client.messages.create.call_args[1]
+        assert call_kwargs["messages"] == body["messages"]
+
+
+class TestStreamPassthrough:
+    """Test stream_passthrough method."""
+
+    @pytest.mark.asyncio
+    async def test_streams_events_directly(self, sample_stream_events: list):
+        """Passthrough streams events from the SDK."""
+        client = AnthropicClient(api_key="test-key")
+
+        async def mock_stream_iter():
+            for event in sample_stream_events:
+                yield event
+
+        mock_stream_ctx = MagicMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream_ctx)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_stream_ctx.__aiter__ = lambda self: mock_stream_iter()
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.stream = MagicMock(return_value=mock_stream_ctx)
+        client._client = mock_async_client
+
+        body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+        }
+
+        events = []
+        async for event in client.stream_passthrough(body):
+            events.append(event)
+
+        assert len(events) == len(sample_stream_events)
+
+    @pytest.mark.asyncio
+    async def test_filters_unknown_kwargs(self, sample_stream_events: list):
+        """Passthrough filters non-API kwargs for streaming too."""
+        client = AnthropicClient(api_key="test-key")
+
+        async def mock_stream_iter():
+            for event in sample_stream_events:
+                yield event
+
+        mock_stream_ctx = MagicMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream_ctx)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_stream_ctx.__aiter__ = lambda self: mock_stream_iter()
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.stream = MagicMock(return_value=mock_stream_ctx)
+        client._client = mock_async_client
+
+        body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+            "context_management": {"enabled": True},
+            "stream": True,
+        }
+
+        events = []
+        async for event in client.stream_passthrough(body):
+            events.append(event)
+
+        call_kwargs = mock_async_client.messages.stream.call_args[1]
+        assert "context_management" not in call_kwargs
+        assert "stream" not in call_kwargs

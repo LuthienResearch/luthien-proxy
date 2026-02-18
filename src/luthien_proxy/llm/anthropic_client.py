@@ -338,6 +338,30 @@ def _rewrite_server_error(kwargs: dict[str, Any], error: anthropic.APIStatusErro
 # ---------------------------------------------------------------------------
 
 
+_KNOWN_API_KWARGS = frozenset(
+    {
+        "model",
+        "messages",
+        "max_tokens",
+        "system",
+        "tools",
+        "tool_choice",
+        "temperature",
+        "top_p",
+        "top_k",
+        "stop_sequences",
+        "metadata",
+        "thinking",
+        "stream",
+    }
+)
+"""Anthropic Messages API parameter names we forward to the SDK.
+
+Used by passthrough methods to filter out non-API keys that clients
+(e.g. Claude Code) may include in their request bodies.
+"""
+
+
 class AnthropicClient:
     """Client wrapper for Anthropic SDK.
 
@@ -346,6 +370,7 @@ class AnthropicClient:
     - Pre-flight sanitization prevents most 400 errors
     - Retry-with-fix catches remaining fixable 400s (max 1 retry)
     - Human-centered error messages when auto-fix isn't possible
+    - Passthrough fallback when pipeline modifications cause failures
     """
 
     def __init__(self, api_key: str, base_url: str | None = None):
@@ -512,6 +537,41 @@ class AnthropicClient:
                     raise _rewrite_bad_request_error(kwargs, e) from e
             except anthropic.InternalServerError as e:
                 raise _rewrite_server_error(kwargs, e) from e
+
+    async def complete_passthrough(self, request_body: dict[str, Any]) -> AnthropicResponse:
+        """Send request directly to Anthropic with no pipeline processing.
+
+        Filters to known API kwargs only, no sanitization or retry.
+        Used as a last-resort fallback when the pipeline itself caused a failure.
+        """
+        with tracer.start_as_current_span("anthropic.complete_passthrough") as span:
+            span.set_attribute("llm.model", request_body.get("model", "unknown"))
+            span.set_attribute("llm.stream", False)
+            span.set_attribute("luthien.passthrough", True)
+
+            kwargs = {k: v for k, v in request_body.items() if k in _KNOWN_API_KWARGS}
+            kwargs.pop("stream", None)  # complete() doesn't take stream
+
+            message = await self._client.messages.create(**kwargs)
+            return self._message_to_response(message)
+
+    async def stream_passthrough(self, request_body: dict[str, Any]) -> AsyncIterator["MessageStreamEvent"]:
+        """Stream response directly from Anthropic with no pipeline processing.
+
+        Filters to known API kwargs only, no sanitization or retry.
+        Used as a last-resort fallback when the pipeline itself caused a failure.
+        """
+        with tracer.start_as_current_span("anthropic.stream_passthrough") as span:
+            span.set_attribute("llm.model", request_body.get("model", "unknown"))
+            span.set_attribute("llm.stream", True)
+            span.set_attribute("luthien.passthrough", True)
+
+            kwargs = {k: v for k, v in request_body.items() if k in _KNOWN_API_KWARGS}
+            kwargs.pop("stream", None)  # stream() uses SDK streaming, not the param
+
+            async with self._client.messages.stream(**kwargs) as stream:
+                async for event in stream:
+                    yield event
 
 
 __all__ = ["AnthropicClient", "AutoFixCallback"]

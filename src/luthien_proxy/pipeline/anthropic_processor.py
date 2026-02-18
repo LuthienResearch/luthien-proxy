@@ -31,6 +31,7 @@ from typing import Any, AsyncIterator, TypedDict
 
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
+from anthropic import BadRequestError as AnthropicBadRequestError
 from anthropic.lib.streaming import MessageStreamEvent
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -160,6 +161,7 @@ async def process_anthropic_request(
         if is_streaming:
             return await _handle_streaming(
                 final_request=final_request,
+                original_request=anthropic_request,
                 policy=policy,
                 policy_ctx=policy_ctx,
                 anthropic_client=anthropic_client,
@@ -170,6 +172,7 @@ async def process_anthropic_request(
         else:
             response = await _handle_non_streaming(
                 final_request=final_request,
+                original_request=anthropic_request,
                 policy=policy,
                 policy_ctx=policy_ctx,
                 anthropic_client=anthropic_client,
@@ -250,8 +253,21 @@ async def _process_request(
         return anthropic_request, raw_http_request, session_id
 
 
+def _should_attempt_passthrough(
+    original_request: AnthropicRequest,
+    final_request: AnthropicRequest,
+) -> bool:
+    """Check if passthrough fallback should be attempted.
+
+    Passthrough is only worthwhile when the policy actually modified
+    the request — if original == final, the same request would fail again.
+    """
+    return dict(original_request) != dict(final_request)
+
+
 async def _handle_streaming(
     final_request: AnthropicRequest,
+    original_request: AnthropicRequest,
     policy: AnthropicPolicyInterface,
     policy_ctx: PolicyContext,
     anthropic_client: AnthropicClient,
@@ -294,9 +310,19 @@ async def _handle_streaming(
                         chunk_count += 1
                         sse_line = _format_sse_event(event)
                         yield sse_line
+                except AnthropicBadRequestError as e:
+                    if chunk_count == 0 and _should_attempt_passthrough(original_request, final_request):
+                        logger.info("[%s] Pipeline 400 before stream started — trying passthrough", call_id)
+                        emitter.record(call_id, "pipeline.passthrough_fallback", {"error": str(e.message)})
+                        response_span.set_attribute("luthien.passthrough_fallback", True)
+                        passthrough_stream = anthropic_client.stream_passthrough(dict(original_request))
+                        async for event in passthrough_stream:
+                            chunk_count += 1
+                            yield _format_sse_event(event)
+                    else:
+                        error_event = _build_error_event(e, call_id)
+                        yield _format_sse_event(error_event)
                 except (AnthropicStatusError, AnthropicConnectionError) as e:
-                    # Emit error event before the stream terminates so clients see the error
-                    # (headers are already sent, so HTTPException won't help)
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
@@ -320,6 +346,7 @@ async def _handle_streaming(
 
 async def _handle_non_streaming(
     final_request: AnthropicRequest,
+    original_request: AnthropicRequest,
     policy: AnthropicPolicyInterface,
     policy_ctx: PolicyContext,
     anthropic_client: AnthropicClient,
@@ -336,6 +363,19 @@ async def _handle_non_streaming(
         span.set_attribute("luthien.phase", "send_upstream")
         try:
             response: AnthropicResponse = await anthropic_client.complete(final_request, on_auto_fix=_on_auto_fix)
+        except AnthropicBadRequestError as e:
+            if _should_attempt_passthrough(original_request, final_request):
+                logger.info("[%s] Pipeline 400 — trying passthrough", call_id)
+                emitter.record(call_id, "pipeline.passthrough_fallback", {"error": str(e.message)})
+                span.set_attribute("luthien.passthrough_fallback", True)
+                try:
+                    response = await anthropic_client.complete_passthrough(dict(original_request))
+                except Exception as passthrough_e:
+                    _handle_anthropic_error(passthrough_e, call_id)
+                    raise
+            else:
+                _handle_anthropic_error(e, call_id)
+                raise
         except Exception as e:
             _handle_anthropic_error(e, call_id)
             raise  # Re-raise if not handled

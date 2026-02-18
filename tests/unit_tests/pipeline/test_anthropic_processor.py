@@ -24,6 +24,7 @@ from luthien_proxy.pipeline.anthropic_processor import (
     _handle_non_streaming,
     _handle_streaming,
     _process_request,
+    _should_attempt_passthrough,
     process_anthropic_request,
 )
 from luthien_proxy.policies.noop_policy import NoOpPolicy
@@ -312,6 +313,7 @@ class TestHandleNonStreaming:
 
             response = await _handle_non_streaming(
                 final_request=request,
+                original_request=request,
                 policy=mock_policy,
                 policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_anthropic_client,
@@ -343,6 +345,7 @@ class TestHandleNonStreaming:
 
             await _handle_non_streaming(
                 final_request=request,
+                original_request=request,
                 policy=mock_policy,
                 policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_anthropic_client,
@@ -423,6 +426,7 @@ class TestHandleStreaming:
 
             response = await _handle_streaming(
                 final_request=request,
+                original_request=request,
                 policy=mock_policy,
                 policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_anthropic_client,
@@ -734,6 +738,7 @@ class TestMidStreamErrorHandling:
 
             response = await _handle_streaming(
                 final_request=request,
+                original_request=request,
                 policy=mock_policy,
                 policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_client,
@@ -795,6 +800,7 @@ class TestMidStreamErrorHandling:
 
             response = await _handle_streaming(
                 final_request=request,
+                original_request=request,
                 policy=mock_policy,
                 policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_client,
@@ -810,3 +816,290 @@ class TestMidStreamErrorHandling:
         last_event = events[-1]
         assert "event: error" in last_event
         assert '"type": "api_connection_error"' in last_event
+
+
+class TestShouldAttemptPassthrough:
+    """Tests for _should_attempt_passthrough helper."""
+
+    def test_returns_true_when_requests_differ(self):
+        original: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+        }
+        modified: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello (modified by policy)"}],
+            "max_tokens": 1024,
+        }
+        assert _should_attempt_passthrough(original, modified) is True
+
+    def test_returns_false_when_requests_identical(self):
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+        }
+        assert _should_attempt_passthrough(request, request) is False
+
+
+class TestPassthroughFallback:
+    """Tests for passthrough fallback in non-streaming and streaming paths."""
+
+    @pytest.fixture
+    def mock_policy(self):
+        return NoOpPolicy()
+
+    @pytest.fixture
+    def mock_policy_ctx(self):
+        ctx = MagicMock()
+        ctx.response_summary = None
+        ctx.session_id = None
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_passthrough_on_pipeline_400(self, mock_policy, mock_policy_ctx):
+        """When pipeline request gets 400 and original differs, passthrough succeeds."""
+        from anthropic import BadRequestError
+        from httpx import Request as HttpxRequest
+        from httpx import Response as HttpxResponse
+
+        original: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+        }
+        modified: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello (policy broke this)"}],
+            "max_tokens": 1024,
+        }
+
+        passthrough_response = AnthropicResponse(
+            id="msg_passthrough",
+            type="message",
+            role="assistant",
+            content=[{"type": "text", "text": "Hello!"}],
+            model="claude-sonnet-4-20250514",
+            stop_reason="end_turn",
+            stop_sequence=None,
+            usage={"input_tokens": 10, "output_tokens": 5},
+        )
+
+        mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        mock_response = HttpxResponse(400, request=mock_request)
+        error = BadRequestError(
+            message="some pipeline error",
+            response=mock_response,
+            body=None,
+        )
+
+        mock_client = MagicMock()
+        mock_client.complete = AsyncMock(side_effect=error)
+        mock_client.complete_passthrough = AsyncMock(return_value=passthrough_response)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await _handle_non_streaming(
+                final_request=modified,
+                original_request=original,
+                policy=mock_policy,
+                policy_ctx=mock_policy_ctx,
+                anthropic_client=mock_client,
+                emitter=MagicMock(),
+                call_id="test-passthrough",
+            )
+
+        assert isinstance(response, JSONResponse)
+        mock_client.complete_passthrough.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_no_passthrough_when_requests_identical(self, mock_policy, mock_policy_ctx):
+        """When pipeline request is same as original, don't attempt passthrough."""
+        from anthropic import BadRequestError
+        from httpx import Request as HttpxRequest
+        from httpx import Response as HttpxResponse
+
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+        }
+
+        mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        mock_response = HttpxResponse(400, request=mock_request)
+        error = BadRequestError(
+            message="bad request",
+            response=mock_response,
+            body=None,
+        )
+
+        mock_client = MagicMock()
+        mock_client.complete = AsyncMock(side_effect=error)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _handle_non_streaming(
+                    final_request=request,
+                    original_request=request,
+                    policy=mock_policy,
+                    policy_ctx=mock_policy_ctx,
+                    anthropic_client=mock_client,
+                    emitter=MagicMock(),
+                    call_id="test-no-passthrough",
+                )
+
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_streaming_passthrough_on_pipeline_400_before_chunks(self, mock_policy, mock_policy_ctx):
+        """When streaming gets 400 before any chunks, passthrough succeeds."""
+        from anthropic import BadRequestError
+        from httpx import Request as HttpxRequest
+        from httpx import Response as HttpxResponse
+
+        original: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+        modified: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello (policy broke this)"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        mock_response = HttpxResponse(400, request=mock_request)
+        error = BadRequestError(
+            message="pipeline error",
+            response=mock_response,
+            body=None,
+        )
+
+        async def failing_stream(req, on_auto_fix=None):
+            raise error
+            yield  # Make this an async generator  # noqa: E501
+
+        async def passthrough_stream(body):
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_pt",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-sonnet-4-20250514",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
+            yield RawMessageStopEvent(type="message_stop")
+
+        mock_client = MagicMock()
+        mock_client.stream = failing_stream
+        mock_client.stream_passthrough = passthrough_stream
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await _handle_streaming(
+                final_request=modified,
+                original_request=original,
+                policy=mock_policy,
+                policy_ctx=mock_policy_ctx,
+                anthropic_client=mock_client,
+                emitter=MagicMock(),
+                call_id="test-stream-passthrough",
+                root_span=MagicMock(),
+            )
+
+            events = []
+            async for chunk in response.body_iterator:
+                events.append(chunk)
+
+        # Should get the passthrough events
+        assert len(events) >= 2
+        assert "message_start" in events[0]
+
+    @pytest.mark.asyncio
+    async def test_streaming_no_passthrough_after_chunks_sent(self, mock_policy, mock_policy_ctx):
+        """When streaming gets error AFTER chunks sent, passthrough is not attempted."""
+        original: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+        modified: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello (modified)"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        mock_response = HttpxResponse(400, request=mock_request)
+        error = AnthropicStatusError(
+            message="mid-stream error",
+            response=mock_response,
+            body=None,
+        )
+
+        async def failing_after_one_chunk(req, on_auto_fix=None):
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_123",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-sonnet-4-20250514",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
+            raise error
+
+        mock_client = MagicMock()
+        mock_client.stream = failing_after_one_chunk
+        mock_client.stream_passthrough = AsyncMock()  # Should NOT be called
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await _handle_streaming(
+                final_request=modified,
+                original_request=original,
+                policy=mock_policy,
+                policy_ctx=mock_policy_ctx,
+                anthropic_client=mock_client,
+                emitter=MagicMock(),
+                call_id="test-no-passthrough-midstream",
+                root_span=MagicMock(),
+            )
+
+            events = []
+            async for chunk in response.body_iterator:
+                events.append(chunk)
+
+        # Should NOT have called passthrough — chunks were already sent
+        mock_client.stream_passthrough.assert_not_called()
+        # Should get the error event
+        last_event = events[-1]
+        assert "event: error" in last_event
