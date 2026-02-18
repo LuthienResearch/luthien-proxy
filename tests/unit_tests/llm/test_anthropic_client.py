@@ -956,6 +956,23 @@ class TestTryAutoFix:
         error = _make_bad_request_error("some completely unknown error message")
         assert _try_auto_fix(kwargs, error) is None
 
+    def test_returns_none_when_all_text_blocks_empty(self):
+        """Returns None if all text blocks are empty (sanitization can't help)."""
+        kwargs = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "text", "text": "  "},
+                    ],
+                },
+            ],
+        }
+        error = _make_bad_request_error("text content blocks must be non-empty")
+        fixed = _try_auto_fix(kwargs, error)
+        assert fixed is None
+
     def test_does_not_mutate_original_kwargs(self):
         """Auto-fix returns new dict, does not mutate original."""
         original_messages = [
@@ -1012,7 +1029,13 @@ class TestCompleteRetryWithFix:
 
     @pytest.mark.asyncio
     async def test_retries_on_fixable_error(self, sample_message: Message):
-        """complete() retries once when a fixable 400 occurs."""
+        """complete() retries once when a fixable 400 occurs.
+
+        Uses patch to bypass pre-flight sanitization so the empty text block
+        survives to trigger the retry-with-fix path.
+        """
+        from unittest.mock import patch
+
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
             model="claude-sonnet-4-20250514",
@@ -1038,13 +1061,20 @@ class TestCompleteRetryWithFix:
         )
         client._client = mock_async_client
 
-        result = await client.complete(request)
+        # Bypass pre-flight so the empty block survives to trigger retry
+        with patch(
+            "luthien_proxy.llm.anthropic_client._sanitize_request",
+            side_effect=lambda kwargs, on_fix=None: kwargs,
+        ):
+            result = await client.complete(request)
         assert result["id"] == "msg_123"
         assert mock_async_client.messages.create.call_count == 2
 
     @pytest.mark.asyncio
     async def test_max_one_retry(self):
-        """complete() retries at most once — no infinite loops."""
+        """complete() retries at most once — second failure gets human-centered message."""
+        from unittest.mock import patch
+
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
             model="claude-sonnet-4-20250514",
@@ -1066,9 +1096,16 @@ class TestCompleteRetryWithFix:
         mock_async_client.messages.create = AsyncMock(side_effect=[error, error])
         client._client = mock_async_client
 
-        with pytest.raises(anthropic.BadRequestError):
-            await client.complete(request)
+        # Bypass pre-flight so the empty block survives to trigger retry
+        with patch(
+            "luthien_proxy.llm.anthropic_client._sanitize_request",
+            side_effect=lambda kwargs, on_fix=None: kwargs,
+        ):
+            with pytest.raises(anthropic.BadRequestError) as exc_info:
+                await client.complete(request)
 
+        # Second failure should get human-centered error message
+        assert "Luthien couldn't process" in str(exc_info.value.message)
         assert mock_async_client.messages.create.call_count == 2
 
     @pytest.mark.asyncio
@@ -1141,6 +1178,8 @@ class TestStreamRetryWithFix:
     @pytest.mark.asyncio
     async def test_retries_on_fixable_error(self, sample_stream_events: list):
         """stream() retries once when a fixable 400 occurs."""
+        from unittest.mock import patch
+
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
             model="claude-sonnet-4-20250514",
@@ -1184,9 +1223,14 @@ class TestStreamRetryWithFix:
         mock_async_client.messages.stream = MagicMock(side_effect=mock_stream_factory)
         client._client = mock_async_client
 
-        events = []
-        async for event in client.stream(request):
-            events.append(event)
+        # Bypass pre-flight so the empty block survives to trigger retry
+        with patch(
+            "luthien_proxy.llm.anthropic_client._sanitize_request",
+            side_effect=lambda kwargs, on_fix=None: kwargs,
+        ):
+            events = []
+            async for event in client.stream(request):
+                events.append(event)
 
         assert len(events) == 7
         assert call_count == 2

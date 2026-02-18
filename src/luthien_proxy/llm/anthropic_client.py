@@ -215,7 +215,9 @@ def _try_auto_fix(kwargs: dict[str, Any], error: anthropic.BadRequestError) -> d
     if "text content blocks must be non-empty" in msg or "must contain non-whitespace" in msg:
         fixed = dict(kwargs)
         fixed["messages"] = _sanitize_messages(kwargs["messages"])
-        return fixed
+        if fixed["messages"] != kwargs["messages"]:
+            return fixed
+        return None  # Sanitization didn't change anything — can't fix
 
     # Orphaned tool_results (tool_use_id doesn't match any tool_use)
     if "tool_use_id" in msg or "tool_result" in msg:
@@ -456,7 +458,10 @@ class AnthropicClient:
                     span.set_attribute("luthien.auto_fix", True)
                     if on_auto_fix:
                         on_auto_fix("retry_with_fix", {"phase": "retry", "error": str(e.message)})
-                    message = await self._client.messages.create(**fixed_kwargs)
+                    try:
+                        message = await self._client.messages.create(**fixed_kwargs)
+                    except anthropic.BadRequestError as retry_e:
+                        raise _rewrite_bad_request_error(fixed_kwargs, retry_e) from retry_e
                 else:
                     raise _rewrite_bad_request_error(kwargs, e) from e
             except anthropic.InternalServerError as e:
@@ -497,9 +502,12 @@ class AnthropicClient:
                     span.set_attribute("luthien.auto_fix", True)
                     if on_auto_fix:
                         on_auto_fix("retry_with_fix", {"phase": "retry", "error": str(e.message)})
-                    async with self._client.messages.stream(**fixed_kwargs) as stream:
-                        async for event in stream:
-                            yield event
+                    try:
+                        async with self._client.messages.stream(**fixed_kwargs) as stream:
+                            async for event in stream:
+                                yield event
+                    except anthropic.BadRequestError as retry_e:
+                        raise _rewrite_bad_request_error(fixed_kwargs, retry_e) from retry_e
                 else:
                     raise _rewrite_bad_request_error(kwargs, e) from e
             except anthropic.InternalServerError as e:
