@@ -177,7 +177,7 @@ Common commands:
 
 ## COE Examples
 
-When writing a COE for a bug fix PR, check `dev/context/gotchas.md` for existing COE examples to identify recurring patterns. Cross-project COE archive: [drive-sync/coes](https://github.com/scottwofford/drive-sync/tree/main/coes).
+When writing a COE for a bug fix PR, check `dev/context/gotchas.md` for existing COE examples to identify recurring patterns.
 
 ## Policy Selection
 
