@@ -80,8 +80,7 @@
 
 ### Infrastructure (Medium)
 
-- [ ] **`observability.sh` uses different Docker project name than `quick_start.sh`** - `observability.sh` does not set `COMPOSE_PROJECT_NAME`, so it uses the directory default while `quick_start.sh` uses `luthien-<dir>`. This is the same category of bug as PR #203. Fix: either set `COMPOSE_PROJECT_NAME` in `.env.example` (single source of truth) or have `observability.sh` use the same derivation logic. Reference: COE sweep from PR #203, 2026-02-17.
-- [ ] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name. Reference: COE from PR #203, 2026-02-17.
+- [ ] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name. Currently both scripts derive it, but direct `docker compose` still uses directory default. Reference: COE from PR #203, 2026-02-17.
 - [ ] **Add `shellcheck` to CI or `dev_checks.sh`** - No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by `shellcheck --shell=bash`. Reference: COE from PR #202, 2026-02-17.
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints (debug endpoints have tests, UI routes do not)
 - [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production
