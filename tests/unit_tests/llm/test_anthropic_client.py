@@ -2,6 +2,8 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
+import anthropic
+import httpx
 import pytest
 from anthropic.types import (
     Message,
@@ -18,7 +20,16 @@ from anthropic.types import (
 )
 from anthropic.types.raw_message_delta_event import Delta
 
-from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.anthropic_client import (
+    AnthropicClient,
+    _collect_tool_use_ids,
+    _deduplicate_tools,
+    _is_context_overflow,
+    _prune_orphaned_tool_results,
+    _sanitize_messages,
+    _sanitize_request,
+    _try_auto_fix,
+)
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
 
@@ -88,6 +99,42 @@ def sample_stream_events() -> list:
         ),
         RawMessageStopEvent(type="message_stop"),
     ]
+
+
+def _make_bad_request_error(message: str) -> anthropic.BadRequestError:
+    """Create a BadRequestError with a given message for testing."""
+    mock_response = httpx.Response(
+        status_code=400,
+        json={
+            "type": "error",
+            "error": {"type": "invalid_request_error", "message": message},
+        },
+        request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+    )
+    return anthropic.BadRequestError(
+        message=message,
+        response=mock_response,
+        body={
+            "type": "error",
+            "error": {"type": "invalid_request_error", "message": message},
+        },
+    )
+
+
+def _make_internal_server_error(
+    message: str = "Internal server error",
+) -> anthropic.InternalServerError:
+    """Create an InternalServerError for testing."""
+    mock_response = httpx.Response(
+        status_code=500,
+        json={"type": "error", "error": {"type": "api_error", "message": message}},
+        request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+    )
+    return anthropic.InternalServerError(
+        message=message,
+        response=mock_response,
+        body={"type": "error", "error": {"type": "api_error", "message": message}},
+    )
 
 
 class TestAnthropicClientInit:
@@ -192,7 +239,6 @@ class TestAnthropicClientComplete:
             model="claude-sonnet-4-20250514",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=100,
-            # temperature not set - should not be in call
         )
 
         mock_async_client = AsyncMock()
@@ -222,7 +268,10 @@ class TestAnthropicClientComplete:
         await client.complete(request)
 
         call_kwargs = mock_async_client.messages.create.call_args.kwargs
-        assert call_kwargs["thinking"] == {"type": "enabled", "budget_tokens": 10000}
+        assert call_kwargs["thinking"] == {
+            "type": "enabled",
+            "budget_tokens": 10000,
+        }
 
 
 class TestAnthropicClientStream:
@@ -315,3 +364,881 @@ class TestAnthropicClientStream:
                 text_deltas.append(event.delta.text)
 
         assert text_deltas == ["Hi", " there!"]
+
+
+# ---------------------------------------------------------------------------
+# Pre-flight sanitization tests
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeMessages:
+    """Test _sanitize_messages function."""
+
+    def test_passthrough_string_content(self):
+        """String content should pass through unchanged."""
+        messages = [{"role": "user", "content": "Hello"}]
+        assert _sanitize_messages(messages) == messages
+
+    def test_passthrough_normal_text_blocks(self):
+        """Non-empty text blocks should pass through unchanged."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Hi there!"}],
+            },
+        ]
+        assert _sanitize_messages(messages) == messages
+
+    def test_strips_empty_text_block(self):
+        """Empty text blocks should be removed."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": ""},
+                    {"type": "tool_use", "id": "t1", "name": "foo", "input": {}},
+                ],
+            },
+        ]
+        result = _sanitize_messages(messages)
+        assert len(result[0]["content"]) == 1
+        assert result[0]["content"][0]["type"] == "tool_use"
+
+    def test_preserves_non_text_blocks(self):
+        """Tool use, tool result, and other block types are never filtered."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "t1", "content": "ok"},
+                ],
+            },
+        ]
+        assert _sanitize_messages(messages) == messages
+
+    def test_all_empty_text_blocks_keeps_original(self):
+        """If ALL blocks are empty text, keep original to avoid empty content list."""
+        messages = [
+            {"role": "assistant", "content": [{"type": "text", "text": ""}]},
+        ]
+        result = _sanitize_messages(messages)
+        assert result[0]["content"] == [{"type": "text", "text": ""}]
+
+    def test_multiple_messages_mixed(self):
+        """Sanitization works across multiple messages."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": ""},
+                    {"type": "text", "text": "response"},
+                ],
+            },
+            {"role": "user", "content": [{"type": "text", "text": "follow up"}]},
+        ]
+        result = _sanitize_messages(messages)
+        assert result[0]["content"] == "Hello"
+        assert len(result[1]["content"]) == 1
+        assert result[1]["content"][0]["text"] == "response"
+        assert result[2]["content"] == [{"type": "text", "text": "follow up"}]
+
+    def test_strips_whitespace_only_text_block(self):
+        """Whitespace-only text blocks should also be removed."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": " "},
+                    {"type": "text", "text": "Hello!"},
+                ],
+            },
+        ]
+        result = _sanitize_messages(messages)
+        assert len(result[0]["content"]) == 1
+        assert result[0]["content"][0]["text"] == "Hello!"
+
+    def test_strips_various_whitespace_patterns(self):
+        """Tabs, newlines, and mixed whitespace should all be stripped."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "\t"},
+                    {"type": "text", "text": "\n"},
+                    {"type": "text", "text": "  \n\t  "},
+                    {"type": "text", "text": "keep this"},
+                ],
+            },
+        ]
+        result = _sanitize_messages(messages)
+        assert len(result[0]["content"]) == 1
+        assert result[0]["content"][0]["text"] == "keep this"
+
+    def test_handles_none_content(self):
+        """Messages with None content should pass through unchanged."""
+        messages = [{"role": "user", "content": None}]
+        assert _sanitize_messages(messages) == messages
+
+    def test_does_not_mutate_original(self):
+        """Sanitization should not modify the original messages."""
+        original_content = [
+            {"type": "text", "text": ""},
+            {"type": "text", "text": "keep"},
+        ]
+        messages = [{"role": "assistant", "content": original_content}]
+        _sanitize_messages(messages)
+        assert len(original_content) == 2
+
+
+class TestCollectToolUseIds:
+    """Test _collect_tool_use_ids function."""
+
+    def test_collects_from_assistant_messages(self):
+        """Collects tool_use IDs from assistant messages."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "tu_1", "name": "bash", "input": {}},
+                    {"type": "tool_use", "id": "tu_2", "name": "read", "input": {}},
+                ],
+            },
+        ]
+        assert _collect_tool_use_ids(messages) == {"tu_1", "tu_2"}
+
+    def test_ignores_user_messages(self):
+        """Does not collect IDs from non-assistant messages."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_1",
+                        "content": "ok",
+                    },
+                ],
+            },
+        ]
+        assert _collect_tool_use_ids(messages) == set()
+
+    def test_handles_string_content(self):
+        """Handles assistant messages with string content."""
+        messages = [{"role": "assistant", "content": "Just text"}]
+        assert _collect_tool_use_ids(messages) == set()
+
+    def test_handles_empty_messages(self):
+        """Handles empty message list."""
+        assert _collect_tool_use_ids([]) == set()
+
+    def test_collects_across_multiple_messages(self):
+        """Collects IDs across multiple assistant messages."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tu_1",
+                        "name": "bash",
+                        "input": {},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_1",
+                        "content": "ok",
+                    }
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tu_2",
+                        "name": "read",
+                        "input": {},
+                    }
+                ],
+            },
+        ]
+        assert _collect_tool_use_ids(messages) == {"tu_1", "tu_2"}
+
+
+class TestPruneOrphanedToolResults:
+    """Test _prune_orphaned_tool_results function."""
+
+    def test_keeps_matched_tool_results(self):
+        """Tool results with matching tool_use IDs are preserved."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tu_1",
+                        "name": "bash",
+                        "input": {},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_1",
+                        "content": "ok",
+                    }
+                ],
+            },
+        ]
+        result = _prune_orphaned_tool_results(messages)
+        assert len(result) == 2
+        assert result[1]["content"][0]["tool_use_id"] == "tu_1"
+
+    def test_removes_orphaned_tool_results(self):
+        """Tool results without matching tool_use are removed."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_orphan",
+                        "content": "stale",
+                    },
+                    {"type": "text", "text": "Some other content"},
+                ],
+            },
+        ]
+        result = _prune_orphaned_tool_results(messages)
+        assert len(result) == 2
+        assert len(result[1]["content"]) == 1
+        assert result[1]["content"][0]["type"] == "text"
+
+    def test_drops_message_when_all_blocks_orphaned(self):
+        """If all blocks in a message are orphaned, drop the entire message."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_orphan1",
+                        "content": "stale1",
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_orphan2",
+                        "content": "stale2",
+                    },
+                ],
+            },
+        ]
+        result = _prune_orphaned_tool_results(messages)
+        assert len(result) == 1
+        assert result[0]["content"] == "Hello"
+
+    def test_preserves_non_tool_result_blocks(self):
+        """Non-tool_result blocks are never pruned."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Hello"},
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "url",
+                            "url": "https://example.com/img.png",
+                        },
+                    },
+                ],
+            },
+        ]
+        result = _prune_orphaned_tool_results(messages)
+        assert len(result[0]["content"]) == 2
+
+    def test_passthrough_string_content(self):
+        """Messages with string content pass through unchanged."""
+        messages = [{"role": "user", "content": "Hello"}]
+        result = _prune_orphaned_tool_results(messages)
+        assert result == messages
+
+    def test_does_not_mutate_original(self):
+        """Pruning should not modify the original messages."""
+        original_content = [
+            {
+                "type": "tool_result",
+                "tool_use_id": "tu_orphan",
+                "content": "stale",
+            },
+            {"type": "text", "text": "keep"},
+        ]
+        messages = [{"role": "user", "content": original_content}]
+        _prune_orphaned_tool_results(messages)
+        assert len(original_content) == 2
+
+    def test_complex_conversation_with_mixed_results(self):
+        """Realistic conversation with both matched and orphaned tool results."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tu_1",
+                        "name": "bash",
+                        "input": {"cmd": "ls"},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_1",
+                        "content": "file1.txt",
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_old",
+                        "content": "stale data",
+                    },
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "I see file1.txt"}],
+            },
+        ]
+        result = _prune_orphaned_tool_results(messages)
+        assert len(result) == 3
+        assert len(result[1]["content"]) == 1
+        assert result[1]["content"][0]["tool_use_id"] == "tu_1"
+
+
+class TestDeduplicateTools:
+    """Test _deduplicate_tools function."""
+
+    def test_no_duplicates_unchanged(self):
+        """Tools without duplicates pass through unchanged."""
+        tools = [
+            {"name": "bash", "description": "Run bash"},
+            {"name": "read", "description": "Read file"},
+        ]
+        assert _deduplicate_tools(tools) == tools
+
+    def test_removes_duplicate_tools(self):
+        """Duplicate tool names are removed, keeping first occurrence."""
+        tools = [
+            {"name": "bash", "description": "Run bash v1"},
+            {"name": "read", "description": "Read file"},
+            {"name": "bash", "description": "Run bash v2"},
+        ]
+        result = _deduplicate_tools(tools)
+        assert len(result) == 2
+        assert result[0]["description"] == "Run bash v1"
+        assert result[1]["description"] == "Read file"
+
+    def test_empty_list(self):
+        """Empty tools list passes through."""
+        assert _deduplicate_tools([]) == []
+
+
+class TestSanitizeRequest:
+    """Test _sanitize_request function."""
+
+    def test_applies_all_sanitizations(self):
+        """Applies both message sanitization and tool deduplication."""
+        kwargs = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {
+                            "type": "tool_use",
+                            "id": "tu_1",
+                            "name": "bash",
+                            "input": {},
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "tu_1",
+                            "content": "ok",
+                        },
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "tu_orphan",
+                            "content": "stale",
+                        },
+                    ],
+                },
+            ],
+            "tools": [
+                {"name": "bash", "description": "v1"},
+                {"name": "bash", "description": "v2"},
+            ],
+            "max_tokens": 100,
+        }
+        result = _sanitize_request(kwargs)
+        # Empty text block stripped
+        assert len(result["messages"][0]["content"]) == 1
+        assert result["messages"][0]["content"][0]["type"] == "tool_use"
+        # Orphaned tool_result pruned
+        assert len(result["messages"][1]["content"]) == 1
+        assert result["messages"][1]["content"][0]["tool_use_id"] == "tu_1"
+        # Tools deduplicated
+        assert len(result["tools"]) == 1
+
+    def test_no_messages_key(self):
+        """Handles kwargs without messages key."""
+        kwargs = {"model": "test", "max_tokens": 100}
+        result = _sanitize_request(kwargs)
+        assert result == kwargs
+
+    def test_no_tools_key(self):
+        """Handles kwargs without tools key."""
+        kwargs = {
+            "model": "test",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+        }
+        result = _sanitize_request(kwargs)
+        assert "tools" not in result
+
+
+# ---------------------------------------------------------------------------
+# Retry-with-fix tests
+# ---------------------------------------------------------------------------
+
+
+class TestTryAutoFix:
+    """Test _try_auto_fix function."""
+
+    def test_fixes_empty_text_blocks(self):
+        """Fixes empty text block errors by sanitizing messages."""
+        kwargs = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "text", "text": "real content"},
+                    ],
+                },
+            ],
+        }
+        error = _make_bad_request_error("messages: text content blocks must be non-empty")
+        fixed = _try_auto_fix(kwargs, error)
+        assert fixed is not None
+        assert len(fixed["messages"][0]["content"]) == 1
+        assert fixed["messages"][0]["content"][0]["text"] == "real content"
+
+    def test_fixes_whitespace_text_blocks(self):
+        """Fixes whitespace-only text block errors."""
+        kwargs = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": " "},
+                        {"type": "text", "text": "real"},
+                    ],
+                },
+            ],
+        }
+        error = _make_bad_request_error("must contain non-whitespace text")
+        fixed = _try_auto_fix(kwargs, error)
+        assert fixed is not None
+        assert len(fixed["messages"][0]["content"]) == 1
+
+    def test_fixes_orphaned_tool_results(self):
+        """Fixes tool_result mismatch errors by pruning orphaned results."""
+        kwargs = {
+            "messages": [
+                {"role": "user", "content": "Hello"},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "tu_orphan",
+                            "content": "stale",
+                        },
+                        {"type": "text", "text": "keep"},
+                    ],
+                },
+            ],
+        }
+        error = _make_bad_request_error("tool_use_id does not match any tool_use blocks")
+        fixed = _try_auto_fix(kwargs, error)
+        assert fixed is not None
+        assert len(fixed["messages"][1]["content"]) == 1
+        assert fixed["messages"][1]["content"][0]["type"] == "text"
+
+    def test_returns_none_when_tool_result_pruning_changes_nothing(self):
+        """Returns None if tool_result pruning doesn't help."""
+        kwargs = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "tu_1",
+                            "name": "bash",
+                            "input": {},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "tu_1",
+                            "content": "ok",
+                        }
+                    ],
+                },
+            ],
+        }
+        error = _make_bad_request_error("tool_result error but all results match")
+        fixed = _try_auto_fix(kwargs, error)
+        assert fixed is None
+
+    def test_fixes_duplicate_tools(self):
+        """Fixes duplicate tool name errors by deduplicating."""
+        kwargs = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "tools": [
+                {"name": "bash", "description": "v1"},
+                {"name": "bash", "description": "v2"},
+            ],
+        }
+        error = _make_bad_request_error("Tool names must be unique")
+        fixed = _try_auto_fix(kwargs, error)
+        assert fixed is not None
+        assert len(fixed["tools"]) == 1
+
+    def test_returns_none_for_context_overflow(self):
+        """Does not auto-fix context overflow errors."""
+        kwargs = {"messages": [{"role": "user", "content": "Hello"}]}
+        for msg in [
+            "prompt is too long",
+            "too many tokens in the request",
+            "exceeds context length limit",
+        ]:
+            error = _make_bad_request_error(msg)
+            assert _try_auto_fix(kwargs, error) is None
+
+    def test_returns_none_for_unknown_400(self):
+        """Does not auto-fix unknown 400 errors."""
+        kwargs = {"messages": [{"role": "user", "content": "Hello"}]}
+        error = _make_bad_request_error("some completely unknown error message")
+        assert _try_auto_fix(kwargs, error) is None
+
+    def test_does_not_mutate_original_kwargs(self):
+        """Auto-fix returns new dict, does not mutate original."""
+        original_messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": ""},
+                    {"type": "text", "text": "real"},
+                ],
+            },
+        ]
+        kwargs = {"messages": original_messages}
+        error = _make_bad_request_error("text content blocks must be non-empty")
+        fixed = _try_auto_fix(kwargs, error)
+        assert fixed is not None
+        assert len(kwargs["messages"][0]["content"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Human-centered error message tests
+# ---------------------------------------------------------------------------
+
+
+class TestIsContextOverflow:
+    """Test _is_context_overflow detection."""
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "prompt is too long",
+            "Request has too many tokens",
+            "exceeds context length",
+            "The input exceeds the maximum number of tokens",
+        ],
+    )
+    def test_detects_context_overflow(self, message: str):
+        """Recognizes context overflow error messages."""
+        error = _make_bad_request_error(message)
+        assert _is_context_overflow(error) is True
+
+    def test_not_context_overflow(self):
+        """Does not match non-overflow errors."""
+        error = _make_bad_request_error("text content blocks must be non-empty")
+        assert _is_context_overflow(error) is False
+
+
+# ---------------------------------------------------------------------------
+# Integration: retry-with-fix in complete() and stream()
+# ---------------------------------------------------------------------------
+
+
+class TestCompleteRetryWithFix:
+    """Test retry-with-fix behavior in complete()."""
+
+    @pytest.mark.asyncio
+    async def test_retries_on_fixable_error(self, sample_message: Message):
+        """complete() retries once when a fixable 400 occurs."""
+        client = AnthropicClient(api_key="test-key")
+        request = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "text", "text": "real content"},
+                    ],
+                },
+                {"role": "user", "content": "Hello"},
+            ],
+            max_tokens=100,
+        )
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(
+            side_effect=[
+                _make_bad_request_error("text content blocks must be non-empty"),
+                sample_message,
+            ]
+        )
+        client._client = mock_async_client
+
+        result = await client.complete(request)
+        assert result["id"] == "msg_123"
+        assert mock_async_client.messages.create.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_max_one_retry(self):
+        """complete() retries at most once — no infinite loops."""
+        client = AnthropicClient(api_key="test-key")
+        request = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "text", "text": "real"},
+                    ],
+                },
+                {"role": "user", "content": "Hello"},
+            ],
+            max_tokens=100,
+        )
+
+        error = _make_bad_request_error("text content blocks must be non-empty")
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(side_effect=[error, error])
+        client._client = mock_async_client
+
+        with pytest.raises(anthropic.BadRequestError):
+            await client.complete(request)
+
+        assert mock_async_client.messages.create.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_unfixable_error_raises_with_human_message(self):
+        """Unfixable 400s raise with human-centered error message."""
+        client = AnthropicClient(api_key="test-key")
+        request = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+        )
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(
+            side_effect=_make_bad_request_error("prompt is too long for this model")
+        )
+        client._client = mock_async_client
+
+        with pytest.raises(anthropic.BadRequestError) as exc_info:
+            await client.complete(request)
+
+        assert "/compact" in str(exc_info.value.message)
+        assert "claude-sonnet-4-20250514" in str(exc_info.value.message)
+        assert mock_async_client.messages.create.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_unknown_400_gets_generic_human_message(self):
+        """Unknown 400 errors get a generic helpful message."""
+        client = AnthropicClient(api_key="test-key")
+        request = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+        )
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(side_effect=_make_bad_request_error("some weird unknown error"))
+        client._client = mock_async_client
+
+        with pytest.raises(anthropic.BadRequestError) as exc_info:
+            await client.complete(request)
+
+        assert "Luthien couldn't process" in str(exc_info.value.message)
+        assert "luthien-proxy/issues" in str(exc_info.value.message)
+
+    @pytest.mark.asyncio
+    async def test_server_error_gets_human_message(self):
+        """5xx errors get a human-centered retry message."""
+        client = AnthropicClient(api_key="test-key")
+        request = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+        )
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(side_effect=_make_internal_server_error())
+        client._client = mock_async_client
+
+        with pytest.raises(anthropic.InternalServerError) as exc_info:
+            await client.complete(request)
+
+        assert "temporarily unavailable" in str(exc_info.value.message)
+        assert "claude-sonnet-4-20250514" in str(exc_info.value.message)
+
+
+class TestStreamRetryWithFix:
+    """Test retry-with-fix behavior in stream()."""
+
+    @pytest.mark.asyncio
+    async def test_retries_on_fixable_error(self, sample_stream_events: list):
+        """stream() retries once when a fixable 400 occurs."""
+        client = AnthropicClient(api_key="test-key")
+        request = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "text", "text": "real"},
+                    ],
+                },
+                {"role": "user", "content": "Hello"},
+            ],
+            max_tokens=100,
+        )
+
+        async def mock_stream_iter():
+            for event in sample_stream_events:
+                yield event
+
+        error = _make_bad_request_error("text content blocks must be non-empty")
+
+        call_count = 0
+
+        def mock_stream_factory(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                mock_stream = MagicMock()
+                mock_stream.__aenter__ = AsyncMock(side_effect=error)
+                mock_stream.__aexit__ = AsyncMock(return_value=None)
+                return mock_stream
+            else:
+                mock_stream = MagicMock()
+                mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+                mock_stream.__aexit__ = AsyncMock(return_value=None)
+                mock_stream.__aiter__ = lambda self: mock_stream_iter()
+                return mock_stream
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.stream = MagicMock(side_effect=mock_stream_factory)
+        client._client = mock_async_client
+
+        events = []
+        async for event in client.stream(request):
+            events.append(event)
+
+        assert len(events) == 7
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_unfixable_error_raises_with_human_message(self):
+        """Unfixable 400s in stream() raise with human-centered message."""
+        client = AnthropicClient(api_key="test-key")
+        request = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+        )
+
+        error = _make_bad_request_error("prompt is too long")
+
+        mock_stream = MagicMock()
+        mock_stream.__aenter__ = AsyncMock(side_effect=error)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+        client._client = mock_async_client
+
+        with pytest.raises(anthropic.BadRequestError) as exc_info:
+            async for _ in client.stream(request):
+                pass
+
+        assert "/compact" in str(exc_info.value.message)
+
+    @pytest.mark.asyncio
+    async def test_server_error_gets_human_message(self):
+        """5xx errors in stream() get a human-centered message."""
+        client = AnthropicClient(api_key="test-key")
+        request = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+        )
+
+        error = _make_internal_server_error()
+
+        mock_stream = MagicMock()
+        mock_stream.__aenter__ = AsyncMock(side_effect=error)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+        client._client = mock_async_client
+
+        with pytest.raises(anthropic.InternalServerError) as exc_info:
+            async for _ in client.stream(request):
+                pass
+
+        assert "temporarily unavailable" in str(exc_info.value.message)

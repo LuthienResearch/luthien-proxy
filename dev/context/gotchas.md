@@ -202,6 +202,30 @@ if stream_state.finish_reason:
 
 **Related TODO item**: Add security documentation for dynamic policy loading.
 
+## Empty Text Content Blocks Cause API 400 Errors (2026-02-17)
+
+**Gotcha**: The Anthropic API rejects messages containing `{"type": "text", "text": ""}` with `messages: text content blocks must be non-empty`. Clients like Claude Code can produce these, e.g., when MCP tool results are assembled into conversation history.
+
+**Defensive fix**: `AnthropicClient._prepare_request_kwargs()` now calls `_sanitize_messages()` to strip empty text blocks before forwarding. This runs on every request.
+
+**Also affected**: `ToolCallJudgePolicy` line 674 was creating `TextBlock(type="text", text="")` when blocking tool calls in streaming mode. Fixed to include the blocked message text directly.
+
+**Pattern**: When creating Anthropic `TextBlock` objects, always include non-empty text. Don't rely on a subsequent delta to fill empty initial text — clients may assemble the conversation history with the empty initial value.
+
+## Self-Healing Request Pipeline (2026-02-17)
+
+**Pattern**: `AnthropicClient` applies a three-layer defense against 400 errors:
+
+1. **Pre-flight sanitization** (`_sanitize_request`): Runs before every API call. Strips empty text blocks, prunes orphaned `tool_result` blocks (whose `tool_use_id` has no matching `tool_use`), and deduplicates tool definitions.
+
+2. **Retry-with-fix** (`_try_auto_fix`): If the API returns a `BadRequestError`, pattern-matches the error message and applies a mechanical fix. Max 1 retry per request. Never auto-fixes context overflow (that's the user's decision).
+
+3. **Human-centered error messages**: When auto-fix isn't possible, rewrites error messages following Nielsen's heuristics — plain language, specific problem, actionable suggestion. Technical details go to DEBUG logs.
+
+**To add a new auto-fix**: Add a pattern to `_try_auto_fix()` in `anthropic_client.py`. Rules: (1) match on error message substring, (2) apply mechanical fix only (never change semantic intent), (3) return fixed kwargs or None if unfixable.
+
+**Key constraint**: The retry wraps around the entire `messages.create()` / `messages.stream()` call, NOT inside it. This means streaming errors that occur mid-stream (after data has been yielded) cannot be retried — only errors that occur before any data flows.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
