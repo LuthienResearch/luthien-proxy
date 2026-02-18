@@ -20,6 +20,14 @@
 - [ ] **Thinking blocks stripped from non-streaming responses** - Causes 500 errors when `thinking` enabled. Fix `openai_to_anthropic_response()` to extract `message.thinking_blocks` and include FIRST in content array. [#128](https://github.com/LuthienResearch/luthien-proxy/issues/128). PR: [#131](https://github.com/LuthienResearch/luthien-proxy/pull/131).
 - [x] **Thinking blocks not handled in streaming responses** - Fixed in PR #134. Required 5 debug cycles across 4 layers. [#129](https://github.com/LuthienResearch/luthien-proxy/issues/129)
 
+### Self-Healing Pipeline (from PR #204 COE)
+
+- [ ] **Add `cache_control` sanitization to `_sanitize_request()`** - When PR #178 merges, integrate its `_sanitize_cache_control()` into the centralized sanitization pipeline in `anthropic_client.py`. (Claude-automatable, after #178 merge)
+- [ ] **Add integration test for known-bad request patterns** - Send empty text blocks, orphaned tool_results, duplicate tools, and unknown params through full proxy pipeline. Verify auto-fix or human-readable error. (Claude-automatable)
+- [ ] **Decide: extract `_sanitize_request()` to dedicated `request_validator.py`?** - As the number of sanitization rules grows, the anthropic_client.py file may become too large. Jai to decide architecture. (Human decision, due 2026-03-03)
+- [ ] **Add monitoring for auto-fix events** - Track how often `_sanitize_request()` and `_try_auto_fix()` are silently fixing requests. Expose in activity monitor. (Human decision, due 2026-03-10)
+- [ ] **Review whether OpenAI path needs equivalent self-healing** - `litellm_client.py` has no sanitization or retry-with-fix. Jai to assess risk. (Human decision, due 2026-03-03)
+
 ### Core Features (User Story Aligned)
 
 - [ ] **Conversation history browser & export** - Enable users to browse and export full conversation logs from past sessions. Maps to `luthien-proxy-edl` (Conversation Viewer UI) in User Stories 1 & 2. Data already in `conversation_events` table. Could include: search by date, export to markdown/JSON, filter by user/session.
