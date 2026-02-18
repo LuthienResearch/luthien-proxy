@@ -428,6 +428,11 @@ class TestSanitizeMessages:
         assert len(result[0]["content"]) == 1
         assert result[0]["content"][0]["text"] == "keep this"
 
+    def test_handles_none_content(self):
+        """Messages with None content should pass through unchanged."""
+        messages = [{"role": "user", "content": None}]
+        assert _sanitize_messages(messages) == messages
+
     def test_does_not_mutate_original(self):
         """Sanitization should not modify the original messages."""
         original_content = [
