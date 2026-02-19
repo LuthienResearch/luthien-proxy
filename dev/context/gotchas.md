@@ -218,6 +218,14 @@ if stream_state.finish_reason:
 - **Right**: Use parallel simple arrays, positional parameters (`set --`), or `eval` for indirect variable access
 - **Affected**: `scripts/find-available-ports.sh`
 
+## PaaS PORT vs GATEWAY_PORT (2026-02-19)
+
+**Gotcha**: Railway (and Heroku, Render, etc.) inject `PORT` at runtime. The app reads `GATEWAY_PORT`. If you set `GATEWAY_PORT` to empty string in the PaaS dashboard, pydantic crashes trying to parse `""` as `int` and the app dies before serving `/health`.
+
+- **Bridge**: `start-gateway.sh` maps `PORT → GATEWAY_PORT` so deploys work without manual env var config
+- **Why not just use PORT?**: `GATEWAY_PORT` is more descriptive and consistent with the rest of the settings. `PORT` is ambiguous in multi-service setups.
+- **Why not set GATEWAY_PORT=${{PORT}} in Railway dashboard?**: That's what was tried originally — it was set to empty string and broke every deploy. The shell bridge is less fragile.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
