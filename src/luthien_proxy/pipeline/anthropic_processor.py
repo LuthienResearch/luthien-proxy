@@ -50,7 +50,7 @@ from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterfa
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.anthropic_executor import AnthropicStreamExecutor
 from luthien_proxy.types import RawHttpRequest
-from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
+from luthien_proxy.utils.constants import MAX_REQUEST_MESSAGE_COUNT, MAX_REQUEST_PAYLOAD_BYTES
 
 
 class _ErrorDetail(TypedDict):
@@ -233,6 +233,14 @@ async def _process_request(
             raise HTTPException(status_code=400, detail="Missing required field: messages")
         if "max_tokens" not in body:
             raise HTTPException(status_code=400, detail="Missing required field: max_tokens")
+
+        # Check message count
+        messages = body["messages"]
+        if isinstance(messages, list) and len(messages) > MAX_REQUEST_MESSAGE_COUNT:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Too many messages: {len(messages)} exceeds limit of {MAX_REQUEST_MESSAGE_COUNT}",
+            )
 
         # Create typed request
         anthropic_request: AnthropicRequest = body

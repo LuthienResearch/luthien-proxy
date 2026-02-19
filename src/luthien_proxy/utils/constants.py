@@ -63,6 +63,12 @@ QUEUE_PUT_TIMEOUT_SECONDS = 30.0
 # Prevents OOM attacks and limits request complexity.
 MAX_REQUEST_PAYLOAD_BYTES = 10_485_760
 
+# Maximum number of messages allowed in a single request.
+# Prevents unbounded message arrays that could cause excessive memory usage
+# or slow processing. 2048 accommodates long Claude Code sessions with
+# tool use (which generates many short messages) while blocking abuse.
+MAX_REQUEST_MESSAGE_COUNT = 2048
+
 # ------------------------------------------------------------------------------
 # Debug/Admin Endpoint Defaults
 # ------------------------------------------------------------------------------

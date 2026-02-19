@@ -251,6 +251,52 @@ class TestProcessRequest:
         assert exc_info.value.status_code == 400
         assert "max_tokens" in exc_info.value.detail.lower()
 
+    @pytest.mark.asyncio
+    async def test_message_count_limit_exceeded(self, mock_request, mock_emitter, mock_span):
+        """Test that too many messages raises 400 error."""
+        oversized_body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": f"msg {i}"} for i in range(2049)],
+            "max_tokens": 1024,
+        }
+        mock_request.json = AsyncMock(return_value=oversized_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _process_request(
+                    request=mock_request,
+                    call_id="test-call-id",
+                    emitter=mock_emitter,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert "too many messages" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_message_count_at_limit_succeeds(self, mock_request, mock_emitter, mock_span):
+        """Test that exactly 2048 messages is accepted."""
+        body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": f"msg {i}"} for i in range(2048)],
+            "max_tokens": 1024,
+        }
+        mock_request.json = AsyncMock(return_value=body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            anthropic_request, _, _ = await _process_request(
+                request=mock_request,
+                call_id="test-call-id",
+                emitter=mock_emitter,
+            )
+
+        assert len(anthropic_request["messages"]) == 2048
+
 
 class TestHandleNonStreaming:
     """Tests for _handle_non_streaming helper function."""
