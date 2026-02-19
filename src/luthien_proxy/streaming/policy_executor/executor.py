@@ -16,6 +16,7 @@ from luthien_proxy.streaming.policy_executor.interface import (
     PolicyTimeoutError,
 )
 from luthien_proxy.streaming.policy_executor.timeout_monitor import TimeoutMonitor
+from luthien_proxy.streaming.queue_utils import safe_put
 from luthien_proxy.streaming.stream_blocks import (
     ContentStreamBlock,
     ToolCallStreamBlock,
@@ -23,7 +24,6 @@ from luthien_proxy.streaming.stream_blocks import (
 from luthien_proxy.streaming.streaming_chunk_assembler import (
     StreamingChunkAssembler,
 )
-from luthien_proxy.utils.constants import QUEUE_PUT_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -69,22 +69,6 @@ class PolicyExecutor(PolicyExecutorProtocol):
         it explicitly.
         """
         self._timeout_monitor.keepalive()
-
-    async def _safe_put(self, queue: asyncio.Queue[ModelResponse | None], item: ModelResponse | None) -> None:
-        """Safely put item in queue with timeout to prevent deadlock.
-
-        Args:
-            queue: Queue to put item into
-            item: Item to put
-
-        Raises:
-            asyncio.TimeoutError: If queue is full and timeout is exceeded
-        """
-        try:
-            await asyncio.wait_for(queue.put(item), timeout=QUEUE_PUT_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            logger.error(f"Queue put timeout after {QUEUE_PUT_TIMEOUT_SECONDS}s - downstream may be slow or stalled")
-            raise
 
     async def _cancel_task(self, task: asyncio.Task) -> None:
         """Cancel a task and wait for it to complete.
@@ -171,7 +155,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
                     while True:
                         policy_chunk = streaming_ctx.egress_queue.get_nowait()
                         self.recorder.add_egress_chunk(policy_chunk)
-                        await self._safe_put(output_queue, policy_chunk)
+                        await safe_put(output_queue, policy_chunk)
                 except asyncio.QueueEmpty:
                     pass
 
@@ -218,7 +202,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
                 await self._cancel_task(stream_task)
                 await self._cancel_task(monitor_task)
                 # Signal end of stream with None sentinel
-                await self._safe_put(output_queue, None)
+                await safe_put(output_queue, None)
 
     def _create_chunk_callback(
         self,
@@ -301,7 +285,7 @@ class PolicyExecutor(PolicyExecutorProtocol):
                     policy_chunk = streaming_ctx.egress_queue.get_nowait()
                     # Record egress chunk (after policy processing)
                     self.recorder.add_egress_chunk(policy_chunk)
-                    await self._safe_put(output_queue, policy_chunk)
+                    await safe_put(output_queue, policy_chunk)
                 except asyncio.QueueEmpty:
                     break
 
