@@ -27,9 +27,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-# === Request/Response Models ===
-
-
 class PolicySetRequest(BaseModel):
     """Request to set the active policy."""
 
@@ -135,29 +132,21 @@ def get_available_models() -> list[str]:
 
     Returns a curated list of chat completion models from OpenAI and Anthropic.
     """
+    openai_models = [
+        m
+        for m in litellm.open_ai_chat_completion_models
+        if m.startswith(("gpt-", "o1", "o3", "chatgpt-"))
+        and not m.startswith("ft:")
+        and "audio" not in m
+        and "realtime" not in m
+    ]
+    anthropic_models = [m for m in litellm.anthropic_models if "claude" in m.lower()]
+
     models: list[str] = []
-
-    # Get OpenAI chat models
-    if hasattr(litellm, "open_ai_chat_completion_models"):
-        openai_models = [
-            m
-            for m in litellm.open_ai_chat_completion_models
-            if m.startswith(("gpt-", "o1", "o3", "chatgpt-"))
-            and not m.startswith("ft:")
-            and "audio" not in m
-            and "realtime" not in m
-        ]
-        models.extend(sorted(openai_models, reverse=True))
-
-    # Get Anthropic models
-    if hasattr(litellm, "anthropic_models"):
-        anthropic_models = [m for m in litellm.anthropic_models if "claude" in m.lower()]
-        models.extend(sorted(anthropic_models, reverse=True))
+    models.extend(sorted(openai_models, reverse=True))
+    models.extend(sorted(anthropic_models, reverse=True))
 
     return models
-
-
-# === Routes ===
 
 
 @router.get("/policy/current", response_model=PolicyCurrentResponse)
@@ -387,9 +376,6 @@ async def send_chat(
             error=str(e),
             model=body.model,
         )
-
-
-# === Auth Config Routes ===
 
 
 def _config_to_response(config: AuthConfig) -> AuthConfigResponse:

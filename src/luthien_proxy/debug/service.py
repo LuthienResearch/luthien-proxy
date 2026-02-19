@@ -11,7 +11,6 @@ These functions are designed to be easily testable without FastAPI dependencies.
 from __future__ import annotations
 
 import urllib.parse
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -30,8 +29,6 @@ from .models import (
     ResponseDiff,
 )
 
-# === URL Building ===
-
 
 def build_tempo_url(call_id: str, tempo_url: str | None = None) -> str:
     """Build a Tempo API search URL for a call_id.
@@ -48,9 +45,6 @@ def build_tempo_url(call_id: str, tempo_url: str | None = None) -> str:
     traceql_query = f'{{ span."luthien.call_id" = "{call_id}" }}'
     encoded_query = urllib.parse.quote(traceql_query)
     return f"{tempo_url}/api/search?q={encoded_query}"
-
-
-# === Message Content Extraction ===
 
 
 def extract_message_content(msg: dict[str, Any]) -> str:
@@ -76,9 +70,6 @@ def extract_message_content(msg: dict[str, Any]) -> str:
                 text_parts.append(block.get("text", ""))
         return " ".join(text_parts)
     return str(content)
-
-
-# === Diff Computation ===
 
 
 def compute_request_diff(original: dict[str, Any], final: dict[str, Any]) -> RequestDiff:
@@ -191,9 +182,6 @@ def compute_response_diff(original: dict[str, Any], final: dict[str, Any]) -> Re
     )
 
 
-# === Event Fetching ===
-
-
 async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsResponse:
     """Fetch all conversation events for a call from database.
 
@@ -233,9 +221,7 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
         ConversationEventResponse(
             call_id=str(row["call_id"]),
             event_type=str(row["event_type"]),
-            timestamp=row["created_at"].isoformat()  # type: ignore[union-attr]
-            if isinstance(row["created_at"], datetime)
-            else str(row["created_at"]),
+            timestamp=row["created_at"].isoformat(),
             hook="",  # Not stored in schema
             payload=dict(row["payload"]) if isinstance(row["payload"], dict) else {},  # type: ignore[arg-type]
             session_id=str(row["session_id"]) if row["session_id"] else None,
@@ -350,9 +336,7 @@ async def fetch_recent_calls(limit: int, db_pool: DatabasePool) -> CallListRespo
         CallListItem(
             call_id=str(row["call_id"]),
             event_count=int(row["event_count"]),  # type: ignore[arg-type]
-            latest_timestamp=row["latest"].isoformat()  # type: ignore[union-attr]
-            if isinstance(row["latest"], datetime)
-            else str(row["latest"]),
+            latest_timestamp=row["latest"].isoformat(),
             session_id=str(row["session_id"]) if row["session_id"] else None,
         )
         for row in rows

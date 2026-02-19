@@ -226,21 +226,6 @@ class TestGetAvailableModels:
         assert "claude-3-haiku-20240307" in models
         assert "some-other-model" not in models
 
-    @patch("luthien_proxy.admin.routes.litellm")
-    def test_handles_missing_attributes(self, mock_litellm):
-        """Test that get_available_models handles missing litellm attributes."""
-        # Remove the attributes to simulate them not existing
-        if hasattr(mock_litellm, "open_ai_chat_completion_models"):
-            delattr(mock_litellm, "open_ai_chat_completion_models")
-        if hasattr(mock_litellm, "anthropic_models"):
-            delattr(mock_litellm, "anthropic_models")
-
-        models = get_available_models()
-
-        # Should return empty list when attributes don't exist
-        assert models == []
-
-
 class TestListModelsRoute:
     """Test list_models route handler."""
 

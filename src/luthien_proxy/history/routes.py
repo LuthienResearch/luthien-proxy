@@ -50,9 +50,6 @@ def _check_auth_or_redirect(request: Request, admin_key: str | None) -> Redirect
     return RedirectResponse(url=f"/login?error=required&next={next_url}", status_code=303)
 
 
-# === HTML UI Routes ===
-
-
 @router.get("")
 async def history_list_page(
     request: Request,
@@ -92,9 +89,6 @@ async def history_detail_page(
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}") from None
 
     return FileResponse(os.path.join(STATIC_DIR, "history_detail.html"))
-
-
-# === API Routes ===
 
 
 @router.get("/api/sessions", response_model=SessionListResponse)

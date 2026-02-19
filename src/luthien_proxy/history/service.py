@@ -366,10 +366,8 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
-            first_timestamp=row["first_ts"].isoformat()
-            if isinstance(row["first_ts"], datetime)
-            else str(row["first_ts"]),
-            last_timestamp=row["last_ts"].isoformat() if isinstance(row["last_ts"], datetime) else str(row["last_ts"]),
+            first_timestamp=row["first_ts"].isoformat(),
+            last_timestamp=row["last_ts"].isoformat(),
             turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
@@ -419,17 +417,10 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         if call_id not in calls:
             calls[call_id] = []
 
-        # Parse payload - asyncpg returns JSONB as dict or string
         raw_payload = row["payload"]
-        if isinstance(raw_payload, dict):
-            payload: dict[str, object] = dict(raw_payload)
-        elif isinstance(raw_payload, str):
-            parsed = _safe_parse_json(raw_payload)
-            if parsed is None:
-                raise ValueError(f"Failed to parse payload JSON for call_id={call_id}")
-            payload = dict(parsed)
-        else:
+        if not isinstance(raw_payload, dict):
             raise TypeError(f"Unexpected payload type: {type(raw_payload).__name__}")
+        payload: dict[str, object] = dict(raw_payload)
 
         raw_created_at = row["created_at"]
         if not isinstance(raw_created_at, datetime):
@@ -464,8 +455,8 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
 
     return SessionDetail(
         session_id=session_id,
-        first_timestamp=first_ts.isoformat() if isinstance(first_ts, datetime) else str(first_ts),
-        last_timestamp=last_ts.isoformat() if isinstance(last_ts, datetime) else str(last_ts),
+        first_timestamp=first_ts.isoformat(),
+        last_timestamp=last_ts.isoformat(),
         turns=turns,
         total_policy_interventions=total_interventions,
         models_used=sorted(all_models),
