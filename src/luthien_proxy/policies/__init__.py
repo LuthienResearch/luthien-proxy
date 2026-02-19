@@ -16,9 +16,7 @@ from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 
 __all__ = [
-    # Legacy protocol (for backwards compatibility)
     "PolicyProtocol",
-    # Context
     "PolicyContext",
     # Policies
     "AllCapsPolicy",
