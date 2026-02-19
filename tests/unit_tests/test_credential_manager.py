@@ -281,7 +281,6 @@ class TestInvalidateAll:
         mock_redis.unlink.assert_not_called()
 
 
-
 class TestUpdateConfig:
     @pytest.mark.asyncio
     async def test_update_without_db(self):

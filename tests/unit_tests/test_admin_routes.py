@@ -226,6 +226,7 @@ class TestGetAvailableModels:
         assert "claude-3-haiku-20240307" in models
         assert "some-other-model" not in models
 
+
 class TestListModelsRoute:
     """Test list_models route handler."""
 

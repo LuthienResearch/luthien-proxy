@@ -406,7 +406,6 @@ class TestPolicyManagerEnablePolicy:
         assert exc_info.value.status_code == 503
 
 
-
 # -- get_current_policy --------------------------------------------------------
 
 
