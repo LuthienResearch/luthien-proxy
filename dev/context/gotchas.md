@@ -202,6 +202,22 @@ if stream_state.finish_reason:
 
 **Related TODO item**: Add security documentation for dynamic policy loading.
 
+## Docker Compose Orphaned Containers from Mismatched Project Names (2026-02-17)
+
+**Gotcha**: `quick_start.sh` sets `COMPOSE_PROJECT_NAME=luthien-<dirname>`, but running `docker compose up` directly uses just the directory name as the project. `docker compose down` only stops containers for the current project name, leaving old containers bound to ports.
+
+- **Symptom**: `Bind for 0.0.0.0:6379 failed: port is already allocated` on startup
+- **Cause**: Orphaned containers from a previous run with a different project name
+- **Fix**: `quick_start.sh` now cleans up containers from the default project name before starting
+- **Manual fix**: `docker compose -p <directory-name> down` (e.g., `docker compose -p luthien-proxy down`)
+## macOS Bash 3 Compatibility (2026-02-17)
+
+**Gotcha**: macOS ships with bash 3.2, which does NOT support `declare -A` (associative arrays), `(( ))` C-style for loops, or `${!var}` indirect expansion in all contexts. Scripts using `#!/bin/bash` will use the system bash 3.
+
+- **Wrong**: `declare -A MAP=([key]=value)` — fails on macOS
+- **Right**: Use parallel simple arrays, positional parameters (`set --`), or `eval` for indirect variable access
+- **Affected**: `scripts/find-available-ports.sh`
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

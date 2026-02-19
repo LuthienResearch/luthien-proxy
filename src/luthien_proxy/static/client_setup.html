@@ -273,8 +273,26 @@ ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude <span class="var
         <details>
             <summary>Claude Code can't connect</summary>
             <div class="details-content">
-                <p>Check that <code>ANTHROPIC_BASE_URL</code> does <strong>not</strong> include <code>/v1</code> &mdash; the SDK appends it.</p>
-                <p>Verify the proxy is running with <code>curl {{BASE_URL}}/health</code>.</p>
+                <p>Check that <code>ANTHROPIC_BASE_URL</code> does <strong>not</strong> include <code>/v1</code> &mdash; the SDK appends it automatically.</p>
+                <p>Verify the proxy is reachable: <code>curl {{BASE_URL}}/health</code></p>
+                <p>If connecting from a different machine, use the host IP (not <code>localhost</code>).</p>
+            </div>
+        </details>
+
+        <details>
+            <summary>Installed via native binary? Use npm instead</summary>
+            <div class="details-content">
+                <p>The native Claude Code binary (installed via <code>curl | bash</code>) bundles the Bun runtime, whose <code>fetch()</code> ignores <code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code> environment variables. API streaming requests may bypass the proxy entirely.</p>
+                <p>Fix: install via npm instead: <code>npm install -g @anthropic-ai/claude-code</code></p>
+                <p><code>ANTHROPIC_BASE_URL</code> (direct URL override) is unaffected &mdash; this only matters if you also use a forward proxy.</p>
+            </div>
+        </details>
+
+        <details>
+            <summary>Authentication: API key vs OAuth</summary>
+            <div class="details-content">
+                <p>Use <code>ANTHROPIC_API_KEY</code> (not <code>ANTHROPIC_AUTH_TOKEN</code>) for the most reliable behavior. Claude Code sends it as the <code>x-api-key</code> header, which the gateway expects.</p>
+                <p>If you use OAuth login (<code>claude.ai</code> account), the OAuth handshake hits Anthropic directly and does not go through the proxy. Use an API key to ensure all traffic routes through the gateway.</p>
             </div>
         </details>
 
