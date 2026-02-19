@@ -8,7 +8,7 @@ from litellm.types.utils import ModelResponse
 from opentelemetry import trace
 
 from luthien_proxy.llm.client import LLMClient
-from luthien_proxy.llm.response_normalizer import normalize_response, normalize_stream
+from luthien_proxy.llm.response_normalizer import normalize_stream
 from luthien_proxy.llm.types import Request
 
 # Allow LiteLLM to pass through unknown models without validation
@@ -43,7 +43,7 @@ class LiteLLMClient(LLMClient):
             data = request.model_dump(exclude_none=True)
             data["stream"] = False
             response = await litellm.acompletion(**data)
-            return normalize_response(cast(ModelResponse, response))
+            return cast(ModelResponse, response)
 
 
 __all__ = ["LiteLLMClient"]
