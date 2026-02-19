@@ -218,6 +218,16 @@ if stream_state.finish_reason:
 - **Right**: Use parallel simple arrays, positional parameters (`set --`), or `eval` for indirect variable access
 - **Affected**: `scripts/find-available-ports.sh`
 
+## asyncpg JSONB Columns Can Return str or dict (2026-02-19)
+
+**Gotcha**: asyncpg may return JSONB columns as either `dict` or `str`, depending on connection settings and PostgreSQL version. Code that assumes `isinstance(payload, dict)` will silently drop str payloads.
+
+- **Wrong**: `dict(row["payload"]) if isinstance(row["payload"], dict) else {}` — silently discards str payloads
+- **Wrong**: Removing the `isinstance(str)` branch as "dead code" — it's not dead, asyncpg genuinely returns str sometimes
+- **Right**: Handle both cases explicitly with `json.loads()` for str, `dict()` for dict, `TypeError` for anything else
+- **Affected files**: `history/service.py`, `debug/service.py`
+- **Discovered during**: Codebase cleanup PR #211 — services-impl teammate removed the str branch thinking it was defensive dead code, causing 7 e2e test failures
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
