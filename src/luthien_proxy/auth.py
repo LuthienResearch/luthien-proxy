@@ -75,6 +75,9 @@ async def verify_admin_token(
 def check_auth_or_redirect(request: Request, admin_key: str | None) -> RedirectResponse | None:
     """Check if user is authenticated, return redirect if not.
 
+    Accepts session cookies, Bearer tokens, and x-api-key headers
+    (same methods as verify_admin_token).
+
     Returns None if authenticated, RedirectResponse to login otherwise.
     """
     if not admin_key:
@@ -82,6 +85,16 @@ def check_auth_or_redirect(request: Request, admin_key: str | None) -> RedirectR
 
     session = get_session_user(request, admin_key)
     if session:
+        return None
+
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        if token and secrets.compare_digest(token, admin_key):
+            return None
+
+    x_api_key = request.headers.get("x-api-key")
+    if x_api_key and secrets.compare_digest(x_api_key, admin_key):
         return None
 
     next_url = quote(str(request.url.path), safe="")
