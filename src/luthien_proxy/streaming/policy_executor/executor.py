@@ -11,11 +11,7 @@ from luthien_proxy.observability.transaction_recorder import TransactionRecorder
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
-from luthien_proxy.streaming.policy_executor.interface import (
-    PolicyExecutorProtocol,
-    PolicyTimeoutError,
-)
-from luthien_proxy.streaming.policy_executor.timeout_monitor import TimeoutMonitor
+from luthien_proxy.streaming.policy_executor.timeout_monitor import PolicyTimeoutError, TimeoutMonitor
 from luthien_proxy.streaming.queue_utils import safe_put
 from luthien_proxy.streaming.stream_blocks import (
     ContentStreamBlock,
@@ -29,10 +25,8 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-class PolicyExecutor(PolicyExecutorProtocol):
+class PolicyExecutor:
     """Policy executor with keepalive-based timeout monitoring.
-
-    Implements PolicyExecutorProtocol.
 
     This implementation:
     - Owns a BlockAssembler for building blocks from chunks

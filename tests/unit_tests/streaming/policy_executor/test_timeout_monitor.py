@@ -8,8 +8,7 @@ import time
 
 import pytest
 
-from luthien_proxy.streaming.policy_executor.interface import PolicyTimeoutError
-from luthien_proxy.streaming.policy_executor.timeout_monitor import TimeoutMonitor
+from luthien_proxy.streaming.policy_executor.timeout_monitor import PolicyTimeoutError, TimeoutMonitor
 
 
 class TestTimeoutMonitor:
