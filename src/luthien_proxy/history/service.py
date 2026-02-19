@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from .models import (
     ConversationMessage,
@@ -366,8 +366,8 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
-            first_timestamp=row["first_ts"].isoformat(),
-            last_timestamp=row["last_ts"].isoformat(),
+            first_timestamp=cast(datetime, row["first_ts"]).isoformat(),
+            last_timestamp=cast(datetime, row["last_ts"]).isoformat(),
             turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
@@ -455,8 +455,8 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
 
     return SessionDetail(
         session_id=session_id,
-        first_timestamp=first_ts.isoformat(),
-        last_timestamp=last_ts.isoformat(),
+        first_timestamp=cast(datetime, first_ts).isoformat(),
+        last_timestamp=cast(datetime, last_ts).isoformat(),
         turns=turns,
         total_policy_interventions=total_interventions,
         models_used=sorted(all_models),

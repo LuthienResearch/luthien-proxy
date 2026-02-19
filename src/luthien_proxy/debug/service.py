@@ -11,7 +11,8 @@ These functions are designed to be easily testable without FastAPI dependencies.
 from __future__ import annotations
 
 import urllib.parse
-from typing import TYPE_CHECKING, Any
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from luthien_proxy.utils.db import DatabasePool
@@ -205,7 +206,7 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
         ConversationEventResponse(
             call_id=str(row["call_id"]),
             event_type=str(row["event_type"]),
-            timestamp=row["created_at"].isoformat(),
+            timestamp=cast(datetime, row["created_at"]).isoformat(),
             hook="",  # Not stored in schema
             payload=dict(row["payload"]) if isinstance(row["payload"], dict) else {},  # type: ignore[arg-type]
             session_id=str(row["session_id"]) if row["session_id"] else None,
@@ -320,7 +321,7 @@ async def fetch_recent_calls(limit: int, db_pool: DatabasePool) -> CallListRespo
         CallListItem(
             call_id=str(row["call_id"]),
             event_count=int(row["event_count"]),  # type: ignore[arg-type]
-            latest_timestamp=row["latest"].isoformat(),
+            latest_timestamp=cast(datetime, row["latest"]).isoformat(),
             session_id=str(row["session_id"]) if row["session_id"] else None,
         )
         for row in rows
