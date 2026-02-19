@@ -11,6 +11,7 @@ These functions are designed to be easily testable without FastAPI dependencies.
 from __future__ import annotations
 
 import json
+import logging
 import urllib.parse
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
@@ -32,6 +33,8 @@ from .models import (
     ResponseDiff,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _parse_payload(raw: object) -> dict[str, Any]:
     """Parse a JSONB payload from asyncpg (may arrive as dict or str)."""
@@ -39,6 +42,7 @@ def _parse_payload(raw: object) -> dict[str, Any]:
         return dict(raw)
     if isinstance(raw, str):
         return json.loads(raw)  # type: ignore[no-any-return]
+    logger.warning("Unexpected payload type from database: %s", type(raw).__name__)
     return {}
 
 
