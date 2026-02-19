@@ -1,6 +1,3 @@
-# ABOUTME: Unit tests for policy utility functions
-# ABOUTME: Tests ModelResponse creation and tool call extraction helpers
-
 """Unit tests for policy utilities."""
 
 from __future__ import annotations
@@ -9,9 +6,7 @@ import pytest
 from litellm.types.utils import ChatCompletionMessageToolCall, Choices, Function, Message, ModelResponse
 
 from luthien_proxy.policy_core.response_utils import (
-    chunk_contains_tool_call,
     extract_tool_calls_from_response,
-    is_tool_call_complete,
 )
 
 
@@ -117,118 +112,6 @@ class TestExtractToolCallsFromResponse:
         assert len(tool_calls) == 2
         assert tool_calls[0]["id"] == "call-1"
         assert tool_calls[1]["id"] == "call-2"
-
-
-class TestChunkContainsToolCall:
-    """Test chunk_contains_tool_call utility."""
-
-    def test_empty_chunk_returns_false(self):
-        """Test that empty chunk returns False."""
-        assert chunk_contains_tool_call({}) is False
-
-    def test_no_choices_returns_false(self):
-        """Test that chunk with no choices returns False."""
-        assert chunk_contains_tool_call({"choices": []}) is False
-
-    def test_text_only_chunk_returns_false(self):
-        """Test that text-only chunk returns False."""
-        chunk = {"choices": [{"delta": {"content": "Hello"}}]}
-        assert chunk_contains_tool_call(chunk) is False
-
-    def test_tool_call_in_delta_returns_true(self):
-        """Test that tool call in delta returns True."""
-        chunk = {
-            "choices": [
-                {
-                    "delta": {
-                        "tool_calls": [
-                            {
-                                "index": 0,
-                                "id": "call-123",
-                                "type": "function",
-                                "function": {"name": "test"},
-                            }
-                        ]
-                    }
-                }
-            ]
-        }
-        assert chunk_contains_tool_call(chunk) is True
-
-    def test_tool_call_in_message_returns_true(self):
-        """Test that tool call in message returns True."""
-        chunk = {
-            "choices": [
-                {
-                    "message": {
-                        "tool_calls": [
-                            {
-                                "id": "call-123",
-                                "type": "function",
-                                "function": {"name": "test", "arguments": "{}"},
-                            }
-                        ]
-                    }
-                }
-            ]
-        }
-        assert chunk_contains_tool_call(chunk) is True
-
-    def test_non_dict_choice_returns_false(self):
-        """Test that non-dict choice returns False."""
-        chunk = {"choices": ["not a dict"]}
-        assert chunk_contains_tool_call(chunk) is False
-
-
-class TestIsToolCallComplete:
-    """Test is_tool_call_complete utility."""
-
-    def test_empty_chunk_returns_false(self):
-        """Test that empty chunk returns False."""
-        assert is_tool_call_complete({}) is False
-
-    def test_no_choices_returns_false(self):
-        """Test that chunk with no choices returns False."""
-        assert is_tool_call_complete({"choices": []}) is False
-
-    def test_text_chunk_returns_false(self):
-        """Test that text chunk returns False."""
-        chunk = {"choices": [{"delta": {"content": "Hello"}, "finish_reason": None}]}
-        assert is_tool_call_complete(chunk) is False
-
-    def test_finish_reason_tool_calls_returns_true(self):
-        """Test that finish_reason=tool_calls returns True."""
-        chunk = {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}
-        assert is_tool_call_complete(chunk) is True
-
-    def test_message_with_tool_calls_returns_true(self):
-        """Test that message with tool_calls returns True."""
-        chunk = {
-            "choices": [
-                {
-                    "message": {
-                        "tool_calls": [
-                            {
-                                "id": "call-123",
-                                "type": "function",
-                                "function": {"name": "test", "arguments": "{}"},
-                            }
-                        ]
-                    }
-                }
-            ]
-        }
-        assert is_tool_call_complete(chunk) is True
-
-    def test_finish_reason_stop_returns_false(self):
-        """Test that finish_reason=stop returns False."""
-        chunk = {"choices": [{"delta": {"content": "Done"}, "finish_reason": "stop"}]}
-        assert is_tool_call_complete(chunk) is False
-
-    def test_non_dict_choice_returns_false(self):
-        """Test that non-dict choice returns False."""
-        chunk = {"choices": ["not a dict"]}
-        assert is_tool_call_complete(chunk) is False
 
 
 if __name__ == "__main__":

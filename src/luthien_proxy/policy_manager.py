@@ -200,15 +200,7 @@ class PolicyManager:
                 await self._persist_to_db(policy_class_ref, config, enabled_by)
 
                 # 3. Hot-swap in memory
-                old_policy = self._current_policy
                 self._current_policy = new_policy
-
-                # 4. Cleanup old policy
-                if old_policy and hasattr(old_policy, "on_session_end"):
-                    try:
-                        await old_policy.on_session_end()  # type: ignore
-                    except Exception as e:
-                        logger.warning(f"Error during old policy cleanup: {e}")
 
                 duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 

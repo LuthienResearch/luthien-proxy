@@ -492,12 +492,5 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
         # All other events (message_start, message_delta, message_stop) pass through
         return [event]
 
-    # ===== Anthropic buffer management =====
-
-    def clear_buffers(self) -> None:
-        """Clear all streaming buffers. Call this between requests."""
-        self._text_buffer.clear()
-        self._tool_buffer.clear()
-
 
 __all__ = ["SimplePolicy"]

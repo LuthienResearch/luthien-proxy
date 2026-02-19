@@ -405,25 +405,6 @@ class TestPolicyManagerEnablePolicy:
 
         assert exc_info.value.status_code == 503
 
-    @pytest.mark.asyncio
-    async def test_enable_policy_cleans_up_old_policy(self):
-        mock_pool, _ = _make_db_mocks()
-        mock_redis = MagicMock()
-
-        mock_lock = AsyncMock()
-        mock_lock.acquire = AsyncMock(return_value=True)
-        mock_lock.release = AsyncMock()
-        mock_redis.lock = MagicMock(return_value=mock_lock)
-
-        manager = PolicyManager(db_pool=mock_pool, redis_client=mock_redis)
-
-        old_policy = MagicMock()
-        old_policy.on_session_end = AsyncMock()
-        manager._current_policy = old_policy
-
-        await manager.enable_policy(policy_class_ref=NOOP_CLASS_REF, config={}, enabled_by="test")
-
-        old_policy.on_session_end.assert_called_once()
 
 
 # -- get_current_policy --------------------------------------------------------
