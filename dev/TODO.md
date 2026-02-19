@@ -2,18 +2,6 @@
 
 ## High Priority
 
-### Failing E2E Tests (2026-02-03)
-
-- [x] **test_anthropic_metadata_parameter_accepted** - Fixed in PR #172.
-- [x] **test_anthropic_client_to_openai_backend_with_extra_params** - Removed (cross-format routing, Phase 2). PR #174.
-- [x] **test_anthropic_client_openai_backend_preserves_anthropic_format** - Removed (cross-format routing, Phase 2). PR #174.
-- [x] **test_anthropic_buffered_tool_call_emits_message_delta** - Fixed: multi-event `on_anthropic_stream_event` enables re-emitting buffered tool calls. PR #174.
-- [x] **test_claude_code_with_simple_noop_policy** - Fixed: SimplePolicy returns `[delta, stop]` directly instead of pending stop hack. PR #174.
-- [x] **test_claude_code_with_tool_judge_low_threshold** - Fixed: multi-event emission enables blocked message in streaming + explicit tool prompt. PR #174.
-- [x] **test_anthropic_client_image_passthrough[gpt-4o-mini]** - Removed (cross-format routing, Phase 2). PR #174.
-- [x] **test_anthropic_client_semantic_image[gpt-4o-mini]** - Removed (cross-format routing, Phase 2). PR #174.
-- [x] **test_gateway_matrix::test_anthropic_client_openai_backend_non_streaming** - Removed (cross-format routing, Phase 2). PR #172.
-
 ### Shell Script Linting (COE from PR #202, 2026-02-17)
 
 - [ ] **Add `shellcheck --shell=bash` to `dev_checks.sh`** — No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by shellcheck. Prevents the entire class of bash version bugs.
@@ -21,9 +9,13 @@
 
 ### Bugs
 
+<<<<<<< chore/todo-cleanup
+- [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Fix: [#208](https://github.com/LuthienResearch/luthien-proxy/pull/208). Reference: Dogfooding session 2025-12-16.
+=======
 - [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Reference: Dogfooding session 2025-12-16.
 - [x] **Thinking blocks stripped from non-streaming responses** - Fixed in PR #131. [#128](https://github.com/LuthienResearch/luthien-proxy/issues/128).
 - [x] **Thinking blocks not handled in streaming responses** - Fixed in PR #134. Required 5 debug cycles across 4 layers. [#129](https://github.com/LuthienResearch/luthien-proxy/issues/129)
+>>>>>>> main
 
 ### Core Features (User Story Aligned)
 
@@ -33,7 +25,10 @@
 
 - [ ] **Improved policy config schema system** - Enhance config schema to include: default values, per-field user-facing docstrings/descriptions, and secure field flags (e.g. API keys should render as password inputs in browser). Currently the UI infers types from schema but lacks rich metadata for good UX.
 - [ ] **[Future] Smart dev key hint** - Only show clickable dev key hint when ADMIN_API_KEY matches default; otherwise just show "check .env or contact admin". Deferred as scope creep. Reference: dogfooding-login-ui-quick-fixes branch, 2025-12-15.
+<<<<<<< chore/todo-cleanup
+=======
 - [x] **Activity Monitor missing auth indicator** - Already present in gateway root page (index.html line 106). Reference: dogfooding session 2025-12-15.
+>>>>>>> main
 
 ### Documentation (High)
 
@@ -58,17 +53,7 @@
 - [ ] **Anthropic-only policy configuration support** - Current implementation requires all policies to implement both OpenAI and Anthropic interfaces. There's no way to configure an Anthropic-only policy through the config system. Noted as Phase 2 work in split-apis design doc. Reference: PR #169, 2026-02-03.
 - [ ] **Simplify streaming span context management** - The attach/detach pattern in `anthropic_processor.py:275-303` is correct but complex. Consider wrapping in a context manager for better maintainability. Reference: PR #169, 2026-02-03.
 - [ ] **Add runtime validation for Anthropic TypedDict assignments** - `anthropic_processor.py:238` uses direct dict-to-TypedDict assignment after basic field validation. Consider adding runtime validation for production robustness. Reference: PR #169, 2026-02-03.
-
-- [ ] **llm_format_utils.py: Replace defensive fallbacks with exceptions** - Several places silently mask errors instead of failing fast. Reference: refactoring session 2026-01-26.
-  - `_convert_anthropic_image_block()` returns `None` for unknown source types - should raise
-  - `_categorize_content_blocks()` silently skips non-dict blocks (`if not isinstance(block, dict): continue`) - should raise
-  - `_convert_anthropic_message()` passes through unexpected content types (`if not isinstance(content, list)`) - should raise
-  - `_convert_anthropic_message()` returns error as message content for unknown block types - should raise instead
-  - `anthropic_to_openai_request()` defaults `messages` to `[]` via `.get()` but it's a required field - should use direct access
-  - `_convert_anthropic_image_block()` defaults missing `data`/`url` to empty string - should raise for missing required fields
-
 - [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks. (Niche use case - images pass through proxy correctly already)
-
 - [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety for buffered tool calls
 - [ ] **Policy API: Prevent common streaming mistakes** - Better base class defaults and helper functions
 - [ ] **Format blocked messages for readability** - Pretty-print JSON, proper line breaks
@@ -76,9 +61,6 @@
 
 ### Testing (Medium)
 
-- [x] **Fix Claude Code E2E tests failing with 401** - Fixed: changed `ANTHROPIC_AUTH_TOKEN` to `ANTHROPIC_API_KEY` in `run_claude_code()`. PR #174.
-- [x] **Fix test_claude_code_with_simple_noop_policy** - Fixed: SimplePolicy now returns `[delta, stop]` directly via multi-event interface. PR #174.
-- [x] **ToolCallJudgePolicy streaming limitation** - Fixed: `on_anthropic_stream_event` now returns `list[AnthropicStreamEvent]`, enabling multi-event emission. Blocked tool calls emit replacement text; allowed tool calls re-emit buffered events. PR #174.
 - [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
@@ -121,7 +103,10 @@
 - [ ] Implement adaptive timeout based on model type
 - [ ] Add policy composition (chaining multiple policies)
 - [ ] Expose database connection pooling configuration
+<<<<<<< chore/todo-cleanup
+=======
 - [x] Add cache headers to static files mount (1hr public cache via middleware)
+>>>>>>> main
 - [ ] Consider stricter pyright mode
 - [ ] Add degraded state reporting to /health endpoint
 - [ ] Minimize type: ignore flags
