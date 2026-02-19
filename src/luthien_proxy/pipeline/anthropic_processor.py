@@ -1,6 +1,3 @@
-# ABOUTME: Anthropic-native request processing pipeline
-# ABOUTME: Processes Anthropic requests through AnthropicPolicyInterface without format conversion
-
 """Anthropic-native request processing pipeline.
 
 This module provides a dedicated processing pipeline for Anthropic API requests,

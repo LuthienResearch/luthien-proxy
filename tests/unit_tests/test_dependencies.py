@@ -1,6 +1,3 @@
-# ABOUTME: Unit tests for Dependencies container and FastAPI dependency functions
-# ABOUTME: Tests DI container creation, lazy event_publisher, and Depends() functions
-
 """Tests for dependency injection module."""
 
 from __future__ import annotations
@@ -18,7 +15,6 @@ from luthien_proxy.dependencies import (
     get_api_key,
     get_db_pool,
     get_dependencies,
-    get_event_publisher,
     get_llm_client,
     get_policy,
     get_policy_manager,
@@ -26,7 +22,6 @@ from luthien_proxy.dependencies import (
 )
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import NullEventEmitter
-from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.utils import db
@@ -93,50 +88,6 @@ class TestDependenciesContainer:
         assert deps.db_pool is None
         assert deps.redis_client is None
         assert deps.admin_key is None
-
-    def test_event_publisher_derived_from_redis(self):
-        """Test that event_publisher is lazily created from redis_client."""
-        mock_redis = MagicMock(spec=Redis)
-        mock_llm = MockLLMClient()
-        mock_policy_manager = MagicMock(spec=PolicyManager)
-        mock_policy_manager.current_policy = NoOpPolicy()
-
-        deps = Dependencies(
-            db_pool=None,
-            redis_client=mock_redis,
-            llm_client=mock_llm,
-            policy_manager=mock_policy_manager,
-            emitter=NullEventEmitter(),
-            api_key="test-key",
-            admin_key=None,
-        )
-
-        # Access event_publisher - should be created lazily
-        publisher = deps.event_publisher
-        assert publisher is not None
-        assert isinstance(publisher, RedisEventPublisher)
-
-        # Should return same instance on subsequent access (cached_property)
-        publisher2 = deps.event_publisher
-        assert publisher is publisher2
-
-    def test_event_publisher_none_when_no_redis(self):
-        """Test that event_publisher is None when redis_client is None."""
-        mock_llm = MockLLMClient()
-        mock_policy_manager = MagicMock(spec=PolicyManager)
-        mock_policy_manager.current_policy = NoOpPolicy()
-
-        deps = Dependencies(
-            db_pool=None,
-            redis_client=None,
-            llm_client=mock_llm,
-            policy_manager=mock_policy_manager,
-            emitter=NullEventEmitter(),
-            api_key="test-key",
-            admin_key=None,
-        )
-
-        assert deps.event_publisher is None
 
     def test_policy_property_returns_current_policy(self):
         """Test that policy property returns current_policy from policy_manager."""
@@ -256,19 +207,6 @@ class TestFastAPIDependsFunctions:
             assert response.status_code == 200
             assert response.json()["has_llm"] is True
 
-    def test_get_event_publisher(self, app_with_dependencies):
-        """Test get_event_publisher returns event publisher."""
-        app, deps = app_with_dependencies
-
-        @app.get("/test")
-        def test_endpoint(publisher=Depends(get_event_publisher)):
-            return {"has_publisher": publisher is not None}
-
-        with TestClient(app) as client:
-            response = client.get("/test")
-            assert response.status_code == 200
-            assert response.json()["has_publisher"] is True
-
     def test_get_policy(self, app_with_dependencies):
         """Test get_policy returns current policy."""
         app, deps = app_with_dependencies
@@ -387,7 +325,3 @@ policy:
             assert deps.policy_manager is not None
             assert deps.api_key == "test-api-key"
             assert deps.admin_key == "test-admin-key"
-
-            # Verify event_publisher is derived correctly
-            assert deps.event_publisher is not None
-            assert isinstance(deps.event_publisher, RedisEventPublisher)

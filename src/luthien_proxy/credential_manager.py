@@ -337,14 +337,6 @@ class CredentialManager:
             await self._http_client.aclose()
             self._http_client = None
 
-    async def __aenter__(self) -> CredentialManager:
-        """Enter async context."""
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        """Clean up resources on context exit."""
-        await self.close()
-
 
 __all__ = [
     "AuthConfig",
