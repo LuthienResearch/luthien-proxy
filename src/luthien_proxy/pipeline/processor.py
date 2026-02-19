@@ -63,7 +63,6 @@ tracer = trace.get_tracer(__name__)
 
 async def process_llm_request(
     request: Request,
-    client_format: ClientFormat,
     policy: OpenAIPolicyInterface,
     llm_client: LLMClient,
     emitter: EventEmitterProtocol,
@@ -78,7 +77,6 @@ async def process_llm_request(
 
     Args:
         request: FastAPI request object
-        client_format: Format of the client request (kept for compatibility)
         policy: Policy implementing OpenAIPolicyInterface
         llm_client: Client for calling backend LLM
         emitter: Event emitter for observability
@@ -98,18 +96,14 @@ async def process_llm_request(
 
     call_id = str(uuid.uuid4())
 
-    # Derive endpoint path from client format for observability
-    endpoint = "/v1/messages" if client_format == ClientFormat.ANTHROPIC else "/v1/chat/completions"
-
     with tracer.start_as_current_span("transaction_processing") as root_span:
         root_span.set_attribute("luthien.transaction_id", call_id)
-        root_span.set_attribute("luthien.client_format", client_format.value)
-        root_span.set_attribute("luthien.endpoint", endpoint)
+        root_span.set_attribute("luthien.client_format", "openai")
+        root_span.set_attribute("luthien.endpoint", "/v1/chat/completions")
 
         # Phase 1: Process incoming request
         request_message, raw_http_request, session_id = await _process_request(
             request=request,
-            client_format=client_format,
             call_id=call_id,
             emitter=emitter,
         )
@@ -130,7 +124,7 @@ async def process_llm_request(
         )
         recorder = DefaultTransactionRecorder(transaction_id=call_id, emitter=emitter, session_id=session_id)
         policy_executor = PolicyExecutor(recorder=recorder)
-        client_formatter = _get_client_formatter(client_format, request_message.model)
+        client_formatter = _get_client_formatter(request_message.model)
 
         orchestrator = PolicyOrchestrator(
             policy=policy,
@@ -163,7 +157,6 @@ async def process_llm_request(
                 orchestrator=orchestrator,
                 policy_ctx=policy_ctx,
                 llm_client=llm_client,
-                client_format=client_format,
                 call_id=call_id,
                 root_span=root_span,
             )
@@ -173,7 +166,6 @@ async def process_llm_request(
                 orchestrator=orchestrator,
                 policy_ctx=policy_ctx,
                 llm_client=llm_client,
-                client_format=client_format,
                 emitter=emitter,
                 call_id=call_id,
             )
@@ -187,7 +179,6 @@ async def process_llm_request(
 
 async def _process_request(
     request: Request,
-    client_format: ClientFormat,
     call_id: str,
     emitter: EventEmitterProtocol,
 ) -> tuple[RequestMessage, RawHttpRequest, str | None]:
@@ -195,7 +186,6 @@ async def _process_request(
 
     Args:
         request: FastAPI request object
-        client_format: Client API format (kept for compatibility)
         call_id: Transaction ID
         emitter: Event emitter
 
@@ -243,9 +233,35 @@ async def _process_request(
         return request_message, raw_http_request, session_id
 
 
-def _get_client_formatter(client_format: ClientFormat, model_name: str) -> OpenAIClientFormatter:
+def _get_client_formatter(model_name: str) -> OpenAIClientFormatter:
     """Get the OpenAI client formatter."""
     return OpenAIClientFormatter(model_name=model_name)
+
+
+def _raise_backend_error(e: OpenAIAPIStatusError | OpenAIAPIConnectionError, call_id: str) -> None:
+    """Raise a BackendAPIError from an OpenAI SDK exception.
+
+    Raises:
+        BackendAPIError: Always raised with appropriate status code and error type
+    """
+    if isinstance(e, OpenAIAPIStatusError):
+        logger.warning(f"[{call_id}] Backend API error: {e.status_code} {e.message}")
+        raise BackendAPIError(
+            status_code=e.status_code or 500,
+            message=str(e.message),
+            error_type=map_litellm_error_type(e),
+            client_format=ClientFormat.OPENAI,
+            provider=getattr(e, "llm_provider", None),
+        ) from e
+
+    logger.warning(f"[{call_id}] Backend connection error: {e.message}")
+    raise BackendAPIError(
+        status_code=502,
+        message=str(e.message),
+        error_type="api_connection_error",
+        client_format=ClientFormat.OPENAI,
+        provider=getattr(e, "llm_provider", None),
+    ) from e
 
 
 async def _handle_streaming(
@@ -253,7 +269,6 @@ async def _handle_streaming(
     orchestrator: PolicyOrchestrator,
     policy_ctx: PolicyContext,
     llm_client: LLMClient,
-    client_format: ClientFormat,
     call_id: str,
     root_span: Span,
 ) -> FastAPIStreamingResponse:
@@ -274,23 +289,9 @@ async def _handle_streaming(
         try:
             backend_stream = await llm_client.stream(final_request)
         except OpenAIAPIStatusError as e:
-            logger.warning(f"[{call_id}] Backend API error: {e.status_code} {e.message}")
-            raise BackendAPIError(
-                status_code=e.status_code or 500,
-                message=str(e.message),
-                error_type=map_litellm_error_type(e),
-                client_format=client_format,
-                provider=getattr(e, "llm_provider", None),
-            ) from e
+            _raise_backend_error(e, call_id)
         except OpenAIAPIConnectionError as e:
-            logger.warning(f"[{call_id}] Backend connection error: {e.message}")
-            raise BackendAPIError(
-                status_code=502,
-                message=str(e.message),
-                error_type="api_connection_error",
-                client_format=client_format,
-                provider=getattr(e, "llm_provider", None),
-            ) from e
+            _raise_backend_error(e, call_id)
 
     # Create a wrapper generator that manages span context
     async def streaming_with_spans() -> AsyncIterator[str]:
@@ -333,7 +334,6 @@ async def _handle_non_streaming(
     orchestrator: PolicyOrchestrator,
     policy_ctx: PolicyContext,
     llm_client: LLMClient,
-    client_format: ClientFormat,
     emitter: EventEmitterProtocol,
     call_id: str,
 ) -> JSONResponse:
@@ -344,23 +344,9 @@ async def _handle_non_streaming(
         try:
             response: ModelResponse = await llm_client.complete(final_request)
         except OpenAIAPIStatusError as e:
-            logger.warning(f"[{call_id}] Backend API error: {e.status_code} {e.message}")
-            raise BackendAPIError(
-                status_code=e.status_code or 500,
-                message=str(e.message),
-                error_type=map_litellm_error_type(e),
-                client_format=client_format,
-                provider=getattr(e, "llm_provider", None),
-            ) from e
+            _raise_backend_error(e, call_id)
         except OpenAIAPIConnectionError as e:
-            logger.warning(f"[{call_id}] Backend connection error: {e.message}")
-            raise BackendAPIError(
-                status_code=502,
-                message=str(e.message),
-                error_type="api_connection_error",
-                client_format=client_format,
-                provider=getattr(e, "llm_provider", None),
-            ) from e
+            _raise_backend_error(e, call_id)
 
     # Phase 3: Process response through policy
     with tracer.start_as_current_span("process_response") as span:
