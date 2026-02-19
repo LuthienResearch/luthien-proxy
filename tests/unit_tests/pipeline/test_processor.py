@@ -9,7 +9,6 @@ from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
 from luthien_proxy.llm.types import Request as RequestMessage
-from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.processor import (
     _get_client_formatter,
     _handle_non_streaming,
@@ -63,18 +62,17 @@ class MockOpenAIPolicy(OpenAIPolicyInterface):
 class TestGetClientFormatter:
     """Tests for _get_client_formatter helper function."""
 
-    def test_returns_openai_formatter_for_openai_format(self):
-        """Test OpenAI format returns OpenAIClientFormatter."""
-        formatter = _get_client_formatter(ClientFormat.OPENAI, "gpt-4")
+    def test_returns_openai_formatter(self):
+        """Test returns OpenAIClientFormatter with correct model name."""
+        formatter = _get_client_formatter("gpt-4")
         assert isinstance(formatter, OpenAIClientFormatter)
         assert formatter.model_name == "gpt-4"
 
     def test_model_name_passed_correctly(self):
         """Test model name is correctly passed to formatter."""
         model_name = "custom-model-v1"
-        openai_formatter = _get_client_formatter(ClientFormat.OPENAI, model_name)
-
-        assert openai_formatter.model_name == model_name
+        formatter = _get_client_formatter(model_name)
+        assert formatter.model_name == model_name
 
 
 class TestProcessRequest:
@@ -119,7 +117,6 @@ class TestProcessRequest:
 
             request_message, raw_http_request, session_id = await _process_request(
                 request=mock_request,
-                client_format=ClientFormat.OPENAI,
                 call_id="test-call-id",
                 emitter=mock_emitter,
             )
@@ -145,7 +142,6 @@ class TestProcessRequest:
             with pytest.raises(HTTPException) as exc_info:
                 await _process_request(
                     request=mock_request,
-                    client_format=ClientFormat.OPENAI,
                     call_id="test-call-id",
                     emitter=mock_emitter,
                 )
@@ -169,7 +165,6 @@ class TestProcessRequest:
 
             request_message, _raw_http_request, _session_id = await _process_request(
                 request=mock_request,
-                client_format=ClientFormat.OPENAI,
                 call_id="test-call-id",
                 emitter=mock_emitter,
             )
@@ -239,7 +234,6 @@ class TestHandleNonStreaming:
                 orchestrator=mock_orchestrator,
                 policy_ctx=mock_policy_ctx,
                 llm_client=mock_llm_client,
-                client_format=ClientFormat.OPENAI,
                 emitter=mock_emitter,
                 call_id="test-call-id",
             )
@@ -299,7 +293,6 @@ class TestHandleStreaming:
                 orchestrator=mock_orchestrator,
                 policy_ctx=mock_policy_ctx,
                 llm_client=mock_llm_client,
-                client_format=ClientFormat.OPENAI,
                 call_id="test-call-id",
                 root_span=mock_root_span,
             )
@@ -371,7 +364,6 @@ class TestProcessLlmRequest:
 
             response = await process_llm_request(
                 request=mock_request,
-                client_format=ClientFormat.OPENAI,
                 policy=mock_policy,
                 llm_client=mock_llm_client,
                 emitter=mock_emitter,
@@ -404,7 +396,6 @@ class TestProcessLlmRequest:
 
             response = await process_llm_request(
                 request=mock_request,
-                client_format=ClientFormat.OPENAI,
                 policy=mock_policy,
                 llm_client=mock_llm_client,
                 emitter=mock_emitter,
@@ -426,7 +417,6 @@ class TestProcessLlmRequest:
             with pytest.raises(HTTPException) as exc_info:
                 await process_llm_request(
                     request=mock_request,
-                    client_format=ClientFormat.OPENAI,
                     policy=mock_policy,
                     llm_client=mock_llm_client,
                     emitter=mock_emitter,
@@ -451,7 +441,6 @@ class TestProcessLlmRequest:
 
             await process_llm_request(
                 request=mock_request,
-                client_format=ClientFormat.OPENAI,
                 policy=mock_policy,
                 llm_client=mock_llm_client,
                 emitter=mock_emitter,
@@ -483,7 +472,6 @@ class TestProcessLlmRequest:
 
             await process_llm_request(
                 request=mock_request,
-                client_format=ClientFormat.OPENAI,
                 policy=mock_policy,
                 llm_client=mock_llm_client,
                 emitter=mock_emitter,
@@ -491,37 +479,6 @@ class TestProcessLlmRequest:
 
         # Check that endpoint attribute was set to OpenAI endpoint
         mock_span.set_attribute.assert_any_call("luthien.endpoint", "/v1/chat/completions")
-
-    @pytest.mark.asyncio
-    async def test_endpoint_span_attribute_anthropic(self, mock_request, mock_policy, mock_llm_client, mock_emitter):
-        """Test that luthien.endpoint span attribute is set for Anthropic client format.
-
-        Note: processor.py no longer handles Anthropic format conversion (that's done in
-        anthropic_processor.py), but it still uses client_format for observability attributes.
-        """
-        # Use OpenAI-format body since processor.py only parses OpenAI format now
-        openai_body = {
-            "model": "gpt-4",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "stream": False,
-        }
-        mock_request.json = AsyncMock(return_value=openai_body)
-
-        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
-            mock_span = MagicMock()
-            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
-            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
-
-            await process_llm_request(
-                request=mock_request,
-                client_format=ClientFormat.ANTHROPIC,
-                policy=mock_policy,
-                llm_client=mock_llm_client,
-                emitter=mock_emitter,
-            )
-
-        # Check that endpoint attribute was set to Anthropic endpoint based on client_format
-        mock_span.set_attribute.assert_any_call("luthien.endpoint", "/v1/messages")
 
 
 class TestProcessRequestErrorHandling:
@@ -566,7 +523,6 @@ class TestProcessRequestErrorHandling:
             with pytest.raises(HTTPException) as exc_info:
                 await _process_request(
                     request=mock_request,
-                    client_format=ClientFormat.OPENAI,
                     call_id="test-call-id",
                     emitter=mock_emitter,
                 )

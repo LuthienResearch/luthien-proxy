@@ -1,5 +1,3 @@
-# ABOUTME: Abstract base class defining the Anthropic policy interface
-
 """Abstract base class defining the Anthropic policy interface.
 
 This module defines AnthropicPolicyInterface with hooks for:

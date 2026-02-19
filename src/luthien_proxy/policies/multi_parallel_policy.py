@@ -38,7 +38,7 @@ import copy
 import logging
 from typing import TYPE_CHECKING, Callable, TypeVar
 
-from luthien_proxy.policies.multi_policy_utils import load_sub_policy
+from luthien_proxy.policies.multi_policy_utils import load_sub_policy, validate_sub_policies_interface
 from luthien_proxy.policy_core import (
     AnthropicPolicyInterface,
     AnthropicStreamEvent,
@@ -160,20 +160,10 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         return f"MultiParallel[{self._strategy}]({', '.join(names)})"
 
     def _validate_interface(self, interface: type, interface_name: str) -> None:
-        """Raise TypeError if any sub-policy doesn't implement the required interface.
-
-        Results are cached per interface type since sub-policies are immutable after init.
-        """
-        if interface in self._validated_interfaces:
-            return
-        for policy in self._sub_policies:
-            if not isinstance(policy, interface):
-                raise TypeError(
-                    f"Policy '{policy.short_policy_name}' ({type(policy).__name__}) does not implement "
-                    f"{interface_name}, but MultiParallelPolicy received a {interface_name} call. "
-                    f"All sub-policies must implement the interface being called."
-                )
-        self._validated_interfaces.add(interface)
+        """Raise TypeError if any sub-policy doesn't implement the required interface."""
+        validate_sub_policies_interface(
+            self._sub_policies, self._validated_interfaces, interface, interface_name, "MultiParallelPolicy"
+        )
 
     # =========================================================================
     # OpenAI Interface - Non-streaming

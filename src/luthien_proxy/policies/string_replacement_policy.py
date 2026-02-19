@@ -256,21 +256,13 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicy
     async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
         """Push non-content chunks immediately; content is handled in on_content_complete."""
         last_chunk: "ModelResponse" = ctx.last_chunk_received
-        if not last_chunk.choices:
-            ctx.push_chunk(last_chunk)
-            return
-
-        choice = last_chunk.choices[0]
-        streaming_choice = cast(StreamingChoices, choice)
-        if not hasattr(streaming_choice, "delta") or streaming_choice.delta is None:
-            ctx.push_chunk(last_chunk)
-            return
 
         # Content deltas are buffered and emitted in on_content_complete
-        if streaming_choice.delta.content is not None:
-            return
+        if last_chunk.choices:
+            delta = cast(StreamingChoices, last_chunk.choices[0]).delta
+            if delta is not None and delta.content is not None:
+                return
 
-        # All other chunks (tool calls, finish reasons, etc.) pass through
         ctx.push_chunk(last_chunk)
 
     async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:

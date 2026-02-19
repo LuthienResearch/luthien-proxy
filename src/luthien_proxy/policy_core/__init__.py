@@ -28,9 +28,7 @@ from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.policy_core.response_utils import (
-    chunk_contains_tool_call,
     extract_tool_calls_from_response,
-    is_tool_call_complete,
 )
 from luthien_proxy.policy_core.streaming_policy_context import (
     StreamingPolicyContext,
@@ -54,6 +52,4 @@ __all__ = [
     "create_tool_call_chunk",
     # Response utilities
     "extract_tool_calls_from_response",
-    "chunk_contains_tool_call",
-    "is_tool_call_complete",
 ]

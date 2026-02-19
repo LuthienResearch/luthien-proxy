@@ -10,13 +10,16 @@ These functions are designed to be easily testable without FastAPI dependencies.
 
 from __future__ import annotations
 
+import json
+import logging
 import urllib.parse
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from luthien_proxy.utils.db import DatabasePool
 
+from luthien_proxy.history.service import extract_text_content
 from luthien_proxy.settings import get_settings
 
 from .models import (
@@ -30,7 +33,17 @@ from .models import (
     ResponseDiff,
 )
 
-# === URL Building ===
+logger = logging.getLogger(__name__)
+
+
+def _parse_payload(raw: object) -> dict[str, Any]:
+    """Parse a JSONB payload from asyncpg (may arrive as dict or str)."""
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        return json.loads(raw)  # type: ignore[no-any-return]
+    logger.warning("Unexpected payload type from database: %s", type(raw).__name__)
+    return {}
 
 
 def build_tempo_url(call_id: str, tempo_url: str | None = None) -> str:
@@ -50,35 +63,12 @@ def build_tempo_url(call_id: str, tempo_url: str | None = None) -> str:
     return f"{tempo_url}/api/search?q={encoded_query}"
 
 
-# === Message Content Extraction ===
-
-
 def extract_message_content(msg: dict[str, Any]) -> str:
     """Extract text content from a message dict.
 
-    Handles both simple string content and structured content blocks
-    (e.g., Anthropic format with type: "text" blocks).
-
-    Args:
-        msg: Message dictionary with 'content' field
-
-    Returns:
-        Extracted text content as string
+    Delegates to the shared _extract_text_content for content block parsing.
     """
-    content = msg.get("content", "")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        # Handle content blocks (e.g., Anthropic format)
-        text_parts = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text_parts.append(block.get("text", ""))
-        return " ".join(text_parts)
-    return str(content)
-
-
-# === Diff Computation ===
+    return extract_text_content(msg.get("content", ""))
 
 
 def compute_request_diff(original: dict[str, Any], final: dict[str, Any]) -> RequestDiff:
@@ -191,9 +181,6 @@ def compute_response_diff(original: dict[str, Any], final: dict[str, Any]) -> Re
     )
 
 
-# === Event Fetching ===
-
-
 async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsResponse:
     """Fetch all conversation events for a call from database.
 
@@ -233,11 +220,9 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
         ConversationEventResponse(
             call_id=str(row["call_id"]),
             event_type=str(row["event_type"]),
-            timestamp=row["created_at"].isoformat()  # type: ignore[union-attr]
-            if isinstance(row["created_at"], datetime)
-            else str(row["created_at"]),
+            timestamp=cast(datetime, row["created_at"]).isoformat(),
             hook="",  # Not stored in schema
-            payload=dict(row["payload"]) if isinstance(row["payload"], dict) else {},  # type: ignore[arg-type]
+            payload=_parse_payload(row["payload"]),
             session_id=str(row["session_id"]) if row["session_id"] else None,
         )
         for row in rows
@@ -285,8 +270,8 @@ async def fetch_call_diff(call_id: str, db_pool: DatabasePool) -> CallDiffRespon
 
     for row in rows:
         event_type = str(row["event_type"])
-        payload = row["payload"]
-        if not isinstance(payload, dict):
+        payload = _parse_payload(row["payload"])
+        if not payload:
             continue
 
         if event_type == "v2_request":
@@ -350,9 +335,7 @@ async def fetch_recent_calls(limit: int, db_pool: DatabasePool) -> CallListRespo
         CallListItem(
             call_id=str(row["call_id"]),
             event_count=int(row["event_count"]),  # type: ignore[arg-type]
-            latest_timestamp=row["latest"].isoformat()  # type: ignore[union-attr]
-            if isinstance(row["latest"], datetime)
-            else str(row["latest"]),
+            latest_timestamp=cast(datetime, row["latest"]).isoformat(),
             session_id=str(row["session_id"]) if row["session_id"] else None,
         )
         for row in rows

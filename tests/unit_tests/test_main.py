@@ -181,7 +181,6 @@ class TestCreateApp:
             assert deps.policy_manager is not None
             assert deps.db_pool == mock_db_pool
             assert deps.redis_client == mock_redis_client
-            assert deps.event_publisher is not None
             assert deps.llm_client is not None
 
         # create_app does NOT close db_pool/redis_client - caller owns them

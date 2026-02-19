@@ -64,7 +64,7 @@ class TestExtractMessageContent:
             ({}, ""),
             (
                 {"content": [{"type": "text", "text": "First"}, {"type": "text", "text": "Second"}]},
-                "First Second",
+                "First\nSecond",
             ),
             (
                 {"content": [{"type": "text", "text": "Text"}, {"type": "image", "url": "http://..."}]},

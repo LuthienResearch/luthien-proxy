@@ -40,7 +40,6 @@ def app(mock_control_plane):
 
     Sets app.state dependencies to None to ensure no external I/O occurs:
     - db_pool=None: emit_request_event/emit_response_event return early
-    - event_publisher=None: publish_event calls are skipped
     - redis_client=None: no Redis operations occur
     """
     app = FastAPI()
@@ -49,7 +48,6 @@ def app(mock_control_plane):
     app.state.api_key = "test-api-key"
     app.state.control_plane = mock_control_plane
     app.state.db_pool = None
-    app.state.event_publisher = None
     app.state.redis_client = None
 
     return app

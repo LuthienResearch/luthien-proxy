@@ -46,8 +46,7 @@ class Settings(BaseSettings):
 
     # OpenTelemetry / Observability
     otel_enabled: bool = True
-    otel_exporter_otlp_endpoint: str | None = None
-    otel_endpoint: str = "http://tempo:4317"  # Legacy fallback
+    otel_exporter_otlp_endpoint: str = "http://tempo:4317"
     tempo_url: str = "http://localhost:3200"
     service_name: str = "luthien-proxy"
     service_version: str = "2.0.0"
@@ -58,15 +57,6 @@ class Settings(BaseSettings):
     llm_judge_api_base: str | None = None
     llm_judge_api_key: str | None = None
     litellm_master_key: str | None = None
-
-    @property
-    def effective_otel_endpoint(self) -> str:
-        """Return the effective OTEL endpoint.
-
-        Prefers the standard OTEL_EXPORTER_OTLP_ENDPOINT env var over the
-        legacy OTEL_ENDPOINT for backward compatibility.
-        """
-        return self.otel_exporter_otlp_endpoint or self.otel_endpoint
 
 
 @lru_cache

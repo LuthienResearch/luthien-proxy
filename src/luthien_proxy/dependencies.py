@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from functools import cached_property
 
 from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
@@ -12,7 +11,6 @@ from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
-from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_manager import PolicyManager
@@ -37,17 +35,6 @@ class Dependencies:
     admin_key: str | None
     anthropic_client: AnthropicClient | None = field(default=None)
     credential_manager: CredentialManager | None = field(default=None)
-
-    @cached_property
-    def event_publisher(self) -> RedisEventPublisher | None:
-        """Get or create event publisher from redis client.
-
-        The event publisher is derived from the redis_client, so we only
-        need to store one and create the other lazily.
-        """
-        if self.redis_client is None:
-            return None
-        return RedisEventPublisher(self.redis_client)
 
     @property
     def policy(self) -> OpenAIPolicyInterface:
@@ -150,18 +137,6 @@ def get_llm_client(request: Request) -> LLMClient:
         LLM client instance
     """
     return get_dependencies(request).llm_client
-
-
-def get_event_publisher(request: Request) -> RedisEventPublisher | None:
-    """Get event publisher from dependencies.
-
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        Event publisher or None if Redis not connected
-    """
-    return get_dependencies(request).event_publisher
 
 
 def get_emitter(request: Request) -> EventEmitterProtocol:
@@ -272,7 +247,6 @@ __all__ = [
     "get_redis_client",
     "get_llm_client",
     "get_emitter",
-    "get_event_publisher",
     "get_policy",
     "get_policy_manager",
     "get_api_key",

@@ -23,25 +23,15 @@ from luthien_proxy.utils import db, redis_client
 
 logger = logging.getLogger(__name__)
 
-# ============================================================================
-# Models
-# ============================================================================
-
 
 class ConversationEvent(BaseModel):
     """Normalized conversation event (request or response)."""
 
     call_id: str
-    trace_id: str | None = None  # Deprecated, always None
     event_type: Literal["request", "response"]
     timestamp: datetime
     hook: str  # Source hook that created this event
     payload: JSONObject = Field(default_factory=dict)
-
-
-# ============================================================================
-# Task Queue for Background Persistence
-# ============================================================================
 
 
 class SequentialTaskQueue:
@@ -80,18 +70,11 @@ class SequentialTaskQueue:
 CONVERSATION_EVENT_QUEUE = SequentialTaskQueue("conversation_events")
 
 
-# ============================================================================
-# Event Building
-# ============================================================================
-
-
 def build_conversation_events(
     hook: str,
     call_id: str | None,
-    trace_id: str | None,  # noqa: ARG001
     original: JSONValue | None,
     result: JSONValue | None,
-    timestamp_ns_fallback: int,  # noqa: ARG001
     timestamp: datetime,
 ) -> list[ConversationEvent]:
     """Translate a hook invocation request/response into conversation events.
@@ -99,10 +82,8 @@ def build_conversation_events(
     Args:
         hook: Hook name identifying the event source
         call_id: Unique identifier for the request/response pair
-        trace_id: Deprecated, unused
         original: Original (pre-policy) data
         result: Final (post-policy) data
-        timestamp_ns_fallback: Deprecated, unused (ordering now by timestamp)
         timestamp: Event timestamp as datetime
 
     Returns:
@@ -159,7 +140,6 @@ def build_conversation_events(
         events.append(
             ConversationEvent(
                 call_id=call_id,
-                trace_id=None,
                 event_type="request",
                 timestamp=timestamp,
                 hook=hook,
@@ -193,7 +173,6 @@ def build_conversation_events(
         events.append(
             ConversationEvent(
                 call_id=call_id,
-                trace_id=None,
                 event_type="response",
                 timestamp=timestamp,
                 hook=hook,
@@ -203,11 +182,6 @@ def build_conversation_events(
         return events
 
     return events
-
-
-# ============================================================================
-# Database Persistence
-# ============================================================================
 
 
 async def record_conversation_events(
@@ -299,11 +273,6 @@ async def _insert_event_row(conn: db.ConnectionProtocol, event: ConversationEven
         json.dumps(event.payload),
         timestamp_naive,
     )
-
-
-# ============================================================================
-# Redis Publishing for Real-Time Monitoring
-# ============================================================================
 
 
 async def publish_conversation_event(

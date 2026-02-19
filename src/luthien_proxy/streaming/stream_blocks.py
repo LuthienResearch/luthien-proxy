@@ -1,7 +1,4 @@
-"""ABOUTME: Stream block types for aggregating streaming response chunks.
-
-ABOUTME: Defines ContentStreamBlock and ToolCallStreamBlock for sequential streaming.
-"""
+"""Stream block types for aggregating streaming response chunks."""
 
 from __future__ import annotations
 

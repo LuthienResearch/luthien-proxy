@@ -12,8 +12,7 @@ from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.observability.transaction_recorder import NoOpTransactionRecorder
 from luthien_proxy.policies import PolicyContext
-from luthien_proxy.streaming.policy_executor import PolicyExecutor
-from luthien_proxy.streaming.policy_executor.interface import PolicyTimeoutError
+from luthien_proxy.streaming.policy_executor import PolicyExecutor, PolicyTimeoutError
 
 
 class TestPolicyExecutor:

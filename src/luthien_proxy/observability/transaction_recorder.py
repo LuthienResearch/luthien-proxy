@@ -109,6 +109,10 @@ class DefaultTransactionRecorder(TransactionRecorder):
         self._max_chunks_queued = max_chunks_queued
         self._session_id = session_id
 
+        meter = metrics.get_meter(__name__)
+        self._ingress_counter = meter.create_counter("response.chunks.ingress")
+        self._egress_counter = meter.create_counter("response.chunks.egress")
+
     async def record_request(self, original: Request, final: Request) -> None:
         """Record request via injected emitter."""
         self._emitter.record(
@@ -194,14 +198,11 @@ class DefaultTransactionRecorder(TransactionRecorder):
             },
         )
 
-        # Record chunk counts as OTel metrics
-        meter = metrics.get_meter(__name__)
-        ingress_counter = meter.create_counter("response.chunks.ingress")
-        egress_counter = meter.create_counter("response.chunks.egress")
-        ingress_counter.add(len(self._ingress_chunks))
-        egress_counter.add(len(self._egress_chunks))
+        self._ingress_counter.add(len(self._ingress_chunks))
+        self._egress_counter.add(len(self._egress_chunks))
 
     def _get_finish_reason(self, response: ModelResponse) -> str | None:
         """Extract finish_reason from response."""
-        choices = response.model_dump().get("choices", [])
-        return choices[0].get("finish_reason") if choices else None
+        if not response.choices:
+            return None
+        return response.choices[0].finish_reason

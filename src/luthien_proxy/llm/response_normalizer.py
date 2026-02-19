@@ -79,19 +79,4 @@ async def normalize_stream(
         yield normalize_chunk(chunk)
 
 
-def normalize_response(response: ModelResponse) -> ModelResponse:
-    """Normalize a non-streaming response.
-
-    Currently a passthrough since non-streaming responses use Message not Delta.
-    Included for completeness and future compatibility.
-
-    Args:
-        response: Raw ModelResponse from litellm
-
-    Returns:
-        Normalized ModelResponse
-    """
-    return response
-
-
-__all__ = ["normalize_chunk", "normalize_chunk_with_finish_reason", "normalize_stream", "normalize_response"]
+__all__ = ["normalize_chunk", "normalize_chunk_with_finish_reason", "normalize_stream"]

@@ -61,19 +61,6 @@ def get_pool_factory() -> PoolFactory:
     return _pool_factory
 
 
-async def open_connection(connect: ConnectFn | None = None, url: str | None = None) -> ConnectionProtocol:
-    """Open a database connection using the provided connector."""
-    if url is None:
-        raise RuntimeError("Database URL must be provided")
-    connector = connect or get_connector()
-    return await connector(url)
-
-
-async def close_connection(conn: ConnectionProtocol) -> None:
-    """Close a database connection."""
-    await conn.close()
-
-
 async def create_pool(
     factory: PoolFactory | None = None,
     url: str | None = None,
@@ -140,8 +127,6 @@ __all__ = [
     "PoolFactory",
     "get_connector",
     "get_pool_factory",
-    "open_connection",
-    "close_connection",
     "create_pool",
     "DatabasePool",
 ]

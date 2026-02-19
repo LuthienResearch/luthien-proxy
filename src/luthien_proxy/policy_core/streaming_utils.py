@@ -1,7 +1,4 @@
-"""Helper functions for policies to manipulate streaming responses.
-
-Provides send_text, send_chunk, passthrough functions for easy policy authoring.
-"""
+"""Helper functions for policies to manipulate streaming responses."""
 
 from __future__ import annotations
 
@@ -38,27 +35,6 @@ def get_last_ingress_chunk(ctx: StreamingPolicyContext) -> ModelResponse | None:
     return chunks[-1] if chunks else None
 
 
-async def passthrough_last_chunk(ctx: StreamingPolicyContext) -> None:
-    """Passthrough most recent ingress chunk to egress."""
-    chunk = get_last_ingress_chunk(ctx)
-    if chunk:
-        await send_chunk(ctx, chunk)
-
-
-async def passthrough_accumulated_chunks(ctx: StreamingPolicyContext) -> None:
-    """Emit all chunks buffered since last emission.
-
-    Preserves original chunk timing when content unchanged.
-    """
-    start_idx = ctx.original_streaming_response_state.last_emission_index
-    chunks = ctx.original_streaming_response_state.raw_chunks[start_idx:]
-
-    for chunk in chunks:
-        await send_chunk(ctx, chunk)
-
-    ctx.original_streaming_response_state.last_emission_index = len(ctx.original_streaming_response_state.raw_chunks)
-
-
 async def send_tool_call(ctx: StreamingPolicyContext, tool_call: ToolCall) -> None:
     """Send complete tool call as chunk."""
     chunk = create_tool_call_chunk(tool_call)
@@ -69,7 +45,5 @@ __all__ = [
     "send_text",
     "send_chunk",
     "get_last_ingress_chunk",
-    "passthrough_last_chunk",
-    "passthrough_accumulated_chunks",
     "send_tool_call",
 ]

@@ -1,5 +1,3 @@
-# ABOUTME: Base class for all policies providing common functionality
-
 """Base class for all policies.
 
 This module provides the minimal base class that all policies inherit from,

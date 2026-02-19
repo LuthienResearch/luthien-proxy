@@ -54,7 +54,6 @@ class TestSettingsDefaults:
         for var in [
             "PROXY_API_KEY",
             "ADMIN_API_KEY",
-            "OTEL_EXPORTER_OTLP_ENDPOINT",
             "LLM_JUDGE_MODEL",
             "LLM_JUDGE_API_BASE",
             "LLM_JUDGE_API_KEY",
@@ -64,7 +63,6 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.proxy_api_key is None
         assert settings.admin_api_key is None
-        assert settings.otel_exporter_otlp_endpoint is None
         assert settings.llm_judge_model is None
         assert settings.llm_judge_api_base is None
         assert settings.llm_judge_api_key is None
@@ -117,32 +115,20 @@ class TestSettingsFromEnv:
         assert settings.tempo_url == "http://tempo.prod:3200"
 
 
-class TestEffectiveOtelEndpoint:
-    """Test the effective_otel_endpoint property.
+class TestOtelExporterEndpoint:
+    """Test the otel_exporter_otlp_endpoint setting."""
 
-    These tests use _env_file=None to bypass .env file loading and test
-    the property logic in isolation.
-    """
-
-    def test_uses_standard_endpoint_when_set(self, monkeypatch):
-        """Test OTEL_EXPORTER_OTLP_ENDPOINT takes precedence."""
+    def test_uses_env_var_when_set(self, monkeypatch):
+        """Test OTEL_EXPORTER_OTLP_ENDPOINT is loaded from environment."""
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://custom:4317")
         settings = Settings(_env_file=None)
-        assert settings.effective_otel_endpoint == "http://custom:4317"
+        assert settings.otel_exporter_otlp_endpoint == "http://custom:4317"
 
-    def test_falls_back_to_legacy_endpoint(self, monkeypatch):
-        """Test falls back to OTEL_ENDPOINT when standard not set."""
+    def test_uses_default_when_not_set(self, monkeypatch):
+        """Test uses default when env var not set."""
         monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
-        monkeypatch.setenv("OTEL_ENDPOINT", "http://legacy:4317")
         settings = Settings(_env_file=None)
-        assert settings.effective_otel_endpoint == "http://legacy:4317"
-
-    def test_uses_default_when_neither_set(self, monkeypatch):
-        """Test uses default OTEL_ENDPOINT when neither env var set."""
-        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
-        monkeypatch.delenv("OTEL_ENDPOINT", raising=False)
-        settings = Settings(_env_file=None)
-        assert settings.effective_otel_endpoint == "http://tempo:4317"
+        assert settings.otel_exporter_otlp_endpoint == "http://tempo:4317"
 
 
 class TestSettingsCache:

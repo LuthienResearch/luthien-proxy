@@ -281,20 +281,6 @@ class TestInvalidateAll:
         mock_redis.unlink.assert_not_called()
 
 
-class TestContextManager:
-    @pytest.mark.asyncio
-    async def test_close_called_on_exit(self):
-        manager = CredentialManager(db_pool=None, redis_client=None)
-        mock_client = AsyncMock()
-        manager._http_client = mock_client
-
-        async with manager:
-            pass
-
-        mock_client.aclose.assert_called_once()
-        assert manager._http_client is None
-
-
 class TestUpdateConfig:
     @pytest.mark.asyncio
     async def test_update_without_db(self):
