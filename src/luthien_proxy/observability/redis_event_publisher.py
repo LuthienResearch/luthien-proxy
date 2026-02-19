@@ -15,7 +15,7 @@ import json
 import logging
 import time
 from datetime import UTC, datetime
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, cast
 
 import redis.asyncio as redis
 from redis.asyncio.client import PubSub
@@ -137,8 +137,7 @@ def _format_sse_payload(payload: str) -> str:
 
 def _decode_payload(message: dict[str, Any]) -> str:
     payload = message["data"]
-    assert isinstance(payload, bytes), f"Expected bytes from Redis pub/sub, got {type(payload)}"
-    return payload.decode("utf-8")
+    return cast(bytes, payload).decode("utf-8")
 
 
 async def _poll_pubsub_message(pubsub: PubSub, timeout_seconds: float) -> dict[str, Any] | None:
