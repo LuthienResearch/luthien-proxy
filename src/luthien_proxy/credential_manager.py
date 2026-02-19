@@ -29,7 +29,7 @@ ANTHROPIC_BETA = "token-counting-2024-11-01"
 
 # Minimal payload for credential validation (free endpoint)
 VALIDATION_PAYLOAD = {
-    "model": "claude-3-5-haiku-20241022",
+    "model": "claude-3-haiku-20240307",
     "messages": [{"role": "user", "content": "hi"}],
 }
 
