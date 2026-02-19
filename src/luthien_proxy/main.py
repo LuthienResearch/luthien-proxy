@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from redis.asyncio import Redis
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
 from luthien_proxy.credential_manager import CredentialManager
@@ -165,6 +166,16 @@ def create_app(
     # Mount static files for activity monitor UI
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+    # Add cache headers to static file responses
+    class StaticCacheMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response = await call_next(request)
+            if request.url.path.startswith("/static/"):
+                response.headers["Cache-Control"] = "public, max-age=3600"
+            return response
+
+    app.add_middleware(StaticCacheMiddleware)
 
     # Include routers
     app.include_router(gateway_router)  # /v1/chat/completions, /v1/messages (PolicyOrchestrator)
