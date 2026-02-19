@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
-from luthien_proxy.auth import verify_admin_token
+from luthien_proxy.auth import get_base_url, verify_admin_token
 from luthien_proxy.config import _import_policy_class
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.dependencies import get_policy_manager, require_credential_manager
@@ -309,13 +309,7 @@ async def send_chat(
             model=body.model,
         )
 
-    # Build the base URL from the incoming request.
-    # Behind reverse proxies (Railway, Heroku, etc.), the internal request uses HTTP
-    # but the proxy handles HTTPS. We check X-Forwarded-Proto to use the correct scheme.
-    base_url = str(request.base_url).rstrip("/")
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    if forwarded_proto == "https" and base_url.startswith("http://"):
-        base_url = "https://" + base_url[7:]
+    base_url = get_base_url(request)
 
     # Build OpenAI-format request payload
     payload = {

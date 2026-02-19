@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from luthien_proxy.utils.db import DatabasePool
 
+from luthien_proxy.history.service import extract_text_content
 from luthien_proxy.settings import get_settings
 
 from .models import (
@@ -50,26 +51,9 @@ def build_tempo_url(call_id: str, tempo_url: str | None = None) -> str:
 def extract_message_content(msg: dict[str, Any]) -> str:
     """Extract text content from a message dict.
 
-    Handles both simple string content and structured content blocks
-    (e.g., Anthropic format with type: "text" blocks).
-
-    Args:
-        msg: Message dictionary with 'content' field
-
-    Returns:
-        Extracted text content as string
+    Delegates to the shared _extract_text_content for content block parsing.
     """
-    content = msg.get("content", "")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        # Handle content blocks (e.g., Anthropic format)
-        text_parts = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text_parts.append(block.get("text", ""))
-        return " ".join(text_parts)
-    return str(content)
+    return extract_text_content(msg.get("content", ""))
 
 
 def compute_request_diff(original: dict[str, Any], final: dict[str, Any]) -> RequestDiff:

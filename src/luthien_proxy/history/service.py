@@ -69,7 +69,7 @@ def _get_event_summary(event_type: str, payload: dict[str, Any] | None) -> str:
     return _EVENT_TYPE_DESCRIPTIONS.get(event_type, event_type)
 
 
-def _extract_text_content(content: str | list[dict[str, Any]] | None) -> str:
+def extract_text_content(content: str | list[dict[str, Any]] | None) -> str:
     """Extract text from message content.
 
     Args:
@@ -91,7 +91,7 @@ def _extract_text_content(content: str | list[dict[str, Any]] | None) -> str:
         elif block.get("type") == "tool_result":
             result_content = block.get("content")
             if result_content is not None:
-                parts.append(_extract_text_content(result_content))
+                parts.append(extract_text_content(result_content))
         # Skip tool_use (handled by _extract_tool_calls) and other block types
     return "\n".join(parts)
 
@@ -167,7 +167,7 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
         if msg_type == MessageType.UNKNOWN:
             raise ValueError(f"Unrecognized message role: '{role}'")
 
-        content = _extract_text_content(msg.get("content"))
+        content = extract_text_content(msg.get("content"))
 
         # For tool results, include the tool_call_id
         tool_call_id = msg.get("tool_call_id") if msg_type == MessageType.TOOL_RESULT else None
@@ -208,7 +208,7 @@ def _parse_response_messages(response: dict[str, Any]) -> list[ConversationMessa
         if msg is None:
             continue
 
-        content = _extract_text_content(msg.get("content"))
+        content = extract_text_content(msg.get("content"))
 
         # Add the main assistant message if there's text content
         if content:
@@ -260,7 +260,7 @@ def _extract_preview_message(payload: Any) -> str | None:
         if not isinstance(msg, dict):
             continue
         if msg.get("role") == "user":
-            content = _extract_text_content(msg.get("content"))
+            content = extract_text_content(msg.get("content"))
             if content:
                 # Truncate and clean up for display
                 content = content.strip()
@@ -640,6 +640,7 @@ def _format_message_markdown(msg: ConversationMessage) -> str:
 
 
 __all__ = [
+    "extract_text_content",
     "fetch_session_list",
     "fetch_session_detail",
     "export_session_markdown",

@@ -19,12 +19,12 @@ from luthien_proxy.history.models import (
 from luthien_proxy.history.service import (
     _build_turn,
     _extract_preview_message,
-    _extract_text_content,
     _extract_tool_calls,
     _parse_request_messages,
     _parse_response_messages,
     _safe_parse_json,
     export_session_markdown,
+    extract_text_content,
     fetch_session_detail,
     fetch_session_list,
 )
@@ -47,7 +47,7 @@ class TestExtractTextContent:
     )
     def test_extract_content(self, content, expected):
         """Test extracting content from various formats."""
-        assert _extract_text_content(content) == expected
+        assert extract_text_content(content) == expected
 
 
 class TestExtractPreviewMessage:
