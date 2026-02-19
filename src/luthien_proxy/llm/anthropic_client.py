@@ -44,10 +44,6 @@ class AnthropicClient:
             auth_token: OAuth/bearer token (sent as Authorization: Bearer header).
             base_url: Optional custom base URL for the API.
         """
-        has_key = api_key is not None
-        has_token = auth_token is not None
-        assert has_key != has_token, "Exactly one of api_key or auth_token is required"
-
         self._base_url = base_url
         kwargs: dict = {}
         if api_key is not None:
