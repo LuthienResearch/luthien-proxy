@@ -218,6 +218,16 @@ if stream_state.finish_reason:
 - **Right**: Use parallel simple arrays, positional parameters (`set --`), or `eval` for indirect variable access
 - **Affected**: `scripts/find-available-ports.sh`
 
+## Anthropic API Rejects Duplicate Tool Names (2026-02-19)
+
+**Gotcha**: Anthropic API returns `"tools: Tool names must be unique"` (400) when a request contains duplicate tool definitions. OpenAI silently accepts duplicates.
+
+**When it happens**: Claude Code's `/compact` re-sends conversation context that can include the same tool definitions multiple times. Without deduplication, the proxy forwards these duplicates and Anthropic rejects them.
+
+**Fix**: `_deduplicate_tools()` in `anthropic_client.py` drops duplicate tool names (keeping first occurrence) in `_prepare_request_kwargs()`, the last stop before the SDK call. This catches all code paths regardless of policy.
+
+**PR**: [#208](https://github.com/LuthienResearch/luthien-proxy/pull/208)
+
 ## asyncpg JSONB Columns Can Return str or dict (2026-02-19)
 
 **Gotcha**: asyncpg may return JSONB columns as either `dict` or `str`, depending on connection settings and PostgreSQL version. Code that assumes `isinstance(payload, dict)` will silently drop str payloads.
