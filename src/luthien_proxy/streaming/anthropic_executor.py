@@ -42,9 +42,9 @@ class AnthropicStreamExecutor:
             Events that should be sent to the client (filtered and/or transformed)
         """
         with tracer.start_as_current_span("anthropic.stream_executor") as span:
-            span.set_attribute("policy.class", policy.__class__.__name__)
-            # short_policy_name comes from BasePolicy, not the interface
-            span.set_attribute("policy.name", getattr(policy, "short_policy_name", policy.__class__.__name__))
+            policy_name = policy.__class__.__name__
+            span.set_attribute("policy.class", policy_name)
+            span.set_attribute("policy.name", policy_name)
             event_count = 0
             yielded_count = 0
 

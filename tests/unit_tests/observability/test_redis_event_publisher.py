@@ -293,8 +293,8 @@ class TestStreamActivityEvents:
         assert chunks[0] == "data: test message bytes\n\n"
 
     @pytest.mark.asyncio
-    async def test_handles_string_data(self) -> None:
-        """Test that string data is properly handled."""
+    async def test_rejects_non_bytes_data(self) -> None:
+        """String payloads from Redis pub/sub are rejected (Redis always sends bytes)."""
         redis = FakeRedis()
         redis.messages = [{"type": "message", "data": "test message string"}]
 
@@ -303,7 +303,8 @@ class TestStreamActivityEvents:
             chunks.append(chunk)
             break
 
-        assert chunks[0] == "data: test message string\n\n"
+        # Should get an error event since string payloads trigger assertion
+        assert "error" in chunks[0]
 
     @pytest.mark.asyncio
     async def test_sends_heartbeat_when_no_messages(self) -> None:
