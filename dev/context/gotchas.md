@@ -202,6 +202,16 @@ if stream_state.finish_reason:
 
 **Related TODO item**: Add security documentation for dynamic policy loading.
 
+## Anthropic API Rejects Duplicate Tool Names (2026-02-19)
+
+**Gotcha**: Anthropic API returns `"tools: Tool names must be unique"` (400) when a request contains duplicate tool definitions. OpenAI silently accepts duplicates.
+
+**When it happens**: Claude Code's `/compact` re-sends conversation context that can include the same tool definitions multiple times. Without deduplication, the proxy forwards these duplicates and Anthropic rejects them.
+
+**Fix**: `_deduplicate_tools()` in `anthropic_client.py` drops duplicate tool names (keeping first occurrence) in `_prepare_request_kwargs()`, the last stop before the SDK call. This catches all code paths regardless of policy.
+
+**PR**: [#208](https://github.com/LuthienResearch/luthien-proxy/pull/208)
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
