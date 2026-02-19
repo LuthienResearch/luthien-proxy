@@ -36,7 +36,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING, Callable, TypeVar, cast
 
 from luthien_proxy.policies.multi_policy_utils import load_sub_policy, validate_sub_policies_interface
 from luthien_proxy.policy_core import (
@@ -214,8 +214,8 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     ) -> T:
         """Pick the winning value based on the configured consolidation strategy."""
         if self._strategy == "designated":
-            assert self._designated_policy_index is not None
-            designated = results[self._designated_policy_index]
+            designated_index = cast(int, self._designated_policy_index)
+            designated = results[designated_index]
             return designated if designated != original else original
 
         modified = [r for r in results if r != original]
