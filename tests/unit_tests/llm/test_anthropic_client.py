@@ -18,7 +18,7 @@ from anthropic.types import (
 )
 from anthropic.types.raw_message_delta_event import Delta
 
-from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.anthropic_client import AnthropicClient, _deduplicate_tools
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
 
@@ -324,3 +324,80 @@ class TestAnthropicClientStream:
                 text_deltas.append(event.delta.text)
 
         assert text_deltas == ["Hi", " there!"]
+
+
+class TestDeduplicateTools:
+    """Test _deduplicate_tools() function."""
+
+    def test_no_duplicates_unchanged(self):
+        tools = [
+            {"name": "read_file", "description": "Read a file", "input_schema": {}},
+            {"name": "write_file", "description": "Write a file", "input_schema": {}},
+        ]
+        assert _deduplicate_tools(tools) == tools
+
+    def test_removes_duplicates_keeps_first(self):
+        tools = [
+            {"name": "read_file", "description": "first", "input_schema": {}},
+            {"name": "write_file", "description": "write", "input_schema": {}},
+            {"name": "read_file", "description": "second", "input_schema": {}},
+        ]
+        result = _deduplicate_tools(tools)
+        assert len(result) == 2
+        assert result[0]["description"] == "first"
+        assert result[1]["name"] == "write_file"
+
+    def test_many_duplicates(self):
+        tools = [{"name": "tool_a", "input_schema": {}}] * 5
+        result = _deduplicate_tools(tools)
+        assert len(result) == 1
+
+    def test_empty_list(self):
+        assert _deduplicate_tools([]) == []
+
+    def test_tool_without_name_kept(self):
+        """Tools missing 'name' are kept as-is (defensive)."""
+        tools = [
+            {"name": "read_file", "input_schema": {}},
+            {"description": "nameless tool"},
+            {"name": "read_file", "input_schema": {}},
+        ]
+        result = _deduplicate_tools(tools)
+        assert len(result) == 2
+        assert result[0]["name"] == "read_file"
+        assert result[1] == {"description": "nameless tool"}
+
+    @pytest.mark.asyncio
+    async def test_complete_deduplicates_tools(self):
+        """Integration: complete() deduplicates tools before calling SDK."""
+        client = AnthropicClient(api_key="test-key")
+        request = AnthropicRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+            tools=[
+                {"name": "read_file", "description": "Read", "input_schema": {}},
+                {"name": "read_file", "description": "Read dupe", "input_schema": {}},
+                {"name": "write_file", "description": "Write", "input_schema": {}},
+            ],
+        )
+
+        mock_message = Message(
+            id="msg_123",
+            type="message",
+            role="assistant",
+            content=[TextBlock(type="text", text="ok")],
+            model="claude-sonnet-4-20250514",
+            stop_reason="end_turn",
+            usage=Usage(input_tokens=10, output_tokens=5),
+        )
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=mock_message)
+        client._client = mock_async_client
+
+        await client.complete(request)
+
+        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        assert len(call_kwargs["tools"]) == 2
+        assert call_kwargs["tools"][0]["name"] == "read_file"
+        assert call_kwargs["tools"][1]["name"] == "write_file"
