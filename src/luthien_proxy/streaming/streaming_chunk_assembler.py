@@ -61,7 +61,8 @@ class StreamingChunkAssembler:
             incoming: Async iterator of model response chunks
             context: Streaming context passed to policy callback
         """
-        assert self.on_chunk is not None, "on_chunk callback must be set before processing"
+        if self.on_chunk is None:
+            raise RuntimeError("on_chunk callback must be set before processing")
         on_chunk = self.on_chunk
         async for chunk in incoming:
             logger.debug(f"[BACKEND IN] {str(chunk)[:LOG_CHUNK_TRUNCATION_LENGTH]}")
