@@ -38,5 +38,8 @@ if [ -n "$DATABASE_URL" ]; then
     echo "Migrations complete."
 fi
 
+# Railway/Heroku provide PORT; bridge to GATEWAY_PORT if not already set
+export GATEWAY_PORT="${GATEWAY_PORT:-$PORT}"
+
 # Start the gateway
 exec uv run python -m luthien_proxy.main
