@@ -162,7 +162,10 @@ def _instantiate_policy(policy_class: type[PolicyProtocol], config: dict[str, An
         param_name = next(iter(params))
         return policy_class(**{param_name: config})
 
-    return policy_class(**config)
+    raise TypeError(
+        f"Config keys {set(config.keys())} don't match any constructor parameter of "
+        f"{policy_class.__name__} (expected one of: {params})"
+    )
 
 
 __all__ = ["load_policy_from_yaml"]
