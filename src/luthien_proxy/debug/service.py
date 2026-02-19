@@ -10,6 +10,7 @@ These functions are designed to be easily testable without FastAPI dependencies.
 
 from __future__ import annotations
 
+import json
 import urllib.parse
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
@@ -30,6 +31,15 @@ from .models import (
     RequestDiff,
     ResponseDiff,
 )
+
+
+def _parse_payload(raw: object) -> dict[str, Any]:
+    """Parse a JSONB payload from asyncpg (may arrive as dict or str)."""
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        return json.loads(raw)  # type: ignore[no-any-return]
+    return {}
 
 
 def build_tempo_url(call_id: str, tempo_url: str | None = None) -> str:
@@ -208,7 +218,7 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
             event_type=str(row["event_type"]),
             timestamp=cast(datetime, row["created_at"]).isoformat(),
             hook="",  # Not stored in schema
-            payload=dict(row["payload"]) if isinstance(row["payload"], dict) else {},  # type: ignore[arg-type]
+            payload=_parse_payload(row["payload"]),
             session_id=str(row["session_id"]) if row["session_id"] else None,
         )
         for row in rows
@@ -256,8 +266,8 @@ async def fetch_call_diff(call_id: str, db_pool: DatabasePool) -> CallDiffRespon
 
     for row in rows:
         event_type = str(row["event_type"])
-        payload = row["payload"]
-        if not isinstance(payload, dict):
+        payload = _parse_payload(row["payload"])
+        if not payload:
             continue
 
         if event_type == "v2_request":
