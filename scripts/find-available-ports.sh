@@ -10,19 +10,14 @@
 #   source scripts/find-available-ports.sh
 #   docker compose up -d
 
-# Port variables and their defaults
-declare -A PORT_DEFAULTS=(
-    [POSTGRES_PORT]=5433
-    [REDIS_PORT]=6379
-    [GATEWAY_PORT]=8000
-    [TEMPO_OTLP_PORT]=4317
-    [TEMPO_HTTP_PORT]=3200
-)
+# Port variables and their defaults (parallel arrays for bash 3 compatibility)
+PORT_VARS="POSTGRES_PORT REDIS_PORT GATEWAY_PORT TEMPO_OTLP_PORT TEMPO_HTTP_PORT"
+PORT_DEFAULTS="5433 6379 8000 4317 3200"
 
 is_port_free() {
     local port="$1"
     # Validate port range (1024-65535 for unprivileged ports)
-    if [[ "$port" -lt 1024 || "$port" -gt 65535 ]]; then
+    if [ "$port" -lt 1024 ] || [ "$port" -gt 65535 ]; then
         return 1
     fi
     if command -v ss &>/dev/null; then
@@ -38,25 +33,31 @@ find_free_port() {
     local start="$1"
     local port="$start"
     local max_attempts=100
+    local i=0
 
-    for (( i=0; i<max_attempts; i++ )); do
+    while [ "$i" -lt "$max_attempts" ]; do
         if is_port_free "$port"; then
             echo "$port"
             return 0
         fi
         port=$((port + 1))
+        i=$((i + 1))
     done
 
     echo "Error: could not find a free port starting from ${start} after ${max_attempts} attempts" >&2
     return 1
 }
 
-auto_selected=()
+auto_selected=""
 
-for var in POSTGRES_PORT REDIS_PORT GATEWAY_PORT TEMPO_OTLP_PORT TEMPO_HTTP_PORT; do
-    default="${PORT_DEFAULTS[$var]}"
+# Iterate over vars and defaults in parallel using positional indexing
+set -- $PORT_DEFAULTS
+for var in $PORT_VARS; do
+    default="$1"
+    shift
 
-    if [[ -n "${!var}" ]]; then
+    eval "current_val=\${$var}"
+    if [ -n "$current_val" ]; then
         # Already set by the user (from .env or environment) -- keep it
         continue
     fi
@@ -67,12 +68,10 @@ for var in POSTGRES_PORT REDIS_PORT GATEWAY_PORT TEMPO_OTLP_PORT TEMPO_HTTP_PORT
     fi
 
     export "$var=$port"
-    auto_selected+=("  ${var}=${port}")
+    auto_selected="${auto_selected}  ${var}=${port}\n"
 done
 
-if [[ ${#auto_selected[@]} -gt 0 ]]; then
+if [ -n "$auto_selected" ]; then
     echo "Auto-selected ports:"
-    for line in "${auto_selected[@]}"; do
-        echo "$line"
-    done
+    printf "%b" "$auto_selected"
 fi
