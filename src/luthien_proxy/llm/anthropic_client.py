@@ -13,13 +13,6 @@ if TYPE_CHECKING:
 
 tracer = trace.get_tracer(__name__)
 
-API_KEY_PREFIX = "sk-ant-"
-
-
-def is_api_key(credential: str) -> bool:
-    """API keys start with 'sk-ant-'; everything else is a bearer/OAuth token."""
-    return credential.startswith(API_KEY_PREFIX)
-
 
 class AnthropicClient:
     """Client wrapper for Anthropic SDK.
@@ -61,15 +54,6 @@ class AnthropicClient:
     def with_auth_token(self, auth_token: str) -> "AnthropicClient":
         """Create a new client with a bearer/OAuth token, preserving base_url."""
         return AnthropicClient(auth_token=auth_token, base_url=self._base_url)
-
-    def with_credential(self, credential: str) -> "AnthropicClient":
-        """Create a new client, auto-detecting credential type.
-
-        API keys (sk-ant-*) are sent as x-api-key; everything else as Authorization: Bearer.
-        """
-        if is_api_key(credential):
-            return self.with_api_key(credential)
-        return self.with_auth_token(credential)
 
     def _prepare_request_kwargs(self, request: AnthropicRequest) -> dict:
         """Extract non-None values from request for SDK call.
@@ -162,4 +146,4 @@ class AnthropicClient:
                     yield event
 
 
-__all__ = ["AnthropicClient", "is_api_key"]
+__all__ = ["AnthropicClient"]

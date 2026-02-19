@@ -36,9 +36,12 @@ async def verify_token(
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
 ) -> str:
     """Verify API key, supporting proxy_key, passthrough, and both auth modes."""
-    token = (credentials.credentials if credentials else None) or request.headers.get("x-api-key")
+    bearer_token = credentials.credentials if credentials else None
+    api_key_header = request.headers.get("x-api-key")
+    token = bearer_token or api_key_header
     if not token:
         raise HTTPException(status_code=401, detail="Missing API key")
+    is_bearer = bearer_token is not None
 
     auth_mode = credential_manager.config.auth_mode if credential_manager else AuthMode.PROXY_KEY
 
@@ -54,10 +57,10 @@ async def verify_token(
 
     if auth_mode == AuthMode.PASSTHROUGH:
         if credential_manager.config.validate_credentials:
-            is_valid = await credential_manager.validate_credential(token)
-            if not is_valid:
+            if not await credential_manager.validate_credential(token, is_bearer=is_bearer):
                 raise HTTPException(status_code=401, detail="Invalid credential")
-        request.state.passthrough_api_key = token
+        request.state.passthrough_credential = token
+        request.state.passthrough_is_bearer = is_bearer
         return token
 
     # BOTH mode: try proxy key first, fall through to passthrough
@@ -66,10 +69,10 @@ async def verify_token(
     if secrets.compare_digest(token, api_key):
         return token
     if credential_manager.config.validate_credentials:
-        is_valid = await credential_manager.validate_credential(token)
-        if not is_valid:
+        if not await credential_manager.validate_credential(token, is_bearer=is_bearer):
             raise HTTPException(status_code=401, detail="Invalid API key or credential")
-    request.state.passthrough_api_key = token
+    request.state.passthrough_credential = token
+    request.state.passthrough_is_bearer = is_bearer
     return token
 
 
@@ -107,9 +110,12 @@ async def anthropic_messages(
     if client_api_key is not None:
         if not client_api_key.strip():
             raise HTTPException(status_code=401, detail="x-anthropic-api-key header is empty")
-        anthropic_client = anthropic_client.with_credential(client_api_key)
-    elif hasattr(request.state, "passthrough_api_key"):
-        anthropic_client = anthropic_client.with_credential(request.state.passthrough_api_key)
+        anthropic_client = anthropic_client.with_api_key(client_api_key)
+    elif hasattr(request.state, "passthrough_credential"):
+        if request.state.passthrough_is_bearer:
+            anthropic_client = anthropic_client.with_auth_token(request.state.passthrough_credential)
+        else:
+            anthropic_client = anthropic_client.with_api_key(request.state.passthrough_credential)
 
     return await process_anthropic_request(
         request=request,

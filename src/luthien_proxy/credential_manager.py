@@ -17,7 +17,6 @@ from typing import Any
 import httpx
 from redis.asyncio import Redis
 
-from luthien_proxy.llm.anthropic_client import is_api_key
 from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
@@ -168,13 +167,19 @@ class CredentialManager:
         logger.info(f"Auth config updated: mode={self._config.auth_mode.value} by {updated_by}")
         return self._config
 
-    async def validate_credential(self, api_key: str) -> bool:
+    async def validate_credential(self, credential: str, *, is_bearer: bool) -> bool:
         """Check if an Anthropic API key/token is valid.
 
         Checks Redis cache first. On miss, calls the free count_tokens
         endpoint and caches the result.
+
+        Args:
+            credential: The API key or OAuth token value.
+            is_bearer: True if the credential is a bearer/OAuth token
+                       (send via Authorization header), False if it's an
+                       API key (send via x-api-key header).
         """
-        key_hash = hash_credential(api_key)
+        key_hash = hash_credential(credential)
 
         # Check cache
         cached = await self._get_cached(key_hash)
@@ -183,7 +188,7 @@ class CredentialManager:
             return cached.valid
 
         # Cache miss - validate against Anthropic API
-        is_valid = await self._call_count_tokens(api_key)
+        is_valid = await self._call_count_tokens(credential, is_bearer=is_bearer)
         if is_valid is None:
             # Inconclusive (network error, unexpected status) -- don't cache,
             # so the next request retries instead of locking out a valid key.
@@ -301,7 +306,7 @@ class CredentialManager:
         result = await self._redis.delete(f"{REDIS_KEY_PREFIX}{key_hash}")
         return result > 0
 
-    async def _call_count_tokens(self, credential: str) -> bool | None:
+    async def _call_count_tokens(self, credential: str, *, is_bearer: bool) -> bool | None:
         """Validate a credential by calling the free count_tokens endpoint.
 
         Returns True/False for definitive results, None for inconclusive
@@ -316,10 +321,10 @@ class CredentialManager:
             "anthropic-beta": ANTHROPIC_BETA,
             "content-type": "application/json",
         }
-        if is_api_key(credential):
-            headers["x-api-key"] = credential
-        else:
+        if is_bearer:
             headers["authorization"] = f"Bearer {credential}"
+        else:
+            headers["x-api-key"] = credential
 
         try:
             response = await self._http_client.post(
