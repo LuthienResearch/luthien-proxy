@@ -22,7 +22,7 @@
 ### Bugs
 
 - [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Reference: Dogfooding session 2025-12-16.
-- [ ] **Thinking blocks stripped from non-streaming responses** - Causes 500 errors when `thinking` enabled. Fix `openai_to_anthropic_response()` to extract `message.thinking_blocks` and include FIRST in content array. [#128](https://github.com/LuthienResearch/luthien-proxy/issues/128). PR: [#131](https://github.com/LuthienResearch/luthien-proxy/pull/131).
+- [x] **Thinking blocks stripped from non-streaming responses** - Fixed in PR #131. [#128](https://github.com/LuthienResearch/luthien-proxy/issues/128).
 - [x] **Thinking blocks not handled in streaming responses** - Fixed in PR #134. Required 5 debug cycles across 4 layers. [#129](https://github.com/LuthienResearch/luthien-proxy/issues/129)
 
 ### Core Features (User Story Aligned)
@@ -33,7 +33,7 @@
 
 - [ ] **Improved policy config schema system** - Enhance config schema to include: default values, per-field user-facing docstrings/descriptions, and secure field flags (e.g. API keys should render as password inputs in browser). Currently the UI infers types from schema but lacks rich metadata for good UX.
 - [ ] **[Future] Smart dev key hint** - Only show clickable dev key hint when ADMIN_API_KEY matches default; otherwise just show "check .env or contact admin". Deferred as scope creep. Reference: dogfooding-login-ui-quick-fixes branch, 2025-12-15.
-- [ ] **Activity Monitor missing auth indicator** - Gateway root page links to Activity Monitor but doesn't show "Auth Required" indicator for consistency with other protected pages. Reference: dogfooding session 2025-12-15.
+- [x] **Activity Monitor missing auth indicator** - Already present in gateway root page (index.html line 106). Reference: dogfooding session 2025-12-15.
 
 ### Documentation (High)
 
@@ -121,7 +121,7 @@
 - [ ] Implement adaptive timeout based on model type
 - [ ] Add policy composition (chaining multiple policies)
 - [ ] Expose database connection pooling configuration
-- [ ] Add cache headers to static files mount
+- [x] Add cache headers to static files mount (1hr public cache via middleware)
 - [ ] Consider stricter pyright mode
 - [ ] Add degraded state reporting to /health endpoint
 - [ ] Minimize type: ignore flags
