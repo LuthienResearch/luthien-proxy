@@ -38,7 +38,8 @@ if [ -n "$DATABASE_URL" ]; then
     echo "Migrations complete."
 fi
 
-# Railway/Heroku provide PORT; bridge to GATEWAY_PORT if not already set
+# PaaS platforms (Railway, Heroku, Render) inject PORT at runtime.
+# The app reads GATEWAY_PORT. Bridge here so deploys work without manual config.
 export GATEWAY_PORT="${GATEWAY_PORT:-$PORT}"
 
 # Start the gateway
