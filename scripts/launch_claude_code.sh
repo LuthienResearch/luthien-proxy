@@ -61,7 +61,7 @@ GATEWAY_URL="http://localhost:${GATEWAY_PORT_VAR}/"
 
 echo -e "${BLUE}📋 Gateway Configuration:${NC}"
 echo -e "   • Gateway URL:     ${GATEWAY_URL} (SDK will append /v1/messages)"
-echo -e "   • API Key:         ${PROXY_KEY:0:10}... (sent as x-api-key header)"
+echo -e "   • API Key:         ${PROXY_KEY:0:10}... (sent as x-api-key header via ANTHROPIC_API_KEY)"
 echo ""
 echo -e "${GREEN}🎯 Claude Code will now route through the gateway with policy enforcement${NC}"
 echo -e "${YELLOW}📊 Monitor requests at:${NC}"
@@ -82,9 +82,14 @@ fi
 
 # Launch Claude Code with proxy configuration
 # Setting env vars inline ensures Claude Code picks them up at startup and skips onboarding
+#
+# ANTHROPIC_API_KEY (not ANTHROPIC_AUTH_TOKEN) is the reliable env var:
+# - Claude Code sends it as `x-api-key` header, which the gateway expects
+# - ANTHROPIC_AUTH_TOKEN works for some versions but behavior varies
+# - The e2e tests also use ANTHROPIC_API_KEY for consistency
 env \
   ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
-  ANTHROPIC_AUTH_TOKEN="${PROXY_KEY}" \
+  ANTHROPIC_API_KEY="${PROXY_KEY}" \
   claude "$@"
   # You can add these arguments to modify the default models used
   # See https://docs.claude.com/en/docs/claude-code/settings#environment-variables
