@@ -1,4 +1,3 @@
-# ABOUTME: SimplePolicy base class for content-level transformations (supports both OpenAI and Anthropic)
 """SimplePolicy base class for content-level transformations.
 
 SimplePolicy sacrifices streaming responsiveness for simpler policy authoring
