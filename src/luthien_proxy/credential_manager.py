@@ -28,7 +28,7 @@ ANTHROPIC_BETA = "token-counting-2024-11-01"
 
 # Minimal payload for credential validation (free endpoint)
 VALIDATION_PAYLOAD = {
-    "model": "claude-3-5-haiku-20241022",
+    "model": "claude-haiku-4-5-20250514",
     "messages": [{"role": "user", "content": "hi"}],
 }
 
@@ -167,13 +167,19 @@ class CredentialManager:
         logger.info(f"Auth config updated: mode={self._config.auth_mode.value} by {updated_by}")
         return self._config
 
-    async def validate_credential(self, api_key: str) -> bool:
+    async def validate_credential(self, credential: str, *, is_bearer: bool) -> bool:
         """Check if an Anthropic API key/token is valid.
 
         Checks Redis cache first. On miss, calls the free count_tokens
         endpoint and caches the result.
+
+        Args:
+            credential: The API key or OAuth token value.
+            is_bearer: True if the credential is a bearer/OAuth token
+                       (send via Authorization header), False if it's an
+                       API key (send via x-api-key header).
         """
-        key_hash = hash_credential(api_key)
+        key_hash = hash_credential(credential)
 
         # Check cache
         cached = await self._get_cached(key_hash)
@@ -182,7 +188,7 @@ class CredentialManager:
             return cached.valid
 
         # Cache miss - validate against Anthropic API
-        is_valid = await self._call_count_tokens(api_key)
+        is_valid = await self._call_count_tokens(credential, is_bearer=is_bearer)
         if is_valid is None:
             # Inconclusive (network error, unexpected status) -- don't cache,
             # so the next request retries instead of locking out a valid key.
@@ -300,7 +306,7 @@ class CredentialManager:
         result = await self._redis.delete(f"{REDIS_KEY_PREFIX}{key_hash}")
         return result > 0
 
-    async def _call_count_tokens(self, api_key: str) -> bool | None:
+    async def _call_count_tokens(self, credential: str, *, is_bearer: bool) -> bool | None:
         """Validate a credential by calling the free count_tokens endpoint.
 
         Returns True/False for definitive results, None for inconclusive
@@ -310,15 +316,20 @@ class CredentialManager:
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(timeout=10.0)
 
+        headers: dict[str, str] = {
+            "anthropic-version": ANTHROPIC_API_VERSION,
+            "anthropic-beta": ANTHROPIC_BETA,
+            "content-type": "application/json",
+        }
+        if is_bearer:
+            headers["authorization"] = f"Bearer {credential}"
+        else:
+            headers["x-api-key"] = credential
+
         try:
             response = await self._http_client.post(
                 ANTHROPIC_API_URL,
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": ANTHROPIC_API_VERSION,
-                    "anthropic-beta": ANTHROPIC_BETA,
-                    "content-type": "application/json",
-                },
+                headers=headers,
                 json=VALIDATION_PAYLOAD,
             )
             if response.status_code == 200:

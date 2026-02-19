@@ -202,11 +202,11 @@ def create_app(
         Also invalidates cached credentials on 401 so stale "valid" entries
         don't let rejected keys keep passing auth.
         """
-        if exc.status_code == 401 and hasattr(request.state, "passthrough_api_key"):
+        if exc.status_code == 401 and hasattr(request.state, "passthrough_credential"):
             deps = getattr(request.app.state, "dependencies", None)
             cm = getattr(deps, "credential_manager", None) if deps else None
             if cm is not None:
-                await cm.on_backend_401(request.state.passthrough_api_key)
+                await cm.on_backend_401(request.state.passthrough_credential)
 
         if exc.client_format == ClientFormat.ANTHROPIC:
             content = {

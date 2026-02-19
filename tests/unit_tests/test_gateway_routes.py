@@ -30,6 +30,21 @@ class TestAnthropicClientWithApiKey:
         assert new_client._base_url is None
 
 
+class TestAnthropicClientWithAuthToken:
+    """Test AnthropicClient.with_auth_token() method."""
+
+    def test_creates_new_instance(self):
+        original = AnthropicClient(api_key="original-key")
+        new_client = original.with_auth_token("oauth-token")
+        assert new_client is not original
+        assert isinstance(new_client, AnthropicClient)
+
+    def test_preserves_base_url(self):
+        original = AnthropicClient(api_key="original-key", base_url="https://custom.api.com")
+        new_client = original.with_auth_token("oauth-token")
+        assert new_client._base_url == "https://custom.api.com"
+
+
 class TestVerifyTokenAuthModes:
     """Test verify_token with different auth modes."""
 
@@ -50,6 +65,7 @@ class TestVerifyTokenAuthModes:
 
         mock_anthropic_client = MagicMock(spec=AnthropicClient)
         mock_anthropic_client.with_api_key = MagicMock(return_value=MagicMock(spec=AnthropicClient))
+        mock_anthropic_client.with_auth_token = MagicMock(return_value=MagicMock(spec=AnthropicClient))
 
         mock_credential_manager = MagicMock(spec=CredentialManager)
         mock_credential_manager.config = AuthConfig(
@@ -125,7 +141,7 @@ class TestVerifyTokenAuthModes:
                 headers={"Authorization": "Bearer some-anthropic-token"},
             )
             assert response.status_code == 200
-            credential_manager.validate_credential.assert_called_once_with("some-anthropic-token")
+            credential_manager.validate_credential.assert_called_once_with("some-anthropic-token", is_bearer=True)
 
     def test_passthrough_mode_rejects_invalid(self, mock_app):
         app, _, credential_manager, _ = mock_app
@@ -180,7 +196,7 @@ class TestVerifyTokenAuthModes:
                 headers={"Authorization": "Bearer some-anthropic-token"},
             )
             assert response.status_code == 200
-            credential_manager.validate_credential.assert_called_once_with("some-anthropic-token")
+            credential_manager.validate_credential.assert_called_once_with("some-anthropic-token", is_bearer=True)
 
     def test_missing_key_returns_401(self, mock_app):
         app, _, _, _ = mock_app
@@ -256,10 +272,10 @@ class TestVerifyTokenAuthModes:
             )
             assert response.status_code == 200
             credential_manager.validate_credential.assert_not_called()
-            mock_anthropic_client.with_api_key.assert_called_once_with("some-anthropic-token")
+            mock_anthropic_client.with_auth_token.assert_called_once_with("some-anthropic-token")
 
-    def test_passthrough_key_used_for_upstream(self, mock_app):
-        """In passthrough mode, the auth credential is used as the upstream API key."""
+    def test_passthrough_bearer_used_for_upstream(self, mock_app):
+        """In passthrough mode, a Bearer credential is forwarded as auth_token."""
         app, mock_anthropic_client, credential_manager, _ = mock_app
         credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
 
@@ -275,4 +291,23 @@ class TestVerifyTokenAuthModes:
                 },
                 headers={"Authorization": "Bearer my-anthropic-token"},
             )
-            mock_anthropic_client.with_api_key.assert_called_once_with("my-anthropic-token")
+            mock_anthropic_client.with_auth_token.assert_called_once_with("my-anthropic-token")
+
+    def test_passthrough_api_key_header_used_for_upstream(self, mock_app):
+        """In passthrough mode, an x-api-key credential is forwarded as api_key."""
+        app, mock_anthropic_client, credential_manager, _ = mock_app
+        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+
+        with patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = MagicMock()
+            client = TestClient(app)
+            client.post(
+                "/v1/messages",
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 10,
+                },
+                headers={"x-api-key": "sk-ant-my-key"},
+            )
+            mock_anthropic_client.with_api_key.assert_called_once_with("sk-ant-my-key")

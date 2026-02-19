@@ -147,16 +147,16 @@ class TestBackend401InvalidatesCredential:
 
         @app.exception_handler(BackendAPIError)
         async def handler(request: Request, exc: BackendAPIError) -> JSONResponse:
-            if exc.status_code == 401 and hasattr(request.state, "passthrough_api_key"):
+            if exc.status_code == 401 and hasattr(request.state, "passthrough_credential"):
                 deps = getattr(request.app.state, "dependencies", None)
                 cm = getattr(deps, "credential_manager", None) if deps else None
                 if cm is not None:
-                    await cm.on_backend_401(request.state.passthrough_api_key)
+                    await cm.on_backend_401(request.state.passthrough_credential)
             return JSONResponse(status_code=exc.status_code, content={"error": exc.message})
 
         @app.get("/trigger-401")
         async def trigger(request: Request):
-            request.state.passthrough_api_key = "user-api-key"
+            request.state.passthrough_credential = "user-api-key"
             raise BackendAPIError(
                 status_code=401,
                 message="invalid key",
@@ -183,16 +183,16 @@ class TestBackend401InvalidatesCredential:
 
         @app.exception_handler(BackendAPIError)
         async def handler(request: Request, exc: BackendAPIError) -> JSONResponse:
-            if exc.status_code == 401 and hasattr(request.state, "passthrough_api_key"):
+            if exc.status_code == 401 and hasattr(request.state, "passthrough_credential"):
                 deps = getattr(request.app.state, "dependencies", None)
                 cm = getattr(deps, "credential_manager", None) if deps else None
                 if cm is not None:
-                    await cm.on_backend_401(request.state.passthrough_api_key)
+                    await cm.on_backend_401(request.state.passthrough_credential)
             return JSONResponse(status_code=exc.status_code, content={"error": exc.message})
 
         @app.get("/trigger-429")
         async def trigger(request: Request):
-            request.state.passthrough_api_key = "user-api-key"
+            request.state.passthrough_credential = "user-api-key"
             raise BackendAPIError(
                 status_code=429,
                 message="rate limit",

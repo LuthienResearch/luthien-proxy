@@ -82,7 +82,7 @@ class TestValidateCredential:
         mock_redis.ttl.return_value = 3000
 
         manager = CredentialManager(db_pool=None, redis_client=mock_redis)
-        result = await manager.validate_credential("test-key")
+        result = await manager.validate_credential("test-key", is_bearer=False)
         assert result is True
 
     @pytest.mark.asyncio
@@ -93,7 +93,7 @@ class TestValidateCredential:
         manager = CredentialManager(db_pool=None, redis_client=mock_redis)
 
         with patch.object(manager, "_call_count_tokens", new_callable=AsyncMock, return_value=True):
-            result = await manager.validate_credential("test-key")
+            result = await manager.validate_credential("test-key", is_bearer=False)
             assert result is True
             mock_redis.setex.assert_called_once()
 
@@ -105,7 +105,7 @@ class TestValidateCredential:
         manager = CredentialManager(db_pool=None, redis_client=mock_redis)
 
         with patch.object(manager, "_call_count_tokens", new_callable=AsyncMock, return_value=False):
-            result = await manager.validate_credential("bad-key")
+            result = await manager.validate_credential("bad-key", is_bearer=False)
             assert result is False
             call_args = mock_redis.setex.call_args
             ttl_arg = call_args[0][1]
@@ -120,7 +120,7 @@ class TestValidateCredential:
         manager = CredentialManager(db_pool=None, redis_client=mock_redis)
 
         with patch.object(manager, "_call_count_tokens", new_callable=AsyncMock, return_value=None):
-            result = await manager.validate_credential("some-key")
+            result = await manager.validate_credential("some-key", is_bearer=False)
             assert result is False
             mock_redis.setex.assert_not_called()
 
@@ -135,7 +135,7 @@ class TestCallCountTokens:
 
         manager = CredentialManager(db_pool=None, redis_client=None)
         manager._http_client = mock_client
-        result = await manager._call_count_tokens("valid-key")
+        result = await manager._call_count_tokens("valid-key", is_bearer=False)
         assert result is True
 
     @pytest.mark.asyncio
@@ -147,7 +147,7 @@ class TestCallCountTokens:
 
         manager = CredentialManager(db_pool=None, redis_client=None)
         manager._http_client = mock_client
-        result = await manager._call_count_tokens("invalid-key")
+        result = await manager._call_count_tokens("invalid-key", is_bearer=False)
         assert result is False
 
     @pytest.mark.asyncio
@@ -157,7 +157,7 @@ class TestCallCountTokens:
 
         manager = CredentialManager(db_pool=None, redis_client=None)
         manager._http_client = mock_client
-        result = await manager._call_count_tokens("some-key")
+        result = await manager._call_count_tokens("some-key", is_bearer=False)
         assert result is None
 
     @pytest.mark.asyncio
@@ -169,8 +169,40 @@ class TestCallCountTokens:
 
         manager = CredentialManager(db_pool=None, redis_client=None)
         manager._http_client = mock_client
-        result = await manager._call_count_tokens("some-key")
+        result = await manager._call_count_tokens("some-key", is_bearer=False)
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_api_key_sends_x_api_key_header(self):
+        """API keys (sk-ant-*) should be sent via x-api-key header."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=False)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["x-api-key"] == "sk-ant-api03-abc123"
+        assert "authorization" not in headers
+
+    @pytest.mark.asyncio
+    async def test_bearer_token_sends_authorization_header(self):
+        """Bearer credentials should be sent via Authorization: Bearer header."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("eyJhbGciOiJSUz.oauth-token", is_bearer=True)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["authorization"] == "Bearer eyJhbGciOiJSUz.oauth-token"
+        assert "x-api-key" not in headers
 
 
 class TestInvalidation:

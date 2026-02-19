@@ -94,19 +94,16 @@ class TestAnthropicClientInit:
     """Test AnthropicClient initialization."""
 
     def test_init_with_api_key(self):
-        """Test client initialization with API key."""
         client = AnthropicClient(api_key="test-key")
+        assert client._client is not None
+
+    def test_init_with_auth_token(self):
+        client = AnthropicClient(auth_token="oauth-token")
         assert client._client is not None
 
     def test_init_with_base_url(self):
-        """Test client initialization with custom base URL."""
         client = AnthropicClient(api_key="test-key", base_url="https://custom.api.com")
         assert client._client.base_url == "https://custom.api.com"
-
-    def test_init_creates_client_immediately(self):
-        """Test that client is created during initialization (not lazily)."""
-        client = AnthropicClient(api_key="test-key")
-        assert client._client is not None
 
 
 class TestAnthropicClientComplete:
