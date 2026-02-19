@@ -1,13 +1,4 @@
-# ABOUTME: Anthropic stream executor that processes SDK streaming events through policy hooks
-# ABOUTME: Sits between the Anthropic SDK stream and the client response formatter
-
-"""Anthropic stream executor for processing streaming events through policies.
-
-This module provides AnthropicStreamExecutor which takes an async iterator of
-MessageStreamEvent from the Anthropic SDK, processes each event through a
-policy's on_stream_event hook, and yields the events that should be sent to
-the client.
-"""
+"""Anthropic stream executor for processing streaming events through policies."""
 
 from collections.abc import AsyncIterator
 

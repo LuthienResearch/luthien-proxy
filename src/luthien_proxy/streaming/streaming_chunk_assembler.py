@@ -1,7 +1,4 @@
-"""ABOUTME: StreamingChunkAssembler for assembling streaming chunks into blocks.
-
-ABOUTME: Parses chunks, detects block transitions, and calls policy callbacks.
-"""
+"""Assembles streaming chunks into blocks with state tracking."""
 
 from __future__ import annotations
 
@@ -64,8 +61,7 @@ class StreamingChunkAssembler:
             context: Streaming context passed to policy callback
         """
         async for chunk in incoming:
-            # DEBUG: Log raw chunk from backend
-            logger.debug(f"[BACKEND IN] {str(chunk)[:LOG_CHUNK_TRUNCATION_LENGTH]}")  # Truncate for readability
+            logger.debug(f"[BACKEND IN] {str(chunk)[:LOG_CHUNK_TRUNCATION_LENGTH]}")
 
             # Normalize delta to Delta object (litellm >= 1.81.0 returns dict)
             chunk = normalize_chunk(chunk)

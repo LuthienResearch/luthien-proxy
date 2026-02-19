@@ -240,9 +240,7 @@ class EventEmitter:
             This convention allows session tracking without modifying the
             EventEmitter interface.
         """
-        if not self._db_pool:
-            return
-
+        assert self._db_pool is not None
         # Extract session_id from data if present (set by processor via convention above)
         session_id = data.get("session_id") if isinstance(data, dict) else None
 
@@ -286,9 +284,7 @@ class EventEmitter:
         timestamp: datetime,  # noqa: ARG002
     ) -> None:
         """Write event to Redis pub/sub."""
-        if not self._redis_publisher:
-            return
-
+        assert self._redis_publisher is not None
         try:
             await self._redis_publisher.publish_event(
                 call_id=transaction_id,
