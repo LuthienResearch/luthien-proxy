@@ -210,6 +210,13 @@ if stream_state.finish_reason:
 - **Cause**: Orphaned containers from a previous run with a different project name
 - **Fix**: `quick_start.sh` now cleans up containers from the default project name before starting
 - **Manual fix**: `docker compose -p <directory-name> down` (e.g., `docker compose -p luthien-proxy down`)
+## macOS Bash 3 Compatibility (2026-02-17)
+
+**Gotcha**: macOS ships with bash 3.2, which does NOT support `declare -A` (associative arrays), `(( ))` C-style for loops, or `${!var}` indirect expansion in all contexts. Scripts using `#!/bin/bash` will use the system bash 3.
+
+- **Wrong**: `declare -A MAP=([key]=value)` — fails on macOS
+- **Right**: Use parallel simple arrays, positional parameters (`set --`), or `eval` for indirect variable access
+- **Affected**: `scripts/find-available-ports.sh`
 
 ---
 
