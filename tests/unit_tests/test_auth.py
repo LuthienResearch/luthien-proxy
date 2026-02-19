@@ -1,10 +1,11 @@
 # ABOUTME: Unit tests for shared authentication module
-# ABOUTME: Tests verify_admin_token function for Bearer and x-api-key auth
+# ABOUTME: Tests verify_admin_token and check_auth_or_redirect functions
 
 """Tests for auth module.
 
 Tests the verify_admin_token function which handles authentication for
-admin and debug endpoints.
+admin and debug endpoints, and check_auth_or_redirect which gates
+HTML-serving endpoints (live view, activity monitor, etc.).
 """
 
 from __future__ import annotations
@@ -13,9 +14,10 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import Depends, FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 
-from luthien_proxy.auth import verify_admin_token
+from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import NullEventEmitter
@@ -206,3 +208,76 @@ class TestVerifyAdminTokenEdgeCases:
                 headers={"x-api-key": ""},
             )
             assert response.status_code == 403
+
+
+def _make_request(headers: dict[str, str] | None = None, path: str = "/live") -> MagicMock:
+    """Build a minimal mock Request for check_auth_or_redirect tests."""
+    request = MagicMock()
+    request.headers = headers or {}
+    request.cookies = {}
+    request.url.path = path
+    return request
+
+
+class TestCheckAuthOrRedirectNoKey:
+    """When admin_key is None, everything passes through."""
+
+    def test_returns_none_when_no_admin_key(self):
+        result = check_auth_or_redirect(_make_request(), admin_key=None)
+        assert result is None
+
+
+class TestCheckAuthOrRedirectBearer:
+    """Bearer token authentication in check_auth_or_redirect."""
+
+    def test_valid_bearer_returns_none(self):
+        request = _make_request(headers={"authorization": "Bearer secret123"})
+        assert check_auth_or_redirect(request, admin_key="secret123") is None
+
+    def test_invalid_bearer_redirects(self):
+        request = _make_request(headers={"authorization": "Bearer wrong"})
+        result = check_auth_or_redirect(request, admin_key="secret123")
+        assert isinstance(result, RedirectResponse)
+        assert result.status_code == 303
+
+    def test_empty_bearer_redirects(self):
+        request = _make_request(headers={"authorization": "Bearer "})
+        result = check_auth_or_redirect(request, admin_key="secret123")
+        assert isinstance(result, RedirectResponse)
+
+
+class TestCheckAuthOrRedirectXApiKey:
+    """x-api-key header authentication in check_auth_or_redirect."""
+
+    def test_valid_x_api_key_returns_none(self):
+        request = _make_request(headers={"x-api-key": "secret123"})
+        assert check_auth_or_redirect(request, admin_key="secret123") is None
+
+    def test_invalid_x_api_key_redirects(self):
+        request = _make_request(headers={"x-api-key": "wrong"})
+        result = check_auth_or_redirect(request, admin_key="secret123")
+        assert isinstance(result, RedirectResponse)
+
+    def test_empty_x_api_key_redirects(self):
+        request = _make_request(headers={"x-api-key": ""})
+        result = check_auth_or_redirect(request, admin_key="secret123")
+        assert isinstance(result, RedirectResponse)
+
+
+class TestCheckAuthOrRedirectFallthrough:
+    """No auth at all results in redirect."""
+
+    def test_no_headers_redirects(self):
+        result = check_auth_or_redirect(_make_request(), admin_key="secret123")
+        assert isinstance(result, RedirectResponse)
+        assert result.status_code == 303
+
+    def test_redirect_includes_next_url(self):
+        result = check_auth_or_redirect(
+            _make_request(path="/live/conv/123"),
+            admin_key="secret123",
+        )
+        assert isinstance(result, RedirectResponse)
+        location = dict(result.headers)["location"]
+        assert "/login" in location
+        assert "next=" in location
