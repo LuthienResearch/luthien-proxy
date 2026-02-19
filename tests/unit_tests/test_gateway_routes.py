@@ -30,6 +30,45 @@ class TestAnthropicClientWithApiKey:
         assert new_client._base_url is None
 
 
+class TestAnthropicClientWithAuthToken:
+    """Test AnthropicClient.with_auth_token() method."""
+
+    def test_creates_new_instance(self):
+        original = AnthropicClient(api_key="original-key")
+        new_client = original.with_auth_token("oauth-token")
+        assert new_client is not original
+        assert isinstance(new_client, AnthropicClient)
+
+    def test_preserves_base_url(self):
+        original = AnthropicClient(api_key="original-key", base_url="https://custom.api.com")
+        new_client = original.with_auth_token("oauth-token")
+        assert new_client._base_url == "https://custom.api.com"
+
+
+class TestAnthropicClientWithCredential:
+    """Test AnthropicClient.with_credential() auto-detection."""
+
+    def test_api_key_uses_with_api_key(self):
+        original = AnthropicClient(api_key="original-key")
+        new_client = original.with_credential("sk-ant-api03-abc123")
+        assert isinstance(new_client, AnthropicClient)
+
+    def test_bearer_token_uses_with_auth_token(self):
+        original = AnthropicClient(api_key="original-key")
+        new_client = original.with_credential("eyJhbGciOiJSUz.oauth-token")
+        assert isinstance(new_client, AnthropicClient)
+
+    def test_preserves_base_url_for_api_key(self):
+        original = AnthropicClient(api_key="key", base_url="https://custom.api.com")
+        new_client = original.with_credential("sk-ant-api03-abc123")
+        assert new_client._base_url == "https://custom.api.com"
+
+    def test_preserves_base_url_for_bearer(self):
+        original = AnthropicClient(api_key="key", base_url="https://custom.api.com")
+        new_client = original.with_credential("oauth-bearer-token")
+        assert new_client._base_url == "https://custom.api.com"
+
+
 class TestVerifyTokenAuthModes:
     """Test verify_token with different auth modes."""
 
@@ -50,6 +89,8 @@ class TestVerifyTokenAuthModes:
 
         mock_anthropic_client = MagicMock(spec=AnthropicClient)
         mock_anthropic_client.with_api_key = MagicMock(return_value=MagicMock(spec=AnthropicClient))
+        mock_anthropic_client.with_auth_token = MagicMock(return_value=MagicMock(spec=AnthropicClient))
+        mock_anthropic_client.with_credential = MagicMock(return_value=MagicMock(spec=AnthropicClient))
 
         mock_credential_manager = MagicMock(spec=CredentialManager)
         mock_credential_manager.config = AuthConfig(
@@ -215,7 +256,7 @@ class TestVerifyTokenAuthModes:
                     "x-anthropic-api-key": "sk-ant-client-key-123",
                 },
             )
-            mock_anthropic_client.with_api_key.assert_called_once_with("sk-ant-client-key-123")
+            mock_anthropic_client.with_credential.assert_called_once_with("sk-ant-client-key-123")
 
     def test_empty_x_anthropic_api_key_returns_401(self, mock_app):
         app, _, credential_manager, _ = mock_app
@@ -256,7 +297,7 @@ class TestVerifyTokenAuthModes:
             )
             assert response.status_code == 200
             credential_manager.validate_credential.assert_not_called()
-            mock_anthropic_client.with_api_key.assert_called_once_with("some-anthropic-token")
+            mock_anthropic_client.with_credential.assert_called_once_with("some-anthropic-token")
 
     def test_passthrough_key_used_for_upstream(self, mock_app):
         """In passthrough mode, the auth credential is used as the upstream API key."""
@@ -275,4 +316,4 @@ class TestVerifyTokenAuthModes:
                 },
                 headers={"Authorization": "Bearer my-anthropic-token"},
             )
-            mock_anthropic_client.with_api_key.assert_called_once_with("my-anthropic-token")
+            mock_anthropic_client.with_credential.assert_called_once_with("my-anthropic-token")

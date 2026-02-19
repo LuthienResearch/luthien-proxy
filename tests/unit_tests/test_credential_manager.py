@@ -172,6 +172,38 @@ class TestCallCountTokens:
         result = await manager._call_count_tokens("some-key")
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_api_key_sends_x_api_key_header(self):
+        """API keys (sk-ant-*) should be sent via x-api-key header."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("sk-ant-api03-abc123")
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["x-api-key"] == "sk-ant-api03-abc123"
+        assert "authorization" not in headers
+
+    @pytest.mark.asyncio
+    async def test_bearer_token_sends_authorization_header(self):
+        """Non-API-key credentials should be sent via Authorization: Bearer header."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("eyJhbGciOiJSUz.oauth-token")
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["authorization"] == "Bearer eyJhbGciOiJSUz.oauth-token"
+        assert "x-api-key" not in headers
+
 
 class TestInvalidation:
     @pytest.mark.asyncio

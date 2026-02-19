@@ -18,7 +18,7 @@ from anthropic.types import (
 )
 from anthropic.types.raw_message_delta_event import Delta
 
-from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.anthropic_client import AnthropicClient, is_api_key
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
 
@@ -90,23 +90,45 @@ def sample_stream_events() -> list:
     ]
 
 
+class TestIsApiKey:
+    """Test is_api_key() credential detection."""
+
+    def test_recognizes_api_key(self):
+        assert is_api_key("sk-ant-api03-abc123") is True
+
+    def test_recognizes_plain_sk_ant_prefix(self):
+        assert is_api_key("sk-ant-something") is True
+
+    def test_rejects_bearer_token(self):
+        assert is_api_key("eyJhbGciOiJSUz.oauth-token-here") is False
+
+    def test_rejects_empty_string(self):
+        assert is_api_key("") is False
+
+    def test_rejects_partial_prefix(self):
+        assert is_api_key("sk-an") is False
+
+
 class TestAnthropicClientInit:
     """Test AnthropicClient initialization."""
 
     def test_init_with_api_key(self):
-        """Test client initialization with API key."""
         client = AnthropicClient(api_key="test-key")
+        assert client._client is not None
+
+    def test_init_with_auth_token(self):
+        client = AnthropicClient(auth_token="oauth-token")
         assert client._client is not None
 
     def test_init_with_base_url(self):
-        """Test client initialization with custom base URL."""
         client = AnthropicClient(api_key="test-key", base_url="https://custom.api.com")
         assert client._client.base_url == "https://custom.api.com"
 
-    def test_init_creates_client_immediately(self):
-        """Test that client is created during initialization (not lazily)."""
-        client = AnthropicClient(api_key="test-key")
-        assert client._client is not None
+    def test_init_requires_exactly_one_credential(self):
+        with pytest.raises(AssertionError, match="Exactly one"):
+            AnthropicClient()
+        with pytest.raises(AssertionError, match="Exactly one"):
+            AnthropicClient(api_key="key", auth_token="token")
 
 
 class TestAnthropicClientComplete:

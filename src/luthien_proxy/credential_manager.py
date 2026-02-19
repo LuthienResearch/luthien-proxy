@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 from redis.asyncio import Redis
 
+from luthien_proxy.llm.anthropic_client import is_api_key
 from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
@@ -300,7 +301,7 @@ class CredentialManager:
         result = await self._redis.delete(f"{REDIS_KEY_PREFIX}{key_hash}")
         return result > 0
 
-    async def _call_count_tokens(self, api_key: str) -> bool | None:
+    async def _call_count_tokens(self, credential: str) -> bool | None:
         """Validate a credential by calling the free count_tokens endpoint.
 
         Returns True/False for definitive results, None for inconclusive
@@ -310,15 +311,20 @@ class CredentialManager:
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(timeout=10.0)
 
+        headers: dict[str, str] = {
+            "anthropic-version": ANTHROPIC_API_VERSION,
+            "anthropic-beta": ANTHROPIC_BETA,
+            "content-type": "application/json",
+        }
+        if is_api_key(credential):
+            headers["x-api-key"] = credential
+        else:
+            headers["authorization"] = f"Bearer {credential}"
+
         try:
             response = await self._http_client.post(
                 ANTHROPIC_API_URL,
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": ANTHROPIC_API_VERSION,
-                    "anthropic-beta": ANTHROPIC_BETA,
-                    "content-type": "application/json",
-                },
+                headers=headers,
                 json=VALIDATION_PAYLOAD,
             )
             if response.status_code == 200:

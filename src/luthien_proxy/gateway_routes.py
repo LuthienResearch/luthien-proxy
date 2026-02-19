@@ -107,9 +107,9 @@ async def anthropic_messages(
     if client_api_key is not None:
         if not client_api_key.strip():
             raise HTTPException(status_code=401, detail="x-anthropic-api-key header is empty")
-        anthropic_client = anthropic_client.with_api_key(client_api_key)
+        anthropic_client = anthropic_client.with_credential(client_api_key)
     elif hasattr(request.state, "passthrough_api_key"):
-        anthropic_client = anthropic_client.with_api_key(request.state.passthrough_api_key)
+        anthropic_client = anthropic_client.with_credential(request.state.passthrough_api_key)
 
     return await process_anthropic_request(
         request=request,
