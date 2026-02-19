@@ -118,22 +118,17 @@ class PolicyExecutor(PolicyExecutorProtocol):
             # Create egress queue for policies to write to
             egress_queue: asyncio.Queue[ModelResponse] = asyncio.Queue()
 
-            # Create assembler - we'll pass the callback shortly
-            # The assembler owns the state, so we create it first
-            async def placeholder(*args):
-                pass
-
-            assembler = StreamingChunkAssembler(on_chunk_callback=placeholder)
+            assembler = StreamingChunkAssembler()
 
             # Create streaming policy context
             streaming_ctx = StreamingPolicyContext(
                 policy_ctx=policy_ctx,
                 egress_queue=egress_queue,
                 original_streaming_response_state=assembler.state,
-                keepalive=self.keepalive,  # Pass executor's keepalive to policies
+                keepalive=self.keepalive,
             )
 
-            # Now set the real callback that uses the context
+            # Set the callback now that we have the context
             chunk_callback, get_chunk_count = self._create_chunk_callback(streaming_ctx, output_queue, policy)
             assembler.on_chunk = chunk_callback
 

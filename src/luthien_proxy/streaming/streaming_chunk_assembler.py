@@ -36,13 +36,14 @@ class StreamingChunkAssembler:
 
     def __init__(
         self,
-        on_chunk_callback: Callable[[ModelResponse, StreamState, Any], Awaitable[None]],
+        on_chunk_callback: Callable[[ModelResponse, StreamState, Any], Awaitable[None]] | None = None,
     ):
-        """Initialize processor with policy callback.
+        """Initialize processor with optional policy callback.
 
         Args:
             on_chunk_callback: Async function called for each chunk.
                 Signature: async def on_chunk(chunk, state, context) -> None
+                Can be set after construction via self.on_chunk.
         """
         self.on_chunk = on_chunk_callback
         self.state = StreamState()
@@ -60,6 +61,8 @@ class StreamingChunkAssembler:
             incoming: Async iterator of model response chunks
             context: Streaming context passed to policy callback
         """
+        assert self.on_chunk is not None, "on_chunk callback must be set before processing"
+        on_chunk = self.on_chunk
         async for chunk in incoming:
             logger.debug(f"[BACKEND IN] {str(chunk)[:LOG_CHUNK_TRUNCATION_LENGTH]}")
 
@@ -77,7 +80,7 @@ class StreamingChunkAssembler:
             chunk = self._strip_empty_content(chunk)
 
             # Call policy with updated state
-            await self.on_chunk(chunk, self.state, context)
+            await on_chunk(chunk, self.state, context)
 
             # Clear just_completed for next chunk
             self.state.just_completed = None
