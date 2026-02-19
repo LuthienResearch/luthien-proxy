@@ -418,9 +418,12 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
             calls[call_id] = []
 
         raw_payload = row["payload"]
-        if not isinstance(raw_payload, dict):
+        if isinstance(raw_payload, dict):
+            payload: dict[str, object] = dict(raw_payload)
+        elif isinstance(raw_payload, str):
+            payload = json.loads(raw_payload)
+        else:
             raise TypeError(f"Unexpected payload type: {type(raw_payload).__name__}")
-        payload: dict[str, object] = dict(raw_payload)
 
         raw_created_at = row["created_at"]
         if not isinstance(raw_created_at, datetime):
