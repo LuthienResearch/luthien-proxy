@@ -36,7 +36,7 @@ POLICY_CONFIGS = [
     ),
     pytest.param(
         "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
-        {"replacements": {"hello": "hi"}},
+        {"replacements": [["hello", "hi"]]},
         id="StringReplacementPolicy",
     ),
     pytest.param(
