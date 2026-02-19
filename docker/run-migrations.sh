@@ -10,9 +10,16 @@ MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
 
 echo "🔄 Running database migrations from $MIGRATIONS_DIR..."
 
-# Wait for database to be ready
+# Wait for database to be ready (fail fast if unreachable)
+MAX_RETRIES=15
+RETRY_COUNT=0
 until pg_isready -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE"; do
-  echo "⏳ Waiting for database..."
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+    echo "❌ Database not ready after ${MAX_RETRIES} attempts (${MAX_RETRIES}x2s). Exiting."
+    exit 1
+  fi
+  echo "⏳ Waiting for database... (attempt $RETRY_COUNT/$MAX_RETRIES)"
   sleep 2
 done
 
