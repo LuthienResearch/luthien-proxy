@@ -227,6 +227,13 @@ if stream_state.finish_reason:
 - **Right**: Handle both cases explicitly with `json.loads()` for str, `dict()` for dict, `TypeError` for anything else
 - **Affected files**: `history/service.py`, `debug/service.py`
 - **Discovered during**: Codebase cleanup PR #211 — services-impl teammate removed the str branch thinking it was defensive dead code, causing 7 e2e test failures
+## PaaS PORT vs GATEWAY_PORT (2026-02-19)
+
+**Gotcha**: Railway (and Heroku, Render, etc.) inject `PORT` at runtime. The app reads `GATEWAY_PORT`. If you set `GATEWAY_PORT` to empty string in the PaaS dashboard, pydantic crashes trying to parse `""` as `int` and the app dies before serving `/health`.
+
+- **Bridge**: `start-gateway.sh` maps `PORT → GATEWAY_PORT` so deploys work without manual env var config
+- **Why not just use PORT?**: `GATEWAY_PORT` is more descriptive and consistent with the rest of the settings. `PORT` is ambiguous in multi-service setups.
+- **Why not set GATEWAY_PORT=${{PORT}} in Railway dashboard?**: That's what was tried originally — it was set to empty string and broke every deploy. The shell bridge is less fragile.
 
 ---
 

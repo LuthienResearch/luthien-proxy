@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # Core API keys
     proxy_api_key: str | None = None
     admin_api_key: str | None = None
-    auth_mode: AuthMode = AuthMode.PROXY_KEY
+    auth_mode: AuthMode = AuthMode.BOTH
 
     # Server configuration
     gateway_port: int = Field(default=DEFAULT_GATEWAY_PORT)

@@ -43,9 +43,9 @@ RUN chown -R app:app /app/src /app/config
 # Expose port (gateway runs on 8000 by default)
 EXPOSE 8000
 
-# Health check
+# Health check (uses GATEWAY_PORT with fallback to 8000 for local Docker)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:${GATEWAY_PORT:-8000}/health || exit 1
 
 # Start the gateway service (runs migrations first if DATABASE_URL is set)
 CMD ["/app/docker/start-gateway.sh"]

@@ -165,7 +165,7 @@ class TestAuthModeValidation:
     def test_default_auth_mode(self, monkeypatch):
         monkeypatch.delenv("AUTH_MODE", raising=False)
         settings = Settings(_env_file=None)
-        assert settings.auth_mode == AuthMode.PROXY_KEY
+        assert settings.auth_mode == AuthMode.BOTH
 
     def test_valid_auth_mode_from_env(self, monkeypatch):
         monkeypatch.setenv("AUTH_MODE", "passthrough")
