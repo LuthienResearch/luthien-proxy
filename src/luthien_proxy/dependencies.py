@@ -47,22 +47,6 @@ class Dependencies:
             )
         return current
 
-    def get_anthropic_client(self) -> AnthropicClient:
-        """Get the Anthropic client.
-
-        Returns:
-            The pre-configured AnthropicClient instance.
-
-        Raises:
-            HTTPException: If ANTHROPIC_API_KEY was not set at startup
-        """
-        if self.anthropic_client is None:
-            raise HTTPException(
-                status_code=500,
-                detail="ANTHROPIC_API_KEY not configured for native Anthropic path",
-            )
-        return self.anthropic_client
-
     def get_anthropic_policy(self) -> AnthropicPolicyInterface:
         """Get the current Anthropic policy.
 

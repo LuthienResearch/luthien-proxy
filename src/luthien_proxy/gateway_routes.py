@@ -110,17 +110,21 @@ async def anthropic_messages(
     if client_api_key is not None:
         if not client_api_key.strip():
             raise HTTPException(status_code=401, detail="x-anthropic-api-key header is empty")
-        base = anthropic_client or AnthropicClient(api_key="placeholder")
-        anthropic_client = base.with_api_key(client_api_key)
-    elif hasattr(request.state, "passthrough_credential"):
-        if request.state.passthrough_is_bearer:
-            anthropic_client = AnthropicClient(
-                auth_token=request.state.passthrough_credential,
-            )
+        if anthropic_client:
+            anthropic_client = anthropic_client.with_api_key(client_api_key)
         else:
-            anthropic_client = AnthropicClient(
-                api_key=request.state.passthrough_credential,
-            )
+            anthropic_client = AnthropicClient(api_key=client_api_key)
+    elif hasattr(request.state, "passthrough_credential"):
+        if anthropic_client:
+            if request.state.passthrough_is_bearer:
+                anthropic_client = anthropic_client.with_auth_token(request.state.passthrough_credential)
+            else:
+                anthropic_client = anthropic_client.with_api_key(request.state.passthrough_credential)
+        else:
+            if request.state.passthrough_is_bearer:
+                anthropic_client = AnthropicClient(auth_token=request.state.passthrough_credential)
+            else:
+                anthropic_client = AnthropicClient(api_key=request.state.passthrough_credential)
 
     if anthropic_client is None:
         raise HTTPException(

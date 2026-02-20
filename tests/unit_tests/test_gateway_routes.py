@@ -81,7 +81,6 @@ class TestVerifyTokenAuthModes:
         deps = MagicMock(spec=Dependencies)
         deps.api_key = "test-proxy-key"
         deps.anthropic_client = mock_anthropic_client
-        deps.get_anthropic_client.return_value = mock_anthropic_client
         deps.credential_manager = mock_credential_manager
         deps.policy = mock_policy
         deps.emitter = MagicMock()
@@ -272,9 +271,7 @@ class TestVerifyTokenAuthModes:
             )
             assert response.status_code == 200
             credential_manager.validate_credential.assert_not_called()
-            # Passthrough constructs a fresh AnthropicClient with the credential
-            used_client = mock_process.call_args.kwargs["anthropic_client"]
-            assert used_client._client.auth_token == "some-anthropic-token"
+            mock_anthropic_client.with_auth_token.assert_called_once_with("some-anthropic-token")
 
     def test_passthrough_bearer_used_for_upstream(self, mock_app):
         """In passthrough mode, a Bearer credential is forwarded as auth_token."""
@@ -293,8 +290,7 @@ class TestVerifyTokenAuthModes:
                 },
                 headers={"Authorization": "Bearer my-anthropic-token"},
             )
-            used_client = mock_process.call_args.kwargs["anthropic_client"]
-            assert used_client._client.auth_token == "my-anthropic-token"
+            mock_anthropic_client.with_auth_token.assert_called_once_with("my-anthropic-token")
 
     def test_passthrough_api_key_header_used_for_upstream(self, mock_app):
         """In passthrough mode, an x-api-key credential is forwarded as api_key."""
@@ -313,5 +309,4 @@ class TestVerifyTokenAuthModes:
                 },
                 headers={"x-api-key": "sk-ant-my-key"},
             )
-            used_client = mock_process.call_args.kwargs["anthropic_client"]
-            assert used_client._client.api_key == "sk-ant-my-key"
+            mock_anthropic_client.with_api_key.assert_called_once_with("sk-ant-my-key")
