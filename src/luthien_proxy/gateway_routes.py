@@ -101,7 +101,7 @@ async def anthropic_messages(
     request: Request,
     _: str = Depends(verify_token),
     anthropic_policy: AnthropicPolicyInterface = Depends(get_anthropic_policy),
-    anthropic_client: AnthropicClient = Depends(get_anthropic_client),
+    anthropic_client: AnthropicClient | None = Depends(get_anthropic_client),
     emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """Anthropic Messages API endpoint (native Anthropic path)."""
@@ -110,12 +110,23 @@ async def anthropic_messages(
     if client_api_key is not None:
         if not client_api_key.strip():
             raise HTTPException(status_code=401, detail="x-anthropic-api-key header is empty")
-        anthropic_client = anthropic_client.with_api_key(client_api_key)
+        base = anthropic_client or AnthropicClient(api_key="placeholder")
+        anthropic_client = base.with_api_key(client_api_key)
     elif hasattr(request.state, "passthrough_credential"):
         if request.state.passthrough_is_bearer:
-            anthropic_client = anthropic_client.with_auth_token(request.state.passthrough_credential)
+            anthropic_client = AnthropicClient(
+                auth_token=request.state.passthrough_credential,
+            )
         else:
-            anthropic_client = anthropic_client.with_api_key(request.state.passthrough_credential)
+            anthropic_client = AnthropicClient(
+                api_key=request.state.passthrough_credential,
+            )
+
+    if anthropic_client is None:
+        raise HTTPException(
+            status_code=500,
+            detail="No Anthropic credentials available (set ANTHROPIC_API_KEY or use passthrough auth)",
+        )
 
     return await process_anthropic_request(
         request=request,

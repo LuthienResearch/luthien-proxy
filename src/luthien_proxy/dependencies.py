@@ -199,19 +199,13 @@ def get_admin_key(request: Request) -> str | None:
     return get_dependencies(request).admin_key
 
 
-def get_anthropic_client(request: Request) -> AnthropicClient:
+def get_anthropic_client(request: Request) -> AnthropicClient | None:
     """Get Anthropic client from dependencies.
 
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        Anthropic client instance
-
-    Raises:
-        HTTPException: If ANTHROPIC_API_KEY was not configured at startup
+    Returns None when ANTHROPIC_API_KEY is not configured. The route handler
+    must check for passthrough credentials before using this client.
     """
-    return get_dependencies(request).get_anthropic_client()
+    return get_dependencies(request).anthropic_client
 
 
 def get_anthropic_policy(request: Request) -> AnthropicPolicyInterface:
