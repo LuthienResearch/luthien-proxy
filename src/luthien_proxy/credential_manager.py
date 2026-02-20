@@ -25,10 +25,14 @@ REDIS_KEY_PREFIX = "luthien:auth:cred:"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages/count_tokens"
 ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_BETA = "token-counting-2024-11-01"
+ANTHROPIC_OAUTH_BETA = "token-counting-2024-11-01,oauth-2025-04-20"
 
-# Minimal payload for credential validation (free endpoint)
+# Minimal payload for credential validation (free endpoint).
+# OAuth tokens have access to different models than API keys, so we use
+# a model available to both: claude-sonnet-4-20250514.
+VALIDATION_MODEL = "claude-sonnet-4-20250514"
 VALIDATION_PAYLOAD = {
-    "model": "claude-haiku-4-5-20250514",
+    "model": VALIDATION_MODEL,
     "messages": [{"role": "user", "content": "hi"}],
 }
 
@@ -316,9 +320,10 @@ class CredentialManager:
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(timeout=10.0)
 
+        beta = ANTHROPIC_OAUTH_BETA if is_bearer else ANTHROPIC_BETA
         headers: dict[str, str] = {
             "anthropic-version": ANTHROPIC_API_VERSION,
-            "anthropic-beta": ANTHROPIC_BETA,
+            "anthropic-beta": beta,
             "content-type": "application/json",
         }
         if is_bearer:

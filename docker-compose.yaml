@@ -89,6 +89,7 @@ services:
       - REDIS_URL=${REDIS_URL}
       - PROXY_API_KEY=${PROXY_API_KEY}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
+      - AUTH_MODE=${AUTH_MODE:-both}
       - POLICY_SOURCE=${POLICY_SOURCE:-db-fallback-file}
       - GATEWAY_PORT=8000
       - POLICY_CONFIG=${POLICY_CONFIG:-/app/config/policy_config.yaml}

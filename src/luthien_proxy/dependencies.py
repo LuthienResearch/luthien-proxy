@@ -47,22 +47,6 @@ class Dependencies:
             )
         return current
 
-    def get_anthropic_client(self) -> AnthropicClient:
-        """Get the Anthropic client.
-
-        Returns:
-            The pre-configured AnthropicClient instance.
-
-        Raises:
-            HTTPException: If ANTHROPIC_API_KEY was not set at startup
-        """
-        if self.anthropic_client is None:
-            raise HTTPException(
-                status_code=500,
-                detail="ANTHROPIC_API_KEY not configured for native Anthropic path",
-            )
-        return self.anthropic_client
-
     def get_anthropic_policy(self) -> AnthropicPolicyInterface:
         """Get the current Anthropic policy.
 
@@ -199,19 +183,13 @@ def get_admin_key(request: Request) -> str | None:
     return get_dependencies(request).admin_key
 
 
-def get_anthropic_client(request: Request) -> AnthropicClient:
+def get_anthropic_client(request: Request) -> AnthropicClient | None:
     """Get Anthropic client from dependencies.
 
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        Anthropic client instance
-
-    Raises:
-        HTTPException: If ANTHROPIC_API_KEY was not configured at startup
+    Returns None when ANTHROPIC_API_KEY is not configured. The route handler
+    must check for passthrough credentials before using this client.
     """
-    return get_dependencies(request).get_anthropic_client()
+    return get_dependencies(request).anthropic_client
 
 
 def get_anthropic_policy(request: Request) -> AnthropicPolicyInterface:
