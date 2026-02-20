@@ -112,6 +112,11 @@ class TestAnthropicClientInit:
             call_kwargs = MockAnthropic.call_args.kwargs
             assert call_kwargs["default_headers"]["anthropic-beta"] == "oauth-2025-04-20"
 
+    def test_no_credentials_raises_value_error(self):
+        """Constructing without api_key or auth_token raises ValueError."""
+        with pytest.raises(ValueError, match="Either api_key or auth_token must be provided"):
+            AnthropicClient()
+
 
 class TestAnthropicClientComplete:
     """Test AnthropicClient.complete() method."""
