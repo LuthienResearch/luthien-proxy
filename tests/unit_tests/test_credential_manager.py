@@ -204,6 +204,36 @@ class TestCallCountTokens:
         assert headers["authorization"] == "Bearer eyJhbGciOiJSUz.oauth-token"
         assert "x-api-key" not in headers
 
+    @pytest.mark.asyncio
+    async def test_bearer_token_includes_oauth_beta_header(self):
+        """Bearer tokens should include the OAuth beta flag in anthropic-beta."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("oauth-token-xyz", is_bearer=True)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert "oauth-2025-04-20" in headers["anthropic-beta"]
+
+    @pytest.mark.asyncio
+    async def test_api_key_excludes_oauth_beta_header(self):
+        """API keys should NOT include the OAuth beta flag in anthropic-beta."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=False)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert "oauth-2025-04-20" not in headers["anthropic-beta"]
+
 
 class TestInvalidation:
     @pytest.mark.asyncio

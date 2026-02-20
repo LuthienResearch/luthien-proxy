@@ -325,3 +325,21 @@ class TestGatewayAuthAndClientResolution:
                 headers={"x-api-key": "sk-ant-my-key"},
             )
             MockClient.assert_called_once_with(api_key="sk-ant-my-key", base_url=None)
+
+    def test_no_anthropic_client_returns_500_for_proxy_key(self, mock_app):
+        """Proxy key auth with no ANTHROPIC_API_KEY configured returns 500."""
+        app, _, credential_manager, deps = mock_app
+        credential_manager.config.auth_mode = AuthMode.PROXY_KEY
+        deps.anthropic_client = None
+
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 10,
+            },
+            headers={"Authorization": "Bearer test-proxy-key"},
+        )
+        assert response.status_code == 500

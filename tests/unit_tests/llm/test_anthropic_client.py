@@ -1,6 +1,6 @@
 """Unit tests for AnthropicClient."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from anthropic.types import (
@@ -104,6 +104,13 @@ class TestAnthropicClientInit:
     def test_init_with_base_url(self):
         client = AnthropicClient(api_key="test-key", base_url="https://custom.api.com")
         assert client._client.base_url == "https://custom.api.com"
+
+    def test_auth_token_sets_oauth_beta_header(self):
+        """Auth token construction should set the OAuth beta default header."""
+        with patch("anthropic.AsyncAnthropic") as MockAnthropic:
+            AnthropicClient(auth_token="some-token")
+            call_kwargs = MockAnthropic.call_args.kwargs
+            assert call_kwargs["default_headers"]["anthropic-beta"] == "oauth-2025-04-20"
 
 
 class TestAnthropicClientComplete:
