@@ -2,18 +2,17 @@
 
 ### Let AI code. Stay in control.
 
-Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output without changing your dev setup.
+Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output across your org — without changing your dev setup.
 
-**Works with:** Claude Code, Codex, Cursor. Supports streaming.
-**Does not work with:** Windsurf (does not support custom proxy servers).
+**Works with:** Claude Code. Supports streaming. Other clients that support custom API base URLs (Codex, Cursor) may also work.
 
-[See it work](#see-it-work) | [What policies can do](#what-policies-can-do) | [Quick start](#quick-start) | [Security](#security-and-trust)
+[See it work](#see-it-work) | [Example use cases](#example-use-cases) | [Quick start](#quick-start)
 
 ---
 
 ## See it work
 
-<!-- TODO: Replace with actual demo GIF/video -->
+<!-- TODO: Replace with actual demo GIF/video showing Luthien blocking a command in Claude Code -->
 
 <table>
 <tr>
@@ -21,7 +20,12 @@ Luthien is a proxy that sits between your AI coding agent and the LLM. It interc
 
 ### Without Luthien
 
-<img src="https://placehold.co/500x300/1a0a0a/ff6b6b?text=pip+install+requests%0ATeam+uses+uv%0ALockfile+broken" alt="Before: wrong package manager" width="100%">
+```
+$ claude
+> Install requests for the HTTP client
+
+✓ Ran: pip install requests
+```
 
 Claude Code runs `pip install` when your team uses `uv`. Wrong lockfile. Nobody noticed until production.
 
@@ -30,7 +34,15 @@ Claude Code runs `pip install` when your team uses `uv`. Wrong lockfile. Nobody 
 
 ### With Luthien
 
-<img src="https://placehold.co/500x300/0a1a0a/4ade80?text=Blocked+pip+install%0ASuggests+uv+add%0AClaude+retries+correctly" alt="After: Luthien blocks pip, suggests uv" width="100%">
+```
+$ claude  (through Luthien proxy)
+> Install requests for the HTTP client
+
+⛔ Blocked: pip install requests
+   Rule: use uv, not pip
+   → Retrying with: uv add requests
+✓ Ran: uv add requests
+```
 
 Luthien blocks the `pip install`, tells Claude Code to use `uv add`. Claude retries correctly. You didn't intervene.
 
@@ -38,41 +50,17 @@ Luthien blocks the `pip install`, tells Claude Code to use `uv add`. Claude retr
 </tr>
 </table>
 
----
-
-## Who it's for
-
-| | |
-|---|---|
-| **You use AI coding agents daily** | You've seen them delete files, install wrong packages, and ignore your project rules. You know the failure modes; you want rules that actually stick. |
-| **You own AI coding policy for your org** | You provision API keys for devs, own the team's config files, and ensure use complies with company policy. |
-
-Luthien works at the layer you already manage: LLM calls and tool usage.
+> **Alpha:** Policy enforcement works but is under active development. The example above uses `SimpleJudgePolicy` with an LLM judge — reliability varies by rule complexity.
 
 ---
 
-## How it works
-
-1. **Set two env vars:** keep your IDE, your tools, your workflow
-2. **Write rules in Python:** plain English evaluated by an LLM judge, or custom logic
-3. **Every request and response passes through your rules:** block, retry, or clean up
-
-Nothing is sent to Luthien servers. See [Security and trust](#security-and-trust).
-
----
-
-## What policies can do
-
-### Built-in: common failure modes
+## Example use cases
 
 - **Block dangerous operations:** `rm -rf`, `git push --force`, dropping database tables
 - **Enforce package standards:** block `pip install`, suggest `uv add` instead
-- **Catch PII exposure:** block responses that contain or request sensitive data
-- **Flag unknown dependencies:** is this package legit?
-
-Write rules in plain English. An LLM judge evaluates them.
-
-> **Expand the sections below** to see example policy code.
+- **Clean up AI writing tics:** remove em dashes, curly quotes, over-bulleting
+- **Enforce scope boundaries:** only allow changes to files mentioned in the request
+- **Log everything:** get a URL to a live-updating log of your full agent conversation
 
 <details>
 <summary><b>Example: PipBlockPolicy (click to expand)</b></summary>
@@ -87,14 +75,6 @@ class PipBlockPolicy(SimpleJudgePolicy):
 ```
 
 </details>
-
-### Custom policies for your use case
-
-Anything you can define in a Python function.
-
-- **Clean up AI writing tics:** remove curly quotes, over-bulleting, sloppy formatting
-- **Enforce scope boundaries:** only allow changes to files mentioned in the request
-- **Domain-specific compliance:** your internal LLM tool advises customers? Make sure it cites the right policy instead of hallucinating guidance
 
 <details>
 <summary><b>Example: DeSlop and ScopeGuard (click to expand)</b></summary>
@@ -117,33 +97,30 @@ class ScopeGuard(SimpleJudgePolicy):
 
 </details>
 
-### Measurement
-
-Every policy action is logged. Measure what got blocked, track false positives and false negatives, monitor latency overhead.
+Every policy action is logged. Measure what got blocked, track false positives, monitor latency overhead.
 
 ---
 
-## Security and trust
+## How it works
 
-Luthien runs on **infrastructure you control**: your machine or your cloud account. Your code, prompts, and API keys never touch our servers.
+```
+You (Claude Code) ──→ Luthien Proxy ──→ Anthropic API
+                         │
+                    enforces your policies on
+                    every request and response:
+                         │
+                         ├── monitor: log full conversation
+                         ├── block: dangerous operations
+                         └── change: fix rule violations
+```
 
-| Concern | How Luthien handles it |
-|---------|----------------------|
-| **Data transmission** | All traffic stays between you and your LLM provider. Luthien doesn't phone home. |
-| **Encryption at rest** | Conversation logs are stored in your PostgreSQL instance. Encrypt the volume to your standards. |
-| **Prompts and context** | Your system prompts, tool calls, and context files stay on your infrastructure. Luthien sees the traffic to enforce rules; it doesn't exfiltrate it. |
-| **What Luthien sees** | Everything your AI agent sends and receives. |
+Luthien enforces your policies on everything that goes into or comes out of the backend. It can replace tool calls that violate your rules, and generate an easy-to-read log of everything your agent does.
+
+Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud account.
 
 ---
 
 ## Quick start
-
-**Supported:** Claude Code, Codex, Cursor (any client that lets you set a custom API base URL).
-
-### Run locally with Claude Code
-
-<details open>
-<summary><b>Steps (expanded by default)</b></summary>
 
 **Prerequisites:** [Docker](https://www.docker.com/) and an [Anthropic API key](https://console.anthropic.com/).
 
@@ -152,23 +129,27 @@ Luthien runs on **infrastructure you control**: your machine or your cloud accou
 ```bash
 git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy
 cp .env.example .env
-# Edit .env: add your real ANTHROPIC_API_KEY (the upstream key Luthien uses to call Anthropic)
+# Edit .env: add your ANTHROPIC_API_KEY
 ```
 
 **2. Start**
 
-`docker compose up -d`
+```bash
+docker compose up -d
+```
 
 **3. Connect Claude Code**
 
 ```bash
 export ANTHROPIC_BASE_URL=http://localhost:8000/v1
-export ANTHROPIC_API_KEY=sk-luthien-dev-key          # proxy auth key (not your real Anthropic key)
+export ANTHROPIC_API_KEY=sk-luthien-dev-key
 claude
 ```
 
+That's it. Every request now flows through Luthien.
+
 <details>
-<summary><b>What Docker spins up (click to expand)</b></summary>
+<summary><b>What Docker spins up</b></summary>
 
 | Service | Port | Purpose |
 |---------|------|---------|
@@ -180,26 +161,18 @@ Port conflict? Set `GATEWAY_PORT` in `.env`.
 
 </details>
 
-</details>
-
-### Run locally with Codex
-
 <details>
-<summary><b>Steps (click to expand)</b></summary>
+<summary><b>Using Codex instead?</b></summary>
 
-Follow the same clone and configure steps as Claude Code above, then:
+Follow the same clone and configure steps, then:
 
 ```bash
 export OPENAI_BASE_URL=http://localhost:8000/v1
-export OPENAI_API_KEY=sk-luthien-dev-key             # proxy auth key (not your real OpenAI key)
+export OPENAI_API_KEY=sk-luthien-dev-key
 codex
 ```
 
 </details>
-
-### Deploy to cloud (Railway)
-
-ETA Feb 16, 2026.
 
 ---
 
