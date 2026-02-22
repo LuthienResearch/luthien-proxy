@@ -2,6 +2,12 @@
 
 ## Unreleased | TBA
 
+- Add long-term stress testing script (long-term-testing)
+  - `scripts/long_term_test.sh` makes repeated Claude API calls through the proxy to validate stability
+  - Configurable: max time, max calls, cooldown, custom prompts, output directory
+  - Session resumption (continues same Claude session across all calls)
+  - Graceful signal handling, per-call JSON logs, and summary report on exit
+
 - Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
   - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
   - MultiParallelPolicy: parallel execution with configurable consolidation strategies
