@@ -1,5 +1,8 @@
 # CHANGELOG
 
+<!-- New entries go in changelog.d/ as fragment files, not here directly.
+     Run: uv run python scripts/assemble_changelog.py to merge them. -->
+
 ## Unreleased | TBA
 
 - Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
