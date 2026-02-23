@@ -37,12 +37,16 @@ class AnthropicClient:
             auth_token: OAuth/bearer token (sent as Authorization: Bearer header).
             base_url: Optional custom base URL for the API.
         """
+        if api_key is None and auth_token is None:
+            raise ValueError("Either api_key or auth_token must be provided")
         self._base_url = base_url
         kwargs: dict = {}
         if api_key is not None:
             kwargs["api_key"] = api_key
         else:
             kwargs["auth_token"] = auth_token
+            # Anthropic requires this beta flag for OAuth bearer token auth
+            kwargs["default_headers"] = {"anthropic-beta": "oauth-2025-04-20"}
         if base_url:
             kwargs["base_url"] = base_url
         self._client = anthropic.AsyncAnthropic(**kwargs)

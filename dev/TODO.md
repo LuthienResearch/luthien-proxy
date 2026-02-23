@@ -9,13 +9,7 @@
 
 ### Bugs
 
-<<<<<<< chore/todo-cleanup
 - [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Fix: [#208](https://github.com/LuthienResearch/luthien-proxy/pull/208). Reference: Dogfooding session 2025-12-16.
-=======
-- [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Reference: Dogfooding session 2025-12-16.
-- [x] **Thinking blocks stripped from non-streaming responses** - Fixed in PR #131. [#128](https://github.com/LuthienResearch/luthien-proxy/issues/128).
-- [x] **Thinking blocks not handled in streaming responses** - Fixed in PR #134. Required 5 debug cycles across 4 layers. [#129](https://github.com/LuthienResearch/luthien-proxy/issues/129)
->>>>>>> main
 
 ### Core Features (User Story Aligned)
 
@@ -25,10 +19,6 @@
 
 - [ ] **Improved policy config schema system** - Enhance config schema to include: default values, per-field user-facing docstrings/descriptions, and secure field flags (e.g. API keys should render as password inputs in browser). Currently the UI infers types from schema but lacks rich metadata for good UX.
 - [ ] **[Future] Smart dev key hint** - Only show clickable dev key hint when ADMIN_API_KEY matches default; otherwise just show "check .env or contact admin". Deferred as scope creep. Reference: dogfooding-login-ui-quick-fixes branch, 2025-12-15.
-<<<<<<< chore/todo-cleanup
-=======
-- [x] **Activity Monitor missing auth indicator** - Already present in gateway root page (index.html line 106). Reference: dogfooding session 2025-12-15.
->>>>>>> main
 
 ### Documentation (High)
 
@@ -50,6 +40,7 @@
 
 ### Code Improvements
 
+- [ ] **Eliminate `AnthropicClient` wrapper — use `AsyncAnthropic` directly** - Our `AnthropicClient` is a shallow wrapper around the SDK's `AsyncAnthropic`. The SDK already supports `api_key`/`auth_token` construction, has a public `base_url` property, and `copy()`/`with_options()` for per-request client variants. The wrapper's OTel spans duplicate what `anthropic_processor.py` already provides. Two utility functions (`prepare_request_kwargs`, `message_to_response`) still needed but don't justify a class. `with_api_key()`/`with_auth_token()` are dead code post-PR #221 refactor. Reference: PR #221 review, 2026-02-20.
 - [ ] **Anthropic-only policy configuration support** - Current implementation requires all policies to implement both OpenAI and Anthropic interfaces. There's no way to configure an Anthropic-only policy through the config system. Noted as Phase 2 work in split-apis design doc. Reference: PR #169, 2026-02-03.
 - [ ] **Simplify streaming span context management** - The attach/detach pattern in `anthropic_processor.py:275-303` is correct but complex. Consider wrapping in a context manager for better maintainability. Reference: PR #169, 2026-02-03.
 - [ ] **Add runtime validation for Anthropic TypedDict assignments** - `anthropic_processor.py:238` uses direct dict-to-TypedDict assignment after basic field validation. Consider adding runtime validation for production robustness. Reference: PR #169, 2026-02-03.
@@ -61,6 +52,7 @@
 
 ### Testing (Medium)
 
+- [ ] **Define `DEFAULT_CLAUDE_TEST_MODEL` constant, set to `claude-haiku-4-5`** - Hardcoded `claude-sonnet-4-20250514` and `claude-sonnet-4-5` strings are scattered across ~100+ test locations and scripts. Define a shared constant (e.g. in `tests/conftest.py` or `src/luthien_proxy/utils/constants.py`) and replace hardcoded strings. Using haiku reduces cost/latency for tests and e2e. Production code (`credential_manager.py:VALIDATION_MODEL`) should also use a cheaper model. Reference: 2026-02-23.
 - [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
@@ -103,10 +95,6 @@
 - [ ] Implement adaptive timeout based on model type
 - [ ] Add policy composition (chaining multiple policies)
 - [ ] Expose database connection pooling configuration
-<<<<<<< chore/todo-cleanup
-=======
-- [x] Add cache headers to static files mount (1hr public cache via middleware)
->>>>>>> main
 - [ ] Consider stricter pyright mode
 - [ ] Add degraded state reporting to /health endpoint
 - [ ] Minimize type: ignore flags
