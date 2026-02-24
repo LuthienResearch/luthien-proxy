@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="480" height="330" viewBox="0 0 480 330">
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="370" viewBox="0 0 480 370">
   <!-- Terminal background -->
-  <rect width="480" height="330" rx="8" fill="#1e1e1e"/>
+  <rect width="480" height="370" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
   <rect width="480" height="30" rx="8" fill="#323233"/>
@@ -34,16 +34,19 @@
   <!-- Tool output -->
   <text x="48" y="176" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">Successfully installed requests-2.31.0</text>
 
-  <!-- User catches the mistake -->
+  <!-- User frustrated reaction -->
   <text x="16" y="210" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">&gt;</text>
-  <text x="28" y="210" fill="#f4f4f4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">CLAUDE.md says uv, not pip!</text>
+  <text x="28" y="210" fill="#f4f4f4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13" font-weight="bold">ARE YOU SERIOUS?? I said uv not pip</text>
 
-  <!-- Claude apologizes (the frustrating cycle) -->
-  <text x="32" y="240" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">I apologize for the oversight.</text>
-  <text x="32" y="260" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">You're right, your CLAUDE.md</text>
-  <text x="32" y="280" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">specifies uv. Let me undo...</text>
+  <text x="16" y="234" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">&gt;</text>
+  <text x="28" y="234" fill="#f4f4f4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13" font-weight="bold">IT'S IN THE DAMN CLAUDE.MD</text>
 
-  <!-- Next prompt with cursor (the cycle continues) -->
-  <text x="16" y="314" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">&gt;</text>
-  <rect x="28" y="303" width="8" height="15" fill="#d4d4d4" opacity="0.7"/>
+  <!-- Claude's apologetic response -->
+  <text x="32" y="268" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">I sincerely apologize. You're</text>
+  <text x="32" y="288" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">right, your CLAUDE.md clearly</text>
+  <text x="32" y="308" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">specifies uv. Let me undo...</text>
+
+  <!-- Next prompt with cursor -->
+  <text x="16" y="344" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">&gt;</text>
+  <rect x="28" y="333" width="8" height="15" fill="#d4d4d4" opacity="0.7"/>
 </svg>
