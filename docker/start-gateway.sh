@@ -1,4 +1,5 @@
 #!/bin/bash
+# Requires: bash 3.2+
 # Startup script for Luthien Gateway
 # Runs migrations (if DATABASE_URL is set) then starts the gateway
 

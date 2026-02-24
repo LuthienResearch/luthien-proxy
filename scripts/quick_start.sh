@@ -1,4 +1,5 @@
 #!/bin/bash
+# Requires: bash 3.2+
 
 # ABOUTME: Minimal quick-start script for Luthien Control development environment
 # ABOUTME: Validates dependencies, sets up environment, and starts core services

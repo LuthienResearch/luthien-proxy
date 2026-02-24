@@ -1,4 +1,5 @@
 #!/bin/bash
+# Requires: bash 3.2+
 # ABOUTME: Helper script to manage observability stack (Tempo distributed tracing)
 
 set -e

@@ -1,4 +1,5 @@
 #!/bin/bash
+# Requires: bash 3.2+
 
 # ABOUTME: Script to launch Claude Code using the gateway with policy enforcement
 # ABOUTME: Configures environment to route Claude API calls through gateway

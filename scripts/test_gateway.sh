@@ -1,4 +1,5 @@
 #!/bin/bash
+# Requires: bash 3.2+
 
 # ABOUTME: Automated test script for gateway health and API compatibility
 # ABOUTME: Tests OpenAI and Anthropic APIs with streaming and non-streaming modes

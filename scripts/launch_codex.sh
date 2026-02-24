@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Requires: bash 3.2+
 
 # ABOUTME: Minimal launcher for Codex through the gateway with policy enforcement
 # ABOUTME: Sets the base URL and API key to route through gateway

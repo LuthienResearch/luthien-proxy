@@ -1,4 +1,5 @@
 #!/bin/sh
+# Requires: POSIX sh (runs in Alpine Docker containers)
 # ABOUTME: Runs all SQL migrations in order, tracking which have been applied
 # ABOUTME: Validates migration consistency before applying (fail-fast on drift)
 # ABOUTME: Works in Docker (/migrations/) or CI (set MIGRATIONS_DIR=./migrations)

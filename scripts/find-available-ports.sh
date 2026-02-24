@@ -1,4 +1,5 @@
 #!/bin/bash
+# Requires: bash 3.2+
 # ABOUTME: Find available ports for docker compose services at startup.
 # ABOUTME: Source this script before `docker compose up` to auto-select free ports.
 #
