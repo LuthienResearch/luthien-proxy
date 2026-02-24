@@ -72,6 +72,44 @@ class TestCredentialManagerInitialize:
         await manager.initialize(default_auth_mode="passthrough")
         assert manager.config.auth_mode == AuthMode.PASSTHROUGH
 
+    @pytest.mark.asyncio
+    async def test_warns_when_db_differs_from_code_default(self, caplog):
+        """PR #222 COE: warn at startup if DB auth_mode diverges from code default."""
+        mock_pool = AsyncMock()
+        mock_pool.fetchrow.return_value = {
+            "auth_mode": "proxy_key",
+            "validate_credentials": True,
+            "valid_cache_ttl_seconds": 3600,
+            "invalid_cache_ttl_seconds": 300,
+            "updated_at": None,
+            "updated_by": None,
+        }
+        mock_db = AsyncMock()
+        mock_db.get_pool.return_value = mock_pool
+
+        manager = CredentialManager(db_pool=mock_db, redis_client=None)
+        await manager.initialize(default_auth_mode="both")
+        assert any("differs from code default" in msg for msg in caplog.messages)
+
+    @pytest.mark.asyncio
+    async def test_no_warning_when_db_matches_code_default(self, caplog):
+        """No warning when DB and code defaults agree."""
+        mock_pool = AsyncMock()
+        mock_pool.fetchrow.return_value = {
+            "auth_mode": "both",
+            "validate_credentials": True,
+            "valid_cache_ttl_seconds": 3600,
+            "invalid_cache_ttl_seconds": 300,
+            "updated_at": None,
+            "updated_by": None,
+        }
+        mock_db = AsyncMock()
+        mock_db.get_pool.return_value = mock_pool
+
+        manager = CredentialManager(db_pool=mock_db, redis_client=None)
+        await manager.initialize(default_auth_mode="both")
+        assert not any("differs from code default" in msg for msg in caplog.messages)
+
 
 class TestValidateCredential:
     @pytest.mark.asyncio

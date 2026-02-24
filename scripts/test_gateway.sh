@@ -8,6 +8,8 @@ set -e
 # Configuration
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
 API_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
+# Real Anthropic key for passthrough auth test (optional, from .env)
+ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-}"
 
 # Retry settings for gateway startup wait
 # Values determined by timing tests: restart ~2s, full down/up 18-25s
@@ -152,6 +154,26 @@ test_endpoint "Missing messages field (should fail)" \
 test_endpoint "Invalid API key (should fail)" \
     "curl -s $GATEWAY_URL/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer invalid-key' -d '{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"stream\":false,\"max_tokens\":20}' -w '%{http_code}' -o /dev/null" \
     "grep -q '^40[13]$'"
+
+echo ""
+echo "=== Bearer Token Auth (PR #222 regression test) ==="
+
+# Verify gateway is in BOTH mode (not proxy_key) by checking the error message
+# for a fake Bearer token. BOTH mode says "Invalid API key or credential";
+# proxy_key mode says "Invalid API key". This is the exact bug from PR #222.
+test_endpoint "Auth mode is BOTH (not proxy_key)" \
+    "curl -s $GATEWAY_URL/v1/messages -H 'Content-Type: application/json' -H 'Authorization: Bearer fake-token-to-test-auth-mode' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"claude-sonnet-4-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":10}'" \
+    "jq -e '.detail == \"Invalid API key or credential\"'"
+
+# If ANTHROPIC_API_KEY is available, test actual passthrough with real Bearer token.
+# This is the full Claude Code dogfooding flow: OAuth token → gateway → Anthropic.
+if [ -n "$ANTHROPIC_KEY" ]; then
+    test_endpoint "Bearer token passthrough (real Anthropic key)" \
+        "curl -sf $GATEWAY_URL/v1/messages -H 'Content-Type: application/json' -H 'Authorization: Bearer $ANTHROPIC_KEY' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"claude-sonnet-4-5\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hi in 2 words\"}],\"max_tokens\":20}'" \
+        "validate_anthropic"
+else
+    echo -e "${YELLOW}⚠ Skipping Bearer passthrough test (ANTHROPIC_API_KEY not set)${NC}"
+fi
 
 echo ""
 echo "==================================="

@@ -117,6 +117,14 @@ class CredentialManager:
             f"Auth config loaded: mode={self._config.auth_mode.value}, validate={self._config.validate_credentials}"
         )
 
+        # Warn if DB value differs from the code default (see PR #222 COE)
+        if self._config.auth_mode != AuthMode(default_auth_mode):
+            logger.warning(
+                f"DB auth_mode '{self._config.auth_mode.value}' differs from "
+                f"code default '{default_auth_mode}'. This may cause unexpected "
+                f"auth failures. Update via admin API or DB migration."
+            )
+
     @property
     def config(self) -> AuthConfig:
         """Current auth configuration."""
