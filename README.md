@@ -2,15 +2,19 @@
 
 ### Let AI code. Stay in control.
 
-Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output across your org -- without changing your dev setup.
-
-Works with Claude Code. Supports streaming.
-
-[See it work](#see-it-work) | [Example use cases](#example-use-cases) | [Quick start](#quick-start)
+[What is it?](#what-is-it) | [What does it look like?](#what-does-it-look-like) | [What can it do?](#what-can-it-do) | [How it works](#how-it-works) | [Quick start](#quick-start)
 
 ---
 
-## See it work
+## What is it?
+
+Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output across your org, without changing your dev setup.
+
+Works with Claude Code. Supports streaming.
+
+---
+
+## What does it look like?
 
 <table>
 <tr>
@@ -20,12 +24,12 @@ Works with Claude Code. Supports streaming.
 <tr>
 <td>
 
-<img src="assets/readme/terminal-without-luthien.svg?v=16" alt="Before: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
+<img src="assets/readme/terminal-without-luthien.svg?v=17" alt="Before: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
 
 </td>
 <td>
 
-<img src="assets/readme/terminal-with-luthien.svg?v=15" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
+<img src="assets/readme/terminal-with-luthien.svg?v=17" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
 
 </td>
 </tr>
@@ -35,7 +39,7 @@ Works with Claude Code. Supports streaming.
 
 ---
 
-## Example use cases
+## What can it do?
 
 - **Block dangerous operations:** `rm -rf`, `git push --force`, dropping database tables
 - **Enforce package standards:** block `pip install`, suggest `uv add` instead
@@ -85,14 +89,14 @@ Every policy action is logged. Measure what got blocked, track false positives, 
 ## How it works
 
 ```
-You (Claude Code) ──→ Luthien Proxy ──→ Anthropic API
-                         │
+You (Claude Code) --> Luthien Proxy --> Anthropic API
+                         |
                     enforces your policies on
                     every request and response:
-                         │
-                         ├── monitor: log full conversation
-                         ├── block: dangerous operations
-                         └── change: fix rule violations
+                         |
+                         |-- monitor: log full conversation
+                         |-- block: dangerous operations
+                         +-- change: fix rule violations
 ```
 
 Luthien enforces your policies on everything that goes into or comes out of the backend. It can replace tool calls that violate your rules with tool calls that follow your rules, and generate an easy-to-read log of everything your agent does.
@@ -103,72 +107,71 @@ Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud a
 
 ## Quick Start
 
-### 1. Install and Start
+### 0.1 Install Docker
+
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and make sure it's running.
+
+### 0.2 Install uv
 
 ```bash
-# Install uv (if needed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-# Clone and start everything
+### 1. Clone the repo
+
+```bash
 git clone https://github.com/LuthienResearch/luthien-proxy
+```
+
+```bash
 cd luthien-proxy
+```
 
-# Configure API keys
+### 2. Configure API keys
+
+```bash
 cp .env.example .env
-# Edit .env and add your keys:
-#   OPENAI_API_KEY=sk-proj-...
-#   ANTHROPIC_API_KEY=sk-ant-...
+```
 
-# Start the stack
+Edit `.env` and add your keys:
+
+```
+OPENAI_API_KEY=sk-proj-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### 3. Start the stack
+
+```bash
 ./scripts/quick_start.sh
 ```
 
-### 2. Use Claude Code or Codex through the Proxy
-
-Launch your AI assistant through the proxy using the built-in scripts:
-
-**Claude Code:**
+### 4. Launch Claude Code through the proxy
 
 ```bash
 ./scripts/launch_claude_code.sh
 ```
 
-**Codex:**
+All requests now flow through the policy enforcement layer. Visit <http://localhost:8000/client-setup> for manual setup commands.
+
+<details>
+<summary><b>Using Codex instead? (click to expand)</b></summary>
 
 ```bash
 ./scripts/launch_codex.sh
 ```
 
-These scripts automatically configure the proxy settings. All requests now flow through the policy enforcement layer!
+</details>
 
-Visit <http://localhost:8000/client-setup> for step-by-step setup commands for using Claude Code with the proxy.
+### 5. Monitor activity
 
-### 3. Log In to Admin UI
-
-When you first visit any admin page (Activity Monitor, Policy Config, or Debug views), you'll be redirected to:
-
-```
-http://localhost:8000/login
-```
-
-**Default credentials (development):**
-- Admin API Key: `admin-dev-key`
-
-After logging in, your session persists across pages. Click "Sign Out" on any admin page to log out.
-
-⚠️ **For production deployments**: Change `ADMIN_API_KEY` in your `.env` file before exposing to a network.
-
-### 4. Monitor Activity
-
-Open the Activity Monitor in your browser to see requests in real-time:
+Open the Activity Monitor to see requests in real-time:
 
 ```
 http://localhost:8000/activity/monitor
 ```
 
-Watch as requests flow through, see policy decisions, and inspect before/after diffs.
-
-### 5. Select a Policy
+### 6. Select a policy
 
 Use the Policy Configuration UI to change policies without restart:
 
@@ -178,11 +181,9 @@ http://localhost:8000/policy-config
 
 1. Browse available policies (NoOp, AllCaps, DebugLogging, etc.)
 2. Click to select and activate
-3. Test immediately - changes take effect instantly
+3. Test immediately -- changes take effect instantly
 
-### 6. Create Your Own Policy
-
-Create a new policy by subclassing `SimplePolicy`:
+### 7. Create your own policy
 
 ```python
 # src/luthien_proxy/policies/my_custom_policy.py
