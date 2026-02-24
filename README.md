@@ -2,9 +2,9 @@
 
 ### Let AI code. Stay in control.
 
-Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output across your org — without changing your dev setup.
+Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output across your org -- without changing your dev setup.
 
-**Works with:** Claude Code. Supports streaming.
+Works with Claude Code. Supports streaming.
 
 [See it work](#see-it-work) | [Example use cases](#example-use-cases) | [Quick start](#quick-start)
 
@@ -20,18 +20,18 @@ Luthien is a proxy that sits between your AI coding agent and the LLM. It interc
 <tr>
 <td>
 
-<img src="assets/readme/terminal-without-luthien.svg?v=6" alt="Before: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
+<img src="assets/readme/terminal-without-luthien.svg?v=7" alt="Before: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
 
 </td>
 <td>
 
-<img src="assets/readme/terminal-with-luthien.svg?v=6" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
+<img src="assets/readme/terminal-with-luthien.svg?v=7" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
 
 </td>
 </tr>
 </table>
 
-> **Alpha:** Policy enforcement works but is under active development. The example above uses a `ToolCallJudgePolicy` with an LLM judge -- reliability varies by rule complexity.
+> Alpha: Policy enforcement works but is under active development. The example above uses a `ToolCallJudgePolicy` with an LLM judge -- reliability varies by rule complexity.
 
 ---
 
@@ -95,7 +95,7 @@ You (Claude Code) ──→ Luthien Proxy ──→ Anthropic API
                          └── change: fix rule violations
 ```
 
-Luthien enforces your policies on everything that goes into or comes out of the backend. It can replace tool calls that violate your rules, and generate an easy-to-read log of everything your agent does.
+Luthien enforces your policies on everything that goes into or comes out of the backend. It can replace tool calls that violate your rules with tool calls that follow your rules, and generate an easy-to-read log of everything your agent does.
 
 Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud account.
 
@@ -105,7 +105,7 @@ Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud a
 
 ### 1. Install and Start
 
-**Prerequisites:** [Docker](https://www.docker.com/) (must be running), Python 3.13+, and [uv](https://docs.astral.sh/uv/).
+Prerequisites: [Docker](https://www.docker.com/) (must be running), Python 3.13+, and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 # Install uv (if needed)
