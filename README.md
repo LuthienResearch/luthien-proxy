@@ -9,7 +9,7 @@
 
 Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output across your org, without changing your dev setup.
 
-Works with Claude Code and Cursor. Supports streaming.
+Works with Claude Code. Supports streaming.
 
 ---
 
@@ -129,7 +129,6 @@ cp .env.example .env
 Edit `.env` and add your keys:
 
 ```
-OPENAI_API_KEY=sk-proj-...
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
@@ -147,14 +146,6 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 All requests now flow through the policy enforcement layer. Visit <http://localhost:8000/client-setup> for manual setup commands.
 
-<details>
-<summary><b>Using Codex instead? (click to expand)</b></summary>
-
-```bash
-./scripts/launch_codex.sh
-```
-
-</details>
 
 ### 5. Monitor activity
 
