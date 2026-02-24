@@ -2,6 +2,10 @@
 
 ## Unreleased | TBA
 
+- Add shellcheck integration to dev_checks.sh (#224)
+  - Shellcheck runs on all .sh files; skips gracefully if not installed
+  - Fix unsafe `export $(grep ...)` pattern in launch_codex.sh and start_gateway.sh
+
 - Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
   - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
   - MultiParallelPolicy: parallel execution with configurable consolidation strategies
