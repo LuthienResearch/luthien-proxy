@@ -62,7 +62,7 @@ class PipBlockPolicy(SimpleJudgePolicy):
 
 ```python
 class DeSlop(SimplePolicy):
-    def simple_on_response_content(self, content, context):
+    async def simple_on_response_content(self, content, context):
         return content.replace("\u2014", "-").replace("\u2013", "-")
 ```
 
@@ -194,11 +194,11 @@ from luthien_proxy.policies.simple_policy import SimplePolicy
 class MyCustomPolicy(SimplePolicy):
     """Custom request/response transformation."""
 
-    async def simple_on_request(self, messages, ctx):
+    async def simple_on_request(self, messages, context):
         # Inspect or modify messages before they reach the LLM
         return messages
 
-    async def simple_on_response_content(self, content, ctx):
+    async def simple_on_response_content(self, content, context):
         # Inspect or modify the LLM response content
         return content
 ```
@@ -231,6 +231,9 @@ The gateway provides:
 ## Development
 
 ```bash
+# Install dev dependencies
+uv sync --dev
+
 # After code changes, restart the gateway
 docker compose restart gateway
 
@@ -366,7 +369,7 @@ ENVIRONMENT=development
 ```bash
 # Configuration for judge-based policies (ToolCallJudgePolicy)
 LLM_JUDGE_MODEL=openai/gpt-4                         # Model for judge
-LLM_JUDGE_API_BASE=http://localhost:11434/v1         # API base URL
+LLM_JUDGE_API_BASE=http://localhost:11434/v1         # e.g., Ollama (only needed for judge policies)
 LLM_JUDGE_API_KEY=your_judge_api_key                 # API key for judge
 ```
 
@@ -395,6 +398,7 @@ Available policies in `src/luthien_proxy/policies/`:
 - `debug_logging_policy.py` - Logs requests/responses for debugging
 - `tool_call_judge_policy.py` - AI-based tool call safety evaluation
 - `simple_policy.py` - Base class for custom policies
+- `simple_judge_policy.py` - Base class for LLM-based safety judges (subclass and define RULES)
 
 ## Dev Tooling
 
