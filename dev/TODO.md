@@ -79,9 +79,11 @@
 
 ### Onboarding & Install (Medium — Tyler feedback 2026-02-10)
 
-- [ ] **Push pre-built Docker images to Docker Hub** - Tyler's first install required building all images locally, which is slow. Pre-built images would make `docker compose up` near-instant for new users. Source: Tyler Tracy live install, Feb 10.
-- [ ] **Fix quick_start.sh Grafana/gateway health check bug** - `quick_start.sh` fails to detect gateway when Grafana hasn't been launched yet. Known bug, Tyler hit it during live install. Jai: "I've been meaning to fix forever." Source: Tyler Tracy live install, Feb 10.
-- [x] **Clarify quick_start.sh vs docker compose up** - Resolved: README v7 uses `docker compose up -d` for users. `quick_start.sh` documented in `dev/README.md` for developers only. Source: Tyler Tracy live install, Feb 10.
+Source: [Office Hours notes](https://docs.google.com/document/d/1Qo2D5zrtuHO2MF6wJX4v86sJPm-YAmCNwKWPJTcFJvM/edit?tab=t.0), [Gemini transcript](https://docs.google.com/document/d/1lRX5U7_2Ig1oOw775xm9uoGGK6yJx2gip8N2BlAA0JQ/edit?tab=t.fp5fl2phgglm)
+
+- [ ] **Push pre-built Docker images to Docker Hub** - Tyler: "One thing you can do is push the already built image to Docker Hub to speed up the builds." First install required building all images locally.
+- [ ] **Fix quick_start.sh Grafana/gateway health check bug** - Tyler: "Gateway not detected. Did we launch Grafana before?" Jai: "This is a bug... I've been meaning to fix forever."
+- [ ] **Simplify quick_start.sh vs docker compose up** - Jai: "That's redundant... quick start is basically just the same as docker [compose] up" but adds dev refresh stuff. Users should get `docker compose up -d`, devs get `quick_start.sh`.
 
 ### Infrastructure (Medium)
 
