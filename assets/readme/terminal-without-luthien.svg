@@ -73,9 +73,9 @@
   <text x="36" y="342" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Resolved 1 package in 0.5s</text>
 
   <!-- 5. Time divider -->
-  <line x1="40" y1="374" x2="200" y2="374" stroke="#404040" stroke-width="0.5"/>
-  <text x="214" y="378" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">20 minutes later</text>
-  <line x1="370" y1="374" x2="580" y2="374" stroke="#404040" stroke-width="0.5"/>
+  <line x1="40" y1="374" x2="180" y2="374" stroke="#555555" stroke-width="1"/>
+  <text x="310" y="379" text-anchor="middle" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-style="italic">20 minutes later</text>
+  <line x1="440" y1="374" x2="580" y2="374" stroke="#555555" stroke-width="1"/>
 
   <!-- 6. User asks for pytest -->
   <rect x="16" y="393" width="270" height="18" rx="3" fill="#333333"/>
