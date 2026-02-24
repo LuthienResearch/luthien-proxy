@@ -2,7 +2,7 @@
 
 ### Let AI code. Stay in control.
 
-[What is it?](#what-is-it) | [What does it look like?](#what-does-it-look-like) | [What can it do?](#what-can-it-do) | [How it works](#how-it-works) | [Quick start](#quick-start)
+[What is it?](#what-is-it) | [What does it look like?](#what-does-it-look-like) | [What can it do?](#what-can-it-do) | [How does it work?](#how-does-it-work) | [Quick start](#quick-start)
 
 ---
 
@@ -86,7 +86,7 @@ Every policy action is logged. Measure what got blocked, track false positives, 
 
 ---
 
-## How it works
+## How does it work?
 
 ```
 You (Claude Code) --> Luthien Proxy --> Anthropic API
