@@ -107,22 +107,31 @@ Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud a
 
 Prerequisites: [Docker](https://www.docker.com/) (must be running), Python 3.13+, and [uv](https://docs.astral.sh/uv/).
 
-```bash
-# Install uv (if needed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+Install uv (if needed):
 
-# Clone and start everything
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Clone the repo:
+
+```bash
 git clone https://github.com/LuthienResearch/luthien-proxy
 cd luthien-proxy
+```
 
-# Configure API keys
+Configure API keys:
+
+```bash
 cp .env.example .env
-# Edit .env and add your keys:
-#   OPENAI_API_KEY=sk-proj-...
-#   ANTHROPIC_API_KEY=sk-ant-...
+```
 
-# Start the stack
-./scripts/quick_start.sh
+Edit `.env` and add your keys: `OPENAI_API_KEY=sk-proj-...` and `ANTHROPIC_API_KEY=sk-ant-...`
+
+Start the stack:
+
+```bash
+docker compose up -d
 ```
 
 ### 2. Use Claude Code or Codex through the Proxy
