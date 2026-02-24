@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="620" height="534" viewBox="0 0 620 534">
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="450" viewBox="0 0 620 450">
   <!-- Terminal background -->
-  <rect width="620" height="534" rx="8" fill="#1e1e1e"/>
+  <rect width="620" height="450" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
   <rect width="620" height="32" rx="8" fill="#323233"/>
@@ -72,26 +72,14 @@
   <rect x="14" y="349" width="3" height="54" rx="1.5" fill="#4ec9b0"/>
   <text x="584" y="363" text-anchor="end" fill="#2d6b50" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="10" letter-spacing="0.5">luthien</text>
 
-  <!-- Luthien intercepts: Blocked -->
-  <text x="28" y="380" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✗ Blocked: pip install requests</text>
+  <!-- Luthien: Blocked -->
+  <text x="28" y="380" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Blocked: pip install requests per CLAUDE.md</text>
 
-  <!-- Luthien auto-corrects -->
-  <text x="28" y="398" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✓ Auto-corrected: use uv, not pip</text>
-
-  <!-- White dot: Claude response -->
-  <text x="20" y="430" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
-  <text x="36" y="430" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">I'll use uv add instead.</text>
-
-  <!-- Green dot: Bash tool call -->
-  <text x="20" y="462" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
-  <text x="36" y="462" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
-  <text x="73" y="462" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(uv add requests)</text>
-
-  <!-- Tool output with connector -->
-  <text x="36" y="482" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Resolved 1 package in 0.5s</text>
+  <!-- Luthien: Auto-retry success -->
+  <text x="28" y="398" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Auto-retried: uv add requests — success</text>
 
   <!-- Happy ending with gray highlight -->
-  <rect x="16" y="501" width="130" height="18" rx="3" fill="#333333"/>
-  <text x="20" y="514" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="36" y="514" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">nice 😊🚀</text>
+  <rect x="16" y="417" width="130" height="18" rx="3" fill="#333333"/>
+  <text x="20" y="430" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
+  <text x="36" y="430" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">nice 😊🚀</text>
 </svg>

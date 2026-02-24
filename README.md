@@ -25,7 +25,7 @@ Works with Claude Code. Supports streaming.
 </td>
 <td>
 
-<img src="assets/readme/terminal-with-luthien.svg?v=12" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
+<img src="assets/readme/terminal-with-luthien.svg?v=13" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
 
 </td>
 </tr>
@@ -105,33 +105,22 @@ Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud a
 
 ### 1. Install and Start
 
-Prerequisites: [Docker](https://www.docker.com/) (must be running), Python 3.13+, and [uv](https://docs.astral.sh/uv/).
-
-Install uv (if needed):
-
 ```bash
+# Install uv (if needed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-```
 
-Clone the repo:
-
-```bash
+# Clone and start everything
 git clone https://github.com/LuthienResearch/luthien-proxy
 cd luthien-proxy
-```
 
-Configure API keys:
-
-```bash
+# Configure API keys
 cp .env.example .env
-```
+# Edit .env and add your keys:
+#   OPENAI_API_KEY=sk-proj-...
+#   ANTHROPIC_API_KEY=sk-ant-...
 
-Edit `.env` and add your keys: `OPENAI_API_KEY=sk-proj-...` and `ANTHROPIC_API_KEY=sk-ant-...`
-
-Start the stack:
-
-```bash
-docker compose up -d
+# Start the stack
+./scripts/quick_start.sh
 ```
 
 ### 2. Use Claude Code or Codex through the Proxy
@@ -203,11 +192,11 @@ from luthien_proxy.policies.simple_policy import SimplePolicy
 class MyCustomPolicy(SimplePolicy):
     """Custom request/response transformation."""
 
-    async def simple_on_request(self, messages, context):
+    async def simple_on_request(self, messages, ctx):
         # Inspect or modify messages before they reach the LLM
         return messages
 
-    async def simple_on_response_content(self, content, context):
+    async def simple_on_response_content(self, content, ctx):
         # Inspect or modify the LLM response content
         return content
 ```
@@ -240,9 +229,6 @@ The gateway provides:
 ## Development
 
 ```bash
-# Install dev dependencies
-uv sync --dev
-
 # After code changes, restart the gateway
 docker compose restart gateway
 
@@ -378,7 +364,7 @@ ENVIRONMENT=development
 ```bash
 # Configuration for judge-based policies (ToolCallJudgePolicy)
 LLM_JUDGE_MODEL=openai/gpt-4                         # Model for judge
-LLM_JUDGE_API_BASE=http://localhost:11434/v1         # e.g., Ollama (only needed for judge policies)
+LLM_JUDGE_API_BASE=http://localhost:11434/v1         # API base URL
 LLM_JUDGE_API_KEY=your_judge_api_key                 # API key for judge
 ```
 
@@ -407,7 +393,6 @@ Available policies in `src/luthien_proxy/policies/`:
 - `debug_logging_policy.py` - Logs requests/responses for debugging
 - `tool_call_judge_policy.py` - AI-based tool call safety evaluation
 - `simple_policy.py` - Base class for custom policies
-- `simple_judge_policy.py` - Base class for LLM-based safety judges (subclass and define RULES)
 
 ## Dev Tooling
 
@@ -468,15 +453,15 @@ The gateway integrates everything into a single FastAPI application:
 
 **API Endpoints:**
 
-- `POST /v1/chat/completions` -- OpenAI Chat Completions API (streaming and non-streaming)
-- `POST /v1/messages` -- Anthropic Messages API (streaming and non-streaming)
-- `GET /health` -- Health check
+- `POST /v1/chat/completions` — OpenAI Chat Completions API (streaming and non-streaming)
+- `POST /v1/messages` — Anthropic Messages API (streaming and non-streaming)
+- `GET /health` — Health check
 
 **UI Endpoints:**
 
-- `GET /activity/monitor` -- Real-time activity monitor (HTML)
-- `GET /activity/live` -- WebSocket activity stream (JSON)
-- `GET /debug` -- Debug information viewer
+- `GET /activity/monitor` — Real-time activity monitor (HTML)
+- `GET /activity/live` — WebSocket activity stream (JSON)
+- `GET /debug` — Debug information viewer
 
 **Authentication:**
 
