@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from .models import (
     ConversationMessage,
@@ -46,10 +46,6 @@ _EVENT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "policy.judge.evaluation_started": "Policy evaluation started",
     "policy.judge.evaluation_complete": "Policy evaluation complete",
     "policy.judge.evaluation_failed": "Policy evaluation failed",
-    # Simple judge events
-    "policy.simple_judge.request_evaluated": "Request evaluated",
-    "policy.simple_judge.response_evaluated": "Response evaluated",
-    "policy.simple_judge.tool_call_evaluated": "Tool call evaluated",
     # All caps policy events
     "policy.all_caps.content_transformed": "Content transformed to uppercase",
     "policy.all_caps.content_delta_warning": "Lowercase content detected",
@@ -73,7 +69,7 @@ def _get_event_summary(event_type: str, payload: dict[str, Any] | None) -> str:
     return _EVENT_TYPE_DESCRIPTIONS.get(event_type, event_type)
 
 
-def _extract_text_content(content: str | list[dict[str, Any]] | None) -> str:
+def extract_text_content(content: str | list[dict[str, Any]] | None) -> str:
     """Extract text from message content.
 
     Args:
@@ -95,7 +91,7 @@ def _extract_text_content(content: str | list[dict[str, Any]] | None) -> str:
         elif block.get("type") == "tool_result":
             result_content = block.get("content")
             if result_content is not None:
-                parts.append(_extract_text_content(result_content))
+                parts.append(extract_text_content(result_content))
         # Skip tool_use (handled by _extract_tool_calls) and other block types
     return "\n".join(parts)
 
@@ -171,7 +167,7 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
         if msg_type == MessageType.UNKNOWN:
             raise ValueError(f"Unrecognized message role: '{role}'")
 
-        content = _extract_text_content(msg.get("content"))
+        content = extract_text_content(msg.get("content"))
 
         # For tool results, include the tool_call_id
         tool_call_id = msg.get("tool_call_id") if msg_type == MessageType.TOOL_RESULT else None
@@ -212,7 +208,7 @@ def _parse_response_messages(response: dict[str, Any]) -> list[ConversationMessa
         if msg is None:
             continue
 
-        content = _extract_text_content(msg.get("content"))
+        content = extract_text_content(msg.get("content"))
 
         # Add the main assistant message if there's text content
         if content:
@@ -264,7 +260,7 @@ def _extract_preview_message(payload: Any) -> str | None:
         if not isinstance(msg, dict):
             continue
         if msg.get("role") == "user":
-            content = _extract_text_content(msg.get("content"))
+            content = extract_text_content(msg.get("content"))
             if content:
                 # Truncate and clean up for display
                 content = content.strip()
@@ -370,10 +366,8 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
-            first_timestamp=row["first_ts"].isoformat()
-            if isinstance(row["first_ts"], datetime)
-            else str(row["first_ts"]),
-            last_timestamp=row["last_ts"].isoformat() if isinstance(row["last_ts"], datetime) else str(row["last_ts"]),
+            first_timestamp=cast(datetime, row["first_ts"]).isoformat(),
+            last_timestamp=cast(datetime, row["last_ts"]).isoformat(),
             turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
@@ -423,15 +417,11 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         if call_id not in calls:
             calls[call_id] = []
 
-        # Parse payload - asyncpg returns JSONB as dict or string
         raw_payload = row["payload"]
         if isinstance(raw_payload, dict):
             payload: dict[str, object] = dict(raw_payload)
         elif isinstance(raw_payload, str):
-            parsed = _safe_parse_json(raw_payload)
-            if parsed is None:
-                raise ValueError(f"Failed to parse payload JSON for call_id={call_id}")
-            payload = dict(parsed)
+            payload = json.loads(raw_payload)
         else:
             raise TypeError(f"Unexpected payload type: {type(raw_payload).__name__}")
 
@@ -468,8 +458,8 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
 
     return SessionDetail(
         session_id=session_id,
-        first_timestamp=first_ts.isoformat() if isinstance(first_ts, datetime) else str(first_ts),
-        last_timestamp=last_ts.isoformat() if isinstance(last_ts, datetime) else str(last_ts),
+        first_timestamp=cast(datetime, first_ts).isoformat(),
+        last_timestamp=cast(datetime, last_ts).isoformat(),
         turns=turns,
         total_policy_interventions=total_interventions,
         models_used=sorted(all_models),
@@ -653,6 +643,7 @@ def _format_message_markdown(msg: ConversationMessage) -> str:
 
 
 __all__ = [
+    "extract_text_content",
     "fetch_session_list",
     "fetch_session_detail",
     "export_session_markdown",

@@ -33,9 +33,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/debug", tags=["debug"])
 
 
-# === Endpoints ===
-
-
 @router.get("/calls/{call_id}", response_model=CallEventsResponse)
 async def get_call_events(
     call_id: str,

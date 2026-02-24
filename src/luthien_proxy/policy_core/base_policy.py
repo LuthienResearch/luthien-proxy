@@ -1,12 +1,17 @@
-# ABOUTME: Base class for all policies providing common functionality
-
 """Base class for all policies.
 
 This module provides the minimal base class that all policies inherit from,
-providing common functionality like the short_policy_name property.
+providing common functionality like the short_policy_name property and
+automatic get_config() for Pydantic-based configs.
 """
 
 from __future__ import annotations
+
+from typing import Any, TypeVar
+
+from pydantic import BaseModel
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class BasePolicy:
@@ -14,6 +19,7 @@ class BasePolicy:
 
     Provides common functionality shared by all policy types:
     - short_policy_name property for human-readable identification
+    - get_config() method for serializing policy configuration
 
     Policies should inherit from this class and one or more interface ABCs
     (OpenAIPolicyInterface, AnthropicPolicyInterface) to define which
@@ -28,6 +34,44 @@ class BasePolicy:
         for a custom name (e.g., 'NoOp', 'AllCaps', 'ToolJudge').
         """
         return self.__class__.__name__
+
+    def get_config(self) -> dict[str, Any]:
+        """Get the configuration for this policy instance.
+
+        Automatically extracts configuration from instance attributes that
+        are Pydantic models. When there's a single Pydantic model attribute,
+        returns its fields directly (flat) for clean API round-tripping.
+
+        Returns:
+            Dict of configuration values.
+        """
+        config: dict[str, Any] = {}
+
+        for attr_name, value in vars(self).items():
+            if attr_name.startswith("_"):
+                continue
+
+            if isinstance(value, BaseModel):
+                config[attr_name] = value.model_dump()
+
+        # Single Pydantic config model: return its fields directly
+        if len(config) == 1:
+            return next(iter(config.values()))
+
+        return config
+
+    @staticmethod
+    def _init_config(config: T | dict[str, Any] | None, config_class: type[T]) -> T:
+        """Parse a config value into a Pydantic model.
+
+        Handles the three forms every policy __init__ receives:
+        None (use defaults), dict (from policy manager), or an already-parsed model.
+        """
+        if config is None:
+            return config_class()
+        if isinstance(config, dict):
+            return config_class.model_validate(config)
+        return config
 
 
 __all__ = ["BasePolicy"]

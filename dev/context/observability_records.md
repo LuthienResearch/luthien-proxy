@@ -60,27 +60,11 @@ obs_ctx.record(PipelineRecord(
 ## Integration with Existing Infrastructure
 
 Records flow through `ObservabilityContext.record()` → `emit_event()` to:
-- **Loki**: Structured logs with labels for `record_type`, `pipeline_stage`, `trace_id`
 - **Database**: Persistent storage via `emit_custom_event()`
 - **Redis**: Real-time event stream via `RedisEventPublisher`
 - **OTel Spans**: Trace correlation via `span.add_event()`
 
 Event type is automatically set to `"luthien.{record.record_type}"` (e.g., `"luthien.pipeline"`).
-
-## Querying in Grafana/Loki
-
-### Available Labels
-
-Promtail automatically extracts these labels from logs (no need for `| json` filters):
-
-- `app` - Application name (always `luthien-gateway`)
-- `detected_level` - Log level (`INFO`, `WARNING`, `ERROR`, etc.)
-- `logger` - Python logger name (e.g., `luthien_proxy.gateway_routes`)
-- `trace_id` - OpenTelemetry trace ID for correlation
-- `record_type` - Record type (e.g., `pipeline`) - query by LuthienRecord type
-- `payload_type` - Payload identifier (e.g., `client_request`, `backend_response`)
-
-**Note:** `transaction_id` is NOT a label (too high cardinality). Use line filters: `| json | transaction_id="abc-123"`
 
 ### Common Queries
 
@@ -97,46 +81,6 @@ Promtail automatically extracts these labels from logs (no need for `| json` fil
 ```
 
 **Follow a specific transaction:**
-```logql
-{app="luthien-gateway", record_type="pipeline"} | json | transaction_id="abc-123"
-```
-
-**Compare before/after for a transaction:**
-```logql
-{app="luthien-gateway", record_type="pipeline", payload_type=~"client_request|backend_request"}
-  | json | transaction_id="abc-123"
-```
-
-**Follow a trace across all logs:**
-```logql
-{app="luthien-gateway", trace_id="e6e35cf6ea70b9e6429ad656e2653b56"}
-```
-
-**Filter by log level:**
-```logql
-{app="luthien-gateway", detected_level="ERROR"}
-{app="luthien-gateway", detected_level="WARNING"}
-```
-
-### Advanced Queries
-
-**Rate of errors:**
-```logql
-rate({app="luthien-gateway", detected_level="ERROR"}[5m])
-```
-
-**Exclude certain loggers:**
-```logql
-{app="luthien-gateway", logger!~"opentelemetry.*"}
-```
-
-### Query Tips
-
-1. **Use the Label Browser**: In Grafana Explore, click "Label browser" to see all available labels
-2. **Start broad, then filter**: Begin with `{app="luthien-gateway"}` and add filters as needed
-3. **Labels are faster**: Use labels (indexed) instead of line filters when possible
-4. **Autocomplete works**: Type `{app="luthien-gateway", ` to see available labels
-
 ## Standard pipeline_stage Values
 
 Use these consistent names across the codebase:
@@ -163,7 +107,7 @@ Clearer than "PayloadRecord" - emphasizes that this tracks data flowing through 
 
 - **All primitives**: No nested dicts, no serialization issues
 - **Flexible**: Payload is just a string - serialize whatever you need
-- **Queryable**: Both `record_type` and `pipeline_stage` are Loki labels
+- **Queryable**: Both `record_type` and `pipeline_stage` are structured fields
 - **Transaction-aware**: Every record knows which transaction it belongs to
 
 ### Why Include transaction_id in Record?

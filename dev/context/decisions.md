@@ -76,7 +76,7 @@ policy:
 - **Log correlation**: Inject trace_id/span_id into all log messages
 - **Optional**: Can run V2 without observability stack (degrades gracefully)
 
-**Stack**: Tempo (traces), Loki (logs), Promtail (collection), Grafana (visualization)
+**Stack**: Tempo (distributed tracing via OTLP)
 
 ## Platform Vision (2025-10-24)
 
@@ -150,7 +150,7 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 **Current architecture**:
 - **Layer 1 (Application)**: Code calls `obs_ctx.record(PipelineRecord(...))` or `logger.info()`
-- **Layer 2 (ObservabilityContext)**: Routes events to multiple sinks (Loki, PostgreSQL, Redis, OTel)
+- **Layer 2 (ObservabilityContext)**: Routes events to multiple sinks (PostgreSQL, Redis, OTel)
 - **Layer 3 (Sinks)**: Write to specific destinations (never called directly from app code)
 
 **Key principles**:

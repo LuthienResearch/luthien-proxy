@@ -15,7 +15,7 @@ import json
 import logging
 import time
 from datetime import UTC, datetime
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, cast
 
 import redis.asyncio as redis
 from redis.asyncio.client import PubSub
@@ -111,13 +111,13 @@ class RedisEventPublisher:
 
 
 async def create_event_publisher(redis_url: str) -> RedisEventPublisher:
-    """Create and return a SimpleEventPublisher instance.
+    """Create and return a RedisEventPublisher instance.
 
     Args:
         redis_url: Redis connection URL
 
     Returns:
-        Configured SimpleEventPublisher
+        Configured RedisEventPublisher
     """
     redis_client = await redis.from_url(redis_url)
     return RedisEventPublisher(redis_client)
@@ -136,13 +136,8 @@ def _format_sse_payload(payload: str) -> str:
 
 
 def _decode_payload(message: dict[str, Any]) -> str:
-    payload = message.get("data")
-    if isinstance(payload, bytes):
-        return payload.decode("utf-8")
-    elif isinstance(payload, str):
-        return payload
-    else:
-        raise ValueError(f"Unexpected payload type: {type(payload)}")
+    payload = message["data"]
+    return cast(bytes, payload).decode("utf-8")
 
 
 async def _poll_pubsub_message(pubsub: PubSub, timeout_seconds: float) -> dict[str, Any] | None:

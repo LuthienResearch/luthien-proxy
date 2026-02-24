@@ -49,8 +49,5 @@ class StreamState:
     raw_chunks: list[ModelResponse] = field(default_factory=list)
     """All raw chunks received from LLM (for recording/replay)."""
 
-    last_emission_index: int = 0
-    """Index of last chunk emitted to client (for passthrough optimization)."""
-
 
 __all__ = ["StreamState"]

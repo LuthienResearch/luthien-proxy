@@ -13,8 +13,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from redis.asyncio import Redis
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
+from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
@@ -55,6 +57,8 @@ def create_app(
     db_pool: db.DatabasePool,
     redis_client: Redis,
     startup_policy_path: str | None = None,
+    policy_source: str = "db-fallback-file",
+    auth_mode: str = "both",
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
 
@@ -64,7 +68,8 @@ def create_app(
         db_pool: Database connection pool (already initialized)
         redis_client: Redis client (already initialized)
         startup_policy_path: Optional path to YAML policy config to load at startup
-                             (overrides DB, persists to DB). If None, loads from DB only.
+        policy_source: Strategy for loading policy at startup (db, file, db-fallback-file, file-fallback-db)
+        auth_mode: Authentication mode ("proxy_key", "passthrough", or "both")
 
     Returns:
         Configured FastAPI application with all routes and middleware
@@ -99,6 +104,7 @@ def create_app(
                 db_pool=db_pool,
                 redis_client=redis_client,
                 startup_policy_path=startup_policy_path,
+                policy_source=policy_source,
             )
             await _policy_manager.initialize()
             logger.info(f"PolicyManager initialized (policy: {_policy_manager.current_policy.__class__.__name__})")
@@ -119,6 +125,11 @@ def create_app(
         else:
             logger.info("ANTHROPIC_API_KEY not set - native Anthropic path disabled")
 
+        # Initialize CredentialManager for passthrough auth
+        _credential_manager = CredentialManager(db_pool=db_pool, redis_client=redis_client)
+        await _credential_manager.initialize(default_auth_mode=auth_mode)
+        logger.info(f"CredentialManager initialized: mode={_credential_manager.config.auth_mode.value}")
+
         # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
@@ -129,6 +140,7 @@ def create_app(
             api_key=api_key,
             admin_key=admin_key,
             anthropic_client=_anthropic_client,
+            credential_manager=_credential_manager,
         )
 
         # Store dependencies container in app state
@@ -138,6 +150,7 @@ def create_app(
         yield
 
         # Shutdown
+        await _credential_manager.close()
         # Note: db_pool and redis_client are NOT closed here - they are owned by
         # the caller who passed them in. The caller is responsible for cleanup.
         logger.info("Luthien Gateway shutdown complete")
@@ -153,6 +166,16 @@ def create_app(
     # Mount static files for activity monitor UI
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+    # Add cache headers to static file responses
+    class StaticCacheMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response = await call_next(request)
+            if request.url.path.startswith("/static/"):
+                response.headers["Cache-Control"] = "public, max-age=3600"
+            return response
+
+    app.add_middleware(StaticCacheMiddleware)
 
     # Include routers
     app.include_router(gateway_router)  # /v1/chat/completions, /v1/messages (PolicyOrchestrator)
@@ -176,7 +199,15 @@ def create_app(
 
         Formats the error response according to the client's API format
         (Anthropic or OpenAI) so clients receive properly structured errors.
+        Also invalidates cached credentials on 401 so stale "valid" entries
+        don't let rejected keys keep passing auth.
         """
+        if exc.status_code == 401 and hasattr(request.state, "passthrough_credential"):
+            deps = getattr(request.app.state, "dependencies", None)
+            cm = getattr(deps, "credential_manager", None) if deps else None
+            if cm is not None:
+                await cm.on_backend_401(request.state.passthrough_credential)
+
         if exc.client_format == ClientFormat.ANTHROPIC:
             content = {
                 "type": "error",
@@ -280,7 +311,9 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         "database_url": settings.database_url,
         "redis_url": settings.redis_url,
         "startup_policy_path": settings.policy_config if settings.policy_config else None,
+        "policy_source": settings.policy_source,
         "gateway_port": settings.gateway_port,
+        "auth_mode": settings.auth_mode,
     }
 
 
@@ -311,6 +344,8 @@ if __name__ == "__main__":
                 db_pool=db_pool,
                 redis_client=redis_client,
                 startup_policy_path=startup_path,
+                policy_source=config["policy_source"],
+                auth_mode=config.get("auth_mode", "both"),
             )
 
             server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="debug")

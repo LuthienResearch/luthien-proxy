@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from functools import cached_property
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
 
+from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
-from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_manager import PolicyManager
@@ -35,17 +34,7 @@ class Dependencies:
     api_key: str
     admin_key: str | None
     anthropic_client: AnthropicClient | None = field(default=None)
-
-    @cached_property
-    def event_publisher(self) -> RedisEventPublisher | None:
-        """Get or create event publisher from redis client.
-
-        The event publisher is derived from the redis_client, so we only
-        need to store one and create the other lazily.
-        """
-        if self.redis_client is None:
-            return None
-        return RedisEventPublisher(self.redis_client)
+    credential_manager: CredentialManager | None = field(default=None)
 
     @property
     def policy(self) -> OpenAIPolicyInterface:
@@ -57,22 +46,6 @@ class Dependencies:
                 detail=f"Current policy {type(current).__name__} does not implement OpenAIPolicyInterface",
             )
         return current
-
-    def get_anthropic_client(self) -> AnthropicClient:
-        """Get the Anthropic client.
-
-        Returns:
-            The pre-configured AnthropicClient instance.
-
-        Raises:
-            HTTPException: If ANTHROPIC_API_KEY was not set at startup
-        """
-        if self.anthropic_client is None:
-            raise HTTPException(
-                status_code=500,
-                detail="ANTHROPIC_API_KEY not configured for native Anthropic path",
-            )
-        return self.anthropic_client
 
     def get_anthropic_policy(self) -> AnthropicPolicyInterface:
         """Get the current Anthropic policy.
@@ -150,18 +123,6 @@ def get_llm_client(request: Request) -> LLMClient:
     return get_dependencies(request).llm_client
 
 
-def get_event_publisher(request: Request) -> RedisEventPublisher | None:
-    """Get event publisher from dependencies.
-
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        Event publisher or None if Redis not connected
-    """
-    return get_dependencies(request).event_publisher
-
-
 def get_emitter(request: Request) -> EventEmitterProtocol:
     """Get event emitter from dependencies.
 
@@ -222,19 +183,13 @@ def get_admin_key(request: Request) -> str | None:
     return get_dependencies(request).admin_key
 
 
-def get_anthropic_client(request: Request) -> AnthropicClient:
+def get_anthropic_client(request: Request) -> AnthropicClient | None:
     """Get Anthropic client from dependencies.
 
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        Anthropic client instance
-
-    Raises:
-        HTTPException: If ANTHROPIC_API_KEY was not configured at startup
+    Returns None when ANTHROPIC_API_KEY is not configured. The route handler
+    must check for passthrough credentials before using this client.
     """
-    return get_dependencies(request).get_anthropic_client()
+    return get_dependencies(request).anthropic_client
 
 
 def get_anthropic_policy(request: Request) -> AnthropicPolicyInterface:
@@ -249,6 +204,20 @@ def get_anthropic_policy(request: Request) -> AnthropicPolicyInterface:
     return get_dependencies(request).get_anthropic_policy()
 
 
+def get_credential_manager(request: Request) -> CredentialManager | None:
+    """Get credential manager from dependencies."""
+    return get_dependencies(request).credential_manager
+
+
+async def require_credential_manager(
+    credential_manager: CredentialManager | None = Depends(get_credential_manager),
+) -> CredentialManager:
+    """Get credential manager, raising 503 if not available."""
+    if credential_manager is None:
+        raise HTTPException(status_code=503, detail="Credential manager not available")
+    return credential_manager
+
+
 __all__ = [
     "Dependencies",
     "get_dependencies",
@@ -256,11 +225,12 @@ __all__ = [
     "get_redis_client",
     "get_llm_client",
     "get_emitter",
-    "get_event_publisher",
     "get_policy",
     "get_policy_manager",
     "get_api_key",
     "get_admin_key",
     "get_anthropic_client",
     "get_anthropic_policy",
+    "get_credential_manager",
+    "require_credential_manager",
 ]

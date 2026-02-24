@@ -38,5 +38,9 @@ if [ -n "$DATABASE_URL" ]; then
     echo "Migrations complete."
 fi
 
+# PaaS platforms (Railway, Heroku, Render) inject PORT at runtime.
+# The app reads GATEWAY_PORT. Bridge here so deploys work without manual config.
+export GATEWAY_PORT="${GATEWAY_PORT:-$PORT}"
+
 # Start the gateway
 exec uv run python -m luthien_proxy.main

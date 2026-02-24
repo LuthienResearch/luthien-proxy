@@ -1117,17 +1117,6 @@ class TestSimplePolicyAnthropicStreamEventToolUse:
 class TestSimplePolicyAnthropicBufferManagement:
     """Tests for Anthropic buffer management."""
 
-    def test_clear_buffers(self):
-        """clear_buffers removes all buffered content."""
-        policy = SimplePolicy()
-        policy._text_buffer[0] = "some text"
-        policy._tool_buffer[1] = {"id": "test", "name": "tool", "input_json": "{}"}
-
-        policy.clear_buffers()
-
-        assert policy._text_buffer == {}
-        assert policy._tool_buffer == {}
-
     @pytest.mark.asyncio
     async def test_multiple_content_blocks(self):
         """Policy handles multiple content blocks with separate buffers."""

@@ -8,8 +8,18 @@ const state = {
     invalidFields: new Set(),  // Track fields with invalid JSON
     isActivating: false,
     isSending: false,
-    selectedModel: null
+    selectedModel: null,
+    currentFormData: null  // For Alpine-based form data
 };
+
+// Initialize Alpine store for drawer state
+document.addEventListener('alpine:init', () => {
+    Alpine.store('drawer', {
+        open: false,
+        path: '',
+        index: -1
+    });
+});
 
 // Check if current editor config matches the active policy
 function isConfigMatchingActive() {
@@ -67,6 +77,7 @@ async function loadPolicies() {
     try {
         const data = await apiCall('/admin/policy/list');
         state.availablePolicies = data.policies;
+        window.__policyList = data.policies;
         renderPolicyList();
     } catch (err) {
         console.error('Failed to load policies:', err);
@@ -128,6 +139,43 @@ function initTestPanel() {
     }
 }
 
+function formatConfigValue(val, indent = 0) {
+    const pad = '  '.repeat(indent);
+    if (val === null || val === undefined) {
+        return `<span class="config-val">null</span>`;
+    }
+    if (typeof val === 'boolean') {
+        return `<span class="config-val-bool">${val}</span>`;
+    }
+    if (typeof val === 'number') {
+        return `<span class="config-val-number">${val}</span>`;
+    }
+    if (typeof val === 'string') {
+        return `<span class="config-val-string">"${escapeHtml(val)}"</span>`;
+    }
+    if (Array.isArray(val)) {
+        if (val.length === 0) return `<span class="config-val">[]</span>`;
+        const items = val.map(v => `${pad}  ${formatConfigValue(v, indent + 1)}`).join('\n');
+        return `[\n${items}\n${pad}]`;
+    }
+    if (typeof val === 'object') {
+        return formatConfigAsHtml(val, indent);
+    }
+    return `<span class="config-val">${escapeHtml(String(val))}</span>`;
+}
+
+function formatConfigAsHtml(config, indent = 0) {
+    const pad = '  '.repeat(indent);
+    const innerPad = '  '.repeat(indent + 1);
+    const entries = Object.entries(config);
+    if (entries.length === 0) return `<span class="config-val">{}</span>`;
+
+    const lines = entries.map(([key, val]) => {
+        return `${innerPad}<span class="config-key">${escapeHtml(key)}</span>: ${formatConfigValue(val, indent + 1)}`;
+    });
+    return `{\n${lines.join('\n')}\n${pad}}`;
+}
+
 function renderCurrentPolicyBanner() {
     const nameEl = document.getElementById('current-policy-name');
     const metaEl = document.getElementById('current-policy-meta');
@@ -150,13 +198,7 @@ function renderCurrentPolicyBanner() {
             const config = state.currentPolicy.config || {};
             const configKeys = Object.keys(config);
             if (configKeys.length > 0) {
-                const configSummary = configKeys.map(k => {
-                    const val = config[k];
-                    const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
-                    const truncated = displayVal.length > 30 ? displayVal.slice(0, 30) + '...' : displayVal;
-                    return `${k}: ${truncated}`;
-                }).join(', ');
-                configEl.textContent = configSummary;
+                configEl.innerHTML = formatConfigAsHtml(config);
                 configEl.style.display = 'block';
             } else {
                 configEl.textContent = '(no config)';
@@ -309,12 +351,75 @@ function renderConfigForm(policy) {
 
     const schema = policy.config_schema || {};
     const example = policy.example_config || {};
+
+    // Check if any parameter schema has Pydantic structure (properties or $defs)
+    // Schema is {paramName: paramSchema, ...} so we check each parameter
+    const hasPydanticSchema = Object.values(schema).some(
+        paramSchema => paramSchema && (paramSchema.properties || paramSchema.$defs || paramSchema['x-sub-policy-list'])
+    );
+
+    if (hasPydanticSchema && window.FormRenderer) {
+        // Use new recursive renderer for Pydantic schemas
+        renderWithAlpine(container, schema, example);
+    } else {
+        // Fallback to legacy rendering for non-Pydantic configs
+        renderLegacyForm(container, schema, example);
+    }
+}
+
+function renderWithAlpine(container, schema, initialData) {
+    // Initialize form data with defaults from schema
+    const formData = window.FormRenderer.getDefaultValue(schema, schema);
+    // Merge initial data, but skip null values that would overwrite defaults
+    for (const [key, value] of Object.entries(initialData || {})) {
+        if (value !== null) {
+            formData[key] = value;
+        }
+    }
+
+    // Store in state for submission
+    state.currentFormData = formData;
+    // Also sync to configValues for consistency with existing code paths
+    state.configValues = formData;
+
+    // Generate form HTML
+    const formHtml = window.FormRenderer.generateForm(schema);
+
+    // Escape JSON for HTML attribute embedding (replace quotes with HTML entities)
+    const escapedFormData = JSON.stringify(formData).replace(/"/g, '&quot;');
+
+    // Create Alpine component
+    container.innerHTML = `
+        <div x-data="{ formData: ${escapedFormData} }"
+             x-init="window.__alpineData = $data; $watch('formData', value => window.updateFormData(value)); window.initSubPolicyForms()">
+            ${formHtml}
+        </div>
+    `;
+
+    // Re-init Alpine on new content
+    if (window.Alpine) {
+        Alpine.initTree(container);
+    }
+}
+
+// Global callback for Alpine data binding
+window.updateFormData = function(data) {
+    state.currentFormData = data;
+    state.configValues = data;
+    updateActivateButton();
+    updateConfigStatus();
+};
+
+function renderLegacyForm(container, schema, example) {
     const keys = Object.keys(schema);
 
     if (keys.length === 0) {
         container.innerHTML = '<p class="no-config-message">This policy has no configuration options.</p>';
         return;
     }
+
+    // Clear Alpine form data since we're using legacy rendering
+    state.currentFormData = null;
 
     container.innerHTML = '';
 
@@ -412,6 +517,37 @@ function renderConfigForm(policy) {
     });
 }
 
+// Global functions needed by FormRenderer
+window.openDrawer = function(path, index) {
+    if (window.Alpine) {
+        Alpine.store('drawer').open = true;
+        Alpine.store('drawer').path = path;
+        Alpine.store('drawer').index = index;
+    }
+};
+
+window.closeDrawer = function() {
+    if (window.Alpine) {
+        Alpine.store('drawer').open = false;
+    }
+};
+
+window.validateJson = function(event, path) {
+    // JSON validation for freeform objects
+    try {
+        JSON.parse(event.target.value);
+        event.target.classList.remove('invalid');
+    } catch (e) {
+        event.target.classList.add('invalid');
+    }
+};
+
+window.onUnionTypeChange = function(path, newType) {
+    // TODO: Reset stale form fields when union type changes.
+    // When the discriminator changes, fields from the previous variant remain
+    // in formData. This should clear those and populate defaults for newType.
+};
+
 function updateActivateButton() {
     const btn = document.getElementById('activate-btn');
     if (!btn) return;
@@ -469,6 +605,9 @@ async function handleActivate() {
     const btn = document.getElementById('activate-btn');
     const statusContainer = document.getElementById('status-container');
 
+    // Clear previous validation errors
+    clearValidationErrors();
+
     state.isActivating = true;
     btn.disabled = true;
     btn.textContent = 'Activating...';
@@ -484,22 +623,62 @@ async function handleActivate() {
             })
         });
 
-        if (!result.success) {
-            throw new Error(result.error || 'Failed to activate policy');
+        if (result.success) {
+            // Refresh current policy
+            await loadCurrentPolicy();
+            renderPolicyList();
+
+            statusContainer.innerHTML = `<div class="status-message success">✓ ${state.selectedPolicy.name} activated successfully</div>`;
+            btn.textContent = 'Reactivate Policy';
+        } else {
+            // Handle validation errors
+            if (result.validation_errors && result.validation_errors.length > 0) {
+                highlightValidationErrors(result.validation_errors);
+                statusContainer.innerHTML = '<div class="status-message error">Validation errors - check highlighted fields</div>';
+            } else {
+                statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(result.error || 'Failed to activate policy')}</div>`;
+            }
+            btn.textContent = 'Retry Activation';
         }
-
-        // Refresh current policy
-        await loadCurrentPolicy();
-        renderPolicyList();
-
-        statusContainer.innerHTML = `<div class="status-message success">✓ ${state.selectedPolicy.name} activated successfully</div>`;
-        btn.textContent = 'Reactivate Policy';
     } catch (err) {
         statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(err.message)}</div>`;
         btn.textContent = 'Retry Activation';
     } finally {
         state.isActivating = false;
         btn.disabled = false;
+    }
+}
+
+function clearValidationErrors() {
+    document.querySelectorAll('.field-error').forEach(el => el.remove());
+    document.querySelectorAll('.form-field.has-error').forEach(el => {
+        el.classList.remove('has-error');
+    });
+    document.querySelectorAll('.config-field.has-error').forEach(el => {
+        el.classList.remove('has-error');
+    });
+}
+
+function highlightValidationErrors(errors) {
+    clearValidationErrors();
+
+    for (const error of errors) {
+        const path = error.loc.join('.');
+        // Find field by path (data attribute or name or id)
+        const field = document.querySelector(
+            `[data-path="${path}"], [name="${path}"], #config-${path}`
+        );
+        if (field) {
+            // Find the container - could be .form-field (Alpine) or .config-field (legacy)
+            const container = field.closest('.form-field') || field.closest('.config-field');
+            if (container) {
+                container.classList.add('has-error');
+                const errorEl = document.createElement('span');
+                errorEl.className = 'field-error';
+                errorEl.textContent = error.msg;
+                container.appendChild(errorEl);
+            }
+        }
     }
 }
 
@@ -557,8 +736,162 @@ async function handleSendChat() {
     }
 }
 
-function escapeHtml(text) {
+// =========================================================================
+// Sub-policy list management
+// =========================================================================
+
+function getNestedValue(obj, path) {
+    return path.split(/[.\[\]]/).filter(Boolean).reduce((o, k) => o?.[k], obj);
+}
+
+window.initSubPolicyForms = function() {
+    document.querySelectorAll('.form-field-sub-policy-list').forEach(container => {
+        const cardsContainer = container.querySelector('.sub-policy-cards');
+        if (!cardsContainer) return;
+        const path = cardsContainer.id.replace('sub-policy-cards-', '');
+        window.renderAllSubPolicies(path);
+    });
+};
+
+window.renderAllSubPolicies = function(path) {
+    const data = window.__alpineData;
+    if (!data) return;
+
+    const policies = getNestedValue(data.formData, path) || [];
+    const container = document.getElementById(`sub-policy-cards-${path}`);
+    if (!container) return;
+
+    let html = '';
+    policies.forEach((subPolicy, index) => {
+        html += renderSubPolicyCardHtml(path, index, subPolicy);
+    });
+    container.innerHTML = html;
+
+    if (window.Alpine) {
+        Alpine.initTree(container);
+    }
+
+    // Recursively initialize nested sub-policy lists (multi-policy inside multi-policy)
+    container.querySelectorAll('[id^="sub-policy-cards-"]').forEach(nested => {
+        const nestedPath = nested.id.replace('sub-policy-cards-', '');
+        if (nestedPath !== path && nested.children.length === 0) {
+            const nestedPolicies = getNestedValue(data.formData, nestedPath);
+            if (nestedPolicies && nestedPolicies.length > 0) {
+                window.renderAllSubPolicies(nestedPath);
+            }
+        }
+    });
+};
+
+function renderSubPolicyCardHtml(path, index, subPolicy) {
+    const policyList = window.__policyList || [];
+    const selectedClass = subPolicy?.class || '';
+
+    let options = '<option value="">Select a policy...</option>';
+    policyList.forEach(p => {
+        const selected = p.class_ref === selectedClass ? 'selected' : '';
+        options += `<option value="${escapeHtml(p.class_ref)}" ${selected}>${escapeHtml(p.name)}</option>`;
+    });
+
+    let configHtml = '';
+    if (selectedClass) {
+        const policyInfo = policyList.find(p => p.class_ref === selectedClass);
+        if (policyInfo && policyInfo.config_schema && Object.keys(policyInfo.config_schema).length > 0) {
+            configHtml = window.FormRenderer.generateForm(
+                policyInfo.config_schema, null, `${path}[${index}].config`
+            );
+        }
+    }
+
+    return `
+        <div class="sub-policy-card" data-path="${path}" data-index="${index}">
+            <div class="sub-policy-card-header">
+                <select class="sub-policy-select"
+                        x-model="formData.${path}[${index}].class"
+                        @change="window.onSubPolicyClassChange('${path}', ${index}, $event.target.value)">
+                    ${options}
+                </select>
+                <div class="sub-policy-card-actions">
+                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${path}', ${index}, -1)" title="Move up">&uarr;</button>
+                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${path}', ${index}, 1)" title="Move down">&darr;</button>
+                    <button type="button" class="btn-remove-sub" onclick="window.removeSubPolicy('${path}', ${index})" title="Remove">&times;</button>
+                </div>
+            </div>
+            <div class="sub-policy-config" id="sub-policy-config-${path}-${index}">
+                ${configHtml}
+            </div>
+        </div>
+    `;
+}
+
+window.onSubPolicyClassChange = function(path, index, classRef) {
+    const data = window.__alpineData;
+    if (!data) return;
+
+    const policies = getNestedValue(data.formData, path);
+    if (!policies || !policies[index]) return;
+
+    policies[index].class = classRef;
+
+    const policyList = window.__policyList || [];
+    const policyInfo = policyList.find(p => p.class_ref === classRef);
+    policies[index].config = policyInfo ? { ...(policyInfo.example_config || {}) } : {};
+
+    const configContainer = document.getElementById(`sub-policy-config-${path}-${index}`);
+    if (!configContainer) return;
+
+    if (policyInfo && policyInfo.config_schema && Object.keys(policyInfo.config_schema).length > 0) {
+        configContainer.innerHTML = window.FormRenderer.generateForm(
+            policyInfo.config_schema, null, `${path}[${index}].config`
+        );
+        if (window.Alpine) {
+            Alpine.initTree(configContainer);
+        }
+    } else {
+        configContainer.innerHTML = '';
+    }
+};
+
+window.addSubPolicy = function(path) {
+    const data = window.__alpineData;
+    if (!data) return;
+
+    const policies = getNestedValue(data.formData, path);
+    if (!policies) return;
+
+    policies.push({ class: '', config: {} });
+    window.renderAllSubPolicies(path);
+};
+
+window.removeSubPolicy = function(path, index) {
+    const data = window.__alpineData;
+    if (!data) return;
+
+    const policies = getNestedValue(data.formData, path);
+    if (!policies) return;
+
+    policies.splice(index, 1);
+    window.renderAllSubPolicies(path);
+};
+
+window.moveSubPolicy = function(path, index, direction) {
+    const data = window.__alpineData;
+    if (!data) return;
+
+    const policies = getNestedValue(data.formData, path);
+    if (!policies) return;
+
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= policies.length) return;
+
+    [policies[index], policies[newIndex]] = [policies[newIndex], policies[index]];
+    window.renderAllSubPolicies(path);
+};
+
+// Shared HTML escaper — also used by FormRenderer
+window.escapeHtml = function(text) {
+    if (typeof text !== 'string') return text;
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
-}
+};

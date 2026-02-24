@@ -35,7 +35,7 @@ def _get_otel_config() -> tuple[bool, str, str, str, str]:
     settings = get_settings()
     return (
         settings.otel_enabled,
-        settings.effective_otel_endpoint,
+        settings.otel_exporter_otlp_endpoint,
         settings.service_name,
         settings.service_version,
         settings.environment,

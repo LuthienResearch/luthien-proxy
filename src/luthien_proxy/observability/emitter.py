@@ -15,7 +15,7 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from opentelemetry import trace
 
@@ -240,14 +240,12 @@ class EventEmitter:
             This convention allows session tracking without modifying the
             EventEmitter interface.
         """
-        if not self._db_pool:
-            return
-
+        db_pool = cast(DatabasePool, self._db_pool)
         # Extract session_id from data if present (set by processor via convention above)
         session_id = data.get("session_id") if isinstance(data, dict) else None
 
         try:
-            async with self._db_pool.connection() as conn:
+            async with db_pool.connection() as conn:
                 # Ensure call row exists with session_id
                 await conn.execute(
                     """
@@ -286,11 +284,9 @@ class EventEmitter:
         timestamp: datetime,  # noqa: ARG002
     ) -> None:
         """Write event to Redis pub/sub."""
-        if not self._redis_publisher:
-            return
-
+        redis_publisher = cast(RedisEventPublisher, self._redis_publisher)
         try:
-            await self._redis_publisher.publish_event(
+            await redis_publisher.publish_event(
                 call_id=transaction_id,
                 event_type=event_type,
                 data=data,

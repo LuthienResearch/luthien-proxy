@@ -8,7 +8,7 @@ from opentelemetry import trace
 
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.client_formatter.interface import ClientFormatter
-from luthien_proxy.utils.constants import QUEUE_PUT_TIMEOUT_SECONDS
+from luthien_proxy.streaming.queue_utils import safe_put
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -24,22 +24,6 @@ class OpenAIClientFormatter(ClientFormatter):
             model_name: Model name for the request (required, no default)
         """
         self.model_name = model_name
-
-    async def _safe_put(self, queue: asyncio.Queue[str | None], item: str | None) -> None:
-        """Safely put item in queue with timeout to prevent deadlock.
-
-        Args:
-            queue: Queue to put item into
-            item: Item to put
-
-        Raises:
-            asyncio.TimeoutError: If queue is full and timeout is exceeded
-        """
-        try:
-            await asyncio.wait_for(queue.put(item), timeout=QUEUE_PUT_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            logger.error(f"Queue put timeout after {QUEUE_PUT_TIMEOUT_SECONDS}s - client may be slow or disconnected")
-            raise
 
     async def process(
         self,
@@ -76,14 +60,14 @@ class OpenAIClientFormatter(ClientFormatter):
                     chunk_count += 1
                     # Convert ModelResponse to SSE format: "data: {json}\n\n"
                     sse_line = f"data: {chunk.model_dump_json()}\n\n"
-                    await self._safe_put(output_queue, sse_line)
+                    await safe_put(output_queue, sse_line, context="client")
 
                 # Send [DONE] marker per OpenAI streaming spec
-                await self._safe_put(output_queue, "data: [DONE]\n\n")
+                await safe_put(output_queue, "data: [DONE]\n\n", context="client")
                 span.set_attribute("formatter.chunk_count", chunk_count)
             finally:
                 # Signal end of stream to output queue
-                await self._safe_put(output_queue, None)
+                await safe_put(output_queue, None, context="client")
 
 
 __all__ = ["OpenAIClientFormatter"]

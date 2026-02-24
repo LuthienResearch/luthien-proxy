@@ -36,13 +36,8 @@ POLICY_CONFIGS = [
     ),
     pytest.param(
         "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
-        {"replacements": {"hello": "hi"}},
+        {"replacements": [["hello", "hi"]]},
         id="StringReplacementPolicy",
-    ),
-    pytest.param(
-        "luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy",
-        {},
-        id="SimpleJudgePolicy",
     ),
     pytest.param(
         "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",

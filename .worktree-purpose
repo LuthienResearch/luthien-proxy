@@ -1,1 +1,1 @@
-saas
+improve policy config ux: automatically create forms based on the structure of the policy config, taking into account types, hierarchy, etc. This should be an adaptable solution which automatically accomodates new config schemas as they are modified or added over time; the ui elements should not be policy-type-specific. This may require updating policy config types to be more structured, expose more information about config arguments, be more explicit, etc.

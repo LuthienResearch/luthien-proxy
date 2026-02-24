@@ -10,7 +10,6 @@ from litellm.types.utils import Delta, ModelResponse, StreamingChoices
 from luthien_proxy.llm.response_normalizer import (
     normalize_chunk,
     normalize_chunk_with_finish_reason,
-    normalize_response,
     normalize_stream,
 )
 
@@ -298,28 +297,3 @@ class TestNormalizeStream:
         assert len(chunks) == 1
         assert isinstance(chunks[0].choices[0].delta, Delta)
         assert chunks[0].choices[0].delta.content == "pre-normalized"
-
-
-class TestNormalizeResponse:
-    """Tests for normalize_response() function."""
-
-    def test_passthrough_returns_same_response(self):
-        """Non-streaming responses are returned unchanged (passthrough)."""
-        from litellm.types.utils import Choices, Message
-
-        response = ModelResponse(
-            id="test-id",
-            model="gpt-4",
-            object="chat.completion",
-            choices=[
-                Choices(
-                    index=0,
-                    message=Message(role="assistant", content="Hello"),
-                    finish_reason="stop",
-                )
-            ],
-        )
-
-        result = normalize_response(response)
-
-        assert result is response

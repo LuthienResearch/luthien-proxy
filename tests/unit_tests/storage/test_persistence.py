@@ -43,7 +43,6 @@ class TestConversationEventModel:
         assert event.call_id == "test-call-id"
         assert event.event_type == "request"
         assert event.hook == "request"
-        assert event.trace_id is None  # Deprecated
 
     def test_create_response_event(self):
         """Test creating a response event."""
@@ -124,10 +123,8 @@ class TestBuildConversationEvents:
         events = build_conversation_events(
             hook="request",
             call_id=None,
-            trace_id=None,
             original={"data": {}},
             result={"data": {}},
-            timestamp_ns_fallback=0,
             timestamp=datetime.now(timezone.utc),
         )
         assert events == []
@@ -137,10 +134,8 @@ class TestBuildConversationEvents:
         events = build_conversation_events(
             hook="request",
             call_id="",
-            trace_id=None,
             original={"data": {}},
             result={"data": {}},
-            timestamp_ns_fallback=0,
             timestamp=datetime.now(timezone.utc),
         )
         assert events == []
@@ -151,7 +146,6 @@ class TestBuildConversationEvents:
         events = build_conversation_events(
             hook="request",
             call_id="test-call-123",
-            trace_id=None,
             original={
                 "data": {
                     "messages": [{"role": "user", "content": "Hello"}],
@@ -166,7 +160,6 @@ class TestBuildConversationEvents:
                     "temperature": 0.7,
                 }
             },
-            timestamp_ns_fallback=0,
             timestamp=timestamp,
         )
 
@@ -188,7 +181,6 @@ class TestBuildConversationEvents:
         events = build_conversation_events(
             hook="response",
             call_id="test-call-123",
-            trace_id=None,
             original={
                 "response": {
                     "choices": [{"message": {"content": "Original response"}}],
@@ -201,7 +193,6 @@ class TestBuildConversationEvents:
                     "model": "gpt-4",
                 }
             },
-            timestamp_ns_fallback=0,
             timestamp=timestamp,
         )
 
@@ -220,10 +211,8 @@ class TestBuildConversationEvents:
         events = build_conversation_events(
             hook="request",
             call_id="test-call-123",
-            trace_id=None,
             original="not a dict",
             result={"data": {}},
-            timestamp_ns_fallback=0,
             timestamp=datetime.now(timezone.utc),
         )
         assert events == []
@@ -233,10 +222,8 @@ class TestBuildConversationEvents:
         events = build_conversation_events(
             hook="request",
             call_id="test-call-123",
-            trace_id=None,
             original={"not_data": {}},
             result={"data": {}},
-            timestamp_ns_fallback=0,
             timestamp=datetime.now(timezone.utc),
         )
         assert events == []
@@ -246,10 +233,8 @@ class TestBuildConversationEvents:
         events = build_conversation_events(
             hook="response",
             call_id="test-call-123",
-            trace_id=None,
             original={"response": "not a dict"},
             result={"response": {}},
-            timestamp_ns_fallback=0,
             timestamp=datetime.now(timezone.utc),
         )
         assert events == []
@@ -259,10 +244,8 @@ class TestBuildConversationEvents:
         events = build_conversation_events(
             hook="unknown_hook",
             call_id="test-call-123",
-            trace_id=None,
             original={},
             result={},
-            timestamp_ns_fallback=0,
             timestamp=datetime.now(timezone.utc),
         )
         assert events == []
@@ -272,7 +255,6 @@ class TestBuildConversationEvents:
         events = build_conversation_events(
             hook="request",
             call_id="test-call-123",
-            trace_id=None,
             original={
                 "data": {
                     "messages": [{"role": "user", "content": "Hello"}],
@@ -286,7 +268,6 @@ class TestBuildConversationEvents:
                     "model": "gpt-4",
                 }
             },
-            timestamp_ns_fallback=0,
             timestamp=datetime.now(timezone.utc),
         )
 

@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client Setup — Luthien Proxy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0e0e10;
+            --bg-surface: #18181c;
+            --bg-code: #121215;
+            --border: #2a2a30;
+            --border-accent: #d4881e;
+            --text: #e0ddd8;
+            --text-muted: #8a8880;
+            --text-dim: #5a5850;
+            --amber: #d4881e;
+            --amber-glow: rgba(212, 136, 30, 0.12);
+            --green: #4ade80;
+            --red: #f87171;
+            --blue: #60a5fa;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            min-height: 100vh;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        .container {
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 60px 24px 120px;
+        }
+
+        .header {
+            margin-bottom: 48px;
+        }
+        .header .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 13px;
+            letter-spacing: 0.03em;
+            margin-bottom: 28px;
+            transition: color 0.2s;
+        }
+        .header .back-link:hover { color: var(--amber); }
+        .header h1 {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: var(--text);
+            margin-bottom: 12px;
+        }
+        .header h1 .accent { color: var(--amber); }
+        .header .subtitle {
+            color: var(--text-muted);
+            font-size: 16px;
+            max-width: 520px;
+        }
+
+        /* Code blocks */
+        .code-block {
+            position: relative;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin: 12px 0 16px;
+            overflow: hidden;
+        }
+        .code-block .code-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px;
+            background: rgba(255,255,255,0.02);
+            border-bottom: 1px solid var(--border);
+        }
+        .code-block .code-lang {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .copy-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .copy-btn:hover {
+            border-color: var(--amber);
+            color: var(--amber);
+        }
+        .copy-btn.copied {
+            border-color: var(--green);
+            color: var(--green);
+        }
+        .code-block pre {
+            padding: 16px;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text);
+        }
+        .code-block pre .comment { color: var(--text-dim); }
+        .code-block pre .var { color: var(--amber); }
+        .code-block pre .val { color: var(--green); }
+
+        /* Tip callout */
+        .tip {
+            padding: 16px 18px;
+            background: var(--amber-glow);
+            border-left: 3px solid var(--amber);
+            border-radius: 0 8px 8px 0;
+            margin: 14px 0;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+        .tip strong { color: var(--amber); }
+        .tip code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            background: var(--bg);
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: var(--amber);
+        }
+
+        /* Expandable sections */
+        details {
+            margin: 12px 0;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        details summary {
+            padding: 14px 18px;
+            background: var(--bg-surface);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: color 0.2s;
+        }
+        details summary::-webkit-details-marker { display: none; }
+        details summary::before {
+            content: '\25B6';
+            font-size: 10px;
+            color: var(--text-dim);
+            transition: transform 0.2s;
+        }
+        details[open] summary::before { transform: rotate(90deg); }
+        details[open] summary { color: var(--text); border-bottom: 1px solid var(--border); }
+        details .details-content {
+            padding: 16px 18px;
+            font-size: 14px;
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+        details .details-content code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            background: var(--bg);
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: var(--amber);
+        }
+        details .details-content p { margin-bottom: 10px; }
+        details .details-content p:last-child { margin-bottom: 0; }
+
+        .inline-code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            background: var(--bg-surface);
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: var(--amber);
+        }
+
+        a { color: var(--amber); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .footer {
+            margin-top: 64px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+        .footer a {
+            font-size: 13px;
+            color: var(--text-dim);
+            transition: color 0.2s;
+        }
+        .footer a:hover { color: var(--amber); text-decoration: none; }
+
+        @media (max-width: 600px) {
+            .container { padding: 32px 16px 80px; }
+            .header h1 { font-size: 22px; }
+            .step { padding-left: 36px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <a href="/" class="back-link">&larr; Back to gateway</a>
+            <h1><span class="accent">$</span> Connect Claude Code</h1>
+            <p class="subtitle"><a href="/policy-config">Configure policies</a></p>
+        </div>
+
+        <div class="code-block">
+            <div class="code-header">
+                <span class="code-lang">bash</span>
+                <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            </div>
+            <pre>ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude</pre>
+        </div>
+
+        <p style="color:var(--text-muted);font-size:15px;margin-bottom:14px;">Append any <code class="inline-code">claude</code> arguments as usual:</p>
+
+        <div class="code-block">
+            <div class="code-header">
+                <span class="code-lang">examples</span>
+            </div>
+            <pre><span class="comment"># interactive session</span>
+ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude
+
+<span class="comment"># run a one-shot prompt</span>
+ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude <span class="var">-p</span> <span class="val">"explain this repo"</span>
+
+<span class="comment"># continue the last conversation</span>
+ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude <span class="var">--continue</span></pre>
+        </div>
+
+        <p style="color:var(--text-muted);font-size:14px;margin-bottom:14px;">Your existing Anthropic credentials (API key or OAuth) pass through automatically. Do not append <code class="inline-code">/v1</code> to the URL.</p>
+
+        <!-- Troubleshooting -->
+        <details>
+            <summary>Claude Code can't connect</summary>
+            <div class="details-content">
+                <p>Check that <code>ANTHROPIC_BASE_URL</code> does <strong>not</strong> include <code>/v1</code> &mdash; the SDK appends it automatically.</p>
+                <p>Verify the proxy is reachable: <code>curl {{BASE_URL}}/health</code></p>
+                <p>If connecting from a different machine, use the host IP (not <code>localhost</code>).</p>
+            </div>
+        </details>
+
+        <details>
+            <summary>Installed via native binary? Use npm instead</summary>
+            <div class="details-content">
+                <p>The native Claude Code binary (installed via <code>curl | bash</code>) bundles the Bun runtime, whose <code>fetch()</code> ignores <code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code> environment variables. API streaming requests may bypass the proxy entirely.</p>
+                <p>Fix: install via npm instead: <code>npm install -g @anthropic-ai/claude-code</code></p>
+                <p><code>ANTHROPIC_BASE_URL</code> (direct URL override) is unaffected &mdash; this only matters if you also use a forward proxy.</p>
+            </div>
+        </details>
+
+        <details>
+            <summary>Authentication: API key vs OAuth</summary>
+            <div class="details-content">
+                <p>Use <code>ANTHROPIC_API_KEY</code> (not <code>ANTHROPIC_AUTH_TOKEN</code>) for the most reliable behavior. Claude Code sends it as the <code>x-api-key</code> header, which the gateway expects.</p>
+                <p>If you use OAuth login (<code>claude.ai</code> account), the OAuth handshake hits Anthropic directly and does not go through the proxy. Use an API key to ensure all traffic routes through the gateway.</p>
+            </div>
+        </details>
+
+        <div class="footer">
+            <a href="https://github.com/LuthienResearch/luthien-proxy" target="_blank">GitHub</a>
+            <a href="/activity/monitor">Activity Monitor</a>
+            <a href="/">Gateway Home</a>
+        </div>
+    </div>
+
+    <script>
+        function copyCode(btn) {
+            const pre = btn.closest('.code-block').querySelector('pre');
+            navigator.clipboard.writeText(pre.innerText).then(function () {
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(function () {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 1500);
+            });
+        }
+    </script>
+</body>
+</html>

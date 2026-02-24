@@ -9,8 +9,10 @@ Supports three authentication methods:
 from __future__ import annotations
 
 import secrets
+from urllib.parse import quote
 
 from fastapi import Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from luthien_proxy.dependencies import get_admin_key
@@ -70,4 +72,46 @@ async def verify_admin_token(
     )
 
 
-__all__ = ["verify_admin_token", "security"]
+def check_auth_or_redirect(request: Request, admin_key: str | None) -> RedirectResponse | None:
+    """Check if user is authenticated, return redirect if not.
+
+    Accepts session cookies, Bearer tokens, and x-api-key headers
+    (same methods as verify_admin_token).
+
+    Returns None if authenticated, RedirectResponse to login otherwise.
+    """
+    if not admin_key:
+        return None
+
+    session = get_session_user(request, admin_key)
+    if session:
+        return None
+
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        if token and secrets.compare_digest(token, admin_key):
+            return None
+
+    x_api_key = request.headers.get("x-api-key")
+    if x_api_key and secrets.compare_digest(x_api_key, admin_key):
+        return None
+
+    next_url = quote(str(request.url.path), safe="")
+    return RedirectResponse(url=f"/login?error=required&next={next_url}", status_code=303)
+
+
+def get_base_url(request: Request) -> str:
+    """Derive the external base URL from the incoming request.
+
+    Behind reverse proxies (Railway, Heroku, etc.), the internal request uses HTTP
+    but the proxy handles HTTPS. We check X-Forwarded-Proto to use the correct scheme.
+    """
+    base_url = str(request.base_url).rstrip("/")
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto == "https" and base_url.startswith("http://"):
+        base_url = "https://" + base_url[7:]
+    return base_url
+
+
+__all__ = ["verify_admin_token", "security", "check_auth_or_redirect", "get_base_url"]

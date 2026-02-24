@@ -20,6 +20,7 @@ policy:
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, cast
 
@@ -128,9 +129,13 @@ def _import_policy_class(class_ref: str) -> type[PolicyProtocol]:
 def _instantiate_policy(policy_class: type[PolicyProtocol], config: dict[str, Any]) -> PolicyProtocol:
     """Instantiate a policy with the given config.
 
+    Handles two constructor patterns:
+    - Spread kwargs: policy_class(x=1, y=2) when config keys match param names
+    - Single config param: policy_class(config={...}) when keys are model fields
+
     Args:
         policy_class: Policy class to instantiate
-        config: Configuration dictionary (will be passed as **kwargs)
+        config: Configuration dictionary
 
     Returns:
         Instantiated policy
@@ -138,10 +143,29 @@ def _instantiate_policy(policy_class: type[PolicyProtocol], config: dict[str, An
     Raises:
         TypeError: If config parameters don't match policy constructor
     """
-    if config:
-        return policy_class(**config)
-    else:
+    if not config:
         return policy_class()
+
+    sig = inspect.signature(policy_class.__init__)
+    params = {
+        name
+        for name, p in sig.parameters.items()
+        if name != "self" and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    }
+
+    if set(config.keys()) & params:
+        return policy_class(**config)
+
+    # Config keys don't match any param name. If there's a single param,
+    # the user provided the param's inner fields directly (e.g. Pydantic model fields).
+    if len(params) == 1:
+        param_name = next(iter(params))
+        return policy_class(**{param_name: config})
+
+    raise TypeError(
+        f"Config keys {set(config.keys())} don't match any constructor parameter of "
+        f"{policy_class.__name__} (expected one of: {params})"
+    )
 
 
 __all__ = ["load_policy_from_yaml"]

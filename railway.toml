@@ -11,7 +11,7 @@ dockerfilePath = "docker/Dockerfile.gateway"
 
 [deploy]
 healthcheckPath = "/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
@@ -22,4 +22,4 @@ restartPolicyMaxRetries = 3
 # ADMIN_API_KEY - Your secure API key for admin
 # OPENAI_API_KEY - OpenAI API key (if using)
 # ANTHROPIC_API_KEY - Anthropic API key (if using)
-# GATEWAY_PORT - Set to $PORT (Railway provides this)
+# GATEWAY_PORT - Auto-detected from Railway's PORT (no manual config needed)

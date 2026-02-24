@@ -72,6 +72,8 @@ async def run_claude_code(
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = GATEWAY_URL
     env["ANTHROPIC_AUTH_TOKEN"] = API_KEY
+    env.pop("CLAUDECODE", None)
+    env.pop("CLAUDE_CODE_ENTRYPOINT", None)
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,

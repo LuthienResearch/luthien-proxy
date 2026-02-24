@@ -10,14 +10,12 @@ Provides endpoints for:
 from __future__ import annotations
 
 import os
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
-from luthien_proxy.auth import verify_admin_token
+from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
-from luthien_proxy.session import get_session_user
 from luthien_proxy.utils.constants import (
     HISTORY_SESSIONS_DEFAULT_LIMIT,
     HISTORY_SESSIONS_MAX_LIMIT,
@@ -33,26 +31,6 @@ router = APIRouter(prefix="/history", tags=["history"])
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 
 
-def _check_auth_or_redirect(request: Request, admin_key: str | None) -> RedirectResponse | None:
-    """Check if user is authenticated, return redirect if not.
-
-    Returns None if authenticated, RedirectResponse to login otherwise.
-    """
-    if not admin_key:
-        return None  # No auth configured, allow access
-
-    session = get_session_user(request, admin_key)
-    if session:
-        return None  # Authenticated via session
-
-    # Not authenticated - redirect to login
-    next_url = quote(str(request.url.path), safe="")
-    return RedirectResponse(url=f"/login?error=required&next={next_url}", status_code=303)
-
-
-# === HTML UI Routes ===
-
-
 @router.get("")
 async def history_list_page(
     request: Request,
@@ -63,7 +41,7 @@ async def history_list_page(
     Returns the HTML page for browsing recent sessions.
     Requires admin authentication.
     """
-    redirect = _check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key)
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "history_list.html"))
@@ -81,7 +59,7 @@ async def history_detail_page(
     Returns the HTML page for viewing a specific session's conversation.
     Requires admin authentication. Returns 404 if session doesn't exist.
     """
-    redirect = _check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key)
     if redirect:
         return redirect
 
@@ -92,9 +70,6 @@ async def history_detail_page(
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}") from None
 
     return FileResponse(os.path.join(STATIC_DIR, "history_detail.html"))
-
-
-# === API Routes ===
 
 
 @router.get("/api/sessions", response_model=SessionListResponse)

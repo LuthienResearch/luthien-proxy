@@ -161,7 +161,7 @@ if stream_state.finish_reason:
 
 **Why**: `convert_chunk_to_event()` checks content before finish_reason. If content exists, it returns a `text_delta` event immediately. The finish_reason check never runs.
 
-**Affected policies**: Any policy that buffers content and emits it in `on_content_complete()`. See `StringReplacementPolicy`, `ParallelRulesPolicy` for correct patterns.
+**Affected policies**: Any policy that buffers content and emits it in `on_content_complete()`. See `StringReplacementPolicy` for the correct pattern.
 
 ## E2E Test Debugging: Direct API vs Proxy (2026-02-04)
 
@@ -188,7 +188,7 @@ if stream_state.finish_reason:
 **Tools available**:
 - Activity monitor: `/activity/monitor` - live SSE stream
 - Debug diff viewer: `/debug/diff?call_id=X` - before/after comparison
-- Grafana traces: Search by `luthien.call_id` attribute
+- Tempo traces: Search by `luthien.call_id` attribute via `http://localhost:3200/api/search`
 
 ## Policy Config Dynamic Loading Security (2026-02-04)
 
@@ -201,6 +201,39 @@ if stream_state.finish_reason:
 - The Admin API requires `ADMIN_API_KEY` authentication for runtime policy changes
 
 **Related TODO item**: Add security documentation for dynamic policy loading.
+
+## Docker Compose Orphaned Containers from Mismatched Project Names (2026-02-17)
+
+**Gotcha**: `quick_start.sh` sets `COMPOSE_PROJECT_NAME=luthien-<dirname>`, but running `docker compose up` directly uses just the directory name as the project. `docker compose down` only stops containers for the current project name, leaving old containers bound to ports.
+
+- **Symptom**: `Bind for 0.0.0.0:6379 failed: port is already allocated` on startup
+- **Cause**: Orphaned containers from a previous run with a different project name
+- **Fix**: `quick_start.sh` now cleans up containers from the default project name before starting
+- **Manual fix**: `docker compose -p <directory-name> down` (e.g., `docker compose -p luthien-proxy down`)
+## macOS Bash 3 Compatibility (2026-02-17)
+
+**Gotcha**: macOS ships with bash 3.2, which does NOT support `declare -A` (associative arrays), `(( ))` C-style for loops, or `${!var}` indirect expansion in all contexts. Scripts using `#!/bin/bash` will use the system bash 3.
+
+- **Wrong**: `declare -A MAP=([key]=value)` — fails on macOS
+- **Right**: Use parallel simple arrays, positional parameters (`set --`), or `eval` for indirect variable access
+- **Affected**: `scripts/find-available-ports.sh`
+
+## asyncpg JSONB Columns Can Return str or dict (2026-02-19)
+
+**Gotcha**: asyncpg may return JSONB columns as either `dict` or `str`, depending on connection settings and PostgreSQL version. Code that assumes `isinstance(payload, dict)` will silently drop str payloads.
+
+- **Wrong**: `dict(row["payload"]) if isinstance(row["payload"], dict) else {}` — silently discards str payloads
+- **Wrong**: Removing the `isinstance(str)` branch as "dead code" — it's not dead, asyncpg genuinely returns str sometimes
+- **Right**: Handle both cases explicitly with `json.loads()` for str, `dict()` for dict, `TypeError` for anything else
+- **Affected files**: `history/service.py`, `debug/service.py`
+- **Discovered during**: Codebase cleanup PR #211 — services-impl teammate removed the str branch thinking it was defensive dead code, causing 7 e2e test failures
+## PaaS PORT vs GATEWAY_PORT (2026-02-19)
+
+**Gotcha**: Railway (and Heroku, Render, etc.) inject `PORT` at runtime. The app reads `GATEWAY_PORT`. If you set `GATEWAY_PORT` to empty string in the PaaS dashboard, pydantic crashes trying to parse `""` as `int` and the app dies before serving `/health`.
+
+- **Bridge**: `start-gateway.sh` maps `PORT → GATEWAY_PORT` so deploys work without manual env var config
+- **Why not just use PORT?**: `GATEWAY_PORT` is more descriptive and consistent with the rest of the settings. `PORT` is ambiguous in multi-service setups.
+- **Why not set GATEWAY_PORT=${{PORT}} in Railway dashboard?**: That's what was tried originally — it was set to empty string and broke every deploy. The shell bridge is less fragile.
 
 ---
 

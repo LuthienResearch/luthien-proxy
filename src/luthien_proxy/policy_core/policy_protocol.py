@@ -1,20 +1,18 @@
 """Protocol defining the policy interface for request/response processing.
 
 This module defines PolicyProtocol with hooks for:
-- Request and response processing
 - Streaming chunk events and content/tool call completion
 - Stream lifecycle and cleanup
+
+Used for type annotations in policy infrastructure. Concrete policies should
+inherit from BasePolicy + OpenAIPolicyInterface/AnthropicPolicyInterface.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ModelResponse
-
-    from luthien_proxy.llm.types import Request
-    from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
     )
@@ -29,12 +27,8 @@ class PolicyProtocol(Protocol):
         """Short human-readable name for the policy (e.g., 'NoOp', 'AllCaps', 'ToolJudge')."""
         ...
 
-    async def on_request(self, request: Request, context: PolicyContext) -> Request:
-        """Process request before sending to LLM."""
-        ...
-
-    async def on_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
-        """Process non-streaming response after receiving from LLM."""
+    def get_config(self) -> dict[str, Any]:
+        """Get the configuration for this policy instance."""
         ...
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:

@@ -13,9 +13,13 @@ import asyncio
 import logging
 import time
 
-from luthien_proxy.streaming.policy_executor.interface import PolicyTimeoutError
-
 logger = logging.getLogger(__name__)
+
+
+class PolicyTimeoutError(Exception):
+    """Raised when policy processing exceeds configured timeout."""
+
+    pass
 
 
 class TimeoutMonitor:

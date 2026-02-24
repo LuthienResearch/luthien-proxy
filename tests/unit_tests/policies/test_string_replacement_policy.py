@@ -29,6 +29,7 @@ from luthien_proxy.llm.types.anthropic import (
     AnthropicToolUseBlock,
 )
 from luthien_proxy.policies.string_replacement_policy import (
+    StringReplacementConfig,
     StringReplacementPolicy,
     _apply_capitalization_pattern,
     _detect_capitalization_pattern,
@@ -123,8 +124,10 @@ class TestImplementsInterfaces:
     def test_get_config_returns_configuration(self):
         """get_config returns the policy configuration."""
         policy = StringReplacementPolicy(
-            replacements=[["foo", "bar"], ["hello", "goodbye"]],
-            match_capitalization=True,
+            config=StringReplacementConfig(
+                replacements=[["foo", "bar"], ["hello", "goodbye"]],
+                match_capitalization=True,
+            )
         )
         config = policy.get_config()
         assert config["replacements"] == [["foo", "bar"], ["hello", "goodbye"]]
@@ -148,7 +151,9 @@ class TestOpenAINonStreaming:
         ],
     )
     async def test_on_openai_response(self, policy_context, replacements, match_cap, content, expected):
-        policy = StringReplacementPolicy(replacements=replacements, match_capitalization=match_cap)
+        policy = StringReplacementPolicy(
+            config=StringReplacementConfig(replacements=replacements, match_capitalization=match_cap)
+        )
         response = ModelResponse(
             id="test-id",
             choices=[Choices(finish_reason="stop", index=0, message=Message(content=content, role="assistant"))],
@@ -161,7 +166,7 @@ class TestOpenAINonStreaming:
 
     async def test_on_openai_request_passthrough(self, policy_context):
         """on_openai_request returns the exact same request object unchanged."""
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
         request = Request(model="test-model", messages=[{"role": "user", "content": "Hello foo"}])
 
         result = await policy.on_openai_request(request, policy_context)
@@ -178,7 +183,7 @@ class TestOpenAIStreaming:
         ],
     )
     async def test_on_content_complete(self, streaming_context, content, replacements, expected):
-        policy = StringReplacementPolicy(replacements=replacements)
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=replacements))
 
         content_block = ContentStreamBlock(id="content")
         content_block.content = content
@@ -194,7 +199,7 @@ class TestOpenAIStreaming:
 
     async def test_content_deltas_filtered(self, streaming_context):
         """Content delta chunks are buffered, not passed through."""
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
         chunk = make_streaming_chunk(content="hello foo", model="test-model", id="test-id", finish_reason=None)
         streaming_context.original_streaming_response_state.raw_chunks.append(chunk)
 
@@ -215,7 +220,7 @@ class TestOpenAIStreaming:
     )
     async def test_non_content_chunks_pass_through(self, streaming_context, content, finish_reason, tool_calls):
         """Non-content chunks (finish reason, tool calls) pass through immediately."""
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
         chunk = make_streaming_chunk(
             content=content, model="test-model", id="test-id", finish_reason=finish_reason, tool_calls=tool_calls
         )
@@ -238,7 +243,7 @@ class TestAnthropicRequest:
     @pytest.mark.asyncio
     async def test_on_anthropic_request_returns_same_request(self):
         """on_anthropic_request returns the exact same request object unchanged."""
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
@@ -258,7 +263,7 @@ class TestAnthropicResponse:
     @pytest.mark.asyncio
     async def test_on_anthropic_response_applies_replacement(self):
         """on_anthropic_response applies string replacements to text content blocks."""
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
         ctx = PolicyContext.for_testing()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "Hello foo world!"}
@@ -280,7 +285,9 @@ class TestAnthropicResponse:
     @pytest.mark.asyncio
     async def test_on_anthropic_response_applies_multiple_replacements(self):
         """on_anthropic_response applies multiple string replacements in order."""
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"], ["hello", "goodbye"]])
+        policy = StringReplacementPolicy(
+            config=StringReplacementConfig(replacements=[["foo", "bar"], ["hello", "goodbye"]])
+        )
         ctx = PolicyContext.for_testing()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "hello foo world"}
@@ -302,7 +309,7 @@ class TestAnthropicResponse:
     @pytest.mark.asyncio
     async def test_on_anthropic_response_leaves_tool_use_unchanged(self):
         """on_anthropic_response does not modify tool_use content blocks."""
-        policy = StringReplacementPolicy(replacements=[["weather", "climate"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["weather", "climate"]]))
         ctx = PolicyContext.for_testing()
 
         tool_use_block: AnthropicToolUseBlock = {
@@ -330,7 +337,7 @@ class TestAnthropicResponse:
     @pytest.mark.asyncio
     async def test_on_anthropic_response_mixed_content_blocks(self):
         """on_anthropic_response transforms text but leaves tool_use unchanged in mixed content."""
-        policy = StringReplacementPolicy(replacements=[["weather", "climate"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["weather", "climate"]]))
         ctx = PolicyContext.for_testing()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "Let me check the weather"}
@@ -366,8 +373,10 @@ class TestAnthropicCapitalization:
     async def test_on_anthropic_response_match_capitalization_lowercase(self):
         """on_anthropic_response preserves lowercase capitalization pattern."""
         policy = StringReplacementPolicy(
-            replacements=[["hello", "goodbye"]],
-            match_capitalization=True,
+            config=StringReplacementConfig(
+                replacements=[["hello", "goodbye"]],
+                match_capitalization=True,
+            )
         )
         ctx = PolicyContext.for_testing()
 
@@ -391,8 +400,10 @@ class TestAnthropicCapitalization:
     async def test_on_anthropic_response_match_capitalization_uppercase(self):
         """on_anthropic_response preserves uppercase capitalization pattern."""
         policy = StringReplacementPolicy(
-            replacements=[["hello", "goodbye"]],
-            match_capitalization=True,
+            config=StringReplacementConfig(
+                replacements=[["hello", "goodbye"]],
+                match_capitalization=True,
+            )
         )
         ctx = PolicyContext.for_testing()
 
@@ -416,8 +427,10 @@ class TestAnthropicCapitalization:
     async def test_on_anthropic_response_match_capitalization_multiple_occurrences(self):
         """on_anthropic_response handles multiple occurrences with different capitalizations."""
         policy = StringReplacementPolicy(
-            replacements=[["hello", "hi"]],
-            match_capitalization=True,
+            config=StringReplacementConfig(
+                replacements=[["hello", "hi"]],
+                match_capitalization=True,
+            )
         )
         ctx = PolicyContext.for_testing()
 
@@ -444,7 +457,7 @@ class TestAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_transforms_text_delta(self):
         """on_anthropic_stream_event applies replacement to text_delta text."""
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
         ctx = PolicyContext.for_testing()
 
         text_delta = TextDelta.model_construct(type="text_delta", text="hello foo world")
@@ -465,7 +478,7 @@ class TestAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_does_not_mutate_original(self):
         """on_anthropic_stream_event creates new event instead of mutating original."""
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
         ctx = PolicyContext.for_testing()
 
         original_text = "hello foo world"
@@ -491,8 +504,10 @@ class TestAnthropicStreamEvent:
     async def test_on_anthropic_stream_event_match_capitalization(self):
         """on_anthropic_stream_event preserves capitalization in streaming deltas."""
         policy = StringReplacementPolicy(
-            replacements=[["hello", "goodbye"]],
-            match_capitalization=True,
+            config=StringReplacementConfig(
+                replacements=[["hello", "goodbye"]],
+                match_capitalization=True,
+            )
         )
         ctx = PolicyContext.for_testing()
 
@@ -512,7 +527,7 @@ class TestAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_leaves_thinking_delta_unchanged(self):
         """on_anthropic_stream_event does not modify thinking_delta events."""
-        policy = StringReplacementPolicy(replacements=[["consider", "think"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["consider", "think"]]))
         ctx = PolicyContext.for_testing()
 
         thinking_delta = ThinkingDelta.model_construct(type="thinking_delta", thinking="Let me consider...")
@@ -532,7 +547,7 @@ class TestAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_leaves_input_json_delta_unchanged(self):
         """on_anthropic_stream_event does not modify input_json_delta events."""
-        policy = StringReplacementPolicy(replacements=[["loc", "location"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["loc", "location"]]))
         ctx = PolicyContext.for_testing()
 
         json_delta = InputJSONDelta.model_construct(type="input_json_delta", partial_json='{"loc')
@@ -552,7 +567,7 @@ class TestAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_message_start(self):
         """on_anthropic_stream_event passes through message_start events unchanged."""
-        policy = StringReplacementPolicy(replacements=[["test", "demo"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["test", "demo"]]))
         ctx = PolicyContext.for_testing()
 
         event = RawMessageStartEvent.model_construct(
@@ -575,7 +590,7 @@ class TestAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_content_block_start(self):
         """on_anthropic_stream_event passes through content_block_start events unchanged."""
-        policy = StringReplacementPolicy(replacements=[["test", "demo"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["test", "demo"]]))
         ctx = PolicyContext.for_testing()
 
         event = RawContentBlockStartEvent.model_construct(
@@ -591,7 +606,7 @@ class TestAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_content_block_stop(self):
         """on_anthropic_stream_event passes through content_block_stop events unchanged."""
-        policy = StringReplacementPolicy(replacements=[["test", "demo"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["test", "demo"]]))
         ctx = PolicyContext.for_testing()
 
         event = RawContentBlockStopEvent.model_construct(
@@ -606,7 +621,7 @@ class TestAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_message_delta(self):
         """on_anthropic_stream_event passes through message_delta events unchanged."""
-        policy = StringReplacementPolicy(replacements=[["test", "demo"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["test", "demo"]]))
         ctx = PolicyContext.for_testing()
 
         event = RawMessageDeltaEvent.model_construct(
@@ -622,7 +637,7 @@ class TestAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_message_stop(self):
         """on_anthropic_stream_event passes through message_stop events unchanged."""
-        policy = StringReplacementPolicy(replacements=[["test", "demo"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["test", "demo"]]))
         ctx = PolicyContext.for_testing()
 
         event = RawMessageStopEvent.model_construct(type="message_stop")
@@ -638,7 +653,7 @@ class TestAnthropicEdgeCases:
     @pytest.mark.asyncio
     async def test_empty_replacements_list(self):
         """Policy with empty replacements list leaves content unchanged."""
-        policy = StringReplacementPolicy(replacements=[])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[]))
         ctx = PolicyContext.for_testing()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "Hello world!"}
@@ -660,7 +675,7 @@ class TestAnthropicEdgeCases:
     @pytest.mark.asyncio
     async def test_none_replacements(self):
         """Policy with None replacements leaves content unchanged."""
-        policy = StringReplacementPolicy(replacements=None)
+        policy = StringReplacementPolicy()
         ctx = PolicyContext.for_testing()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "Hello world!"}
@@ -682,7 +697,7 @@ class TestAnthropicEdgeCases:
     @pytest.mark.asyncio
     async def test_empty_content_list(self):
         """Policy handles response with empty content list."""
-        policy = StringReplacementPolicy(replacements=[["foo", "bar"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
         ctx = PolicyContext.for_testing()
 
         response: AnthropicResponse = {
@@ -702,7 +717,7 @@ class TestAnthropicEdgeCases:
     @pytest.mark.asyncio
     async def test_special_regex_characters_in_replacement(self):
         """Policy handles special regex characters in replacement strings."""
-        policy = StringReplacementPolicy(replacements=[["[test]", "check"]])
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["[test]", "check"]]))
         ctx = PolicyContext.for_testing()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "Hello [test] world!"}

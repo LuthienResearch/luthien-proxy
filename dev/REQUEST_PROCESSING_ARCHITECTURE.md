@@ -383,4 +383,4 @@ Policies can intercept at these points:
 
 - **Observability**:
   - [observability.md](observability.md) - Tracing and monitoring
-  - [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md) - Using Grafana
+  - [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md) - Using Tempo

@@ -121,7 +121,10 @@ policy:
 def mock_db_pool():
     """Create a mock database pool for testing."""
     mock = AsyncMock()
-    mock.get_pool = AsyncMock()
+    mock_pool = AsyncMock()
+    # fetchrow returns None by default (no rows found)
+    mock_pool.fetchrow = AsyncMock(return_value=None)
+    mock.get_pool = AsyncMock(return_value=mock_pool)
     mock.close = AsyncMock()
     return mock
 
@@ -178,7 +181,6 @@ class TestCreateApp:
             assert deps.policy_manager is not None
             assert deps.db_pool == mock_db_pool
             assert deps.redis_client == mock_redis_client
-            assert deps.event_publisher is not None
             assert deps.llm_client is not None
 
         # create_app does NOT close db_pool/redis_client - caller owns them

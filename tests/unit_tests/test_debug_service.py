@@ -26,16 +26,30 @@ from luthien_proxy.debug.service import (
 class TestBuildTempoUrl:
     """Test Tempo URL building."""
 
-    def test_default_grafana_url(self):
-        """Test URL building with default Grafana URL."""
+    def test_default_tempo_url(self, monkeypatch):
+        """Test URL building with default Tempo URL from settings."""
+        from luthien_proxy.settings import clear_settings_cache
+
+        clear_settings_cache()
+        monkeypatch.delenv("TEMPO_URL", raising=False)
         url = build_tempo_url("test-call-id")
-        assert "localhost:3000" in url
+        assert "localhost:3200" in url
         assert "test-call-id" in url
 
-    def test_custom_grafana_url(self):
-        """Test URL building with custom Grafana URL."""
-        url = build_tempo_url("test-call-id", grafana_url="https://grafana.example.com")
-        assert "grafana.example.com" in url
+    def test_custom_tempo_url(self):
+        """Test URL building with custom Tempo URL."""
+        url = build_tempo_url("test-call-id", tempo_url="https://tempo.example.com")
+        assert "tempo.example.com" in url
+        assert "test-call-id" in url
+
+    def test_uses_settings_when_no_override(self, monkeypatch):
+        """Test URL building uses settings value when no override provided."""
+        from luthien_proxy.settings import clear_settings_cache
+
+        clear_settings_cache()
+        monkeypatch.setenv("TEMPO_URL", "http://configured-tempo:9999")
+        url = build_tempo_url("test-call-id")
+        assert "configured-tempo:9999" in url
         assert "test-call-id" in url
 
 
@@ -50,7 +64,7 @@ class TestExtractMessageContent:
             ({}, ""),
             (
                 {"content": [{"type": "text", "text": "First"}, {"type": "text", "text": "Second"}]},
-                "First Second",
+                "First\nSecond",
             ),
             (
                 {"content": [{"type": "text", "text": "Text"}, {"type": "image", "url": "http://..."}]},

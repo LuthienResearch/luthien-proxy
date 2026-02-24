@@ -50,13 +50,17 @@ class PolicyInfo:
     config: dict[str, Any]
 
 
-class PolicyManager:
-    """Manages runtime policy with simplified initialization.
+VALID_POLICY_SOURCES = {"db", "file", "db-fallback-file", "file-fallback-db"}
 
-    Startup behavior:
-    1. If startup_policy_path is provided, load from that YAML and persist to DB
-    2. Otherwise, load from DB (the current_policy table)
-    3. If neither has a policy, fail startup with clear error
+
+class PolicyManager:
+    """Manages runtime policy loading and hot-swapping.
+
+    The policy_source parameter controls startup behavior:
+    - "db": load only from database, ignore YAML file
+    - "file": load only from YAML file, persist to database
+    - "db-fallback-file": try database first, fall back to YAML file if empty
+    - "file-fallback-db": try YAML file first, fall back to database if missing/invalid
     """
 
     def __init__(
@@ -64,42 +68,37 @@ class PolicyManager:
         db_pool: db.DatabasePool,
         redis_client: Redis,
         startup_policy_path: str | None = None,
+        policy_source: str = "db-fallback-file",
     ):
-        """Initialize PolicyManager.
+        """Initialize PolicyManager with DB pool, Redis client, and source strategy."""
+        if policy_source not in VALID_POLICY_SOURCES:
+            raise ValueError(
+                f"Invalid policy_source '{policy_source}'. Must be one of: {', '.join(sorted(VALID_POLICY_SOURCES))}"
+            )
 
-        Args:
-            db_pool: Database connection pool
-            redis_client: Redis client for locking
-            startup_policy_path: Optional path to YAML policy config to use at startup
-                                 (overrides DB, and persists to DB)
-        """
         self.db = db_pool
         self.redis = redis_client
         self.startup_policy_path = startup_policy_path
+        self.policy_source = policy_source
         self._current_policy: PolicyProtocol | None = None
         self.lock_key = "luthien:policy:lock"
 
-        logger.info(
-            "PolicyManager initialized"
-            + (f" with startup override: {startup_policy_path}" if startup_policy_path else "")
-        )
+        logger.info(f"PolicyManager initialized (source={policy_source}, file={startup_policy_path or 'none'})")
 
     async def initialize(self) -> None:
-        """Load policy at startup.
-
-        Priority:
-        1. If startup_policy_path is set, load from file and persist to DB
-        2. Otherwise, load from DB
-        3. If no policy found, raise error
-        """
-        if self.startup_policy_path:
+        """Load policy at startup according to policy_source strategy."""
+        if self.policy_source == "file":
             await self._initialize_from_file()
-        else:
-            await self._initialize_from_db()
+        elif self.policy_source == "db":
+            await self._initialize_from_db_strict()
+        elif self.policy_source == "db-fallback-file":
+            await self._initialize_db_fallback_file()
+        elif self.policy_source == "file-fallback-db":
+            await self._initialize_file_fallback_db()
 
         if not self._current_policy:
             raise RuntimeError(
-                "No policy configured. Either set POLICY_CONFIG to a YAML file path, "
+                "No policy configured. Set POLICY_SOURCE and/or POLICY_CONFIG, "
                 "or configure a policy via the admin API first."
             )
 
@@ -112,17 +111,39 @@ class PolicyManager:
 
         # Extract class ref and config for DB persistence
         policy_class_ref = f"{self._current_policy.__module__}:{self._current_policy.__class__.__name__}"
-        config: dict[str, Any] = {}
-        if hasattr(self._current_policy, "get_config") and callable(getattr(self._current_policy, "get_config")):
-            config = getattr(self._current_policy, "get_config")()
+        config = self._current_policy.get_config()
 
         await self._persist_to_db(policy_class_ref, config, "startup")
         logger.info(f"Loaded policy from {self.startup_policy_path} and persisted to DB")
 
-    async def _initialize_from_db(self) -> None:
-        """Load policy from database."""
-        self._current_policy = await self._load_from_db()
-        if self._current_policy:
+    async def _initialize_from_db_strict(self) -> None:
+        """Load policy from database only. Raises if nothing found."""
+        policy = await self._load_from_db()
+        if not policy:
+            raise RuntimeError("POLICY_SOURCE=db but no policy found in database")
+        self._current_policy = policy
+        logger.info("Loaded policy from database")
+
+    async def _initialize_db_fallback_file(self) -> None:
+        """Try database first, fall back to YAML file if DB is empty."""
+        policy = await self._load_from_db()
+        if policy:
+            self._current_policy = policy
+            logger.info("Loaded policy from database")
+            return
+        logger.info("No policy in database, falling back to file")
+        await self._initialize_from_file()
+
+    async def _initialize_file_fallback_db(self) -> None:
+        """Try YAML file first, fall back to database if file is missing/invalid."""
+        try:
+            await self._initialize_from_file()
+            return
+        except Exception as e:
+            logger.info(f"Could not load from file ({e}), falling back to database")
+        policy = await self._load_from_db()
+        if policy:
+            self._current_policy = policy
             logger.info("Loaded policy from database")
 
     async def _load_from_db(self) -> PolicyProtocol | None:
@@ -179,15 +200,7 @@ class PolicyManager:
                 await self._persist_to_db(policy_class_ref, config, enabled_by)
 
                 # 3. Hot-swap in memory
-                old_policy = self._current_policy
                 self._current_policy = new_policy
-
-                # 4. Cleanup old policy
-                if old_policy and hasattr(old_policy, "on_session_end"):
-                    try:
-                        await old_policy.on_session_end()  # type: ignore
-                    except Exception as e:
-                        logger.warning(f"Error during old policy cleanup: {e}")
 
                 duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
@@ -251,10 +264,7 @@ class PolicyManager:
         except Exception as e:
             logger.warning(f"Could not fetch policy metadata from DB: {e}")
 
-        # Get config if the policy has a get_config method
-        config = {}
-        if hasattr(self._current_policy, "get_config") and callable(getattr(self._current_policy, "get_config")):
-            config = getattr(self._current_policy, "get_config")()
+        config = self._current_policy.get_config()
 
         return PolicyInfo(
             policy=self._current_policy.__class__.__name__,

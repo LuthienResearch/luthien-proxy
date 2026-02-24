@@ -1,5 +1,8 @@
 """Unit tests for Settings class and configuration management."""
 
+import pytest
+
+from luthien_proxy.credential_manager import AuthMode
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
 
 
@@ -34,24 +37,23 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.service_name == "luthien-proxy"
 
-    def test_default_grafana_url(self, monkeypatch):
-        """Test default Grafana URL."""
-        monkeypatch.delenv("GRAFANA_URL", raising=False)
-        settings = Settings(_env_file=None)
-        assert settings.grafana_url == "http://localhost:3000"
-
     def test_default_gateway_port(self, monkeypatch):
         """Test default gateway port is 8000."""
         monkeypatch.delenv("GATEWAY_PORT", raising=False)
         settings = Settings(_env_file=None)
         assert settings.gateway_port == 8000
 
+    def test_default_tempo_url(self, monkeypatch):
+        """Test default Tempo URL for local development."""
+        monkeypatch.delenv("TEMPO_URL", raising=False)
+        settings = Settings(_env_file=None)
+        assert settings.tempo_url == "http://localhost:3200"
+
     def test_optional_fields_default_to_none(self, monkeypatch):
         """Test optional fields default to None."""
         for var in [
             "PROXY_API_KEY",
             "ADMIN_API_KEY",
-            "OTEL_EXPORTER_OTLP_ENDPOINT",
             "LLM_JUDGE_MODEL",
             "LLM_JUDGE_API_BASE",
             "LLM_JUDGE_API_KEY",
@@ -61,7 +63,6 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.proxy_api_key is None
         assert settings.admin_api_key is None
-        assert settings.otel_exporter_otlp_endpoint is None
         assert settings.llm_judge_model is None
         assert settings.llm_judge_api_base is None
         assert settings.llm_judge_api_key is None
@@ -107,33 +108,27 @@ class TestSettingsFromEnv:
         settings = Settings()
         assert settings.gateway_port == 3000
 
+    def test_loads_tempo_url(self, monkeypatch):
+        """Test TEMPO_URL overrides default."""
+        monkeypatch.setenv("TEMPO_URL", "http://tempo.prod:3200")
+        settings = Settings()
+        assert settings.tempo_url == "http://tempo.prod:3200"
 
-class TestEffectiveOtelEndpoint:
-    """Test the effective_otel_endpoint property.
 
-    These tests use _env_file=None to bypass .env file loading and test
-    the property logic in isolation.
-    """
+class TestOtelExporterEndpoint:
+    """Test the otel_exporter_otlp_endpoint setting."""
 
-    def test_uses_standard_endpoint_when_set(self, monkeypatch):
-        """Test OTEL_EXPORTER_OTLP_ENDPOINT takes precedence."""
+    def test_uses_env_var_when_set(self, monkeypatch):
+        """Test OTEL_EXPORTER_OTLP_ENDPOINT is loaded from environment."""
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://custom:4317")
         settings = Settings(_env_file=None)
-        assert settings.effective_otel_endpoint == "http://custom:4317"
+        assert settings.otel_exporter_otlp_endpoint == "http://custom:4317"
 
-    def test_falls_back_to_legacy_endpoint(self, monkeypatch):
-        """Test falls back to OTEL_ENDPOINT when standard not set."""
+    def test_uses_default_when_not_set(self, monkeypatch):
+        """Test uses default when env var not set."""
         monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
-        monkeypatch.setenv("OTEL_ENDPOINT", "http://legacy:4317")
         settings = Settings(_env_file=None)
-        assert settings.effective_otel_endpoint == "http://legacy:4317"
-
-    def test_uses_default_when_neither_set(self, monkeypatch):
-        """Test uses default OTEL_ENDPOINT when neither env var set."""
-        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
-        monkeypatch.delenv("OTEL_ENDPOINT", raising=False)
-        settings = Settings(_env_file=None)
-        assert settings.effective_otel_endpoint == "http://tempo:4317"
+        assert settings.otel_exporter_otlp_endpoint == "http://tempo:4317"
 
 
 class TestSettingsCache:
@@ -162,3 +157,22 @@ class TestSettingsCache:
         assert settings1 is not settings2
         assert settings2.redis_url == "redis://different:6379"
         assert initial_redis != settings2.redis_url
+
+
+class TestAuthModeValidation:
+    """Test that auth_mode uses AuthMode enum for early validation."""
+
+    def test_default_auth_mode(self, monkeypatch):
+        monkeypatch.delenv("AUTH_MODE", raising=False)
+        settings = Settings(_env_file=None)
+        assert settings.auth_mode == AuthMode.BOTH
+
+    def test_valid_auth_mode_from_env(self, monkeypatch):
+        monkeypatch.setenv("AUTH_MODE", "passthrough")
+        settings = Settings(_env_file=None)
+        assert settings.auth_mode == AuthMode.PASSTHROUGH
+
+    def test_invalid_auth_mode_raises(self, monkeypatch):
+        monkeypatch.setenv("AUTH_MODE", "invalid_mode")
+        with pytest.raises(Exception):
+            Settings(_env_file=None)

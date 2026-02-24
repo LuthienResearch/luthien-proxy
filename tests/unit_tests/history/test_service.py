@@ -19,12 +19,12 @@ from luthien_proxy.history.models import (
 from luthien_proxy.history.service import (
     _build_turn,
     _extract_preview_message,
-    _extract_text_content,
     _extract_tool_calls,
     _parse_request_messages,
     _parse_response_messages,
     _safe_parse_json,
     export_session_markdown,
+    extract_text_content,
     fetch_session_detail,
     fetch_session_list,
 )
@@ -47,7 +47,7 @@ class TestExtractTextContent:
     )
     def test_extract_content(self, content, expected):
         """Test extracting content from various formats."""
-        assert _extract_text_content(content) == expected
+        assert extract_text_content(content) == expected
 
 
 class TestExtractPreviewMessage:
@@ -556,27 +556,6 @@ class TestFetchSessionDetail:
             await fetch_session_detail("nonexistent", mock_pool)
 
     @pytest.mark.asyncio
-    async def test_invalid_payload_json_string_raises_error(self):
-        """Test that invalid JSON payload string raises ValueError."""
-        mock_rows = [
-            {
-                "call_id": "call-1",
-                "event_type": "transaction.request_recorded",
-                "payload": "not valid json {{{",  # Invalid JSON string
-                "created_at": datetime(2025, 1, 15, 10, 0, 0),
-            },
-        ]
-
-        mock_conn = AsyncMock()
-        mock_conn.fetch.return_value = mock_rows
-
-        mock_pool = MagicMock()
-        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
-
-        with pytest.raises(ValueError, match="Failed to parse payload JSON"):
-            await fetch_session_detail("session-1", mock_pool)
-
-    @pytest.mark.asyncio
     async def test_unexpected_payload_type_raises_error(self):
         """Test that unexpected payload type raises TypeError."""
         mock_rows = [
@@ -617,56 +596,6 @@ class TestFetchSessionDetail:
 
         with pytest.raises(TypeError, match="created_at must be datetime, got str"):
             await fetch_session_detail("session-1", mock_pool)
-
-    @pytest.mark.asyncio
-    async def test_payload_as_json_string(self):
-        """Test handling of JSONB payload returned as string by asyncpg.
-
-        asyncpg returns JSONB columns as strings, not dicts. The service
-        must parse these strings into dicts for proper processing.
-        """
-        import json
-
-        payload_dict = {
-            "final_model": "gpt-4",
-            "original_request": {"messages": [{"role": "user", "content": "Hi"}]},
-            "final_request": {"messages": [{"role": "user", "content": "Hi"}]},
-        }
-        response_payload = {
-            "original_response": {"choices": [{"message": {"content": "Hello!"}}]},
-            "final_response": {"choices": [{"message": {"content": "Hello!"}}]},
-        }
-
-        mock_rows = [
-            {
-                "call_id": "call-1",
-                "event_type": "transaction.request_recorded",
-                "payload": json.dumps(payload_dict),  # String, not dict
-                "created_at": datetime(2025, 1, 15, 10, 0, 0),
-            },
-            {
-                "call_id": "call-1",
-                "event_type": "transaction.streaming_response_recorded",
-                "payload": json.dumps(response_payload),  # String, not dict
-                "created_at": datetime(2025, 1, 15, 10, 0, 1),
-            },
-        ]
-
-        mock_conn = AsyncMock()
-        mock_conn.fetch.return_value = mock_rows
-
-        mock_pool = MagicMock()
-        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
-
-        result = await fetch_session_detail("session-1", mock_pool)
-
-        assert result.session_id == "session-1"
-        assert len(result.turns) == 1
-        assert result.turns[0].model == "gpt-4"
-        assert len(result.turns[0].request_messages) == 1
-        assert result.turns[0].request_messages[0].content == "Hi"
-        assert len(result.turns[0].response_messages) == 1
-        assert result.turns[0].response_messages[0].content == "Hello!"
 
 
 class TestExportSessionMarkdown:

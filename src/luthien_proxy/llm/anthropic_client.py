@@ -21,19 +21,43 @@ class AnthropicClient:
     using the Anthropic Messages API.
     """
 
-    def __init__(self, api_key: str, base_url: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        auth_token: str | None = None,
+        base_url: str | None = None,
+    ):
         """Initialize the Anthropic client.
 
         Creates the AsyncAnthropic client immediately for thread safety.
+        Exactly one of api_key or auth_token must be provided.
 
         Args:
-            api_key: Anthropic API key for authentication.
+            api_key: Anthropic API key (sent as x-api-key header).
+            auth_token: OAuth/bearer token (sent as Authorization: Bearer header).
             base_url: Optional custom base URL for the API.
         """
-        kwargs: dict = {"api_key": api_key}
+        if api_key is None and auth_token is None:
+            raise ValueError("Either api_key or auth_token must be provided")
+        self._base_url = base_url
+        kwargs: dict = {}
+        if api_key is not None:
+            kwargs["api_key"] = api_key
+        else:
+            kwargs["auth_token"] = auth_token
+            # Anthropic requires this beta flag for OAuth bearer token auth
+            kwargs["default_headers"] = {"anthropic-beta": "oauth-2025-04-20"}
         if base_url:
             kwargs["base_url"] = base_url
         self._client = anthropic.AsyncAnthropic(**kwargs)
+
+    def with_api_key(self, api_key: str) -> "AnthropicClient":
+        """Create a new client with a different API key, preserving base_url."""
+        return AnthropicClient(api_key=api_key, base_url=self._base_url)
+
+    def with_auth_token(self, auth_token: str) -> "AnthropicClient":
+        """Create a new client with a bearer/OAuth token, preserving base_url."""
+        return AnthropicClient(auth_token=auth_token, base_url=self._base_url)
 
     def _prepare_request_kwargs(self, request: AnthropicRequest) -> dict:
         """Extract non-None values from request for SDK call.

@@ -1,5 +1,3 @@
-# ABOUTME: Abstract base class defining the OpenAI policy interface
-
 """Abstract base class defining the OpenAI policy interface.
 
 This module defines OpenAIPolicyInterface with hooks for:

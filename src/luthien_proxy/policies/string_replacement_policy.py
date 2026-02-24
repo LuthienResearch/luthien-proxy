@@ -25,6 +25,7 @@ from anthropic.types import (
     TextDelta,
 )
 from litellm.types.utils import Choices, StreamingChoices
+from pydantic import BaseModel, Field
 
 from luthien_proxy.policy_core import (
     AnthropicPolicyInterface,
@@ -47,6 +48,13 @@ if TYPE_CHECKING:
     from luthien_proxy.policy_core.streaming_policy_context import (
         StreamingPolicyContext,
     )
+
+
+class StringReplacementConfig(BaseModel):
+    """Configuration for StringReplacementPolicy."""
+
+    replacements: list[list[str]] = Field(default_factory=list, description="List of [from, to] string pairs")
+    match_capitalization: bool = Field(default=False, description="Match source capitalization pattern")
 
 
 def _detect_capitalization_pattern(text: str) -> str:
@@ -190,30 +198,12 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicy
     - "cOOl" -> "rADical" (mixed: c->r lower, O->A upper, O->D upper, l->i lower, extra chars literal)
     """
 
-    def __init__(
-        self,
-        replacements: list[list[str]] | None = None,
-        match_capitalization: bool = False,
-    ):
-        """Initialize the policy.
+    def __init__(self, config: StringReplacementConfig | None = None):
+        """Initialize with optional config. Accepts dict or Pydantic model."""
+        self.config = self._init_config(config, StringReplacementConfig)
 
-        Args:
-            replacements: List of [from_string, to_string] pairs.
-                Each pair specifies a string to find and its replacement.
-            match_capitalization: If True, matches are case-insensitive and
-                the replacement preserves the source's capitalization pattern.
-        """
-        self._replacements: list[tuple[str, str]] = []
-        if replacements:
-            self._replacements = [(pair[0], pair[1]) for pair in replacements]
-        self._match_capitalization = match_capitalization
-
-    def get_config(self) -> dict:
-        """Return the configuration for this policy instance."""
-        return {
-            "replacements": [[f, t] for f, t in self._replacements],
-            "match_capitalization": self._match_capitalization,
-        }
+        self._replacements: list[tuple[str, str]] = [(pair[0], pair[1]) for pair in self.config.replacements]
+        self._match_capitalization = self.config.match_capitalization
 
     def _apply_replacements(self, text: str) -> str:
         """Apply all configured replacements to the given text."""
@@ -266,21 +256,13 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicy
     async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
         """Push non-content chunks immediately; content is handled in on_content_complete."""
         last_chunk: "ModelResponse" = ctx.last_chunk_received
-        if not last_chunk.choices:
-            ctx.push_chunk(last_chunk)
-            return
-
-        choice = last_chunk.choices[0]
-        streaming_choice = cast(StreamingChoices, choice)
-        if not hasattr(streaming_choice, "delta") or streaming_choice.delta is None:
-            ctx.push_chunk(last_chunk)
-            return
 
         # Content deltas are buffered and emitted in on_content_complete
-        if streaming_choice.delta.content is not None:
-            return
+        if last_chunk.choices:
+            delta = cast(StreamingChoices, last_chunk.choices[0]).delta
+            if delta is not None and delta.content is not None:
+                return
 
-        # All other chunks (tool calls, finish reasons, etc.) pass through
         ctx.push_chunk(last_chunk)
 
     async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
@@ -417,5 +399,6 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicy
 
 __all__ = [
     "StringReplacementPolicy",
+    "StringReplacementConfig",
     "apply_replacements",
 ]

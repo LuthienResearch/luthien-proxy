@@ -1,6 +1,6 @@
 """Unit tests for AnthropicClient."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from anthropic.types import (
@@ -94,19 +94,28 @@ class TestAnthropicClientInit:
     """Test AnthropicClient initialization."""
 
     def test_init_with_api_key(self):
-        """Test client initialization with API key."""
         client = AnthropicClient(api_key="test-key")
+        assert client._client is not None
+
+    def test_init_with_auth_token(self):
+        client = AnthropicClient(auth_token="oauth-token")
         assert client._client is not None
 
     def test_init_with_base_url(self):
-        """Test client initialization with custom base URL."""
         client = AnthropicClient(api_key="test-key", base_url="https://custom.api.com")
         assert client._client.base_url == "https://custom.api.com"
 
-    def test_init_creates_client_immediately(self):
-        """Test that client is created during initialization (not lazily)."""
-        client = AnthropicClient(api_key="test-key")
-        assert client._client is not None
+    def test_auth_token_sets_oauth_beta_header(self):
+        """Auth token construction should set the OAuth beta default header."""
+        with patch("anthropic.AsyncAnthropic") as MockAnthropic:
+            AnthropicClient(auth_token="some-token")
+            call_kwargs = MockAnthropic.call_args.kwargs
+            assert call_kwargs["default_headers"]["anthropic-beta"] == "oauth-2025-04-20"
+
+    def test_no_credentials_raises_value_error(self):
+        """Constructing without api_key or auth_token raises ValueError."""
+        with pytest.raises(ValueError, match="Either api_key or auth_token must be provided"):
+            AnthropicClient()
 
 
 class TestAnthropicClientComplete:
