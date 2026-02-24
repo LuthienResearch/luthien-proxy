@@ -91,7 +91,7 @@ class CredentialManager:
         )
         self._http_client: httpx.AsyncClient | None = None
 
-    async def initialize(self, default_auth_mode: str = "proxy_key") -> None:
+    async def initialize(self, default_auth_mode: str = "both") -> None:
         """Load auth config from DB. Falls back to default on first boot."""
         if self._db_pool is None:
             logger.info("No DB pool - using default auth config")
