@@ -34,7 +34,7 @@ Works with Claude Code. Supports streaming.
 </tr>
 </table>
 
-> Alpha: Policy enforcement works but is under active development. The example above uses a `ToolCallJudgePolicy` with an LLM judge -- reliability varies by rule complexity.
+> ⚠️ Luthien Proxy is in active development and subject to rapid change. We encourage you to star the repository to follow updates and open issues for bugs, feature requests, or questions. Your feedback helps shape the future of production AI Control.
 
 ---
 
