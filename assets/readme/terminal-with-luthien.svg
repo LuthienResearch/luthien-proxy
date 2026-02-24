@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="620" height="496" viewBox="0 0 620 496">
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="478" viewBox="0 0 620 478">
   <!-- Terminal background -->
-  <rect width="620" height="496" rx="8" fill="#1e1e1e"/>
+  <rect width="620" height="478" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
   <rect width="620" height="32" rx="8" fill="#323233"/>
@@ -31,12 +31,10 @@
 
   <!-- Claude Code banner with dashed border -->
   <rect x="20" y="180" width="580" height="72" rx="8" fill="none" stroke="#d4845a" stroke-width="1" stroke-dasharray="6,4"/>
-  <!-- Erase border behind legend text -->
   <rect x="104" y="174" width="188" height="13" fill="#1e1e1e"/>
-  <!-- Legend text on border -->
   <text x="112" y="184" fill="#d4845a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Claude Code v2.1.52</text>
 
-  <!-- Pixel-art logo inside banner (5w x 9h quadrants) -->
+  <!-- Pixel-art logo inside banner -->
   <g fill="#d4845a" transform="translate(36, 190)">
     <rect x="15" y="0" width="60" height="9"/>
     <rect x="15" y="9" width="10" height="9"/>
@@ -50,37 +48,38 @@
     <rect x="65" y="36" width="5" height="9"/>
   </g>
 
-  <!-- Info text (right of logo, inside banner) -->
+  <!-- Info text inside banner -->
   <text x="140" y="212" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Opus 4.6 · Claude Max</text>
   <text x="140" y="232" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">~/my-project</text>
 
   <!-- Separator -->
   <line x1="20" y1="264" x2="600" y2="264" stroke="#444444" stroke-width="1"/>
 
-  <!-- User prompt -->
-  <text x="20" y="286" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">&gt;</text>
+  <!-- User prompt with gray highlight -->
+  <rect x="16" y="273" width="350" height="18" rx="3" fill="#333333"/>
+  <text x="20" y="286" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
   <text x="36" y="286" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Install requests for the HTTP client</text>
 
-  <!-- Blocked by Luthien -->
+  <!-- Luthien intercepts: Blocked -->
   <text x="20" y="318" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✗ Blocked: pip install requests</text>
 
-  <!-- Auto-corrected -->
+  <!-- Luthien auto-corrects -->
   <text x="20" y="338" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✓ Auto-corrected: use uv, not pip</text>
 
-  <!-- Claude response (left margin) -->
-  <text x="20" y="370" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">I'll use uv add instead.</text>
+  <!-- White dot: Claude response -->
+  <text x="20" y="370" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
+  <text x="36" y="370" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">I'll use uv add instead.</text>
 
-  <!-- Tool call: ✓ Bash -->
-  <text x="20" y="402" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✓</text>
+  <!-- Green dot: Bash tool call -->
+  <text x="20" y="402" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
   <text x="36" y="402" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
+  <text x="73" y="402" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(uv add requests)</text>
 
-  <!-- uv add (green = correct) -->
-  <text x="36" y="422" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">uv add requests</text>
+  <!-- Tool output with connector -->
+  <text x="36" y="422" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Resolved 1 package in 0.5s</text>
 
-  <!-- output -->
-  <text x="36" y="442" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Resolved 1 package in 0.5s</text>
-
-  <!-- Happy ending -->
-  <text x="20" y="474" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">&gt;</text>
-  <text x="36" y="474" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">nice 😊🚀</text>
+  <!-- Happy ending with gray highlight -->
+  <rect x="16" y="441" width="130" height="18" rx="3" fill="#333333"/>
+  <text x="20" y="454" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
+  <text x="36" y="454" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">nice 😊🚀</text>
 </svg>

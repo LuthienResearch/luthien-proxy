@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="620" height="354" viewBox="0 0 620 354">
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="334" viewBox="0 0 620 334">
   <!-- Terminal background -->
-  <rect width="620" height="354" rx="8" fill="#1e1e1e"/>
+  <rect width="620" height="334" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
   <rect width="620" height="32" rx="8" fill="#323233"/>
@@ -21,12 +21,10 @@
 
   <!-- Claude Code banner with dashed border -->
   <rect x="20" y="68" width="580" height="72" rx="8" fill="none" stroke="#d4845a" stroke-width="1" stroke-dasharray="6,4"/>
-  <!-- Erase border behind legend text -->
   <rect x="104" y="62" width="188" height="13" fill="#1e1e1e"/>
-  <!-- Legend text on border -->
   <text x="112" y="72" fill="#d4845a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Claude Code v2.1.52</text>
 
-  <!-- Pixel-art logo inside banner (5w x 9h quadrants) -->
+  <!-- Pixel-art logo inside banner -->
   <g fill="#d4845a" transform="translate(36, 78)">
     <rect x="15" y="0" width="60" height="9"/>
     <rect x="15" y="9" width="10" height="9"/>
@@ -40,35 +38,37 @@
     <rect x="65" y="36" width="5" height="9"/>
   </g>
 
-  <!-- Info text (right of logo, inside banner) -->
+  <!-- Info text inside banner -->
   <text x="140" y="100" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Opus 4.6 · Claude Max</text>
   <text x="140" y="120" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">~/my-project</text>
 
   <!-- Separator -->
   <line x1="20" y1="152" x2="600" y2="152" stroke="#444444" stroke-width="1"/>
 
-  <!-- User prompt -->
-  <text x="20" y="174" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">&gt;</text>
+  <!-- User prompt with gray highlight -->
+  <rect x="16" y="161" width="350" height="18" rx="3" fill="#333333"/>
+  <text x="20" y="174" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
   <text x="36" y="174" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Install requests for the HTTP client</text>
 
-  <!-- Tool call: ✓ Bash -->
-  <text x="20" y="206" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✓</text>
+  <!-- Green dot: Bash tool call -->
+  <text x="20" y="206" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
   <text x="36" y="206" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
+  <text x="73" y="206" fill="#ce9178" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(pip install requests)</text>
 
-  <!-- pip install (orange = violation) -->
-  <text x="36" y="226" fill="#ce9178" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">pip install requests</text>
+  <!-- Tool output with connector -->
+  <text x="36" y="226" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Successfully installed requests-2.31.0</text>
 
-  <!-- output -->
-  <text x="36" y="246" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Successfully installed requests-2.31.0</text>
+  <!-- User frustrated with gray highlight -->
+  <rect x="16" y="245" width="310" height="18" rx="3" fill="#333333"/>
+  <text x="20" y="258" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
+  <text x="36" y="258" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">WTF? it's in the damn claude.md</text>
 
-  <!-- User frustrated -->
-  <text x="20" y="278" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">&gt;</text>
-  <text x="36" y="278" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">WTF? it's in the damn claude.md</text>
+  <!-- White dot: Claude response -->
+  <text x="20" y="278" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
+  <text x="36" y="278" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">I apologize — let me undo that...</text>
 
-  <!-- Claude apologizes (left margin — Claude responses aren't indented) -->
-  <text x="20" y="298" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">I apologize — let me undo that...</text>
-
-  <!-- User reaction -->
-  <text x="20" y="330" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">&gt;</text>
-  <text x="36" y="330" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🙄🤬</text>
+  <!-- User reaction with gray highlight -->
+  <rect x="16" y="297" width="80" height="18" rx="3" fill="#333333"/>
+  <text x="20" y="310" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
+  <text x="36" y="310" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🙄🤬</text>
 </svg>
