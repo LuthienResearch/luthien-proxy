@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="620" height="492" viewBox="0 0 620 492">
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="496" viewBox="0 0 620 496">
   <!-- Terminal background -->
-  <rect width="620" height="492" rx="8" fill="#1e1e1e"/>
+  <rect width="620" height="496" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
   <rect width="620" height="32" rx="8" fill="#323233"/>
@@ -16,21 +16,28 @@
   <text x="310" y="22" text-anchor="middle" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">claude code + Luthien</text>
 
   <!-- $ quick_start.sh -->
-  <text x="20" y="56" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">$</text>
-  <text x="36" y="56" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">./scripts/quick_start.sh</text>
+  <text x="20" y="54" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">$</text>
+  <text x="36" y="54" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">./scripts/quick_start.sh</text>
 
-  <text x="36" y="76" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🚀 Starting Luthien quick setup...</text>
-  <text x="36" y="96" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🎉 Luthien is ready!</text>
+  <text x="36" y="74" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🚀 Starting Luthien quick setup...</text>
+  <text x="36" y="94" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🎉 Luthien is ready!</text>
 
   <!-- $ launch_claude_code.sh -->
-  <text x="20" y="128" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">$</text>
-  <text x="36" y="128" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">./scripts/launch_claude_code.sh</text>
+  <text x="20" y="126" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">$</text>
+  <text x="36" y="126" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">./scripts/launch_claude_code.sh</text>
 
-  <text x="36" y="148" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🎯 Routing through gateway with policy enforcement</text>
-  <text x="36" y="168" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🤖 Starting Claude Code...</text>
+  <text x="36" y="146" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🎯 Routing through gateway with policy enforcement</text>
+  <text x="36" y="166" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🤖 Starting Claude Code...</text>
 
-  <!-- Claude Code pixel-art logo (5w x 9h quadrants) -->
-  <g fill="#d4845a" transform="translate(22, 182)">
+  <!-- Claude Code banner with dashed border -->
+  <rect x="20" y="180" width="580" height="72" rx="8" fill="none" stroke="#d4845a" stroke-width="1" stroke-dasharray="6,4"/>
+  <!-- Erase border behind legend text -->
+  <rect x="104" y="174" width="188" height="13" fill="#1e1e1e"/>
+  <!-- Legend text on border -->
+  <text x="112" y="184" fill="#d4845a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Claude Code v2.1.52</text>
+
+  <!-- Pixel-art logo inside banner (5w x 9h quadrants) -->
+  <g fill="#d4845a" transform="translate(36, 190)">
     <rect x="15" y="0" width="60" height="9"/>
     <rect x="15" y="9" width="10" height="9"/>
     <rect x="30" y="9" width="30" height="9"/>
@@ -43,39 +50,37 @@
     <rect x="65" y="36" width="5" height="9"/>
   </g>
 
-  <!-- Claude Code info (right of logo) -->
-  <text x="120" y="200" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Claude Code</text>
-  <text x="230" y="200" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14"> v2.1.52</text>
-  <text x="120" y="220" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Opus 4.6 · Claude Max</text>
-  <text x="120" y="240" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">~/my-project</text>
+  <!-- Info text (right of logo, inside banner) -->
+  <text x="140" y="212" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Opus 4.6 · Claude Max</text>
+  <text x="140" y="232" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">~/my-project</text>
 
   <!-- Separator -->
-  <line x1="20" y1="256" x2="600" y2="256" stroke="#444444" stroke-width="1"/>
+  <line x1="20" y1="264" x2="600" y2="264" stroke="#444444" stroke-width="1"/>
 
   <!-- User prompt -->
-  <text x="20" y="280" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="38" y="280" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Install requests for the HTTP client</text>
+  <text x="20" y="286" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">&gt;</text>
+  <text x="36" y="286" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Install requests for the HTTP client</text>
 
   <!-- Blocked by Luthien -->
-  <text x="38" y="312" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✗ Blocked: pip install requests</text>
+  <text x="20" y="318" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✗ Blocked: pip install requests</text>
 
   <!-- Auto-corrected -->
-  <text x="38" y="332" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✓ Auto-corrected: use uv, not pip</text>
+  <text x="20" y="338" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✓ Auto-corrected: use uv, not pip</text>
 
-  <!-- Claude response -->
-  <text x="38" y="364" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">I'll use uv add instead.</text>
+  <!-- Claude response (left margin) -->
+  <text x="20" y="370" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">I'll use uv add instead.</text>
 
-  <!-- Tool call: Bash -->
-  <text x="38" y="396" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✓</text>
-  <text x="56" y="396" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
+  <!-- Tool call: ✓ Bash -->
+  <text x="20" y="402" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">✓</text>
+  <text x="36" y="402" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
 
   <!-- uv add (green = correct) -->
-  <text x="56" y="416" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">uv add requests</text>
+  <text x="36" y="422" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">uv add requests</text>
 
   <!-- output -->
-  <text x="56" y="436" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Resolved 1 package in 0.5s</text>
+  <text x="36" y="442" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Resolved 1 package in 0.5s</text>
 
   <!-- Happy ending -->
-  <text x="20" y="468" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="38" y="468" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">nice 😊🚀</text>
+  <text x="20" y="474" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">&gt;</text>
+  <text x="36" y="474" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">nice 😊🚀</text>
 </svg>
