@@ -19,6 +19,7 @@ from anthropic.types import (
     ThinkingDelta,
 )
 from litellm.types.utils import Choices, Message, ModelResponse
+from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.llm.types import Request
@@ -247,7 +248,7 @@ class TestAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello foo"}],
             "max_tokens": 100,
         }
@@ -272,7 +273,7 @@ class TestAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -296,7 +297,7 @@ class TestAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -323,7 +324,7 @@ class TestAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [tool_use_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -352,7 +353,7 @@ class TestAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block, tool_use_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 15},
         }
@@ -386,7 +387,7 @@ class TestAnthropicCapitalization:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -413,7 +414,7 @@ class TestAnthropicCapitalization:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -440,7 +441,7 @@ class TestAnthropicCapitalization:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -577,7 +578,7 @@ class TestAnthropicStreamEvent:
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": "claude-sonnet-4-20250514",
+                "model": DEFAULT_CLAUDE_TEST_MODEL,
                 "stop_reason": None,
                 "usage": {"input_tokens": 5, "output_tokens": 0},
             },
@@ -662,7 +663,7 @@ class TestAnthropicEdgeCases:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -684,7 +685,7 @@ class TestAnthropicEdgeCases:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -705,7 +706,7 @@ class TestAnthropicEdgeCases:
             "type": "message",
             "role": "assistant",
             "content": [],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 0},
         }
@@ -726,7 +727,7 @@ class TestAnthropicEdgeCases:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }

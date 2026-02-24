@@ -17,6 +17,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 # === Test Configuration ===
 
@@ -56,7 +57,7 @@ def _normalize_text(s: str) -> str:
 ANTHROPIC_ENDPOINT = f"{GATEWAY_URL}/v1/messages"
 # NOTE: gpt-4o-mini removed - cross-format routing (OpenAI model to Anthropic endpoint)
 # not supported in current architecture. Phase 2 work per PR #169.
-ANTHROPIC_BACKENDS = ["claude-haiku-4-5"]
+ANTHROPIC_BACKENDS = [DEFAULT_CLAUDE_TEST_MODEL]
 
 
 def _anthropic_image_content(image_b64: str, prompt: str) -> list:
@@ -153,7 +154,7 @@ async def test_anthropic_client_image_in_history(http_client):
     first_response = await http_client.post(
         ANTHROPIC_ENDPOINT,
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": content}],
             "max_tokens": 50,
             "stream": False,
@@ -168,7 +169,7 @@ async def test_anthropic_client_image_in_history(http_client):
     second_response = await http_client.post(
         ANTHROPIC_ENDPOINT,
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [
                 {"role": "user", "content": content},
                 {"role": "assistant", "content": assistant_reply},
@@ -195,7 +196,7 @@ async def test_anthropic_text_only_content_blocks(http_client):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -217,7 +218,7 @@ async def test_anthropic_text_only_content_blocks(http_client):
 # === OpenAI Client Tests ===
 
 OPENAI_ENDPOINT = f"{GATEWAY_URL}/v1/chat/completions"
-OPENAI_BACKENDS = ["gpt-4o-mini", "claude-haiku-4-5"]
+OPENAI_BACKENDS = ["gpt-4o-mini", DEFAULT_CLAUDE_TEST_MODEL]
 
 
 def _openai_image_content(image_b64: str, prompt: str) -> list:

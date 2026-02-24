@@ -9,6 +9,7 @@ tests ensure that extra parameters aren't dropped during conversion.
 
 import httpx
 import pytest
+from tests.constants import CLAUDE_THINKING_MODEL, DEFAULT_CLAUDE_TEST_MODEL
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL
 
 # === Test Configuration ===
@@ -35,7 +36,7 @@ async def test_anthropic_extended_thinking_sonnet(http_client, gateway_healthy):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-sonnet-4-5",
+            "model": CLAUDE_THINKING_MODEL,
             "messages": [{"role": "user", "content": "What is 2 + 2? Think step by step."}],
             "max_tokens": 8000,
             "stream": False,
@@ -77,7 +78,7 @@ async def test_anthropic_extended_thinking_streaming(http_client, gateway_health
         "POST",
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-sonnet-4-5",
+            "model": CLAUDE_THINKING_MODEL,
             "messages": [{"role": "user", "content": "What is 3 + 3?"}],
             "max_tokens": 8000,
             "stream": True,
@@ -141,7 +142,7 @@ async def test_anthropic_metadata_parameter_accepted(http_client, gateway_health
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello"}],
             "max_tokens": 20,
             "stream": False,
@@ -167,7 +168,7 @@ async def test_anthropic_stop_sequences_parameter(http_client, gateway_healthy):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Count from 1 to 10, one number per line."}],
             "max_tokens": 100,
             "stream": False,
@@ -197,7 +198,7 @@ async def test_anthropic_tool_choice_parameter(http_client, gateway_healthy):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "What's the weather in Paris?"}],
             "max_tokens": 100,
             "stream": False,
@@ -235,7 +236,7 @@ async def test_anthropic_multiple_extra_params(http_client, gateway_healthy):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello world'"}],
             "max_tokens": 50,
             "stream": False,
@@ -414,7 +415,7 @@ async def test_anthropic_streaming_with_extra_params(http_client, gateway_health
         "POST",
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello"}],
             "max_tokens": 20,
             "stream": True,
@@ -476,7 +477,7 @@ async def test_openai_client_to_anthropic_backend_with_extra_params(http_client,
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/chat/completions",
         json={
-            "model": "claude-haiku-4-5",  # Anthropic model via OpenAI endpoint
+            "model": DEFAULT_CLAUDE_TEST_MODEL,  # Anthropic model via OpenAI endpoint
             "messages": [{"role": "user", "content": "Say hello briefly"}],
             "max_tokens": 20,
             "stream": False,

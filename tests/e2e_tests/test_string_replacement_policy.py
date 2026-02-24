@@ -8,6 +8,7 @@ import os
 
 import httpx
 import pytest
+from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
 ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
@@ -97,7 +98,7 @@ async def test_string_replacement_basic(http_client, admin_headers, proxy_header
         f"{GATEWAY_URL}/v1/messages",
         headers=proxy_headers,
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -150,7 +151,7 @@ async def test_string_replacement_with_capitalization(http_client, admin_headers
         f"{GATEWAY_URL}/v1/messages",
         headers=proxy_headers,
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -204,7 +205,7 @@ async def test_string_replacement_streaming(http_client, admin_headers, proxy_he
         f"{GATEWAY_URL}/v1/messages",
         headers=proxy_headers,
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say 'I am an AI assistant' and nothing else."}],
             "max_tokens": 30,
             "stream": True,
@@ -286,7 +287,7 @@ async def test_string_replacement_streaming_has_complete_sse_events(http_client,
         f"{GATEWAY_URL}/v1/messages",
         headers=proxy_headers,
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello' and nothing else."}],
             "max_tokens": 20,
             "stream": True,

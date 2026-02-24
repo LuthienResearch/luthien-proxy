@@ -18,6 +18,7 @@ import os
 
 import httpx
 import pytest
+from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 # === Test Configuration ===
 
@@ -103,7 +104,7 @@ async def test_openai_client_anthropic_backend_streaming(http_client):
         "POST",
         f"{GATEWAY_URL}/v1/chat/completions",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello"}],
             "max_tokens": 20,
             "stream": True,
@@ -133,7 +134,7 @@ async def test_openai_client_anthropic_backend_non_streaming(http_client):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/chat/completions",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello"}],
             "max_tokens": 20,
             "stream": False,
@@ -166,7 +167,7 @@ async def test_anthropic_client_anthropic_backend_streaming(http_client):
         "POST",
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello"}],
             "max_tokens": 20,
             "stream": True,
@@ -196,7 +197,7 @@ async def test_anthropic_client_anthropic_backend_non_streaming(http_client):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello"}],
             "max_tokens": 20,
             "stream": False,

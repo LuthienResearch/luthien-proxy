@@ -21,6 +21,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 import pytest
+from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 # Import shared fixtures and helpers from conftest
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context  # noqa: F401
@@ -446,7 +447,7 @@ async def test_claude_code_with_tool_judge_high_threshold(claude_available, gate
     async with policy_context(
         "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
         {
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "probability_threshold": 0.99,  # Very high - should allow most calls
             "temperature": 0.0,
             "max_tokens": 256,
@@ -480,7 +481,7 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
     async with policy_context(
         "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
         {
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "probability_threshold": 0.01,  # Very low - should block most calls
             "temperature": 0.0,
             "max_tokens": 256,

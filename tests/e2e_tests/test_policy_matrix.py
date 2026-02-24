@@ -10,6 +10,7 @@ Runs a simple request through the gateway for each policy to verify:
 """
 
 import pytest
+from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
 
 # Policy configurations: (policy_class_ref, config, description)
@@ -108,7 +109,7 @@ async def test_policy_anthropic_non_streaming(policy_class_ref: str, config: dic
         response = await http_client.post(
             f"{GATEWAY_URL}/v1/messages",
             json={
-                "model": "claude-haiku-4-5",
+                "model": DEFAULT_CLAUDE_TEST_MODEL,
                 "messages": [{"role": "user", "content": "Say hello"}],
                 "max_tokens": 20,
                 "stream": False,
@@ -136,7 +137,7 @@ async def test_policy_anthropic_streaming(policy_class_ref: str, config: dict, h
             "POST",
             f"{GATEWAY_URL}/v1/messages",
             json={
-                "model": "claude-haiku-4-5",
+                "model": DEFAULT_CLAUDE_TEST_MODEL,
                 "messages": [{"role": "user", "content": "Say hello"}],
                 "max_tokens": 20,
                 "stream": True,

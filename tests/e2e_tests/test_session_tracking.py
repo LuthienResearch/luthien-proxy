@@ -21,6 +21,7 @@ import re
 
 import httpx
 import pytest
+from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 # Import shared config and helpers from conftest
 from tests.e2e_tests.conftest import (  # noqa: F401
@@ -326,7 +327,7 @@ async def test_anthropic_endpoint_accepts_claude_code_metadata(http_client, gate
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello"}],
             "max_tokens": 20,
             "stream": False,
@@ -447,7 +448,7 @@ async def test_session_id_persisted_to_database(http_client, gateway_healthy):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say 'verified'"}],
             "max_tokens": 20,
             "stream": False,

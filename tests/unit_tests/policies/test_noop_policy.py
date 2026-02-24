@@ -24,6 +24,7 @@ from anthropic.types import (
     TextDelta,
 )
 from litellm.types.utils import ModelResponse
+from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 from luthien_proxy.llm.types import Request
 from luthien_proxy.policies.noop_policy import NoOpPolicy
@@ -256,7 +257,7 @@ class TestNoOpPolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
         }
@@ -272,7 +273,7 @@ class TestNoOpPolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [
                 {"role": "user", "content": "Hello"},
                 {"role": "assistant", "content": "Hi there!"},
@@ -285,7 +286,7 @@ class TestNoOpPolicyAnthropicRequest:
 
         result = await policy.on_anthropic_request(request, ctx)
 
-        assert result["model"] == "claude-sonnet-4-20250514"
+        assert result["model"] == DEFAULT_CLAUDE_TEST_MODEL
         assert len(result["messages"]) == 3
         assert result["max_tokens"] == 500
         assert result.get("temperature") == 0.7
@@ -306,7 +307,7 @@ class TestNoOpPolicyAnthropicResponse:
             type="message",
             role="assistant",
             content=[TextBlock.model_construct(type="text", text="Hello!")],
-            model="claude-sonnet-4-20250514",
+            model=DEFAULT_CLAUDE_TEST_MODEL,
             stop_reason="end_turn",
             usage={"input_tokens": 10, "output_tokens": 5},
         )
@@ -326,7 +327,7 @@ class TestNoOpPolicyAnthropicResponse:
             type="message",
             role="assistant",
             content=[TextBlock.model_construct(type="text", text="Complex response text")],
-            model="claude-sonnet-4-20250514",
+            model=DEFAULT_CLAUDE_TEST_MODEL,
             stop_reason="end_turn",
             usage={"input_tokens": 20, "output_tokens": 10},
         )
@@ -371,7 +372,7 @@ class TestNoOpPolicyAnthropicStreaming:
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": "claude-sonnet-4-20250514",
+                    "model": DEFAULT_CLAUDE_TEST_MODEL,
                     "stop_reason": None,
                     "usage": {"input_tokens": 10, "output_tokens": 0},
                 },
@@ -416,7 +417,7 @@ class TestNoOpPolicyAnthropicStreaming:
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": "claude-sonnet-4-20250514",
+                "model": DEFAULT_CLAUDE_TEST_MODEL,
                 "stop_reason": None,
                 "usage": {"input_tokens": 5, "output_tokens": 0},
             },

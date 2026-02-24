@@ -18,6 +18,7 @@ import os
 
 import httpx
 import pytest
+from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 # === Test Configuration ===
 
@@ -275,7 +276,7 @@ async def test_anthropic_streaming_event_lifecycle(http_client):
         "POST",
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello in 3 words"}],
             "max_tokens": 20,
             "stream": True,
@@ -318,7 +319,7 @@ async def test_anthropic_streaming_message_start_structure(http_client):
         "POST",
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 10,
             "stream": True,
@@ -359,7 +360,7 @@ async def test_anthropic_streaming_content_block_structure(http_client):
         "POST",
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say: ABC"}],
             "max_tokens": 20,
             "stream": True,
@@ -410,7 +411,7 @@ async def test_anthropic_streaming_message_stop_structure(http_client):
         "POST",
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hi"}],
             "max_tokens": 10,
             "stream": True,
@@ -459,7 +460,7 @@ async def test_anthropic_streaming_sse_format_compliance(http_client):
         "POST",
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 10,
             "stream": True,
@@ -503,7 +504,7 @@ async def test_openai_client_anthropic_backend_preserves_openai_format(http_clie
         "POST",
         f"{GATEWAY_URL}/v1/chat/completions",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 10,
             "stream": True,
@@ -658,7 +659,7 @@ async def tool_call_judge_policy_active():
             json={
                 "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
                 "config": {
-                    "model": "claude-haiku-4-5",
+                    "model": DEFAULT_CLAUDE_TEST_MODEL,
                     "probability_threshold": 0.99,  # High threshold = allow most tool calls
                     "temperature": 0.0,
                     "max_tokens": 256,
@@ -699,7 +700,7 @@ async def test_anthropic_streaming_tool_use_structure(http_client, noop_policy_a
         "POST",
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -811,7 +812,7 @@ async def test_anthropic_buffered_tool_call_emits_message_delta(http_client, too
         "POST",
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_CLAUDE_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
