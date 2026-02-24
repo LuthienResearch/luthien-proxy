@@ -118,10 +118,11 @@ class CredentialManager:
         )
 
         # Warn if DB value differs from the code default (see PR #222 COE)
-        if self._config.auth_mode != AuthMode(default_auth_mode):
+        expected = AuthMode(default_auth_mode)
+        if self._config.auth_mode != expected:
             logger.warning(
                 f"DB auth_mode '{self._config.auth_mode.value}' differs from "
-                f"code default '{default_auth_mode}'. This may cause unexpected "
+                f"code default '{expected.value}'. This may cause unexpected "
                 f"auth failures. Update via admin API or DB migration."
             )
 
