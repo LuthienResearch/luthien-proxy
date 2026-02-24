@@ -7,7 +7,10 @@ set -e
 # Load environment variables from .env if it exists
 if [ -f .env ]; then
     echo "Loading environment from .env..."
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    # shellcheck source=/dev/null
+    source .env
+    set +a
 fi
 
 # Set defaults

@@ -5,11 +5,14 @@
 
 # source .env, recursing up until found
 CURDIR=$(pwd)
-while [ ! -f $CURDIR/.env ] && [ "$CURDIR" != "/" ]; do
+while [ ! -f "$CURDIR/.env" ] && [ "$CURDIR" != "/" ]; do
   CURDIR=$(dirname "$CURDIR")
 done
-if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+if [ -f "$CURDIR/.env" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$CURDIR/.env"
+  set +a
 else
   echo "No .env file found"
   exit 1

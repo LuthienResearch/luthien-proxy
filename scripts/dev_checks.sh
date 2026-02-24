@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "== Shellcheck (shell scripts) =="
+if command -v shellcheck &>/dev/null; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+    shellcheck "$PROJECT_ROOT"/scripts/*.sh "$PROJECT_ROOT"/docker/*.sh
+    echo "Shellcheck passed."
+else
+    echo "shellcheck not installed — skipping (install: brew install shellcheck)"
+fi
+
 echo "== Ruff format (apply) =="
 uv run ruff format
 
