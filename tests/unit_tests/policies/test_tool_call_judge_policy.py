@@ -36,7 +36,6 @@ from litellm.types.utils import (
     Function,
     ModelResponse,
 )
-from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.llm.types import Request
@@ -813,7 +812,7 @@ class TestToolCallJudgePolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
         }
@@ -829,7 +828,7 @@ class TestToolCallJudgePolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "What's the weather?"}],
             "max_tokens": 500,
             "tools": [
@@ -846,7 +845,7 @@ class TestToolCallJudgePolicyAnthropicRequest:
 
         result = await policy.on_anthropic_request(request, ctx)
 
-        assert result["model"] == DEFAULT_CLAUDE_TEST_MODEL
+        assert result["model"] == "claude-sonnet-4-20250514"
         assert len(result.get("tools", [])) == 1
 
 
@@ -865,7 +864,7 @@ class TestToolCallJudgePolicyAnthropicResponseNoToolUse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -887,7 +886,7 @@ class TestToolCallJudgePolicyAnthropicResponseNoToolUse:
             "type": "message",
             "role": "assistant",
             "content": [],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 0},
         }
@@ -917,7 +916,7 @@ class TestToolCallJudgePolicyAnthropicResponseToolUse:
             "type": "message",
             "role": "assistant",
             "content": [tool_use_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -954,7 +953,7 @@ class TestToolCallJudgePolicyAnthropicResponseToolUse:
             "type": "message",
             "role": "assistant",
             "content": [tool_use_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -994,7 +993,7 @@ class TestToolCallJudgePolicyAnthropicResponseToolUse:
             "type": "message",
             "role": "assistant",
             "content": [text_block, tool_use_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 15},
         }
@@ -1038,7 +1037,7 @@ class TestToolCallJudgePolicyAnthropicErrorHandling:
             "type": "message",
             "role": "assistant",
             "content": [tool_use_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -1074,7 +1073,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventNonToolUse:
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "stop_reason": None,
                 "usage": {"input_tokens": 5, "output_tokens": 0},
             },
@@ -1482,7 +1481,7 @@ class TestToolCallJudgePolicyObservability:
             "type": "message",
             "role": "assistant",
             "content": [tool_use_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from litellm.types.utils import Choices, Message, ModelResponse
-from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 from luthien_proxy.llm.types.anthropic import (
     AnthropicResponse,
@@ -109,7 +108,7 @@ def make_anthropic_response(text: str) -> AnthropicResponse:
         "type": "message",
         "role": "assistant",
         "content": [block],
-        "model": DEFAULT_CLAUDE_TEST_MODEL,
+        "model": "claude-sonnet-4-20250514",
         "stop_reason": "end_turn",
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }

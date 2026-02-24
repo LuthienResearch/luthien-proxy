@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.llm.anthropic_client import AnthropicClient
@@ -99,7 +98,7 @@ class TestGatewayAuthAndClientResolution:
             response = client.post(
                 "/v1/messages",
                 json={
-                    "model": DEFAULT_CLAUDE_TEST_MODEL,
+                    "model": "claude-sonnet-4-20250514",
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -115,7 +114,7 @@ class TestGatewayAuthAndClientResolution:
         response = client.post(
             "/v1/messages",
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             },
@@ -133,7 +132,7 @@ class TestGatewayAuthAndClientResolution:
             response = client.post(
                 "/v1/messages",
                 json={
-                    "model": DEFAULT_CLAUDE_TEST_MODEL,
+                    "model": "claude-sonnet-4-20250514",
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -151,7 +150,7 @@ class TestGatewayAuthAndClientResolution:
         response = client.post(
             "/v1/messages",
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             },
@@ -169,7 +168,7 @@ class TestGatewayAuthAndClientResolution:
             response = client.post(
                 "/v1/messages",
                 json={
-                    "model": DEFAULT_CLAUDE_TEST_MODEL,
+                    "model": "claude-sonnet-4-20250514",
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -188,7 +187,7 @@ class TestGatewayAuthAndClientResolution:
             response = client.post(
                 "/v1/messages",
                 json={
-                    "model": DEFAULT_CLAUDE_TEST_MODEL,
+                    "model": "claude-sonnet-4-20250514",
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -204,7 +203,7 @@ class TestGatewayAuthAndClientResolution:
         response = client.post(
             "/v1/messages",
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             },
@@ -225,7 +224,7 @@ class TestGatewayAuthAndClientResolution:
             client.post(
                 "/v1/messages",
                 json={
-                    "model": DEFAULT_CLAUDE_TEST_MODEL,
+                    "model": "claude-sonnet-4-20250514",
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -244,7 +243,7 @@ class TestGatewayAuthAndClientResolution:
         response = client.post(
             "/v1/messages",
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             },
@@ -271,7 +270,7 @@ class TestGatewayAuthAndClientResolution:
             response = client.post(
                 "/v1/messages",
                 json={
-                    "model": DEFAULT_CLAUDE_TEST_MODEL,
+                    "model": "claude-sonnet-4-20250514",
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -296,7 +295,7 @@ class TestGatewayAuthAndClientResolution:
             client.post(
                 "/v1/messages",
                 json={
-                    "model": DEFAULT_CLAUDE_TEST_MODEL,
+                    "model": "claude-sonnet-4-20250514",
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -319,7 +318,7 @@ class TestGatewayAuthAndClientResolution:
             client.post(
                 "/v1/messages",
                 json={
-                    "model": DEFAULT_CLAUDE_TEST_MODEL,
+                    "model": "claude-sonnet-4-20250514",
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -337,7 +336,7 @@ class TestGatewayAuthAndClientResolution:
         response = client.post(
             "/v1/messages",
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             },

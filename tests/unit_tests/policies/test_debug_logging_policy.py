@@ -25,7 +25,6 @@ from anthropic.types import (
     TextDelta,
 )
 from litellm.types.utils import ModelResponse
-from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import (
@@ -260,7 +259,7 @@ class TestDebugLoggingPolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
         }
@@ -276,7 +275,7 @@ class TestDebugLoggingPolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [
                 {"role": "user", "content": "Hello"},
                 {"role": "assistant", "content": "Hi there!"},
@@ -289,7 +288,7 @@ class TestDebugLoggingPolicyAnthropicRequest:
 
         result = await policy.on_anthropic_request(request, ctx)
 
-        assert result["model"] == DEFAULT_CLAUDE_TEST_MODEL
+        assert result["model"] == "claude-sonnet-4-20250514"
         assert len(result["messages"]) == 3
         assert result["max_tokens"] == 500
         assert result.get("temperature") == 0.7
@@ -302,7 +301,7 @@ class TestDebugLoggingPolicyAnthropicRequest:
         ctx = create_mock_policy_context()
 
         request: AnthropicRequest = {
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
             "system": "You are helpful.",
@@ -313,7 +312,7 @@ class TestDebugLoggingPolicyAnthropicRequest:
         ctx.record_event.assert_called_once()
         call_args = ctx.record_event.call_args
         assert call_args[0][0] == "debug.anthropic_request"
-        assert call_args[0][1]["model"] == DEFAULT_CLAUDE_TEST_MODEL
+        assert call_args[0][1]["model"] == "claude-sonnet-4-20250514"
         assert call_args[0][1]["message_count"] == 1
         assert call_args[0][1]["max_tokens"] == 100
         assert call_args[0][1]["has_system"] is True
@@ -333,7 +332,7 @@ class TestDebugLoggingPolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Hello!"}],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -354,7 +353,7 @@ class TestDebugLoggingPolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 20, "output_tokens": 10},
         }
@@ -376,7 +375,7 @@ class TestDebugLoggingPolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Hello!"}],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -387,7 +386,7 @@ class TestDebugLoggingPolicyAnthropicResponse:
         call_args = ctx.record_event.call_args
         assert call_args[0][0] == "debug.anthropic_response"
         assert call_args[0][1]["id"] == "msg_789"
-        assert call_args[0][1]["model"] == DEFAULT_CLAUDE_TEST_MODEL
+        assert call_args[0][1]["model"] == "claude-sonnet-4-20250514"
         assert call_args[0][1]["stop_reason"] == "end_turn"
         assert call_args[0][1]["content_block_count"] == 1
 
@@ -425,7 +424,7 @@ class TestDebugLoggingPolicyAnthropicStreamEvent:
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": DEFAULT_CLAUDE_TEST_MODEL,
+                    "model": "claude-sonnet-4-20250514",
                     "stop_reason": None,
                     "usage": {"input_tokens": 10, "output_tokens": 0},
                 },
@@ -489,7 +488,7 @@ class TestDebugLoggingPolicyAnthropicStreamEvent:
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "stop_reason": None,
                 "usage": {"input_tokens": 5, "output_tokens": 0},
             },
@@ -543,7 +542,7 @@ class TestDebugLoggingPolicyLogging:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
         }
@@ -552,7 +551,7 @@ class TestDebugLoggingPolicyLogging:
             await policy.on_anthropic_request(request, ctx)
 
         assert "[ANTHROPIC_REQUEST]" in caplog.text
-        assert DEFAULT_CLAUDE_TEST_MODEL in caplog.text
+        assert "claude-sonnet-4-20250514" in caplog.text
 
     @pytest.mark.asyncio
     async def test_on_anthropic_response_logs_at_info_level(self, caplog):
@@ -565,7 +564,7 @@ class TestDebugLoggingPolicyLogging:
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Hello!"}],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }

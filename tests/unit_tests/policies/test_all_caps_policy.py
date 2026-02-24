@@ -21,7 +21,6 @@ from anthropic.types import (
     ThinkingDelta,
 )
 from litellm.types.utils import Choices, Message, ModelResponse
-from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
 from luthien_proxy.llm.types import Request
@@ -392,7 +391,7 @@ class TestAllCapsPolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
         }
@@ -408,7 +407,7 @@ class TestAllCapsPolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [
                 {"role": "user", "content": "Hello"},
                 {"role": "assistant", "content": "Hi there!"},
@@ -421,7 +420,7 @@ class TestAllCapsPolicyAnthropicRequest:
 
         result = await policy.on_anthropic_request(request, ctx)
 
-        assert result["model"] == DEFAULT_CLAUDE_TEST_MODEL
+        assert result["model"] == "claude-sonnet-4-20250514"
         assert len(result["messages"]) == 3
         assert result["max_tokens"] == 500
         assert result.get("temperature") == 0.7
@@ -448,7 +447,7 @@ class TestAllCapsPolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -471,7 +470,7 @@ class TestAllCapsPolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block1, text_block2],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 10},
         }
@@ -500,7 +499,7 @@ class TestAllCapsPolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [tool_use_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -530,7 +529,7 @@ class TestAllCapsPolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block, tool_use_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 15},
         }
@@ -555,7 +554,7 @@ class TestAllCapsPolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": DEFAULT_CLAUDE_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "stop_sequence": None,
             "usage": {"input_tokens": 25, "output_tokens": 15},
@@ -564,7 +563,7 @@ class TestAllCapsPolicyAnthropicResponse:
         result = await policy.on_anthropic_response(response, ctx)
 
         assert result["id"] == "msg_789"
-        assert result["model"] == DEFAULT_CLAUDE_TEST_MODEL
+        assert result["model"] == "claude-sonnet-4-20250514"
         assert result.get("stop_reason") == "end_turn"
         assert result["usage"]["input_tokens"] == 25
         assert result["usage"]["output_tokens"] == 15
@@ -674,7 +673,7 @@ class TestAllCapsPolicyAnthropicStreamEvent:
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "stop_reason": None,
                 "usage": {"input_tokens": 5, "output_tokens": 0},
             },
@@ -757,7 +756,7 @@ class TestAllCapsPolicyAnthropicStreamEvent:
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": DEFAULT_CLAUDE_TEST_MODEL,
+                    "model": "claude-sonnet-4-20250514",
                     "stop_reason": None,
                     "usage": {"input_tokens": 10, "output_tokens": 0},
                 },

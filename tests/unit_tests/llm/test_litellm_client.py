@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from litellm.types.utils import ModelResponse
-from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.llm.types import Request
@@ -229,7 +228,7 @@ async def test_complete_with_thinking_param(sample_response):
     """Test that thinking parameter passes through for Claude models."""
     client = LiteLLMClient()
     request_with_thinking = Request(
-        model=DEFAULT_CLAUDE_TEST_MODEL,
+        model="claude-sonnet-4-20250514",
         messages=[{"role": "user", "content": "Think about this"}],
         max_tokens=16000,
         thinking={"type": "enabled", "budget_tokens": 10000},  # type: ignore[call-arg]

@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 from redis.asyncio import Redis
-from tests.constants import DEFAULT_CLAUDE_TEST_MODEL
 
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.llm.anthropic_client import AnthropicClient
@@ -43,7 +42,7 @@ def mock_anthropic_client():
         "type": "message",
         "role": "assistant",
         "content": [{"type": "text", "text": "Hello from Claude!"}],
-        "model": DEFAULT_CLAUDE_TEST_MODEL,
+        "model": "claude-sonnet-4-20250514",
         "stop_reason": "end_turn",
         "stop_sequence": None,
         "usage": {"input_tokens": 10, "output_tokens": 5},
@@ -107,7 +106,7 @@ class TestAnthropicMessagesEndpoint:
             "/v1/messages",
             headers={"Authorization": "Bearer test-api-key"},
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
                 "stream": False,
@@ -121,7 +120,7 @@ class TestAnthropicMessagesEndpoint:
         assert data["type"] == "message"
         assert data["role"] == "assistant"
         assert "content" in data
-        assert data["model"] == DEFAULT_CLAUDE_TEST_MODEL
+        assert data["model"] == "claude-sonnet-4-20250514"
         assert data["stop_reason"] == "end_turn"
         assert "usage" in data
 
@@ -133,7 +132,7 @@ class TestAnthropicMessagesEndpoint:
         response = client.post(
             "/v1/messages",
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
             },
@@ -147,7 +146,7 @@ class TestAnthropicMessagesEndpoint:
             "/v1/messages",
             headers={"Authorization": "Bearer wrong-key"},
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
             },
@@ -175,7 +174,7 @@ class TestAnthropicMessagesEndpoint:
             "/v1/messages",
             headers={"Authorization": "Bearer test-api-key"},
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "max_tokens": 1024,
             },
         )
@@ -189,7 +188,7 @@ class TestAnthropicMessagesEndpoint:
             "/v1/messages",
             headers={"Authorization": "Bearer test-api-key"},
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hello"}],
             },
         )
@@ -203,7 +202,7 @@ class TestAnthropicMessagesEndpoint:
             "/v1/messages",
             headers={"Authorization": "Bearer test-api-key"},
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
                 "stream": False,
@@ -219,7 +218,7 @@ class TestAnthropicMessagesEndpoint:
             "/v1/messages",
             headers={"x-api-key": "test-api-key"},
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
                 "stream": False,
@@ -250,7 +249,7 @@ class TestAnthropicStreaming:
                             "type": "message",
                             "role": "assistant",
                             "content": [],
-                            "model": DEFAULT_CLAUDE_TEST_MODEL,
+                            "model": "claude-sonnet-4-20250514",
                             "stop_reason": None,
                             "usage": {"input_tokens": 10, "output_tokens": 0},
                         },
@@ -328,7 +327,7 @@ class TestAnthropicStreaming:
             "/v1/messages",
             headers={"Authorization": "Bearer test-api-key"},
             json={
-                "model": DEFAULT_CLAUDE_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
                 "stream": True,
