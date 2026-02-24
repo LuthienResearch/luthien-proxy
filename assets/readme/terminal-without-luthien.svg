@@ -13,7 +13,7 @@
   <circle cx="62" cy="16" r="6.5" fill="#28c840"/>
 
   <!-- Title -->
-  <text x="310" y="22" text-anchor="middle" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">Without Luthien</text>
+  <text x="310" y="22" text-anchor="middle" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">claude code</text>
 
   <!-- $ claude -->
   <text x="20" y="60" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">$</text>
@@ -58,7 +58,7 @@
 
   <!-- User frustrated: just two lines -->
   <text x="20" y="298" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="16">❯</text>
-  <text x="38" y="298" fill="#f4f4f4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">WTF? it's in the damn claude.md</text>
+  <text x="38" y="298" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">WTF? it's in the damn claude.md</text>
 
   <!-- Claude apologizes -->
   <text x="38" y="334" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">I apologize — let me undo that...</text>
