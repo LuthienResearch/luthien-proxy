@@ -16,12 +16,12 @@ Luthien is a proxy that sits between your AI coding agent and the LLM. It interc
 <tr>
 <td width="50%">
 
-<img src="assets/readme/terminal-without-luthien.svg?v=4" alt="Without Luthien: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
+<img src="assets/readme/terminal-without-luthien.svg?v=5" alt="Without Luthien: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
 
 </td>
 <td width="50%">
 
-<img src="assets/readme/terminal-with-luthien.svg?v=4" alt="With Luthien: pip install is blocked, Claude retries with uv add" width="100%">
+<img src="assets/readme/terminal-with-luthien.svg?v=5" alt="With Luthien: pip install is blocked, Claude retries with uv add" width="100%">
 
 </td>
 </tr>
