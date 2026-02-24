@@ -122,7 +122,7 @@ Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud a
 
 ## Quick start
 
-**Prerequisites:** [Docker](https://www.docker.com/) and an [Anthropic API key](https://console.anthropic.com/).
+**Prerequisites:** [Docker](https://www.docker.com/) (must be running) and an [Anthropic API key](https://console.anthropic.com/).
 
 **1. Clone and configure**
 
@@ -138,7 +138,15 @@ cp .env.example .env
 docker compose up -d
 ```
 
-**3. Connect Claude Code**
+**3. Verify it's running**
+
+```bash
+curl http://localhost:8000/health
+```
+
+You should see `{"status":"ok",...}`. If not, check `docker compose logs gateway`.
+
+**4. Connect Claude Code**
 
 ```bash
 export ANTHROPIC_BASE_URL=http://localhost:8000/v1
@@ -180,7 +188,76 @@ codex
 
 > **First time?** Admin pages require login. Default key: `admin-dev-key`
 
-For configuration, architecture, API endpoints, and troubleshooting, see **[REFERENCE.md](REFERENCE.md)**.
+---
+
+## Customize your policy
+
+Policies are configured in `config/policy_config.yaml`. The default is a no-op pass-through.
+
+To enforce rules with an LLM judge:
+
+```yaml
+policy:
+  class: "luthien_proxy.policies.simple_judge_policy:SimpleJudgePolicy"
+  config:
+    rules:
+      - "Block any 'pip install' commands. Suggest 'uv add' instead."
+      - "Block 'rm -rf' commands."
+```
+
+After editing, restart the gateway:
+
+```bash
+docker compose restart gateway
+```
+
+You can also switch policies at runtime via the admin API — no restart needed:
+
+```bash
+curl http://localhost:8000/admin/policy/current \
+  -H "Authorization: Bearer admin-dev-key"
+```
+
+See `src/luthien_proxy/policies/` for available policy classes, or subclass `SimplePolicy` to write your own.
+
+---
+
+## Troubleshooting
+
+<details>
+<summary><b>Gateway not starting</b></summary>
+
+```bash
+docker compose ps          # Check service status
+docker compose logs gateway  # View logs
+docker compose down && docker compose up -d  # Full restart
+```
+
+</details>
+
+<details>
+<summary><b>API requests failing</b></summary>
+
+1. Check your API key header: `Authorization: Bearer <PROXY_API_KEY>` (or `x-api-key`)
+2. Verify `ANTHROPIC_API_KEY` is set in `.env`
+3. Check logs: `docker compose logs -f gateway`
+
+</details>
+
+<details>
+<summary><b>Port conflicts</b></summary>
+
+Set `GATEWAY_PORT` in `.env` to use a different port, then restart:
+
+```bash
+docker compose down && docker compose up -d
+```
+
+</details>
+
+---
+
+For advanced configuration, architecture details, observability setup, and the full admin API reference, see **[REFERENCE.md](REFERENCE.md)**.
 
 ---
 
