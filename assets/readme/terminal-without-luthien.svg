@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="600" height="520" viewBox="0 0 600 520">
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="470" viewBox="0 0 620 470">
   <!-- Terminal background -->
-  <rect width="600" height="520" rx="8" fill="#1e1e1e"/>
+  <rect width="620" height="470" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
-  <rect width="600" height="32" rx="8" fill="#323233"/>
-  <rect y="24" width="600" height="8" fill="#323233"/>
-  <line x1="0" y1="32" x2="600" y2="32" stroke="#404040" stroke-width="0.5"/>
+  <rect width="620" height="32" rx="8" fill="#323233"/>
+  <rect y="24" width="620" height="8" fill="#323233"/>
+  <line x1="0" y1="32" x2="620" y2="32" stroke="#404040" stroke-width="0.5"/>
 
   <!-- Traffic lights -->
   <circle cx="18" cy="16" r="6.5" fill="#ff5f57"/>
@@ -13,51 +13,52 @@
   <circle cx="62" cy="16" r="6.5" fill="#28c840"/>
 
   <!-- Title -->
-  <text x="300" y="22" text-anchor="middle" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">Without Luthien</text>
+  <text x="310" y="22" text-anchor="middle" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">Without Luthien</text>
 
-  <!-- Step 1: Launch Claude Code -->
-  <text x="20" y="62" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">$</text>
-  <text x="36" y="62" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">claude</text>
+  <!-- $ claude -->
+  <text x="20" y="60" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">$</text>
+  <text x="36" y="60" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">claude</text>
 
-  <!-- Claude Code banner -->
-  <text x="20" y="90" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">╭──────────────────────────────────╮</text>
-  <text x="20" y="112" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">│</text>
-  <text x="52" y="112" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">Claude Code</text>
-  <text x="364" y="112" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">│</text>
-  <text x="20" y="134" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">╰──────────────────────────────────╯</text>
+  <!-- Claude Code ASCII art logo -->
+  <text x="22" y="94" fill="#d4845a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="16"> ▐▛███▜▌</text>
+  <text x="22" y="116" fill="#d4845a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="16">▝▜█████▛▘</text>
+  <text x="22" y="138" fill="#d4845a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="16">  ▘▘ ▝▝</text>
 
-  <!-- CLAUDE.md context -->
-  <text x="20" y="164" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">CLAUDE.md</text>
-  <text x="20" y="184" fill="#6a6a6a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">- Use uv, not pip for packages</text>
-  <line x1="20" y1="196" x2="580" y2="196" stroke="#333333" stroke-width="0.5"/>
+  <!-- Claude Code info -->
+  <text x="150" y="94" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">Claude Code</text>
+  <text x="268" y="94" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14"> v2.1.52</text>
+  <text x="150" y="116" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Opus 4.6 · Claude Max</text>
+  <text x="150" y="138" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">~/my-project</text>
 
-  <!-- User prompt -->
-  <text x="20" y="222" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">&gt;</text>
-  <text x="36" y="222" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">Install requests for the HTTP client</text>
+  <!-- Separator -->
+  <line x1="20" y1="156" x2="600" y2="156" stroke="#444444" stroke-width="1"/>
+
+  <!-- ❯ prompt -->
+  <text x="20" y="184" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="16">❯</text>
+  <text x="38" y="184" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">Install requests for the HTTP client</text>
 
   <!-- Tool call: ✓ Bash -->
-  <text x="36" y="258" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">✓</text>
-  <text x="54" y="258" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">Bash</text>
+  <text x="38" y="218" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">✓</text>
+  <text x="56" y="218" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">Bash</text>
 
-  <!-- Tool command — orange to flag violation -->
-  <text x="54" y="284" fill="#ce9178" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">pip install requests</text>
+  <!-- pip install (orange = violation) -->
+  <text x="56" y="244" fill="#ce9178" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">pip install requests</text>
 
-  <!-- Tool output -->
-  <text x="54" y="308" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Successfully installed requests-2.31.0</text>
+  <!-- output -->
+  <text x="56" y="268" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Successfully installed requests-2.31.0</text>
 
-  <!-- User frustrated reaction -->
-  <text x="20" y="348" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">&gt;</text>
-  <text x="36" y="348" fill="#f4f4f4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">ARE YOU SERIOUS?? I said uv not pip</text>
+  <!-- User frustrated -->
+  <text x="20" y="306" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="16">❯</text>
+  <text x="38" y="306" fill="#f4f4f4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">ARE YOU SERIOUS?? I said uv not pip</text>
 
-  <text x="20" y="376" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">&gt;</text>
-  <text x="36" y="376" fill="#f4f4f4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">IT'S IN THE DAMN CLAUDE.MD</text>
+  <text x="20" y="334" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="16">❯</text>
+  <text x="38" y="334" fill="#f4f4f4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">IT'S IN THE DAMN CLAUDE.MD</text>
 
-  <!-- Claude's apologetic response -->
-  <text x="36" y="416" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">I sincerely apologize. You're</text>
-  <text x="36" y="440" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">absolutely right, your CLAUDE.md</text>
-  <text x="36" y="464" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">clearly specifies uv. Let me undo...</text>
+  <!-- Claude apologizes -->
+  <text x="38" y="372" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">I sincerely apologize. You're</text>
+  <text x="38" y="396" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">right — let me undo that...</text>
 
   <!-- Next prompt with cursor -->
-  <text x="20" y="500" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15">&gt;</text>
-  <rect x="36" y="487" width="9" height="17" fill="#d4d4d4" opacity="0.7"/>
+  <text x="20" y="440" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="16">❯</text>
+  <rect x="38" y="427" width="9" height="17" fill="#d4d4d4" opacity="0.7"/>
 </svg>
