@@ -29,25 +29,25 @@
   <text x="36" y="166" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🎯 Routing through gateway with policy enforcement</text>
   <text x="36" y="190" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🤖 Starting Claude Code...</text>
 
-  <!-- Claude Code pixel-art logo (replaces Unicode block chars) -->
-  <g fill="#d4845a" transform="translate(22, 208)">
-    <rect x="24" y="0" width="96" height="8"/>
-    <rect x="24" y="8" width="16" height="8"/>
-    <rect x="48" y="8" width="48" height="8"/>
-    <rect x="104" y="8" width="16" height="8"/>
-    <rect x="8" y="16" width="128" height="8"/>
-    <rect x="24" y="24" width="96" height="8"/>
-    <rect x="32" y="32" width="8" height="8"/>
-    <rect x="48" y="32" width="8" height="8"/>
-    <rect x="88" y="32" width="8" height="8"/>
-    <rect x="104" y="32" width="8" height="8"/>
+  <!-- Claude Code pixel-art logo (5w×9h quadrants for correct terminal aspect ratio) -->
+  <g fill="#d4845a" transform="translate(22, 206)">
+    <rect x="15" y="0" width="60" height="9"/>
+    <rect x="15" y="9" width="10" height="9"/>
+    <rect x="30" y="9" width="30" height="9"/>
+    <rect x="65" y="9" width="10" height="9"/>
+    <rect x="5" y="18" width="80" height="9"/>
+    <rect x="15" y="27" width="60" height="9"/>
+    <rect x="20" y="36" width="5" height="9"/>
+    <rect x="30" y="36" width="5" height="9"/>
+    <rect x="55" y="36" width="5" height="9"/>
+    <rect x="65" y="36" width="5" height="9"/>
   </g>
 
   <!-- Claude Code info (right of logo) -->
-  <text x="170" y="224" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">Claude Code</text>
-  <text x="288" y="224" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14"> v2.1.52</text>
-  <text x="170" y="244" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Opus 4.6 · Claude Max</text>
-  <text x="170" y="264" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">~/my-project</text>
+  <text x="120" y="224" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="15" font-weight="bold">Claude Code</text>
+  <text x="238" y="224" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14"> v2.1.52</text>
+  <text x="120" y="244" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Opus 4.6 · Claude Max</text>
+  <text x="120" y="264" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">~/my-project</text>
 
   <!-- Separator -->
   <line x1="20" y1="280" x2="600" y2="280" stroke="#444444" stroke-width="1"/>
