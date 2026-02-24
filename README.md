@@ -34,7 +34,7 @@ Works with Claude Code. Supports streaming.
 </tr>
 </table>
 
-> ⚠️ Luthien Proxy is in active development and subject to rapid change. We encourage you to star the repository to follow updates and open issues for bugs, feature requests, or questions. Your feedback helps shape the future of production AI Control.
+> ⚠️ Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions. Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues).
 
 ---
 
