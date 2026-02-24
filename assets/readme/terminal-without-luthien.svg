@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270" viewBox="0 0 480 270">
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="330" viewBox="0 0 480 330">
   <!-- Terminal background -->
-  <rect width="480" height="270" rx="8" fill="#1e1e1e"/>
+  <rect width="480" height="330" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
   <rect width="480" height="30" rx="8" fill="#323233"/>
@@ -25,19 +25,25 @@
   <text x="28" y="104" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">Install requests for the HTTP client</text>
 
   <!-- Tool call: ✓ Bash -->
-  <text x="32" y="136" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">✓</text>
-  <text x="46" y="136" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13" font-weight="bold">Bash</text>
+  <text x="32" y="134" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">✓</text>
+  <text x="46" y="134" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13" font-weight="bold">Bash</text>
 
-  <!-- Tool command — highlighted orange to show violation -->
-  <text x="48" y="158" fill="#ce9178" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">pip install requests</text>
+  <!-- Tool command — orange to flag violation -->
+  <text x="48" y="156" fill="#ce9178" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">pip install requests</text>
 
   <!-- Tool output -->
-  <text x="48" y="178" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">Successfully installed requests-2.31.0</text>
+  <text x="48" y="176" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">Successfully installed requests-2.31.0</text>
 
-  <!-- Annotation: CLAUDE.md ignored -->
-  <text x="48" y="206" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="11">^ CLAUDE.md says uv — Claude used pip anyway</text>
+  <!-- User catches the mistake -->
+  <text x="16" y="210" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">&gt;</text>
+  <text x="28" y="210" fill="#f4f4f4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">CLAUDE.md says uv, not pip!</text>
 
-  <!-- Next prompt with cursor -->
-  <text x="16" y="240" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">&gt;</text>
-  <rect x="28" y="229" width="8" height="15" fill="#d4d4d4" opacity="0.7"/>
+  <!-- Claude apologizes (the frustrating cycle) -->
+  <text x="32" y="240" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">I apologize for the oversight.</text>
+  <text x="32" y="260" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">You're right, your CLAUDE.md</text>
+  <text x="32" y="280" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">specifies uv. Let me undo...</text>
+
+  <!-- Next prompt with cursor (the cycle continues) -->
+  <text x="16" y="314" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">&gt;</text>
+  <rect x="28" y="303" width="8" height="15" fill="#d4d4d4" opacity="0.7"/>
 </svg>
