@@ -47,7 +47,7 @@
   <rect x="20" y="149" width="3" height="26" rx="1" fill="#569cd6"/>
   <text x="32" y="166" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">CLAUDE.md</text>
   <text x="108" y="166" fill="#555555" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">·</text>
-  <text x="120" y="166" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">Use uv for all packages. Never pip.</text>
+  <text x="120" y="166" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">Python packages: use uv add, never pip install.</text>
 
   <!-- Separator -->
   <line x1="20" y1="195" x2="600" y2="195" stroke="#444444" stroke-width="1"/>

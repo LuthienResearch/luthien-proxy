@@ -57,7 +57,7 @@
   <rect x="20" y="261" width="3" height="26" rx="1" fill="#569cd6"/>
   <text x="32" y="278" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">CLAUDE.md</text>
   <text x="108" y="278" fill="#555555" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">·</text>
-  <text x="120" y="278" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">Use uv for all packages. Never pip.</text>
+  <text x="120" y="278" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">Python packages: use uv add, never pip install.</text>
 
   <!-- Separator -->
   <line x1="20" y1="307" x2="600" y2="307" stroke="#444444" stroke-width="1"/>
@@ -73,7 +73,7 @@
   <text x="584" y="363" text-anchor="end" fill="#2d6b50" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="10" letter-spacing="0.5">luthien</text>
 
   <!-- Luthien: Blocked -->
-  <text x="28" y="380" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Blocked: pip install requests per CLAUDE.md</text>
+  <text x="28" y="380" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Blocked pip install per CLAUDE.md policy</text>
 
   <!-- Luthien: Auto-retry success -->
   <text x="28" y="398" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Auto-retried: uv add requests — success</text>

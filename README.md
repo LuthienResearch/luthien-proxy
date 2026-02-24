@@ -20,12 +20,12 @@ Works with Claude Code. Supports streaming.
 <tr>
 <td>
 
-<img src="assets/readme/terminal-without-luthien.svg?v=12" alt="Before: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
+<img src="assets/readme/terminal-without-luthien.svg?v=14" alt="Before: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
 
 </td>
 <td>
 
-<img src="assets/readme/terminal-with-luthien.svg?v=13" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
+<img src="assets/readme/terminal-with-luthien.svg?v=14" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
 
 </td>
 </tr>
