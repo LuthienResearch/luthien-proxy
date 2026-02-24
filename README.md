@@ -12,45 +12,22 @@ Luthien is a proxy that sits between your AI coding agent and the LLM. It interc
 
 ## See it work
 
-<!-- TODO: Replace with actual demo GIF/video showing Luthien blocking a command in Claude Code -->
-
 <table>
 <tr>
 <td width="50%">
 
-### Without Luthien
-
-```
-$ claude
-> Install requests for the HTTP client
-
-✓ Ran: pip install requests
-```
-
-Claude Code runs `pip install` when your team uses `uv`. Wrong lockfile. Nobody noticed until production.
+<img src="assets/readme/terminal-without-luthien.svg" alt="Without Luthien: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
 
 </td>
 <td width="50%">
 
-### With Luthien
-
-```
-$ claude  (through Luthien proxy)
-> Install requests for the HTTP client
-
-⛔ Blocked: pip install requests
-   Rule: use uv, not pip
-   → Retrying with: uv add requests
-✓ Ran: uv add requests
-```
-
-Luthien blocks the `pip install`, tells Claude Code to use `uv add`. Claude retries correctly. You didn't intervene.
+<img src="assets/readme/terminal-with-luthien.svg" alt="With Luthien: pip install is blocked, Claude retries with uv add" width="100%">
 
 </td>
 </tr>
 </table>
 
-> **Alpha:** Policy enforcement works but is under active development. The example above uses `SimpleJudgePolicy` with an LLM judge -- reliability varies by rule complexity.
+> **Alpha:** Policy enforcement works but is under active development. The example above uses a `ToolCallJudgePolicy` with an LLM judge -- reliability varies by rule complexity.
 
 ---
 
