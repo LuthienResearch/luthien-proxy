@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="620" height="334" viewBox="0 0 620 334">
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="530" viewBox="0 0 620 530">
   <!-- Terminal background -->
-  <rect width="620" height="334" rx="8" fill="#1e1e1e"/>
+  <rect width="620" height="530" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
   <rect width="620" height="32" rx="8" fill="#323233"/>
@@ -45,30 +45,53 @@
   <!-- Separator -->
   <line x1="20" y1="152" x2="600" y2="152" stroke="#444444" stroke-width="1"/>
 
-  <!-- User prompt with gray highlight -->
+  <!-- 1. User prompt: install requests -->
   <rect x="16" y="161" width="350" height="18" rx="3" fill="#333333"/>
   <text x="20" y="174" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
   <text x="36" y="174" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Install requests for the HTTP client</text>
 
-  <!-- Green dot: Bash tool call -->
+  <!-- 2. Claude runs pip (wrong) -->
   <text x="20" y="206" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
   <text x="36" y="206" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
   <text x="73" y="206" fill="#ce9178" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(pip install requests)</text>
 
-  <!-- Tool output with connector -->
   <text x="36" y="226" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Successfully installed requests-2.31.0</text>
 
-  <!-- User frustrated with gray highlight -->
-  <rect x="16" y="245" width="310" height="18" rx="3" fill="#333333"/>
+  <!-- 3. User corrects -->
+  <rect x="16" y="245" width="330" height="18" rx="3" fill="#333333"/>
   <text x="20" y="258" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="36" y="258" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">WTF? it's in the damn claude.md</text>
+  <text x="36" y="258" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">No — check CLAUDE.md. We use uv.</text>
 
-  <!-- White dot: Claude response -->
-  <text x="20" y="278" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
-  <text x="36" y="278" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">I apologize — let me undo that...</text>
+  <!-- 4. Claude apologizes and fixes -->
+  <text x="20" y="290" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
+  <text x="36" y="290" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">I apologize — let me use uv instead.</text>
 
-  <!-- User reaction with gray highlight -->
-  <rect x="16" y="297" width="80" height="18" rx="3" fill="#333333"/>
-  <text x="20" y="310" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="36" y="310" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">🙄🤬</text>
+  <text x="20" y="322" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
+  <text x="36" y="322" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
+  <text x="73" y="322" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(uv add requests)</text>
+
+  <text x="36" y="342" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Resolved 1 package in 0.5s</text>
+
+  <!-- 5. Time divider -->
+  <line x1="40" y1="374" x2="200" y2="374" stroke="#404040" stroke-width="0.5"/>
+  <text x="214" y="378" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">20 minutes later</text>
+  <line x1="370" y1="374" x2="580" y2="374" stroke="#404040" stroke-width="0.5"/>
+
+  <!-- 6. User asks for pytest -->
+  <rect x="16" y="393" width="270" height="18" rx="3" fill="#333333"/>
+  <text x="20" y="406" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
+  <text x="36" y="406" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Now add pytest for testing</text>
+
+  <!-- 7. Claude uses pip AGAIN -->
+  <text x="20" y="438" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
+  <text x="36" y="438" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
+  <text x="73" y="438" fill="#ce9178" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(pip install pytest)</text>
+
+  <text x="36" y="458" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Successfully installed pytest-8.0.0</text>
+
+  <!-- 8. User explodes -->
+  <rect x="16" y="477" width="380" height="38" rx="3" fill="#333333"/>
+  <text x="20" y="490" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
+  <text x="36" y="490" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Do I have to use ALL CAPS for you</text>
+  <text x="36" y="510" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">to remember CLAUDE.md?? 🤬</text>
 </svg>
