@@ -25,7 +25,7 @@ Works with Claude Code. Supports streaming.
 </td>
 <td>
 
-<img src="assets/readme/terminal-with-luthien.svg?v=14" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
+<img src="assets/readme/terminal-with-luthien.svg?v=15" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
 
 </td>
 </tr>

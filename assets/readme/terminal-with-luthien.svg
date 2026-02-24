@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="620" height="450" viewBox="0 0 620 450">
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="524" viewBox="0 0 620 524">
   <!-- Terminal background -->
-  <rect width="620" height="450" rx="8" fill="#1e1e1e"/>
+  <rect width="620" height="524" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
   <rect width="620" height="32" rx="8" fill="#323233"/>
@@ -62,24 +62,33 @@
   <!-- Separator -->
   <line x1="20" y1="307" x2="600" y2="307" stroke="#444444" stroke-width="1"/>
 
-  <!-- User prompt with gray highlight -->
+  <!-- 1. User prompt -->
   <rect x="16" y="316" width="350" height="18" rx="3" fill="#333333"/>
   <text x="20" y="329" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
   <text x="36" y="329" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Install requests for the HTTP client</text>
 
-  <!-- Luthien action panel -->
-  <rect x="14" y="349" width="592" height="54" rx="4" fill="#162a22"/>
-  <rect x="14" y="349" width="3" height="54" rx="1.5" fill="#4ec9b0"/>
-  <text x="584" y="363" text-anchor="end" fill="#2d6b50" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="10" letter-spacing="0.5">luthien</text>
+  <!-- 2. Claude attempts pip install (green dot) -->
+  <text x="20" y="361" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
+  <text x="36" y="361" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
+  <text x="73" y="361" fill="#ce9178" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(pip install requests)</text>
 
-  <!-- Luthien: Blocked -->
-  <text x="28" y="380" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Blocked pip install per CLAUDE.md policy</text>
+  <!-- 3-4. Luthien intercepts: block + auto-retry -->
+  <rect x="14" y="379" width="592" height="46" rx="4" fill="#162a22"/>
+  <rect x="14" y="379" width="3" height="46" rx="1.5" fill="#4ec9b0"/>
+  <text x="584" y="393" text-anchor="end" fill="#2d6b50" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="10" letter-spacing="0.5">luthien</text>
+  <text x="28" y="400" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Blocked: pip install per CLAUDE.md policy</text>
+  <text x="28" y="418" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Auto-correcting per CLAUDE.md...</text>
 
-  <!-- Luthien: Auto-retry success -->
-  <text x="28" y="398" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Auto-retried: uv add requests — success</text>
+  <!-- 5. Corrected tool call (green dot) -->
+  <text x="20" y="450" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
+  <text x="36" y="450" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
+  <text x="73" y="450" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(uv add requests)</text>
 
-  <!-- Happy ending with gray highlight -->
-  <rect x="16" y="417" width="130" height="18" rx="3" fill="#333333"/>
-  <text x="20" y="430" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="36" y="430" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">nice 😊🚀</text>
+  <!-- Tool output -->
+  <text x="36" y="470" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Resolved 1 package in 0.5s</text>
+
+  <!-- Happy ending -->
+  <rect x="16" y="489" width="130" height="18" rx="3" fill="#333333"/>
+  <text x="20" y="502" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
+  <text x="36" y="502" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">nice 😊🚀</text>
 </svg>
