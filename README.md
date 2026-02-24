@@ -1,7 +1,7 @@
 # Luthien
 ### Let AI code. Stay in control.
 
-[What is it?](#what-is-it) | [What does it look like?](#what-does-it-look-like) | [What can it do?](#what-can-it-do) | [How does it work?](#how-does-it-work) | [Quick start](#quick-start)
+[What is it?](#what-is-it) | [What does it look like?](#what-does-it-look-like) | [How does it work?](#how-does-it-work) | [What can it do?](#what-can-it-do) | [Quick start](#quick-start)
 
 ---
 
@@ -9,7 +9,7 @@
 
 Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output across your org, without changing your dev setup.
 
-Works with Claude Code. Supports streaming.
+Works with Claude Code and Cursor. Supports streaming.
 
 ---
 
@@ -34,7 +34,28 @@ Works with Claude Code. Supports streaming.
 </tr>
 </table>
 
-> ⚠️ Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions. Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues).
+> ⚠️ Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
+>
+> Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues).
+
+---
+
+## How does it work?
+
+```
+You (Claude Code) --> Luthien Proxy --> Anthropic API
+                         |
+                    enforces your policies on
+                    every request and response:
+                         |
+                         |-- monitor: log full conversation
+                         |-- block: dangerous operations
+                         +-- change: fix rule violations
+```
+
+Luthien enforces your policies on everything that goes into or comes out of the backend. It can replace tool calls that violate your rules with tool calls that follow your rules, and generate an easy-to-read log of everything your agent does.
+
+Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud account.
 
 ---
 
@@ -82,25 +103,6 @@ class ScopeGuard(SimpleJudgePolicy):
 </details>
 
 Every policy action is logged. Measure what got blocked, track false positives, monitor latency overhead.
-
----
-
-## How does it work?
-
-```
-You (Claude Code) --> Luthien Proxy --> Anthropic API
-                         |
-                    enforces your policies on
-                    every request and response:
-                         |
-                         |-- monitor: log full conversation
-                         |-- block: dangerous operations
-                         +-- change: fix rule violations
-```
-
-Luthien enforces your policies on everything that goes into or comes out of the backend. It can replace tool calls that violate your rules with tool calls that follow your rules, and generate an easy-to-read log of everything your agent does.
-
-Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud account.
 
 ---
 
