@@ -64,14 +64,14 @@
 
   <text x="36" y="269" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Successfully installed requests-2.31.0</text>
 
-  <!-- 3. User corrects (heated, with emojis) -->
-  <rect x="16" y="288" width="400" height="18" rx="3" fill="#333333"/>
+  <!-- 3. User corrects (mild, eye roll) -->
+  <rect x="16" y="288" width="260" height="18" rx="3" fill="#333333"/>
   <text x="20" y="301" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="36" y="301" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">WTF?! CLAUDE.md says uv, not pip!! 🤦🤬</text>
+  <text x="36" y="301" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">uv not pip please.... 🙄</text>
 
-  <!-- 4. Claude apologizes and fixes -->
+  <!-- 4. Claude AI-ism apology + fix -->
   <text x="20" y="333" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
-  <text x="36" y="333" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">I apologize — let me use uv instead.</text>
+  <text x="36" y="333" fill="#cccccc" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">You're absolutely right, I sincerely apologize.</text>
 
   <text x="20" y="365" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
   <text x="36" y="365" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
