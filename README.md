@@ -108,15 +108,7 @@ Every policy action is logged. Measure what got blocked, track false positives, 
 
 ## Quick Start
 
-### 0.1 Install Docker
-
-Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and make sure it's running.
-
-### 0.2 Install uv
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
+**Prerequisites:** [Docker](https://www.docker.com/products/docker-desktop/) must be running (or `brew install --cask docker`). Install [uv](https://docs.astral.sh/uv/) if you haven't: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 ### 1. Clone the repo
 
@@ -141,7 +133,7 @@ OPENAI_API_KEY=sk-proj-...
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 3. Start the stack
+### 3. Run quick start script
 
 ```bash
 ./scripts/quick_start.sh
