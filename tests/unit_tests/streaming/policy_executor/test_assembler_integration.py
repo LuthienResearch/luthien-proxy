@@ -1,5 +1,3 @@
-# ABOUTME: Tests for PolicyExecutor with StreamingChunkAssembler integration
-# ABOUTME: Verifies block assembly, state tracking, and chunk processing
 
 """Tests for PolicyExecutor with block assembly."""
 

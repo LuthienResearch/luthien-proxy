@@ -1,5 +1,3 @@
-# ABOUTME: Unit tests for V2 messages module
-# ABOUTME: Tests Request message type (policies work directly with LiteLLM's ModelResponse)
 
 """Tests for V2 message types."""
 

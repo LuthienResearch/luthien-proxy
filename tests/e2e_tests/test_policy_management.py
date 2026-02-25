@@ -1,5 +1,3 @@
-# ABOUTME: E2E tests for policy management API
-# ABOUTME: Tests admin endpoints, policy hot-reload, and persistence
 
 """E2E tests for policy management API.
 

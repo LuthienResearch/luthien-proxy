@@ -1,5 +1,3 @@
-# ABOUTME: Unit tests for V2 main FastAPI application factory function
-# ABOUTME: Tests create_app factory, app initialization, lifespan, and endpoint configuration
 
 """Tests for V2 main FastAPI application."""
 
