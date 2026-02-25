@@ -57,6 +57,14 @@
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
 
+### Onboarding & Install (Medium — Tyler feedback 2026-02-10)
+
+Source: [Office Hours notes](https://docs.google.com/document/d/1Qo2D5zrtuHO2MF6wJX4v86sJPm-YAmCNwKWPJTcFJvM/edit?tab=t.0), [Gemini transcript](https://docs.google.com/document/d/1lRX5U7_2Ig1oOw775xm9uoGGK6yJx2gip8N2BlAA0JQ/edit?tab=t.fp5fl2phgglm)
+
+- [ ] **Push pre-built Docker images to Docker Hub** - Tyler: "One thing you can do is push the already built image to Docker Hub to speed up the builds." First install required building all images locally.
+- [ ] **Fix quick_start.sh Grafana/gateway health check bug** - Tyler: "Gateway not detected. Did we launch Grafana before?" Jai: "This is a bug... I've been meaning to fix forever."
+- [ ] **Simplify quick_start.sh vs docker compose up** - Jai: "That's redundant... quick start is basically just the same as docker [compose] up" but adds dev refresh stuff. Users should get `docker compose up -d`, devs get `quick_start.sh`.
+
 ### Infrastructure (Medium)
 
 - [ ] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name. Currently both scripts derive it, but direct `docker compose` still uses directory default. Reference: COE from PR #203, 2026-02-17.
