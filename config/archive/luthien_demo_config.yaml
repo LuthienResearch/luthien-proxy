@@ -1,9 +1,0 @@
-# Luthien Demo Configuration - SQL Protection Policy
-# This configuration blocks harmful SQL tool calls like DROP TABLE
-
-policy:
-  class: "luthien_proxy.policies.tool_call_judge:LLMJudgeToolPolicy"
-  config:
-    model: "openai/judge-scorer"
-    api_base: "http://dummy-provider:8080/v1"
-    probability_threshold: 0.6
