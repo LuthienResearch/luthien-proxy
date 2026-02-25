@@ -232,20 +232,6 @@ class SafetyGuard(SimpleJudgePolicy):  # intercepts tool calls and checks them b
 - **Real-time monitoring** at <http://localhost:8000/activity/monitor>
 - **Policy management UI** at <http://localhost:8000/policy-config>
 
-The gateway provides:
-
-- OpenAI Chat Completions API (`/v1/chat/completions`)
-- Anthropic Messages API (`/v1/messages`)
-- Integrated policy enforcement via control plane
-- Support for streaming and non-streaming requests
-- Hot-reload policy switching (no restart needed)
-
-## Prerequisites
-
-- Docker (must be running)
-- Python 3.13+
-- [uv](https://docs.astral.sh/uv/)
-
 ## Development
 
 ```bash
@@ -363,20 +349,6 @@ POLICY_SOURCE=db-fallback-file
 
 # Path to YAML policy file (when POLICY_SOURCE includes "file")
 POLICY_CONFIG=/app/config/policy_config.yaml
-```
-
-### Observability (Optional)
-
-```bash
-# OpenTelemetry tracing
-OTEL_ENABLED=true                                    # Toggle tracing
-OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317       # OTLP endpoint
-
-# Service metadata for distributed tracing
-SERVICE_NAME=luthien-proxy
-SERVICE_VERSION=2.0.0
-ENVIRONMENT=development
-
 ```
 
 ### LLM Judge Policies (Optional)
@@ -539,34 +511,9 @@ curl http://localhost:8000/admin/policy/instances \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
-## Policy System
-
-The gateway uses an event-driven policy architecture with streaming support.
-
-### Key Components
-
-- `src/luthien_proxy/policies/base_policy.py` - Abstract policy interface
-- `src/luthien_proxy/policies/simple_policy.py` - Base class for custom policies
-- `src/luthien_proxy/orchestration/policy_orchestrator.py` - Policy orchestration
-- `src/luthien_proxy/gateway_routes.py` - API endpoint handlers with policy integration
-- `config/policy_config.yaml` - Policy configuration
-
-### Creating Custom Policies
+## Custom Policies
 
 Subclass `SimplePolicy` for basic request/response transformations. See `src/luthien_proxy/policies/` for examples.
-
-### Testing
-
-```bash
-# Start the gateway
-./scripts/quick_start.sh
-
-# Run automated tests
-./scripts/test_gateway.sh
-
-# View logs
-docker compose logs -f gateway
-```
 
 ## Troubleshooting
 
