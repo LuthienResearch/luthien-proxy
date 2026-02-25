@@ -17,10 +17,12 @@ from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from httpx import Request as HttpxRequest
 from httpx import Response as HttpxResponse
 
+from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.pipeline.anthropic_processor import (
     _build_error_event,
     _format_sse_event,
+    _handle_anthropic_error,
     _handle_non_streaming,
     _handle_streaming,
     _process_request,
@@ -798,3 +800,61 @@ class TestMidStreamErrorHandling:
         last_event = events[-1]
         assert "event: error" in last_event
         assert '"type": "api_connection_error"' in last_event
+
+
+class TestHandleAnthropicError:
+    """Tests for _handle_anthropic_error error classification.
+
+    Regression test: Previously raised HTTPException with nested JSON detail
+    and generic 'api_error' type for all errors, making auth failures unclear.
+    Now raises BackendAPIError with proper error types.
+    """
+
+    def test_auth_error_raises_backend_api_error(self):
+        """401 AuthenticationError should raise BackendAPIError with authentication_error type."""
+        mock_response = HttpxResponse(
+            status_code=401,
+            request=HttpxRequest("POST", "https://api.anthropic.com/v1/messages"),
+            json={"error": {"type": "authentication_error", "message": "Invalid API Key"}},
+        )
+        exc = AnthropicStatusError(
+            message="Invalid API Key",
+            response=mock_response,
+            body={"error": {"type": "authentication_error", "message": "Invalid API Key"}},
+        )
+
+        with pytest.raises(BackendAPIError) as exc_info:
+            _handle_anthropic_error(exc, "test-call")
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.error_type == "authentication_error"
+        assert "Invalid API Key" in exc_info.value.message
+
+    def test_rate_limit_error_raises_backend_api_error(self):
+        """429 RateLimitError should raise BackendAPIError with rate_limit_error type."""
+        mock_response = HttpxResponse(
+            status_code=429,
+            request=HttpxRequest("POST", "https://api.anthropic.com/v1/messages"),
+            json={"error": {"type": "rate_limit_error", "message": "Rate limited"}},
+        )
+        exc = AnthropicStatusError(
+            message="Rate limited",
+            response=mock_response,
+            body={"error": {"type": "rate_limit_error", "message": "Rate limited"}},
+        )
+
+        with pytest.raises(BackendAPIError) as exc_info:
+            _handle_anthropic_error(exc, "test-call")
+
+        assert exc_info.value.status_code == 429
+        assert exc_info.value.error_type == "rate_limit_error"
+
+    def test_connection_error_raises_backend_api_error(self):
+        """Connection errors should raise BackendAPIError with 502."""
+        exc = AnthropicConnectionError(request=HttpxRequest("POST", "https://api.anthropic.com/v1/messages"))
+
+        with pytest.raises(BackendAPIError) as exc_info:
+            _handle_anthropic_error(exc, "test-call")
+
+        assert exc_info.value.status_code == 502
+        assert exc_info.value.error_type == "api_connection_error"
