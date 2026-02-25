@@ -12,8 +12,9 @@
   <circle cx="40" cy="16" r="6.5" fill="#febc2e"/>
   <circle cx="62" cy="16" r="6.5" fill="#28c840"/>
 
-  <!-- Title -->
-  <text x="310" y="22" text-anchor="middle" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">claude code + Luthien</text>
+  <!-- Title: "claude code +" in gray, "Luthien" in green -->
+  <text x="270" y="22" text-anchor="end" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">claude code +</text>
+  <text x="274" y="22" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13" font-weight="bold">Luthien</text>
 
   <!-- $ quick_start.sh -->
   <text x="20" y="54" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">$</text>
@@ -75,7 +76,11 @@
   <!-- 3-4. Luthien intercepts: block + auto-retry -->
   <rect x="14" y="379" width="592" height="46" rx="4" fill="#162a22"/>
   <rect x="14" y="379" width="3" height="46" rx="1.5" fill="#4ec9b0"/>
-  <text x="584" y="393" text-anchor="end" fill="#2d6b50" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="10" letter-spacing="0.5">luthien</text>
+
+  <!-- Luthien badge: shield + name -->
+  <rect x="520" y="382" width="78" height="18" rx="3" fill="#1a3a2a"/>
+  <text x="530" y="394" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12" font-weight="bold">🛡️ luthien</text>
+
   <text x="28" y="400" fill="#f44747" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Blocked: pip install per CLAUDE.md policy</text>
   <text x="28" y="418" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Auto-correcting per CLAUDE.md...</text>
 
