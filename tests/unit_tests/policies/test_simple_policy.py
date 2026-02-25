@@ -30,6 +30,7 @@ from anthropic.types import (
 )
 from litellm.types.utils import ChatCompletionMessageToolCall, Function, ModelResponse
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
@@ -650,7 +651,7 @@ class TestSimplePolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello world"}],
             "max_tokens": 100,
         }
@@ -666,7 +667,7 @@ class TestSimplePolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "hello world"}],
             "max_tokens": 100,
         }
@@ -683,7 +684,7 @@ class TestSimplePolicyAnthropicRequest:
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "hello world"}
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": [text_block]}],
             "max_tokens": 100,
         }
@@ -701,7 +702,7 @@ class TestSimplePolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [],
             "max_tokens": 100,
         }
@@ -729,7 +730,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -751,7 +752,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -774,7 +775,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block1, text_block2],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 10},
         }
@@ -803,7 +804,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [tool_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -848,7 +849,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block, tool_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 15},
         }
@@ -872,7 +873,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 25, "output_tokens": 15},
         }
@@ -880,7 +881,7 @@ class TestSimplePolicyAnthropicResponse:
         result = await policy.on_anthropic_response(response, ctx)
 
         assert result["id"] == "msg_789"
-        assert result["model"] == "claude-sonnet-4-20250514"
+        assert result["model"] == DEFAULT_TEST_MODEL
         assert result.get("stop_reason") == "end_turn"
         assert result["usage"]["input_tokens"] == 25
         assert result["usage"]["output_tokens"] == 15
@@ -905,7 +906,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": "claude-sonnet-4-20250514",
+                "model": DEFAULT_TEST_MODEL,
                 "stop_reason": None,
                 "usage": {"input_tokens": 5, "output_tokens": 0},
             },
@@ -1304,7 +1305,7 @@ class TestSimplePolicyErrorHandling:
                     "input": {},
                 }  # Missing "id" field
             ],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -1332,7 +1333,7 @@ class TestSimplePolicyErrorHandling:
                     "input": {},
                 }  # Missing "name" field
             ],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }

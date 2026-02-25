@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from litellm.types.utils import Choices, Message, ModelResponse
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import (
     AnthropicResponse,
     AnthropicTextBlock,
@@ -108,7 +109,7 @@ def make_anthropic_response(text: str) -> AnthropicResponse:
         "type": "message",
         "role": "assistant",
         "content": [block],
-        "model": "claude-sonnet-4-20250514",
+        "model": DEFAULT_TEST_MODEL,
         "stop_reason": "end_turn",
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }

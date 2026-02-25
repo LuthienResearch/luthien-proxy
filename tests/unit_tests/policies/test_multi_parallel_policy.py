@@ -18,6 +18,7 @@ from multi_policy_helpers import (
     replacement_config,
 )
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
@@ -540,7 +541,7 @@ class TestMultiParallelAnthropicRequest:
         policy = MultiParallelPolicy(policies=[noop_config()])
         ctx = PolicyContext.for_testing()
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
         }

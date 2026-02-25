@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from httpx import Request as HttpxRequest
 from httpx import Response as HttpxResponse
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.pipeline.anthropic_processor import (
@@ -43,7 +44,7 @@ class TestFormatSSEEvent:
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": "claude-sonnet-4-20250514",
+                "model": DEFAULT_TEST_MODEL,
                 "stop_reason": None,
                 "stop_sequence": None,
                 "usage": {"input_tokens": 10, "output_tokens": 0},
@@ -114,7 +115,7 @@ class TestProcessRequest:
     async def test_valid_anthropic_request_parsing(self, mock_request, mock_emitter, mock_span):
         """Test parsing a valid Anthropic format request."""
         anthropic_body = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "stream": False,
@@ -131,7 +132,7 @@ class TestProcessRequest:
                 emitter=mock_emitter,
             )
 
-        assert anthropic_request["model"] == "claude-sonnet-4-20250514"
+        assert anthropic_request["model"] == DEFAULT_TEST_MODEL
         assert anthropic_request["max_tokens"] == 1024
         assert anthropic_request.get("stream") is False
         assert raw_http_request.body == anthropic_body
@@ -145,7 +146,7 @@ class TestProcessRequest:
         """Test extracting session ID from metadata.user_id field."""
         # Session ID pattern expects hex UUID format: _session_<hex-uuid>
         anthropic_body = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "metadata": {"user_id": "user_abc123_account__session_a1b2c3d4-e5f6-7890-abcd-ef1234567890"},
@@ -211,7 +212,7 @@ class TestProcessRequest:
     async def test_missing_messages_returns_400(self, mock_request, mock_emitter, mock_span):
         """Test that missing messages field returns 400 error."""
         invalid_body = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "max_tokens": 1024,
         }
         mock_request.json = AsyncMock(return_value=invalid_body)
@@ -234,7 +235,7 @@ class TestProcessRequest:
     async def test_missing_max_tokens_returns_400(self, mock_request, mock_emitter, mock_span):
         """Test that missing max_tokens field returns 400 error."""
         invalid_body = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
         }
         mock_request.json = AsyncMock(return_value=invalid_body)
@@ -265,7 +266,7 @@ class TestHandleNonStreaming:
             type="message",
             role="assistant",
             content=[{"type": "text", "text": "Hello there!"}],
-            model="claude-sonnet-4-20250514",
+            model=DEFAULT_TEST_MODEL,
             stop_reason="end_turn",
             stop_sequence=None,
             usage={"input_tokens": 10, "output_tokens": 5},
@@ -302,7 +303,7 @@ class TestHandleNonStreaming:
     ):
         """Test non-streaming response returns JSONResponse."""
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
         }
@@ -331,7 +332,7 @@ class TestHandleNonStreaming:
     ):
         """Test that client response event is emitted."""
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
         }
@@ -439,7 +440,7 @@ class TestHandleStreaming:
     async def test_streaming_returns_streaming_response(self, mock_anthropic_client, mock_policy, mock_policy_ctx):
         """Test streaming handler returns FastAPIStreamingResponse."""
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
             "stream": True,
@@ -493,7 +494,7 @@ class TestProcessAnthropicRequest:
             type="message",
             role="assistant",
             content=[{"type": "text", "text": "Hello!"}],
-            model="claude-sonnet-4-20250514",
+            model=DEFAULT_TEST_MODEL,
             stop_reason="end_turn",
             stop_sequence=None,
             usage={"input_tokens": 10, "output_tokens": 5},
@@ -513,7 +514,7 @@ class TestProcessAnthropicRequest:
     ):
         """Test processing a non-streaming Anthropic request end-to-end."""
         anthropic_body = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "stream": False,
@@ -578,7 +579,7 @@ class TestProcessAnthropicRequest:
     async def test_streaming_request_returns_streaming_response(self, mock_request, mock_policy, mock_emitter):
         """Test streaming request returns StreamingResponse."""
         anthropic_body = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "stream": True,
@@ -644,7 +645,7 @@ class TestProcessAnthropicRequest:
     async def test_span_attributes_set_correctly(self, mock_request, mock_policy, mock_anthropic_client, mock_emitter):
         """Test that span attributes are set correctly."""
         anthropic_body = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "stream": False,
@@ -679,7 +680,7 @@ class TestProcessAnthropicRequest:
     ):
         """Test that client_format span attribute is 'anthropic_native'."""
         anthropic_body = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "stream": False,
@@ -761,7 +762,7 @@ class TestMidStreamErrorHandling:
     async def test_mid_stream_api_error_emits_error_event(self, mock_policy, mock_policy_ctx):
         """Test that API errors mid-stream emit an error event instead of raising."""
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
             "stream": True,
@@ -826,7 +827,7 @@ class TestMidStreamErrorHandling:
     async def test_mid_stream_connection_error_emits_error_event(self, mock_policy, mock_policy_ctx):
         """Test that connection errors mid-stream emit an error event."""
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
             "stream": True,
