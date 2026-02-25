@@ -511,7 +511,19 @@ curl http://localhost:8000/admin/policy/instances \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
-## Custom Policies
+## Policy System
+
+The gateway uses an event-driven policy architecture with streaming support.
+
+### Key Components
+
+- `src/luthien_proxy/policies/base_policy.py` - Abstract policy interface
+- `src/luthien_proxy/policies/simple_policy.py` - Base class for custom policies
+- `src/luthien_proxy/orchestration/policy_orchestrator.py` - Policy orchestration
+- `src/luthien_proxy/gateway_routes.py` - API endpoint handlers with policy integration
+- `config/policy_config.yaml` - Policy configuration
+
+### Creating Custom Policies
 
 Subclass `SimplePolicy` for basic request/response transformations. See `src/luthien_proxy/policies/` for examples.
 
