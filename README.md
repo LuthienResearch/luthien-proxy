@@ -141,46 +141,27 @@ Replace `your-key-here` with your key from [console.anthropic.com](https://conso
 All requests now flow through the policy enforcement layer. Visit <http://localhost:8000/client-setup> for manual setup commands.
 
 
-### 5. Monitor activity
+### 5. Watch it work
 
-Open the Activity Monitor to see requests in real-time:
+Open the activity monitor to see every request and response in real-time:
 
 ```
 http://localhost:8000/activity/monitor
 ```
 
-### 6. Select a policy
+### 6. Try a policy
 
-Use the Policy Configuration UI to change policies without restart:
-
-```
-http://localhost:8000/policy-config
-```
-
-1. Browse available policies (NoOp, AllCaps, DebugLogging, etc.)
-2. Click to select and activate
-3. Test immediately -- changes take effect instantly
-
-### 7. Create your own policy
+Switch policies at [localhost:8000/policy-config](http://localhost:8000/policy-config) -- changes take effect instantly, no restart needed. Or write your own in a few lines:
 
 ```python
-# src/luthien_proxy/policies/my_custom_policy.py
-
 from luthien_proxy.policies.simple_policy import SimplePolicy
 
-class MyCustomPolicy(SimplePolicy):
-    """Custom request/response transformation."""
-
-    async def simple_on_request(self, messages, ctx):
-        # Inspect or modify messages before they reach the LLM
-        return messages
+class DeSlop(SimplePolicy):
+    """Replace AI writing tics."""
 
     async def simple_on_response_content(self, content, ctx):
-        # Inspect or modify the LLM response content
-        return content
+        return content.replace("\u2014", "-").replace("\u2013", "-")
 ```
-
-Restart the gateway and your policy appears in the Policy Config UI automatically.
 
 ---
 
