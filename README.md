@@ -43,17 +43,18 @@ Works with Claude Code. Supports streaming.
 ## How does it work?
 
 ```
-You (Claude Code) --> Luthien Proxy --> Anthropic API
-                         |
-                    enforces your policies on
-                    every request and response:
-                         |
-                         |-- monitor: log full conversation
-                         |-- block: dangerous operations
-                         +-- change: fix rule violations
+You --> Claude Code --> Luthien Proxy --> Anthropic API
+                            |
+                      logs every request and response
+                      configurable rules/policies:
+                            |
+                            |-- did it do what I asked?
+                            |-- did it follow CLAUDE.md?
+                            +-- did it do something suspicious?
+                            |
+                            +--> can call a fast LLM (e.g. Haiku)
+                                 to evaluate your rules
 ```
-
-Luthien enforces your policies on everything that goes into or comes out of the backend. It can replace tool calls that violate your rules with tool calls that follow your rules, and generate an easy-to-read log of everything your agent does.
 
 Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud account.
 
@@ -151,14 +152,11 @@ http://localhost:8000/activity/monitor
 
 ### 6. Set up a DeSlop policy (string replacement)
 
-Write a policy that cleans up every response:
-
 ```python
-from luthien_proxy.policies.simple_policy import SimplePolicy
+from luthien_proxy.policies.simple_policy import SimplePolicy  # base class
 
 class DeSlop(SimplePolicy):
-    """Clean up AI writing tics in every response."""
-
+    # Called on every LLM response before it reaches Claude Code
     async def simple_on_response_content(self, content, ctx):
         # Replace em dashes and en dashes with normal hyphens
         return content.replace("\u2014", "-").replace("\u2013", "-")
@@ -168,19 +166,54 @@ Switch policies at [localhost:8000/policy-config](http://localhost:8000/policy-c
 
 ### 7. Set up an LLM-as-judge policy
 
-Use an LLM to evaluate every tool call against your rules:
+Luthien can call a fast LLM (like Haiku) to evaluate your rules on every request and response.
+
+<details>
+<summary><b>Did it do what I asked? (click to expand)</b></summary>
 
 ```python
-from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
+# Sends the conversation to Haiku to check: did the agent do what you asked?
+# Results are logged -- check the activity monitor to review
 
-class PipBlockPolicy(SimpleJudgePolicy):
-    """Block pip install, suggest uv add instead."""
+class PromptCompliance(SimpleJudgePolicy):
+    RULES = [
+        "Check if the agent's response actually addresses what the user asked for.",
+        "Log the result. Always allow the response through.",
+    ]
+```
 
+</details>
+
+<details>
+<summary><b>Did it follow CLAUDE.md?</b></summary>
+
+```python
+# Reads your rules and checks compliance. Non-compliant responses get rewritten.
+
+class RuleEnforcement(SimpleJudgePolicy):
     RULES = [
         "Block any 'pip install' or 'pip3 install' commands. Suggest 'uv add' instead.",
         "Allow all other tool calls.",
     ]
 ```
+
+</details>
+
+<details>
+<summary><b>Did it do something suspicious?</b></summary>
+
+```python
+# Intercepts tool calls and checks them for safety before they execute.
+
+class SafetyGuard(SimpleJudgePolicy):
+    RULES = [
+        "Block 'rm -rf' or any recursive delete commands.",
+        "Block 'git push --force' to main or master.",
+        "Allow all other tool calls.",
+    ]
+```
+
+</details>
 
 ---
 
