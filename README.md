@@ -43,20 +43,20 @@ Works with Claude Code. Supports streaming.
 ## How does it work?
 
 ```
-You --> Claude Code --> Luthien Proxy --> Anthropic API
-                            |
-                      logs every request and response
-                      configurable rules/policies:
-                            |
-                            |-- did it do what I asked?
-                            |-- did it follow CLAUDE.md?
-                            +-- did it do something suspicious?
-                            |
-                            +--> can call a fast LLM (e.g. Haiku)
-                                 to evaluate your rules
+🧑‍💻 You --> 💻 Claude Code --> 🛡️ Luthien Proxy --> ☁️ Anthropic API
+                                    |
+                              logs every request and response
+                              configurable rules/policies:
+                                    |
+                                    |-- did it do what I asked?
+                                    |-- did it follow CLAUDE.md?
+                                    +-- did it do something suspicious?
+                                    |
+                                    +--> ☁️ can call a fast LLM (e.g. Haiku)
+                                         to evaluate your rules
 ```
 
-Nothing is sent to Luthien servers. Luthien runs on your machine or your cloud account.
+Luthien runs on your machine or your cloud account.
 
 ---
 
@@ -139,21 +139,26 @@ Replace `your-key-here` with your key from [console.anthropic.com](https://conso
 ./scripts/launch_claude_code.sh
 ```
 
-All requests now flow through the policy enforcement layer. Visit <http://localhost:8000/client-setup> for manual setup commands.
+🚀🎉 All requests and responses are now logged through the proxy.
 
 
-### 5. Watch it work
+### 5. See conversation history and raw logs
 
-Open the activity monitor to see every request and response in real-time:
+See your conversation history: <http://localhost:8000/history>
 
-```
-http://localhost:8000/activity/monitor
-```
+Or see full JSONLs in the activity monitor: <http://localhost:8000/activity/monitor>
 
 ### 6. Set up a DeSlop policy (string replacement)
 
+Find: `—` (em dash) Replace with: `-` (hyphen)
+
+Runs on every LLM response before it reaches Claude Code. Switch policies at [localhost:8000/policy-config](http://localhost:8000/policy-config) -- no restart needed.
+
+<details>
+<summary><b>See the code (click to expand)</b></summary>
+
 ```python
-from luthien_proxy.policies.simple_policy import SimplePolicy  # base class
+from luthien_proxy.policies.simple_policy import SimplePolicy
 
 class DeSlop(SimplePolicy):
     # Called on every LLM response before it reaches Claude Code
@@ -162,7 +167,7 @@ class DeSlop(SimplePolicy):
         return content.replace("\u2014", "-").replace("\u2013", "-")
 ```
 
-Switch policies at [localhost:8000/policy-config](http://localhost:8000/policy-config) -- changes take effect instantly, no restart needed.
+</details>
 
 ### 7. Set up an LLM-as-judge policy
 
