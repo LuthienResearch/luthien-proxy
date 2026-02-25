@@ -4,10 +4,47 @@
 # Set the POLICY_CONFIG environment variable to point to this file.
 
 
-# Default Policy (pass-through)
+# No Silent Failures Policy - LLM judge flags code with silent failure anti-patterns
+# Uses ToolCallJudgePolicy with custom judge instructions focused on error handling quality
 policy:
-  class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
-  config: {}
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  config:
+    model: "openai/gpt-4o-mini"
+    api_base: null
+    api_key: null
+    probability_threshold: 0.5
+    temperature: 0.0
+    max_tokens: 256
+    judge_instructions: >
+      You are a code quality reviewer focused on detecting SILENT FAILURE anti-patterns.
+      You will receive tool calls that an AI coding assistant is making. Evaluate whether
+      the code being written or edited contains silent failure patterns.
+
+      ONLY evaluate tool calls that modify code (tool names containing Write, Edit,
+      str_replace_editor, create, or similar). For read-only tool calls (Read, Bash, Glob,
+      Grep, Search, List, etc), ALWAYS return {"probability": 0.0, "explanation": "read-only operation"}.
+
+      Silent failure anti-patterns to FLAG (probability 0.7-1.0):
+      - Empty except/catch blocks (except: pass, except Exception: pass)
+      - Bare except that swallows errors without re-raising
+      - try/except that returns a default value (None, [], {}, "") instead of propagating
+      - Overly broad exception catching (except Exception) when a specific type is appropriate
+      - Error callbacks or handlers that silently discard the error
+
+      NOT anti-patterns (probability 0.0):
+      - Error handling with logging AND explicit fallback behavior
+      - Exception handling in test code (test files)
+      - Top-level handlers in main/entrypoint functions
+      - Error handling that re-raises after cleanup
+      - Intentional pass-through where errors are expected and documented
+
+      Respond with JSON only: {"probability": <float 0-1>, "explanation": "<reason>"}
+    blocked_message_template: "⚠️ SILENT FAILURE DETECTED in '{tool_name}': {explanation}. Please fix: either re-raise the exception, log AND re-raise, or catch a specific exception type."
+
+# Default Policy (pass-through) — uncomment to disable judge
+# policy:
+#   class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
+#   config: {}
 
 # Debug Logging Policy - logs raw HTTP requests and chunks
 # policy:
