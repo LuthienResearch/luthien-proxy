@@ -1,11 +1,19 @@
 # TODO
 
+## P0 — Uber Requirement 1: Invisible Unless Needed
+
+The proxy must not break requests that work without it. This is the existential requirement. See [uber-requirements](https://github.com/LuthienResearch/luthien-org/blob/main/ui-fb-dev/2-requirements/0-uber-requirements.md).
+
+- [ ] **Regression tests for every previously-broken request type** — Build a test suite covering all 15 bugs from uber-requirements Appendix A (images, streaming, thinking blocks, cache_control, empty text blocks, auth modes, etc.). These form the permanent safety net for Requirement 1. (2026-02-25)
+- [ ] **8-hour dogfooding validation** — Run Claude Code through the proxy with NoOpPolicy for 8 hours of real work. Zero proxy-caused failures. This is the acceptance test for Requirement 1.
+- [ ] **CI regression gate** — Automated test that compares proxy behavior against direct API calls for a set of known-tricky request patterns.
+
 ## High Priority
 
 ### Shell Script Linting (COE from PR #202, 2026-02-17)
 
-- [ ] **Add `shellcheck --shell=bash` to `dev_checks.sh`** — No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by shellcheck. Prevents the entire class of bash version bugs.
-- [ ] **Add bash 3 shebang comment convention to all scripts** — Add `# Requires: bash 3.2+` to script headers to document the constraint for future contributors.
+- [x] **Add `shellcheck --shell=bash` to `dev_checks.sh`** — Draft PR [#233](https://github.com/LuthienResearch/luthien-proxy/pull/233). (2026-02-25)
+- [x] **Add bash 3 shebang comment convention to all scripts** — Draft PR [#233](https://github.com/LuthienResearch/luthien-proxy/pull/233). (2026-02-25)
 
 ### Bugs
 
@@ -22,12 +30,12 @@
 
 ### Documentation (High)
 
-- [ ] **Add security documentation for dynamic policy loading (POLICY_CONFIG)** - Document security implications of dynamic class loading, file permissions, admin API authentication requirements.
-- [ ] **Add repo-level `/coe` slash command** - Add `.claude/commands/coe.md` to luthien-proxy so all contributors get the RCA/COE workflow. Currently only exists globally on Scott's machine (`~/.claude/commands/coe.md`). Reference: PR #200 discussion, 2026-02-17.
+- [x] **Add security documentation for dynamic policy loading (POLICY_CONFIG)** — Draft PR [#232](https://github.com/LuthienResearch/luthien-proxy/pull/232). (2026-02-25)
+- [x] **Add repo-level `/coe` slash command** — Draft PR [#230](https://github.com/LuthienResearch/luthien-proxy/pull/230). (2026-02-25)
 
 ### Security
 
-- [ ] **Add input validation: max request size and message count limits** - Request size limit (10MB) exists, but no message count limit. Could allow unbounded message arrays.
+- [x] **Add input validation: max request size and message count limits** — Draft PR [#234](https://github.com/LuthienResearch/luthien-proxy/pull/234). (2026-02-25)
 
 ## Medium Priority
 
@@ -42,20 +50,20 @@
 
 - [ ] **Eliminate `AnthropicClient` wrapper — use `AsyncAnthropic` directly** - Our `AnthropicClient` is a shallow wrapper around the SDK's `AsyncAnthropic`. The SDK already supports `api_key`/`auth_token` construction, has a public `base_url` property, and `copy()`/`with_options()` for per-request client variants. The wrapper's OTel spans duplicate what `anthropic_processor.py` already provides. Two utility functions (`prepare_request_kwargs`, `message_to_response`) still needed but don't justify a class. `with_api_key()`/`with_auth_token()` are dead code post-PR #221 refactor. Reference: PR #221 review, 2026-02-20.
 - [ ] **Anthropic-only policy configuration support** - Current implementation requires all policies to implement both OpenAI and Anthropic interfaces. There's no way to configure an Anthropic-only policy through the config system. Noted as Phase 2 work in split-apis design doc. Reference: PR #169, 2026-02-03.
-- [ ] **Simplify streaming span context management** - The attach/detach pattern in `anthropic_processor.py:275-303` is correct but complex. Consider wrapping in a context manager for better maintainability. Reference: PR #169, 2026-02-03.
+- [x] **Simplify streaming span context management** — Draft PR [#237](https://github.com/LuthienResearch/luthien-proxy/pull/237). Extracted `restore_context()` context manager. (2026-02-25)
 - [ ] **Add runtime validation for Anthropic TypedDict assignments** - `anthropic_processor.py:238` uses direct dict-to-TypedDict assignment after basic field validation. Consider adding runtime validation for production robustness. Reference: PR #169, 2026-02-03.
 - [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks. (Niche use case - images pass through proxy correctly already)
-- [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety for buffered tool calls
+- [x] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** — Draft PR [#236](https://github.com/LuthienResearch/luthien-proxy/pull/236). (2026-02-25)
 - [ ] **Policy API: Prevent common streaming mistakes** - Better base class defaults and helper functions
 - [ ] **Format blocked messages for readability** - Pretty-print JSON, proper line breaks
 - [ ] **Improve error handling for OpenTelemetry spans** - Add defensive checks when OTEL not configured (partial: `is_recording()` checks exist)
 
 ### Testing (Medium)
 
-- [ ] **Define `DEFAULT_CLAUDE_TEST_MODEL` constant, set to `claude-haiku-4-5`** - Hardcoded `claude-sonnet-4-20250514` and `claude-sonnet-4-5` strings are scattered across ~100+ test locations and scripts. Define a shared constant (e.g. in `tests/conftest.py` or `src/luthien_proxy/utils/constants.py`) and replace hardcoded strings. Using haiku reduces cost/latency for tests and e2e. Production code (`credential_manager.py:VALIDATION_MODEL`) should also use a cheaper model. Reference: 2026-02-23.
+- [x] **Define `DEFAULT_CLAUDE_TEST_MODEL` constant, set to `claude-haiku-4-5`** — Draft PR [#229](https://github.com/LuthienResearch/luthien-proxy/pull/229). (2026-02-25)
 - [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
-- [ ] **Audit tests for unjustified conditional logic**
+- [x] **Audit tests for unjustified conditional logic** — Draft PR [#235](https://github.com/LuthienResearch/luthien-proxy/pull/235). Found and fixed a real operator precedence bug. (2026-02-25)
 
 ### Onboarding & Install (Medium — Tyler feedback 2026-02-10)
 
@@ -67,8 +75,8 @@ Source: [Office Hours notes](https://docs.google.com/document/d/1Qo2D5zrtuHO2MF6
 
 ### Infrastructure (Medium)
 
-- [ ] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name. Currently both scripts derive it, but direct `docker compose` still uses directory default. Reference: COE from PR #203, 2026-02-17.
-- [ ] **Add `shellcheck` to CI or `dev_checks.sh`** - No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by `shellcheck --shell=bash`. Reference: COE from PR #202, 2026-02-17.
+- [x] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Draft PR [#231](https://github.com/LuthienResearch/luthien-proxy/pull/231). (2026-02-25)
+- [x] **Add `shellcheck` to CI or `dev_checks.sh`** — Draft PR [#233](https://github.com/LuthienResearch/luthien-proxy/pull/233). (2026-02-25)
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints (debug endpoints have tests, UI routes do not)
 - [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production
 - [ ] **Implement circuit breaker for upstream calls** - Queue overflow protection exists, but not full circuit breaker pattern
