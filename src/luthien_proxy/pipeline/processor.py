@@ -55,7 +55,7 @@ from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
 from luthien_proxy.types import RawHttpRequest
-from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
+from luthien_proxy.utils.constants import MAX_MESSAGE_COUNT, MAX_REQUEST_PAYLOAD_BYTES
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -205,6 +205,14 @@ async def _process_request(
 
         body = await request.json()
         headers = {k.lower(): v for k, v in request.headers.items()}
+
+        # Check message count limit
+        messages = body.get("messages")
+        if isinstance(messages, list) and len(messages) > MAX_MESSAGE_COUNT:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Request contains {len(messages)} messages, exceeding maximum of {MAX_MESSAGE_COUNT}",
+            )
 
         # Capture raw HTTP request before any processing
         raw_http_request = RawHttpRequest(

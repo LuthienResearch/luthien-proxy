@@ -63,6 +63,11 @@ QUEUE_PUT_TIMEOUT_SECONDS = 30.0
 # Prevents OOM attacks and limits request complexity.
 MAX_REQUEST_PAYLOAD_BYTES = 10_485_760
 
+# Maximum number of messages allowed in a single request.
+# Prevents abuse via unbounded message arrays that could cause excessive
+# memory usage and processing time even within the payload size limit.
+MAX_MESSAGE_COUNT = 10_000
+
 # ------------------------------------------------------------------------------
 # Debug/Admin Endpoint Defaults
 # ------------------------------------------------------------------------------
