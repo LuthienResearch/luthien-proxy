@@ -17,7 +17,8 @@ from luthien_proxy.policies.sample_pydantic_policy import (
     SampleConfig,
     SamplePydanticPolicy,
 )
-from luthien_proxy.policy_core import BasePolicy
+from luthien_proxy.policy_core import BasePolicy, OpenAIPolicyInterface
+from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 
 
 class TestSamplePydanticPolicyBasics:
@@ -26,6 +27,22 @@ class TestSamplePydanticPolicyBasics:
     def test_inherits_from_base_policy(self):
         """SamplePydanticPolicy inherits from BasePolicy."""
         assert issubclass(SamplePydanticPolicy, BasePolicy)
+
+    def test_implements_openai_interface(self):
+        """SamplePydanticPolicy must implement OpenAIPolicyInterface to handle requests.
+
+        Regression test: Previously only inherited BasePolicy, so activating it
+        in the config UI caused all requests to crash.
+        """
+        assert issubclass(SamplePydanticPolicy, OpenAIPolicyInterface)
+
+    def test_implements_anthropic_interface(self):
+        """SamplePydanticPolicy must implement AnthropicPolicyInterface to handle requests.
+
+        Regression test: Previously only inherited BasePolicy, so activating it
+        in the config UI caused all requests to crash.
+        """
+        assert issubclass(SamplePydanticPolicy, AnthropicPolicyInterface)
 
     def test_instantiation_with_default_config(self):
         """Policy can be instantiated without arguments."""
