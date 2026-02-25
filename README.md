@@ -108,16 +108,14 @@ Every policy action is logged. Measure what got blocked, track false positives, 
 
 ## Quick Start
 
-**Prerequisites:** [Docker](https://www.docker.com/products/docker-desktop/) must be running (or `brew install --cask docker`). Install [uv](https://docs.astral.sh/uv/) if you haven't: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+**Prerequisites:**
+[Docker](https://www.docker.com/products/docker-desktop/) must be running (or `brew install --cask docker`).
+Install [uv](https://docs.astral.sh/uv/) if you haven't: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/LuthienResearch/luthien-proxy
-```
-
-```bash
-cd luthien-proxy
+git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy
 ```
 
 ### 2. Configure API keys
