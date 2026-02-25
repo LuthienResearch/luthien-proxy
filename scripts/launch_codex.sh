@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-
+# Requires: bash 3.2+
 # ABOUTME: Minimal launcher for Codex through the gateway with policy enforcement
 # ABOUTME: Sets the base URL and API key to route through gateway
 
 # source .env, recursing up until found
-CURDIR=$(pwd)
-while [ ! -f $CURDIR/.env ] && [ "$CURDIR" != "/" ]; do
-  CURDIR=$(dirname "$CURDIR")
+CURDIR="$(pwd)"
+while [[ ! -f "$CURDIR/.env" ]] && [[ "$CURDIR" != "/" ]]; do
+  CURDIR="$(dirname "$CURDIR")"
 done
-if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+if [[ -f "$CURDIR/.env" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$CURDIR/.env"
+  set +a
 else
   echo "No .env file found"
   exit 1
@@ -28,7 +31,7 @@ if ! curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health" > /dev/null 2>&1; th
 
     # Wait for gateway to be healthy
     echo "⏳ Waiting for gateway to be ready..."
-    for i in {1..30}; do
+    for _i in {1..30}; do
         if curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health" > /dev/null 2>&1; then
             break
         fi

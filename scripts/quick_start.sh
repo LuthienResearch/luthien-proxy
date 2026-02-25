@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Requires: bash 3.2+
 # ABOUTME: Minimal quick-start script for Luthien Control development environment
 # ABOUTME: Validates dependencies, sets up environment, and starts core services
 
@@ -58,18 +58,20 @@ if [ ! -f .env ]; then
 fi
 
 # Source environment variables
-if [ -f .env ]; then
+if [[ -f .env ]]; then
     set -a
+    # shellcheck source=/dev/null
     source .env
     set +a
 fi
 
 # Auto-select free ports for any port variables not pinned in .env
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=find-available-ports.sh
 source "${SCRIPT_DIR}/find-available-ports.sh"
 
 # Derive project name from worktree directory to avoid collisions between worktrees
-if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+if [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
     worktree_dir="$(basename "$(pwd)")"
     export COMPOSE_PROJECT_NAME="luthien-${worktree_dir}"
 fi
@@ -99,11 +101,11 @@ if [ -f .env ] && [ -f .env.example ]; then
     fi
 
     # Check if real API keys are missing (empty or placeholder)
-    if [ -z "$OPENAI_API_KEY" ] || [ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]; then
+    if [[ -z "${OPENAI_API_KEY:-}" ]] || [[ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]]; then
         echo "ℹ️  INFO: OPENAI_API_KEY not set (only local models will work)"
     fi
 
-    if [ -z "$ANTHROPIC_API_KEY" ] || [ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]; then
+    if [[ -z "${ANTHROPIC_API_KEY:-}" ]] || [[ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]]; then
         echo "ℹ️  INFO: ANTHROPIC_API_KEY not set (only local models will work)"
     fi
 fi
@@ -146,7 +148,7 @@ timeout=30
 while ! docker compose exec -T db pg_isready -U "${POSTGRES_USER:-luthien}" -d "${POSTGRES_DB:-luthien_control}" > /dev/null 2>&1; do
     sleep 1
     timeout=$((timeout - 1))
-    if [ $timeout -eq 0 ]; then
+    if [[ "$timeout" -eq 0 ]]; then
         echo "❌ PostgreSQL failed to start within 30 seconds"
         exit 1
     fi
@@ -159,7 +161,7 @@ timeout=10
 while ! docker compose exec -T redis redis-cli ping > /dev/null 2>&1; do
     sleep 1
     timeout=$((timeout - 1))
-    if [ $timeout -eq 0 ]; then
+    if [[ "$timeout" -eq 0 ]]; then
         echo "❌ Redis failed to start within 10 seconds"
         exit 1
     fi
