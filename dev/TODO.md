@@ -52,6 +52,7 @@
 
 ### Testing (Medium)
 
+- [ ] **Add e2e integration test: DOGFOOD_MODE + dangerous tool call → blocked response** — Send a request containing a `docker compose down` tool call through the proxy with `DOGFOOD_MODE=true`, assert the response is a blocked message. Covers the exact failure mode from COE PR #240. Reference: COE from PR #240, 2026-02-25.
 - [ ] **Define `DEFAULT_CLAUDE_TEST_MODEL` constant, set to `claude-haiku-4-5`** - Hardcoded `claude-sonnet-4-20250514` and `claude-sonnet-4-5` strings are scattered across ~100+ test locations and scripts. Define a shared constant (e.g. in `tests/conftest.py` or `src/luthien_proxy/utils/constants.py`) and replace hardcoded strings. Using haiku reduces cost/latency for tests and e2e. Production code (`credential_manager.py:VALIDATION_MODEL`) should also use a cheaper model. Reference: 2026-02-23.
 - [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
