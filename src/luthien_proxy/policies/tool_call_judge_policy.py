@@ -39,9 +39,7 @@ from anthropic.types import (
     ToolUseBlock,
 )
 from litellm.types.utils import (
-    ChatCompletionMessageToolCall,
     Choices,
-    Function,
     ModelResponse,
     StreamingChoices,
 )
@@ -178,7 +176,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
         # State for buffering OpenAI tool calls during streaming
         # Key: (call_id, tool_index), Value: accumulated tool call data
-        self._buffered_tool_calls: dict[tuple[str, int], dict[str, Any]] = {}
+        self._buffered_tool_calls: dict[tuple[str, int], ToolCallStreamBlock] = {}
         self._blocked_calls: set[str] = set()  # Track which call_ids have been blocked
 
         # State for buffering Anthropic tool_use during streaming
@@ -212,18 +210,29 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             Original response or blocked response if tool call is harmful
         """
         # Extract tool calls from response
-        tool_calls = extract_tool_calls_from_response(response)
-        if not tool_calls:
+        tool_call_dicts = extract_tool_calls_from_response(response)
+        if not tool_call_dicts:
             return response
 
-        logger.debug(f"Found {len(tool_calls)} tool call(s) to evaluate in non-streaming response")
+        logger.debug(f"Found {len(tool_call_dicts)} tool call(s) to evaluate in non-streaming response")
+
+        # Convert dicts to typed ToolCallStreamBlock for type-safe evaluation
+        tool_calls = [
+            ToolCallStreamBlock(
+                id=tc.get("id", ""),
+                index=i,
+                name=tc.get("name", ""),
+                arguments=tc.get("arguments", ""),
+            )
+            for i, tc in enumerate(tool_call_dicts)
+        ]
 
         # Evaluate each tool call
         for tool_call in tool_calls:
             blocked_response = await self._evaluate_and_maybe_block_openai(tool_call, context)
             if blocked_response is not None:
                 # Tool call was blocked - return blocked response
-                logger.info(f"Blocked tool call '{tool_call.get('name')}' in non-streaming response")
+                logger.info(f"Blocked tool call '{tool_call.name}' in non-streaming response")
                 return blocked_response
 
         # All tool calls passed
@@ -281,25 +290,20 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
             # Initialize buffer if needed
             if key not in self._buffered_tool_calls:
-                self._buffered_tool_calls[key] = {
-                    "id": "",
-                    "type": "function",
-                    "name": "",
-                    "arguments": "",
-                }
+                self._buffered_tool_calls[key] = ToolCallStreamBlock(id="", index=tc_index)
 
             # Accumulate data
-            buffer = self._buffered_tool_calls[key]
+            block = self._buffered_tool_calls[key]
 
             if hasattr(tc_delta, "id") and tc_delta.id:
-                buffer["id"] = tc_delta.id
+                block.id = tc_delta.id
 
             if hasattr(tc_delta, "function"):
                 func = tc_delta.function
                 if hasattr(func, "name") and func.name:
-                    buffer["name"] += func.name
+                    block.name += func.name
                 if hasattr(func, "arguments") and func.arguments:
-                    buffer["arguments"] += func.arguments
+                    block.arguments += func.arguments
 
         # Don't forward - we'll judge when complete
         # Clear the tool_calls from delta to prevent forwarding
@@ -464,11 +468,13 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     # OpenAI Streaming Helpers
     # ========================================================================
 
-    def _validate_tool_call_for_judging(self, ctx: "StreamingPolicyContext", call_id: str) -> dict[str, Any] | None:
+    def _validate_tool_call_for_judging(
+        self, ctx: "StreamingPolicyContext", call_id: str
+    ) -> ToolCallStreamBlock | None:
         """Validate that we have a complete tool call ready to judge.
 
         Returns:
-            Tool call dict if valid, None if should skip.
+            ToolCallStreamBlock if valid, None if should skip.
         """
         # Already blocked?
         if call_id in self._blocked_calls:
@@ -494,22 +500,20 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             logger.warning(f"No buffered data for tool call {key}")
             return None
 
-        tool_call = self._buffered_tool_calls[key]
+        block = self._buffered_tool_calls[key]
 
         # Is it complete enough to judge?
-        is_complete = tool_call.get("name") and tool_call.get("id")
-
-        if not is_complete:
-            logger.warning(f"Skipping incomplete tool call: {tool_call}")
+        if not block.name or not block.id:
+            logger.warning(f"Skipping incomplete tool call: {block}")
             return None
 
-        return tool_call
+        return block
 
     async def _handle_blocked_tool_call(
         self,
         ctx: "StreamingPolicyContext",
         call_id: str,
-        tool_call: dict[str, Any],
+        tool_call: ToolCallStreamBlock,
         blocked_response: ModelResponse,
     ) -> None:
         """Send blocked message and finish chunk for a blocked tool call."""
@@ -525,12 +529,12 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         finish_chunk = create_text_chunk("", finish_reason="stop")
         await ctx.egress_queue.put(finish_chunk)
 
-        logger.info(f"Blocked tool call '{tool_call['name']}' for call {call_id}")
+        logger.info(f"Blocked tool call '{tool_call.name}' for call {call_id}")
 
-    def _extract_blocked_message(self, blocked_response: ModelResponse, tool_call: dict[str, Any]) -> str:
+    def _extract_blocked_message(self, blocked_response: ModelResponse, tool_call: ToolCallStreamBlock) -> str:
         """Extract the blocked message text from judge response, with fallback."""
         if not blocked_response.choices:
-            return f"⛔ BLOCKED: Tool call '{tool_call['name']}' rejected by policy"
+            return f"⛔ BLOCKED: Tool call '{tool_call.name}' rejected by policy"
 
         first_choice = cast(Choices, blocked_response.choices[0])
         message = first_choice.message
@@ -539,42 +543,36 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if blocked_text:
             return str(blocked_text)
 
-        return f"⛔ BLOCKED: Tool call '{tool_call['name']}' rejected by policy"
+        return f"⛔ BLOCKED: Tool call '{tool_call.name}' rejected by policy"
 
     async def _handle_passed_tool_call(
         self,
         ctx: "StreamingPolicyContext",
         call_id: str,
-        tool_call: dict[str, Any],
+        tool_call: ToolCallStreamBlock,
     ) -> None:
         """Forward an allowed tool call by reconstructing it."""
-        logger.debug(f"Passed tool call '{tool_call['name']}' for call {call_id}")
+        logger.debug(f"Passed tool call '{tool_call.name}' for call {call_id}")
 
-        tool_call_obj = ChatCompletionMessageToolCall(
-            id=tool_call.get("id", ""),
-            function=Function(
-                name=tool_call.get("name", ""),
-                arguments=tool_call.get("arguments", ""),
-            ),
-        )
-        tool_chunk = create_tool_call_chunk(tool_call_obj)
+        tool_chunk = create_tool_call_chunk(tool_call.tool_call)
         await ctx.egress_queue.put(tool_chunk)
 
     async def _evaluate_and_maybe_block_openai(
         self,
-        tool_call: dict[str, Any],
+        tool_call: ToolCallStreamBlock,
         policy_ctx: "PolicyContext",
     ) -> ModelResponse | None:
         """Evaluate a tool call and return blocked response if harmful.
 
         Args:
-            tool_call: Tool call dict with id, type, name, arguments
+            tool_call: Typed tool call block with id, name, arguments
             policy_ctx: Policy context for emitting events
 
         Returns:
             Blocked ModelResponse if tool call blocked, None if allowed
         """
-        name, arguments = self._normalize_tool_call_data(tool_call)
+        name = tool_call.name
+        arguments = tool_call.arguments
 
         logger.debug(f"Evaluating tool call: {name}")
         self._emit_evaluation_started(policy_ctx, name, arguments)
@@ -603,7 +601,16 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
                 f"Blocking tool call '{name}' (probability {judge_result.probability:.2f} "
                 f">= {self._config.probability_threshold})"
             )
-            return create_blocked_response(tool_call, judge_result, self._blocked_message_template, self._config.model)
+            # Convert to dict for create_blocked_response (shared utility)
+            tool_call_dict = {
+                "id": tool_call.id,
+                "type": "function",
+                "name": tool_call.name,
+                "arguments": tool_call.arguments,
+            }
+            return create_blocked_response(
+                tool_call_dict, judge_result, self._blocked_message_template, self._config.model
+            )
         else:
             self._emit_tool_call_allowed(policy_ctx, name, judge_result.probability)
             return None
@@ -779,20 +786,6 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     # ========================================================================
     # Shared Helpers
     # ========================================================================
-
-    def _normalize_tool_call_data(self, tool_call: dict[str, Any]) -> tuple[str, str]:
-        """Extract and normalize tool call name and arguments.
-
-        Returns:
-            Tuple of (name, arguments_as_string)
-        """
-        name = str(tool_call.get("name", ""))
-        arguments = tool_call.get("arguments", "")
-
-        if not isinstance(arguments, str):
-            arguments = json.dumps(arguments)
-
-        return name, arguments
 
     async def _call_judge_with_failsafe(
         self,
