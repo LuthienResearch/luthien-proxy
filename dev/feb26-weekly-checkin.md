@@ -8,9 +8,15 @@
 
 ## What did you ship last week?
 
-1. **Jai: OAuth auth chain complete** — Bearer token passthrough (#221), OAuth forwarding (#219), auth on all endpoints (#214). Claude Code relay now works without workarounds. This was the #1 technical blocker from Feb 19.
-2. **Scott: README/value-prop overhaul** (PR #179, 56 commits, not yet merged) — Before/After SVG diagrams showing real Claude Code UX, simplified Quick Start, question-based headers. Incorporated Tyler + Jai feedback. Ready to merge.
-3. **Scott: Dogfooding found + fixed auth_mode default bug** (PR #222 w/ full RCA/COE) — 5 minutes into fresh setup, hit 401. Root cause: DB migration seeded `proxy_key` but Claude Code sends OAuth tokens. Fix includes migration, startup warning, guard test. + 5 housekeeping PRs (#206, #207, #209, #224, #226, #227).
+1. **Jai: Closed out the auth chain (continuation of last week's massive infra push)** — 8 PRs on Thursday Feb 19 alone (#211-#217, #219), plus final OAuth passthrough (#221) over the weekend. Then sick Monday. Combined with last week's composable policies, config UI, and live view — Claude Code relay now works end-to-end. The #1 technical blocker from Feb 19 is resolved.
+2. **Scott: README/landing page overhaul incorporating Tyler + Jai feedback** — PR #179 (56 commits). Before/After SVG diagrams showing real Claude Code UX, simplified Quick Start, question-based headers. Extracted Tyler's specific feedback from Feb 10 live install. Tyler reviewing async, call next week. Feeds QA hiring pipeline (Trello: "update readme → hire upwork people" ✅ Done).
+3. **Scott: BD + dogfooding + dev tooling:**
+   - **Tyler/Redwood:** Prepped for call, Tyler reviewing landing page async, meeting next week (Jai was sick)
+   - **Dogfooding:** Found auth_mode default bug in 5 min of fresh setup → PR #222 with full RCA/COE + guard test
+   - **QA pipeline:** Updated instructions page, drafted Upwork trial task
+   - **BD:** Engaged LiteLLM sales team, prepped for Govind meeting, reached out to Eric Liu (PBC lawyer)
+   - **Policy brainstorming:** Started researching which policy to dogfood (session logs + user interview synthesis)
+   - **Housekeeping PRs:** shellcheck (#224), test model constant (#226), /coe command (#227), TODO cleanup (#209), deduplicate tools (#208)
 
 ---
 
@@ -27,8 +33,8 @@
 ### Scott's goals:
 
 1. **Get one useful policy running end-to-end.** Binary: policy is loaded in config, tested, and used in 5+ coding sessions by Friday Mar 6.
-2. **Book 5 EAG follow-up calls.** Binary: 5 calls on calendar by Friday. (15+ leads are 2 weeks old and decaying.)
-3. **Merge README PR #179 and stop iterating.** Binary: merged to main.
+2. **Tyler call + landing page review.** Binary: call happens, Tyler gives feedback on async review.
+3. **Book 5 EAG follow-up calls.** Binary: 5 calls on calendar by Friday Mar 6.
 
 ### Jai's goals:
 
@@ -40,7 +46,7 @@
 
 **Metric:** 3 paying customers by Demo Day (April 2026)
 
-**Current status:** 0 paying. ~15 EAG leads in pipeline (aging). Tyler/Redwood warmest but stalled since Feb 10 demo. Auth blockers now resolved — but no useful policy to show anyone.
+**Current status:** 0 paying. ~15 EAG leads in pipeline (aging but Tyler actively engaged). Auth blockers resolved. Infrastructure ready (composable policies, config UI, live view, Railway deploy). But no useful policy to show anyone yet.
 
 **On track?** ❌ — Pipeline exists but isn't being converted. The bottleneck isn't leads or infrastructure; it's that we have nothing useful to put in front of people yet. See [Limiting Factor analysis](TBD_HACKMD_LINK) for full breakdown.
 
@@ -50,11 +56,9 @@
 
 | Goal | Target | Result | |
 |------|--------|--------|--|
-| EAG SF follow-ups | 5+ meetings by Feb 27 | Some actions taken (Diogo, Marius), unclear how many calls booked | ⚠️ |
-| Hire Upwork QA | Hired | Instructions page drafted, no hire | ❌ |
-| Tyler deployment | 2nd user in logs | No visible progress | ❌ |
+| EAG SF follow-ups | 5+ meetings by Feb 27 | Some follow-up actions (Diogo, Marius/Jai meeting), unclear how many calls booked | ⚠️ |
+| Hire Upwork QA | Hired | Instructions page + Upwork draft ready, no hire yet | ⚠️ |
+| Tyler deployment | 2nd user in logs | Tyler engaged — reviewing landing page async, call next week. Team not using yet | ⚠️ |
 | Yoeri BD decision | Made | Undecided — "add to agenda" | ❌ |
-| Dogfooding 8hrs | Zero failures | 1 session (~1hr), found auth bug | ⚠️ |
+| Dogfooding 8hrs | Zero failures | 1 session (~1hr), found auth bug → PR #222 | ⚠️ |
 | Blog post | Published | Not published | ❌ |
-
-**Pattern:** Biggest time investment (README, ~60%) wasn't on the goal list. This is the perfectionism/scope-creep pattern called out in the limiting factor doc.

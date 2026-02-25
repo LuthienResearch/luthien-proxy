@@ -10,7 +10,9 @@
 
 ---
 
-**Situation:** Since the Feb 19 meeting, Jai completed the OAuth auth chain ([#214](https://github.com/LuthienResearch/luthien-proxy/pull/214), [#219](https://github.com/LuthienResearch/luthien-proxy/pull/219), [#221](https://github.com/LuthienResearch/luthien-proxy/pull/221)) — the #1 technical blocker we identified. Claude Code relay now works without workarounds. I rewrote the README value prop with before/after SVG diagrams ([PR #179](https://github.com/LuthienResearch/luthien-proxy/pull/179), 56 commits, not yet merged) and found another dogfooding bug within 5 minutes of fresh setup: the auth_mode default was seeded wrong in the DB migration ([PR #222](https://github.com/LuthienResearch/luthien-proxy/pull/222), includes RCA/COE and guard test). Infrastructure-wise, we're in a stronger position than last week.
+**Situation:** Last week was Jai's massive infrastructure push (composable policies, passthrough auth, config UI, conversation live view, deploy instructions). This week he closed out the remaining auth chain in a single Thursday sprint — 8 PRs on Feb 19 alone ([#211](https://github.com/LuthienResearch/luthien-proxy/pull/211), [#212](https://github.com/LuthienResearch/luthien-proxy/pull/212), [#213](https://github.com/LuthienResearch/luthien-proxy/pull/213), [#214](https://github.com/LuthienResearch/luthien-proxy/pull/214), [#215](https://github.com/LuthienResearch/luthien-proxy/pull/215), [#216](https://github.com/LuthienResearch/luthien-proxy/pull/216), [#217](https://github.com/LuthienResearch/luthien-proxy/pull/217), [#219](https://github.com/LuthienResearch/luthien-proxy/pull/219)) — plus one final OAuth passthrough PR ([#221](https://github.com/LuthienResearch/luthien-proxy/pull/221)) over the weekend before getting sick Monday. Claude Code relay now works end-to-end without workarounds. The #1 technical blocker from Feb 19 is resolved.
+
+Meanwhile, Scott's week was about preparing to put that infrastructure in front of users: rewrote the README/landing page incorporating Tyler's feedback from the Feb 10 live install and Jai's review ([PR #179](https://github.com/LuthienResearch/luthien-proxy/pull/179), 56 commits, workshopping with Tyler async before next week's call). Found another dogfooding bug within 5 minutes of fresh setup — auth_mode default seeded wrong in the DB migration ([PR #222](https://github.com/LuthienResearch/luthien-proxy/pull/222), includes RCA/COE and guard test). Updated QA instructions and drafted Upwork trial task. BD work: engaged LiteLLM sales, prepped for Govind meeting, reached out to Eric Liu (PBC lawyer). Infrastructure-wise, we're in a stronger position than last week.
 
 **Complication:** But what should we work on next? Our Trello board has **~120 cards** across active lists, and it's hard to know what matters most right now. Here's the laundry list:
 
@@ -24,7 +26,7 @@
 
 **Building & Dogfooding Ideas (35 cards):** How to prioritize, setup-a-call feature, session sharing URLs, JSONL exports, session history recovery, Jr Dev Story 6, trace back/blame chain, visual DB schema, terminal history loss, analytics platform, streamline onboarding, dynamic gateway, try dev checks, read research-to-feature-ideas doc, UTC logging issue, "logged by Luthien" feature, retro on CSVs, create and dogfood policies, smoother onboarding, conversation notion + URL feature, unit test classifier, list 20 solutions, improve policy config UI, Atlas requirements swag, AI failure modes 1-pager, Claude + Jack's research, Inspect framework, UKAISI ControlArena, re-organize gateway homepage, GitHub Pages site, Playwright for UI testing, record traffic for replay tests, go back button
 
-On top of this, I scored 0 of 6 on last week's goals (see [Appendix A](#appendix-a-last-weeks-goals-scorecard)). No EAG follow-up calls booked. No QA engineer hired. No blog post published. Tyler/Redwood hasn't progressed since the Feb 10 demo. Most of my time (~60%) went to README polish — which was not on the goal list. Meanwhile, our 15+ EAG leads are 10-13 days old and cooling. And from last week's meeting, the thing that stuck with me: *"I have yet to use for myself or demonstrate to another human an actually useful policy."*
+Progress was made on several fronts (see [Appendix A](#appendix-a-last-weeks-goals-scorecard)), but not all goals landed cleanly. Tyler is engaged — reviewing the landing page async and meeting next week — but his team isn't using Luthien yet. QA pipeline is moving (instructions + Upwork draft) but no hire. Blog post didn't happen. EAG leads are 10-13 days old; some follow-up actions happening (Diogo, Marius/Jai meeting) but unclear how many have converted to booked calls. And from last week's meeting, the thing that stuck with me: *"I have yet to use for myself or demonstrate to another human an actually useful policy."*
 
 **Central question:** Given this overwhelming list, what is our current limiting factor — what one thing, if we got it right, would make the most other things either unnecessary or easier?
 
@@ -98,17 +100,17 @@ Three of four known bugs still have open PRs. Jai needs to review #178, #201, #2
 
 15+ EAG conversations generated genuine enthusiasm 10-13 days ago. Trello "In progress" currently has ~15 debrief items: Diogo (AE Studio), Luis (Equistamp), Martin (AE Studio), Dylan Fridman, Max Werner, Lindley, Prakrak, Mike M, and others. Some follow-up actions exist (send Diogo the README, set up Jai/Marius call), but it's unclear how many have converted to booked second meetings.
 
-Tyler/Redwood — our warmest lead and the closest thing to a "sleep at night" quote — hasn't progressed since the Feb 10 demo. The auth fixes this week should unblock his team technically, but nobody has reached out to confirm.
+Tyler/Redwood — our warmest lead — is actively engaged. He's reviewing the new landing page async and meeting next week (Jai was sick this week so the weekly call was postponed). Auth fixes should unblock his team technically. But his team isn't using Luthien yet.
 
-**Status: Yellow.** Pipeline exists but momentum is fading. Last week's goal was "5+ follow-up meetings by Feb 27" — unclear if we'll hit it.
+**Status: Yellow.** Tyler is warm and engaged. Broader pipeline needs follow-up before leads go cold. Last week's goal was "5+ follow-up meetings by Feb 27" — partially in progress.
 
 **The tension:** We need to follow up before leads go cold, but following up with a broken or useless product wastes their goodwill. This is why building a useful policy (section 1) comes first — even a 1-week delay in follow-ups is worth it if we can show something real.
 
 **Path to green:**
 1. Build useful policy first (this week) — gives us something to show in follow-up calls
-2. Book 5 follow-up calls for next week (Owner: Scott, by Mar 3)
-3. Tyler/Redwood: confirm auth fixes unblock their setup, schedule check-in (Owner: Scott)
-4. Merge README PR #179 before follow-up calls — it's ready, stop polishing (Owner: Scott)
+2. Tyler/Redwood: call next week, confirm auth fixes unblock their setup (Owner: Scott)
+3. Book 5 broader follow-up calls for next week (Owner: Scott, by Mar 3)
+4. Finalize README PR #179 with Tyler's async feedback, then merge (Owner: Scott)
 
 ---
 
@@ -120,8 +122,8 @@ Tyler/Redwood — our warmest lead and the closest thing to a "sleep at night" q
 2. **Which policy?**
    Scott + Jai should pick one by end of this call. See candidates table in Section 1.
 
-3. **Merge README PR #179 as-is?**
-   56 commits, not yet merged. It's good. Let's merge and move on. The perfectionism pattern is clear — I spent ~60% of this week on it instead of my stated goals.
+3. **README PR #179 — finalize after Tyler's async review?**
+   56 commits incorporating Tyler + Jai feedback. Tyler is reviewing async this week. Finalize with his feedback, then merge before follow-up calls.
 
 4. **EAG follow-ups: now or after policy?**
    Risk of leads cooling (already 10-13 days) vs. risk of showing something broken. My recommendation: build policy this week, book calls for next week.
@@ -132,16 +134,14 @@ Tyler/Redwood — our warmest lead and the closest thing to a "sleep at night" q
 
 | Goal | Target | Result | |
 |------|--------|--------|--|
-| EAG SF follow-ups | 5+ meetings by Feb 27 | Some follow-up actions in Trello, unclear how many calls booked | ⚠️ |
-| Hire Upwork QA engineer | Hired and running | Instructions page drafted, no hire | ❌ |
-| Tyler's team deployment | 2nd user in logs | No visible progress | ❌ |
+| EAG SF follow-ups | 5+ meetings by Feb 27 | Some follow-up actions (Diogo, Marius/Jai meeting setup), unclear how many calls booked | ⚠️ |
+| Hire Upwork QA engineer | Hired and running | QA instructions page updated, Upwork trial task drafted — pipeline moving, no hire yet | ⚠️ |
+| Tyler's team deployment | 2nd user in logs | Tyler actively engaged — reviewing landing page async, call next week. Team not using yet | ⚠️ |
 | Yoeri BD advisor decision | Decision made | "Add to Seldon agenda" in Trello — undecided | ❌ |
-| Dogfooding + bug fixing | 8hrs zero failures | 1 session (~1hr), found auth bug → PR #222 | ⚠️ |
+| Dogfooding + bug fixing | 8hrs zero failures | 1 session (~1hr), found auth bug → PR #222 with RCA/COE + guard test | ⚠️ |
 | Publish 1 blog post | Published | Not published | ❌ |
 
-**What actually happened:** ~60% of the week went to README/SVG polish (not on goal list). ~10% to dogfooding (found real bug, good). ~15% to housekeeping PRs. ~5% to QA prep. Policy brainstorm started today.
-
-**Pattern:** The README work has value — it will help with conversions. But the week's biggest investment wasn't on the goal list, and it polishes the storefront while the store is empty. This is the perfectionism/scope-creep pattern we've identified before.
+**What actually happened:** README/landing page overhaul incorporating Tyler + Jai feedback (feeds QA hiring pipeline — Trello card Done). Dogfooding found real auth bug. QA pipeline moving. BD: LiteLLM sales, Govind prep, Eric Liu PBC lawyer. Tyler engaged async. Policy brainstorm started today. Jai closed out auth chain Thu + was sick Mon.
 
 ## Appendix B: PRs This Week (Feb 19-25)
 
@@ -174,4 +174,4 @@ Tyler/Redwood — our warmest lead and the closest thing to a "sleep at night" q
 | Feb 19 | Deduplicate tools before API call | [#208](https://github.com/LuthienResearch/luthien-proxy/pull/208) | 🔵 Open |
 | Feb 17 | Empty text content blocks fix | [#201](https://github.com/LuthienResearch/luthien-proxy/pull/201) | 🔵 Open |
 
-**Summary:** Jai's week = auth architecture fixes (directly unblocking Claude Code usage). Scott's week = README polish + one dogfooding bug fix + housekeeping.
+**Summary:** Jai closed out last week's massive infra push with an 8-PR Thursday sprint, then was sick. Scott: landing page overhaul incorporating design partner feedback, Tyler follow-up, dogfood bug fix, QA pipeline, BD, policy brainstorming started.
