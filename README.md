@@ -40,19 +40,7 @@ Luthien is a proxy that sits between Claude Code (client) and the Claude API bac
 
 ## How does it work?
 
-```
-🧑‍💻 You --> 💻 Claude Code --> 🛡️ Luthien Proxy --> ☁️ Anthropic API
-                                    |
-                              logs every request and response
-                              configurable rules/policies:
-                                    |
-                                    |-- did it do what I asked?
-                                    |-- did it follow CLAUDE.md?
-                                    +-- did it do something suspicious?
-                                    |
-                                    +--> ☁️ can call a fast LLM (e.g. Haiku)
-                                         to evaluate your rules
-```
+<img src="assets/readme/how-it-works.svg" alt="How Luthien works: sits between Claude Code and the API, logs everything, enforces your rules" width="100%">
 
 Luthien runs on your machine or your cloud account.
 

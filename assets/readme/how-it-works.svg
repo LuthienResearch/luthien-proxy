@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="300" viewBox="0 0 680 300">
+  <rect width="680" height="300" rx="6" fill="#1e1e1e"/>
+
+  <style>
+    text { font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; }
+  </style>
+
+  <!-- Top line: flow diagram -->
+  <text x="20" y="30" fill="#d4d4d4" font-size="14">&#x1F9D1;&#x200D;&#x1F4BB; You  &#x21C4;  &#x1F4BB; Claude Code  &#x21C4;  Luthien  &#x21C4;  &#x2601;&#xFE0F; Anthropic API</text>
+
+  <!-- Vertical connector -->
+  <text x="295" y="50" fill="#555555" font-size="14">|</text>
+
+  <!-- Description lines -->
+  <text x="175" y="70" fill="#808080" font-size="14">logs every request and response.</text>
+  <text x="175" y="90" fill="#808080" font-size="14">you can configure arbitrary rules/policies to</text>
+  <text x="175" y="110" fill="#808080" font-size="14">modify or block certain responses or requests:</text>
+
+  <!-- Vertical connector -->
+  <text x="295" y="130" fill="#555555" font-size="14">|</text>
+
+  <!-- Three colored questions -->
+  <text x="295" y="150" fill="#555555" font-size="14">+--</text>
+  <text x="330" y="150" fill="#569cd6" font-size="14">did it do what I asked?</text>
+
+  <text x="295" y="170" fill="#555555" font-size="14">+--</text>
+  <text x="330" y="170" fill="#d4945a" font-size="14">did it follow CLAUDE.md?</text>
+
+  <text x="295" y="190" fill="#555555" font-size="14">+--</text>
+  <text x="330" y="190" fill="#f44747" font-size="14">did it do something suspicious?</text>
+
+  <!-- Vertical connector -->
+  <text x="295" y="210" fill="#555555" font-size="14">|</text>
+
+  <!-- LLM callout -->
+  <text x="295" y="230" fill="#555555" font-size="14">+--></text>
+  <text x="345" y="230" fill="#808080" font-size="14">&#x2601;&#xFE0F; can call another LLM (e.g. Haiku)</text>
+  <text x="345" y="250" fill="#808080" font-size="14">   to evaluate your rules/policies</text>
+
+</svg>
