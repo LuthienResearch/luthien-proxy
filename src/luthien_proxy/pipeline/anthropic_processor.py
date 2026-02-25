@@ -149,6 +149,19 @@ async def process_anthropic_request(
         if policy_ctx.request_summary:
             root_span.set_attribute("luthien.policy.request_summary", policy_ctx.request_summary)
 
+        # Record request for conversation history viewer
+        emitter.record(
+            call_id,
+            "transaction.request_recorded",
+            {
+                "original_model": anthropic_request["model"],
+                "final_model": final_request["model"],
+                "original_request": dict(anthropic_request),
+                "final_request": dict(final_request),
+                "session_id": session_id,
+            },
+        )
+
         emitter.record(
             call_id,
             "pipeline.backend_request",
@@ -334,6 +347,17 @@ async def _handle_non_streaming(
     with tracer.start_as_current_span("process_response") as span:
         span.set_attribute("luthien.phase", "process_response")
         processed_response = await policy.on_anthropic_response(response, policy_ctx)
+
+    # Record response for conversation history viewer
+    emitter.record(
+        call_id,
+        "transaction.non_streaming_response_recorded",
+        {
+            "original_response": dict(response),
+            "final_response": dict(processed_response),
+            "session_id": policy_ctx.session_id,
+        },
+    )
 
     # Phase 4: Send to client
     with tracer.start_as_current_span("send_to_client") as span:

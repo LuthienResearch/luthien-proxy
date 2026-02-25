@@ -355,6 +355,44 @@ class TestHandleNonStreaming:
         assert call_args[0][0] == "test-call-id"
         assert call_args[0][1] == "pipeline.client_response"
 
+    @pytest.mark.asyncio
+    async def test_emits_transaction_response_recorded_event(
+        self, mock_anthropic_client, mock_policy, mock_policy_ctx, mock_emitter, mock_anthropic_response
+    ):
+        """Non-streaming path should emit transaction.non_streaming_response_recorded for history viewer."""
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+        }
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            await _handle_non_streaming(
+                final_request=request,
+                policy=mock_policy,
+                policy_ctx=mock_policy_ctx,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+                call_id="test-call-id",
+            )
+
+        # Find the transaction.non_streaming_response_recorded call
+        event_types = [call[0][1] for call in mock_emitter.record.call_args_list]
+        assert "transaction.non_streaming_response_recorded" in event_types
+
+        # Verify payload structure matches what history service expects
+        for call in mock_emitter.record.call_args_list:
+            if call[0][1] == "transaction.non_streaming_response_recorded":
+                payload = call[0][2]
+                assert "original_response" in payload
+                assert "final_response" in payload
+                assert payload["final_response"]["role"] == "assistant"
+                break
+
 
 class TestHandleStreaming:
     """Tests for _handle_streaming helper function."""
@@ -496,6 +534,45 @@ class TestProcessAnthropicRequest:
 
         assert isinstance(response, JSONResponse)
         mock_anthropic_client.complete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_emits_transaction_request_recorded(
+        self, mock_request, mock_policy, mock_anthropic_client, mock_emitter
+    ):
+        """Anthropic pipeline should emit transaction.request_recorded for history viewer."""
+        anthropic_body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            await process_anthropic_request(
+                request=mock_request,
+                policy=mock_policy,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+            )
+
+        # Verify transaction.request_recorded was emitted
+        event_types = [call[0][1] for call in mock_emitter.record.call_args_list]
+        assert "transaction.request_recorded" in event_types
+
+        # Verify payload structure
+        for call in mock_emitter.record.call_args_list:
+            if call[0][1] == "transaction.request_recorded":
+                payload = call[0][2]
+                assert payload["final_model"] == "claude-sonnet-4-20250514"
+                assert "original_request" in payload
+                assert "final_request" in payload
+                assert payload["final_request"]["messages"][0]["content"] == "Hello"
+                break
 
     @pytest.mark.asyncio
     async def test_streaming_request_returns_streaming_response(self, mock_request, mock_policy, mock_emitter):
