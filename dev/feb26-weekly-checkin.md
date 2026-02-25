@@ -8,7 +8,7 @@
 
 ## What did you ship last week?
 
-1. **Jai: Closed out the auth chain (continuation of last week's massive infra push)** — 8 PRs on Thursday Feb 19 alone (#211-#217, #219), plus final OAuth passthrough (#221) over the weekend. Then sick Monday. Combined with last week's composable policies, config UI, and live view — Claude Code relay now works end-to-end. The #1 technical blocker from Feb 19 is resolved.
+1. 🔥🎉 **Jai: Closed out the auth chain (continuation of last week's massive infra push)** — 8 PRs on Thursday Feb 19 alone (#211-#217, #219), plus final OAuth passthrough (#221) over the weekend. Then sick Monday. Combined with last week's composable policies, config UI, and live view — Claude Code relay now works end-to-end. 🚀 The #1 technical blocker from Feb 19 is resolved.
 2. **Scott: README/landing page overhaul incorporating Tyler + Jai feedback** — PR #179 (56 commits). Before/After SVG diagrams showing real Claude Code UX, simplified Quick Start, question-based headers. Extracted Tyler's specific feedback from Feb 10 live install. Tyler reviewing async, call next week. Feeds QA hiring pipeline (Trello: "update readme → hire upwork people" ✅ Done).
 3. **Scott: BD + dogfooding + dev tooling:**
    - **Tyler/Redwood:** Prepped for call, Tyler reviewing landing page async, meeting next week (Jai was sick)
