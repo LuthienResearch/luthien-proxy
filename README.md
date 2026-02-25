@@ -118,17 +118,13 @@ Install [uv](https://docs.astral.sh/uv/) if you haven't: `curl -LsSf https://ast
 git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy
 ```
 
-### 2. Configure API keys
+### 2. Add your Anthropic API key
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and add your keys:
-
-```
-ANTHROPIC_API_KEY=sk-ant-...
-```
+Edit `.env` and set `ANTHROPIC_API_KEY=sk-ant-...`
 
 ### 3. Run quick start script
 
