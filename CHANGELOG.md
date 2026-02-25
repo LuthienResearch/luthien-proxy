@@ -2,6 +2,17 @@
 
 ## Unreleased | TBA
 
+- Repo simplification: delete dead code, stale files, and redundant documentation
+  - Delete 14 dead scripts from `scripts/` (-1,556 lines)
+  - Delete `config/archive/` (9 stale YAML files), `docs/plans/`, `AGENTS.md`, stale dev docs (-2,540 lines)
+  - Simplify README.md: consolidate 7 redundant sections into concise pointers (-299 lines)
+  - Remove dead source code: `utils/logging_config.py`, `gateway_test_fixtures.py`, empty `test_policies/` stub
+  - Remove unused `make_complete_response()` test helper and clean up imports
+  - Remove 67 auto-generated ABOUTME comments from 37 test files
+  - Fix stale cross-references in `dev/README.md` and `dev/context/gotchas.md`
+  - Add `coverage.json` to `.gitignore`
+  - Net result: ~4,650 lines removed, zero test regressions (1,215 tests pass)
+
 - Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
   - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
   - MultiParallelPolicy: parallel execution with configurable consolidation strategies
