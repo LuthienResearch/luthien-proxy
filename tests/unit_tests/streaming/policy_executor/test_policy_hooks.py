@@ -1,5 +1,3 @@
-# ABOUTME: Tests for PolicyExecutor policy hook invocations
-# ABOUTME: Verifies correct policy methods are called based on chunk type and stream state
 
 """Tests for PolicyExecutor policy hook invocations."""
 

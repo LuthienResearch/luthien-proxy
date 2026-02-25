@@ -1,5 +1,3 @@
-# ABOUTME: Unit tests for redis_event_publisher.py, focusing on pure functions
-# ABOUTME: Tests event building logic without requiring Redis infrastructure
 
 """Unit tests for redis_event_publisher.
 

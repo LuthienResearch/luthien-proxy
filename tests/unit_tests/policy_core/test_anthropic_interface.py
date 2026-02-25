@@ -1,4 +1,3 @@
-# ABOUTME: Unit tests for AnthropicPolicyInterface ABC
 
 """Unit tests for AnthropicPolicyInterface ABC."""
 

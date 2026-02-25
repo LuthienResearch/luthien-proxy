@@ -1,5 +1,3 @@
-# ABOUTME: Tests for AnthropicStreamExecutor that processes Anthropic streaming events through policy hooks
-# ABOUTME: Verifies passthrough, filtering, transformation, and error handling behaviors
 
 """Tests for AnthropicStreamExecutor.
 

@@ -1,5 +1,3 @@
-# ABOUTME: Test helper utilities package
-# ABOUTME: Provides shared test utilities that mirror production patterns
 
 """Test helper utilities."""
 

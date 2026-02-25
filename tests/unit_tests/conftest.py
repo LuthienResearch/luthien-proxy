@@ -1,5 +1,3 @@
-# ABOUTME: Shared test fixtures for V2 tests
-# ABOUTME: Provides properly structured ModelResponse objects to avoid Pydantic warnings
 
 """Shared fixtures for V2 tests."""
 

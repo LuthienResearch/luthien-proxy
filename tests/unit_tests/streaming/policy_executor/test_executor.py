@@ -1,5 +1,3 @@
-# ABOUTME: Unit tests for PolicyExecutor
-# ABOUTME: Tests keepalive mechanism and timeout tracking
 
 """Tests for PolicyExecutor."""
 

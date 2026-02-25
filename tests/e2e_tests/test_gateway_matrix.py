@@ -1,5 +1,3 @@
-# ABOUTME: Comprehensive E2E test matrix for gateway
-# ABOUTME: Tests all combinations of client API, backend LLM, and streaming mode
 
 """Comprehensive E2E tests for gateway covering all API/LLM/mode combinations.
 

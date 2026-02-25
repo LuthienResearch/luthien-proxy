@@ -1,5 +1,3 @@
-# ABOUTME: Pytest configuration for integration tests
-# ABOUTME: Loads environment variables and provides database fixtures
 
 """Integration test configuration.
 

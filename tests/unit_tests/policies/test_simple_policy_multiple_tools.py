@@ -1,5 +1,3 @@
-# ABOUTME: Test that validates SimplePolicy behavior with multiple tool calls
-# ABOUTME: Regression test for duplicate response bug with finish_reason
 
 """Test SimplePolicy with multiple tool calls to validate finish_reason handling.
 

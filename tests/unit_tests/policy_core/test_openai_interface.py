@@ -1,4 +1,3 @@
-# ABOUTME: Unit tests for OpenAIPolicyInterface ABC
 
 """Unit tests for OpenAIPolicyInterface ABC."""
 

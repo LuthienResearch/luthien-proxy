@@ -1,5 +1,3 @@
-# ABOUTME: Unit tests for OpenAI ClientFormatter
-# ABOUTME: Tests conversion of ModelResponse chunks to OpenAI SSE format
 
 """Tests for OpenAI client formatter."""
 
