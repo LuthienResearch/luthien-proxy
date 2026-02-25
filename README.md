@@ -150,9 +150,11 @@ Or see full JSONLs in the activity monitor: <http://localhost:8000/activity/moni
 
 ### 6. Set up a DeSlop policy (string replacement)
 
-Find: `—` (em dash) Replace with: `-` (hyphen)
+| Find | Replace with |
+|------|-------------|
+| `—` (em dash) | `-` (hyphen) |
 
-Runs on every LLM response before it reaches Claude Code. Switch policies at [localhost:8000/policy-config](http://localhost:8000/policy-config) -- no restart needed.
+Runs on every LLM response. Switch policies at [localhost:8000/policy-config](http://localhost:8000/policy-config).
 
 <details>
 <summary><b>See the code (click to expand)</b></summary>
@@ -161,30 +163,29 @@ Runs on every LLM response before it reaches Claude Code. Switch policies at [lo
 from luthien_proxy.policies.simple_policy import SimplePolicy
 
 class DeSlop(SimplePolicy):
-    # Called on every LLM response before it reaches Claude Code
-    async def simple_on_response_content(self, content, ctx):
-        # Replace em dashes and en dashes with normal hyphens
-        return content.replace("\u2014", "-").replace("\u2013", "-")
+    async def simple_on_response_content(self, content, ctx):  # runs on every LLM response before it reaches Claude Code
+        return content.replace("\u2014", "-").replace("\u2013", "-")  # em dash → hyphen, en dash → hyphen
 ```
 
 </details>
 
 ### 7. Set up an LLM-as-judge policy
 
-Luthien can call a fast LLM (like Haiku) to evaluate your rules on every request and response.
+Luthien can call an LLM (like Haiku) to evaluate your rules on every request and response.
 
 <details>
-<summary><b>Did it do what I asked? (click to expand)</b></summary>
+<summary><b>Did it do what I asked?</b></summary>
 
 ```python
-# Sends the conversation to Haiku to check: did the agent do what you asked?
-# Results are logged -- check the activity monitor to review
+from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
 
-class PromptCompliance(SimpleJudgePolicy):
+class PromptCompliance(SimpleJudgePolicy):  # sends the conversation to Haiku after each response
     RULES = [
-        "Check if the agent's response actually addresses what the user asked for.",
-        "Log the result. Always allow the response through.",
+        "Check if the agent actually completed what the user asked for.",
+        "Flag if it claimed 'Done!' but left TODOs, stubs, or placeholder code.",
+        "Flag if it deleted or commented out tests instead of fixing them.",
     ]
+    # results logged to activity monitor: http://localhost:8000/activity/monitor
 ```
 
 </details>
@@ -193,12 +194,13 @@ class PromptCompliance(SimpleJudgePolicy):
 <summary><b>Did it follow CLAUDE.md?</b></summary>
 
 ```python
-# Reads your rules and checks compliance. Non-compliant responses get rewritten.
+from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
 
-class RuleEnforcement(SimpleJudgePolicy):
+class RuleEnforcement(SimpleJudgePolicy):  # reads your CLAUDE.md and checks compliance
     RULES = [
-        "Block any 'pip install' or 'pip3 install' commands. Suggest 'uv add' instead.",
-        "Allow all other tool calls.",
+        "Block any 'pip install' commands. Suggest 'uv add' instead.",  # from CLAUDE.md: "use uv, not pip"
+        "Flag if agent removed comments or log lines without being asked.",
+        "Flag if agent ignored rules that were explicitly stated in CLAUDE.md.",
     ]
 ```
 
@@ -208,13 +210,14 @@ class RuleEnforcement(SimpleJudgePolicy):
 <summary><b>Did it do something suspicious?</b></summary>
 
 ```python
-# Intercepts tool calls and checks them for safety before they execute.
+from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
 
-class SafetyGuard(SimpleJudgePolicy):
+class SafetyGuard(SimpleJudgePolicy):  # intercepts tool calls and checks them before they execute
     RULES = [
-        "Block 'rm -rf' or any recursive delete commands.",
+        "Block 'rm -rf' or any recursive delete on project directories.",
         "Block 'git push --force' to main or master.",
-        "Allow all other tool calls.",
+        "Flag if agent wraps code in try/except that swallows all errors.",
+        "Flag if agent pip-installs packages not in requirements.",
     ]
 ```
 
