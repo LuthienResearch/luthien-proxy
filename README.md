@@ -7,9 +7,7 @@
 
 ## What is it?
 
-Luthien is a proxy that sits between your AI coding agent and the LLM. It intercepts every request and response, letting you enforce rules, block dangerous operations, and clean up output across your org, without changing your dev setup.
-
-Works with Claude Code. Supports streaming.
+Luthien is a proxy that sits between Claude Code (client) and the Claude API backend. It logs every request and response and enables you to set arbitrary rules/policies that can block dangerous operations, confirm the output is what you asked for, adheres to your CLAUDE.md, and doesn't contain suspicious stuff — all without changing your dev setup.
 
 ---
 
