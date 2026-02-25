@@ -102,6 +102,8 @@ class PolicyManager:
                 "or configure a policy via the admin API first."
             )
 
+        self._current_policy = self._maybe_wrap_for_dogfood(self._current_policy)
+
     async def _initialize_from_file(self) -> None:
         """Load policy from YAML file and persist to DB."""
         if not self.startup_policy_path or not os.path.exists(self.startup_policy_path):
@@ -145,6 +147,30 @@ class PolicyManager:
         if policy:
             self._current_policy = policy
             logger.info("Loaded policy from database")
+
+    def _maybe_wrap_for_dogfood(self, policy: PolicyProtocol) -> PolicyProtocol:
+        """If DOGFOOD_MODE is enabled, wrap policy with DogfoodSafetyPolicy."""
+        from luthien_proxy.settings import get_settings  # noqa: PLC0415
+
+        if not get_settings().dogfood_mode:
+            return policy
+
+        # Avoid double-wrapping
+        from luthien_proxy.policies.dogfood_safety_policy import DogfoodSafetyPolicy  # noqa: PLC0415
+        from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy  # noqa: PLC0415
+
+        if isinstance(policy, MultiSerialPolicy) and any(
+            isinstance(p, DogfoodSafetyPolicy) for p in policy._sub_policies
+        ):
+            return policy
+
+        safety = DogfoodSafetyPolicy()
+        wrapped = MultiSerialPolicy.__new__(MultiSerialPolicy)
+        wrapped._sub_policies = [safety, policy]
+        wrapped._validated_interfaces = set()
+
+        logger.info(f"DOGFOOD_MODE: wrapped {policy.__class__.__name__} with DogfoodSafetyPolicy via MultiSerialPolicy")
+        return wrapped
 
     async def _load_from_db(self) -> PolicyProtocol | None:
         """Load policy from database.
@@ -199,8 +225,8 @@ class PolicyManager:
                 # 2. Persist to DB
                 await self._persist_to_db(policy_class_ref, config, enabled_by)
 
-                # 3. Hot-swap in memory
-                self._current_policy = new_policy
+                # 3. Hot-swap in memory (wrap for dogfood if enabled)
+                self._current_policy = self._maybe_wrap_for_dogfood(new_policy)
 
                 duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
