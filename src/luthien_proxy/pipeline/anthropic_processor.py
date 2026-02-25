@@ -36,12 +36,14 @@ from opentelemetry import trace
 from opentelemetry.context import attach, detach, get_current
 from opentelemetry.trace import Span
 
+from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
     AnthropicResponse,
 )
 from luthien_proxy.observability.emitter import EventEmitterProtocol
+from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.session import extract_session_id_from_anthropic_body
 from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -405,31 +407,54 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
     )
 
 
+# Maps Anthropic HTTP status codes to error type strings.
+# Aligns with Anthropic's documented error types for proper client formatting.
+_ANTHROPIC_STATUS_ERROR_TYPE_MAP: dict[int, str] = {
+    400: "invalid_request_error",
+    401: "authentication_error",
+    403: "permission_error",
+    404: "not_found_error",
+    409: "conflict_error",
+    422: "invalid_request_error",
+    429: "rate_limit_error",
+    500: "api_error",
+    529: "overloaded_error",
+}
+
+
 def _handle_anthropic_error(e: Exception, call_id: str) -> None:
-    """Handle Anthropic API errors by logging and raising HTTPException.
+    """Handle Anthropic API errors by raising BackendAPIError.
+
+    Uses BackendAPIError instead of HTTPException so the main.py exception
+    handler can format the response properly and handle credential
+    invalidation on 401.
 
     Args:
         e: Exception from Anthropic SDK
         call_id: Transaction ID for logging
 
     Raises:
-        HTTPException: If the exception is a known Anthropic API error
+        BackendAPIError: If the exception is a known Anthropic API error
     """
     if isinstance(e, AnthropicStatusError):
         status_code = e.status_code or 500
+        error_type = _ANTHROPIC_STATUS_ERROR_TYPE_MAP.get(status_code, "api_error")
         logger.warning(f"[{call_id}] Anthropic API error: {status_code} {e.message}")
-        # TODO: invalidate cached credential on 401 (on_backend_401).
-        # The OpenAI/LiteLLM path handles this via BackendAPIError in main.py,
-        # but this path raises HTTPException which bypasses that handler.
-        raise HTTPException(
+        raise BackendAPIError(
             status_code=status_code,
-            detail={"type": "error", "error": {"type": "api_error", "message": str(e.message)}},
+            message=str(e.message),
+            error_type=error_type,
+            client_format=ClientFormat.ANTHROPIC,
+            provider="anthropic",
         ) from e
     elif isinstance(e, AnthropicConnectionError):
         logger.warning(f"[{call_id}] Anthropic connection error: {e}")
-        raise HTTPException(
+        raise BackendAPIError(
             status_code=502,
-            detail={"type": "error", "error": {"type": "api_connection_error", "message": str(e)}},
+            message=str(e),
+            error_type="api_connection_error",
+            client_format=ClientFormat.ANTHROPIC,
+            provider="anthropic",
         ) from e
     # For other exceptions, let them propagate
 
