@@ -10,21 +10,21 @@
 
 ---
 
-[Last week](https://hackmd.io/@scwoff/BJH56Y3_Ze) was Jai's massive infrastructure push (composable policies, passthrough auth, config UI, conversation live view, deploy instructions). 🔥🎉 This week he closed out the remaining auth chain in a single Thursday sprint — 8 PRs on Feb 19 alone ([#211](https://github.com/LuthienResearch/luthien-proxy/pull/211), [#212](https://github.com/LuthienResearch/luthien-proxy/pull/212), [#213](https://github.com/LuthienResearch/luthien-proxy/pull/213), [#214](https://github.com/LuthienResearch/luthien-proxy/pull/214), [#215](https://github.com/LuthienResearch/luthien-proxy/pull/215), [#216](https://github.com/LuthienResearch/luthien-proxy/pull/216), [#217](https://github.com/LuthienResearch/luthien-proxy/pull/217), [#219](https://github.com/LuthienResearch/luthien-proxy/pull/219)) — plus one final OAuth passthrough PR ([#221](https://github.com/LuthienResearch/luthien-proxy/pull/221)) over the weekend before getting sick Monday. Claude Code relay now works end-to-end without workarounds. 🚀 The #1 technical blocker from Feb 19 is resolved. Meanwhile, Scott rewrote the README/landing page incorporating Tyler's feedback from the Feb 10 live install and Jai's review ([PR #179](https://github.com/LuthienResearch/luthien-proxy/pull/179), workshopping with Tyler async before next week's call), found another dogfooding bug within 5 minutes of fresh setup ([PR #222](https://github.com/LuthienResearch/luthien-proxy/pull/222), RCA/COE + guard test), moved the QA hiring pipeline forward (instructions + Upwork draft), and did BD work (LiteLLM sales, Govind meeting, Eric Liu PBC lawyer). Infrastructure-wise, we're in a stronger position than last week.
+[Last week](https://hackmd.io/@scwoff/BJH56Y3_Ze) was Jai's massive infrastructure push (composable policies, passthrough auth, config UI, conversation live view, deploy instructions). 🔥🎉 This week he closed out the remaining auth chain in a single Thursday sprint — 8 PRs in one day, plus a final OAuth fix over the weekend before getting sick Monday. Claude Code relay now works end-to-end without workarounds. 🚀 The #1 technical blocker from Feb 19 is resolved. Meanwhile, Scott rewrote the README/landing page incorporating Tyler + Jai feedback (workshopping with Tyler async before next week's call), found a dogfooding bug within 5 minutes of fresh setup, moved the QA hiring pipeline forward, and did BD work (LiteLLM, Govind, PBC lawyer). Infrastructure-wise, we're in a stronger position than last week. (Full PR list in [Appendix B](#appendix-b-prs-this-week-feb-19-25).)
 
 But what should we work on next? Our Trello board has **~120 cards** across active lists, pulling in every direction at once. When I cross-cut them by theme rather than by Trello list and map each against our [three uber requirements from Feb 19](https://hackmd.io/@scwoff/HkwCxCVuZg), the problem becomes clear:
 
-| Theme | # Cards | Uber Req Served | Examples |
-|-------|---------|-----------------|----------|
-| **EAG follow-ups & debriefs** | ~20 | None directly | Debrief Juan @ OpenAI, Marcus, Andy, Tomas, Lindley, Prakrak, Dylan Fridman, Max Werner, Luis @ Equistamp, Martin @ AE Studio, Mike M, send Diogo README, post-EAG people review, book time with Ryan & Matt B |
-| **BD & partnerships** | ~10 | None directly | Setup Jai/Marius meeting, reach out to Nathan, Theorem/Rajashree, Gray Swan CEO, JJ Allaire, Transluce/Rohan, Karl, Tela Andrews, Michael Margolis, LiteLLM follow-up |
-| **Legal & admin** | ~8 | None | Reply to Virgil (×2), sign RSPAs, 83(b) election, open bank account, Board consent + SAFE, PBC deadline, advisor paperwork |
-| **Product building** | ~15 | #2 Time-to-value, #3 Policies | Implement default demo policies, one-click cloud deploy, Workflow Enforcement Policy, session sharing, session history recovery, policy config UI, "logged by Luthien" feature, streamline onboarding, analytics platform |
-| **Dogfooding & QA** | ~8 | #1 Stability, #3 Policies | Create and dogfood policies, evaluate QA outsourcing, Playwright for UI testing, record traffic for replay, try dev checks, bug fixes |
-| **Content & comms** | ~6 | None directly | Publish Peru blog post, draft PBC newsletter, Mr. Beast content marketing idea, debrief Seldon pitch feedback |
-| **Research & learning** | ~8 | None | Alignment forum, Inspect framework, UKAISI ControlArena, distribution strategy analysis, Look at Matt's claude.md, Quentin's working-with-me file |
-| **Feature ideas (someday/maybe)** | ~35 | Mixed / future | Trace back/blame chain, visual DB schema, JSONL exports, dynamic gateway, Jr Dev Story 6, conversation URLs, unit test classifier... (full list in Building & Dogfooding Ideas) |
-| **Misc admin** | ~10 | None | Fix Trello issue, Dropbox content audit, book March flights, move session logs, close tabs, archive luthien_control repo |
+| Theme | # Cards | Uber Req Served |
+|-------|---------|-----------------|
+| EAG follow-ups & debriefs | ~20 | None directly |
+| BD & partnerships | ~10 | None directly |
+| Legal & admin | ~8 | None |
+| **Product building** | **~15** | **#2 Time-to-value, #3 Policies** |
+| **Dogfooding & QA** | **~8** | **#1 Stability, #3 Policies** |
+| Content & comms | ~6 | None directly |
+| Research & learning | ~8 | None |
+| Feature ideas (someday/maybe) | ~35 | Mixed / future |
+| Misc admin | ~10 | None |
 
 Now map this against our three uber requirements:
 
@@ -34,9 +34,7 @@ Now map this against our three uber requirements:
 | **#2 "Quick time-to-value"** (onboarding) | Yellow → **Yellow** | Product building subset (~5: onboarding, one-click deploy, README) | ~115 |
 | **#3 "Policies that work when configured"** | Red → **Red** | Product building subset (~5: demo policies, Workflow Enforcement), Dogfooding (~3) | ~112 |
 
-**The pattern: ~85% of our 120 cards don't directly advance any uber requirement.** They're either downstream of proving value (EAG follow-ups only matter if we have something to show), necessary-but-not-differentiating (legal/admin), or speculative (feature ideas, research). Only ~23 cards are on the critical path — and the ones that matter *most right now* are the handful addressing uber requirement #3 (policies that actually work), because that's where the whole dependency chain is stuck.
-
-Progress was made on several fronts (see [Appendix A](#appendix-a-last-weeks-goals-scorecard)). Tyler is actively engaged — reviewing the landing page async and meeting next week — but his team isn't using Luthien yet. QA pipeline is moving (instructions + Upwork draft) but no hire. Blog post didn't happen. EAG leads are aging; some follow-up actions happening (Diogo, Marius/Jai meeting) but unclear how many have converted to booked calls. And from last week's meeting, the thing that stuck with me: *"I have yet to use for myself or demonstrate to another human an actually useful policy."*
+**The pattern: ~85% of our 120 cards don't directly advance any uber requirement.** Only ~23 are on the critical path — and the ones that matter *most right now* are the handful addressing uber requirement #3 (policies that actually work), because that's where the whole dependency chain is stuck. From last week's meeting, the thing that stuck with me: *"I have yet to use for myself or demonstrate to another human an actually useful policy."*
 
 **Central question:** Given this overwhelming list, what is our current limiting factor — what one thing, if we got it right, would make the most other things either unnecessary or easier?
 
@@ -50,17 +48,9 @@ Progress was made on several fronts (see [Appendix A](#appendix-a-last-weeks-goa
 
 ## 1. No Useful Policy Exists
 
-We have infrastructure that can support useful policies — composable policies ([#184](https://github.com/LuthienResearch/luthien-proxy/pull/184)), dynamic config UI ([#175](https://github.com/LuthienResearch/luthien-proxy/pull/175)), streaming pipeline, judge policies. But `policy_config.yaml` still defaults to NoOpPolicy. Nobody has built a policy that solves a real developer pain point.
+We have the infrastructure (composable policies, config UI, streaming pipeline, judge policies) but `policy_config.yaml` still defaults to NoOpPolicy. 15+ user interviews surfaced concrete policy ideas, but none have been implemented. Without a useful policy, dogfooding is just testing plumbing and we have nothing to demo.
 
-**Status: Red.** This is the bottleneck.
-
-**Evidence:**
-- 15+ user interviews have surfaced concrete policy ideas (Nico alone ranked 8), but none have been implemented
-- Caps lock demos worked ~75% at EAG SF, but no design partner would use it day-to-day
-- Policy brainstorm didn't start until today (Feb 25)
-- Without a useful policy, dogfooding is just testing plumbing — necessary, but not sufficient to prove value
-
-**Why this matters:** Every output metric (paying customers, design partner retention, "sleep at night" quote) requires someone to experience value. A polished README, a working auth chain, and 15 enthusiastic EAG conversations are all upstream investments. They only pay off when someone runs a policy that makes their workflow better.
+**Status: Red.** This is the bottleneck. Everything downstream (conversions, revenue, "sleep at night" quote) is blocked here.
 
 **Goal:** By Mar 7, Scott and Jai are both running one useful policy in every coding session. If it breaks, we fix it. If it's annoying, we tune it. If it's useful, we demo it.
 
@@ -108,11 +98,9 @@ Three of four known bugs still have open PRs. Jai needs to review #178, #201, #2
 
 ## 3. EAG Pipeline Is Decaying
 
-15+ EAG conversations generated genuine enthusiasm 10-13 days ago. Trello "In progress" currently has ~15 debrief items: Diogo (AE Studio), Luis (Equistamp), Martin (AE Studio), Dylan Fridman, Max Werner, Lindley, Prakrak, Mike M, and others. Some follow-up actions exist (send Diogo the README, set up Jai/Marius call), but it's unclear how many have converted to booked second meetings.
+15+ EAG conversations generated genuine enthusiasm 10-13 days ago. ~15 debrief items are sitting in Trello, but it's unclear how many have converted to booked second meetings. Tyler/Redwood — our warmest lead — is actively engaged (reviewing landing page async, meeting next week), but his team isn't using Luthien yet.
 
-Tyler/Redwood — our warmest lead — is actively engaged. He's reviewing the new landing page async and meeting next week (Jai was sick this week so the weekly call was postponed). Auth fixes should unblock his team technically. But his team isn't using Luthien yet.
-
-**Status: Yellow.** Tyler is warm and engaged. Broader pipeline needs follow-up before leads go cold. Last week's goal was "5+ follow-up meetings by Feb 27" — partially in progress.
+**Status: Yellow.** Tyler warm. Broader pipeline needs follow-up before leads go cold.
 
 **The tension:** We need to follow up before leads go cold, but following up with a broken or useless product wastes their goodwill. This is why building a useful policy (section 1) comes first — even a 1-week delay in follow-ups is worth it if we can show something real.
 
@@ -155,33 +143,11 @@ Tyler/Redwood — our warmest lead — is actively engaged. He's reviewing the n
 
 ## Appendix B: PRs This Week (Feb 19-25)
 
-### Jai (9 PRs merged)
+**12 merged** (9 Jai, 3 Scott), **7 open** (all Scott, awaiting Jai review).
 
-| Date | What | PR | Status |
-|------|------|----|--------|
-| Feb 19 | Railway deploy failures fix | [#212](https://github.com/LuthienResearch/luthien-proxy/pull/212) | ✅ Merged |
-| Feb 19 | Codebase cleanup — dead code, fail-fast, dedup | [#211](https://github.com/LuthienResearch/luthien-proxy/pull/211) | ✅ Merged |
-| Feb 19 | StringReplacementPolicy test fix | [#213](https://github.com/LuthienResearch/luthien-proxy/pull/213) | ✅ Merged |
-| Feb 19 | Bearer tokens + x-api-key auth | [#214](https://github.com/LuthienResearch/luthien-proxy/pull/214) | ✅ Merged |
-| Feb 19 | Bypass nesting detection in e2e | [#215](https://github.com/LuthienResearch/luthien-proxy/pull/215) | ✅ Merged |
-| Feb 19 | Replace last prod assert with static types | [#216](https://github.com/LuthienResearch/luthien-proxy/pull/216) | ✅ Merged |
-| Feb 19 | Railway demo updates | [#217](https://github.com/LuthienResearch/luthien-proxy/pull/217), [#220](https://github.com/LuthienResearch/luthien-proxy/pull/220) | ✅ Merged |
-| Feb 19 | Forward OAuth bearer tokens | [#219](https://github.com/LuthienResearch/luthien-proxy/pull/219) | ✅ Merged |
-| Feb 23 | **OAuth bearer token passthrough** | [#221](https://github.com/LuthienResearch/luthien-proxy/pull/221) | ✅ Merged |
+Highlights:
+- **Jai:** Auth chain complete — bearer tokens (#214), OAuth forwarding (#219), final passthrough (#221). Plus deploy fixes, cleanup, and test hardening.
+- **Scott:** README/landing page rewrite (#179, 56 commits, open — workshopping with Tyler). Auth bug fix (#222). Housekeeping: shellcheck, test constants, /coe command.
+- **Awaiting review:** #178 (cache_control), #201 (empty text blocks), #208 (deduplicate tools) — all bug fixes blocking stability goal.
 
-### Scott (3 merged, 7 open)
-
-| Date | What | PR | Status |
-|------|------|----|--------|
-| Feb 19 | Default AUTH_MODE to both | [#206](https://github.com/LuthienResearch/luthien-proxy/pull/206) | ✅ Merged |
-| Feb 19 | Static file cache + TODO cleanup | [#207](https://github.com/LuthienResearch/luthien-proxy/pull/207) | ✅ Merged |
-| Feb 19 | Remove 19 completed TODO items | [#209](https://github.com/LuthienResearch/luthien-proxy/pull/209) | ✅ Merged |
-| Feb 19–25 | **README/value-prop rewrite** (56 commits) | [#179](https://github.com/LuthienResearch/luthien-proxy/pull/179) | 🔵 Open |
-| Feb 24 | Auth_mode default fix (dogfood bug) + RCA/COE | [#222](https://github.com/LuthienResearch/luthien-proxy/pull/222) | 🔵 Open |
-| Feb 24 | Shellcheck integration to dev_checks | [#224](https://github.com/LuthienResearch/luthien-proxy/pull/224) | 🔵 Open |
-| Feb 24 | DEFAULT_CLAUDE_TEST_MODEL constant | [#226](https://github.com/LuthienResearch/luthien-proxy/pull/226) | 🔵 Open |
-| Feb 24 | Repo-level /coe slash command | [#227](https://github.com/LuthienResearch/luthien-proxy/pull/227) | 🔵 Open |
-| Feb 19 | Deduplicate tools before API call | [#208](https://github.com/LuthienResearch/luthien-proxy/pull/208) | 🔵 Open |
-| Feb 17 | Empty text content blocks fix | [#201](https://github.com/LuthienResearch/luthien-proxy/pull/201) | 🔵 Open |
-
-**Summary:** Jai closed out last week's massive infra push with an 8-PR Thursday sprint, then was sick. Scott: landing page overhaul incorporating design partner feedback, Tyler follow-up, dogfood bug fix, QA pipeline, BD, policy brainstorming started.
+Full PR list in [shipping log](https://hackmd.io/@scwoff/BJH56Y3_Ze).

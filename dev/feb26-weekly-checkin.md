@@ -10,13 +10,7 @@
 
 1. 🔥🎉 **Jai: Closed out the auth chain (continuation of last week's massive infra push)** — 8 PRs on Thursday Feb 19 alone (#211-#217, #219), plus final OAuth passthrough (#221) over the weekend. Then sick Monday. Combined with last week's composable policies, config UI, and live view — Claude Code relay now works end-to-end. 🚀 The #1 technical blocker from Feb 19 is resolved.
 2. **Scott: README/landing page overhaul incorporating Tyler + Jai feedback** — PR #179 (56 commits). Before/After SVG diagrams showing real Claude Code UX, simplified Quick Start, question-based headers. Extracted Tyler's specific feedback from Feb 10 live install. Tyler reviewing async, call next week. Feeds QA hiring pipeline (Trello: "update readme → hire upwork people" ✅ Done).
-3. **Scott: BD + dogfooding + dev tooling:**
-   - **Tyler/Redwood:** Prepped for call, Tyler reviewing landing page async, meeting next week (Jai was sick)
-   - **Dogfooding:** Found auth_mode default bug in 5 min of fresh setup → PR #222 with full RCA/COE + guard test
-   - **QA pipeline:** Updated instructions page, drafted Upwork trial task
-   - **BD:** Engaged LiteLLM sales team, prepped for Govind meeting, reached out to Eric Liu (PBC lawyer)
-   - **Policy brainstorming:** Started researching which policy to dogfood (session logs + user interview synthesis)
-   - **Housekeeping PRs:** shellcheck (#224), test model constant (#226), /coe command (#227), TODO cleanup (#209), deduplicate tools (#208)
+3. **Scott: BD + dogfooding + prep work** — Tyler follow-up (reviewing landing page async, call next week), dogfooding found auth bug (PR #222 with RCA/COE), QA hiring pipeline moving (instructions + Upwork draft), BD (LiteLLM, Govind, PBC lawyer), started policy brainstorming, plus 5 housekeeping PRs.
 
 ---
 
