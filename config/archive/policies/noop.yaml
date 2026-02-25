@@ -1,3 +1,0 @@
-policy:
-  class: "luthien_proxy.policies.noop:NoOpPolicy"
-  config: {}
