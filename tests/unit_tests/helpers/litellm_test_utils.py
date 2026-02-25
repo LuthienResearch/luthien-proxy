@@ -1,3 +1,5 @@
+# ABOUTME: Test utilities for creating normalized litellm responses
+# ABOUTME: Mirrors production litellm_client wrapper - tests should use these instead of creating ModelResponse directly
 
 """Test utilities for creating normalized litellm responses.
 

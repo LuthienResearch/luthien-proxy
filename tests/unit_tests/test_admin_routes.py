@@ -1,3 +1,5 @@
+# ABOUTME: Unit tests for admin route handlers
+# ABOUTME: Tests HTTP layer for policy management endpoints
 
 """Tests for admin route handlers.
 

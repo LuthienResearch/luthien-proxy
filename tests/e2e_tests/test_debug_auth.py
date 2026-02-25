@@ -1,3 +1,5 @@
+# ABOUTME: E2E tests for debug endpoint authentication
+# ABOUTME: Tests that /debug/* endpoints require admin authentication
 
 """E2E tests for debug endpoint authentication.
 

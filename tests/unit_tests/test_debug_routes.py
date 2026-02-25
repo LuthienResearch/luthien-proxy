@@ -1,3 +1,5 @@
+# ABOUTME: Unit tests for V2 debug route handlers
+# ABOUTME: Tests HTTP layer (dependency injection, error handling, status codes)
 
 """Tests for V2 debug route handlers.
 

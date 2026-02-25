@@ -1,3 +1,5 @@
+# ABOUTME: Unit tests for OpenTelemetry configuration and instrumentation
+# ABOUTME: Tests tracing setup, logging configuration, and instrumentation helpers
 
 """Tests for telemetry module."""
 

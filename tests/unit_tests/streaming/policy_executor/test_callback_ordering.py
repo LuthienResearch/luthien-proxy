@@ -1,3 +1,5 @@
+# ABOUTME: Tests for PolicyExecutor callback ordering guarantees
+# ABOUTME: Validates that policy callbacks are invoked in the correct order per chunk
 
 """Tests for PolicyExecutor callback ordering.
 

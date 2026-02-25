@@ -1,3 +1,5 @@
+# ABOUTME: E2E tests validating streaming chunk structure and SSE format
+# ABOUTME: Tests proper event sequences, field presence, and ordering for OpenAI and Anthropic
 
 """E2E tests for streaming chunk structure validation.
 

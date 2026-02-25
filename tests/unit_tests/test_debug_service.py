@@ -1,3 +1,5 @@
+# ABOUTME: Unit tests for V2 debug service layer
+# ABOUTME: Tests business logic functions for fetching events and computing diffs
 
 """Tests for V2 debug service layer.
 

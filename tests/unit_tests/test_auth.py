@@ -1,3 +1,5 @@
+# ABOUTME: Unit tests for shared authentication module
+# ABOUTME: Tests verify_admin_token and check_auth_or_redirect functions
 
 """Tests for auth module.
 

@@ -1,3 +1,5 @@
+# ABOUTME: Parameterized e2e tests that verify each policy works through the gateway
+# ABOUTME: Tests both OpenAI and Anthropic paths with standard configs for each policy
 
 """E2E tests for all policy types.
 

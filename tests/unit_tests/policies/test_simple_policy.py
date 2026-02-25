@@ -1,3 +1,4 @@
+# ABOUTME: Unit tests for SimplePolicy covering both OpenAI and Anthropic behavior
 """Unit tests for SimplePolicy block-based behavior.
 
 Tests enforce that SimplePolicy:

@@ -1,3 +1,5 @@
+# ABOUTME: Unit tests for chunk builder functions
+# ABOUTME: Tests ModelResponse creation utilities (moved from test_utils.py)
 
 """Unit tests for chunk builder utilities."""
 

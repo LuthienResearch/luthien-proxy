@@ -1,3 +1,5 @@
+# ABOUTME: Tests for V2 policy configuration loading from YAML
+# ABOUTME: Covers successful loading and error handling (exceptions on invalid config)
 
 """Tests for v2.config module - policy loading from YAML."""
 

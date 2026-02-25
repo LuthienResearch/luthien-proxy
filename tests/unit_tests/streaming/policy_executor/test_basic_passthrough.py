@@ -1,3 +1,5 @@
+# ABOUTME: Tests for PolicyExecutor basic pass-through functionality
+# ABOUTME: Verifies chunks flow from input stream to output queue using NoOpPolicy
 
 """Tests for basic PolicyExecutor pass-through."""
 

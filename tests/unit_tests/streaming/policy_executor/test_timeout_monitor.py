@@ -1,3 +1,5 @@
+# ABOUTME: Unit tests for TimeoutMonitor
+# ABOUTME: Tests deadline-based timeout tracking and keepalive mechanism
 
 """Tests for TimeoutMonitor."""
 

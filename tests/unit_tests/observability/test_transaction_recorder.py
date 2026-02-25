@@ -1,3 +1,5 @@
+# ABOUTME: Unit tests for TransactionRecorder implementations
+# ABOUTME: Tests NoOpTransactionRecorder and DefaultTransactionRecorder behavior
 
 from unittest.mock import Mock
 
