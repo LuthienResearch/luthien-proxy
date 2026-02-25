@@ -41,14 +41,13 @@ policy:
 """
 
 
-def _make_db_mocks(*, fetchrow_return=None, execute_ok=True):
+def _make_db_mocks(*, fetchrow_return=None):
     """Build mock db_pool and connection_pool wired together."""
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
     mock_pool.get_pool = AsyncMock(return_value=mock_conn)
     mock_conn.fetchrow = AsyncMock(return_value=fetchrow_return)
-    if execute_ok:
-        mock_conn.execute = AsyncMock()
+    mock_conn.execute = AsyncMock()
     return mock_pool, mock_conn
 
 

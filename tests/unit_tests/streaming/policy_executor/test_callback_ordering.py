@@ -146,12 +146,12 @@ def assert_callback_order(chunk_calls: list[str], expected_sequence: list[str], 
         assert expected_callback in chunk_calls, f"{test_name}: Missing callback {expected_callback}"
 
         # Verify this callback comes after all previous callbacks in the sequence
+        # (all prev_callbacks are guaranteed present by the assert on line above)
         actual_idx = chunk_calls.index(expected_callback)
         for j in range(i):
             prev_callback = expected_sequence[j]
-            if prev_callback in chunk_calls:
-                prev_idx = chunk_calls.index(prev_callback)
-                assert prev_idx < actual_idx, f"{test_name}: {prev_callback} must come before {expected_callback}"
+            prev_idx = chunk_calls.index(prev_callback)
+            assert prev_idx < actual_idx, f"{test_name}: {prev_callback} must come before {expected_callback}"
 
 
 @pytest.mark.asyncio
@@ -224,10 +224,11 @@ async def test_tool_call_complete_ordering(tracking_policy, policy_ctx):
 
     all_calls = tracking_policy.tracker.all_callback_names()
 
-    if "on_tool_call_complete" in all_calls and "on_finish_reason" in all_calls:
-        complete_idx = all_calls.index("on_tool_call_complete")
-        finish_idx = all_calls.index("on_finish_reason")
-        assert complete_idx < finish_idx, "on_tool_call_complete must come before on_finish_reason"
+    assert "on_tool_call_complete" in all_calls, "on_tool_call_complete must be called"
+    assert "on_finish_reason" in all_calls, "on_finish_reason must be called"
+    complete_idx = all_calls.index("on_tool_call_complete")
+    finish_idx = all_calls.index("on_finish_reason")
+    assert complete_idx < finish_idx, "on_tool_call_complete must come before on_finish_reason"
 
 
 @pytest.mark.asyncio
@@ -287,8 +288,8 @@ async def test_multiple_chunks_each_start_with_on_chunk_received(tracking_policy
     # For each chunk, verify on_chunk_received comes first
     for chunk_idx in range(3):
         chunk_calls = tracking_policy.tracker.get_calls_for_chunk(chunk_idx)
-        if len(chunk_calls) > 0:
-            assert chunk_calls[0] == "on_chunk_received", f"Chunk {chunk_idx}: on_chunk_received must be first"
+        assert len(chunk_calls) > 0, f"Chunk {chunk_idx}: expected callbacks but got none"
+        assert chunk_calls[0] == "on_chunk_received", f"Chunk {chunk_idx}: on_chunk_received must be first"
 
 
 @pytest.mark.asyncio
@@ -316,8 +317,8 @@ async def test_mixed_content_and_tool_calls(tracking_policy, policy_ctx):
     # Verify each chunk starts with on_chunk_received
     for chunk_idx in range(5):
         chunk_calls = tracking_policy.tracker.get_calls_for_chunk(chunk_idx)
-        if len(chunk_calls) > 0:
-            assert chunk_calls[0] == "on_chunk_received"
+        assert len(chunk_calls) > 0, f"Chunk {chunk_idx}: expected callbacks but got none"
+        assert chunk_calls[0] == "on_chunk_received"
 
 
 @pytest.mark.asyncio
@@ -341,7 +342,8 @@ async def test_content_deltas_before_content_complete(tracking_policy, policy_ct
     delta_indices = [i for i, call in enumerate(all_calls) if call == "on_content_delta"]
     complete_indices = [i for i, call in enumerate(all_calls) if call == "on_content_complete"]
 
-    if delta_indices and complete_indices:
-        last_delta_idx = max(delta_indices)
-        first_complete_idx = min(complete_indices)
-        assert last_delta_idx < first_complete_idx, "All on_content_delta must come before on_content_complete"
+    assert delta_indices, "Expected on_content_delta callbacks but got none"
+    assert complete_indices, "Expected on_content_complete callbacks but got none"
+    last_delta_idx = max(delta_indices)
+    first_complete_idx = min(complete_indices)
+    assert last_delta_idx < first_complete_idx, "All on_content_delta must come before on_content_complete"

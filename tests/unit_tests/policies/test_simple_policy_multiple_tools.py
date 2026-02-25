@@ -135,20 +135,9 @@ async def test_simple_policy_multiple_tool_calls_finish_reason():
     tool_calls_finish_reasons = [fr for fr in finish_reasons if fr == "tool_calls"]
     print(f"Chunks with finish_reason='tool_calls': {len(tool_calls_finish_reasons)}")
 
-    # THE HYPOTHESIS TEST:
-    # If this fails with count > 1, it confirms the bug
-    # Expected: exactly 1 chunk with finish_reason="tool_calls"
-    # Bug state: 4 chunks with finish_reason="tool_calls" (one per tool call)
-
-    # For now, let's just report what we find
-    if len(tool_calls_finish_reasons) > 1:
-        print(f"\n>>> BUG CONFIRMED: {len(tool_calls_finish_reasons)} chunks with finish_reason='tool_calls'")
-        print(">>> Each tool call is being emitted with its own finish_reason")
-        print(">>> This causes clients to interpret each as a separate response")
-    else:
-        print(f"\n>>> Expected behavior: {len(tool_calls_finish_reasons)} chunk(s) with finish_reason='tool_calls'")
-
-    # This assertion will fail if the bug exists, confirming the hypothesis
+    # Exactly 1 chunk should have finish_reason="tool_calls".
+    # Bug state (now fixed): each tool call had its own finish_reason, causing
+    # clients to interpret each as a separate response.
     assert len(tool_calls_finish_reasons) == 1, (
         f"Expected exactly 1 chunk with finish_reason='tool_calls', "
         f"but got {len(tool_calls_finish_reasons)}. "

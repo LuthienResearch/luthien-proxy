@@ -216,6 +216,6 @@ async def test_assembler_preserves_chunk_order(mock_policy, policy_ctx):
     # Verify exact order
     for i, expected in enumerate(chunks, 1):
         result = await output_queue.get()
-        assert result.choices[0].delta.content == str(i) if i < 5 else "5"
+        assert result.choices[0].delta.content == str(i)
 
     assert await output_queue.get() is None
