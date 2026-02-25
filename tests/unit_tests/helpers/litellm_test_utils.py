@@ -11,7 +11,7 @@ Tests should use these helpers instead of creating ModelResponse objects directl
 keeping test code isomorphic with production code.
 """
 
-from litellm.types.utils import Delta, ModelResponse, StreamingChoices
+from litellm.types.utils import Choices, Delta, Message, ModelResponse, StreamingChoices
 
 from luthien_proxy.llm.response_normalizer import normalize_chunk_with_finish_reason
 
@@ -63,4 +63,43 @@ def make_streaming_chunk(
     return normalize_chunk_with_finish_reason(raw_chunk, finish_reason)
 
 
-__all__ = ["make_streaming_chunk"]
+def make_complete_response(
+    content: str,
+    model: str = "gpt-4",
+    id: str = "test-response-id",
+    finish_reason: str = "stop",
+    role: str = "assistant",
+) -> ModelResponse:
+    """Create a complete (non-streaming) response, as litellm_client.complete() would return.
+
+    Args:
+        content: Text content for the message
+        model: Model name
+        id: Response ID
+        finish_reason: Finish reason (usually "stop")
+        role: Role for the message (usually "assistant")
+
+    Returns:
+        ModelResponse with Message (not Delta)
+    """
+    return ModelResponse(
+        id=id,
+        created=1234567890,
+        model=model,
+        object="chat.completion",
+        choices=[
+            Choices(
+                index=0,
+                message=Message(role=role, content=content),
+                finish_reason=finish_reason,
+            )
+        ],
+        usage={
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        },
+    )
+
+
+__all__ = ["make_streaming_chunk", "make_complete_response"]
