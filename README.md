@@ -82,27 +82,6 @@ class PipBlockPolicy(SimpleJudgePolicy):
 
 </details>
 
-<details>
-<summary><b>Example: DeSlop and ScopeGuard (click to expand)</b></summary>
-
-```python
-class DeSlop(SimplePolicy):
-    async def simple_on_response_content(self, content, context):
-        return content.replace("\u2014", "-").replace("\u2013", "-")
-```
-
-Or use the LLM judge with your own rules:
-
-```python
-class ScopeGuard(SimpleJudgePolicy):
-    RULES = [
-        "Only allow changes to files mentioned in the original request",
-        "Block creation of new test files unless tests were explicitly requested",
-    ]
-```
-
-</details>
-
 Every policy action is logged. Measure what got blocked, track false positives, monitor latency overhead.
 
 ---
