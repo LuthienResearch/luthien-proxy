@@ -255,7 +255,6 @@ if stream_state.finish_reason:
 - **Why it's non-obvious**: The server starts fine, reads work fine, and the failure only surfaces when you try a write operation (403 "Insufficient Permission")
 - **This is the 3rd COE for the same MCP server** — see luthien-org PRs #2, #6, #7. Pattern: OAuth state machine has multiple independent pieces (code, token, GCP app settings) and changing one doesn't propagate to the others.
 - **Structural fix (PR #7)**: Startup scope validation now compares stored token scopes against required scopes and fails fast with re-auth instructions.
-
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
