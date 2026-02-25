@@ -25,6 +25,27 @@ if ! command -v uv &> /dev/null; then
     exit 1
 fi
 
+# Check Python version (3.13+ required)
+REQUIRED_PYTHON_MAJOR=3
+REQUIRED_PYTHON_MINOR=13
+if command -v python3 &> /dev/null; then
+    PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
+    PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
+    PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
+
+    if [ "$PYTHON_MAJOR" -lt "$REQUIRED_PYTHON_MAJOR" ] 2>/dev/null || \
+       { [ "$PYTHON_MAJOR" -eq "$REQUIRED_PYTHON_MAJOR" ] && [ "$PYTHON_MINOR" -lt "$REQUIRED_PYTHON_MINOR" ]; } 2>/dev/null; then
+        echo "❌ Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+ required, found ${PYTHON_VERSION}"
+        echo "   Install Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+ and try again."
+        echo "   Tip: Use pyenv or download from https://www.python.org/downloads/"
+        exit 1
+    fi
+    echo "✅ Python ${PYTHON_VERSION} detected"
+else
+    echo "⚠️  python3 not found — uv will manage the Python version."
+    echo "   If uv fails, install Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+ manually."
+fi
+
 echo "✅ Dependencies check passed"
 
 wait_for_service() {
