@@ -25,6 +25,12 @@
 - [ ] **Add security documentation for dynamic policy loading (POLICY_CONFIG)** - Document security implications of dynamic class loading, file permissions, admin API authentication requirements.
 - [ ] **Add repo-level `/coe` slash command** - Add `.claude/commands/coe.md` to luthien-proxy so all contributors get the RCA/COE workflow. Currently only exists globally on Scott's machine (`~/.claude/commands/coe.md`). Reference: PR #200 discussion, 2026-02-17.
 
+### Dogfooding Safety (COE from 2026-02-25 incident)
+
+- [ ] **Design "system policy" layer — mandatory safety checks that always run** — Current architecture loads one policy at a time. No way to guarantee tool call safety when a text-only policy (e.g., DeSlop) is active. Need an always-on safety layer that blocks self-destructive commands (`docker compose down`, `docker stop`, DB drops) when requests come through the proxy. This is the "who watches the watchmen" problem. Requires human design decision (Jai + Scott).
+- [ ] **Add dogfooding-mode config that auto-composes safety + user policy** — When `DOGFOOD_MODE=true`, automatically wrap the user-configured policy in a MultiSerialPolicy with ToolCallJudgePolicy (or a hardcoded blocklist policy) as the outer layer. Uses existing MultiSerialPolicy (PR #184) infrastructure.
+- [ ] **Document dogfooding safety protocol** — Until system policy exists: never run Docker/infra commands from a proxied session. Add warning to quick_start.sh output when proxy is started.
+
 ### Security
 
 - [ ] **Add input validation: max request size and message count limits** - Request size limit (10MB) exists, but no message count limit. Could allow unbounded message arrays.
