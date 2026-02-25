@@ -8,7 +8,7 @@
 
 ### What did you ship last week?
 
-1. **Jai: OAuth auth chain complete** — Bearer token passthrough (#221), OAuth forwarding (#219), auth on all endpoints (#214), Railway deploy fixes (#212), codebase cleanup (#211). Claude Code relay now works without workarounds — this was the #1 technical blocker from Feb 19.
+1. **Jai: Closed out the auth chain (continuation of last week's massive infra push)** — On Thursday alone (Feb 19), Jai shipped 8 PRs: Railway deploy fixes (#212), codebase cleanup (#211), auth on all endpoints (#214), OAuth forwarding (#219), plus test fixes and refactoring (#213, #215, #216, #217). Then one final OAuth passthrough PR (#221) over the weekend before getting sick Monday. Combined with last week's composable policies, config UI, and live view — Claude Code relay now works end-to-end without workarounds. The #1 technical blocker from Feb 19 is resolved.
 2. **Scott: README/landing page overhaul incorporating Tyler + Jai feedback** — PR #179 (56 commits, workshopping with Tyler async before next week's call). Before/After SVG diagrams showing real Claude Code UX, simplified Quick Start, question-based headers. Applied Musk 5-step design process to cut unnecessary sections. Extracted and addressed Tyler's specific feedback from Feb 10 live install. Jai reviewing. This feeds directly into QA hiring pipeline (Trello: "update readme → hire upwork people" ✅ Done).
 3. **Scott: BD + dogfooding + dev tooling:**
    - **Tyler/Redwood follow-up:** Prepped for call, Tyler will review landing page async and meet next week (Jai was sick this week)
@@ -52,7 +52,7 @@
 | Feb 19 | Deduplicate tools before API call | [#208](https://github.com/LuthienResearch/luthien-proxy/pull/208) | Scott | 🔵 Open |
 | Feb 17 | Empty text content blocks fix | [#201](https://github.com/LuthienResearch/luthien-proxy/pull/201) | Scott | 🔵 Open |
 
-**Summary:** 12 merged (9 Jai, 3 Scott), 7 open. Jai completed the OAuth auth chain (biggest blocker). Scott: landing page overhaul incorporating design partner feedback, dogfood bug fix, QA hiring pipeline, BD follow-ups, policy brainstorming started.
+**Summary:** 12 merged (9 Jai, 3 Scott), 7 open. Story arc: Last week was Jai's massive infra push (composable policies, auth, config UI, live view). This week he closed out the remaining auth chain in a single Thursday sprint (8 PRs), then was sick. Scott's week was about preparing to put that infrastructure in front of users — landing page overhaul incorporating design partner feedback, Tyler follow-up, QA hiring pipeline, BD, dogfooding, and starting policy brainstorming.
 
 ---
 
