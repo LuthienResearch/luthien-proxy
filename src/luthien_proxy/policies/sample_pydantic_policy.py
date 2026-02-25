@@ -1,7 +1,7 @@
 """Sample policy demonstrating Pydantic config models for dynamic form generation.
 
-This policy does nothing but serves as an example for the dynamic form generation
-system. It shows:
+This is a working no-op policy that passes through all requests unchanged.
+It serves as an example for the dynamic form generation system, showing:
 - Basic types with constraints (threshold with min/max)
 - Password fields (api_key)
 - Discriminated unions (rules with type selector)
@@ -10,11 +10,27 @@ system. It shows:
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+import logging
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
+from luthien_proxy.policy_core.anthropic_interface import (
+    AnthropicPolicyInterface,
+    AnthropicStreamEvent,
+)
 from luthien_proxy.policy_core.base_policy import BasePolicy
+from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
+
+if TYPE_CHECKING:
+    from litellm.types.utils import ModelResponse
+
+    from luthien_proxy.llm.types import Request
+    from luthien_proxy.policy_core.policy_context import PolicyContext
+    from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
+
+logger = logging.getLogger(__name__)
 
 
 class RegexRuleConfig(BaseModel):
@@ -45,11 +61,11 @@ class SampleConfig(BaseModel):
     rules: list[RuleConfig] = Field(default_factory=list, description="List of detection rules")
 
 
-class SamplePydanticPolicy(BasePolicy):
+class SamplePydanticPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
     """Sample policy demonstrating Pydantic-based configuration.
 
-    This policy does nothing but serves as an example for the dynamic
-    form generation system. It shows:
+    This is a working no-op policy that passes through all requests unchanged.
+    It serves as an example for the dynamic form generation system, showing:
     - Basic types with constraints (threshold with min/max)
     - Password fields (api_key)
     - Discriminated unions (rules with type selector)
@@ -67,6 +83,64 @@ class SamplePydanticPolicy(BasePolicy):
 
     # get_config() is inherited from BasePolicy - automatically serializes
     # the self.config Pydantic model
+
+    # -- OpenAI interface hooks (passthrough) ----------------------------------
+
+    async def on_openai_request(self, request: Request, context: PolicyContext) -> Request:
+        """Pass through unchanged."""
+        return request
+
+    async def on_openai_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+        """Pass through unchanged."""
+        return response
+
+    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
+        """Pass through chunk unchanged."""
+        ctx.push_chunk(ctx.last_chunk_received)
+
+    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
+        """No-op."""
+        pass
+
+    async def on_content_complete(self, ctx: StreamingPolicyContext) -> None:
+        """No-op."""
+        pass
+
+    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
+        """No-op."""
+        pass
+
+    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
+        """No-op."""
+        pass
+
+    async def on_finish_reason(self, ctx: StreamingPolicyContext) -> None:
+        """No-op."""
+        pass
+
+    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
+        """No-op."""
+        pass
+
+    async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
+        """No-op."""
+        pass
+
+    # -- Anthropic interface hooks (passthrough) -------------------------------
+
+    async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+        """Pass through unchanged."""
+        return request
+
+    async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+        """Pass through unchanged."""
+        return response
+
+    async def on_anthropic_stream_event(
+        self, event: AnthropicStreamEvent, context: PolicyContext
+    ) -> list[AnthropicStreamEvent]:
+        """Pass through unchanged."""
+        return [event]
 
 
 __all__ = [
