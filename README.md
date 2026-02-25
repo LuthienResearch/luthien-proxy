@@ -149,18 +149,37 @@ Open the activity monitor to see every request and response in real-time:
 http://localhost:8000/activity/monitor
 ```
 
-### 6. Try a policy
+### 6. Set up a DeSlop policy (string replacement)
 
-Switch policies at [localhost:8000/policy-config](http://localhost:8000/policy-config) -- changes take effect instantly, no restart needed. Or write your own in a few lines:
+Write a policy that cleans up every response:
 
 ```python
 from luthien_proxy.policies.simple_policy import SimplePolicy
 
 class DeSlop(SimplePolicy):
-    """Replace AI writing tics."""
+    """Clean up AI writing tics in every response."""
 
     async def simple_on_response_content(self, content, ctx):
+        # Replace em dashes and en dashes with normal hyphens
         return content.replace("\u2014", "-").replace("\u2013", "-")
+```
+
+Switch policies at [localhost:8000/policy-config](http://localhost:8000/policy-config) -- changes take effect instantly, no restart needed.
+
+### 7. Set up an LLM-as-judge policy
+
+Use an LLM to evaluate every tool call against your rules:
+
+```python
+from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
+
+class PipBlockPolicy(SimpleJudgePolicy):
+    """Block pip install, suggest uv add instead."""
+
+    RULES = [
+        "Block any 'pip install' or 'pip3 install' commands. Suggest 'uv add' instead.",
+        "Allow all other tool calls.",
+    ]
 ```
 
 ---
