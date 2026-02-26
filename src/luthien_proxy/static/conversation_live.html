@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Live Conversation View</title>
+    <link rel="stylesheet" href="/static/nav.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap');
 
@@ -546,6 +547,14 @@
     </style>
 </head>
 <body>
+    <nav x-data="luthienNav" class="luthien-nav">
+        <a href="/" class="nav-brand">Luthien</a>
+        <template x-for="link in links" :key="link.href">
+            <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+        </template>
+        <div class="nav-spacer"></div>
+        <a href="/auth/logout" class="nav-signout">Sign Out</a>
+    </nav>
     <div class="container">
         <header>
             <div class="header-left">
@@ -562,7 +571,6 @@
             <div class="header-right">
                 <button class="header-btn" id="pause-btn" onclick="togglePolling()">Pause</button>
                 <a href="#" class="header-btn" id="export-btn">Export</a>
-                <a href="/auth/logout" class="header-btn">Sign Out</a>
             </div>
         </header>
 
@@ -891,5 +899,8 @@
         window.addEventListener('beforeunload', () => clearTimeout(pollTimer));
         init();
     </script>
+
+    <script defer src="/static/vendor/alpine.min.js"></script>
+    <script src="/static/nav.js"></script>
 </body>
 </html>

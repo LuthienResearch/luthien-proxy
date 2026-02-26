@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Activity Monitor</title>
+    <link rel="stylesheet" href="/static/nav.css">
     <style>
         * {
             margin: 0;
@@ -328,13 +329,19 @@
     </style>
 </head>
 <body>
+    <nav x-data="luthienNav" class="luthien-nav">
+        <a href="/" class="nav-brand">Luthien</a>
+        <template x-for="link in links" :key="link.href">
+            <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+        </template>
+        <div class="nav-spacer"></div>
+        <a href="/auth/logout" class="nav-signout">Sign Out</a>
+    </nav>
+
     <div class="container">
-        <header style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <div>
-                <h1>Activity Monitor</h1>
-                <p class="subtitle">Live stream of gateway events</p>
-            </div>
-            <a href="/auth/logout" style="color: #888; text-decoration: none; font-size: 14px;">Sign Out</a>
+        <header>
+            <h1>Activity Monitor</h1>
+            <p class="subtitle">Live stream of gateway events</p>
         </header>
 
         <div class="toolbar">
@@ -370,6 +377,8 @@
         </div>
     </div>
 
+    <script defer src="/static/vendor/alpine.min.js"></script>
+    <script src="/static/nav.js"></script>
     <script src="/static/activity_monitor.js"></script>
 </body>
 </html>
