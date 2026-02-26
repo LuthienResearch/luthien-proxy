@@ -246,6 +246,15 @@ if stream_state.finish_reason:
 - **Related**: PR #203 (orphaned containers — previous Docker self-interference incident)
 - **Dangerous commands to watch for**: `docker compose down`, `docker stop`, `docker compose restart` (on gateway), `kill` on gateway PID, `docker compose exec db` (DB access)
 
+## Google Drive MCP: Adding Write Scopes Requires Re-Auth (2026-02-25)
+
+**Gotcha**: Adding new OAuth scopes to `server.js` (e.g., `spreadsheets`, `documents`) does NOT affect the stored token. The token retains whatever scopes it was originally authorized with. You must delete `credentials.json` and re-run the auth flow to get a token with the new scopes.
+
+- **Wrong**: Add scope to server code → restart MCP server → expect writes to work
+- **Right**: Add scope to server code → delete credentials → re-run auth → consent to new permissions → verify credentials.json has all scopes
+- **Why it's non-obvious**: The server starts fine, reads work fine, and the failure only surfaces when you try a write operation (403 "Insufficient Permission")
+- **This is the 3rd COE for the same MCP server** — see luthien-org PRs #2, #6, #7. Pattern: OAuth state machine has multiple independent pieces (code, token, GCP app settings) and changing one doesn't propagate to the others.
+- **Structural fix (PR #7)**: Startup scope validation now compares stored token scopes against required scopes and fails fast with re-auth instructions.
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

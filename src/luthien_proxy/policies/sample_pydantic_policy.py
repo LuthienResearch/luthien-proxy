@@ -1,7 +1,7 @@
 """Sample policy demonstrating Pydantic config models for dynamic form generation.
 
-This policy does nothing but serves as an example for the dynamic form generation
-system. It shows:
+This is a working no-op policy that passes through all requests unchanged.
+It serves as an example for the dynamic form generation system, showing:
 - Basic types with constraints (threshold with min/max)
 - Password fields (api_key)
 - Discriminated unions (rules with type selector)
@@ -14,7 +14,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-from luthien_proxy.policy_core.base_policy import BasePolicy
+from luthien_proxy.policies.noop_policy import NoOpPolicy
 
 
 class RegexRuleConfig(BaseModel):
@@ -45,16 +45,17 @@ class SampleConfig(BaseModel):
     rules: list[RuleConfig] = Field(default_factory=list, description="List of detection rules")
 
 
-class SamplePydanticPolicy(BasePolicy):
+class SamplePydanticPolicy(NoOpPolicy):
     """Sample policy demonstrating Pydantic-based configuration.
 
-    This policy does nothing but serves as an example for the dynamic
-    form generation system. It shows:
-    - Basic types with constraints (threshold with min/max)
-    - Password fields (api_key)
-    - Discriminated unions (rules with type selector)
-    - Nested objects and arrays
+    Inherits all passthrough behavior from NoOpPolicy. The interesting part
+    is the SampleConfig model above, which demonstrates dynamic form generation.
     """
+
+    @property
+    def short_policy_name(self) -> str:
+        """Use class name (BasePolicy default), not NoOpPolicy's 'NoOp'."""
+        return type(self).__name__
 
     def __init__(self, config: SampleConfig | None = None):
         """Initialize the policy with optional config.
