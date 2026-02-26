@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Client Setup — Luthien Proxy</title>
+    <link rel="stylesheet" href="/static/nav.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -236,6 +237,14 @@
     </style>
 </head>
 <body>
+    <nav x-data="luthienNav" class="luthien-nav">
+        <a href="/" class="nav-brand">Luthien</a>
+        <template x-for="link in links" :key="link.href">
+            <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+        </template>
+        <div class="nav-spacer"></div>
+        <a href="/auth/logout" class="nav-signout">Sign Out</a>
+    </nav>
     <div class="container">
         <div class="header">
             <a href="/" class="back-link">&larr; Back to gateway</a>
@@ -298,8 +307,6 @@ ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude <span class="var
 
         <div class="footer">
             <a href="https://github.com/LuthienResearch/luthien-proxy" target="_blank">GitHub</a>
-            <a href="/activity/monitor">Activity Monitor</a>
-            <a href="/">Gateway Home</a>
         </div>
     </div>
 
@@ -316,5 +323,7 @@ ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude <span class="var
             });
         }
     </script>
+    <script defer src="/static/vendor/alpine.min.js"></script>
+    <script src="/static/nav.js"></script>
 </body>
 </html>

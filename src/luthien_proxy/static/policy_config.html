@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Policy Configuration - Luthien Proxy</title>
+    <link rel="stylesheet" href="/static/nav.css">
     <style>
         * {
             margin: 0;
@@ -41,23 +42,6 @@
         .subtitle {
             font-size: 14px;
             color: #888;
-        }
-
-        .header-links {
-            display: flex;
-            gap: 16px;
-            align-items: center;
-        }
-
-        .header-links a {
-            color: #888;
-            text-decoration: none;
-            font-size: 14px;
-            transition: color 0.2s;
-        }
-
-        .header-links a:hover {
-            color: #e5e5e5;
         }
 
         /* Current Policy Banner */
@@ -994,16 +978,20 @@
     </style>
 </head>
 <body>
+    <nav x-data="luthienNav" class="luthien-nav">
+        <a href="/" class="nav-brand">Luthien</a>
+        <template x-for="link in links" :key="link.href">
+            <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+        </template>
+        <div class="nav-spacer"></div>
+        <a href="/auth/logout" class="nav-signout">Sign Out</a>
+    </nav>
+
     <div class="container">
         <header>
             <div>
                 <h1>Policy Configuration</h1>
                 <p class="subtitle">Configure and activate gateway policies</p>
-            </div>
-            <div class="header-links">
-                <a href="/activity/monitor">Activity Monitor</a>
-                <a href="/debug/diff">Diff Viewer</a>
-                <a href="/auth/logout">Sign Out</a>
             </div>
         </header>
 
@@ -1087,6 +1075,7 @@
         </div>
     </div>
 
+    <script src="/static/nav.js"></script>
     <script defer src="/static/vendor/alpine.min.js"></script>
     <script src="/static/form_renderer.js"></script>
     <script src="/static/policy_config.js"></script>
