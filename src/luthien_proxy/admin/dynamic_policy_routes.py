@@ -198,13 +198,13 @@ async def list_policies(
     return [
         PolicySummary(
             id=str(r["id"]),
-            name=r["name"],
-            description=r["description"],
-            is_active=r["is_active"],
-            version=r["version"],
-            created_at=r["created_at"].isoformat(),
-            updated_at=r["updated_at"].isoformat(),
-            created_by=r["created_by"],
+            name=str(r["name"]),
+            description=str(r["description"]) if r["description"] else None,
+            is_active=bool(r["is_active"]),
+            version=int(str(r["version"])),
+            created_at=r["created_at"].isoformat(),  # type: ignore[union-attr]
+            updated_at=r["updated_at"].isoformat(),  # type: ignore[union-attr]
+            created_by=str(r["created_by"]) if r["created_by"] else None,
         )
         for r in rows
     ]
@@ -254,10 +254,10 @@ async def activate_policy(
     if not row:
         raise HTTPException(status_code=404, detail="Policy not found")
 
-    source_code = row["source_code"]
+    source_code = str(row["source_code"])
     config_value = row["config"]
     config = config_value if isinstance(config_value, dict) else json.loads(str(config_value))
-    name = row["name"]
+    name = str(row["name"])
 
     # Load the policy from source code
     try:
@@ -265,8 +265,8 @@ async def activate_policy(
     except PolicyLoadError as e:
         raise HTTPException(status_code=400, detail=f"Failed to load policy: {e}")
 
-    # Hot-swap via policy manager
-    manager._current_policy = policy
+    # Hot-swap via policy manager (bypass normal enable_policy to avoid import-based loading)
+    manager._current_policy = policy  # type: ignore[assignment]
 
     # Mark this one as active, others as inactive
     await pool.execute("UPDATE dynamic_policies SET is_active = FALSE")
@@ -308,9 +308,7 @@ async def delete_policy(
     pool = await db_pool.get_pool()
 
     # Check if active
-    row = await pool.fetchrow(
-        "SELECT is_active, name FROM dynamic_policies WHERE id = $1", policy_id
-    )
+    row = await pool.fetchrow("SELECT is_active, name FROM dynamic_policies WHERE id = $1", policy_id)
     if not row:
         raise HTTPException(status_code=404, detail="Policy not found")
     if row["is_active"]:
@@ -323,23 +321,23 @@ async def delete_policy(
 # === Helpers ===
 
 
-def _row_to_detail(row) -> PolicyDetail:
+def _row_to_detail(row: Any) -> PolicyDetail:
     """Convert a database row to a PolicyDetail response."""
     config_value = row["config"]
     config = config_value if isinstance(config_value, dict) else json.loads(str(config_value))
 
     return PolicyDetail(
         id=str(row["id"]),
-        name=row["name"],
-        description=row["description"],
-        source_code=row["source_code"],
+        name=str(row["name"]),
+        description=str(row["description"]) if row["description"] else None,
+        source_code=str(row["source_code"]),
         config=config,
-        prompt=row["prompt"],
-        is_active=row["is_active"],
-        version=row["version"],
-        created_at=row["created_at"].isoformat(),
-        updated_at=row["updated_at"].isoformat(),
-        created_by=row["created_by"],
+        prompt=str(row["prompt"]) if row["prompt"] else None,
+        is_active=bool(row["is_active"]),
+        version=int(row["version"]),
+        created_at=row["created_at"].isoformat(),  # type: ignore[union-attr]
+        updated_at=row["updated_at"].isoformat(),  # type: ignore[union-attr]
+        created_by=str(row["created_by"]) if row["created_by"] else None,
     )
 
 

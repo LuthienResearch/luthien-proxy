@@ -6,6 +6,7 @@ import logging
 import re
 
 import anthropic
+from anthropic.types import TextBlock
 
 logger = logging.getLogger(__name__)
 
@@ -282,7 +283,10 @@ async def generate_policy_code(prompt: str, api_key: str) -> dict[str, str]:
         messages=[{"role": "user", "content": prompt}],
     )
 
-    raw_text = message.content[0].text
+    first_block = message.content[0]
+    if not isinstance(first_block, TextBlock):
+        raise ValueError(f"Expected text response, got {type(first_block).__name__}")
+    raw_text: str = first_block.text
     code = extract_code_from_response(raw_text)
 
     return {"code": code, "model": GENERATION_MODEL}

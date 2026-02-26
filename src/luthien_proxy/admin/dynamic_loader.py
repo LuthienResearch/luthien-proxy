@@ -153,15 +153,12 @@ def load_policy_from_source(
 
     # Find BasePolicy subclasses
     policy_classes = [
-        v
-        for v in namespace.values()
-        if isinstance(v, type) and issubclass(v, BasePolicy) and v is not BasePolicy
+        v for v in namespace.values() if isinstance(v, type) and issubclass(v, BasePolicy) and v is not BasePolicy
     ]
 
     if not policy_classes:
         raise PolicyLoadError(
-            "No BasePolicy subclass found in source code. "
-            "Ensure your class inherits from BasePolicy."
+            "No BasePolicy subclass found in source code. Ensure your class inherits from BasePolicy."
         )
 
     if len(policy_classes) > 1:
@@ -173,13 +170,20 @@ def load_policy_from_source(
     # Instantiate
     try:
         if config:
-            return policy_class(config=config)
-        return policy_class()
+            instance = policy_class(config=config)  # type: ignore[call-arg]
+        else:
+            instance = policy_class()
+        if not isinstance(instance, BasePolicy):
+            raise PolicyLoadError(f"{policy_class.__name__} did not produce a BasePolicy instance")
+        return instance
     except TypeError:
         # Try without config kwarg
         if config:
             try:
-                return policy_class(**config)
+                instance = policy_class(**config)  # type: ignore[call-arg]
+                if not isinstance(instance, BasePolicy):
+                    raise PolicyLoadError(f"{policy_class.__name__} did not produce a BasePolicy instance")
+                return instance
             except TypeError as e:
                 raise PolicyLoadError(f"Could not instantiate {policy_class.__name__} with config: {e}") from e
         raise
