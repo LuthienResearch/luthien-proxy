@@ -125,6 +125,22 @@ async def credentials_page(
     return FileResponse(os.path.join(STATIC_DIR, "credentials.html"))
 
 
+@router.get("/request-logs/viewer")
+async def request_logs_viewer(
+    request: Request,
+    admin_key: str | None = Depends(get_admin_key),
+):
+    """Request/response logs viewer UI.
+
+    Returns the HTML page for browsing and inspecting HTTP-level request logs.
+    Requires admin authentication.
+    """
+    redirect = check_auth_or_redirect(request, admin_key)
+    if redirect:
+        return redirect
+    return FileResponse(os.path.join(STATIC_DIR, "request_logs.html"))
+
+
 @router.get("/conversation/live/{conversation_id}")
 async def conversation_live_view(
     request: Request,
