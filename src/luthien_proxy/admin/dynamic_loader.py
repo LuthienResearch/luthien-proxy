@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 # Modules that dynamic policies are allowed to import
 ALLOWED_IMPORTS = frozenset(
     {
+        "__future__",
         "asyncio",
         "json",
         "re",
