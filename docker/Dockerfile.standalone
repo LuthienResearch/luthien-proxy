@@ -1,0 +1,73 @@
+# Standalone (all-in-one) Luthien container.
+# Bundles the gateway, PostgreSQL 16, and Redis 7 in a single image.
+#
+# Build:
+#   docker build -f docker/Dockerfile.standalone -t luthien-standalone .
+#
+# Run:
+#   docker run -p 8000:8000 \
+#     -v luthien-pgdata:/var/lib/postgresql/data \
+#     -v luthien-redis:/data \
+#     -e PROXY_API_KEY=sk-my-key \
+#     -e OPENAI_API_KEY=sk-... \
+#     luthien-standalone
+#
+# Volume mount points:
+#   /var/lib/postgresql/data  – PostgreSQL data (persistent)
+#   /data                     – Redis AOF + RDB (persistent)
+
+FROM python:3.13-slim
+
+# ── System packages ───────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    build-essential \
+    pkg-config \
+    rustc \
+    cargo \
+    # PostgreSQL 16 (Debian bookworm ships 15; use the PGDG repo for 16)
+    gnupg \
+    lsb-release \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+       > /etc/apt/sources.list.d/pgdg.list \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+       | gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       postgresql-16 \
+       postgresql-client-16 \
+       redis-server \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── uv (fast Python package manager) ─────────────────────────────
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# ── Application code ─────────────────────────────────────────────
+WORKDIR /app
+
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ ./src/
+COPY config/ ./config/
+COPY migrations/ ./migrations/
+COPY docker/run-migrations.sh ./docker/
+COPY docker/standalone-entry.sh ./docker/
+RUN chmod +x ./docker/run-migrations.sh ./docker/standalone-entry.sh
+
+# Install Python deps
+RUN uv sync --frozen --no-dev
+
+# ── Prepare data directories ─────────────────────────────────────
+RUN mkdir -p /var/lib/postgresql/data /data /var/log \
+    && chown -R postgres:postgres /var/lib/postgresql/data \
+    && touch /var/log/postgresql.log \
+    && chown postgres:postgres /var/log/postgresql.log
+
+# ── Volumes ───────────────────────────────────────────────────────
+VOLUME ["/var/lib/postgresql/data", "/data"]
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:${GATEWAY_PORT:-8000}/health || exit 1
+
+CMD ["/app/docker/standalone-entry.sh"]
