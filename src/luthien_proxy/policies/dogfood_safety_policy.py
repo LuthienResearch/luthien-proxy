@@ -113,9 +113,11 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
     @property
     def short_policy_name(self) -> str:
+        """Policy display name."""
         return "DogfoodSafety"
 
     def __init__(self, config: DogfoodSafetyConfig | None = None):
+        """Initialize with optional config for blocked patterns and tool names."""
         self.config = self._init_config(config, DogfoodSafetyConfig)
         self._compiled_patterns = [re.compile(p, re.IGNORECASE) for p in self.config.blocked_patterns]
         self._tool_names_lower = {n.lower() for n in self.config.tool_names}
@@ -178,6 +180,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     # ========================================================================
 
     async def on_openai_request(self, request: "Request", context: "PolicyContext") -> "Request":
+        """Pass requests through unmodified."""
         return request
 
     async def on_openai_response(self, response: "ModelResponse", context: "PolicyContext") -> "ModelResponse":
@@ -202,6 +205,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         return response
 
     async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
+        """No-op — handled by specific delta hooks."""
         pass
 
     async def on_content_delta(self, ctx: "StreamingPolicyContext") -> None:
@@ -210,6 +214,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         ctx.egress_queue.put_nowait(current_chunk)
 
     async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
+        """No-op — content passes through without modification."""
         pass
 
     async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
@@ -292,6 +297,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             await ctx.egress_queue.put(create_tool_call_chunk(tc_obj))
 
     async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
+        """No-op — finish reason emitted in on_stream_complete."""
         pass
 
     async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
@@ -329,6 +335,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     # ========================================================================
 
     async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
+        """Pass requests through unmodified."""
         return request
 
     async def on_anthropic_response(

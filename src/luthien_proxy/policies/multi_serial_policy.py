@@ -79,7 +79,7 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
         """
         instance = object.__new__(cls)
         instance._sub_policies = list(policies)
-        instance._validated_interfaces: set[type] = set()
+        instance._validated_interfaces = set()
         if not instance._sub_policies:
             logger.warning(
                 "MultiSerialPolicy initialized with empty policy list — requests will pass through unchanged"
