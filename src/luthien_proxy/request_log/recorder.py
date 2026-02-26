@@ -25,6 +25,12 @@ from luthien_proxy.utils.db import DatabasePool
 logger = logging.getLogger(__name__)
 
 
+def _log_task_exception(task: asyncio.Task[None]) -> None:
+    """Surface exceptions from fire-and-forget background tasks."""
+    if not task.cancelled() and task.exception() is not None:
+        logger.error("Background request log write failed", exc_info=task.exception())
+
+
 @dataclass
 class _PendingLog:
     """Accumulates data for a single log row before it's written to DB."""
@@ -142,7 +148,8 @@ class RequestLogRecorder:
         """
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self._write_logs())
+            task = loop.create_task(self._write_logs())
+            task.add_done_callback(_log_task_exception)
         except RuntimeError:
             logger.debug("No running event loop; skipping request log flush")
 
@@ -218,7 +225,10 @@ def create_recorder(
     transaction_id: str,
     enabled: bool,
 ) -> RequestLogRecorder:
-    """Factory that returns a real or no-op recorder based on config."""
+    """Factory that always returns a recorder — real or no-op based on config.
+
+    Callers never need to null-check the return value.
+    """
     if not enabled or db_pool is None:
         return NoOpRequestLogRecorder()
     return RequestLogRecorder(db_pool=db_pool, transaction_id=transaction_id)

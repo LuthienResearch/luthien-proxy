@@ -123,17 +123,16 @@ async def process_llm_request(
             root_span.set_attribute("luthien.session_id", session_id)
 
         # Record inbound request for HTTP-level logging
-        if request_log_recorder:
-            request_log_recorder.record_inbound_request(
-                method=raw_http_request.method,
-                url=raw_http_request.path,
-                headers=raw_http_request.headers,
-                body=dict(raw_http_request.body),
-                session_id=session_id,
-                model=request_message.model,
-                is_streaming=is_streaming,
-                endpoint="/v1/chat/completions",
-            )
+        request_log_recorder.record_inbound_request(
+            method=raw_http_request.method,
+            url=raw_http_request.path,
+            headers=raw_http_request.headers,
+            body=dict(raw_http_request.body),
+            session_id=session_id,
+            model=request_message.model,
+            is_streaming=is_streaming,
+            endpoint="/v1/chat/completions",
+        )
 
         # Create policy context and orchestrator
         policy_ctx = PolicyContext(
@@ -173,13 +172,12 @@ async def process_llm_request(
         )
 
         # Record outbound request for HTTP-level logging
-        if request_log_recorder:
-            request_log_recorder.record_outbound_request(
-                body=final_request_dict,
-                model=final_request.model,
-                is_streaming=is_streaming,
-                endpoint="/v1/chat/completions",
-            )
+        request_log_recorder.record_outbound_request(
+            body=final_request_dict,
+            model=final_request.model,
+            is_streaming=is_streaming,
+            endpoint="/v1/chat/completions",
+        )
 
         # Phase 2 & 3 & 4: Send upstream, process response, send to client
         if is_streaming:
@@ -304,7 +302,7 @@ async def _handle_streaming(
     llm_client: LLMClient,
     call_id: str,
     root_span: Span,
-    request_log_recorder: RequestLogRecorder | None = None,
+    request_log_recorder: RequestLogRecorder,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow.
 
@@ -348,11 +346,10 @@ async def _handle_streaming(
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
-                    # Flush request logs after streaming completes
-                    if request_log_recorder:
-                        request_log_recorder.record_inbound_response(status=200)
-                        request_log_recorder.record_outbound_response(status=200)
-                        request_log_recorder.flush()
+                    # Streaming bodies are not captured (too large to store efficiently)
+                    request_log_recorder.record_inbound_response(status=200)
+                    request_log_recorder.record_outbound_response(status=200)
+                    request_log_recorder.flush()
 
     return FastAPIStreamingResponse(
         streaming_with_spans(),
@@ -372,7 +369,7 @@ async def _handle_non_streaming(
     llm_client: LLMClient,
     emitter: EventEmitterProtocol,
     call_id: str,
-    request_log_recorder: RequestLogRecorder | None = None,
+    request_log_recorder: RequestLogRecorder,
 ) -> JSONResponse:
     """Handle non-streaming response flow."""
     # Phase 2: Send to upstream
@@ -401,10 +398,9 @@ async def _handle_non_streaming(
         )
 
         # Record response data for HTTP-level logging
-        if request_log_recorder:
-            request_log_recorder.record_outbound_response(body=final_response, status=200)
-            request_log_recorder.record_inbound_response(status=200, body=final_response)
-            request_log_recorder.flush()
+        request_log_recorder.record_outbound_response(body=final_response, status=200)
+        request_log_recorder.record_inbound_response(status=200, body=final_response)
+        request_log_recorder.flush()
 
         return JSONResponse(
             content=final_response,

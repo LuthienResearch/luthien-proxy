@@ -18,6 +18,7 @@ from luthien_proxy.pipeline.processor import (
 )
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
+from luthien_proxy.request_log.recorder import NoOpRequestLogRecorder
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 
 
@@ -236,6 +237,7 @@ class TestHandleNonStreaming:
                 llm_client=mock_llm_client,
                 emitter=mock_emitter,
                 call_id="test-call-id",
+                request_log_recorder=NoOpRequestLogRecorder(),
             )
 
         assert isinstance(response, JSONResponse)
@@ -295,6 +297,7 @@ class TestHandleStreaming:
                 llm_client=mock_llm_client,
                 call_id="test-call-id",
                 root_span=mock_root_span,
+                request_log_recorder=NoOpRequestLogRecorder(),
             )
 
         assert isinstance(response, FastAPIStreamingResponse)

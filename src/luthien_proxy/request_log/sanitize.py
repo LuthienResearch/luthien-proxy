@@ -18,7 +18,7 @@ _SENSITIVE_HEADERS = frozenset(
 # Patterns that look like API keys/tokens in header values
 _SECRET_PATTERN = re.compile(
     r"(sk-[a-zA-Z0-9]{8,})"  # OpenAI-style keys
-    r"|(anthr-[a-zA-Z0-9]{8,})"  # Anthropic-style keys
+    r"|(sk-ant-[a-zA-Z0-9]{8,})"  # Anthropic-style keys
     r"|([a-f0-9]{32,})",  # Long hex strings (generic tokens)
     re.IGNORECASE,
 )
