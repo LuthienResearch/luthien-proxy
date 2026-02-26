@@ -102,6 +102,8 @@ class PolicyManager:
                 "or configure a policy via the admin API first."
             )
 
+        self._current_policy = self._maybe_compose_dogfood(self._current_policy)
+
     async def _initialize_from_file(self) -> None:
         """Load policy from YAML file and persist to DB."""
         if not self.startup_policy_path or not os.path.exists(self.startup_policy_path):
@@ -199,8 +201,8 @@ class PolicyManager:
                 # 2. Persist to DB
                 await self._persist_to_db(policy_class_ref, config, enabled_by)
 
-                # 3. Hot-swap in memory
-                self._current_policy = new_policy
+                # 3. Hot-swap in memory (compose dogfood if enabled)
+                self._current_policy = self._maybe_compose_dogfood(new_policy)
 
                 duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
@@ -312,6 +314,30 @@ class PolicyManager:
                 await lock.release()
             except Exception as e:
                 logger.warning(f"Failed to release lock: {e}")
+
+    def _maybe_compose_dogfood(self, policy: PolicyProtocol) -> PolicyProtocol:
+        """If ENABLE_DOGFOOD_POLICY is set, compose DogfoodSafetyPolicy into the chain."""
+        from luthien_proxy.settings import get_settings  # noqa: PLC0415
+
+        if not get_settings().enable_dogfood_policy:
+            return policy
+
+        from luthien_proxy.policies.dogfood_safety_policy import DogfoodSafetyPolicy  # noqa: PLC0415
+        from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy  # noqa: PLC0415
+        from luthien_proxy.policy_composition import compose_policy  # noqa: PLC0415
+
+        # Skip if already composed with DogfoodSafetyPolicy
+        if isinstance(policy, MultiSerialPolicy) and any(
+            isinstance(p, DogfoodSafetyPolicy) for p in policy._sub_policies
+        ):
+            return policy
+
+        if isinstance(policy, DogfoodSafetyPolicy):
+            return policy
+
+        result = compose_policy(policy, DogfoodSafetyPolicy(), position=0)
+        logger.info(f"ENABLE_DOGFOOD_POLICY: composed {policy.short_policy_name} → {result.short_policy_name}")
+        return result
 
     def _generate_troubleshooting(self, error: Exception) -> list[str]:
         """Generate troubleshooting steps based on error type."""
