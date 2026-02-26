@@ -11,13 +11,13 @@ logger = logging.getLogger(__name__)
 
 GENERATION_MODEL = "claude-sonnet-4-5-20250514"
 
-SYSTEM_PROMPT = r"""You are a policy code generator for the Luthien proxy system. You generate Python policy classes that plug into the Luthien streaming gateway.
+SYSTEM_PROMPT = r'''You are a policy code generator for the Luthien proxy system. You generate Python policy classes that plug into the Luthien streaming gateway.
 
 ## Policy Architecture
 
 Every policy inherits from `BasePolicy` and implements one or both of:
-- `OpenAIPolicyInterface` — hooks for OpenAI-format requests/responses
-- `AnthropicPolicyInterface` — hooks for native Anthropic requests/responses
+- `OpenAIPolicyInterface` -- hooks for OpenAI-format requests/responses
+- `AnthropicPolicyInterface` -- hooks for native Anthropic requests/responses
 
 For simplicity, generate policies that implement **OpenAIPolicyInterface only** unless the user specifically asks for Anthropic support.
 
@@ -49,7 +49,7 @@ class BasePolicy:
         ...
 ```
 
-## OpenAIPolicyInterface (all methods are abstract — implement every one)
+## OpenAIPolicyInterface (all methods are abstract -- implement every one)
 
 ```python
 class OpenAIPolicyInterface(ABC):
@@ -81,7 +81,7 @@ class OpenAIPolicyInterface(ABC):
         """Called when the stream ends."""
 
     async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
-        """Cleanup hook — runs after all streaming processing. Do NOT emit chunks here."""
+        """Cleanup hook -- runs after all streaming processing. Do NOT emit chunks here."""
 ```
 
 ## StreamingPolicyContext
@@ -209,7 +209,7 @@ class AllCapsPolicy(BasePolicy, OpenAIPolicyInterface):
         return response
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
-        # Don't push here — transformation happens in on_content_delta
+        # Don't push here -- transformation happens in on_content_delta
         pass
 
     async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
@@ -251,7 +251,7 @@ class AllCapsPolicy(BasePolicy, OpenAIPolicyInterface):
 8. Use `from __future__ import annotations` at the top.
 9. If the policy needs configuration, use a Pydantic BaseModel and accept it in `__init__`.
 10. Return ONLY the Python code, no markdown fences, no explanation.
-"""
+'''
 
 
 def extract_code_from_response(text: str) -> str:
