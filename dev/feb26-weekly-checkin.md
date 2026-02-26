@@ -18,7 +18,7 @@
 
 **The blocker:** No useful policy exists. We have infrastructure for composable policies, auth, config UI, live view — but `policy_config.yaml` still defaults to NoOpPolicy. We can't dogfood meaningfully, demo value to leads, or convert anyone to a trial without a policy that solves a real pain point.
 
-**Who can help?** Jai + Scott need to pick one policy and build it this week. Finn/Esben: help us decide which one (see [Limiting Factor doc](TBD_HACKMD_LINK)).
+**Who can help?** Jai + Scott need to pick one policy and build it this week. Finn/Esben: help us decide which one (see [Limiting Factor doc](./dev/feb26-limiting-factor.md)).
 
 ---
 
@@ -42,7 +42,7 @@
 
 **Current status:** 0 paying. ~15 EAG leads in pipeline (aging but Tyler actively engaged). Auth blockers resolved. Infrastructure ready (composable policies, config UI, live view, Railway deploy). But no useful policy to show anyone yet.
 
-**On track?** ❌ — Pipeline exists but isn't being converted. The bottleneck isn't leads or infrastructure; it's that we have nothing useful to put in front of people yet. See [Limiting Factor analysis](TBD_HACKMD_LINK) for full breakdown.
+**On track?** ❌ — Pipeline exists but isn't being converted. The bottleneck isn't leads or infrastructure; it's that we have nothing useful to put in front of people yet. See [Limiting Factor analysis](./dev/feb26-limiting-factor.md) for full breakdown.
 
 ---
 
