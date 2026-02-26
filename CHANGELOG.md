@@ -2,6 +2,14 @@
 
 ## Unreleased | TBA
 
+- Add general-purpose policy composition API (policy-composition)
+  - `compose_policy()` function for inserting policies into chains at runtime
+  - `MultiSerialPolicy.from_instances()` for building chains from pre-instantiated policies
+  - `DogfoodSafetyPolicy` — regex-based safety policy that blocks dangerous commands
+    (docker down, pkill, rm .env, DROP TABLE) when proxying through the gateway
+  - `ENABLE_DOGFOOD_POLICY` env var to auto-inject DogfoodSafetyPolicy into any policy chain
+  - Replaces hacky approach from #243 with clean, reusable composition mechanism
+
 - Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
   - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
   - MultiParallelPolicy: parallel execution with configurable consolidation strategies
