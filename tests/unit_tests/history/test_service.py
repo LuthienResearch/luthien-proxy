@@ -311,6 +311,61 @@ class TestParseResponseMessages:
         assert result[0].message_type == MessageType.ASSISTANT
         assert result[1].message_type == MessageType.TOOL_CALL
 
+    def test_anthropic_text_response(self):
+        """Test parsing Anthropic-format response with text content."""
+        response = {
+            "id": "msg_test123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hello from Claude!"}],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+        }
+
+        result = _parse_response_messages(response)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.ASSISTANT
+        assert result[0].content == "Hello from Claude!"
+
+    def test_anthropic_response_with_tool_use(self):
+        """Test parsing Anthropic-format response with tool_use content blocks."""
+        response = {
+            "id": "msg_test456",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Let me read that file."},
+                {"type": "tool_use", "id": "toolu_123", "name": "read_file", "input": {"path": "/foo.py"}},
+            ],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "tool_use",
+        }
+
+        result = _parse_response_messages(response)
+
+        assert len(result) == 2
+        assert result[0].message_type == MessageType.ASSISTANT
+        assert result[0].content == "Let me read that file."
+        assert result[1].message_type == MessageType.TOOL_CALL
+        assert result[1].tool_name == "read_file"
+        assert result[1].tool_call_id == "toolu_123"
+
+    def test_anthropic_empty_text_response(self):
+        """Test parsing Anthropic response with empty content blocks."""
+        response = {
+            "id": "msg_test789",
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+        }
+
+        result = _parse_response_messages(response)
+
+        assert len(result) == 0
+
 
 class TestBuildTurn:
     """Test building conversation turns from events."""
@@ -414,6 +469,61 @@ class TestBuildTurn:
 
         with pytest.raises(KeyError, match="final_response"):
             _build_turn("call-123", events)
+
+    def test_anthropic_turn_with_text_response(self):
+        """Test building a turn from Anthropic-format request and response events."""
+        events = [
+            {
+                "event_type": "transaction.request_recorded",
+                "payload": {
+                    "final_model": "claude-sonnet-4-20250514",
+                    "original_request": {
+                        "model": "claude-sonnet-4-20250514",
+                        "messages": [{"role": "user", "content": "Hello Claude"}],
+                        "max_tokens": 1024,
+                    },
+                    "final_request": {
+                        "model": "claude-sonnet-4-20250514",
+                        "messages": [{"role": "user", "content": "Hello Claude"}],
+                        "max_tokens": 1024,
+                    },
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+            {
+                "event_type": "transaction.non_streaming_response_recorded",
+                "payload": {
+                    "original_response": {
+                        "id": "msg_123",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Hello! How can I help?"}],
+                        "model": "claude-sonnet-4-20250514",
+                        "stop_reason": "end_turn",
+                    },
+                    "final_response": {
+                        "id": "msg_123",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Hello! How can I help?"}],
+                        "model": "claude-sonnet-4-20250514",
+                        "stop_reason": "end_turn",
+                    },
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 1),
+            },
+        ]
+
+        turn = _build_turn("call-456", events)
+
+        assert turn.call_id == "call-456"
+        assert turn.model == "claude-sonnet-4-20250514"
+        assert len(turn.request_messages) == 1
+        assert turn.request_messages[0].content == "Hello Claude"
+        assert len(turn.response_messages) == 1
+        assert turn.response_messages[0].content == "Hello! How can I help?"
+        assert turn.response_messages[0].message_type == MessageType.ASSISTANT
+        assert not turn.had_policy_intervention
 
 
 class TestFetchSessionList:

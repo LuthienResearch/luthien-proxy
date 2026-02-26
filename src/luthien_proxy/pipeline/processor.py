@@ -36,7 +36,7 @@ from litellm.types.utils import ModelResponse
 from openai import APIConnectionError as OpenAIAPIConnectionError
 from openai import APIStatusError as OpenAIAPIStatusError
 from opentelemetry import trace
-from opentelemetry.context import attach, detach, get_current
+from opentelemetry.context import get_current
 from opentelemetry.trace import Span
 from pydantic import ValidationError
 
@@ -54,6 +54,7 @@ from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
+from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
@@ -297,9 +298,8 @@ async def _handle_streaming(
     async def streaming_with_spans() -> AsyncIterator[str]:
         """Wrapper that creates proper span hierarchy for streaming."""
         # Attach parent context so spans are siblings under transaction_processing
-        token = attach(parent_context)
-        chunk_count = 0
-        try:
+        with restore_context(parent_context):
+            chunk_count = 0
             # process_response span wraps the entire streaming pipeline
             with tracer.start_as_current_span("process_response") as response_span:
                 response_span.set_attribute("luthien.phase", "process_response")
@@ -315,8 +315,6 @@ async def _handle_streaming(
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
-        finally:
-            detach(token)
 
     return FastAPIStreamingResponse(
         streaming_with_spans(),

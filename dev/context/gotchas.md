@@ -25,13 +25,13 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ## Observability Checks (2025-10-08, updated 2025-11-11)
 
-- Uses OpenTelemetry for observability - see `dev/observability-v2.md` and `dev/VIEWING_TRACES_GUIDE.md`
+- Uses OpenTelemetry for observability - see `dev/observability.md` and `dev/VIEWING_TRACES_GUIDE.md`
 - Live activity monitoring available at `/activity/monitor` on the gateway
 
 ## Documentation Structure (2025-10-10, updated 2025-11-11)
 
-- **Active docs**: dev/ARCHITECTURE.md, dev/event_driven_policy_guide.md, dev/observability-v2.md, dev/VIEWING_TRACES_GUIDE.md
-- **Common places to check**: README.md, CLAUDE.md, AGENTS.md, dev planning docs, inline code comments
+- **Active docs**: dev/REQUEST_PROCESSING_ARCHITECTURE.md, dev/observability.md, dev/VIEWING_TRACES_GUIDE.md
+- **Common places to check**: README.md, CLAUDE.md, dev planning docs, inline code comments
 - **Streaming behavior**: Emits conversation events via `storage/events.py` using background queue for non-blocking persistence
 
 ## Queue Shutdown for Stream Termination (2025-01-20, updated 2025-10-20)
@@ -208,7 +208,7 @@ if stream_state.finish_reason:
 
 - **Symptom**: `Bind for 0.0.0.0:6379 failed: port is already allocated` on startup
 - **Cause**: Orphaned containers from a previous run with a different project name
-- **Fix**: `quick_start.sh` now cleans up containers from the default project name before starting
+- **Fix**: `quick_start.sh` now cleans up containers from the default project name before starting. Additionally, `COMPOSE_PROJECT_NAME=luthien-proxy` is now set in `.env.example` so all launch methods use the same project name by default (PR #231).
 - **Manual fix**: `docker compose -p <directory-name> down` (e.g., `docker compose -p luthien-proxy down`)
 ## macOS Bash 3 Compatibility (2026-02-17)
 
