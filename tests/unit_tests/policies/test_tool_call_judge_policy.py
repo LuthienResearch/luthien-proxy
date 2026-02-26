@@ -420,9 +420,9 @@ class TestToolCallJudgePolicyOpenAIToolCallBuffering:
         assert key in policy._buffered_tool_calls
         buffered = policy._buffered_tool_calls[key]
 
-        assert buffered["id"] == "call-123"
-        assert buffered["name"] == "test_tool"
-        assert buffered["arguments"] == '{"key":"value"}'
+        assert buffered.id == "call-123"
+        assert buffered.name == "test_tool"
+        assert buffered.arguments == '{"key":"value"}'
 
 
 class TestToolCallJudgePolicyOpenAINonStreaming:
