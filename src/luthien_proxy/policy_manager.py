@@ -274,6 +274,10 @@ class PolicyManager:
             config=config,
         )
 
+    def set_dynamic_policy(self, policy: PolicyProtocol) -> None:
+        """Hot-swap to a dynamically loaded policy instance."""
+        self._current_policy = policy
+
     @property
     def current_policy(self) -> PolicyProtocol:
         """Access current policy instance.

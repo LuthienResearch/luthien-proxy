@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import logging
 from typing import Any
 
@@ -14,7 +15,6 @@ logger = logging.getLogger(__name__)
 ALLOWED_IMPORTS = frozenset(
     {
         "__future__",
-        "asyncio",
         "json",
         "re",
         "logging",
@@ -28,7 +28,7 @@ ALLOWED_IMPORTS = frozenset(
         "luthien_proxy.policy_core.anthropic_interface",
         "luthien_proxy.policy_core.policy_context",
         "luthien_proxy.policy_core.streaming_policy_context",
-        "luthien_proxy.policy_core.chunk_builder",
+        "luthien_proxy.policy_core.chunk_builders",
         "litellm",
     }
 )
@@ -58,8 +58,79 @@ BLOCKED_NAMES = frozenset(
         "shelve",
         "multiprocessing",
         "threading",
+        # Introspection-based sandbox escapes
+        "getattr",
+        "setattr",
+        "delattr",
+        "__class__",
+        "__bases__",
+        "__subclasses__",
+        "__dict__",
+        "__getattribute__",
     }
 )
+
+# Safe subset of builtins available to dynamic policies
+_SAFE_BUILTINS = {
+    name: getattr(builtins, name)
+    for name in [
+        "True",
+        "False",
+        "None",
+        "abs",
+        "all",
+        "any",
+        "bool",
+        "bytes",
+        "callable",
+        "chr",
+        "dict",
+        "divmod",
+        "enumerate",
+        "filter",
+        "float",
+        "format",
+        "frozenset",
+        "hasattr",
+        "hash",
+        "hex",
+        "id",
+        "int",
+        "isinstance",
+        "issubclass",
+        "iter",
+        "len",
+        "list",
+        "map",
+        "max",
+        "min",
+        "next",
+        "object",
+        "oct",
+        "ord",
+        "pow",
+        "print",
+        "property",
+        "range",
+        "repr",
+        "reversed",
+        "round",
+        "set",
+        "slice",
+        "sorted",
+        "str",
+        "sum",
+        "super",
+        "tuple",
+        "type",
+        "zip",
+        # Needed for imports within exec
+        "__import__",
+        "__name__",
+        "__build_class__",
+    ]
+    if hasattr(builtins, name)
+}
 
 
 class PolicyLoadError(Exception):
@@ -144,8 +215,8 @@ def load_policy_from_source(
     except Exception as e:
         raise PolicyLoadError(f"Compilation failed: {e}") from e
 
-    # Execute in a namespace that has access to the policy framework
-    namespace: dict[str, Any] = {}
+    # Execute in a restricted namespace with curated builtins
+    namespace: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
     try:
         exec(code, namespace)  # noqa: S102
     except Exception as e:

@@ -265,32 +265,32 @@ async def activate_policy(
     except PolicyLoadError as e:
         raise HTTPException(status_code=400, detail=f"Failed to load policy: {e}")
 
-    # Hot-swap via policy manager (bypass normal enable_policy to avoid import-based loading)
-    manager._current_policy = policy  # type: ignore[assignment]
+    # Hot-swap via policy manager
+    manager.set_dynamic_policy(policy)  # type: ignore[arg-type]
 
-    # Mark this one as active, others as inactive
-    await pool.execute("UPDATE dynamic_policies SET is_active = FALSE")
-    await pool.execute(
-        "UPDATE dynamic_policies SET is_active = TRUE, updated_at = NOW() WHERE id = $1",
-        policy_id,
-    )
-
-    # Persist to current_policy table so it survives restarts
+    # Persist activation atomically via a connection transaction
     policy_class_name = policy.__class__.__name__
-    await pool.execute(
-        """
-        INSERT INTO current_policy (id, policy_class_ref, config, enabled_at, enabled_by)
-        VALUES (1, $1, $2, NOW(), $3)
-        ON CONFLICT (id) DO UPDATE SET
-            policy_class_ref = EXCLUDED.policy_class_ref,
-            config = EXCLUDED.config,
-            enabled_at = EXCLUDED.enabled_at,
-            enabled_by = EXCLUDED.enabled_by
-        """,
-        f"dynamic:{policy_class_name}",
-        json.dumps(config),
-        f"dynamic-policy:{name}",
-    )
+    async with db_pool.connection() as conn:
+        async with conn.transaction():
+            await conn.execute("UPDATE dynamic_policies SET is_active = FALSE")
+            await conn.execute(
+                "UPDATE dynamic_policies SET is_active = TRUE, updated_at = NOW() WHERE id = $1",
+                policy_id,
+            )
+            await conn.execute(
+                """
+                INSERT INTO current_policy (id, policy_class_ref, config, enabled_at, enabled_by)
+                VALUES (1, $1, $2, NOW(), $3)
+                ON CONFLICT (id) DO UPDATE SET
+                    policy_class_ref = EXCLUDED.policy_class_ref,
+                    config = EXCLUDED.config,
+                    enabled_at = EXCLUDED.enabled_at,
+                    enabled_by = EXCLUDED.enabled_by
+                """,
+                f"dynamic:{policy_class_name}",
+                json.dumps(config),
+                f"dynamic-policy:{name}",
+            )
 
     return {"success": True, "message": f"Policy '{name}' activated", "policy": policy_class_name}
 

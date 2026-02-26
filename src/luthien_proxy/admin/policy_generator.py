@@ -35,7 +35,7 @@ from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyCo
 from luthien_proxy.policy_core.chunk_builders import create_text_chunk
 ```
 
-Only import from `luthien_proxy.policy_core`, `litellm`, `pydantic`, `re`, `json`, `logging`, `copy`, `asyncio`, `typing`, or `dataclasses`. No filesystem, network, or subprocess access.
+Only import from `luthien_proxy.policy_core`, `litellm`, `pydantic`, `re`, `json`, `logging`, `copy`, `typing`, or `dataclasses`. No filesystem, network, subprocess, or asyncio access.
 
 ## BasePolicy
 
@@ -283,6 +283,8 @@ async def generate_policy_code(prompt: str, api_key: str) -> dict[str, str]:
         messages=[{"role": "user", "content": prompt}],
     )
 
+    if not message.content:
+        raise ValueError("Empty response from LLM")
     first_block = message.content[0]
     if not isinstance(first_block, TextBlock):
         raise ValueError(f"Expected text response, got {type(first_block).__name__}")

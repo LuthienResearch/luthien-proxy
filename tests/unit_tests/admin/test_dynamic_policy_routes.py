@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from luthien_proxy.admin.dynamic_policy_routes import router
+from luthien_proxy.dependencies import get_db_pool, get_policy_manager
 
 # Valid policy source for testing
 VALID_POLICY_SOURCE = """
@@ -131,3 +135,153 @@ class TestListEndpoint:
         resp = client.get("/admin/policies/")
         assert resp.status_code == 200
         assert resp.json() == []
+
+
+def _make_db_fixtures(app: FastAPI):
+    """Set up mock DB pool and policy manager on the app, return (mock_pool, mock_manager)."""
+    mock_pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.execute = AsyncMock()
+    mock_conn.transaction = MagicMock(return_value=AsyncContextManagerMock())
+
+    mock_db_pool = MagicMock()
+    mock_db_pool.get_pool = AsyncMock(return_value=mock_pool)
+    mock_db_pool.connection = MagicMock(return_value=AsyncContextManagerMockYielding(mock_conn))
+
+    mock_manager = MagicMock()
+    mock_manager.set_dynamic_policy = MagicMock()
+
+    app.dependency_overrides[get_db_pool] = lambda: mock_db_pool
+    app.dependency_overrides[get_policy_manager] = lambda: mock_manager
+
+    return mock_pool, mock_manager
+
+
+class TestGetPolicyEndpoint:
+    """Tests for GET /admin/policies/{policy_id}."""
+
+    def test_get_policy_not_found(self, client: TestClient, app: FastAPI) -> None:
+        mock_pool, _ = _make_db_fixtures(app)
+        mock_pool.fetchrow = AsyncMock(return_value=None)
+
+        resp = client.get(f"/admin/policies/{uuid4()}")
+        assert resp.status_code == 404
+
+    def test_get_policy_found(self, client: TestClient, app: FastAPI) -> None:
+        mock_pool, _ = _make_db_fixtures(app)
+        policy_id = uuid4()
+        mock_pool.fetchrow = AsyncMock(
+            return_value={
+                "id": policy_id,
+                "name": "TestPolicy",
+                "description": "A test policy",
+                "source_code": VALID_POLICY_SOURCE,
+                "config": json.dumps({}),
+                "prompt": "make a test policy",
+                "is_active": False,
+                "version": 1,
+                "created_at": datetime(2026, 1, 1),
+                "updated_at": datetime(2026, 1, 1),
+                "created_by": "admin",
+            }
+        )
+
+        resp = client.get(f"/admin/policies/{policy_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "TestPolicy"
+        assert data["source_code"] == VALID_POLICY_SOURCE
+
+
+class TestActivatePolicyEndpoint:
+    """Tests for POST /admin/policies/{policy_id}/activate."""
+
+    def test_activate_not_found(self, client: TestClient, app: FastAPI) -> None:
+        mock_pool, _ = _make_db_fixtures(app)
+        mock_pool.fetchrow = AsyncMock(return_value=None)
+
+        resp = client.post(f"/admin/policies/{uuid4()}/activate")
+        assert resp.status_code == 404
+
+    def test_activate_success(self, client: TestClient, app: FastAPI) -> None:
+        mock_pool, mock_manager = _make_db_fixtures(app)
+        policy_id = uuid4()
+        mock_pool.fetchrow = AsyncMock(
+            return_value={
+                "source_code": VALID_POLICY_SOURCE,
+                "config": json.dumps({}),
+                "name": "TestPolicy",
+            }
+        )
+        mock_pool.execute = AsyncMock()
+
+        resp = client.post(f"/admin/policies/{policy_id}/activate")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        mock_manager.set_dynamic_policy.assert_called_once()
+
+    def test_activate_invalid_source_fails(self, client: TestClient, app: FastAPI) -> None:
+        mock_pool, _ = _make_db_fixtures(app)
+        mock_pool.fetchrow = AsyncMock(
+            return_value={
+                "source_code": "import os\nclass Foo:\n  pass",
+                "config": json.dumps({}),
+                "name": "BadPolicy",
+            }
+        )
+
+        resp = client.post(f"/admin/policies/{uuid4()}/activate")
+        assert resp.status_code == 400
+
+
+class TestDeletePolicyEndpoint:
+    """Tests for DELETE /admin/policies/{policy_id}."""
+
+    def test_delete_not_found(self, client: TestClient, app: FastAPI) -> None:
+        mock_pool, _ = _make_db_fixtures(app)
+        mock_pool.fetchrow = AsyncMock(return_value=None)
+
+        resp = client.delete(f"/admin/policies/{uuid4()}")
+        assert resp.status_code == 404
+
+    def test_delete_active_policy_rejected(self, client: TestClient, app: FastAPI) -> None:
+        mock_pool, _ = _make_db_fixtures(app)
+        mock_pool.fetchrow = AsyncMock(return_value={"is_active": True, "name": "Active"})
+
+        resp = client.delete(f"/admin/policies/{uuid4()}")
+        assert resp.status_code == 400
+        assert "active" in resp.json()["detail"].lower()
+
+    def test_delete_inactive_policy_succeeds(self, client: TestClient, app: FastAPI) -> None:
+        mock_pool, _ = _make_db_fixtures(app)
+        mock_pool.fetchrow = AsyncMock(return_value={"is_active": False, "name": "Inactive"})
+        mock_pool.execute = AsyncMock()
+
+        resp = client.delete(f"/admin/policies/{uuid4()}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+
+
+class AsyncContextManagerMock:
+    """Mock for async context managers like conn.transaction()."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+
+class AsyncContextManagerMockYielding:
+    """Mock for async context managers that yield a value (like db_pool.connection())."""
+
+    def __init__(self, value: object):
+        self._value = value
+
+    async def __aenter__(self):
+        return self._value
+
+    async def __aexit__(self, *args):
+        pass

@@ -123,6 +123,45 @@ class Foo:
         issues = validate_source(code)
         assert issues == []
 
+    def test_getattr_blocked(self) -> None:
+        code = "class Foo:\n  def run(self): getattr(self, 'x')"
+        issues = validate_source(code)
+        assert any("getattr" in i for i in issues)
+
+    def test_setattr_blocked(self) -> None:
+        code = "class Foo:\n  def run(self): setattr(self, 'x', 1)"
+        issues = validate_source(code)
+        assert any("setattr" in i for i in issues)
+
+    def test_dunder_class_blocked(self) -> None:
+        code = "class Foo:\n  def run(self): return self.__class__"
+        issues = validate_source(code)
+        assert any("__class__" in i for i in issues)
+
+    def test_dunder_bases_blocked(self) -> None:
+        code = "class Foo:\n  def run(self): return Foo.__bases__"
+        issues = validate_source(code)
+        assert any("__bases__" in i for i in issues)
+
+    def test_dunder_subclasses_blocked(self) -> None:
+        code = "class Foo:\n  def run(self): return object.__subclasses__()"
+        issues = validate_source(code)
+        assert any("__subclasses__" in i for i in issues)
+
+    def test_asyncio_import_blocked(self) -> None:
+        code = "import asyncio\nclass Foo:\n  pass"
+        issues = validate_source(code)
+        assert any("asyncio" in i for i in issues)
+
+    def test_chunk_builders_import_allowed(self) -> None:
+        code = """
+from luthien_proxy.policy_core.chunk_builders import create_text_chunk
+class Foo:
+    pass
+"""
+        issues = validate_source(code)
+        assert issues == []
+
 
 class TestLoadPolicyFromSource:
     """Tests for loading and instantiating policies from source."""
@@ -148,6 +187,39 @@ class NotAPolicy:
 """
         with pytest.raises(PolicyLoadError, match="No BasePolicy subclass"):
             load_policy_from_source(code)
+
+    def test_load_multiple_policy_classes_uses_first(self) -> None:
+        code = """
+from luthien_proxy.policy_core.base_policy import BasePolicy
+
+class FirstPolicy(BasePolicy):
+    @property
+    def short_policy_name(self):
+        return "First"
+
+class SecondPolicy(BasePolicy):
+    @property
+    def short_policy_name(self):
+        return "Second"
+"""
+        policy = load_policy_from_source(code, policy_name="multi")
+        assert isinstance(policy, BasePolicy)
+        assert policy.short_policy_name == "First"
+
+    def test_load_with_config(self) -> None:
+        code = """
+from luthien_proxy.policy_core.base_policy import BasePolicy
+
+class ConfigPolicy(BasePolicy):
+    def __init__(self, config: dict = None):
+        self._config = config or {}
+
+    @property
+    def short_policy_name(self):
+        return "Config"
+"""
+        policy = load_policy_from_source(code, config={"key": "value"}, policy_name="config")
+        assert isinstance(policy, BasePolicy)
 
     def test_load_minimal_basepolicy(self) -> None:
         code = """
