@@ -73,7 +73,7 @@ Source: [Office Hours notes](https://docs.google.com/document/d/1Qo2D5zrtuHO2MF6
 
 ### Infrastructure (Medium)
 
-- [ ] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name. Currently both scripts derive it, but direct `docker compose` still uses directory default. Reference: COE from PR #203, 2026-02-17.
+- [x] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name. (Done: PR #231)
 - [ ] **Add `shellcheck` to CI or `dev_checks.sh`** - No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by `shellcheck --shell=bash`. Reference: COE from PR #202, 2026-02-17.
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints (debug endpoints have tests, UI routes do not)
 - [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production
