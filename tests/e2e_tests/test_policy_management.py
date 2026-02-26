@@ -4,9 +4,9 @@
 """E2E tests for policy management API.
 
 Tests the admin API endpoints for policy management including:
-- GET /admin/policy/current - Get current policy information
-- POST /admin/policy/set - Set the active policy
-- GET /admin/policy/list - List available policy classes
+- GET /api/api/admin/policy/current - Get current policy information
+- POST /api/api/admin/policy/set - Set the active policy
+- GET /api/api/admin/policy/list - List available policy classes
 - Policy persistence to database
 - Hot-reload functionality (changing policy without restart)
 
@@ -60,7 +60,7 @@ async def restore_policy_after_tests():
 
     # Save initial policy state before any tests run
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(f"{GATEWAY_URL}/admin/policy/current", headers=headers)
+        response = await client.get(f"{GATEWAY_URL}/api/admin/policy/current", headers=headers)
         if response.status_code == 200:
             initial_policy = response.json()
         else:
@@ -72,7 +72,7 @@ async def restore_policy_after_tests():
     if initial_policy:
         async with httpx.AsyncClient(timeout=30.0) as client:
             await client.post(
-                f"{GATEWAY_URL}/admin/policy/set",
+                f"{GATEWAY_URL}/api/admin/policy/set",
                 headers=headers,
                 json={
                     "policy_class_ref": initial_policy["class_ref"],
@@ -89,11 +89,11 @@ async def restore_policy_after_tests():
 @pytest.mark.asyncio
 async def test_admin_api_requires_authentication(http_client):
     """Test that admin endpoints require authentication."""
-    response = await http_client.get(f"{GATEWAY_URL}/admin/policy/current")
+    response = await http_client.get(f"{GATEWAY_URL}/api/admin/policy/current")
     assert response.status_code == 403, "Should reject request without auth"
 
     response = await http_client.get(
-        f"{GATEWAY_URL}/admin/policy/current",
+        f"{GATEWAY_URL}/api/admin/policy/current",
         headers={"Authorization": "Bearer wrong-key"},
     )
     assert response.status_code == 403, "Should reject request with wrong key"
@@ -104,7 +104,7 @@ async def test_admin_api_requires_authentication(http_client):
 async def test_admin_api_accepts_valid_key(http_client, admin_headers):
     """Test that admin endpoints accept valid admin key."""
     response = await http_client.get(
-        f"{GATEWAY_URL}/admin/policy/current",
+        f"{GATEWAY_URL}/api/admin/policy/current",
         headers=admin_headers,
     )
     assert response.status_code == 200, f"Should accept valid admin key: {response.text}"
@@ -118,7 +118,7 @@ async def test_admin_api_accepts_valid_key(http_client, admin_headers):
 async def test_get_current_policy(http_client, admin_headers):
     """Test getting current policy information."""
     response = await http_client.get(
-        f"{GATEWAY_URL}/admin/policy/current",
+        f"{GATEWAY_URL}/api/admin/policy/current",
         headers=admin_headers,
     )
 
@@ -137,7 +137,7 @@ async def test_get_current_policy(http_client, admin_headers):
 async def test_list_available_policies(http_client, admin_headers):
     """Test listing available policy classes."""
     response = await http_client.get(
-        f"{GATEWAY_URL}/admin/policy/list",
+        f"{GATEWAY_URL}/api/admin/policy/list",
         headers=admin_headers,
     )
 
@@ -162,7 +162,7 @@ async def test_set_policy_single_call(http_client, admin_headers, proxy_headers,
     """Test setting a policy with a single API call using /policy/set."""
     # Set policy directly
     set_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "luthien_proxy.policies.all_caps_policy:AllCapsPolicy",
@@ -181,7 +181,7 @@ async def test_set_policy_single_call(http_client, admin_headers, proxy_headers,
     time.sleep(0.5)
 
     # Verify current policy changed
-    current_response = await http_client.get(f"{GATEWAY_URL}/admin/policy/current", headers=admin_headers)
+    current_response = await http_client.get(f"{GATEWAY_URL}/api/admin/policy/current", headers=admin_headers)
     assert current_response.json()["policy"] == "AllCapsPolicy"
 
     # Test policy works
@@ -208,7 +208,7 @@ async def test_set_policy_single_call(http_client, admin_headers, proxy_headers,
 async def test_set_noop_policy(http_client, admin_headers, restore_policy_after_tests):
     """Test setting NoOpPolicy."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
@@ -226,7 +226,7 @@ async def test_set_noop_policy(http_client, admin_headers, restore_policy_after_
 async def test_set_invalid_policy(http_client, admin_headers, restore_policy_after_tests):
     """Test that setting invalid policy fails gracefully."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "nonexistent.module:NonexistentPolicy",

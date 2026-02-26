@@ -116,9 +116,9 @@ class TestLoginPageHTML:
         assert 'class="error"' in html
 
     def test_includes_next_url(self):
-        html = get_login_page_html(next_url="/debug/diff")
+        html = get_login_page_html(next_url="/diffs")
         assert 'name="next_url"' in html
-        assert 'value="/debug/diff"' in html
+        assert 'value="/diffs"' in html
 
     def test_escapes_next_url(self):
         # Test that potentially dangerous characters are escaped
@@ -146,7 +146,7 @@ class TestValidateNextUrl:
     def test_allows_relative_paths(self):
         from luthien_proxy.session import _validate_next_url
 
-        assert _validate_next_url("/debug/diff") == "/debug/diff"
+        assert _validate_next_url("/diffs") == "/diffs"
         assert _validate_next_url("/activity/monitor") == "/activity/monitor"
         assert _validate_next_url("/") == "/"
         assert _validate_next_url("/path?query=value") == "/path?query=value"
@@ -184,7 +184,7 @@ class TestValidateNextUrl:
     def test_strips_whitespace(self):
         from luthien_proxy.session import _validate_next_url
 
-        assert _validate_next_url("  /debug/diff  ") == "/debug/diff"
+        assert _validate_next_url("  /diffs  ") == "/diffs"
         assert _validate_next_url("\n/path\n") == "/path"
 
 
@@ -298,11 +298,11 @@ class TestLoginRedirectFlow:
         assert resp.headers["location"] == "/"
 
     def test_login_page_preserves_next_in_form(self, auth_client):
-        """GET /login?next=/debug/diff produces a form with next_url field."""
-        resp = auth_client.get("/login?next=/debug/diff")
+        """GET /login?next=/diffs produces a form with next_url field."""
+        resp = auth_client.get("/login?next=/diffs")
         assert resp.status_code == 200
         assert 'name="next_url"' in resp.text
-        assert 'value="/debug/diff"' in resp.text
+        assert 'value="/diffs"' in resp.text
 
     def test_failed_login_preserves_next_url(self, auth_client):
         """Wrong password redirects back to login keeping the next param."""

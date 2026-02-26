@@ -50,9 +50,9 @@ async def noop_policy_active():
     async with httpx.AsyncClient(timeout=30.0) as client:
         admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
 
-        # Set NoOp policy using the /admin/policy/set endpoint
+        # Set NoOp policy using the /api/admin/policy/set endpoint
         set_response = await client.post(
-            f"{GATEWAY_URL}/admin/policy/set",
+            f"{GATEWAY_URL}/api/admin/policy/set",
             headers=admin_headers,
             json={
                 "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
@@ -651,9 +651,9 @@ async def tool_call_judge_policy_active():
     async with httpx.AsyncClient(timeout=30.0) as client:
         admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
 
-        # Set ToolCallJudgePolicy using the /admin/policy/set endpoint
+        # Set ToolCallJudgePolicy using the /api/admin/policy/set endpoint
         set_response = await client.post(
-            f"{GATEWAY_URL}/admin/policy/set",
+            f"{GATEWAY_URL}/api/admin/policy/set",
             headers=admin_headers,
             json={
                 "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",

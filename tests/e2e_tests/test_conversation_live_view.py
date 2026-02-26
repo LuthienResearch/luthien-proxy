@@ -64,7 +64,7 @@ async def get_live_view_page(client: httpx.AsyncClient, session_id: str) -> http
 async def get_session_detail(client: httpx.AsyncClient, session_id: str) -> dict:
     """Fetch session detail from history API (same data the live view uses)."""
     response = await client.get(
-        f"{GATEWAY_URL}/history/api/sessions/{session_id}",
+        f"{GATEWAY_URL}/api/history/sessions/{session_id}",
         headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     )
     assert response.status_code == 200, f"History API failed: {response.text}"
