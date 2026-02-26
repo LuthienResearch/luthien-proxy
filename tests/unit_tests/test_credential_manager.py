@@ -28,7 +28,7 @@ class TestHashCredential:
 class TestCredentialManagerInit:
     def test_default_config(self):
         manager = CredentialManager(db_pool=None, redis_client=None)
-        assert manager.config.auth_mode == AuthMode.PROXY_KEY
+        assert manager.config.auth_mode == AuthMode.BOTH
         assert manager.config.validate_credentials is True
         assert manager.config.valid_cache_ttl_seconds == 3600
         assert manager.config.invalid_cache_ttl_seconds == 300
@@ -393,4 +393,4 @@ class TestUpdateConfig:
         manager = CredentialManager(db_pool=None, redis_client=None)
         config = await manager.update_config(validate_credentials=False)
         assert config.validate_credentials is False
-        assert config.auth_mode == AuthMode.PROXY_KEY  # unchanged
+        assert config.auth_mode == AuthMode.BOTH  # unchanged from default

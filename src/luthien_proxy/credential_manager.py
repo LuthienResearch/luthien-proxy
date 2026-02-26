@@ -84,7 +84,7 @@ class CredentialManager:
         self._db_pool = db_pool
         self._redis = redis_client
         self._config = AuthConfig(
-            auth_mode=AuthMode.PROXY_KEY,
+            auth_mode=AuthMode.BOTH,
             validate_credentials=True,
             valid_cache_ttl_seconds=3600,
             invalid_cache_ttl_seconds=300,
