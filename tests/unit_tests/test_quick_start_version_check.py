@@ -48,4 +48,6 @@ def test_version_check(version: str, expected: str) -> None:
     output = result.stdout.strip()
     expected_exit = 0 if expected == "ACCEPT" else 1
     assert output == expected, f"Python {version}: expected {expected}, got {output} (exit={result.returncode})"
-    assert result.returncode == expected_exit, f"Python {version}: expected exit {expected_exit}, got {result.returncode}"
+    assert result.returncode == expected_exit, (
+        f"Python {version}: expected exit {expected_exit}, got {result.returncode}"
+    )
