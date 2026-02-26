@@ -29,6 +29,8 @@ security = HTTPBearer(auto_error=False)
 
 
 # === AUTH ===
+
+
 async def verify_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
@@ -43,37 +45,74 @@ async def verify_token(
         raise HTTPException(status_code=401, detail="Missing API key")
     is_bearer = bearer_token is not None
 
-    auth_mode = credential_manager.config.auth_mode if credential_manager else AuthMode.PROXY_KEY
+    if credential_manager is None:
+        if secrets.compare_digest(token, api_key):
+            return token
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    auth_mode = credential_manager.config.auth_mode
 
     if auth_mode == AuthMode.PROXY_KEY:
         if secrets.compare_digest(token, api_key):
             return token
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    # PASSTHROUGH and BOTH require credential_manager
-    # (auth_mode defaults to PROXY_KEY when credential_manager is None)
-    if credential_manager is None:
-        raise RuntimeError("credential_manager must exist for non-proxy_key auth modes")
-
     if auth_mode == AuthMode.PASSTHROUGH:
         if credential_manager.config.validate_credentials:
             if not await credential_manager.validate_credential(token, is_bearer=is_bearer):
                 raise HTTPException(status_code=401, detail="Invalid credential")
-        request.state.passthrough_credential = token
-        request.state.passthrough_is_bearer = is_bearer
         return token
 
     # BOTH mode: try proxy key first, fall through to passthrough
-    if auth_mode != AuthMode.BOTH:
-        raise RuntimeError(f"Unexpected auth_mode: {auth_mode}")
     if secrets.compare_digest(token, api_key):
         return token
     if credential_manager.config.validate_credentials:
         if not await credential_manager.validate_credential(token, is_bearer=is_bearer):
             raise HTTPException(status_code=401, detail="Invalid API key or credential")
-    request.state.passthrough_credential = token
-    request.state.passthrough_is_bearer = is_bearer
     return token
+
+
+async def resolve_anthropic_client(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    api_key: str = Depends(get_api_key),
+    credential_manager: CredentialManager | None = Depends(get_credential_manager),
+    base_client: AnthropicClient | None = Depends(get_anthropic_client),
+    _: str = Depends(verify_token),
+) -> AnthropicClient:
+    """Verify auth and resolve the Anthropic client for this request."""
+    bearer_token = credentials.credentials if credentials else None
+    api_key_header = request.headers.get("x-api-key")
+    token = bearer_token or api_key_header
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing API key")
+    is_bearer = bearer_token is not None
+
+    auth_mode = credential_manager.config.auth_mode if credential_manager else AuthMode.PROXY_KEY
+    base_url = base_client._base_url if base_client else None
+
+    # Explicit x-anthropic-api-key overrides upstream credential
+    explicit_key = request.headers.get("x-anthropic-api-key")
+    if explicit_key is not None:
+        if not explicit_key.strip():
+            raise HTTPException(status_code=401, detail="x-anthropic-api-key header is empty")
+        return AnthropicClient(api_key=explicit_key, base_url=base_url)
+
+    # Passthrough: forward the request credential to Anthropic
+    matches_proxy_key = secrets.compare_digest(token, api_key)
+    use_passthrough = not matches_proxy_key or auth_mode == AuthMode.PASSTHROUGH
+    if use_passthrough:
+        if is_bearer:
+            return AnthropicClient(auth_token=token, base_url=base_url)
+        return AnthropicClient(api_key=token, base_url=base_url)
+
+    # Proxy key: use the server's configured client
+    if base_client is None:
+        raise HTTPException(
+            status_code=500,
+            detail="No Anthropic credentials available (set ANTHROPIC_API_KEY or use passthrough auth)",
+        )
+    return base_client
 
 
 # === ROUTES ===
@@ -99,24 +138,11 @@ async def chat_completions(
 @router.post("/v1/messages")
 async def anthropic_messages(
     request: Request,
-    _: str = Depends(verify_token),
+    anthropic_client: AnthropicClient = Depends(resolve_anthropic_client),
     anthropic_policy: AnthropicPolicyInterface = Depends(get_anthropic_policy),
-    anthropic_client: AnthropicClient = Depends(get_anthropic_client),
     emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """Anthropic Messages API endpoint (native Anthropic path)."""
-    # Explicit x-anthropic-api-key header takes precedence
-    client_api_key = request.headers.get("x-anthropic-api-key")
-    if client_api_key is not None:
-        if not client_api_key.strip():
-            raise HTTPException(status_code=401, detail="x-anthropic-api-key header is empty")
-        anthropic_client = anthropic_client.with_api_key(client_api_key)
-    elif hasattr(request.state, "passthrough_credential"):
-        if request.state.passthrough_is_bearer:
-            anthropic_client = anthropic_client.with_auth_token(request.state.passthrough_credential)
-        else:
-            anthropic_client = anthropic_client.with_api_key(request.state.passthrough_credential)
-
     return await process_anthropic_request(
         request=request,
         policy=anthropic_policy,

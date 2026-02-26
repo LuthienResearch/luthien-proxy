@@ -9,13 +9,7 @@
 
 ### Bugs
 
-<<<<<<< chore/todo-cleanup
 - [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Fix: [#208](https://github.com/LuthienResearch/luthien-proxy/pull/208). Reference: Dogfooding session 2025-12-16.
-=======
-- [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Reference: Dogfooding session 2025-12-16.
-- [x] **Thinking blocks stripped from non-streaming responses** - Fixed in PR #131. [#128](https://github.com/LuthienResearch/luthien-proxy/issues/128).
-- [x] **Thinking blocks not handled in streaming responses** - Fixed in PR #134. Required 5 debug cycles across 4 layers. [#129](https://github.com/LuthienResearch/luthien-proxy/issues/129)
->>>>>>> main
 
 ### Core Features (User Story Aligned)
 
@@ -25,15 +19,17 @@
 
 - [ ] **Improved policy config schema system** - Enhance config schema to include: default values, per-field user-facing docstrings/descriptions, and secure field flags (e.g. API keys should render as password inputs in browser). Currently the UI infers types from schema but lacks rich metadata for good UX.
 - [ ] **[Future] Smart dev key hint** - Only show clickable dev key hint when ADMIN_API_KEY matches default; otherwise just show "check .env or contact admin". Deferred as scope creep. Reference: dogfooding-login-ui-quick-fixes branch, 2025-12-15.
-<<<<<<< chore/todo-cleanup
-=======
-- [x] **Activity Monitor missing auth indicator** - Already present in gateway root page (index.html line 106). Reference: dogfooding session 2025-12-15.
->>>>>>> main
 
 ### Documentation (High)
 
 - [ ] **Add security documentation for dynamic policy loading (POLICY_CONFIG)** - Document security implications of dynamic class loading, file permissions, admin API authentication requirements.
 - [ ] **Add repo-level `/coe` slash command** - Add `.claude/commands/coe.md` to luthien-proxy so all contributors get the RCA/COE workflow. Currently only exists globally on Scott's machine (`~/.claude/commands/coe.md`). Reference: PR #200 discussion, 2026-02-17.
+
+### Dogfooding Safety (COE from 2026-02-25 incident, PR #240)
+
+- [ ] **Design "system policy" layer — mandatory safety checks that always run** — Current architecture loads one policy at a time. No way to guarantee tool call safety when a text-only policy (e.g., DeSlop) is active. Need an always-on safety layer that blocks self-destructive commands (`docker compose down`, `docker stop`, DB drops) when requests come through the proxy. This is the "who watches the watchmen" problem. Requires human design decision (Jai + Scott).
+- [ ] **Add dogfooding-mode config that auto-composes safety + user policy** — When `DOGFOOD_MODE=true`, automatically wrap the user-configured policy in a MultiSerialPolicy with ToolCallJudgePolicy (or a hardcoded blocklist policy) as the outer layer. Uses existing MultiSerialPolicy (PR #184) infrastructure.
+- [x] **Document dogfooding safety protocol** — Until system policy exists: never run Docker/infra commands from a proxied session. Added warning to quick_start.sh output. (Done: PR #240)
 
 ### Security
 
@@ -50,8 +46,8 @@
 
 ### Code Improvements
 
+- [ ] **Eliminate `AnthropicClient` wrapper — use `AsyncAnthropic` directly** - Our `AnthropicClient` is a shallow wrapper around the SDK's `AsyncAnthropic`. The SDK already supports `api_key`/`auth_token` construction, has a public `base_url` property, and `copy()`/`with_options()` for per-request client variants. The wrapper's OTel spans duplicate what `anthropic_processor.py` already provides. Two utility functions (`prepare_request_kwargs`, `message_to_response`) still needed but don't justify a class. `with_api_key()`/`with_auth_token()` are dead code post-PR #221 refactor. Reference: PR #221 review, 2026-02-20.
 - [ ] **Anthropic-only policy configuration support** - Current implementation requires all policies to implement both OpenAI and Anthropic interfaces. There's no way to configure an Anthropic-only policy through the config system. Noted as Phase 2 work in split-apis design doc. Reference: PR #169, 2026-02-03.
-- [ ] **Simplify streaming span context management** - The attach/detach pattern in `anthropic_processor.py:275-303` is correct but complex. Consider wrapping in a context manager for better maintainability. Reference: PR #169, 2026-02-03.
 - [ ] **Add runtime validation for Anthropic TypedDict assignments** - `anthropic_processor.py:238` uses direct dict-to-TypedDict assignment after basic field validation. Consider adding runtime validation for production robustness. Reference: PR #169, 2026-02-03.
 - [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks. (Niche use case - images pass through proxy correctly already)
 - [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety for buffered tool calls
@@ -61,13 +57,22 @@
 
 ### Testing (Medium)
 
+- [ ] **Define `DEFAULT_CLAUDE_TEST_MODEL` constant, set to `claude-haiku-4-5`** - Hardcoded `claude-sonnet-4-20250514` and `claude-sonnet-4-5` strings are scattered across ~100+ test locations and scripts. Define a shared constant (e.g. in `tests/conftest.py` or `src/luthien_proxy/utils/constants.py`) and replace hardcoded strings. Using haiku reduces cost/latency for tests and e2e. Production code (`credential_manager.py:VALIDATION_MODEL`) should also use a cheaper model. Reference: 2026-02-23.
 - [ ] **Expand E2E thinking block test coverage** - Basic streaming/non-streaming tests added in PR #134. Still needed: full test matrix covering streaming/non-streaming × single/multi-turn × with/without tools. The tools case would have caught the demo failure from COE #2. Reference: [PR #134](https://github.com/LuthienResearch/luthien-proxy/pull/134).
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
 
+### Onboarding & Install (Medium — Tyler feedback 2026-02-10)
+
+Source: [Office Hours notes](https://docs.google.com/document/d/1Qo2D5zrtuHO2MF6wJX4v86sJPm-YAmCNwKWPJTcFJvM/edit?tab=t.0), [Gemini transcript](https://docs.google.com/document/d/1lRX5U7_2Ig1oOw775xm9uoGGK6yJx2gip8N2BlAA0JQ/edit?tab=t.fp5fl2phgglm)
+
+- [ ] **Push pre-built Docker images to Docker Hub** - Tyler: "One thing you can do is push the already built image to Docker Hub to speed up the builds." First install required building all images locally.
+- [ ] **Fix quick_start.sh Grafana/gateway health check bug** - Tyler: "Gateway not detected. Did we launch Grafana before?" Jai: "This is a bug... I've been meaning to fix forever."
+- [ ] **Simplify quick_start.sh vs docker compose up** - Jai: "That's redundant... quick start is basically just the same as docker [compose] up" but adds dev refresh stuff. Users should get `docker compose up -d`, devs get `quick_start.sh`.
+
 ### Infrastructure (Medium)
 
-- [ ] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name. Currently both scripts derive it, but direct `docker compose` still uses directory default. Reference: COE from PR #203, 2026-02-17.
+- [x] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name. (Done: PR #231)
 - [ ] **Add `shellcheck` to CI or `dev_checks.sh`** - No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by `shellcheck --shell=bash`. Reference: COE from PR #202, 2026-02-17.
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints (debug endpoints have tests, UI routes do not)
 - [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production
@@ -103,10 +108,6 @@
 - [ ] Implement adaptive timeout based on model type
 - [ ] Add policy composition (chaining multiple policies)
 - [ ] Expose database connection pooling configuration
-<<<<<<< chore/todo-cleanup
-=======
-- [x] Add cache headers to static files mount (1hr public cache via middleware)
->>>>>>> main
 - [ ] Consider stricter pyright mode
 - [ ] Add degraded state reporting to /health endpoint
 - [ ] Minimize type: ignore flags

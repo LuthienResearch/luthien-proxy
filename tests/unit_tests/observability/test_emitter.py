@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -199,3 +200,45 @@ class TestEventEmitter:
             await asyncio.sleep(0)
 
             mock_emit.assert_called_once_with("tx-123", "test.event", {"key": "value"})
+
+    @pytest.mark.asyncio
+    async def test_emit_writes_to_db_sink(self) -> None:
+        """emit() should write events to the database when db_pool is provided.
+
+        Regression test: TYPE_CHECKING imports previously caused NameError in
+        _write_db because cast(DatabasePool, ...) evaluated DatabasePool at
+        runtime, but it was only imported under TYPE_CHECKING.
+        """
+        mock_conn = AsyncMock()
+
+        @asynccontextmanager
+        async def fake_connection():
+            yield mock_conn
+
+        mock_pool = AsyncMock()
+        mock_pool.connection = fake_connection
+
+        emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
+        await emitter.emit("tx-123", "test.event", {"key": "value"})
+
+        # DB sink should have been called (INSERT into conversation_calls + events)
+        assert mock_conn.execute.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_emit_writes_to_redis_sink(self) -> None:
+        """emit() should publish events to Redis when redis_publisher is provided.
+
+        Regression test: TYPE_CHECKING imports previously caused NameError in
+        _write_redis because cast(RedisEventPublisher, ...) evaluated
+        RedisEventPublisher at runtime, but it was only imported under TYPE_CHECKING.
+        """
+        mock_redis = AsyncMock()
+
+        emitter = EventEmitter(redis_publisher=mock_redis, stdout_enabled=False)
+        await emitter.emit("tx-123", "test.event", {"key": "value"})
+
+        mock_redis.publish_event.assert_called_once_with(
+            call_id="tx-123",
+            event_type="test.event",
+            data={"key": "value"},
+        )
