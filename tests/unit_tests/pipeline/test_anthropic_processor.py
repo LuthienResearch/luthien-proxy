@@ -27,6 +27,7 @@ from luthien_proxy.pipeline.anthropic_processor import (
     process_anthropic_request,
 )
 from luthien_proxy.policies.noop_policy import NoOpPolicy
+from luthien_proxy.request_log.recorder import NoOpRequestLogRecorder
 
 
 class TestFormatSSEEvent:
@@ -317,6 +318,7 @@ class TestHandleNonStreaming:
                 anthropic_client=mock_anthropic_client,
                 emitter=mock_emitter,
                 call_id="test-call-id",
+                request_log_recorder=NoOpRequestLogRecorder(),
             )
 
         assert isinstance(response, JSONResponse)
@@ -346,6 +348,7 @@ class TestHandleNonStreaming:
                 anthropic_client=mock_anthropic_client,
                 emitter=mock_emitter,
                 call_id="test-call-id",
+                request_log_recorder=NoOpRequestLogRecorder(),
             )
 
         mock_emitter.record.assert_called()
@@ -419,6 +422,7 @@ class TestHandleStreaming:
                 anthropic_client=mock_anthropic_client,
                 call_id="test-call-id",
                 root_span=mock_root_span,
+                request_log_recorder=NoOpRequestLogRecorder(),
             )
 
         assert isinstance(response, FastAPIStreamingResponse)
@@ -729,6 +733,7 @@ class TestMidStreamErrorHandling:
                 anthropic_client=mock_client,
                 call_id="test-call-id",
                 root_span=mock_root_span,
+                request_log_recorder=NoOpRequestLogRecorder(),
             )
 
             # Collect all events from the stream
@@ -789,6 +794,7 @@ class TestMidStreamErrorHandling:
                 anthropic_client=mock_client,
                 call_id="test-call-id",
                 root_span=mock_root_span,
+                request_log_recorder=NoOpRequestLogRecorder(),
             )
 
             events = []

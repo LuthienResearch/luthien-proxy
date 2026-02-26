@@ -46,6 +46,7 @@ from luthien_proxy.pipeline.anthropic_processor import (
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_core.anthropic_interface import AnthropicStreamEvent
 from luthien_proxy.policy_core.policy_context import PolicyContext
+from luthien_proxy.request_log.recorder import NoOpRequestLogRecorder
 from luthien_proxy.streaming.anthropic_executor import AnthropicStreamExecutor
 
 TEST_MODEL = "claude-haiku-4-5-20251001"
@@ -201,6 +202,7 @@ class TestThinkingBlockPassthrough:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-thinking",
+            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -399,6 +401,7 @@ class TestCacheControlSanitization:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-cache-control",
+            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -636,6 +639,7 @@ class TestOrphanedToolResults:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-orphan",
+            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -794,9 +798,7 @@ class TestToolCallStreamingIntegrity:
             RawContentBlockStartEvent.model_construct(
                 type="content_block_start",
                 index=0,
-                content_block=ToolUseBlock.model_construct(
-                    type="tool_use", id="tool_123", name="read_file", input={}
-                ),
+                content_block=ToolUseBlock.model_construct(type="tool_use", id="tool_123", name="read_file", input={}),
             ),
             RawContentBlockDeltaEvent.model_construct(
                 type="content_block_delta",
@@ -858,9 +860,7 @@ class TestMessageRoleSequences:
     """
 
     @pytest.mark.asyncio
-    async def test_consecutive_user_messages_allowed(
-        self, noop_policy: NoOpPolicy, mock_policy_ctx: MagicMock
-    ) -> None:
+    async def test_consecutive_user_messages_allowed(self, noop_policy: NoOpPolicy, mock_policy_ctx: MagicMock) -> None:
         """Regression test for #118: consecutive user messages must be allowed.
 
         The Anthropic API accepts user -> user -> assistant sequences.
@@ -888,6 +888,7 @@ class TestMessageRoleSequences:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-roles",
+            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -925,6 +926,7 @@ class TestMessageRoleSequences:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-assistant-first",
+            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -965,9 +967,7 @@ class TestResponseFormatPreservation:
         assert kwargs["response_format"]["type"] == "json"
 
     @pytest.mark.asyncio
-    async def test_response_format_survives_pipeline(
-        self, noop_policy: NoOpPolicy, mock_policy_ctx: MagicMock
-    ) -> None:
+    async def test_response_format_survives_pipeline(self, noop_policy: NoOpPolicy, mock_policy_ctx: MagicMock) -> None:
         """Regression test for #185: response_format must survive the full pipeline."""
         request: AnthropicRequest = {
             "model": TEST_MODEL,
@@ -987,6 +987,7 @@ class TestResponseFormatPreservation:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-response-format",
+            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -1046,6 +1047,7 @@ class TestStreamingContentType:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-content-type",
+            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, FastAPIStreamingResponse)
@@ -1103,6 +1105,7 @@ class TestLargeMessageArrays:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-large-array",
+            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -1153,6 +1156,7 @@ class TestRateLimitHandling:
                 anthropic_client=mock_client,
                 emitter=mock_emitter,
                 call_id="test-rate-limit",
+                request_log_recorder=NoOpRequestLogRecorder(),
             )
 
 
@@ -1197,6 +1201,7 @@ class TestEmptyAssistantMessages:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-empty-assistant",
+            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)

@@ -97,8 +97,8 @@ class TestAPIKeyPatternDetection:
         result = sanitize_headers(headers)
         assert result["X-Custom"] == "key is [REDACTED] here"
 
-    def test_anthr_pattern_redacted(self):
-        headers = {"X-Custom": "anthr-abcdefghijklmnopqrst123"}
+    def test_anthropic_key_pattern_redacted(self):
+        headers = {"X-Custom": "sk-ant-abcdefghijklmnopqrst123"}
         result = sanitize_headers(headers)
         assert result["X-Custom"] == "[REDACTED]"
 
@@ -108,7 +108,7 @@ class TestAPIKeyPatternDetection:
         assert result["X-Custom"] == "[REDACTED]"
 
     def test_multiple_api_keys_in_header_all_redacted(self):
-        headers = {"X-Custom": "sk-abc123def456 and anthr-xyz789abc123"}
+        headers = {"X-Custom": "sk-abc123def456 and sk-ant-xyz789abc123"}
         result = sanitize_headers(headers)
         assert result["X-Custom"] == "[REDACTED] and [REDACTED]"
 

@@ -283,7 +283,7 @@ async def _handle_streaming(
     anthropic_client: AnthropicClient,
     call_id: str,
     root_span: Span,
-    request_log_recorder: RequestLogRecorder | None = None,
+    request_log_recorder: RequestLogRecorder,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow.
 
@@ -328,11 +328,10 @@ async def _handle_streaming(
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
 
-                    # Flush request logs after streaming completes
-                    if request_log_recorder:
-                        request_log_recorder.record_inbound_response(status=200)
-                        request_log_recorder.record_outbound_response(status=200)
-                        request_log_recorder.flush()
+                    # Streaming bodies are not captured (too large to store efficiently)
+                    request_log_recorder.record_inbound_response(status=200)
+                    request_log_recorder.record_outbound_response(status=200)
+                    request_log_recorder.flush()
         finally:
             detach(token)
 
@@ -354,7 +353,7 @@ async def _handle_non_streaming(
     anthropic_client: AnthropicClient,
     emitter: EventEmitterProtocol,
     call_id: str,
-    request_log_recorder: RequestLogRecorder | None = None,
+    request_log_recorder: RequestLogRecorder,
 ) -> JSONResponse:
     """Handle non-streaming response flow."""
     # Phase 2: Send to upstream
@@ -383,10 +382,9 @@ async def _handle_non_streaming(
 
         # Record response data for HTTP-level logging
         final_response = dict(processed_response)
-        if request_log_recorder:
-            request_log_recorder.record_outbound_response(body=final_response, status=200)
-            request_log_recorder.record_inbound_response(status=200, body=final_response)
-            request_log_recorder.flush()
+        request_log_recorder.record_outbound_response(body=final_response, status=200)
+        request_log_recorder.record_inbound_response(status=200, body=final_response)
+        request_log_recorder.flush()
 
         return JSONResponse(
             content=final_response,
