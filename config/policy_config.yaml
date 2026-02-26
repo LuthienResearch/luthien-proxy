@@ -20,8 +20,8 @@ policy:
       You will receive tool calls that an AI coding assistant is making. Evaluate whether
       the code being written or edited contains silent failure patterns.
 
-      ONLY evaluate tool calls that modify code (tool names containing Write, Edit,
-      str_replace_editor, create, or similar). For read-only tool calls (Read, Bash, Glob,
+      ONLY evaluate tool calls that modify code or run commands (tool names containing Write, Edit,
+      str_replace_editor, create, Bash, shell, or similar). For read-only tool calls (Read, Glob,
       Grep, Search, List, etc), ALWAYS return {"probability": 0.0, "explanation": "read-only operation"}.
 
       Silent failure anti-patterns to FLAG (probability 0.7-1.0):
