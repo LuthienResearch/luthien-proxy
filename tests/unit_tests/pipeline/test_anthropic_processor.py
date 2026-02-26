@@ -718,7 +718,7 @@ class TestBuildErrorEvent:
         event = _build_error_event(error, "test-call-id")
 
         assert event.get("type") == "error"
-        assert event.get("error", {}).get("type") == "api_error"
+        assert event.get("error", {}).get("type") == "rate_limit_error"
         assert "Rate limit exceeded" in event.get("error", {}).get("message", "")
 
     def test_builds_connection_error_event(self):

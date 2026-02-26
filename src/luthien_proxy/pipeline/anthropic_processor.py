@@ -410,7 +410,7 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
         Error event dict with error details
     """
     if isinstance(e, AnthropicStatusError):
-        error_type = "api_error"
+        error_type = _ANTHROPIC_STATUS_ERROR_TYPE_MAP.get(e.status_code or 500, "api_error")
         message = str(e.message)
         logger.warning(f"[{call_id}] Mid-stream Anthropic API error: {e.status_code} {message}")
     elif isinstance(e, AnthropicConnectionError):
