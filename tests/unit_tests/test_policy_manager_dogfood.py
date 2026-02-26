@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from luthien_proxy.policies.dogfood_safety_policy import DogfoodSafetyPolicy
 from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
 from luthien_proxy.policies.noop_policy import NoOpPolicy

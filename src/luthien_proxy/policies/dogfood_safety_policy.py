@@ -323,11 +323,14 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             await ctx.egress_queue.put(finish_chunk)
 
     async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Clean up per-request state."""
+        """Clean up per-request state for both OpenAI and Anthropic buffers."""
         call_id = ctx.policy_ctx.transaction_id
-        keys_to_remove = [k for k in self._buffered_tool_calls if k[0] == call_id]
-        for k in keys_to_remove:
-            del self._buffered_tool_calls[k]
+
+        for buffer in (self._buffered_tool_calls, self._buffered_tool_uses):
+            keys_to_remove = [k for k in buffer if k[0] == call_id]
+            for k in keys_to_remove:
+                del buffer[k]
+
         self._blocked_calls.discard(call_id)
 
     # ========================================================================
