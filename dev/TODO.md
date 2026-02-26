@@ -25,6 +25,12 @@
 - [ ] **Add security documentation for dynamic policy loading (POLICY_CONFIG)** - Document security implications of dynamic class loading, file permissions, admin API authentication requirements.
 - [ ] **Add repo-level `/coe` slash command** - Add `.claude/commands/coe.md` to luthien-proxy so all contributors get the RCA/COE workflow. Currently only exists globally on Scott's machine (`~/.claude/commands/coe.md`). Reference: PR #200 discussion, 2026-02-17.
 
+### Dogfooding Safety (COE from 2026-02-25 incident, PR #240)
+
+- [ ] **Design "system policy" layer — mandatory safety checks that always run** — Current architecture loads one policy at a time. No way to guarantee tool call safety when a text-only policy (e.g., DeSlop) is active. Need an always-on safety layer that blocks self-destructive commands (`docker compose down`, `docker stop`, DB drops) when requests come through the proxy. This is the "who watches the watchmen" problem. Requires human design decision (Jai + Scott).
+- [ ] **Add dogfooding-mode config that auto-composes safety + user policy** — When `DOGFOOD_MODE=true`, automatically wrap the user-configured policy in a MultiSerialPolicy with ToolCallJudgePolicy (or a hardcoded blocklist policy) as the outer layer. Uses existing MultiSerialPolicy (PR #184) infrastructure.
+- [x] **Document dogfooding safety protocol** — Until system policy exists: never run Docker/infra commands from a proxied session. Added warning to quick_start.sh output. (Done: PR #240)
+
 ### Security
 
 - [ ] **Add input validation: max request size and message count limits** - Request size limit (10MB) exists, but no message count limit. Could allow unbounded message arrays.
@@ -42,7 +48,6 @@
 
 - [ ] **Eliminate `AnthropicClient` wrapper — use `AsyncAnthropic` directly** - Our `AnthropicClient` is a shallow wrapper around the SDK's `AsyncAnthropic`. The SDK already supports `api_key`/`auth_token` construction, has a public `base_url` property, and `copy()`/`with_options()` for per-request client variants. The wrapper's OTel spans duplicate what `anthropic_processor.py` already provides. Two utility functions (`prepare_request_kwargs`, `message_to_response`) still needed but don't justify a class. `with_api_key()`/`with_auth_token()` are dead code post-PR #221 refactor. Reference: PR #221 review, 2026-02-20.
 - [ ] **Anthropic-only policy configuration support** - Current implementation requires all policies to implement both OpenAI and Anthropic interfaces. There's no way to configure an Anthropic-only policy through the config system. Noted as Phase 2 work in split-apis design doc. Reference: PR #169, 2026-02-03.
-- [ ] **Simplify streaming span context management** - The attach/detach pattern in `anthropic_processor.py:275-303` is correct but complex. Consider wrapping in a context manager for better maintainability. Reference: PR #169, 2026-02-03.
 - [ ] **Add runtime validation for Anthropic TypedDict assignments** - `anthropic_processor.py:238` uses direct dict-to-TypedDict assignment after basic field validation. Consider adding runtime validation for production robustness. Reference: PR #169, 2026-02-03.
 - [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks. (Niche use case - images pass through proxy correctly already)
 - [ ] **Replace dict[str, Any] with ToolCallStreamBlock in ToolCallJudgePolicy** - Improve type safety for buffered tool calls
@@ -67,7 +72,7 @@ Source: [Office Hours notes](https://docs.google.com/document/d/1Qo2D5zrtuHO2MF6
 
 ### Infrastructure (Medium)
 
-- [ ] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name. Currently both scripts derive it, but direct `docker compose` still uses directory default. Reference: COE from PR #203, 2026-02-17.
+- [x] **Set `COMPOSE_PROJECT_NAME` in `.env.example`** — Single source of truth so all launch methods (quick_start.sh, observability.sh, direct docker compose) use the same project name. (Done: PR #231)
 - [ ] **Add `shellcheck` to CI or `dev_checks.sh`** - No shell script linting exists. The bash 3 incompatibility in PR #202 would have been caught by `shellcheck --shell=bash`. Reference: COE from PR #202, 2026-02-17.
 - [ ] **Verify UI monitoring endpoints functionality** - Test all debug and activity endpoints (debug endpoints have tests, UI routes do not)
 - [ ] **Add rate limiting middleware** - Not blocking any user story, but useful for production

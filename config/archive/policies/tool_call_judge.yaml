@@ -1,7 +1,0 @@
-# Configuration for the LLM judge tool-call policy used in e2e tests
-policy:
-  class: "luthien_proxy.policies.tool_call_judge:LLMJudgeToolPolicy"
-  config:
-    model: "openai/judge-scorer"
-    api_base: "http://dummy-provider:8080/v1"
-    probability_threshold: 0.6

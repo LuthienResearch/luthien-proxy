@@ -1,6 +1,0 @@
-# Demo configuration with NoOp policy (no AI control)
-# Used to show what happens WITHOUT AI Control
-
-policy:
-  class: "luthien_proxy.policies.noop:NoOpPolicy"
-  config: {}

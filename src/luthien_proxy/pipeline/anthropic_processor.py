@@ -33,19 +33,22 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from opentelemetry import trace
-from opentelemetry.context import attach, detach, get_current
+from opentelemetry.context import get_current
 from opentelemetry.trace import Span
 
+from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
     AnthropicResponse,
 )
 from luthien_proxy.observability.emitter import EventEmitterProtocol
+from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.session import extract_session_id_from_anthropic_body
 from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.streaming.anthropic_executor import AnthropicStreamExecutor
+from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
@@ -146,6 +149,19 @@ async def process_anthropic_request(
         # Propagate request summary if policy set one
         if policy_ctx.request_summary:
             root_span.set_attribute("luthien.policy.request_summary", policy_ctx.request_summary)
+
+        # Record request for conversation history viewer
+        emitter.record(
+            call_id,
+            "transaction.request_recorded",
+            {
+                "original_model": anthropic_request["model"],
+                "final_model": final_request["model"],
+                "original_request": dict(anthropic_request),
+                "final_request": dict(final_request),
+                "session_id": session_id,
+            },
+        )
 
         emitter.record(
             call_id,
@@ -272,9 +288,8 @@ async def _handle_streaming(
     async def streaming_with_spans() -> AsyncIterator[str]:
         """Wrapper that creates proper span hierarchy for streaming."""
         # Attach parent context so spans are siblings under transaction_processing
-        token = attach(parent_context)
-        chunk_count = 0
-        try:
+        with restore_context(parent_context):
+            chunk_count = 0
             # process_response span wraps the entire streaming pipeline
             with tracer.start_as_current_span("process_response") as response_span:
                 response_span.set_attribute("luthien.phase", "process_response")
@@ -296,8 +311,6 @@ async def _handle_streaming(
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
-        finally:
-            detach(token)
 
     return FastAPIStreamingResponse(
         streaming_with_spans(),
@@ -332,6 +345,17 @@ async def _handle_non_streaming(
     with tracer.start_as_current_span("process_response") as span:
         span.set_attribute("luthien.phase", "process_response")
         processed_response = await policy.on_anthropic_response(response, policy_ctx)
+
+    # Record response for conversation history viewer
+    emitter.record(
+        call_id,
+        "transaction.non_streaming_response_recorded",
+        {
+            "original_response": dict(response),
+            "final_response": dict(processed_response),
+            "session_id": policy_ctx.session_id,
+        },
+    )
 
     # Phase 4: Send to client
     with tracer.start_as_current_span("send_to_client") as span:
@@ -384,7 +408,7 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
         Error event dict with error details
     """
     if isinstance(e, AnthropicStatusError):
-        error_type = "api_error"
+        error_type = _ANTHROPIC_STATUS_ERROR_TYPE_MAP.get(e.status_code or 500, "api_error")
         message = str(e.message)
         logger.warning(f"[{call_id}] Mid-stream Anthropic API error: {e.status_code} {message}")
     elif isinstance(e, AnthropicConnectionError):
@@ -405,31 +429,54 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
     )
 
 
+# Maps Anthropic HTTP status codes to error type strings.
+# Aligns with Anthropic's documented error types for proper client formatting.
+_ANTHROPIC_STATUS_ERROR_TYPE_MAP: dict[int, str] = {
+    400: "invalid_request_error",
+    401: "authentication_error",
+    403: "permission_error",
+    404: "not_found_error",
+    409: "conflict_error",
+    422: "invalid_request_error",
+    429: "rate_limit_error",
+    500: "api_error",
+    529: "overloaded_error",
+}
+
+
 def _handle_anthropic_error(e: Exception, call_id: str) -> None:
-    """Handle Anthropic API errors by logging and raising HTTPException.
+    """Handle Anthropic API errors by raising BackendAPIError.
+
+    Uses BackendAPIError instead of HTTPException so the main.py exception
+    handler can format the response properly and handle credential
+    invalidation on 401.
 
     Args:
         e: Exception from Anthropic SDK
         call_id: Transaction ID for logging
 
     Raises:
-        HTTPException: If the exception is a known Anthropic API error
+        BackendAPIError: If the exception is a known Anthropic API error
     """
     if isinstance(e, AnthropicStatusError):
         status_code = e.status_code or 500
+        error_type = _ANTHROPIC_STATUS_ERROR_TYPE_MAP.get(status_code, "api_error")
         logger.warning(f"[{call_id}] Anthropic API error: {status_code} {e.message}")
-        # TODO: invalidate cached credential on 401 (on_backend_401).
-        # The OpenAI/LiteLLM path handles this via BackendAPIError in main.py,
-        # but this path raises HTTPException which bypasses that handler.
-        raise HTTPException(
+        raise BackendAPIError(
             status_code=status_code,
-            detail={"type": "error", "error": {"type": "api_error", "message": str(e.message)}},
+            message=str(e.message),
+            error_type=error_type,
+            client_format=ClientFormat.ANTHROPIC,
+            provider="anthropic",
         ) from e
     elif isinstance(e, AnthropicConnectionError):
         logger.warning(f"[{call_id}] Anthropic connection error: {e}")
-        raise HTTPException(
+        raise BackendAPIError(
             status_code=502,
-            detail={"type": "error", "error": {"type": "api_connection_error", "message": str(e)}},
+            message=str(e),
+            error_type="api_connection_error",
+            client_format=ClientFormat.ANTHROPIC,
+            provider="anthropic",
         ) from e
     # For other exceptions, let them propagate
 
