@@ -235,6 +235,17 @@ if stream_state.finish_reason:
 - **Why not just use PORT?**: `GATEWAY_PORT` is more descriptive and consistent with the rest of the settings. `PORT` is ambiguous in multi-service setups.
 - **Why not set GATEWAY_PORT=${{PORT}} in Railway dashboard?**: That's what was tried originally — it was set to empty string and broke every deploy. The shell bridge is less fragile.
 
+## Dogfooding Safety: Agent Can Kill Its Own Proxy (2026-02-25)
+
+**Gotcha**: When dogfooding Luthien (running Claude Code through the proxy on the same machine), the agent can accidentally kill the proxy by running Docker commands like `docker compose down`. This severs the agent's own API connection — session-ending, unrecoverable.
+
+- **Symptom**: "API Error: Unable to connect to API (ConnectionRefused)" — agent is dead, can't even explain what happened
+- **Cause**: No safety layer prevents self-destructive infrastructure commands. The active policy (e.g., DeSlop/StringReplacementPolicy) only processes text — tool calls pass through unexamined.
+- **Workaround**: Never run Docker restart/stop commands from a proxied Claude Code session. Use a separate terminal.
+- **Architectural fix needed**: A "system policy" layer that always runs regardless of user-configured policy, blocking commands that would kill the proxy.
+- **Related**: PR #203 (orphaned containers — previous Docker self-interference incident)
+- **Dangerous commands to watch for**: `docker compose down`, `docker stop`, `docker compose restart` (on gateway), `kill` on gateway PID, `docker compose exec db` (DB access)
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
