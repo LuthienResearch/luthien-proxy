@@ -13,7 +13,6 @@ document.addEventListener('alpine:init', () => {
             { href: '/diffs', label: 'Diffs' },
             { href: '/policy-config', label: 'Policies' },
             { href: '/credentials', label: 'Credentials' },
-            { href: '/request-logs/viewer', label: 'Logs' },
         ],
         isActive(href) {
             if (href === '/') return this.currentPath === '/';

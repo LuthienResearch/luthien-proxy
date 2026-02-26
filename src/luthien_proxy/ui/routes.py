@@ -143,22 +143,6 @@ async def conversation_live_view(
     return FileResponse(os.path.join(STATIC_DIR, "conversation_live.html"))
 
 
-@router.get("/request-logs/viewer")
-async def request_logs_viewer(
-    request: Request,
-    admin_key: str | None = Depends(get_admin_key),
-):
-    """Request/response log viewer UI.
-
-    Browse, filter, and inspect HTTP-level request/response logs
-    with diff view comparing inbound vs outbound.
-    Requires admin authentication.
-    """
-    redirect = check_auth_or_redirect(request, admin_key)
-    if redirect:
-        return redirect
-    return FileResponse(os.path.join(STATIC_DIR, "request_logs.html"))
-
 
 @router.get("/client-setup")
 async def client_setup(request: Request):
