@@ -10,7 +10,7 @@ import os
 from html import escape as html_escape
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from redis.asyncio import Redis
 
@@ -165,14 +165,12 @@ async def client_setup(request: Request):
 @router.get("/debug/diff")
 async def deprecated_diff_redirect():
     """Redirect old debug diff path to new location."""
-    from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/diffs", status_code=301)
 
 
 @router.get("/admin/{path:path}")
 async def deprecated_admin_redirect(path: str):
     """Redirect old admin paths to new API location."""
-    from fastapi.responses import RedirectResponse
     return RedirectResponse(url=f"/api/admin/{path}", status_code=301)
 
 
