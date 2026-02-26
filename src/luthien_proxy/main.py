@@ -28,7 +28,6 @@ from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.policy_manager import PolicyManager
-from luthien_proxy.request_log import routes as request_log_routes
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
 from luthien_proxy.settings import Settings, get_settings
@@ -131,11 +130,6 @@ def create_app(
         await _credential_manager.initialize(default_auth_mode=auth_mode)
         logger.info(f"CredentialManager initialized: mode={_credential_manager.config.auth_mode.value}")
 
-        # Check if request logging is enabled
-        _enable_request_logging = get_settings().enable_request_logging
-        if _enable_request_logging:
-            logger.info("Request/response logging ENABLED")
-
         # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
@@ -147,7 +141,6 @@ def create_app(
             admin_key=admin_key,
             anthropic_client=_anthropic_client,
             credential_manager=_credential_manager,
-            enable_request_logging=_enable_request_logging,
         )
 
         # Store dependencies container in app state
@@ -193,7 +186,6 @@ def create_app(
     app.include_router(login_page_router)  # /login (convenience redirect)
     app.include_router(history_routes.router)  # /history/* (conversation history UI)
     app.include_router(history_routes.api_router)  # /api/history/* (conversation history API)
-    app.include_router(request_log_routes.router)  # /api/request-logs/* (request/response logs)
 
     # Simple utility endpoints
     @app.get("/health")
