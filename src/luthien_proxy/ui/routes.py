@@ -24,7 +24,7 @@ router = APIRouter(prefix="", tags=["ui"])
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 
 
-@router.get("/activity/stream")
+@router.get("/api/activity/stream")
 async def activity_stream(
     _: str = Depends(verify_admin_token),
     redis_client: Redis | None = Depends(get_redis_client),
@@ -80,7 +80,7 @@ async def activity_monitor(
     return FileResponse(os.path.join(STATIC_DIR, "activity_monitor.html"))
 
 
-@router.get("/debug/diff")
+@router.get("/diffs")
 async def diff_viewer(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
@@ -141,6 +141,23 @@ async def conversation_live_view(
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "conversation_live.html"))
+
+
+@router.get("/request-logs/viewer")
+async def request_logs_viewer(
+    request: Request,
+    admin_key: str | None = Depends(get_admin_key),
+):
+    """Request/response log viewer UI.
+
+    Browse, filter, and inspect HTTP-level request/response logs
+    with diff view comparing inbound vs outbound.
+    Requires admin authentication.
+    """
+    redirect = check_auth_or_redirect(request, admin_key)
+    if redirect:
+        return redirect
+    return FileResponse(os.path.join(STATIC_DIR, "request_logs.html"))
 
 
 @router.get("/client-setup")

@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/debug", tags=["debug"])
+router = APIRouter(prefix="/api/debug", tags=["debug"])
 
 
 @router.get("/calls/{call_id}", response_model=CallEventsResponse)

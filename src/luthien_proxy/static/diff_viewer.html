@@ -381,7 +381,7 @@
             diffContainer.innerHTML = '<div class="loading">Loading diff...</div>';
 
             try {
-                const response = await fetch(`/debug/calls/${callId}/diff`, {
+                const response = await fetch(`/api/debug/calls/${callId}/diff`, {
                     credentials: 'same-origin'
                 });
 
@@ -588,7 +588,7 @@
             diffContainer.innerHTML = '<div class="loading">Loading recent calls...</div>';
 
             try {
-                const response = await fetch('/debug/calls?limit=20', {
+                const response = await fetch('/api/debug/calls?limit=20', {
                     credentials: 'same-origin'
                 });
 

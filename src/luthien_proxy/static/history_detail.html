@@ -409,11 +409,11 @@
             const exportBtn = document.getElementById('export-btn');
 
             sessionIdEl.textContent = sessionId;
-            exportBtn.href = `/history/api/sessions/${encodeURIComponent(sessionId)}/export`;
+            exportBtn.href = `/api/history/sessions/${encodeURIComponent(sessionId)}/export`;
             document.getElementById('live-view-btn').href = `/conversation/live/${encodeURIComponent(sessionId)}`;
 
             try {
-                const response = await fetch(`/history/api/sessions/${encodeURIComponent(sessionId)}`, {
+                const response = await fetch(`/api/history/sessions/${encodeURIComponent(sessionId)}`, {
                     headers: {
                         'Accept': 'application/json'
                     }

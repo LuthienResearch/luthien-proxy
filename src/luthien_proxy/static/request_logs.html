@@ -214,7 +214,7 @@
             container.innerHTML = '<div class="loading">Loading logs...</div>';
 
             try {
-                const response = await fetch(`/request-logs?${params}`, { credentials: 'same-origin' });
+                const response = await fetch(`/api/request-logs?${params}`, { credentials: 'same-origin' });
                 if (response.status === 403) {
                     window.location.href = '/login?error=required&next=' + encodeURIComponent(window.location.pathname);
                     return;
@@ -292,7 +292,7 @@
             container.innerHTML = '<div class="loading">Loading transaction details...</div>';
 
             try {
-                const response = await fetch(`/request-logs/${transactionId}`, { credentials: 'same-origin' });
+                const response = await fetch(`/api/request-logs/${transactionId}`, { credentials: 'same-origin' });
                 if (!response.ok) {
                     const err = await response.json();
                     throw new Error(err.detail || `HTTP ${response.status}`);

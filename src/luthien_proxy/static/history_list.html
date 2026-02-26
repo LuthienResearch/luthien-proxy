@@ -484,7 +484,7 @@
             const container = document.getElementById('sessions-container');
 
             try {
-                const response = await fetch('/history/api/sessions?limit=10000', {
+                const response = await fetch('/api/history/sessions?limit=10000', {
                     headers: {
                         'Accept': 'application/json'
                     }
