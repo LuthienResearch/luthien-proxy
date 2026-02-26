@@ -50,17 +50,17 @@ async def test_with_custom_policy():
 ```
 
 The context manager:
-1. Calls `POST /admin/policy/set` to activate the specified policy
+1. Calls `POST /api/admin/policy/set` to activate the specified policy
 2. Yields control to your test code
 3. Restores `NoOpPolicy` in the `finally` block
 
 ### Admin API Endpoint
 
-The policy management uses `POST /admin/policy/set` (not `/admin/policy/create` or `/admin/policy/activate`):
+The policy management uses `POST /api/admin/policy/set` (not `/api/admin/policy/create` or `/api/admin/policy/activate`):
 
 ```python
 response = await client.post(
-    f"{gateway_url}/admin/policy/set",
+    f"{gateway_url}/api/admin/policy/set",
     headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     json={
         "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",

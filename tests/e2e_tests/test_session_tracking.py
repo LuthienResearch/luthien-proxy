@@ -467,7 +467,7 @@ async def test_session_id_persisted_to_database(http_client, gateway_healthy):
     await asyncio.sleep(0.5)
 
     debug_response = await http_client.get(
-        f"{GATEWAY_URL}/debug/calls/{call_id}",
+        f"{GATEWAY_URL}/api/debug/calls/{call_id}",
         headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     )
 
@@ -515,7 +515,7 @@ async def test_openai_session_header_persisted(http_client, gateway_healthy):
     await asyncio.sleep(0.5)
 
     debug_response = await http_client.get(
-        f"{GATEWAY_URL}/debug/calls/{call_id}",
+        f"{GATEWAY_URL}/api/debug/calls/{call_id}",
         headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     )
 
@@ -562,7 +562,7 @@ async def test_claude_code_session_matches_server(claude_available, gateway_heal
         await asyncio.sleep(0.5)  # Wait for async persistence
 
         debug_response = await client.get(
-            f"{GATEWAY_URL}/debug/calls/{call_id}/events",
+            f"{GATEWAY_URL}/api/debug/calls/{call_id}/events",
             headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
         )
 
