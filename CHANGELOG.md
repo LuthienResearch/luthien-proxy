@@ -2,6 +2,10 @@
 
 ## Unreleased | TBA
 
+- Refactor: extract `restore_context()` context manager for OpenTelemetry span context management
+  - Replaces manual `attach`/`detach` pattern in both `anthropic_processor.py` and `processor.py`
+  - Guarantees cleanup even on exception, reduces nesting depth, improves readability
+
 - Fix Anthropic observability pipeline: events not written to DB, generic error types, empty conversation history (#249)
 - Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
   - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
