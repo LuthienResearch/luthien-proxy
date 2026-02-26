@@ -199,18 +199,42 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
 
 
 def _parse_response_messages(response: dict[str, Any]) -> list[ConversationMessage]:
-    """Parse messages from a response payload."""
+    """Parse messages from a response payload.
+
+    Handles both OpenAI format (choices[].message) and Anthropic format
+    (content blocks directly on the response with role at top level).
+    """
     messages: list[ConversationMessage] = []
+
+    # OpenAI format: response has "choices" list
     choices = response.get("choices", [])
+    if choices:
+        for choice in choices:
+            msg = choice.get("message")
+            if msg is None:
+                continue
 
-    for choice in choices:
-        msg = choice.get("message")
-        if msg is None:
-            continue
+            content = extract_text_content(msg.get("content"))
 
-        content = extract_text_content(msg.get("content"))
+            # Add the main assistant message if there's text content
+            if content:
+                messages.append(
+                    ConversationMessage(
+                        message_type=MessageType.ASSISTANT,
+                        content=content,
+                    )
+                )
 
-        # Add the main assistant message if there's text content
+            # Extract tool calls
+            tool_calls = _extract_tool_calls(msg)
+            messages.extend(tool_calls)
+
+        return messages
+
+    # Anthropic format: response has "role" and "content" at top level
+    if response.get("role") == "assistant" and "content" in response:
+        content = extract_text_content(response.get("content"))
+
         if content:
             messages.append(
                 ConversationMessage(
@@ -219,8 +243,8 @@ def _parse_response_messages(response: dict[str, Any]) -> list[ConversationMessa
                 )
             )
 
-        # Extract tool calls
-        tool_calls = _extract_tool_calls(msg)
+        # Extract tool calls from Anthropic content blocks
+        tool_calls = _extract_tool_calls(response)
         messages.extend(tool_calls)
 
     return messages

@@ -17,10 +17,12 @@ from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from httpx import Request as HttpxRequest
 from httpx import Response as HttpxResponse
 
+from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.pipeline.anthropic_processor import (
     _build_error_event,
     _format_sse_event,
+    _handle_anthropic_error,
     _handle_non_streaming,
     _handle_streaming,
     _process_request,
@@ -353,6 +355,44 @@ class TestHandleNonStreaming:
         assert call_args[0][0] == "test-call-id"
         assert call_args[0][1] == "pipeline.client_response"
 
+    @pytest.mark.asyncio
+    async def test_emits_transaction_response_recorded_event(
+        self, mock_anthropic_client, mock_policy, mock_policy_ctx, mock_emitter, mock_anthropic_response
+    ):
+        """Non-streaming path should emit transaction.non_streaming_response_recorded for history viewer."""
+        request: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+        }
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            await _handle_non_streaming(
+                final_request=request,
+                policy=mock_policy,
+                policy_ctx=mock_policy_ctx,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+                call_id="test-call-id",
+            )
+
+        # Find the transaction.non_streaming_response_recorded call
+        event_types = [call[0][1] for call in mock_emitter.record.call_args_list]
+        assert "transaction.non_streaming_response_recorded" in event_types
+
+        # Verify payload structure matches what history service expects
+        for call in mock_emitter.record.call_args_list:
+            if call[0][1] == "transaction.non_streaming_response_recorded":
+                payload = call[0][2]
+                assert "original_response" in payload
+                assert "final_response" in payload
+                assert payload["final_response"]["role"] == "assistant"
+                break
+
 
 class TestHandleStreaming:
     """Tests for _handle_streaming helper function."""
@@ -494,6 +534,45 @@ class TestProcessAnthropicRequest:
 
         assert isinstance(response, JSONResponse)
         mock_anthropic_client.complete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_emits_transaction_request_recorded(
+        self, mock_request, mock_policy, mock_anthropic_client, mock_emitter
+    ):
+        """Anthropic pipeline should emit transaction.request_recorded for history viewer."""
+        anthropic_body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            await process_anthropic_request(
+                request=mock_request,
+                policy=mock_policy,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+            )
+
+        # Verify transaction.request_recorded was emitted
+        event_types = [call[0][1] for call in mock_emitter.record.call_args_list]
+        assert "transaction.request_recorded" in event_types
+
+        # Verify payload structure
+        for call in mock_emitter.record.call_args_list:
+            if call[0][1] == "transaction.request_recorded":
+                payload = call[0][2]
+                assert payload["final_model"] == "claude-sonnet-4-20250514"
+                assert "original_request" in payload
+                assert "final_request" in payload
+                assert payload["final_request"]["messages"][0]["content"] == "Hello"
+                break
 
     @pytest.mark.asyncio
     async def test_streaming_request_returns_streaming_response(self, mock_request, mock_policy, mock_emitter):
@@ -639,7 +718,7 @@ class TestBuildErrorEvent:
         event = _build_error_event(error, "test-call-id")
 
         assert event.get("type") == "error"
-        assert event.get("error", {}).get("type") == "api_error"
+        assert event.get("error", {}).get("type") == "rate_limit_error"
         assert "Rate limit exceeded" in event.get("error", {}).get("message", "")
 
     def test_builds_connection_error_event(self):
@@ -798,3 +877,61 @@ class TestMidStreamErrorHandling:
         last_event = events[-1]
         assert "event: error" in last_event
         assert '"type": "api_connection_error"' in last_event
+
+
+class TestHandleAnthropicError:
+    """Tests for _handle_anthropic_error error classification.
+
+    Regression test: Previously raised HTTPException with nested JSON detail
+    and generic 'api_error' type for all errors, making auth failures unclear.
+    Now raises BackendAPIError with proper error types.
+    """
+
+    def test_auth_error_raises_backend_api_error(self):
+        """401 AuthenticationError should raise BackendAPIError with authentication_error type."""
+        mock_response = HttpxResponse(
+            status_code=401,
+            request=HttpxRequest("POST", "https://api.anthropic.com/v1/messages"),
+            json={"error": {"type": "authentication_error", "message": "Invalid API Key"}},
+        )
+        exc = AnthropicStatusError(
+            message="Invalid API Key",
+            response=mock_response,
+            body={"error": {"type": "authentication_error", "message": "Invalid API Key"}},
+        )
+
+        with pytest.raises(BackendAPIError) as exc_info:
+            _handle_anthropic_error(exc, "test-call")
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.error_type == "authentication_error"
+        assert "Invalid API Key" in exc_info.value.message
+
+    def test_rate_limit_error_raises_backend_api_error(self):
+        """429 RateLimitError should raise BackendAPIError with rate_limit_error type."""
+        mock_response = HttpxResponse(
+            status_code=429,
+            request=HttpxRequest("POST", "https://api.anthropic.com/v1/messages"),
+            json={"error": {"type": "rate_limit_error", "message": "Rate limited"}},
+        )
+        exc = AnthropicStatusError(
+            message="Rate limited",
+            response=mock_response,
+            body={"error": {"type": "rate_limit_error", "message": "Rate limited"}},
+        )
+
+        with pytest.raises(BackendAPIError) as exc_info:
+            _handle_anthropic_error(exc, "test-call")
+
+        assert exc_info.value.status_code == 429
+        assert exc_info.value.error_type == "rate_limit_error"
+
+    def test_connection_error_raises_backend_api_error(self):
+        """Connection errors should raise BackendAPIError with 502."""
+        exc = AnthropicConnectionError(request=HttpxRequest("POST", "https://api.anthropic.com/v1/messages"))
+
+        with pytest.raises(BackendAPIError) as exc_info:
+            _handle_anthropic_error(exc, "test-call")
+
+        assert exc_info.value.status_code == 502
+        assert exc_info.value.error_type == "api_connection_error"
