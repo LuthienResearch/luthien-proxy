@@ -272,7 +272,10 @@ async def activate_policy(
     policy_class_name = policy.__class__.__name__
     async with db_pool.connection() as conn:
         async with conn.transaction():
-            await conn.execute("UPDATE dynamic_policies SET is_active = FALSE")
+            await conn.execute(
+                "UPDATE dynamic_policies SET is_active = FALSE, updated_at = NOW() WHERE is_active = TRUE AND id != $1",
+                policy_id,
+            )
             await conn.execute(
                 "UPDATE dynamic_policies SET is_active = TRUE, updated_at = NOW() WHERE id = $1",
                 policy_id,
