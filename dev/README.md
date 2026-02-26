@@ -55,8 +55,6 @@ The `context/` directory contains knowledge accumulated across development sessi
 - [otel-conventions.md](context/otel-conventions.md) - OpenTelemetry naming conventions for adding spans/attributes
 - [redis-otel-analysis.md](context/redis-otel-analysis.md) - Redis instrumentation patterns
 - [streaming_response_structures.md](context/streaming_response_structures.md) - Empirical streaming data from various LLM providers
-- [anthropic_streaming_chunks.txt](context/anthropic_streaming_chunks.txt) - Example Anthropic streaming chunks
-- [gpt_streaming_chunks.txt](context/gpt_streaming_chunks.txt) - Example OpenAI streaming chunks
 
 See [context/README.md](context/README.md) for guidelines on what goes where.
 
@@ -108,7 +106,7 @@ Client Response
 **Key directories**:
 
 - `src/luthien_proxy/` - Gateway implementation
-  - `control/` - Policy orchestration
+  - `orchestration/` - Policy orchestration
   - `policies/` - Event-driven policy implementations
   - `streaming/` - Streaming pipeline components
   - `storage/` - Event persistence
@@ -145,4 +143,4 @@ Historical planning documents have been moved to the private [luthien-org](https
 
 ---
 
-**Last Updated**: 2025-11-06
+**Last Updated**: 2026-02-25
