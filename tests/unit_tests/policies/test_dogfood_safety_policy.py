@@ -363,9 +363,7 @@ class TestOpenAIStreaming:
         from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
 
         ctx = _make_streaming_ctx()
-        tc = ChatCompletionDeltaToolCall(
-            index=0, id="call_1", function=Function(name="Bash", arguments='{"command":')
-        )
+        tc = ChatCompletionDeltaToolCall(index=0, id="call_1", function=Function(name="Bash", arguments='{"command":'))
         chunk = make_streaming_chunk(content=None, tool_calls=[tc])
         ctx.original_streaming_response_state.raw_chunks = [chunk]
 
