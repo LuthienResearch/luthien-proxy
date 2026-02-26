@@ -431,14 +431,14 @@ Admin endpoints manage policies at runtime without requiring a restart. All admi
 **Get current policy:**
 
 ```bash
-curl http://localhost:8000/admin/policy/current \
+curl http://localhost:8000/api/admin/policy/current \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
 **Create a named policy instance:**
 
 ```bash
-curl -X POST http://localhost:8000/admin/policy/create \
+curl -X POST http://localhost:8000/api/admin/policy/create \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{
@@ -456,7 +456,7 @@ curl -X POST http://localhost:8000/admin/policy/create \
 **Activate a policy:**
 
 ```bash
-curl -X POST http://localhost:8000/admin/policy/activate \
+curl -X POST http://localhost:8000/api/admin/policy/activate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{"name": "my-policy"}'
@@ -465,14 +465,14 @@ curl -X POST http://localhost:8000/admin/policy/activate \
 **List available policy classes:**
 
 ```bash
-curl http://localhost:8000/admin/policy/list \
+curl http://localhost:8000/api/admin/policy/list \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
 **List saved policy instances:**
 
 ```bash
-curl http://localhost:8000/admin/policy/instances \
+curl http://localhost:8000/api/admin/policy/instances \
   -H "Authorization: Bearer admin-dev-key"
 ```
 

@@ -179,9 +179,9 @@ def create_app(
 
     # Include routers
     app.include_router(gateway_router)  # /v1/chat/completions, /v1/messages (PolicyOrchestrator)
-    app.include_router(debug_router)  # /debug/*
-    app.include_router(ui_router)  # /activity/*, /policy-config
-    app.include_router(admin_router)  # /admin/* (policy management)
+    app.include_router(debug_router)  # /api/debug/*
+    app.include_router(ui_router)  # /activity/*, /policy-config, /diffs
+    app.include_router(admin_router)  # /api/admin/* (policy management)
     app.include_router(session_router)  # /auth/login, /auth/logout
     app.include_router(login_page_router)  # /login (convenience redirect)
     app.include_router(history_routes.router)  # /history/* (conversation history UI)

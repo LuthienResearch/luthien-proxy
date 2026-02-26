@@ -1,9 +1,9 @@
 """Debug routes for gateway.
 
 This module provides REST endpoints for debugging policy decisions:
-- GET /debug/calls/{call_id} - Retrieve all events for a call
-- GET /debug/calls/{call_id}/diff - Compute diff between original and final
-- GET /debug/calls - List recent calls
+- GET /api/debug/calls/{call_id} - Retrieve all events for a call
+- GET /api/debug/calls/{call_id}/diff - Compute diff between original and final
+- GET /api/debug/calls - List recent calls
 
 Route handlers are thin wrappers that handle HTTP concerns (dependency injection,
 error responses) and delegate business logic to the service layer.

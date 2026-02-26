@@ -4,9 +4,9 @@
 """E2E tests for policy management API.
 
 Tests the admin API endpoints for policy management including:
-- GET /api/api/admin/policy/current - Get current policy information
-- POST /api/api/admin/policy/set - Set the active policy
-- GET /api/api/admin/policy/list - List available policy classes
+- GET /api/admin/policy/current - Get current policy information
+- POST /api/admin/policy/set - Set the active policy
+- GET /api/admin/policy/list - List available policy classes
 - Policy persistence to database
 - Hot-reload functionality (changing policy without restart)
 

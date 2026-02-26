@@ -4,9 +4,9 @@
 """E2E tests for debug endpoint authentication.
 
 Tests that all debug endpoints require admin authentication:
-- GET /api/api/debug/calls - List recent calls
-- GET /api/api/debug/calls/{call_id} - Get events for a call
-- GET /api/api/debug/calls/{call_id}/diff - Get diff for a call
+- GET /api/debug/calls - List recent calls
+- GET /api/debug/calls/{call_id} - Get events for a call
+- GET /api/debug/calls/{call_id}/diff - Get diff for a call
 
 These tests require:
 - Running gateway service (docker compose up gateway)
