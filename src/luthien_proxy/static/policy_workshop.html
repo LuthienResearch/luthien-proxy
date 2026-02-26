@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Policy Workshop - Luthien Proxy</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            line-height: 1.6;
+        }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 32px;
+        }
+
+        h1 { font-size: 24px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+        h2 { font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; }
+        .subtitle { font-size: 14px; color: #888; }
+
+        .header-links { display: flex; gap: 16px; align-items: center; }
+        .header-links a {
+            color: #888; text-decoration: none; font-size: 14px; transition: color 0.2s;
+        }
+        .header-links a:hover { color: #e5e5e5; }
+
+        /* Tabs */
+        .tabs {
+            display: flex; gap: 0; margin-bottom: 24px;
+            border-bottom: 1px solid #262626;
+        }
+        .tab {
+            padding: 12px 24px; cursor: pointer; color: #888;
+            font-size: 14px; font-weight: 500;
+            border-bottom: 2px solid transparent; transition: all 0.2s;
+        }
+        .tab:hover { color: #e5e5e5; }
+        .tab.active { color: #4ade80; border-bottom-color: #4ade80; }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Cards */
+        .card {
+            background: #141414; border: 1px solid #262626;
+            border-radius: 8px; padding: 20px; margin-bottom: 16px;
+        }
+
+        /* Forms */
+        label {
+            display: block; font-size: 13px; color: #888;
+            margin-bottom: 6px; font-weight: 500;
+        }
+        textarea, input[type="text"], input[type="number"] {
+            width: 100%; padding: 10px 12px;
+            background: #1a1a1a; border: 1px solid #333;
+            border-radius: 6px; color: #e5e5e5;
+            font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', monospace;
+            font-size: 13px; resize: vertical;
+        }
+        textarea:focus, input:focus { outline: none; border-color: #4ade80; }
+
+        .prompt-input {
+            min-height: 100px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        }
+
+        .code-editor {
+            min-height: 400px; tab-size: 4; white-space: pre;
+            font-size: 12px; line-height: 1.5;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 10px 20px; border-radius: 6px;
+            font-size: 14px; font-weight: 500; cursor: pointer;
+            border: none; transition: all 0.2s;
+        }
+        .btn-primary { background: #4ade80; color: #0a0a0a; }
+        .btn-primary:hover { background: #22c55e; }
+        .btn-primary:disabled { background: #333; color: #666; cursor: not-allowed; }
+        .btn-secondary { background: #262626; color: #e5e5e5; border: 1px solid #333; }
+        .btn-secondary:hover { background: #333; }
+        .btn-danger { background: #dc2626; color: #fff; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-small { padding: 6px 14px; font-size: 13px; }
+
+        .btn-group { display: flex; gap: 8px; margin-top: 16px; }
+
+        /* Status */
+        .status-bar {
+            padding: 12px 16px; border-radius: 6px;
+            font-size: 13px; margin-top: 16px; display: none;
+        }
+        .status-bar.show { display: block; }
+        .status-bar.success { background: #052e16; border: 1px solid #166534; color: #4ade80; }
+        .status-bar.error { background: #2a0a0a; border: 1px solid #7f1d1d; color: #f87171; }
+        .status-bar.info { background: #0a1a2a; border: 1px solid #1e3a5f; color: #60a5fa; }
+        .status-bar.loading { background: #1a1a0a; border: 1px solid #3f3f00; color: #fbbf24; }
+
+        /* Policy list */
+        .policy-list { display: flex; flex-direction: column; gap: 12px; }
+        .policy-item {
+            background: #141414; border: 1px solid #262626;
+            border-radius: 8px; padding: 16px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .policy-item.active { border-color: #166534; }
+        .policy-meta { flex: 1; }
+        .policy-name {
+            font-size: 15px; font-weight: 600; color: #fff;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .badge {
+            font-size: 11px; padding: 2px 8px; border-radius: 10px;
+            font-weight: 500;
+        }
+        .badge-active { background: #166534; color: #4ade80; }
+        .policy-desc { font-size: 13px; color: #888; margin-top: 4px; }
+        .policy-date { font-size: 12px; color: #555; margin-top: 4px; }
+        .policy-actions { display: flex; gap: 8px; }
+
+        /* Save modal */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); z-index: 100;
+            justify-content: center; align-items: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: #1a1a1a; border: 1px solid #333;
+            border-radius: 12px; padding: 24px; width: 500px; max-width: 90vw;
+        }
+        .modal h2 { margin-bottom: 16px; }
+        .form-group { margin-bottom: 16px; }
+
+        /* Loading spinner */
+        .spinner {
+            display: inline-block; width: 16px; height: 16px;
+            border: 2px solid #333; border-top-color: #4ade80;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center; padding: 60px 20px; color: #555;
+        }
+        .empty-state h3 { color: #888; margin-bottom: 8px; }
+
+        /* Two-column layout for generate tab */
+        .generate-layout {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+        }
+        @media (max-width: 900px) {
+            .generate-layout { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Policy Workshop</h1>
+                <div class="subtitle">Generate, edit, and manage dynamic policies with AI</div>
+            </div>
+            <div class="header-links">
+                <a href="/">Home</a>
+                <a href="/policy-config">Policy Config</a>
+                <a href="/activity/monitor">Activity</a>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="generate">Generate</div>
+            <div class="tab" data-tab="browse">Saved Policies</div>
+        </div>
+
+        <!-- Generate Tab -->
+        <div id="tab-generate" class="tab-content active">
+            <div class="generate-layout">
+                <div>
+                    <div class="card">
+                        <h2>Describe Your Policy</h2>
+                        <div class="form-group">
+                            <label for="prompt">What should this policy do?</label>
+                            <textarea id="prompt" class="prompt-input"
+                                placeholder="e.g., Block any tool calls that execute pip commands and notify the user what was blocked."></textarea>
+                        </div>
+                        <div class="btn-group">
+                            <button id="btn-generate" class="btn btn-primary" onclick="generatePolicy()">
+                                Generate Policy
+                            </button>
+                        </div>
+                        <div id="generate-status" class="status-bar"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="card">
+                        <h2>Generated Code</h2>
+                        <textarea id="code-editor" class="code-editor"
+                            placeholder="Generated policy code will appear here. You can also write code directly."></textarea>
+                        <div class="btn-group">
+                            <button class="btn btn-secondary btn-small" onclick="validateCode()">Validate</button>
+                            <button class="btn btn-primary btn-small" onclick="openSaveModal()">Save Policy</button>
+                        </div>
+                        <div id="validate-status" class="status-bar"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Browse Tab -->
+        <div id="tab-browse" class="tab-content">
+            <div id="policies-list" class="policy-list">
+                <div class="empty-state">
+                    <h3>No policies yet</h3>
+                    <p>Generate and save your first policy in the Generate tab.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Modal -->
+    <div id="save-modal" class="modal-overlay">
+        <div class="modal">
+            <h2>Save Policy</h2>
+            <div class="form-group">
+                <label for="save-name">Name</label>
+                <input type="text" id="save-name" placeholder="e.g., block-pip-commands">
+            </div>
+            <div class="form-group">
+                <label for="save-desc">Description (optional)</label>
+                <input type="text" id="save-desc" placeholder="Brief description of what this policy does">
+            </div>
+            <div id="save-status" class="status-bar"></div>
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="savePolicy()">Save</button>
+                <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Code Modal -->
+    <div id="view-modal" class="modal-overlay">
+        <div class="modal" style="width: 800px;">
+            <h2 id="view-modal-title">Policy Source</h2>
+            <textarea id="view-code" class="code-editor" readonly style="min-height: 300px;"></textarea>
+            <div class="btn-group">
+                <button class="btn btn-secondary" onclick="closeViewModal()">Close</button>
+                <button class="btn btn-primary btn-small" onclick="editInWorkshop()">Edit in Workshop</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // --- State ---
+    let currentPrompt = '';
+
+    // --- Tab switching ---
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            tab.classList.add('active');
+            document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+            if (tab.dataset.tab === 'browse') loadPolicies();
+        });
+    });
+
+    // --- Status helpers ---
+    function showStatus(id, message, type) {
+        const el = document.getElementById(id);
+        el.textContent = message;
+        el.className = 'status-bar show ' + type;
+    }
+    function hideStatus(id) {
+        document.getElementById(id).className = 'status-bar';
+    }
+
+    // --- API calls ---
+    async function apiFetch(url, options = {}) {
+        const resp = await fetch(url, {
+            ...options,
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json', ...options.headers }
+        });
+        if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            throw new Error(data.detail || `HTTP ${resp.status}`);
+        }
+        return resp.json();
+    }
+
+    // --- Generate ---
+    async function generatePolicy() {
+        const prompt = document.getElementById('prompt').value.trim();
+        if (!prompt) return;
+
+        currentPrompt = prompt;
+        const btn = document.getElementById('btn-generate');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Generating...';
+        showStatus('generate-status', 'Generating policy code...', 'loading');
+
+        try {
+            const data = await apiFetch('/admin/policies/generate', {
+                method: 'POST',
+                body: JSON.stringify({ prompt })
+            });
+            document.getElementById('code-editor').value = data.code;
+            showStatus('generate-status', `Generated using ${data.model}`, 'success');
+        } catch (e) {
+            showStatus('generate-status', 'Generation failed: ' + e.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Generate Policy';
+        }
+    }
+
+    // --- Validate ---
+    async function validateCode() {
+        const code = document.getElementById('code-editor').value.trim();
+        if (!code) return;
+
+        showStatus('validate-status', 'Validating...', 'loading');
+        try {
+            const data = await apiFetch('/admin/policies/validate', {
+                method: 'POST',
+                body: JSON.stringify({ source_code: code, config: {} })
+            });
+            if (data.valid) {
+                showStatus('validate-status',
+                    `Valid! Class: ${data.class_name} (${data.short_name})`, 'success');
+            } else {
+                showStatus('validate-status',
+                    'Issues: ' + data.issues.join('; '), 'error');
+            }
+        } catch (e) {
+            showStatus('validate-status', 'Validation error: ' + e.message, 'error');
+        }
+    }
+
+    // --- Save ---
+    function openSaveModal() {
+        const code = document.getElementById('code-editor').value.trim();
+        if (!code) {
+            showStatus('validate-status', 'Write or generate some code first', 'error');
+            return;
+        }
+        document.getElementById('save-modal').classList.add('show');
+        hideStatus('save-status');
+    }
+    function closeSaveModal() {
+        document.getElementById('save-modal').classList.remove('show');
+    }
+
+    async function savePolicy() {
+        const name = document.getElementById('save-name').value.trim();
+        if (!name) {
+            showStatus('save-status', 'Name is required', 'error');
+            return;
+        }
+
+        const code = document.getElementById('code-editor').value.trim();
+        const desc = document.getElementById('save-desc').value.trim();
+
+        showStatus('save-status', 'Saving...', 'loading');
+        try {
+            await apiFetch('/admin/policies/save', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name,
+                    description: desc || null,
+                    source_code: code,
+                    config: {},
+                    prompt: currentPrompt || null
+                })
+            });
+            showStatus('save-status', 'Saved!', 'success');
+            setTimeout(closeSaveModal, 800);
+            document.getElementById('save-name').value = '';
+            document.getElementById('save-desc').value = '';
+        } catch (e) {
+            showStatus('save-status', 'Save failed: ' + e.message, 'error');
+        }
+    }
+
+    // --- Browse ---
+    async function loadPolicies() {
+        const container = document.getElementById('policies-list');
+        try {
+            const policies = await apiFetch('/admin/policies/');
+            if (policies.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No policies yet</h3>
+                        <p>Generate and save your first policy in the Generate tab.</p>
+                    </div>`;
+                return;
+            }
+            container.innerHTML = policies.map(p => `
+                <div class="policy-item ${p.is_active ? 'active' : ''}">
+                    <div class="policy-meta">
+                        <div class="policy-name">
+                            ${escapeHtml(p.name)}
+                            ${p.is_active ? '<span class="badge badge-active">active</span>' : ''}
+                        </div>
+                        <div class="policy-desc">${escapeHtml(p.description || 'No description')}</div>
+                        <div class="policy-date">Created ${new Date(p.created_at).toLocaleString()}</div>
+                    </div>
+                    <div class="policy-actions">
+                        <button class="btn btn-secondary btn-small" onclick="viewPolicy('${p.id}')">View</button>
+                        ${!p.is_active ? `
+                            <button class="btn btn-primary btn-small" onclick="activatePolicy('${p.id}')">Activate</button>
+                            <button class="btn btn-danger btn-small" onclick="deletePolicy('${p.id}')">Delete</button>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) {
+            container.innerHTML = `<div class="status-bar show error">Failed to load: ${escapeHtml(e.message)}</div>`;
+        }
+    }
+
+    async function viewPolicy(id) {
+        try {
+            const p = await apiFetch('/admin/policies/' + id);
+            document.getElementById('view-modal-title').textContent = p.name;
+            document.getElementById('view-code').value = p.source_code;
+            document.getElementById('view-code').dataset.id = id;
+            document.getElementById('view-modal').classList.add('show');
+        } catch (e) {
+            alert('Failed to load policy: ' + e.message);
+        }
+    }
+    function closeViewModal() {
+        document.getElementById('view-modal').classList.remove('show');
+    }
+    function editInWorkshop() {
+        const code = document.getElementById('view-code').value;
+        document.getElementById('code-editor').value = code;
+        closeViewModal();
+        // Switch to generate tab
+        document.querySelectorAll('.tab')[0].click();
+    }
+
+    async function activatePolicy(id) {
+        if (!confirm('Activate this policy? It will become the live policy for the gateway.')) return;
+        try {
+            const result = await apiFetch('/admin/policies/' + id + '/activate', { method: 'POST' });
+            loadPolicies();
+        } catch (e) {
+            alert('Activation failed: ' + e.message);
+        }
+    }
+
+    async function deletePolicy(id) {
+        if (!confirm('Delete this policy? This cannot be undone.')) return;
+        try {
+            await apiFetch('/admin/policies/' + id, { method: 'DELETE' });
+            loadPolicies();
+        } catch (e) {
+            alert('Delete failed: ' + e.message);
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    </script>
+</body>
+</html>

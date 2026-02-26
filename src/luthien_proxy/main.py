@@ -16,6 +16,7 @@ from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
+from luthien_proxy.admin.dynamic_policy_routes import router as dynamic_policy_router
 from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
@@ -189,6 +190,7 @@ def create_app(
     app.include_router(debug_router)  # /api/debug/*
     app.include_router(ui_router)  # /activity/*, /policy-config, /diffs
     app.include_router(admin_router)  # /api/admin/* (policy management)
+    app.include_router(dynamic_policy_router)  # /api/admin/policies/* (dynamic policy creation)
     app.include_router(session_router)  # /auth/login, /auth/logout
     app.include_router(login_page_router)  # /login (convenience redirect)
     app.include_router(history_routes.router)  # /history/* (conversation history UI)
