@@ -107,6 +107,24 @@ class TestOpenAIMessageCountLimit:
         )
         assert request_message.model == "gpt-4"
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "messages_value",
+        [
+            pytest.param(None, id="null"),
+            pytest.param("not-a-list", id="string"),
+            pytest.param(42, id="integer"),
+        ],
+    )
+    async def test_non_list_messages_not_rejected(self, mock_request, mock_emitter, mock_tracer_ctx, messages_value):
+        """Non-list messages field should not trigger the count check."""
+        mock_request.json = AsyncMock(return_value={"model": "gpt-4", "messages": messages_value})
+
+        try:
+            await openai_process_request(request=mock_request, call_id="test", emitter=mock_emitter)
+        except HTTPException as e:
+            assert "exceeding maximum" not in e.detail
+
 
 class TestAnthropicMessageCountLimit:
     """Tests for message count validation in the Anthropic pipeline."""

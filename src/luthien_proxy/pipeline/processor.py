@@ -209,6 +209,7 @@ async def _process_request(
         # Check message count limit
         messages = body.get("messages")
         if isinstance(messages, list) and len(messages) > MAX_MESSAGE_COUNT:
+            logger.warning(f"[{call_id}] Rejected: {len(messages)} messages exceeds limit of {MAX_MESSAGE_COUNT}")
             raise HTTPException(
                 status_code=400,
                 detail=f"Request contains {len(messages)} messages, exceeding maximum of {MAX_MESSAGE_COUNT}",
