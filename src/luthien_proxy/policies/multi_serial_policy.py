@@ -70,6 +70,19 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
         names = [p.short_policy_name for p in self._sub_policies]
         logger.info(f"MultiSerialPolicy initialized with {len(self._sub_policies)} policies: {names}")
 
+    @classmethod
+    def from_policies(cls, policies: list[PolicyProtocol]) -> "MultiSerialPolicy":
+        """Create from pre-instantiated policy objects (bypasses config loading).
+
+        Used by policy_manager for programmatic composition (e.g. dogfood wrapping).
+        """
+        instance = cls.__new__(cls)
+        instance._sub_policies = list(policies)
+        instance._validated_interfaces = set()
+        names = [p.short_policy_name for p in instance._sub_policies]
+        logger.info(f"MultiSerialPolicy composed from {len(instance._sub_policies)} policies: {names}")
+        return instance
+
     @property
     def short_policy_name(self) -> str:
         """Human-readable name showing the pipeline composition."""
