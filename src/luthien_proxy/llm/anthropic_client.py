@@ -1,7 +1,8 @@
 """Anthropic SDK client wrapper for making API calls."""
 
+import logging
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import anthropic
 from opentelemetry import trace
@@ -11,7 +12,61 @@ from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicRespons
 if TYPE_CHECKING:
     from anthropic.lib.streaming import MessageStreamEvent
 
+logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _is_empty_text_block(block: Any) -> bool:
+    """Check if a content block is an empty or whitespace-only text block.
+
+    The Anthropic API rejects both:
+    - Empty text: {"type": "text", "text": ""} -> 'must be non-empty'
+    - Whitespace-only: {"type": "text", "text": " "} -> 'must contain non-whitespace text'
+    """
+    if not isinstance(block, dict) or block.get("type") != "text":
+        return False
+    text = block.get("text")
+    return isinstance(text, str) and text.strip() == ""
+
+
+def _sanitize_messages(messages: list[Any]) -> list[Any]:
+    """Remove empty/whitespace-only text content blocks from messages.
+
+    Some clients (e.g., Claude Code) can produce messages with empty text blocks
+    like {"type": "text", "text": ""} which the Anthropic API rejects with
+    'messages: text content blocks must be non-empty'. It also rejects
+    whitespace-only text with 'must contain non-whitespace text'.
+
+    Only filters blocks from list-style content (not bare string content).
+    Preserves messages even if all text blocks are empty (to avoid breaking
+    message structure).
+    """
+    sanitized = []
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            sanitized.append(msg)
+            continue
+
+        filtered = [block for block in content if not _is_empty_text_block(block)]
+
+        if filtered != content:
+            logger.debug(
+                "Stripped %d empty text block(s) from %s message",
+                len(content) - len(filtered),
+                msg.get("role", "unknown"),
+            )
+
+        # If filtering removed ALL blocks, keep original to avoid
+        # breaking message structure (API will reject either way)
+        if not filtered:
+            sanitized.append(msg)
+        elif len(filtered) != len(content):
+            sanitized.append({**msg, "content": filtered})
+        else:
+            sanitized.append(msg)
+
+    return sanitized
 
 
 class AnthropicClient:
@@ -64,10 +119,12 @@ class AnthropicClient:
 
         The Anthropic SDK uses Omit sentinels for optional parameters,
         so we only pass keys that are explicitly set in the request.
+        Sanitizes messages to remove empty text content blocks that would
+        cause 400 errors from the Anthropic API.
         """
         kwargs: dict = {
             "model": request["model"],
-            "messages": request["messages"],
+            "messages": _sanitize_messages(request["messages"]),
             "max_tokens": request["max_tokens"],
         }
 

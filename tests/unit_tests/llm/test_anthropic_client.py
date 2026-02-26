@@ -18,7 +18,7 @@ from anthropic.types import (
 )
 from anthropic.types.raw_message_delta_event import Delta
 
-from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.anthropic_client import AnthropicClient, _sanitize_messages
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
 
@@ -324,3 +324,121 @@ class TestAnthropicClientStream:
                 text_deltas.append(event.delta.text)
 
         assert text_deltas == ["Hi", " there!"]
+
+
+class TestSanitizeMessages:
+    """Test _sanitize_messages function."""
+
+    def test_passthrough_string_content(self):
+        """String content should pass through unchanged."""
+        messages = [{"role": "user", "content": "Hello"}]
+        assert _sanitize_messages(messages) == messages
+
+    def test_passthrough_normal_text_blocks(self):
+        """Non-empty text blocks should pass through unchanged."""
+        messages = [
+            {"role": "assistant", "content": [{"type": "text", "text": "Hi there!"}]},
+        ]
+        assert _sanitize_messages(messages) == messages
+
+    def test_strips_empty_text_block(self):
+        """Empty text blocks should be removed."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": ""},
+                    {"type": "tool_use", "id": "t1", "name": "foo", "input": {}},
+                ],
+            },
+        ]
+        result = _sanitize_messages(messages)
+        assert len(result[0]["content"]) == 1
+        assert result[0]["content"][0]["type"] == "tool_use"
+
+    def test_preserves_non_text_blocks(self):
+        """Tool use, tool result, and other block types are never filtered."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "t1", "content": "ok"},
+                ],
+            },
+        ]
+        assert _sanitize_messages(messages) == messages
+
+    def test_all_empty_text_blocks_keeps_original(self):
+        """If ALL blocks are empty text, keep original to avoid empty content list."""
+        messages = [
+            {"role": "assistant", "content": [{"type": "text", "text": ""}]},
+        ]
+        result = _sanitize_messages(messages)
+        # Should keep original rather than produce empty content list
+        assert result[0]["content"] == [{"type": "text", "text": ""}]
+
+    def test_multiple_messages_mixed(self):
+        """Sanitization works across multiple messages."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": ""},
+                    {"type": "text", "text": "response"},
+                ],
+            },
+            {"role": "user", "content": [{"type": "text", "text": "follow up"}]},
+        ]
+        result = _sanitize_messages(messages)
+        assert result[0]["content"] == "Hello"
+        assert len(result[1]["content"]) == 1
+        assert result[1]["content"][0]["text"] == "response"
+        assert result[2]["content"] == [{"type": "text", "text": "follow up"}]
+
+    def test_strips_whitespace_only_text_block(self):
+        """Whitespace-only text blocks should also be removed (API rejects these too)."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": " "},
+                    {"type": "text", "text": "Hello!"},
+                ],
+            },
+        ]
+        result = _sanitize_messages(messages)
+        assert len(result[0]["content"]) == 1
+        assert result[0]["content"][0]["text"] == "Hello!"
+
+    def test_strips_various_whitespace_patterns(self):
+        """Tabs, newlines, and mixed whitespace should all be stripped."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "\t"},
+                    {"type": "text", "text": "\n"},
+                    {"type": "text", "text": "  \n\t  "},
+                    {"type": "text", "text": "keep this"},
+                ],
+            },
+        ]
+        result = _sanitize_messages(messages)
+        assert len(result[0]["content"]) == 1
+        assert result[0]["content"][0]["text"] == "keep this"
+
+    def test_handles_none_content(self):
+        """Messages with None content should pass through unchanged."""
+        messages = [{"role": "user", "content": None}]
+        assert _sanitize_messages(messages) == messages
+
+    def test_does_not_mutate_original(self):
+        """Sanitization should not modify the original messages."""
+        original_content = [
+            {"type": "text", "text": ""},
+            {"type": "text", "text": "keep"},
+        ]
+        messages = [{"role": "assistant", "content": original_content}]
+        _sanitize_messages(messages)
+        assert len(original_content) == 2
