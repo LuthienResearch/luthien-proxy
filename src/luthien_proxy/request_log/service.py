@@ -54,6 +54,7 @@ def _row_to_entry(row: Any) -> RequestLogEntry:
         model=str(row["model"]) if row["model"] else None,
         is_streaming=bool(row["is_streaming"]),
         endpoint=str(row["endpoint"]) if row["endpoint"] else None,
+        error=str(row["error"]) if row["error"] else None,
     )
 
 

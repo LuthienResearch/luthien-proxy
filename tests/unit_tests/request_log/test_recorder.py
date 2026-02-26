@@ -48,6 +48,7 @@ class Test_PendingLog:
         assert log.response_body is None
         assert log.is_streaming is False
         assert log.endpoint is None
+        assert log.error is None
         assert log.started_at > 0
         assert log.completed_at is None
         assert log.duration_ms is None
@@ -631,3 +632,123 @@ class TestRequestLogRecorderIntegration:
 
         # Outbound session_id should be None
         assert recorder._outbound.session_id is None
+
+
+class TestRecordOutboundRequestMethodUrl:
+    """Tests for outbound request method and URL capture."""
+
+    def test_outbound_request_captures_method_and_url(self) -> None:
+        """record_outbound_request stores http_method and url."""
+        db_pool = MagicMock(spec=DatabasePool)
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+
+        recorder.record_outbound_request(
+            method="POST",
+            url="/v1/chat/completions",
+            body={"model": "gpt-4"},
+        )
+
+        assert recorder._outbound.http_method == "POST"
+        assert recorder._outbound.url == "/v1/chat/completions"
+
+    def test_outbound_request_method_defaults_to_post(self) -> None:
+        """method defaults to POST when not specified."""
+        db_pool = MagicMock(spec=DatabasePool)
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+
+        recorder.record_outbound_request(body={})
+
+        assert recorder._outbound.http_method == "POST"
+
+    def test_outbound_request_url_defaults_to_none(self) -> None:
+        """url defaults to None when not specified."""
+        db_pool = MagicMock(spec=DatabasePool)
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+
+        recorder.record_outbound_request(body={})
+
+        assert recorder._outbound.url is None
+
+
+class TestErrorTracking:
+    """Tests for error field on inbound/outbound responses."""
+
+    def test_inbound_response_records_error(self) -> None:
+        """record_inbound_response stores error string."""
+        db_pool = MagicMock(spec=DatabasePool)
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+        recorder._inbound.started_at = time.time()
+
+        recorder.record_inbound_response(status=200, error="ConnectionError: stream interrupted")
+
+        assert recorder._inbound.error == "ConnectionError: stream interrupted"
+
+    def test_inbound_response_error_defaults_to_none(self) -> None:
+        """error defaults to None for successful responses."""
+        db_pool = MagicMock(spec=DatabasePool)
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+        recorder._inbound.started_at = time.time()
+
+        recorder.record_inbound_response(status=200)
+
+        assert recorder._inbound.error is None
+
+    def test_outbound_response_records_error(self) -> None:
+        """record_outbound_response stores error string."""
+        db_pool = MagicMock(spec=DatabasePool)
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+        recorder._outbound.started_at = time.time()
+
+        recorder.record_outbound_response(status=500, error="TimeoutError: backend timeout")
+
+        assert recorder._outbound.error == "TimeoutError: backend timeout"
+        assert recorder._outbound.response_status == 500
+
+    def test_outbound_response_error_defaults_to_none(self) -> None:
+        """error defaults to None for successful responses."""
+        db_pool = MagicMock(spec=DatabasePool)
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+        recorder._outbound.started_at = time.time()
+
+        recorder.record_outbound_response(status=200)
+
+        assert recorder._outbound.error is None
+
+
+class TestBodyTruncation:
+    """Tests for response body size limiting."""
+
+    def test_serialize_body_none_returns_none(self) -> None:
+        """None body returns None."""
+        assert RequestLogRecorder._serialize_body(None) is None
+
+    def test_serialize_body_small_body_passes_through(self) -> None:
+        """Small bodies are serialized without truncation."""
+        body = {"message": "hello"}
+        result = RequestLogRecorder._serialize_body(body)
+        assert result == json.dumps(body)
+
+    def test_serialize_body_large_body_is_truncated(self) -> None:
+        """Bodies exceeding MAX_BODY_BYTES are replaced with a truncation notice."""
+        from luthien_proxy.request_log.recorder import MAX_BODY_BYTES
+
+        large_body = {"data": "x" * (MAX_BODY_BYTES + 1)}
+        result = RequestLogRecorder._serialize_body(large_body)
+
+        parsed = json.loads(result)  # type: ignore[arg-type]
+        assert parsed["_truncated"] is True
+        assert parsed["_original_size_bytes"] > MAX_BODY_BYTES
+
+    def test_serialize_body_exactly_at_limit_passes_through(self) -> None:
+        """Bodies exactly at the limit are not truncated."""
+        from luthien_proxy.request_log.recorder import MAX_BODY_BYTES
+
+        # Build a body that serializes to exactly MAX_BODY_BYTES
+        # json.dumps({"d": "xxx..."}) has overhead, so adjust
+        overhead = len(json.dumps({"d": ""}))
+        body = {"d": "x" * (MAX_BODY_BYTES - overhead)}
+        serialized = json.dumps(body)
+        assert len(serialized) == MAX_BODY_BYTES
+
+        result = RequestLogRecorder._serialize_body(body)
+        assert result == serialized

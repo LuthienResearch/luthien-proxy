@@ -27,6 +27,7 @@ class RequestLogEntry(BaseModel):
     model: str | None = None
     is_streaming: bool = False
     endpoint: str | None = None
+    error: str | None = None
 
 
 class RequestLogListResponse(BaseModel):

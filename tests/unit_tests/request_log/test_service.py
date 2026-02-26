@@ -83,6 +83,7 @@ class TestRowToEntry:
             "model": "gpt-4",
             "is_streaming": False,
             "endpoint": "/chat/completions",
+            "error": None,
         }
         defaults.update(overrides)
         return defaults
@@ -110,6 +111,7 @@ class TestRowToEntry:
         assert entry.model == "gpt-4"
         assert entry.is_streaming is False
         assert entry.endpoint == "/chat/completions"
+        assert entry.error is None
 
     def test_row_to_entry_none_optional_fields(self) -> None:
         """None optional fields should remain None."""
@@ -196,6 +198,16 @@ class TestRowToEntry:
         assert entry.response_status == 404
         assert isinstance(entry.response_status, int)
 
+    def test_row_to_entry_error_field(self) -> None:
+        """error field should be converted to string or remain None."""
+        row = self._make_row(error="ConnectionError: stream interrupted")
+        entry = _row_to_entry(row)
+        assert entry.error == "ConnectionError: stream interrupted"
+
+        row_no_error = self._make_row(error=None)
+        entry_no_error = _row_to_entry(row_no_error)
+        assert entry_no_error.error is None
+
 
 class TestListRequestLogs:
     """Tests for list_request_logs."""
@@ -220,6 +232,7 @@ class TestListRequestLogs:
             "model": "gpt-4",
             "is_streaming": False,
             "endpoint": "/chat/completions",
+            "error": None,
         }
         defaults.update(overrides)
         return defaults
@@ -415,6 +428,7 @@ class TestGetTransactionLogs:
             "model": None,
             "is_streaming": False,
             "endpoint": "/chat/completions",
+            "error": None,
         }
         defaults.update(overrides)
         return defaults

@@ -173,6 +173,8 @@ async def process_llm_request(
 
         # Record outbound request for HTTP-level logging
         request_log_recorder.record_outbound_request(
+            method="POST",
+            url="/v1/chat/completions",
             body=final_request_dict,
             model=final_request.model,
             is_streaming=is_streaming,
@@ -337,26 +339,25 @@ async def _handle_streaming(
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
 
+                stream_error: str | None = None
                 try:
                     # send_to_client is interleaved - we track it as an event
                     async for sse_event in orchestrator.process_streaming_response(backend_stream, policy_ctx):
                         chunk_count += 1
                         yield sse_event
-                except Exception as e:
-                    # Capture error status for logging
-                    # Most streaming errors are propagated as generic exceptions from orchestrator
-                    error_status = 500  # Default server error for streaming failures
-                    raise  # Re-raise to ensure proper error handling
+                except Exception as exc:
+                    error_status = 500
+                    stream_error = f"{type(exc).__name__}: {exc}"
+                    raise
                 finally:
                     # Always record chunk count and summary, even on error
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
                     # Streaming bodies are not captured (too large to store efficiently)
-                    # Record actual status code if error occurred, otherwise 200
                     final_status = error_status if error_status is not None else 200
-                    request_log_recorder.record_inbound_response(status=final_status)
-                    request_log_recorder.record_outbound_response(status=final_status)
+                    request_log_recorder.record_inbound_response(status=final_status, error=stream_error)
+                    request_log_recorder.record_outbound_response(status=final_status, error=stream_error)
                     request_log_recorder.flush()
 
     return FastAPIStreamingResponse(

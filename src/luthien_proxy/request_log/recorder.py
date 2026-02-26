@@ -24,6 +24,9 @@ from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
 
+# Bodies larger than this are replaced with a truncation notice
+MAX_BODY_BYTES = 1_048_576  # 1 MB
+
 
 def _log_task_exception(task: asyncio.Task[None]) -> None:
     """Surface exceptions from fire-and-forget background tasks."""
@@ -51,6 +54,7 @@ class _PendingLog:
     model: str | None = None
     is_streaming: bool = False
     endpoint: str | None = None
+    error: str | None = None
 
 
 class RequestLogRecorder:
@@ -100,10 +104,12 @@ class RequestLogRecorder:
         status: int,
         body: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        error: str | None = None,
     ) -> None:
         """Capture the response sent back to the client."""
         self._inbound.response_status = status
         self._inbound.response_body = body
+        self._inbound.error = error
         if headers:
             self._inbound.response_headers = sanitize_headers(headers)
         self._inbound.completed_at = time.time()
@@ -115,11 +121,15 @@ class RequestLogRecorder:
         self,
         *,
         body: dict[str, Any],
+        method: str = "POST",
+        url: str | None = None,
         model: str | None = None,
         is_streaming: bool = False,
         endpoint: str | None = None,
     ) -> None:
         """Capture the request sent to the backend LLM."""
+        self._outbound.http_method = method
+        self._outbound.url = url
         self._outbound.request_body = body
         self._outbound.session_id = self._inbound.session_id
         self._outbound.model = model
@@ -132,10 +142,12 @@ class RequestLogRecorder:
         *,
         body: dict[str, Any] | None = None,
         status: int = 200,
+        error: str | None = None,
     ) -> None:
         """Capture the response received from the backend LLM."""
         self._outbound.response_status = status
         self._outbound.response_body = body
+        self._outbound.error = error
         self._outbound.completed_at = time.time()
         self._outbound.duration_ms = (self._outbound.completed_at - self._outbound.started_at) * 1000
 
@@ -153,6 +165,16 @@ class RequestLogRecorder:
         except RuntimeError:
             logger.debug("No running event loop; skipping request log flush")
 
+    @staticmethod
+    def _serialize_body(body: dict[str, Any] | None) -> str | None:
+        """JSON-serialize a body dict, truncating if it exceeds MAX_BODY_BYTES."""
+        if body is None:
+            return None
+        serialized = json.dumps(body)
+        if len(serialized) > MAX_BODY_BYTES:
+            return json.dumps({"_truncated": True, "_original_size_bytes": len(serialized)})
+        return serialized
+
     async def _write_logs(self) -> None:
         """Insert both inbound and outbound rows."""
         try:
@@ -165,13 +187,13 @@ class RequestLogRecorder:
                             http_method, url, request_headers, request_body,
                             response_status, response_headers, response_body,
                             started_at, completed_at, duration_ms,
-                            model, is_streaming, endpoint
+                            model, is_streaming, endpoint, error
                         ) VALUES (
                             $1, $2, $3,
                             $4, $5, $6::jsonb, $7::jsonb,
                             $8, $9::jsonb, $10::jsonb,
                             to_timestamp($11), CASE WHEN $12::float IS NOT NULL THEN to_timestamp($12) END, $13,
-                            $14, $15, $16
+                            $14, $15, $16, $17
                         )
                         """,
                         pending.transaction_id,
@@ -180,16 +202,17 @@ class RequestLogRecorder:
                         pending.http_method,
                         pending.url,
                         json.dumps(pending.request_headers) if pending.request_headers else None,
-                        json.dumps(pending.request_body) if pending.request_body else None,
+                        self._serialize_body(pending.request_body),
                         pending.response_status,
                         json.dumps(pending.response_headers) if pending.response_headers else None,
-                        json.dumps(pending.response_body) if pending.response_body else None,
+                        self._serialize_body(pending.response_body),
                         pending.started_at,
                         pending.completed_at,
                         pending.duration_ms,
                         pending.model,
                         pending.is_streaming,
                         pending.endpoint,
+                        pending.error,
                     )
         except Exception:
             logger.exception("Failed to write request logs for %s", self._transaction_id)
