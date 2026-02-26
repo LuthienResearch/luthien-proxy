@@ -13,7 +13,7 @@
 
 #### QADNA QA Trial Bugs (2026-02-25)
 
-Source: [QA Trial Report](https://docs.google.com/document/d/1xugPuJjtfxXw3ale54rdhqAlsH5wcvo31RtPVPJLgz4/edit), [Debrief](dev/peter-qadna-qa-trial-debrief.md)
+Source: [QA Trial Report](https://docs.google.com/document/d/1xugPuJjtfxXw3ale54rdhqAlsH5wcvo31RtPVPJLgz4/edit), [Debrief](./dev/peter-qadna-qa-trial-debrief.md)
 
 - [ ] **Activity Monitor broken — `emitter.py` TYPE_CHECKING imports used at runtime** — `RedisEventPublisher` and `DatabasePool` imported under `TYPE_CHECKING` but used in `cast()` calls at runtime. `NameError` silently swallowed by `try/except` + `asyncio.gather(return_exceptions=True)`. Redis pub/sub and DB event sinks silently fail on every request. Fix: remove the `cast()` calls. (Peter/QADNA)
 - [ ] **Policy Diff Viewer 404 on `/debug/calls/{call_id}`** — Clicking any previous call ID in Browse Recent returns `{"detail":"No events found for call_id: ..."}`. Related to emitter.py bug above. (Peter/QADNA)
@@ -21,6 +21,8 @@ Source: [QA Trial Report](https://docs.google.com/document/d/1xugPuJjtfxXw3ale54
 - [ ] **`SamplePydanticPolicy` unimplemented — causes all requests to fail** — Selecting this policy breaks everything. Should either be implemented or removed/hidden. (Peter/QADNA)
 - [ ] **DeSlop policy activation error** — Error when trying to activate DeSlop string replacement policy. [Screenshot](https://imgur.com/a/GHagJn7). (Peter/QADNA)
 - [ ] **No clear API key validation on startup** — Stale/expired API key returns nested JSON error instead of clear "your API key is invalid" message. (Peter/QADNA)
+- [ ] **`DebugLoggingPolicy` logs unclear where to find them** — When DebugLoggingPolicy is active, it's not obvious where the debug output goes or how to view it. Needs better UX guidance. (Peter/QADNA)
+- [ ] **Can't test Active Policy without API key (single users)** — Users without a separate API key can't easily test whether the currently active policy is working. Need a way to test policy behavior without making a real LLM call. (Peter/QADNA)
 
 ### Core Features (User Story Aligned)
 
