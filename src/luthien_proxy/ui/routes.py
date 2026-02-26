@@ -143,6 +143,18 @@ async def conversation_live_view(
     return FileResponse(os.path.join(STATIC_DIR, "conversation_live.html"))
 
 
+@router.get("/policy-workshop")
+async def policy_workshop(
+    request: Request,
+    admin_key: str | None = Depends(get_admin_key),
+):
+    """Policy Workshop — generate, edit, save, and manage dynamic policies."""
+    redirect = check_auth_or_redirect(request, admin_key)
+    if redirect:
+        return redirect
+    return FileResponse(os.path.join(STATIC_DIR, "policy_workshop.html"))
+
+
 @router.get("/client-setup")
 async def client_setup(request: Request):
     """Client setup page with the proxy's actual URL.
