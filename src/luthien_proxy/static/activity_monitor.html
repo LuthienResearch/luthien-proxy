@@ -335,7 +335,9 @@
             <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
         </template>
         <div class="nav-spacer"></div>
-        <a href="/auth/logout" class="nav-signout">Sign Out</a>
+        <template x-if="isAuthenticated()">
+            <a href="/auth/logout" class="nav-signout">Sign Out</a>
+        </template>
     </nav>
 
     <div class="container">

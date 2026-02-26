@@ -13,10 +13,17 @@ document.addEventListener('alpine:init', () => {
             { href: '/diffs', label: 'Diffs' },
             { href: '/policy-config', label: 'Policies' },
             { href: '/credentials', label: 'Credentials' },
+            { href: '/client-setup', label: 'Client Setup' },
         ],
         isActive(href) {
             if (href === '/') return this.currentPath === '/';
             return this.currentPath.startsWith(href);
+        },
+        isAuthenticated() {
+            // Check if user has a session cookie (luthien_session)
+            return document.cookie.split(';').some(cookie => 
+                cookie.trim().startsWith('luthien_session=')
+            );
         }
     }));
 });
