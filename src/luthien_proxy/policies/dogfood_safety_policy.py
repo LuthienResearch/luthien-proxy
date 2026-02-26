@@ -7,7 +7,7 @@ pattern-matches tool calls against a blocklist and blocks dangerous commands.
 Unlike ToolCallJudgePolicy (which calls an external LLM), this uses fast
 regex matching for zero-latency, deterministic blocking.
 
-Auto-composed via ENABLE_DOGFOOD_POLICY=true — wraps whatever policy is configured.
+Auto-composed via DOGFOOD_MODE=true — wraps whatever policy is configured.
 
 Example config:
     policy:
