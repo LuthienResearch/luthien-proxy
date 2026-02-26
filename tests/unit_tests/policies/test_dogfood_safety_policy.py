@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from anthropic.types import (
@@ -15,11 +15,15 @@ from anthropic.types import (
     TextBlock,
     ToolUseBlock,
 )
+from litellm.types.utils import ChatCompletionDeltaToolCall, Function
 
 from luthien_proxy.policies.dogfood_safety_policy import (
     DogfoodSafetyConfig,
     DogfoodSafetyPolicy,
 )
+from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
+from luthien_proxy.streaming.stream_blocks import ToolCallStreamBlock
+from luthien_proxy.streaming.stream_state import StreamState
 
 # ============================================================================
 # Fixtures
@@ -330,6 +334,122 @@ class TestAnthropicStreaming:
         assert isinstance(result_a[0].content_block, TextBlock)  # blocked → text replacement
         assert isinstance(result_b[0], RawContentBlockStartEvent)
         assert isinstance(result_b[0].content_block, ToolUseBlock)  # allowed → tool_use passthrough
+
+
+# ============================================================================
+# OpenAI streaming
+# ============================================================================
+
+
+def _make_streaming_ctx(transaction_id: str = "test-txn-123") -> Mock:
+    """Create a mock StreamingPolicyContext for OpenAI streaming tests."""
+    ctx = Mock(spec=StreamingPolicyContext)
+    ctx.policy_ctx = MagicMock()
+    ctx.policy_ctx.transaction_id = transaction_id
+    ctx.policy_ctx.record_event = MagicMock()
+    ctx.original_streaming_response_state = StreamState()
+    ctx.egress_queue = Mock()
+    ctx.egress_queue.put_nowait = Mock()
+    ctx.egress_queue.put = AsyncMock()
+    return ctx
+
+
+class TestOpenAIStreaming:
+    """Test OpenAI streaming tool call buffering, evaluation, and cleanup."""
+
+    @pytest.mark.asyncio
+    async def test_buffers_tool_call_delta(self, policy: DogfoodSafetyPolicy) -> None:
+        """Tool call deltas should be buffered, not forwarded."""
+        from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
+
+        ctx = _make_streaming_ctx()
+        tc = ChatCompletionDeltaToolCall(
+            index=0, id="call_1", function=Function(name="Bash", arguments='{"command":')
+        )
+        chunk = make_streaming_chunk(content=None, tool_calls=[tc])
+        ctx.original_streaming_response_state.raw_chunks = [chunk]
+
+        await policy.on_tool_call_delta(ctx)
+
+        key = ("test-txn-123", 0)
+        assert key in policy._buffered_tool_calls
+        assert policy._buffered_tool_calls[key]["name"] == "Bash"
+        assert '{"command":' in policy._buffered_tool_calls[key]["arguments"]
+
+    @pytest.mark.asyncio
+    async def test_blocks_dangerous_tool_call_on_complete(self, policy: DogfoodSafetyPolicy) -> None:
+        """Dangerous tool calls should be blocked on completion."""
+        ctx = _make_streaming_ctx()
+        call_id = "test-txn-123"
+        key = (call_id, 0)
+        policy._buffered_tool_calls[key] = {
+            "id": "call_1",
+            "type": "function",
+            "name": "Bash",
+            "arguments": json.dumps({"command": "docker compose down"}),
+        }
+
+        block = ToolCallStreamBlock(id="call_1", index=0, name="Bash", arguments="")
+        block.is_complete = True
+        ctx.original_streaming_response_state.just_completed = block
+        ctx.original_streaming_response_state.blocks = [block]
+
+        await policy.on_tool_call_complete(ctx)
+
+        assert call_id in policy._blocked_calls
+        # Should have emitted text + finish chunks
+        assert ctx.egress_queue.put.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_allows_safe_tool_call_on_complete(self, policy: DogfoodSafetyPolicy) -> None:
+        """Safe tool calls should be forwarded as tool_call chunks."""
+        ctx = _make_streaming_ctx()
+        key = ("test-txn-123", 0)
+        policy._buffered_tool_calls[key] = {
+            "id": "call_1",
+            "type": "function",
+            "name": "Bash",
+            "arguments": json.dumps({"command": "git status"}),
+        }
+
+        block = ToolCallStreamBlock(id="call_1", index=0, name="Bash", arguments="")
+        block.is_complete = True
+        ctx.original_streaming_response_state.just_completed = block
+
+        await policy.on_tool_call_complete(ctx)
+
+        assert "test-txn-123" not in policy._blocked_calls
+        assert ctx.egress_queue.put.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cleanup_removes_per_request_state(self, policy: DogfoodSafetyPolicy) -> None:
+        """on_streaming_policy_complete should clean up state for the request."""
+        policy._buffered_tool_calls[("test-txn-cleanup", 0)] = {"name": "Bash"}
+        policy._buffered_tool_calls[("test-txn-cleanup", 1)] = {"name": "Read"}
+        policy._buffered_tool_calls[("other-txn", 0)] = {"name": "Bash"}
+        policy._blocked_calls.add("test-txn-cleanup")
+
+        ctx = _make_streaming_ctx(transaction_id="test-txn-cleanup")
+        await policy.on_streaming_policy_complete(ctx)
+
+        # Only the cleanup request's state should be removed
+        assert ("test-txn-cleanup", 0) not in policy._buffered_tool_calls
+        assert ("test-txn-cleanup", 1) not in policy._buffered_tool_calls
+        assert ("other-txn", 0) in policy._buffered_tool_calls
+        assert "test-txn-cleanup" not in policy._blocked_calls
+
+    @pytest.mark.asyncio
+    async def test_content_delta_forwarded(self, policy: DogfoodSafetyPolicy) -> None:
+        """Content deltas should be forwarded directly."""
+        from tests.unit_tests.helpers.litellm_test_utils import make_streaming_chunk
+
+        ctx = _make_streaming_ctx()
+        chunk = make_streaming_chunk(content="Hello world")
+        ctx.original_streaming_response_state.raw_chunks = [chunk]
+
+        await policy.on_content_delta(ctx)
+
+        ctx.egress_queue.put_nowait.assert_called_once_with(chunk)
 
 
 # ============================================================================
