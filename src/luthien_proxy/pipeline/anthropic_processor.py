@@ -410,6 +410,7 @@ async def _handle_execution_streaming(
         with restore_context(parent_context):
             chunk_count = 0
             emitted_any = False
+            final_status = 200
             with tracer.start_as_current_span("process_response") as response_span:
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
@@ -432,6 +433,12 @@ async def _handle_execution_streaming(
                         "policy.execution.streaming_error",
                         {"summary": "Execution policy raised during streaming", "error": str(e)},
                     )
+                    if isinstance(e, AnthropicStatusError):
+                        final_status = e.status_code or 500
+                    elif isinstance(e, AnthropicConnectionError):
+                        final_status = 503
+                    else:
+                        final_status = 500
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
@@ -448,8 +455,9 @@ async def _handle_execution_streaming(
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
-                    request_log_recorder.record_inbound_response(status=200)
-                    request_log_recorder.record_outbound_response(status=200)
+                    # Streaming bodies are not captured (too large to store efficiently)
+                    request_log_recorder.record_inbound_response(status=final_status)
+                    request_log_recorder.record_outbound_response(status=final_status)
                     request_log_recorder.flush()
 
     return FastAPIStreamingResponse(

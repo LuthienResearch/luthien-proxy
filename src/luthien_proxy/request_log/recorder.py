@@ -204,16 +204,16 @@ class NoOpRequestLogRecorder(RequestLogRecorder):
     def __init__(self) -> None:  # noqa: D107
         pass
 
-    def record_inbound_request(self, **kwargs: Any) -> None:  # type: ignore[override]  # noqa: D102
+    def record_inbound_request(self, *args: Any, **kwargs: Any) -> None:  # noqa: D102
         pass
 
-    def record_inbound_response(self, **kwargs: Any) -> None:  # type: ignore[override]  # noqa: D102
+    def record_inbound_response(self, *args: Any, **kwargs: Any) -> None:  # noqa: D102
         pass
 
-    def record_outbound_request(self, **kwargs: Any) -> None:  # type: ignore[override]  # noqa: D102
+    def record_outbound_request(self, *args: Any, **kwargs: Any) -> None:  # noqa: D102
         pass
 
-    def record_outbound_response(self, **kwargs: Any) -> None:  # type: ignore[override]  # noqa: D102
+    def record_outbound_response(self, *args: Any, **kwargs: Any) -> None:  # noqa: D102
         pass
 
     def flush(self) -> None:  # noqa: D102

@@ -331,6 +331,7 @@ async def _handle_streaming(
         # Attach parent context so spans are siblings under transaction_processing
         with restore_context(parent_context):
             chunk_count = 0
+            error_status = None
             # process_response span wraps the entire streaming pipeline
             with tracer.start_as_current_span("process_response") as response_span:
                 response_span.set_attribute("luthien.phase", "process_response")
@@ -341,14 +342,21 @@ async def _handle_streaming(
                     async for sse_event in orchestrator.process_streaming_response(backend_stream, policy_ctx):
                         chunk_count += 1
                         yield sse_event
+                except Exception as e:
+                    # Capture error status for logging
+                    # Most streaming errors are propagated as generic exceptions from orchestrator
+                    error_status = 500  # Default server error for streaming failures
+                    raise  # Re-raise to ensure proper error handling
                 finally:
                     # Always record chunk count and summary, even on error
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
                     # Streaming bodies are not captured (too large to store efficiently)
-                    request_log_recorder.record_inbound_response(status=200)
-                    request_log_recorder.record_outbound_response(status=200)
+                    # Record actual status code if error occurred, otherwise 200
+                    final_status = error_status if error_status is not None else 200
+                    request_log_recorder.record_inbound_response(status=final_status)
+                    request_log_recorder.record_outbound_response(status=final_status)
                     request_log_recorder.flush()
 
     return FastAPIStreamingResponse(
