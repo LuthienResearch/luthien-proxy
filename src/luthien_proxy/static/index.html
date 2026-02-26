@@ -1,229 +1,284 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Luthien Proxy Gateway</title>
+    <link rel="stylesheet" href="/static/nav.css">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            line-height: 1.6;
+        }
+
+        .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 40px 20px;
-            background: #f5f5f5;
+            padding: 24px;
         }
+
+        header {
+            margin-bottom: 32px;
+        }
+
         h1 {
-            color: #333;
-            border-bottom: 3px solid #007bff;
-            padding-bottom: 10px;
+            font-size: 24px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 4px;
         }
+
+        .version {
+            color: #666;
+            font-size: 14px;
+        }
+
         h2 {
-            color: #555;
-            margin-top: 30px;
-            border-bottom: 1px solid #ddd;
-            padding-bottom: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #e5e5e5;
+            margin-bottom: 16px;
         }
+
         .section {
-            background: white;
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 8px;
             padding: 20px;
             margin-bottom: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+
         .endpoint {
-            margin: 15px 0;
-            padding: 15px;
-            background: #f8f9fa;
-            border-left: 4px solid #007bff;
+            margin: 12px 0;
+            padding: 12px 16px;
+            background: #1a1a1a;
+            border-left: 3px solid #4ade80;
             border-radius: 4px;
         }
+
         .endpoint a {
-            color: #007bff;
+            color: #4ade80;
             text-decoration: none;
             font-weight: 600;
-            font-size: 16px;
+            font-size: 14px;
         }
+
         .endpoint a:hover {
             text-decoration: underline;
         }
+
         .endpoint .description {
-            color: #666;
-            margin-top: 5px;
-            font-size: 14px;
+            color: #888;
+            margin-top: 4px;
+            font-size: 13px;
         }
+
         .method {
             display: inline-block;
             padding: 2px 8px;
-            background: #28a745;
-            color: white;
+            background: #0a3d0a;
+            color: #4ade80;
             border-radius: 3px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: bold;
             margin-right: 8px;
         }
+
         .method.post {
-            background: #ffc107;
+            background: #3d3a0a;
+            color: #facc15;
         }
+
         .badge {
             display: inline-block;
             padding: 2px 8px;
-            background: #6c757d;
-            color: white;
+            background: #262626;
+            color: #888;
             border-radius: 3px;
             font-size: 11px;
             margin-left: 8px;
         }
+
         .badge.ui {
-            background: #17a2b8;
+            background: #0a2d3d;
+            color: #60a5fa;
         }
+
         .badge.api {
-            background: #28a745;
+            background: #0a3d0a;
+            color: #4ade80;
         }
+
         code {
-            background: #e9ecef;
+            background: #1a1a1a;
             padding: 2px 6px;
             border-radius: 3px;
             font-size: 13px;
+            color: #f59e0b;
         }
-        .version {
-            color: #999;
-            font-size: 14px;
-        }
+
         .quickstart {
-            background: #e7f3ff;
-            border-left: 4px solid #007bff;
+            border-left: 3px solid #4ade80;
+        }
+
+        .quickstart p {
+            margin: 8px 0;
+            font-size: 14px;
+            color: #888;
+        }
+
+        .quickstart a {
+            color: #4ade80;
+            text-decoration: none;
+        }
+
+        .quickstart a:hover {
+            text-decoration: underline;
+        }
+
+        .quickstart strong {
+            color: #e5e5e5;
+        }
+
+        .endpoint span:not(.method):not(.badge):not(.description) {
+            color: #888;
+            font-size: 14px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
         }
     </style>
 </head>
 <body>
-    <h1>🛡️ Luthien Proxy Gateway <span class="version">v2.0.0</span></h1>
+    <nav x-data="luthienNav" class="luthien-nav">
+        <a href="/" class="nav-brand">Luthien</a>
+        <template x-for="link in links" :key="link.href">
+            <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+        </template>
+        <div class="nav-spacer"></div>
+        <a href="/auth/logout" class="nav-signout">Sign Out</a>
+    </nav>
+    <div class="container">
+        <header>
+            <h1>Luthien Proxy Gateway <span class="version">v2.0.0</span></h1>
+        </header>
 
-    <div class="section">
-        <h2>🖥️ Monitoring UIs</h2>
-
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <a href="/activity/monitor" target="_blank">/activity/monitor</a>
-            <span class="badge ui">UI</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">Real-time activity monitor - view all gateway requests, policy events, and responses as they happen</div>
+        <div class="section quickstart">
+            <h2>Quick Start</h2>
+            <p><strong>New here?</strong> <a href="/client-setup">Client Setup</a> — connect Claude Code to this proxy</p>
+            <p><strong>Real-time activity:</strong> <a href="/activity/monitor">Activity Monitor</a></p>
+            <p><strong>Conversation history:</strong> <a href="/history">History</a></p>
+            <p><strong>Policy diffs:</strong> <a href="/diffs">Diff Viewer</a></p>
+            <p><strong>Request/response logs:</strong> <a href="/request-logs/viewer">Request Logs</a></p>
         </div>
 
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <a href="/policy-config" target="_blank">/policy-config</a>
-            <span class="badge ui">UI</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">Activate, configure and test policies</div>
+        <div class="section">
+            <h2>Monitoring UIs</h2>
+
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <a href="/activity/monitor">/activity/monitor</a>
+                <span class="badge ui">UI</span>
+                <div class="description">Real-time activity monitor — view all gateway requests, policy events, and responses</div>
+            </div>
+
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <a href="/policy-config">/policy-config</a>
+                <span class="badge ui">UI</span>
+                <div class="description">Activate, configure and test policies</div>
+            </div>
+
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <a href="/credentials">/credentials</a>
+                <span class="badge ui">UI</span>
+                <div class="description">Manage authentication modes and cached credentials</div>
+            </div>
+
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <a href="/diffs">/diffs</a>
+                <span class="badge ui">UI</span>
+                <div class="description">Policy diff viewer — compare original vs modified requests/responses</div>
+            </div>
+
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <a href="/history">/history</a>
+                <span class="badge ui">UI</span>
+                <div class="description">Conversation history — browse past sessions with full message transcripts</div>
+            </div>
+
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <a href="/request-logs/viewer">/request-logs/viewer</a>
+                <span class="badge ui">UI</span>
+                <div class="description">HTTP-level request/response log viewer</div>
+            </div>
         </div>
 
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <a href="/credentials" target="_blank">/credentials</a>
-            <span class="badge ui">UI</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">Manage authentication modes and cached credentials</div>
+        <div class="section">
+            <h2>API Endpoints</h2>
+            <p style="color: #666; font-size: 13px; margin-bottom: 12px;">All API endpoints require admin authentication (ADMIN_API_KEY)</p>
+
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span>/api/debug/calls</span>
+                <span class="badge api">API</span>
+                <div class="description">List recent calls with event counts (supports <code>?limit=N</code>)</div>
+            </div>
+
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span>/api/debug/calls/{call_id}/diff</span>
+                <span class="badge api">API</span>
+                <div class="description">JSON diff showing what the policy changed</div>
+            </div>
+
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span>/api/activity/stream</span>
+                <span class="badge api">SSE</span>
+                <div class="description">Server-Sent Events stream of all gateway activity</div>
+            </div>
         </div>
 
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <a href="/debug/diff" target="_blank">/debug/diff</a>
-            <span class="badge ui">UI</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">Policy diff viewer - compare original vs modified requests/responses with side-by-side diff visualization</div>
+        <div class="section">
+            <h2>LLM Gateway</h2>
+
+            <div class="endpoint">
+                <span class="method post">POST</span>
+                <span>/v1/chat/completions</span>
+                <div class="description">OpenAI-compatible chat completions with policy orchestration</div>
+            </div>
+
+            <div class="endpoint">
+                <span class="method post">POST</span>
+                <span>/v1/messages</span>
+                <div class="description">Anthropic Messages API endpoint</div>
+            </div>
         </div>
 
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <a href="/history" target="_blank">/history</a>
-            <span class="badge ui">UI</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">Conversation history - browse past sessions with full message transcripts</div>
-        </div>
+        <div class="section">
+            <h2>Utility</h2>
 
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <span>/conversation/live/{session_id}</span>
-            <span class="badge ui">UI</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">Live conversation viewer - real-time message timeline with policy divergence diffs</div>
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>🔍 Debug API Endpoints</h2>
-        <p style="color: #666; font-size: 14px; margin-bottom: 15px;">All debug endpoints require admin authentication (ADMIN_API_KEY)</p>
-
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <span>/debug/calls</span>
-            <span class="badge api">API</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">List recent calls with event counts (supports <code>?limit=N</code> parameter, default 50)</div>
-        </div>
-
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <span>/debug/calls/{call_id}</span>
-            <span class="badge api">API</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">Retrieve all conversation events for a specific call (includes Tempo trace URL)</div>
-        </div>
-
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <span>/debug/calls/{call_id}/diff</span>
-            <span class="badge api">API</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">Get JSON diff showing what the policy changed (requests, responses, messages)</div>
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>📡 Real-time Streaming</h2>
-
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <a href="/activity/stream" target="_blank">/activity/stream</a>
-            <span class="badge api">SSE</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">Server-Sent Events stream of all gateway activity (used by activity monitor)</div>
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>🤖 LLM Gateway Endpoints</h2>
-
-        <div class="endpoint">
-            <span class="method post">POST</span>
-            <span>/v1/chat/completions</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">OpenAI-compatible chat completions endpoint with policy orchestration</div>
-        </div>
-
-        <div class="endpoint">
-            <span class="method post">POST</span>
-            <span>/v1/messages</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">Anthropic Messages API endpoint (auto-converts to OpenAI format)</div>
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>⚙️ Utility Endpoints</h2>
-
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <a href="/health" target="_blank">/health</a>
-            <span class="badge">Public</span>
-            <div class="description">Health check endpoint</div>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <a href="/health">/health</a>
+                <span class="badge">Public</span>
+                <div class="description">Health check endpoint</div>
+            </div>
         </div>
     </div>
 
-    <div class="section quickstart">
-        <h2>💡 Quick Start</h2>
-        <p><strong>New here?</strong> <a href="/client-setup" target="_blank">Client Setup</a> — step-by-step setup guide for Claude Code + Luthien Proxy</p>
-        <p><strong>View real-time activity:</strong> <a href="/activity/monitor" target="_blank">Open Activity Monitor</a></p>
-        <p><strong>Browse conversation history:</strong> <a href="/history" target="_blank">Open Conversation History</a></p>
-        <p><strong>Inspect policy changes:</strong> <a href="/debug/diff" target="_blank">Open Diff Viewer</a> (requires admin API key)</p>
-    </div>
+    <script defer src="/static/vendor/alpine.min.js"></script>
+    <script src="/static/nav.js"></script>
 </body>
 </html>

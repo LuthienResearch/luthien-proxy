@@ -603,14 +603,14 @@
         function init() {
             document.getElementById('session-id').textContent = conversationId;
             document.getElementById('export-btn').href =
-                `/history/api/sessions/${encodeURIComponent(conversationId)}/export`;
+                `/api/history/sessions/${encodeURIComponent(conversationId)}/export`;
             loadConversation();
         }
 
         async function loadConversation() {
             try {
                 const resp = await fetch(
-                    `/history/api/sessions/${encodeURIComponent(conversationId)}`,
+                    `/api/history/sessions/${encodeURIComponent(conversationId)}`,
                     { headers: { 'Accept': 'application/json' } }
                 );
 

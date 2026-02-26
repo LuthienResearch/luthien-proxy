@@ -26,9 +26,13 @@ from .models import SessionDetail, SessionListResponse
 from .service import export_session_markdown, fetch_session_detail, fetch_session_list
 
 router = APIRouter(prefix="/history", tags=["history"])
+api_router = APIRouter(prefix="/api/history", tags=["history-api"])
 
 # Static directory for HTML templates
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+
+
+# --- UI Pages ---
 
 
 @router.get("")
@@ -72,7 +76,10 @@ async def history_detail_page(
     return FileResponse(os.path.join(STATIC_DIR, "history_detail.html"))
 
 
-@router.get("/api/sessions", response_model=SessionListResponse)
+# --- JSON API Endpoints ---
+
+
+@api_router.get("/sessions", response_model=SessionListResponse)
 async def list_sessions(
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
@@ -97,7 +104,7 @@ async def list_sessions(
     return await fetch_session_list(limit, db_pool, offset)
 
 
-@router.get("/api/sessions/{session_id}", response_model=SessionDetail)
+@api_router.get("/sessions/{session_id}", response_model=SessionDetail)
 async def get_session(
     session_id: str,
     _: str = Depends(verify_admin_token),
@@ -114,7 +121,7 @@ async def get_session(
         raise HTTPException(status_code=404, detail=str(e)) from None
 
 
-@router.get("/api/sessions/{session_id}/export")
+@api_router.get("/sessions/{session_id}/export")
 async def export_session(
     session_id: str,
     _: str = Depends(verify_admin_token),
@@ -142,4 +149,4 @@ async def export_session(
     )
 
 
-__all__ = ["router"]
+__all__ = ["router", "api_router"]
