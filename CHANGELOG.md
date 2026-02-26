@@ -7,6 +7,9 @@
   - Guarantees cleanup even on exception, reduces nesting depth, improves readability
 
 - Fix Anthropic observability pipeline: events not written to DB, generic error types, empty conversation history (#249)
+- Fix default auth_mode from `proxy_key` to `both` so Claude Code OAuth works on fresh setups (#222)
+  - DB migration: `008_default_auth_mode_both.sql`
+  - Also updates existing `proxy_key` rows to `both`
 - Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
   - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
   - MultiParallelPolicy: parallel execution with configurable consolidation strategies

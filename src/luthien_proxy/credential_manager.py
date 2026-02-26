@@ -84,14 +84,14 @@ class CredentialManager:
         self._db_pool = db_pool
         self._redis = redis_client
         self._config = AuthConfig(
-            auth_mode=AuthMode.PROXY_KEY,
+            auth_mode=AuthMode.BOTH,
             validate_credentials=True,
             valid_cache_ttl_seconds=3600,
             invalid_cache_ttl_seconds=300,
         )
         self._http_client: httpx.AsyncClient | None = None
 
-    async def initialize(self, default_auth_mode: str = "proxy_key") -> None:
+    async def initialize(self, default_auth_mode: str = "both") -> None:
         """Load auth config from DB. Falls back to default on first boot."""
         if self._db_pool is None:
             logger.info("No DB pool - using default auth config")
@@ -116,6 +116,15 @@ class CredentialManager:
         logger.info(
             f"Auth config loaded: mode={self._config.auth_mode.value}, validate={self._config.validate_credentials}"
         )
+
+        # Warn if DB value differs from the code default (see PR #222 COE)
+        expected = AuthMode(default_auth_mode)
+        if self._config.auth_mode != expected:
+            logger.warning(
+                f"DB auth_mode '{self._config.auth_mode.value}' differs from "
+                f"code default '{expected.value}'. This may cause unexpected "
+                f"auth failures. Update via admin API or DB migration."
+            )
 
     @property
     def config(self) -> AuthConfig:

@@ -8,6 +8,8 @@ set -e
 # Configuration
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
 API_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
+# Real Anthropic key for passthrough auth test (optional, from .env)
+ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-}"
 
 # Retry settings for gateway startup wait
 # Values determined by timing tests: restart ~2s, full down/up 18-25s
@@ -152,6 +154,32 @@ test_endpoint "Missing messages field (should fail)" \
 test_endpoint "Invalid API key (should fail)" \
     "curl -s $GATEWAY_URL/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer invalid-key' -d '{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"stream\":false,\"max_tokens\":20}' -w '%{http_code}' -o /dev/null" \
     "grep -q '^40[13]$'"
+
+echo ""
+echo "=== Bearer Token Auth (PR #222 regression test) ==="
+
+# Verify gateway is in BOTH mode (not proxy_key) by checking the error message
+# for a fake Bearer token. BOTH mode says "Invalid API key or credential";
+# proxy_key mode says "Invalid API key". This is the exact bug from PR #222.
+test_endpoint "Auth mode is BOTH (not proxy_key)" \
+    "curl -s $GATEWAY_URL/v1/messages -H 'Content-Type: application/json' -H 'Authorization: Bearer fake-token-to-test-auth-mode' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"claude-sonnet-4-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":10}'" \
+    "jq -e '.detail == \"Invalid API key or credential\"'"
+
+# If ANTHROPIC_API_KEY is available, test actual passthrough with a real credential
+# that isn't the proxy key. This validates the passthrough auth path end-to-end.
+# Note: API keys must be sent via x-api-key (Bearer is for OAuth tokens only).
+# This test is advisory — expired keys shouldn't fail the whole suite.
+if [ -n "$ANTHROPIC_KEY" ]; then
+    echo -n "Testing: Passthrough auth (real Anthropic key, not proxy key)... "
+    if curl -sf "$GATEWAY_URL/v1/messages" -H 'Content-Type: application/json' -H "x-api-key: $ANTHROPIC_KEY" -H 'anthropic-version: 2023-06-01' -d '{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"Say hi in 2 words"}],"max_tokens":20}' | validate_anthropic > /dev/null 2>&1; then
+        echo -e "${GREEN}✓ PASS${NC}"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo -e "${YELLOW}⚠ SKIP (key may be expired or invalid)${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠ Skipping passthrough auth test (ANTHROPIC_API_KEY not set)${NC}"
+fi
 
 echo ""
 echo "==================================="

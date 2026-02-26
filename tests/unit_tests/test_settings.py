@@ -1,9 +1,15 @@
 """Unit tests for Settings class and configuration management."""
 
+import inspect
+import re
+from pathlib import Path
+
 import pytest
 
-from luthien_proxy.credential_manager import AuthMode
+from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
+
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
 
 class TestSettingsDefaults:
@@ -176,3 +182,68 @@ class TestAuthModeValidation:
         monkeypatch.setenv("AUTH_MODE", "invalid_mode")
         with pytest.raises(Exception):
             Settings(_env_file=None)
+
+
+class TestAuthModeDefaultConsistency:
+    """Ensure DB migration default and Python defaults never silently diverge.
+
+    PR #222 COE: migration 007 seeded 'proxy_key' while settings.py defaulted
+    to 'both', causing 401s for Claude Code OAuth. This test catches that class
+    of bug by reading the actual migration SQL and comparing to Python defaults.
+    """
+
+    def _get_effective_db_default(self) -> str:
+        """Read migrations to determine the effective DB default for auth_mode.
+
+        Applies migrations in order: starts with 007's CREATE TABLE DEFAULT,
+        then checks if any later migration ALTERs it.
+        """
+        migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+        db_default = None
+
+        for migration_file in migration_files:
+            sql = migration_file.read_text()
+
+            # Look for CREATE TABLE default: DEFAULT 'value'
+            create_match = re.search(
+                r"auth_mode\s+TEXT\s+NOT\s+NULL\s+DEFAULT\s+'(\w+)'",
+                sql,
+                re.IGNORECASE,
+            )
+            if create_match:
+                db_default = create_match.group(1)
+
+            # Look for ALTER TABLE default: SET DEFAULT 'value'
+            alter_match = re.search(
+                r"ALTER\s+TABLE\s+auth_config\s+ALTER\s+COLUMN\s+auth_mode\s+SET\s+DEFAULT\s+'(\w+)'",
+                sql,
+                re.IGNORECASE,
+            )
+            if alter_match:
+                db_default = alter_match.group(1)
+
+        assert db_default is not None, "No auth_mode default found in migrations"
+        return db_default
+
+    def test_migration_default_matches_settings(self, monkeypatch):
+        """DB migration default must match Settings.auth_mode default."""
+        monkeypatch.delenv("AUTH_MODE", raising=False)
+        settings_default = Settings(_env_file=None).auth_mode.value
+        db_default = self._get_effective_db_default()
+        assert db_default == settings_default, (
+            f"DB migration seeds auth_mode='{db_default}' but Settings defaults "
+            f"to '{settings_default}'. These must match or dogfooding breaks. "
+            f"See PR #222 COE."
+        )
+
+    def test_credential_manager_initialize_default_matches_settings(self, monkeypatch):
+        """CredentialManager.initialize() fallback must match Settings default."""
+        monkeypatch.delenv("AUTH_MODE", raising=False)
+        settings_default = Settings(_env_file=None).auth_mode.value
+        sig = inspect.signature(CredentialManager.initialize)
+        init_default = sig.parameters["default_auth_mode"].default
+        assert init_default == settings_default, (
+            f"CredentialManager.initialize() defaults to '{init_default}' but "
+            f"Settings defaults to '{settings_default}'. These must match. "
+            f"See PR #222 COE."
+        )

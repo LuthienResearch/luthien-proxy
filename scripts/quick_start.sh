@@ -179,6 +179,20 @@ for service in gateway; do
     fi
 done
 
+# Verify auth_mode after startup (catches broken DB / missing migrations)
+if [ "$services_healthy" = true ]; then
+    gateway_url="http://localhost:${GATEWAY_PORT:-8000}"
+    auth_mode=$(curl -sf "$gateway_url/health" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_mode',''))" 2>/dev/null || echo "")
+    if [ -n "$auth_mode" ]; then
+        if [ "$auth_mode" != "both" ]; then
+            echo ""
+            echo "⚠️  WARNING: auth_mode is '$auth_mode' (expected 'both')"
+            echo "   Claude Code OAuth tokens will be rejected in '$auth_mode' mode."
+            echo "   Fix: docker compose down -v && ./scripts/quick_start.sh"
+        fi
+    fi
+fi
+
 if [ "$services_healthy" = true ]; then
     echo ""
     echo "🎉 Luthien is ready!"

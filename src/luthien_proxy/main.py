@@ -188,9 +188,15 @@ def create_app(
 
     # Simple utility endpoints
     @app.get("/health")
-    async def health():
+    async def health(request: Request):
         """Health check endpoint."""
-        return {"status": "healthy", "version": "2.0.0"}
+        response: dict[str, object] = {"status": "healthy", "version": "2.0.0"}
+        deps = getattr(request.app.state, "dependencies", None)
+        if deps:
+            cm = getattr(deps, "credential_manager", None)
+            if cm:
+                response["auth_mode"] = cm.config.auth_mode.value
+        return response
 
     # Exception handler for backend API errors
     @app.exception_handler(BackendAPIError)
