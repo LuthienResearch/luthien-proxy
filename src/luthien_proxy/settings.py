@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # Dogfood mode — auto-compose DogfoodSafetyPolicy to prevent agents
     # from killing the proxy they communicate through
-    enable_dogfood_policy: bool = False
+    dogfood_mode: bool = False
 
 
 @lru_cache

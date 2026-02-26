@@ -7,7 +7,7 @@
   - `MultiSerialPolicy.from_instances()` for building chains from pre-instantiated policies
   - `DogfoodSafetyPolicy` — regex-based safety policy that blocks dangerous commands
     (docker down, pkill, rm .env, DROP TABLE) when proxying through the gateway
-  - `ENABLE_DOGFOOD_POLICY` env var to auto-inject DogfoodSafetyPolicy into any policy chain
+  - `DOGFOOD_MODE` env var to auto-inject DogfoodSafetyPolicy into any policy chain
   - Replaces hacky approach from #243 with clean, reusable composition mechanism
 
 - Refactor: extract `restore_context()` context manager for OpenTelemetry span context management

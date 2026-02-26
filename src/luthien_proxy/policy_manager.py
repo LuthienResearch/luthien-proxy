@@ -316,10 +316,10 @@ class PolicyManager:
                 logger.warning(f"Failed to release lock: {e}")
 
     def _maybe_compose_dogfood(self, policy: PolicyProtocol) -> PolicyProtocol:
-        """If ENABLE_DOGFOOD_POLICY is set, compose DogfoodSafetyPolicy into the chain."""
+        """If DOGFOOD_MODE is set, compose DogfoodSafetyPolicy into the chain."""
         from luthien_proxy.settings import get_settings  # noqa: PLC0415
 
-        if not get_settings().enable_dogfood_policy:
+        if not get_settings().dogfood_mode:
             return policy
 
         from luthien_proxy.policies.dogfood_safety_policy import DogfoodSafetyPolicy  # noqa: PLC0415
@@ -336,7 +336,7 @@ class PolicyManager:
             return policy
 
         result = compose_policy(policy, DogfoodSafetyPolicy(), position=0)
-        logger.info(f"ENABLE_DOGFOOD_POLICY: composed {policy.short_policy_name} → {result.short_policy_name}")
+        logger.info(f"DOGFOOD_MODE: composed {policy.short_policy_name} → {result.short_policy_name}")
         return result
 
     def _generate_troubleshooting(self, error: Exception) -> list[str]:

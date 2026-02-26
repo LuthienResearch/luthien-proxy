@@ -19,9 +19,9 @@ def _make_manager() -> PolicyManager:
 
 
 def _settings_with_dogfood(enabled: bool) -> Settings:
-    """Create a Settings instance with enable_dogfood_policy set."""
+    """Create a Settings instance with dogfood_mode set."""
     return Settings(
-        enable_dogfood_policy=enabled,
+        dogfood_mode=enabled,
         database_url="",
         redis_url="",
         _env_file=None,  # type: ignore[call-arg]
@@ -29,7 +29,7 @@ def _settings_with_dogfood(enabled: bool) -> Settings:
 
 
 class TestMaybeComposeDogfoodDisabled:
-    """When enable_dogfood_policy=False, policies pass through unchanged."""
+    """When dogfood_mode=False, policies pass through unchanged."""
 
     def test_noop_policy_returned_unchanged(self):
         manager = _make_manager()
@@ -51,7 +51,7 @@ class TestMaybeComposeDogfoodDisabled:
 
 
 class TestMaybeComposeDogfoodEnabled:
-    """When enable_dogfood_policy=True, policies get composed with DogfoodSafetyPolicy."""
+    """When dogfood_mode=True, policies get composed with DogfoodSafetyPolicy."""
 
     def test_wraps_plain_policy(self):
         manager = _make_manager()
