@@ -45,8 +45,10 @@ from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.session import extract_session_id_from_anthropic_body
 from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
+from luthien_proxy.request_log.recorder import RequestLogRecorder, create_recorder
 from luthien_proxy.streaming.anthropic_executor import AnthropicStreamExecutor
 from luthien_proxy.types import RawHttpRequest
+from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
 
@@ -73,6 +75,8 @@ async def process_anthropic_request(
     policy: AnthropicPolicyInterface,
     anthropic_client: AnthropicClient,
     emitter: EventEmitterProtocol,
+    db_pool: db.DatabasePool | None = None,
+    enable_request_logging: bool = False,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an Anthropic API request through the native pipeline.
 
@@ -92,6 +96,8 @@ async def process_anthropic_request(
         policy: Policy implementing AnthropicPolicyInterface
         anthropic_client: Client for calling Anthropic API
         emitter: Event emitter for observability
+        db_pool: Database connection pool for request logging
+        enable_request_logging: Whether to record HTTP-level request/response logs
 
     Returns:
         StreamingResponse or JSONResponse depending on stream parameter
@@ -107,6 +113,7 @@ async def process_anthropic_request(
         )
 
     call_id = str(uuid.uuid4())
+    request_log_recorder = create_recorder(db_pool, call_id, enable_request_logging)
 
     with tracer.start_as_current_span("anthropic_transaction_processing") as root_span:
         root_span.set_attribute("luthien.transaction_id", call_id)
@@ -126,6 +133,18 @@ async def process_anthropic_request(
         root_span.set_attribute("luthien.stream", is_streaming)
         if session_id:
             root_span.set_attribute("luthien.session_id", session_id)
+
+        # Record inbound request for HTTP-level logging
+        request_log_recorder.record_inbound_request(
+            method=raw_http_request.method,
+            url=raw_http_request.path,
+            headers=raw_http_request.headers,
+            body=dict(raw_http_request.body),
+            session_id=session_id,
+            model=model,
+            is_streaming=is_streaming,
+            endpoint="/v1/messages",
+        )
 
         # Create policy context
         policy_ctx = PolicyContext(
@@ -147,10 +166,19 @@ async def process_anthropic_request(
         if policy_ctx.request_summary:
             root_span.set_attribute("luthien.policy.request_summary", policy_ctx.request_summary)
 
+        final_request_dict = dict(final_request)
         emitter.record(
             call_id,
             "pipeline.backend_request",
-            {"payload": dict(final_request), "session_id": session_id},
+            {"payload": final_request_dict, "session_id": session_id},
+        )
+
+        # Record outbound request for HTTP-level logging
+        request_log_recorder.record_outbound_request(
+            body=final_request_dict,
+            model=model,
+            is_streaming=is_streaming,
+            endpoint="/v1/messages",
         )
 
         # Phase 2-4: Send upstream, process response, send to client
@@ -162,6 +190,7 @@ async def process_anthropic_request(
                 anthropic_client=anthropic_client,
                 call_id=call_id,
                 root_span=root_span,
+                request_log_recorder=request_log_recorder,
             )
         else:
             response = await _handle_non_streaming(
@@ -171,6 +200,7 @@ async def process_anthropic_request(
                 anthropic_client=anthropic_client,
                 emitter=emitter,
                 call_id=call_id,
+                request_log_recorder=request_log_recorder,
             )
 
             # Propagate response summary if policy set one
@@ -253,6 +283,7 @@ async def _handle_streaming(
     anthropic_client: AnthropicClient,
     call_id: str,
     root_span: Span,
+    request_log_recorder: RequestLogRecorder | None = None,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow.
 
@@ -296,6 +327,12 @@ async def _handle_streaming(
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
+
+                    # Flush request logs after streaming completes
+                    if request_log_recorder:
+                        request_log_recorder.record_inbound_response(status=200)
+                        request_log_recorder.record_outbound_response(status=200)
+                        request_log_recorder.flush()
         finally:
             detach(token)
 
@@ -317,6 +354,7 @@ async def _handle_non_streaming(
     anthropic_client: AnthropicClient,
     emitter: EventEmitterProtocol,
     call_id: str,
+    request_log_recorder: RequestLogRecorder | None = None,
 ) -> JSONResponse:
     """Handle non-streaming response flow."""
     # Phase 2: Send to upstream
@@ -343,8 +381,15 @@ async def _handle_non_streaming(
             {"payload": dict(processed_response), "session_id": policy_ctx.session_id},
         )
 
+        # Record response data for HTTP-level logging
+        final_response = dict(processed_response)
+        if request_log_recorder:
+            request_log_recorder.record_outbound_response(body=final_response, status=200)
+            request_log_recorder.record_inbound_response(status=200, body=final_response)
+            request_log_recorder.flush()
+
         return JSONResponse(
-            content=dict(processed_response),
+            content=final_response,
             headers={"X-Call-ID": call_id},
         )
 

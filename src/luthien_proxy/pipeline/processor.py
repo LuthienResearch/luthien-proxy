@@ -52,9 +52,11 @@ from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.session import extract_session_id_from_headers
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
+from luthien_proxy.request_log.recorder import RequestLogRecorder, create_recorder
 from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
 from luthien_proxy.types import RawHttpRequest
+from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,8 @@ async def process_llm_request(
     policy: OpenAIPolicyInterface,
     llm_client: LLMClient,
     emitter: EventEmitterProtocol,
+    db_pool: "db.DatabasePool | None" = None,
+    enable_request_logging: bool = False,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an OpenAI-format LLM request through the pipeline.
 
@@ -80,6 +84,8 @@ async def process_llm_request(
         policy: Policy implementing OpenAIPolicyInterface
         llm_client: Client for calling backend LLM
         emitter: Event emitter for observability
+        db_pool: Database connection pool for request logging
+        enable_request_logging: Whether to record HTTP-level request/response logs
 
     Returns:
         StreamingResponse or JSONResponse depending on stream parameter
@@ -95,6 +101,7 @@ async def process_llm_request(
         )
 
     call_id = str(uuid.uuid4())
+    request_log_recorder = create_recorder(db_pool, call_id, enable_request_logging)
 
     with tracer.start_as_current_span("transaction_processing") as root_span:
         root_span.set_attribute("luthien.transaction_id", call_id)
@@ -113,6 +120,19 @@ async def process_llm_request(
         root_span.set_attribute("luthien.stream", is_streaming)
         if session_id:
             root_span.set_attribute("luthien.session_id", session_id)
+
+        # Record inbound request for HTTP-level logging
+        if request_log_recorder:
+            request_log_recorder.record_inbound_request(
+                method=raw_http_request.method,
+                url=raw_http_request.path,
+                headers=raw_http_request.headers,
+                body=dict(raw_http_request.body),
+                session_id=session_id,
+                model=request_message.model,
+                is_streaming=is_streaming,
+                endpoint="/v1/chat/completions",
+            )
 
         # Create policy context and orchestrator
         policy_ctx = PolicyContext(
@@ -144,11 +164,21 @@ async def process_llm_request(
         if policy_ctx.request_summary:
             root_span.set_attribute("luthien.policy.request_summary", policy_ctx.request_summary)
 
+        final_request_dict = final_request.model_dump(exclude_none=True)
         emitter.record(
             call_id,
             "pipeline.backend_request",
-            {"payload": final_request.model_dump(exclude_none=True), "session_id": session_id},
+            {"payload": final_request_dict, "session_id": session_id},
         )
+
+        # Record outbound request for HTTP-level logging
+        if request_log_recorder:
+            request_log_recorder.record_outbound_request(
+                body=final_request_dict,
+                model=final_request.model,
+                is_streaming=is_streaming,
+                endpoint="/v1/chat/completions",
+            )
 
         # Phase 2 & 3 & 4: Send upstream, process response, send to client
         if is_streaming:
@@ -159,6 +189,7 @@ async def process_llm_request(
                 llm_client=llm_client,
                 call_id=call_id,
                 root_span=root_span,
+                request_log_recorder=request_log_recorder,
             )
         else:
             response = await _handle_non_streaming(
@@ -168,6 +199,7 @@ async def process_llm_request(
                 llm_client=llm_client,
                 emitter=emitter,
                 call_id=call_id,
+                request_log_recorder=request_log_recorder,
             )
 
             # Propagate response summary if policy set one
@@ -271,6 +303,7 @@ async def _handle_streaming(
     llm_client: LLMClient,
     call_id: str,
     root_span: Span,
+    request_log_recorder: RequestLogRecorder | None = None,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow.
 
@@ -315,6 +348,11 @@ async def _handle_streaming(
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
+                    # Flush request logs after streaming completes
+                    if request_log_recorder:
+                        request_log_recorder.record_inbound_response(status=200)
+                        request_log_recorder.record_outbound_response(status=200)
+                        request_log_recorder.flush()
         finally:
             detach(token)
 
@@ -336,6 +374,7 @@ async def _handle_non_streaming(
     llm_client: LLMClient,
     emitter: EventEmitterProtocol,
     call_id: str,
+    request_log_recorder: RequestLogRecorder | None = None,
 ) -> JSONResponse:
     """Handle non-streaming response flow."""
     # Phase 2: Send to upstream
@@ -362,6 +401,12 @@ async def _handle_non_streaming(
         emitter.record(
             call_id, "pipeline.client_response", {"payload": final_response, "session_id": policy_ctx.session_id}
         )
+
+        # Record response data for HTTP-level logging
+        if request_log_recorder:
+            request_log_recorder.record_outbound_response(body=final_response, status=200)
+            request_log_recorder.record_inbound_response(status=200, body=final_response)
+            request_log_recorder.flush()
 
         return JSONResponse(
             content=final_response,
