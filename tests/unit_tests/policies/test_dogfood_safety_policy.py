@@ -35,6 +35,7 @@ def policy() -> DogfoodSafetyPolicy:
 def mock_context() -> MagicMock:
     ctx = MagicMock()
     ctx.record_event = MagicMock()
+    ctx.transaction_id = "test-txn-123"
     return ctx
 
 
@@ -240,21 +241,23 @@ class TestAnthropicStreaming:
         event = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=tool_block)
         result = await policy.on_anthropic_stream_event(event, mock_context)
         assert result == []
-        assert 0 in policy._buffered_tool_uses
+        assert (mock_context.transaction_id, 0) in policy._buffered_tool_uses
 
     @pytest.mark.asyncio
     async def test_buffers_input_json_delta(self, policy: DogfoodSafetyPolicy, mock_context: MagicMock) -> None:
-        # Set up buffer first
-        policy._buffered_tool_uses[0] = {"id": "tool_1", "name": "Bash", "input_json": ""}
+        # Set up buffer first (keyed by transaction_id + index)
+        key = (mock_context.transaction_id, 0)
+        policy._buffered_tool_uses[key] = {"id": "tool_1", "name": "Bash", "input_json": ""}
         delta = InputJSONDelta(type="input_json_delta", partial_json='{"command": "docker compose down"}')
         event = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=delta)
         result = await policy.on_anthropic_stream_event(event, mock_context)
         assert result == []
-        assert "docker compose down" in policy._buffered_tool_uses[0]["input_json"]
+        assert "docker compose down" in policy._buffered_tool_uses[key]["input_json"]
 
     @pytest.mark.asyncio
     async def test_blocks_dangerous_on_stop(self, policy: DogfoodSafetyPolicy, mock_context: MagicMock) -> None:
-        policy._buffered_tool_uses[0] = {
+        key = (mock_context.transaction_id, 0)
+        policy._buffered_tool_uses[key] = {
             "id": "tool_1",
             "name": "Bash",
             "input_json": '{"command": "docker compose down"}',
@@ -271,7 +274,8 @@ class TestAnthropicStreaming:
 
     @pytest.mark.asyncio
     async def test_allows_safe_on_stop(self, policy: DogfoodSafetyPolicy, mock_context: MagicMock) -> None:
-        policy._buffered_tool_uses[0] = {
+        key = (mock_context.transaction_id, 0)
+        policy._buffered_tool_uses[key] = {
             "id": "tool_1",
             "name": "Bash",
             "input_json": '{"command": "git status"}',
@@ -290,6 +294,42 @@ class TestAnthropicStreaming:
         event = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=text_block)
         result = await policy.on_anthropic_stream_event(event, mock_context)
         assert result == [event]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_requests_isolated(self, policy: DogfoodSafetyPolicy) -> None:
+        """Two concurrent requests at the same block index must not corrupt each other."""
+        ctx_a = MagicMock()
+        ctx_a.transaction_id = "txn-a"
+        ctx_a.record_event = MagicMock()
+        ctx_b = MagicMock()
+        ctx_b.transaction_id = "txn-b"
+        ctx_b.record_event = MagicMock()
+
+        tool_block = ToolUseBlock(type="tool_use", id="tool_1", name="Bash", input={})
+
+        # Both requests start a tool_use at index 0
+        start_event = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=tool_block)
+        await policy.on_anthropic_stream_event(start_event, ctx_a)
+        await policy.on_anthropic_stream_event(start_event, ctx_b)
+
+        # Request A gets a dangerous command, request B gets a safe one
+        dangerous_delta = InputJSONDelta(type="input_json_delta", partial_json='{"command": "docker compose down"}')
+        safe_delta = InputJSONDelta(type="input_json_delta", partial_json='{"command": "git status"}')
+        delta_a = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=dangerous_delta)
+        delta_b = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=safe_delta)
+        await policy.on_anthropic_stream_event(delta_a, ctx_a)
+        await policy.on_anthropic_stream_event(delta_b, ctx_b)
+
+        # Stop events
+        stop = RawContentBlockStopEvent(type="content_block_stop", index=0)
+        result_a = await policy.on_anthropic_stream_event(stop, ctx_a)
+        result_b = await policy.on_anthropic_stream_event(stop, ctx_b)
+
+        # A should be blocked, B should be allowed
+        assert isinstance(result_a[0], RawContentBlockStartEvent)
+        assert isinstance(result_a[0].content_block, TextBlock)  # blocked → text replacement
+        assert isinstance(result_b[0], RawContentBlockStartEvent)
+        assert isinstance(result_b[0].content_block, ToolUseBlock)  # allowed → tool_use passthrough
 
 
 # ============================================================================

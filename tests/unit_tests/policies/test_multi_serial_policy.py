@@ -72,6 +72,27 @@ class TestMultiSerialPolicyInit:
         with pytest.raises((ImportError, ValueError)):
             MultiSerialPolicy(policies=[{"class": "nonexistent.module:Foo", "config": {}}])
 
+    def test_from_policies_factory(self):
+        """from_policies() creates a working MultiSerialPolicy from instantiated policies."""
+        from luthien_proxy.policies.noop_policy import NoOpPolicy
+
+        noop = NoOpPolicy()
+        policy = MultiSerialPolicy.from_policies([noop])
+        assert len(policy._sub_policies) == 1
+        assert policy._sub_policies[0] is noop
+        assert policy._validated_interfaces == set()
+
+    @pytest.mark.asyncio
+    async def test_from_policies_chains_correctly(self):
+        """Policies composed via from_policies() work the same as config-loaded ones."""
+        from luthien_proxy.policies.noop_policy import NoOpPolicy
+
+        policy = MultiSerialPolicy.from_policies([NoOpPolicy(), NoOpPolicy()])
+        ctx = PolicyContext.for_testing()
+        request = Request(model="test", messages=[{"role": "user", "content": "hello"}])
+        result = await policy.on_openai_request(request, ctx)
+        assert result.messages[0]["content"] == "hello"
+
 
 # =============================================================================
 # OpenAI Request Chaining

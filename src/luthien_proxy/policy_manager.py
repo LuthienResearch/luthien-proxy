@@ -165,9 +165,7 @@ class PolicyManager:
             return policy
 
         safety = DogfoodSafetyPolicy()
-        wrapped = MultiSerialPolicy.__new__(MultiSerialPolicy)
-        wrapped._sub_policies = [safety, policy]
-        wrapped._validated_interfaces = set()
+        wrapped = MultiSerialPolicy.from_policies([safety, policy])
 
         logger.info(f"DOGFOOD_MODE: wrapped {policy.__class__.__name__} with DogfoodSafetyPolicy via MultiSerialPolicy")
         return wrapped

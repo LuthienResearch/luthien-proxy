@@ -130,7 +130,9 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         self._blocked_calls: set[str] = set()
 
         # Anthropic streaming: buffer tool_use blocks until complete
-        self._buffered_tool_uses: dict[int, dict[str, Any]] = {}
+        # Keyed by (transaction_id, block_index) to prevent state corruption
+        # across concurrent requests.
+        self._buffered_tool_uses: dict[tuple[str, int], dict[str, Any]] = {}
 
         logger.info(
             f"DogfoodSafetyPolicy initialized: "
@@ -383,7 +385,8 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         """Buffer tool_use blocks in streaming, evaluate on completion."""
         if isinstance(event, RawContentBlockStartEvent):
             if isinstance(event.content_block, ToolUseBlock):
-                self._buffered_tool_uses[event.index] = {
+                key = (context.transaction_id, event.index)
+                self._buffered_tool_uses[key] = {
                     "id": event.content_block.id,
                     "name": event.content_block.name,
                     "input_json": "",
@@ -392,16 +395,18 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             return [event]
 
         if isinstance(event, RawContentBlockDeltaEvent):
-            if event.index in self._buffered_tool_uses and isinstance(event.delta, InputJSONDelta):
-                self._buffered_tool_uses[event.index]["input_json"] += event.delta.partial_json
+            key = (context.transaction_id, event.index)
+            if key in self._buffered_tool_uses and isinstance(event.delta, InputJSONDelta):
+                self._buffered_tool_uses[key]["input_json"] += event.delta.partial_json
                 return []
             return [event]
 
         if isinstance(event, RawContentBlockStopEvent):
-            if event.index not in self._buffered_tool_uses:
+            key = (context.transaction_id, event.index)
+            if key not in self._buffered_tool_uses:
                 return [cast(AnthropicStreamEvent, event)]
 
-            buffered = self._buffered_tool_uses.pop(event.index)
+            buffered = self._buffered_tool_uses.pop(key)
             name = buffered["name"]
             input_json = buffered.get("input_json", "{}")
 
