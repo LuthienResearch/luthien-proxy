@@ -77,6 +77,7 @@ Source: [Office Hours notes](https://docs.google.com/document/d/1Qo2D5zrtuHO2MF6
 - [ ] **Push pre-built Docker images to Docker Hub** - Tyler: "One thing you can do is push the already built image to Docker Hub to speed up the builds." First install required building all images locally.
 - [ ] **Fix quick_start.sh Grafana/gateway health check bug** - Tyler: "Gateway not detected. Did we launch Grafana before?" Jai: "This is a bug... I've been meaning to fix forever."
 - [ ] **Simplify quick_start.sh vs docker compose up** - Jai: "That's redundant... quick start is basically just the same as docker [compose] up" but adds dev refresh stuff. Users should get `docker compose up -d`, devs get `quick_start.sh`.
+- [ ] **Explore `luthien` CLI wrapper (Happy Coder pattern)** - Instead of configuring proxy URLs and env vars, users would `npm install -g luthien-cli && luthien` — a thin wrapper that sets `ANTHROPIC_BASE_URL` and auth, then execs `claude`. Zero config, zero workflow change. Inspired by Happy Coder's `happy` command which wraps Claude Code identically. See `luthien-org/ui-fb-dev/3-ui-mocks/1-value-prop/2026-02-26_onboarding-inspiration/`. Own PR: `feat/luthien-cli`. (2026-02-26)
 
 ### Infrastructure (Medium)
 
