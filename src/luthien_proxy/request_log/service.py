@@ -112,9 +112,9 @@ async def list_request_logs(
     if model:
         _add("model = ?", model)
     if after:
-        _add("started_at >= ?::timestamptz", after)
+        _add("started_at >= ?", datetime.fromisoformat(after))
     if before:
-        _add("started_at < ?::timestamptz", before)
+        _add("started_at < ?", datetime.fromisoformat(before))
     if search:
         _add(
             "(request_body::text ILIKE '%' || ? || '%' OR response_body::text ILIKE '%' || ? || '%')",

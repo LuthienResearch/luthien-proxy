@@ -299,11 +299,6 @@ async def test_filter_by_endpoint(http_client, gateway_healthy, admin_headers, p
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    reason="BUG: asyncpg rejects string params for timestamptz — service.py "
-    "needs to parse after/before into datetime objects before passing to query",
-    strict=True,
-)
 async def test_filter_by_date_range(http_client, gateway_healthy, admin_headers, proxy_headers):
     """Filter logs using after/before date range."""
     resp = await _make_proxy_request(http_client, proxy_headers)
