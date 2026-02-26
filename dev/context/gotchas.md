@@ -208,7 +208,7 @@ if stream_state.finish_reason:
 
 - **Symptom**: `Bind for 0.0.0.0:6379 failed: port is already allocated` on startup
 - **Cause**: Orphaned containers from a previous run with a different project name
-- **Fix**: `quick_start.sh` now cleans up containers from the default project name before starting
+- **Fix**: `quick_start.sh` now cleans up containers from the default project name before starting. Additionally, `COMPOSE_PROJECT_NAME=luthien-proxy` is now set in `.env.example` so all launch methods use the same project name by default (PR #231).
 - **Manual fix**: `docker compose -p <directory-name> down` (e.g., `docker compose -p luthien-proxy down`)
 ## macOS Bash 3 Compatibility (2026-02-17)
 
