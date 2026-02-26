@@ -73,6 +73,14 @@ docker run \
 4. Database migrations run (idempotent — skips already-applied ones)
 5. The Luthien gateway starts on the configured port
 
+## Production Considerations
+
+The standalone container is designed for **convenience** — quick demos, local testing, and simple deployments. For production use, be aware of:
+
+- **Set `POSTGRES_PASSWORD`**: The default password (`luthien_dev_password`) is for local development only. Always set a strong password via the `POSTGRES_PASSWORD` env var.
+- **Root process**: The entry script runs as root. For production deployments with proper user isolation, use the multi-container `docker-compose.yaml` setup instead.
+- **Single point of failure**: All services share one container. If the container goes down, everything goes down together.
+
 ## Using an `.env` File
 
 You can pass an `.env` file instead of individual `-e` flags:

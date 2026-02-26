@@ -40,7 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── uv (fast Python package manager) ─────────────────────────────
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /bin/uv
 
 # ── Application code ─────────────────────────────────────────────
 WORKDIR /app
@@ -68,6 +68,6 @@ VOLUME ["/var/lib/postgresql/data", "/data"]
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:${GATEWAY_PORT:-8000}/health || exit 1
+    CMD curl -f http://localhost:${GATEWAY_PORT:-8000}/health && redis-cli ping && pg_isready -q || exit 1
 
 CMD ["/app/docker/standalone-entry.sh"]

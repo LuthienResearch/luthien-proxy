@@ -5,9 +5,21 @@
 set -e
 
 PG_BIN="/usr/lib/postgresql/16/bin"
+PGDATA="/var/lib/postgresql/data"
+
+# ── Graceful shutdown ─────────────────────────────────────────────
+cleanup() {
+    echo "==> Shutting down services..."
+    kill "$GATEWAY_PID" 2>/dev/null || true
+    wait "$GATEWAY_PID" 2>/dev/null || true
+    redis-cli shutdown nosave 2>/dev/null || true
+    su -s /bin/bash postgres -c "$PG_BIN/pg_ctl stop -D $PGDATA -m fast" 2>/dev/null || true
+    echo "==> Shutdown complete."
+    exit 0
+}
+trap cleanup SIGTERM SIGINT
 
 # ── PostgreSQL ────────────────────────────────────────────────────
-PGDATA="/var/lib/postgresql/data"
 
 # Initialise the data directory if this is the first run
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
@@ -69,4 +81,6 @@ export REDIS_URL="redis://127.0.0.1:6379"
 export GATEWAY_PORT="${GATEWAY_PORT:-${PORT:-8000}}"
 
 echo "==> Starting Luthien gateway on port ${GATEWAY_PORT}..."
-exec uv run python -m luthien_proxy.main
+uv run python -m luthien_proxy.main &
+GATEWAY_PID=$!
+wait $GATEWAY_PID
