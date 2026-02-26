@@ -33,10 +33,10 @@ async def test_diffs_page_requires_auth(http_client, gateway_healthy):
     """Verify the diff viewer page requires authentication."""
     # Request without auth should redirect to login
     response = await http_client.get(f"{GATEWAY_URL}/diffs", follow_redirects=False)
-    
+
     # Should either redirect (302) or return unauthorized (401)
     assert response.status_code in [302, 401], f"Expected redirect or unauthorized, got {response.status_code}"
-    
+
     if response.status_code == 302:
         location = response.headers.get("location", "")
         assert "/login" in location, f"Expected redirect to login page, got: {location}"
@@ -50,19 +50,21 @@ async def test_diffs_page_has_navigation(http_client, gateway_healthy):
         f"{GATEWAY_URL}/diffs",
         headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     )
-    
+
     assert response.status_code == 200
     html_content = response.text
-    
+
     # Check for navigation elements (from nav.js/nav.css)
     nav_indicators = [
         "luthien-nav",  # CSS class
-        "nav.js",       # Script include
-        "Activity",     # Nav link text
-        "History",      # Nav link text
-        "Policies",     # Nav link text
+        "nav.js",  # Script include
+        "Activity",  # Nav link text
+        "History",  # Nav link text
+        "Policies",  # Nav link text
     ]
-    
+
     # At least some navigation indicators should be present
     nav_found = sum(1 for indicator in nav_indicators if indicator in html_content)
-    assert nav_found >= 2, f"Expected navigation elements in HTML. Found {nav_found} indicators in: {html_content[:500]}..."
+    assert nav_found >= 2, (
+        f"Expected navigation elements in HTML. Found {nav_found} indicators in: {html_content[:500]}..."
+    )

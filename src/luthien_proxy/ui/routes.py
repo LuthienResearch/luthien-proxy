@@ -143,7 +143,6 @@ async def conversation_live_view(
     return FileResponse(os.path.join(STATIC_DIR, "conversation_live.html"))
 
 
-
 @router.get("/client-setup")
 async def client_setup(request: Request):
     """Client setup page with the proxy's actual URL.
