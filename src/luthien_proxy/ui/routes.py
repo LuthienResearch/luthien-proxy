@@ -161,4 +161,19 @@ async def client_setup(request: Request):
     return HTMLResponse(html)
 
 
+# Redirect handlers for deprecated paths
+@router.get("/debug/diff")
+async def deprecated_diff_redirect():
+    """Redirect old debug diff path to new location."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/diffs", status_code=301)
+
+
+@router.get("/admin/{path:path}")
+async def deprecated_admin_redirect(path: str):
+    """Redirect old admin paths to new API location."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"/api/admin/{path}", status_code=301)
+
+
 __all__ = ["router"]
