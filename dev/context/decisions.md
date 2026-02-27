@@ -219,6 +219,16 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 - Historical planning docs (archived)
 - Competitive research
 
+**Rationale**:
+- **Signal-to-noise**: Public repo should help contributors understand the codebase, not internal planning
+- **Industry norm**: LiteLLM uses GitHub Issues/Projects for planning, not in-repo docs
+- **Focus**: Developers cloning the repo need implementation context, not product strategy
+
+**How LiteLLM handles this** (for reference):
+- Planning in GitHub Issues and Projects
+- README + docs/ for public technical docs
+- No in-repo planning docs or user stories
+
 ---
 
 ## Typed Request State Slots for Policies (2026-02-27)
@@ -234,17 +244,22 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 **Applied in**:
 - `SimplePolicy` Anthropic buffering state
 - `ToolCallJudgePolicy` OpenAI + Anthropic streaming buffering/blocking state
-- Demo scripts and success stories
+
+---
+
+## Freeze Policy Instances After Configuration (2026-02-27)
+
+**Decision**: Enforce policy statelessness at framework level by freezing policy instances immediately after `_instantiate_policy(...)` returns.
+
+**Mechanics**:
+- `BasePolicy.__setattr__` rejects attribute assignment when frozen.
+- `BasePolicy.freeze_configured_state()` validates instance attrs before freezing.
+- Mutable container attrs (`dict`/`list`/`set`/etc.) on policy instances are rejected at instantiation time unless explicitly allowlisted.
 
 **Rationale**:
-- **Signal-to-noise**: Public repo should help contributors understand the codebase, not internal planning
-- **Industry norm**: LiteLLM uses GitHub Issues/Projects for planning, not in-repo docs
-- **Focus**: Developers cloning the repo need implementation context, not product strategy
-
-**How LiteLLM handles this** (for reference):
-- Planning in GitHub Issues and Projects
-- README + docs/ for public technical docs
-- No in-repo planning docs or user stories
+- Prevents accidental request-scoped state from being stored on long-lived policy singletons.
+- Makes statelessness a hard invariant instead of a convention.
+- Forces per-request mutable data into `PolicyContext` typed state slots.
 
 ---
 

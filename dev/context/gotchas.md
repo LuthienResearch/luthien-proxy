@@ -255,6 +255,15 @@ if stream_state.finish_reason:
 - **Fix**: In `PolicyOrchestrator`, snapshot with `model_copy(deep=True)` before calling policy hooks, then record `(original_snapshot, final_object)`
 - **Regression coverage**: `tests/unit_tests/orchestration/test_policy_orchestrator_request.py` includes in-place mutation tests for both request and response recording
 
+## Policy Instances Are Frozen After Configuration (2026-02-27)
+
+**Gotcha**: Policies are now frozen after instantiation via `_instantiate_policy(...)`. Any attempt to assign `self.some_attr = ...` during request handling raises immediately.
+
+- **Symptom**: Runtime `AttributeError` mentioning policy is frozen
+- **Cause**: Storing request/streaming state on policy instance instead of request context
+- **Correct pattern**: Use `PolicyContext` typed `StateSlot[T]` state for per-request mutable data
+- **Additional guard**: Mutable container attrs on policy objects are rejected during instantiation
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

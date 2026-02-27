@@ -7,6 +7,7 @@ automatic get_config() for Pydantic-based configs.
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping, MutableSequence, MutableSet
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
@@ -25,6 +26,41 @@ class BasePolicy:
     (OpenAIPolicyInterface, AnthropicPolicyInterface) to define which
     API formats they support.
     """
+
+    _FROZEN_ATTR = "_policy_state_frozen"
+    _ALLOWED_MUTABLE_INSTANCE_ATTRS: frozenset[str] = frozenset()
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Disallow post-configuration attribute mutation on policy instances."""
+        if name == self._FROZEN_ATTR:
+            object.__setattr__(self, name, value)
+            return
+
+        if getattr(self, self._FROZEN_ATTR, False):
+            raise AttributeError(
+                f"{self.__class__.__name__} is frozen after configuration. "
+                "Use PolicyContext state slots for request-scoped mutable state."
+            )
+
+        object.__setattr__(self, name, value)
+
+    def freeze_configured_state(self) -> None:
+        """Freeze instance attributes after configuration and validate statelessness."""
+        self._validate_no_mutable_instance_state()
+        object.__setattr__(self, self._FROZEN_ATTR, True)
+
+    def _validate_no_mutable_instance_state(self) -> None:
+        """Fail if policy instance contains mutable containers likely used as runtime state."""
+        mutable_types: tuple[type[Any], ...] = (MutableMapping, MutableSequence, MutableSet, bytearray)
+
+        for attr_name, value in vars(self).items():
+            if attr_name == self._FROZEN_ATTR or attr_name in self._ALLOWED_MUTABLE_INSTANCE_ATTRS:
+                continue
+            if isinstance(value, mutable_types):
+                raise TypeError(
+                    f"{self.__class__.__name__}.{attr_name} is a mutable container ({type(value).__name__}). "
+                    "Policy instances must be stateless after configuration; use PolicyContext state slots instead."
+                )
 
     @property
     def short_policy_name(self) -> str:
