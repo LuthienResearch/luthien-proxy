@@ -448,7 +448,7 @@ class TestProcessAnthropicRequest:
 
     @pytest.fixture
     def mock_policy(self):
-        """Create an Anthropic policy implementing AnthropicPolicyInterface."""
+        """Create an Anthropic policy implementing AnthropicExecutionInterface."""
         return NoOpPolicy()
 
     @pytest.fixture

@@ -7,7 +7,6 @@ circular dependencies.
 Policy Interfaces:
 - BasePolicy: Base class providing common functionality
 - OpenAIPolicyInterface: ABC for policies working with OpenAI-format types
-- AnthropicPolicyInterface: ABC for policies working with Anthropic-native types
 - AnthropicExecutionInterface: execution-oriented Anthropic policy contract
 
 Legacy:
@@ -18,10 +17,6 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,
     AnthropicPolicyIOProtocol,
-)
-from luthien_proxy.policy_core.anthropic_interface import (
-    AnthropicPolicyInterface,
-    AnthropicStreamEvent,
 )
 from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.policy_core.chunk_builders import (
@@ -44,9 +39,7 @@ __all__ = [
     # ABC-based interfaces (preferred for new code)
     "BasePolicy",
     "OpenAIPolicyInterface",
-    "AnthropicPolicyInterface",
     "AnthropicExecutionInterface",
-    "AnthropicStreamEvent",
     "AnthropicPolicyEmission",
     "AnthropicPolicyIOProtocol",
     # Legacy OpenAI protocol (still used by policy infrastructure)
