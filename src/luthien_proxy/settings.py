@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     llm_judge_api_key: str | None = None
     litellm_master_key: str | None = None
 
+    # Dogfood mode — auto-compose DogfoodSafetyPolicy to prevent agents
+    # from killing the proxy they communicate through
+    dogfood_mode: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:
