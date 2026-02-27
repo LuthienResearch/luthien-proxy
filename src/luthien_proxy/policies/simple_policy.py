@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     InputJSONDelta,
     RawContentBlockDeltaEvent,
@@ -31,8 +33,9 @@ from luthien_proxy.llm.types.anthropic import (
     AnthropicToolUseBlock,
 )
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
-    AnthropicStreamEvent,
+    AnthropicExecutionInterface,
+    AnthropicPolicyEmission,
+    AnthropicPolicyIOProtocol,
     BasePolicy,
     OpenAIPolicyInterface,
     create_finish_chunk,
@@ -74,7 +77,7 @@ class _SimplePolicyAnthropicState:
     tool_buffer: dict[int, _BufferedAnthropicToolUse] = field(default_factory=dict)
 
 
-class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
+class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
     """Convenience base class for content-level transformations.
 
     This class simplifies policy authoring by buffering streaming content, effectively trading
@@ -309,6 +312,29 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
         """Clear request-scoped Anthropic buffers."""
         context.pop_policy_state(self, _SimplePolicyAnthropicState)
 
+    # ===== Anthropic execution interface =====
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
+    ) -> AsyncIterator[AnthropicPolicyEmission]:
+        """Run Anthropic request lifecycle using SimplePolicy helper hooks."""
+
+        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
+            final_request = await self.on_anthropic_request(io.request, context)
+            io.set_request(final_request)
+
+            if final_request.get("stream", False):
+                async for event in io.stream(final_request):
+                    emitted_events = await self.on_anthropic_stream_event(event, context)
+                    for emitted_event in emitted_events:
+                        yield emitted_event
+                return
+
+            response = await io.complete(final_request)
+            yield await self.on_anthropic_response(response, context)
+
+        return _run()
+
     # ===== Anthropic non-streaming hooks =====
 
     async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
@@ -389,8 +415,8 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
     # ===== Anthropic streaming hook =====
 
     async def on_anthropic_stream_event(
-        self, event: AnthropicStreamEvent, context: PolicyContext
-    ) -> list[AnthropicStreamEvent]:
+        self, event: MessageStreamEvent, context: PolicyContext
+    ) -> list[MessageStreamEvent]:
         """Process streaming events with buffering for content transformation.
 
         Buffers content_block_delta events and emits transformed content on

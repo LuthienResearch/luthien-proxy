@@ -36,7 +36,7 @@ from luthien_proxy.policies.string_replacement_policy import (
     _detect_capitalization_pattern,
     apply_replacements,
 )
-from luthien_proxy.policy_core import AnthropicPolicyInterface, OpenAIPolicyInterface
+from luthien_proxy.policy_core import AnthropicExecutionInterface, OpenAIPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock
@@ -118,9 +118,9 @@ class TestImplementsInterfaces:
         assert isinstance(policy, OpenAIPolicyInterface)
 
     def test_implements_anthropic_interface(self):
-        """StringReplacementPolicy implements AnthropicPolicyInterface."""
+        """StringReplacementPolicy implements AnthropicExecutionInterface."""
         policy = StringReplacementPolicy()
-        assert isinstance(policy, AnthropicPolicyInterface)
+        assert isinstance(policy, AnthropicExecutionInterface)
 
     def test_get_config_returns_configuration(self):
         """get_config returns the policy configuration."""

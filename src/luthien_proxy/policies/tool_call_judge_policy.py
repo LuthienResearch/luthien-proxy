@@ -27,9 +27,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     InputJSONDelta,
     RawContentBlockDeltaEvent,
@@ -53,8 +55,9 @@ from luthien_proxy.policies.tool_call_judge_utils import (
     create_blocked_response,
 )
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
-    AnthropicStreamEvent,
+    AnthropicExecutionInterface,
+    AnthropicPolicyEmission,
+    AnthropicPolicyIOProtocol,
     BasePolicy,
     OpenAIPolicyInterface,
     create_finish_chunk,
@@ -129,7 +132,7 @@ class ToolCallJudgeConfig(BaseModel):
     )
 
 
-class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
+class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
     """Policy that evaluates tool calls with a judge LLM and blocks harmful ones.
 
     This policy demonstrates buffering, external LLM calls, and content replacement.
@@ -423,6 +426,31 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         context.pop_policy_state(self, _ToolCallJudgeAnthropicState)
 
     # ========================================================================
+    # Anthropic execution interface
+    # ========================================================================
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
+    ) -> AsyncIterator[AnthropicPolicyEmission]:
+        """Run Anthropic request lifecycle with tool-call judging."""
+
+        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
+            final_request = await self.on_anthropic_request(io.request, context)
+            io.set_request(final_request)
+
+            if final_request.get("stream", False):
+                async for event in io.stream(final_request):
+                    emitted_events = await self.on_anthropic_stream_event(event, context)
+                    for emitted_event in emitted_events:
+                        yield emitted_event
+                return
+
+            response = await io.complete(final_request)
+            yield await self.on_anthropic_response(response, context)
+
+        return _run()
+
+    # ========================================================================
     # Anthropic Interface Implementation
     # ========================================================================
 
@@ -474,8 +502,8 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         return response
 
     async def on_anthropic_stream_event(
-        self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> list[AnthropicStreamEvent]:
+        self, event: MessageStreamEvent, context: "PolicyContext"
+    ) -> list[MessageStreamEvent]:
         """Process streaming events, buffering tool_use deltas for evaluation.
 
         For tool_use blocks:
@@ -655,7 +683,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         self,
         event: RawContentBlockStartEvent,
         context: "PolicyContext",
-    ) -> list[AnthropicStreamEvent]:
+    ) -> list[MessageStreamEvent]:
         """Handle content_block_start event."""
         content_block = event.content_block
         index = event.index
@@ -676,7 +704,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         self,
         event: RawContentBlockDeltaEvent,
         context: "PolicyContext",
-    ) -> list[AnthropicStreamEvent]:
+    ) -> list[MessageStreamEvent]:
         """Handle content_block_delta event."""
         index = event.index
         delta = event.delta
@@ -693,13 +721,13 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         self,
         event: RawContentBlockStopEvent,
         context: "PolicyContext",
-    ) -> list[AnthropicStreamEvent]:
+    ) -> list[MessageStreamEvent]:
         """Handle content_block_stop event - judge buffered tool_use if present."""
         index = event.index
         buffered_tool_uses = self._anthropic_buffered_tool_uses(context)
 
         if index not in buffered_tool_uses:
-            return [cast(AnthropicStreamEvent, event)]
+            return [cast(MessageStreamEvent, event)]
 
         buffered = buffered_tool_uses.pop(index)
         tool_call = self._tool_call_from_anthropic_buffer(buffered)
@@ -717,9 +745,9 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
             text_delta = TextDelta(type="text_delta", text=blocked_message)
             delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=text_delta)
             return [
-                cast(AnthropicStreamEvent, start_event),
-                cast(AnthropicStreamEvent, delta_event),
-                cast(AnthropicStreamEvent, event),
+                cast(MessageStreamEvent, start_event),
+                cast(MessageStreamEvent, delta_event),
+                cast(MessageStreamEvent, event),
             ]
 
         # Tool call allowed - reconstruct the full event sequence from buffered data
@@ -729,9 +757,9 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         json_delta = InputJSONDelta(type="input_json_delta", partial_json=buffered.input_json or "{}")
         delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=json_delta)
         return [
-            cast(AnthropicStreamEvent, start_event),
-            cast(AnthropicStreamEvent, delta_event),
-            cast(AnthropicStreamEvent, event),
+            cast(MessageStreamEvent, start_event),
+            cast(MessageStreamEvent, delta_event),
+            cast(MessageStreamEvent, event),
         ]
 
     def _extract_tool_call_from_anthropic_block(self, block: dict[str, Any]) -> dict[str, Any]:

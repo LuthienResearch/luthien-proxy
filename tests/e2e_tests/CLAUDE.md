@@ -6,15 +6,19 @@ E2E tests verify the gateway behavior by making real HTTP requests through the r
 
 - Gateway running (`docker compose up gateway`)
 - Valid API credentials in `.env` or environment variables
+- `AUTH_MODE=both` to run passthrough-auth coverage (otherwise passthrough tests are skipped)
 
 ## Running E2E Tests
 
 ```bash
 # Run all e2e tests (slow - use sparingly)
-uv run pytest -m e2e
+uv run pytest -m e2e -x -v
 
 # Run specific test file
 uv run pytest tests/e2e_tests/test_session_tracking.py -m e2e -v
+
+# Run passthrough-auth tests explicitly
+uv run pytest tests/e2e_tests/test_anthropic_passthrough_auth.py -m e2e -x -v
 ```
 
 ## Shared Test Infrastructure
@@ -85,7 +89,7 @@ async def run_claude_code(prompt: str, timeout_seconds: int = 60):
     cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--max-turns", "1"]
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = GATEWAY_URL
-    env["ANTHROPIC_AUTH_TOKEN"] = API_KEY
+    env["ANTHROPIC_API_KEY"] = API_KEY
     # ...
 ```
 

@@ -2,6 +2,14 @@
 
 ## Unreleased | TBA
 
+- Remove dead Anthropic compatibility handlers (`_handle_streaming`, `_handle_non_streaming`) from `anthropic_processor.py`
+  - Update unit/regression tests to exercise `process_anthropic_request()` instead of deleted internal wrappers
+  - Refresh docs/examples to use current policy classes and Anthropic execution runtime terminology
+- Remove dead Anthropic streaming executor path
+  - Delete unused `src/luthien_proxy/streaming/anthropic_executor.py`
+  - Delete executor-only unit tests and migrate requirement regressions to assert streaming behavior through `process_anthropic_request()`
+  - Tighten Anthropic execution-runtime type guard and add tests for invalid streaming emissions and upstream `io.complete()` failures
+
 - Refactor: extract `restore_context()` context manager for OpenTelemetry span context management
   - Replaces manual `attach`/`detach` pattern in both `anthropic_processor.py` and `processor.py`
   - Guarantees cleanup even on exception, reduces nesting depth, improves readability
