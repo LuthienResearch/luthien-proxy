@@ -261,7 +261,7 @@ if stream_state.finish_reason:
 
 - **Symptom**: Runtime `AttributeError` mentioning policy is frozen
 - **Cause**: Storing request/streaming state on policy instance instead of request context
-- **Correct pattern**: Use `PolicyContext` typed `StateSlot[T]` state for per-request mutable data
+- **Correct pattern**: Use `PolicyContext.get_policy_state()` / `pop_policy_state()` for per-request mutable data
 - **Additional guard**: Mutable container attrs on policy objects are rejected during instantiation
 
 ## Passthrough Auth Mode Is DB-Persisted, Not Just Env (2026-02-27)

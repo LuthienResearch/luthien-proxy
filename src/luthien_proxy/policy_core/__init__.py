@@ -30,7 +30,6 @@ from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.policy_core.response_utils import (
     extract_tool_calls_from_response,
 )
-from luthien_proxy.policy_core.state_slot import StateSlot
 from luthien_proxy.policy_core.streaming_policy_context import (
     StreamingPolicyContext,
 )
@@ -46,7 +45,6 @@ __all__ = [
     # Contexts
     "PolicyContext",
     "StreamingPolicyContext",
-    "StateSlot",
     # Chunk builders
     "create_finish_chunk",
     "create_text_chunk",

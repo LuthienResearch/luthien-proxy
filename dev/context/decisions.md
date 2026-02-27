@@ -231,15 +231,15 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
-## Typed Request State Slots for Policies (2026-02-27)
+## Typed Request State Slots for Policies (2026-02-27, Retired 2026-02-27)
 
-**Decision**: Add `StateSlot[T]` + `PolicyContext.get_state()/pop_state()` as the framework primitive for request-scoped mutable policy state.
+**Decision (retired)**: Initially added `StateSlot[T]` + `PolicyContext.get_state()/pop_state()` for request-scoped mutable policy state.
 
 **Rationale**:
 - **Stateless policy instances**: Keep mutable streaming state off policy objects.
 - **Strict typing**: State is stored as typed dataclasses (`T`) with runtime type checks on retrieval.
 - **Consistent lifecycle**: Works for both OpenAI and Anthropic paths using the existing per-request `PolicyContext`.
-- **Predictable cleanup**: Policies clear request state via `pop_state()` in completion hooks.
+- **Predictable cleanup**: Policies clear request state in completion hooks.
 
 **Applied in**:
 - `SimplePolicy` Anthropic buffering state
@@ -265,12 +265,13 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ## Framework-Owned Policy State API (2026-02-27)
 
-**Decision**: Prefer framework-owned policy state via `PolicyContext.get_policy_state()/pop_policy_state()` over policy-declared `StateSlot` definitions.
+**Decision**: Use framework-owned policy state via `PolicyContext.get_policy_state()/pop_policy_state()` and remove legacy slot APIs.
 
 **Mechanics**:
 - State is keyed by `(policy instance, expected state type)` inside `PolicyContext`.
 - Policies provide only `expected_type` + `factory`; they do not own slot keys.
 - Runtime type checks remain enforced on create/get/pop paths.
+- Legacy `StateSlot` / `get_state` / `pop_state` removed from `policy_core`.
 
 **Rationale**:
 - Keeps SRP boundaries cleaner: policy execution code does not manage storage descriptors.

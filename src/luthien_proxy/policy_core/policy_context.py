@@ -16,7 +16,6 @@ from luthien_proxy.observability.emitter import (
     EventEmitterProtocol,
     NullEventEmitter,
 )
-from luthien_proxy.policy_core.state_slot import StateSlot
 from luthien_proxy.types import RawHttpRequest
 
 if TYPE_CHECKING:
@@ -170,30 +169,6 @@ class PolicyContext:
         current_span = trace.get_current_span()
         if current_span.is_recording():
             current_span.add_event(name, attributes=attributes or {})
-
-    def get_state(self, slot: StateSlot[T]) -> T:
-        """Get or create typed request-scoped state for this context."""
-        value = self._scratchpad.get(slot.name)
-        if value is None:
-            created = slot.factory()
-            self._scratchpad[slot.name] = created
-            return created
-        if not isinstance(value, slot.expected_type):
-            raise TypeError(
-                f"State slot '{slot.name}' expected {slot.expected_type.__name__}, got {type(value).__name__}"
-            )
-        return cast(T, value)
-
-    def pop_state(self, slot: StateSlot[T]) -> T | None:
-        """Remove and return typed request-scoped state for this context."""
-        value = self._scratchpad.pop(slot.name, None)
-        if value is None:
-            return None
-        if not isinstance(value, slot.expected_type):
-            raise TypeError(
-                f"State slot '{slot.name}' expected {slot.expected_type.__name__}, got {type(value).__name__}"
-            )
-        return cast(T, value)
 
     def get_policy_state(self, owner: object, expected_type: type[T], factory: Callable[[], T]) -> T:
         """Get or create typed request-scoped state owned by a policy instance.
