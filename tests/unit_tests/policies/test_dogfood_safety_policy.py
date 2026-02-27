@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -11,6 +12,8 @@ from litellm.types.utils import ChatCompletionMessageToolCall, Function
 from luthien_proxy.policies.dogfood_safety_policy import (
     DogfoodSafetyConfig,
     DogfoodSafetyPolicy,
+    _BufferedAnthropicToolUse,
+    _BufferedOpenAIToolCall,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
@@ -352,39 +355,31 @@ class TestConfig:
 class TestStateCleanup:
     """Per-request state cleanup prevents unbounded growth."""
 
-    def test_openai_cleanup_removes_buffered_state(self):
+    @pytest.mark.asyncio
+    async def test_openai_cleanup_removes_buffered_state(self):
         policy = _make_policy()
-        txn_id = "txn-123"
+        policy_ctx = _make_context("txn-123")
+        streaming_ctx = SimpleNamespace(policy_ctx=policy_ctx)
 
-        policy._buffered_tool_calls[("txn-123", 0)] = {"name": "test"}
-        policy._buffered_tool_calls[("txn-123", 1)] = {"name": "test2"}
-        policy._buffered_tool_calls[("other-txn", 0)] = {"name": "keep"}
-        policy._blocked_calls.add(txn_id)
+        policy._openai_buffered_tool_calls(streaming_ctx)[0] = _BufferedOpenAIToolCall(name="test")
+        policy._openai_buffered_tool_calls(streaming_ctx)[1] = _BufferedOpenAIToolCall(name="test2")
+        policy._openai_mark_blocked(streaming_ctx)
 
-        # Simulate what on_streaming_policy_complete does
-        keys_to_remove = [k for k in policy._buffered_tool_calls if k[0] == txn_id]
-        for k in keys_to_remove:
-            del policy._buffered_tool_calls[k]
-        policy._blocked_calls.discard(txn_id)
+        await policy.on_streaming_policy_complete(streaming_ctx)
 
-        assert ("txn-123", 0) not in policy._buffered_tool_calls
-        assert ("txn-123", 1) not in policy._buffered_tool_calls
-        assert ("other-txn", 0) in policy._buffered_tool_calls
-        assert txn_id not in policy._blocked_calls
+        # State should be recreated empty after cleanup.
+        assert policy._openai_buffered_tool_calls(streaming_ctx) == {}
+        assert not policy._openai_is_blocked(streaming_ctx)
 
-    def test_anthropic_cleanup_removes_buffered_state(self):
+    @pytest.mark.asyncio
+    async def test_anthropic_cleanup_removes_buffered_state(self):
         policy = _make_policy()
-        txn_id = "txn-456"
+        policy_ctx = _make_context("txn-456")
 
-        policy._buffered_tool_uses[("txn-456", 0)] = {"name": "test"}
-        policy._buffered_tool_uses[("txn-456", 1)] = {"name": "test2"}
-        policy._buffered_tool_uses[("other-txn", 0)] = {"name": "keep"}
+        policy._anthropic_buffered_tool_uses(policy_ctx)[0] = _BufferedAnthropicToolUse(id="a", name="test")
+        policy._anthropic_buffered_tool_uses(policy_ctx)[1] = _BufferedAnthropicToolUse(id="b", name="test2")
 
-        # Simulate what the updated on_streaming_policy_complete should do
-        keys_to_remove = [k for k in policy._buffered_tool_uses if k[0] == txn_id]
-        for k in keys_to_remove:
-            del policy._buffered_tool_uses[k]
+        await policy.on_anthropic_streaming_policy_complete(policy_ctx)
 
-        assert ("txn-456", 0) not in policy._buffered_tool_uses
-        assert ("txn-456", 1) not in policy._buffered_tool_uses
-        assert ("other-txn", 0) in policy._buffered_tool_uses
+        # State should be recreated empty after cleanup.
+        assert policy._anthropic_buffered_tool_uses(policy_ctx) == {}

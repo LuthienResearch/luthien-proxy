@@ -21,8 +21,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     InputJSONDelta,
     RawContentBlockDeltaEvent,
@@ -40,8 +43,9 @@ from litellm.types.utils import (
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
-    AnthropicStreamEvent,
+    AnthropicExecutionInterface,
+    AnthropicPolicyEmission,
+    AnthropicPolicyIOProtocol,
     BasePolicy,
     OpenAIPolicyInterface,
     create_finish_chunk,
@@ -83,6 +87,31 @@ DEFAULT_DANGEROUS_PATTERNS = [
 DEFAULT_TOOL_NAMES = ["Bash", "bash", "shell", "terminal", "execute", "run_command"]
 
 
+@dataclass
+class _BufferedOpenAIToolCall:
+    id: str = ""
+    name: str = ""
+    arguments: str = ""
+
+
+@dataclass
+class _DogfoodOpenAIState:
+    buffered_tool_calls: dict[int, _BufferedOpenAIToolCall] = field(default_factory=dict)
+    blocked: bool = False
+
+
+@dataclass
+class _BufferedAnthropicToolUse:
+    id: str
+    name: str
+    input_json: str = ""
+
+
+@dataclass
+class _DogfoodAnthropicState:
+    buffered_tool_uses: dict[int, _BufferedAnthropicToolUse] = field(default_factory=dict)
+
+
 class DogfoodSafetyConfig(BaseModel):
     """Configuration for DogfoodSafetyPolicy."""
 
@@ -104,7 +133,7 @@ class DogfoodSafetyConfig(BaseModel):
     )
 
 
-class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
+class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
     """Fast pattern-matching policy that blocks self-destructive commands.
 
     Protects the proxy from being killed by the agent running through it.
@@ -122,20 +151,35 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         self._compiled_patterns = [re.compile(p, re.IGNORECASE) for p in self.config.blocked_patterns]
         self._tool_names_lower = {n.lower() for n in self.config.tool_names}
 
-        # OpenAI streaming: buffer tool calls until complete
-        self._buffered_tool_calls: dict[tuple[str, int], dict[str, Any]] = {}
-        self._blocked_calls: set[str] = set()
-
-        # Anthropic streaming: buffer tool_use blocks until complete
-        # Keyed by (transaction_id, block_index) to prevent state corruption
-        # across concurrent requests.
-        self._buffered_tool_uses: dict[tuple[str, int], dict[str, Any]] = {}
-
         logger.info(
             f"DogfoodSafetyPolicy initialized: "
             f"{len(self._compiled_patterns)} patterns, "
             f"tool_names={self.config.tool_names}"
         )
+
+    def _openai_state(self, ctx: "StreamingPolicyContext") -> _DogfoodOpenAIState:
+        """Get or create request-scoped OpenAI streaming state."""
+        return ctx.policy_ctx.get_policy_state(self, _DogfoodOpenAIState, _DogfoodOpenAIState)
+
+    def _openai_buffered_tool_calls(self, ctx: "StreamingPolicyContext") -> dict[int, _BufferedOpenAIToolCall]:
+        """Get request-scoped OpenAI tool-call buffers."""
+        return self._openai_state(ctx).buffered_tool_calls
+
+    def _openai_is_blocked(self, ctx: "StreamingPolicyContext") -> bool:
+        """Whether this OpenAI streaming request has already been blocked."""
+        return self._openai_state(ctx).blocked
+
+    def _openai_mark_blocked(self, ctx: "StreamingPolicyContext") -> None:
+        """Mark current OpenAI streaming request as blocked."""
+        self._openai_state(ctx).blocked = True
+
+    def _anthropic_state(self, context: "PolicyContext") -> _DogfoodAnthropicState:
+        """Get or create request-scoped Anthropic streaming state."""
+        return context.get_policy_state(self, _DogfoodAnthropicState, _DogfoodAnthropicState)
+
+    def _anthropic_buffered_tool_uses(self, context: "PolicyContext") -> dict[int, _BufferedAnthropicToolUse]:
+        """Get request-scoped Anthropic tool_use buffers."""
+        return self._anthropic_state(context).buffered_tool_uses
 
     # ========================================================================
     # Core matching logic
@@ -173,6 +217,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         return ""
 
     def _format_blocked_message(self, command: str) -> str:
+        """Render blocked-message template with truncated command."""
         return self.config.blocked_message.format(command=command[:200], pattern="regex")
 
     # ========================================================================
@@ -221,6 +266,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         """Buffer tool call deltas for later evaluation."""
         if not ctx.original_streaming_response_state.raw_chunks:
             return
+
         current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
         if not current_chunk.choices:
             return
@@ -231,70 +277,61 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if not hasattr(delta, "tool_calls") or not delta.tool_calls:
             return
 
-        call_id = ctx.policy_ctx.transaction_id
+        buffered_tool_calls = self._openai_buffered_tool_calls(ctx)
         for tc_delta in delta.tool_calls:
             tc_index = tc_delta.index if hasattr(tc_delta, "index") else 0
-            key = (call_id, tc_index)
+            if tc_index not in buffered_tool_calls:
+                buffered_tool_calls[tc_index] = _BufferedOpenAIToolCall()
 
-            if key not in self._buffered_tool_calls:
-                self._buffered_tool_calls[key] = {
-                    "id": "",
-                    "type": "function",
-                    "name": "",
-                    "arguments": "",
-                }
-
-            buffer = self._buffered_tool_calls[key]
+            buffer = buffered_tool_calls[tc_index]
             if hasattr(tc_delta, "id") and tc_delta.id:
-                buffer["id"] = tc_delta.id
+                buffer.id = tc_delta.id
             if hasattr(tc_delta, "function"):
                 func = tc_delta.function
                 if hasattr(func, "name") and func.name:
-                    buffer["name"] += func.name
+                    buffer.name += func.name
                 if hasattr(func, "arguments") and func.arguments:
-                    buffer["arguments"] += func.arguments
+                    buffer.arguments += func.arguments
 
         delta.tool_calls = None
 
     async def on_tool_call_complete(self, ctx: "StreamingPolicyContext") -> None:
         """Check completed tool call against patterns."""
-        call_id = ctx.policy_ctx.transaction_id
-        if call_id in self._blocked_calls:
+        if self._openai_is_blocked(ctx):
             return
 
         just_completed = ctx.original_streaming_response_state.just_completed
         if not just_completed or not isinstance(just_completed, ToolCallStreamBlock):
             return
 
-        key = (call_id, just_completed.index)
-        if key not in self._buffered_tool_calls:
+        buffered_tool_calls = self._openai_buffered_tool_calls(ctx)
+        if just_completed.index not in buffered_tool_calls:
             return
 
-        tool_call = self._buffered_tool_calls[key]
-        is_blocked, command = self._is_dangerous(tool_call.get("name", ""), tool_call.get("arguments", "{}"))
+        tool_call = buffered_tool_calls[just_completed.index]
+        is_blocked, command = self._is_dangerous(tool_call.name, tool_call.arguments)
 
         if is_blocked:
-            self._blocked_calls.add(call_id)
+            self._openai_mark_blocked(ctx)
             msg = self._format_blocked_message(command)
             ctx.policy_ctx.record_event(
                 "policy.dogfood_safety.blocked",
-                {"tool_name": tool_call.get("name", ""), "command": command[:200]},
+                {"tool_name": tool_call.name, "command": command[:200]},
             )
             logger.warning(f"Blocked dangerous command in streaming: {command[:100]}")
 
-            blocked_chunk = create_text_chunk(msg, finish_reason=None)
-            await ctx.egress_queue.put(blocked_chunk)
-            finish_chunk = create_text_chunk("", finish_reason="stop")
-            await ctx.egress_queue.put(finish_chunk)
-        else:
-            tc_obj = ChatCompletionMessageToolCall(
-                id=tool_call.get("id", ""),
-                function=Function(
-                    name=tool_call.get("name", ""),
-                    arguments=tool_call.get("arguments", ""),
-                ),
-            )
-            await ctx.egress_queue.put(create_tool_call_chunk(tc_obj))
+            await ctx.egress_queue.put(create_text_chunk(msg, finish_reason=None))
+            await ctx.egress_queue.put(create_text_chunk("", finish_reason="stop"))
+            return
+
+        tc_obj = ChatCompletionMessageToolCall(
+            id=tool_call.id,
+            function=Function(
+                name=tool_call.name,
+                arguments=tool_call.arguments,
+            ),
+        )
+        await ctx.egress_queue.put(create_tool_call_chunk(tc_obj))
 
     async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
         """No-op — finish reason emitted in on_stream_complete."""
@@ -306,36 +343,51 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         if not finish_reason:
             return
 
-        call_id = ctx.policy_ctx.transaction_id
-        if call_id in self._blocked_calls:
+        if self._openai_is_blocked(ctx):
             return
 
         blocks = ctx.original_streaming_response_state.blocks
-        has_tool_calls = any(isinstance(b, ToolCallStreamBlock) for b in blocks)
-        if has_tool_calls:
-            raw_chunks = ctx.original_streaming_response_state.raw_chunks
-            last_chunk = raw_chunks[-1] if raw_chunks else None
-            finish_chunk = create_finish_chunk(
-                finish_reason=finish_reason,
-                model=last_chunk.model if last_chunk else "luthien-policy",
-                chunk_id=last_chunk.id if last_chunk else None,
-            )
-            await ctx.egress_queue.put(finish_chunk)
+        has_tool_calls = any(isinstance(block, ToolCallStreamBlock) for block in blocks)
+        if not has_tool_calls:
+            return
+
+        raw_chunks = ctx.original_streaming_response_state.raw_chunks
+        last_chunk = raw_chunks[-1] if raw_chunks else None
+        finish_chunk = create_finish_chunk(
+            finish_reason=finish_reason,
+            model=last_chunk.model if last_chunk else "luthien-policy",
+            chunk_id=last_chunk.id if last_chunk else None,
+        )
+        await ctx.egress_queue.put(finish_chunk)
 
     async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Clean up per-request state for both OpenAI and Anthropic buffers."""
-        call_id = ctx.policy_ctx.transaction_id
-
-        for buffer in (self._buffered_tool_calls, self._buffered_tool_uses):
-            keys_to_remove = [k for k in buffer if k[0] == call_id]
-            for k in keys_to_remove:
-                del buffer[k]
-
-        self._blocked_calls.discard(call_id)
+        """Clean up request-scoped OpenAI state."""
+        ctx.policy_ctx.pop_policy_state(self, _DogfoodOpenAIState)
 
     # ========================================================================
-    # Anthropic Interface
+    # Anthropic execution interface
     # ========================================================================
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
+    ) -> AsyncIterator[AnthropicPolicyEmission]:
+        """Run Anthropic request lifecycle for dogfood safety filtering."""
+
+        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
+            final_request = await self.on_anthropic_request(io.request, context)
+            io.set_request(final_request)
+
+            if final_request.get("stream", False):
+                async for event in io.stream(final_request):
+                    emitted_events = await self.on_anthropic_stream_event(event, context)
+                    for emitted_event in emitted_events:
+                        yield emitted_event
+                return
+
+            response = await io.complete(final_request)
+            yield await self.on_anthropic_response(response, context)
+
+        return _run()
 
     async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
         """Pass requests through unmodified."""
@@ -383,75 +435,89 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         return response
 
     async def on_anthropic_stream_event(
-        self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> list[AnthropicStreamEvent]:
+        self, event: MessageStreamEvent, context: "PolicyContext"
+    ) -> list[MessageStreamEvent]:
         """Buffer tool_use blocks in streaming, evaluate on completion."""
+        buffered_tool_uses = self._anthropic_buffered_tool_uses(context)
+
         if isinstance(event, RawContentBlockStartEvent):
             if isinstance(event.content_block, ToolUseBlock):
-                key = (context.transaction_id, event.index)
-                self._buffered_tool_uses[key] = {
-                    "id": event.content_block.id,
-                    "name": event.content_block.name,
-                    "input_json": "",
-                }
+                buffered_tool_uses[event.index] = _BufferedAnthropicToolUse(
+                    id=event.content_block.id,
+                    name=event.content_block.name,
+                )
                 return []
             return [event]
 
         if isinstance(event, RawContentBlockDeltaEvent):
-            key = (context.transaction_id, event.index)
-            if key in self._buffered_tool_uses and isinstance(event.delta, InputJSONDelta):
-                self._buffered_tool_uses[key]["input_json"] += event.delta.partial_json
+            if event.index in buffered_tool_uses and isinstance(event.delta, InputJSONDelta):
+                buffered_tool_uses[event.index].input_json += event.delta.partial_json
                 return []
             return [event]
 
         if isinstance(event, RawContentBlockStopEvent):
-            key = (context.transaction_id, event.index)
-            if key not in self._buffered_tool_uses:
-                return [cast(AnthropicStreamEvent, event)]
+            if event.index not in buffered_tool_uses:
+                return [cast(MessageStreamEvent, event)]
 
-            buffered = self._buffered_tool_uses.pop(key)
-            name = buffered["name"]
-            input_json = buffered.get("input_json", "{}")
-
-            is_blocked, command = self._is_dangerous(name, input_json)
+            buffered = buffered_tool_uses.pop(event.index)
+            is_blocked, command = self._is_dangerous(buffered.name, buffered.input_json)
 
             if is_blocked:
                 msg = self._format_blocked_message(command)
                 context.record_event(
                     "policy.dogfood_safety.blocked",
-                    {"tool_name": name, "command": command[:200]},
+                    {"tool_name": buffered.name, "command": command[:200]},
                 )
                 logger.warning(f"Blocked dangerous Anthropic streaming tool_use: {command[:100]}")
 
                 text_block = TextBlock(type="text", text="")
-                start = RawContentBlockStartEvent(
-                    type="content_block_start", index=event.index, content_block=text_block
+                start_event = RawContentBlockStartEvent(
+                    type="content_block_start",
+                    index=event.index,
+                    content_block=text_block,
                 )
-                delta = RawContentBlockDeltaEvent(
+                delta_event = RawContentBlockDeltaEvent(
                     type="content_block_delta",
                     index=event.index,
                     delta=TextDelta(type="text_delta", text=msg),
                 )
                 return [
-                    cast(AnthropicStreamEvent, start),
-                    cast(AnthropicStreamEvent, delta),
-                    cast(AnthropicStreamEvent, event),
+                    cast(MessageStreamEvent, start_event),
+                    cast(MessageStreamEvent, delta_event),
+                    cast(MessageStreamEvent, event),
                 ]
 
-            # Allowed — reconstruct the buffered tool_use events
-            tool_use_block = ToolUseBlock(type="tool_use", id=buffered["id"], name=name, input={})
-            start = RawContentBlockStartEvent(
-                type="content_block_start", index=event.index, content_block=tool_use_block
+            tool_use_block = ToolUseBlock(
+                type="tool_use",
+                id=buffered.id,
+                name=buffered.name,
+                input={},
             )
-            json_delta = InputJSONDelta(type="input_json_delta", partial_json=input_json)
-            delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=event.index, delta=json_delta)
+            start_event = RawContentBlockStartEvent(
+                type="content_block_start",
+                index=event.index,
+                content_block=tool_use_block,
+            )
+            delta_event = RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=event.index,
+                delta=InputJSONDelta(type="input_json_delta", partial_json=buffered.input_json or "{}"),
+            )
             return [
-                cast(AnthropicStreamEvent, start),
-                cast(AnthropicStreamEvent, delta_event),
-                cast(AnthropicStreamEvent, event),
+                cast(MessageStreamEvent, start_event),
+                cast(MessageStreamEvent, delta_event),
+                cast(MessageStreamEvent, event),
             ]
 
         return [event]
+
+    async def on_anthropic_stream_complete(self, context: "PolicyContext") -> None:
+        """No-op hook for parity with OpenAI lifecycle."""
+        pass
+
+    async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
+        """Clean up request-scoped Anthropic state."""
+        context.pop_policy_state(self, _DogfoodAnthropicState)
 
 
 __all__ = ["DogfoodSafetyPolicy", "DogfoodSafetyConfig"]

@@ -101,7 +101,7 @@ class TestComposePolicy:
 async def _check_dogfood_active(client: httpx.AsyncClient) -> bool:
     """Check if the current policy chain includes DogfoodSafetyPolicy."""
     response = await client.get(
-        f"{GATEWAY_URL}/admin/policy/current",
+        f"{GATEWAY_URL}/api/admin/policy/current",
         headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     )
     if response.status_code != 200:
@@ -279,7 +279,7 @@ async def test_dogfood_composes_at_position_zero(http_client, admin_headers, gat
     """
     # Set a known policy
     set_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
@@ -295,7 +295,7 @@ async def test_dogfood_composes_at_position_zero(http_client, admin_headers, gat
 
     # Check current policy — should be MultiSerialPolicy with DogfoodSafety
     current = await http_client.get(
-        f"{GATEWAY_URL}/admin/policy/current",
+        f"{GATEWAY_URL}/api/admin/policy/current",
         headers=admin_headers,
     )
 
@@ -319,7 +319,7 @@ async def test_dogfood_composes_at_position_zero(http_client, admin_headers, gat
 async def test_zz_cleanup_restore_noop(http_client, admin_headers, gateway_healthy):
     """Restore NoOpPolicy after tests (runs last due to alphabetical ordering)."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
