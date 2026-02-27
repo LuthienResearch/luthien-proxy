@@ -198,7 +198,7 @@
 
 - Session-based login for browser access to admin/debug UIs (#88)
   - Add `/login` page with session cookie authentication
-  - Protected UI pages (`/activity/monitor`, `/debug/diff`, `/policy-config`) redirect to login when unauthenticated
+  - Protected UI pages (`/activity/monitor`, `/diffs`, `/policy-config`) redirect to login when unauthenticated
   - Sign out links on all protected pages
   - Backwards compatible: API endpoints still accept Bearer token and x-api-key
 
@@ -348,7 +348,7 @@
     - `/calls` - List recent calls
     - `/calls/{call_id}` - Get call details
     - `/calls/{call_id}/diff` - Compare original vs transformed content
-  - Diff viewer UI at `/debug/diff` with side-by-side JSON comparison
+  - Diff viewer UI at `/diffs` with side-by-side JSON comparison
   - Links to Grafana Tempo traces from all UIs
 
 - **Grafana Dashboards**:

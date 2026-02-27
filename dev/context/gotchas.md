@@ -179,7 +179,7 @@ if stream_state.finish_reason:
 
 **Context**: Common debugging steps for proxy issues (from co-founder debugging sessions).
 
-1. **Check the raw request/response**: Use `/debug/calls/{call_id}` endpoint to see original vs transformed payloads
+1. **Check the raw request/response**: Use `/api/debug/calls/{call_id}` endpoint to see original vs transformed payloads
 2. **Compare streaming chunks**: Enable debug logging to see each SSE chunk as it flows through pipeline
 3. **Isolate the layer**: Is it request conversion? Response assembly? Policy transformation?
 4. **Reproduce minimally**: Strip the request down to simplest failing case
@@ -187,7 +187,7 @@ if stream_state.finish_reason:
 
 **Tools available**:
 - Activity monitor: `/activity/monitor` - live SSE stream
-- Debug diff viewer: `/debug/diff?call_id=X` - before/after comparison
+- Debug diff viewer: `/diffs?call_id=X` - before/after comparison
 - Tempo traces: Search by `luthien.call_id` attribute via `http://localhost:3200/api/search`
 
 ## Policy Config Dynamic Loading Security (2026-02-04)

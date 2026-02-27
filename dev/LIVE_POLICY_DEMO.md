@@ -17,7 +17,7 @@ Ensure Claude Code is running through the proxy:
 Check the current active policy:
 
 ```bash
-curl http://localhost:8000/admin/policy/current \
+curl http://localhost:8000/api/admin/policy/current \
   -H "Authorization: Bearer admin-dev-key" | jq '.policy'
 ```
 
@@ -27,13 +27,13 @@ Create and activate the AllCapsPolicy:
 
 ```bash
 # Create the policy instance
-curl -X POST http://localhost:8000/admin/policy/create \
+curl -X POST http://localhost:8000/api/admin/policy/create \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{"name": "demo-allcaps", "policy_class_ref": "luthien_proxy.policies.all_caps_policy:AllCapsPolicy", "config": {}}'
 
 # Activate it
-curl -X POST http://localhost:8000/admin/policy/activate \
+curl -X POST http://localhost:8000/api/admin/policy/activate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{"name": "demo-allcaps"}'
@@ -47,13 +47,13 @@ Notice that Claude Code's responses are now in ALL CAPS. The policy update took 
 
 ```bash
 # Create a NoOp policy instance
-curl -X POST http://localhost:8000/admin/policy/create \
+curl -X POST http://localhost:8000/api/admin/policy/create \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{"name": "demo-noop", "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy", "config": {}}'
 
 # Activate it
-curl -X POST http://localhost:8000/admin/policy/activate \
+curl -X POST http://localhost:8000/api/admin/policy/activate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{"name": "demo-noop"}'
@@ -73,7 +73,7 @@ Claude Code responses return to normal case immediately.
 List all available policy classes:
 
 ```bash
-curl http://localhost:8000/admin/policy/list \
+curl http://localhost:8000/api/admin/policy/list \
   -H "Authorization: Bearer admin-dev-key" | jq '.policies'
 ```
 

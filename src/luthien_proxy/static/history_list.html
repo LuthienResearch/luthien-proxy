@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Conversation History</title>
+    <link rel="stylesheet" href="/static/nav.css">
     <style>
         * {
             margin: 0;
@@ -46,16 +47,6 @@
         .page-description {
             font-size: 12px;
             color: #555;
-        }
-
-        .nav-link {
-            color: #666;
-            text-decoration: none;
-            font-size: 13px;
-        }
-
-        .nav-link:hover {
-            color: #4ade80;
         }
 
         /* Search and filters container */
@@ -322,13 +313,22 @@
     </style>
 </head>
 <body>
+    <nav x-data="luthienNav" class="luthien-nav">
+        <a href="/" class="nav-brand">Luthien</a>
+        <template x-for="link in links" :key="link.href">
+            <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+        </template>
+        <div class="nav-spacer"></div>
+        <template x-if="isAuthenticated()">
+            <a href="/auth/logout" class="nav-signout">Sign Out</a>
+        </template>
+    </nav>
     <div class="container">
         <header>
             <div class="header-left">
                 <h1>Conversation History</h1>
                 <span class="page-description">Browse and search past AI sessions</span>
             </div>
-            <a href="/auth/logout" class="nav-link">Sign Out</a>
         </header>
 
         <div class="search-filters-container">
@@ -486,7 +486,7 @@
             const container = document.getElementById('sessions-container');
 
             try {
-                const response = await fetch('/history/api/sessions?limit=10000', {
+                const response = await fetch('/api/history/sessions?limit=10000', {
                     headers: {
                         'Accept': 'application/json'
                     }
@@ -661,5 +661,7 @@
 
         loadSessions();
     </script>
+    <script defer src="/static/vendor/alpine.min.js"></script>
+    <script src="/static/nav.js"></script>
 </body>
 </html>

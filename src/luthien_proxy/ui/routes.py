@@ -10,7 +10,7 @@ import os
 from html import escape as html_escape
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from redis.asyncio import Redis
 
@@ -24,7 +24,7 @@ router = APIRouter(prefix="", tags=["ui"])
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 
 
-@router.get("/activity/stream")
+@router.get("/api/activity/stream")
 async def activity_stream(
     _: str = Depends(verify_admin_token),
     redis_client: Redis | None = Depends(get_redis_client),
@@ -80,7 +80,7 @@ async def activity_monitor(
     return FileResponse(os.path.join(STATIC_DIR, "activity_monitor.html"))
 
 
-@router.get("/debug/diff")
+@router.get("/diffs")
 async def diff_viewer(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
@@ -159,6 +159,19 @@ async def client_setup(request: Request):
     html = html.replace("{{BASE_URL}}", html_escape(base_url))
 
     return HTMLResponse(html)
+
+
+# Redirect handlers for deprecated paths
+@router.get("/debug/diff")
+async def deprecated_diff_redirect():
+    """Redirect old debug diff path to new location."""
+    return RedirectResponse(url="/diffs", status_code=301)
+
+
+@router.get("/admin/{path:path}")
+async def deprecated_admin_redirect(path: str):
+    """Redirect old admin paths to new API location."""
+    return RedirectResponse(url=f"/api/admin/{path}", status_code=301)
 
 
 __all__ = ["router"]
