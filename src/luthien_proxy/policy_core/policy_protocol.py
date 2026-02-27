@@ -31,6 +31,10 @@ class PolicyProtocol(Protocol):
         """Get the configuration for this policy instance."""
         ...
 
+    def freeze_configured_state(self) -> None:
+        """Freeze policy instance mutation after configuration."""
+        ...
+
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
         """Called on every chunk."""
         ...

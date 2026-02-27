@@ -304,6 +304,29 @@ class TestGatewayAuthAndClientResolution:
             )
             MockClient.assert_called_once_with(auth_token="my-anthropic-token", base_url=None)
 
+    def test_passthrough_bearer_api_key_creates_api_key_client(self, mock_app):
+        """In passthrough mode, Bearer Anthropic API keys are forwarded as api_key."""
+        app, _, credential_manager, _ = mock_app
+        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+
+        with (
+            patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
+            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+        ):
+            MockClient.return_value = MagicMock()
+            mock_process.return_value = MagicMock()
+            client = TestClient(app)
+            client.post(
+                "/v1/messages",
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 10,
+                },
+                headers={"Authorization": "Bearer sk-ant-api03-test-key"},
+            )
+            MockClient.assert_called_once_with(api_key="sk-ant-api03-test-key", base_url=None)
+
     def test_passthrough_api_key_creates_api_key_client(self, mock_app):
         """In passthrough mode, an x-api-key credential creates an api_key client."""
         app, _, credential_manager, _ = mock_app

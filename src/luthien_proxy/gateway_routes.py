@@ -7,7 +7,7 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from luthien_proxy.credential_manager import AuthMode, CredentialManager
+from luthien_proxy.credential_manager import AuthMode, CredentialManager, is_anthropic_api_key
 from luthien_proxy.dependencies import (
     get_anthropic_client,
     get_anthropic_policy,
@@ -102,7 +102,7 @@ async def resolve_anthropic_client(
     matches_proxy_key = secrets.compare_digest(token, api_key)
     use_passthrough = not matches_proxy_key or auth_mode == AuthMode.PASSTHROUGH
     if use_passthrough:
-        if is_bearer:
+        if is_bearer and not is_anthropic_api_key(token):
             return AnthropicClient(auth_token=token, base_url=base_url)
         return AnthropicClient(api_key=token, base_url=base_url)
 

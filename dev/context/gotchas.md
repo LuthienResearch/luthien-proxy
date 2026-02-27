@@ -264,6 +264,15 @@ if stream_state.finish_reason:
 - **Correct pattern**: Use `PolicyContext` typed `StateSlot[T]` state for per-request mutable data
 - **Additional guard**: Mutable container attrs on policy objects are rejected during instantiation
 
+## Passthrough Auth Mode Is DB-Persisted, Not Just Env (2026-02-27)
+
+**Gotcha**: `AUTH_MODE` env var is only the startup default; the effective mode is loaded from `auth_config` in DB on startup. If DB says `proxy_key`, passthrough tests will skip/fail even when container env has `AUTH_MODE=both`.
+
+- **Symptom**: Passthrough tests skip with "Gateway not in passthrough/both auth mode" while env shows `AUTH_MODE=both`
+- **Fix**: Set mode explicitly via admin API: `POST /admin/auth/config {"auth_mode":"both"}`
+
+**Related gotcha**: Anthropic API keys (`sk-ant-api...`) passed in `Authorization: Bearer ...` are not valid bearer/OAuth tokens at Anthropic. Gateway now detects this format and validates/forwards them via `x-api-key` transport.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

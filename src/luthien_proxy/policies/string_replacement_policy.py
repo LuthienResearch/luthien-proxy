@@ -18,6 +18,7 @@ Example config:
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
 from anthropic.types import (
@@ -136,7 +137,7 @@ def _apply_capitalization_pattern(source: str, replacement: str) -> str:
 
 def apply_replacements(
     text: str,
-    replacements: list[tuple[str, str]],
+    replacements: Sequence[tuple[str, str]],
     match_capitalization: bool,
 ) -> str:
     """Apply all string replacements to the given text.
@@ -202,7 +203,7 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicy
         """Initialize with optional config. Accepts dict or Pydantic model."""
         self.config = self._init_config(config, StringReplacementConfig)
 
-        self._replacements: list[tuple[str, str]] = [(pair[0], pair[1]) for pair in self.config.replacements]
+        self._replacements: tuple[tuple[str, str], ...] = tuple((pair[0], pair[1]) for pair in self.config.replacements)
         self._match_capitalization = self.config.match_capitalization
 
     def _apply_replacements(self, text: str) -> str:
