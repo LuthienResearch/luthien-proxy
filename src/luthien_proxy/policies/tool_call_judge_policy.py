@@ -57,7 +57,6 @@ from luthien_proxy.policy_core import (
     AnthropicStreamEvent,
     BasePolicy,
     OpenAIPolicyInterface,
-    StateSlot,
     create_finish_chunk,
     create_text_chunk,
     create_text_response,
@@ -165,17 +164,6 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         """Short human-readable name for the policy."""
         return "ToolJudge"
 
-    _OPENAI_STATE_SLOT: StateSlot[_ToolCallJudgeOpenAIState] = StateSlot(
-        name="tool_call_judge.openai_state",
-        expected_type=_ToolCallJudgeOpenAIState,
-        factory=_ToolCallJudgeOpenAIState,
-    )
-    _ANTHROPIC_STATE_SLOT: StateSlot[_ToolCallJudgeAnthropicState] = StateSlot(
-        name="tool_call_judge.anthropic_state",
-        expected_type=_ToolCallJudgeAnthropicState,
-        factory=_ToolCallJudgeAnthropicState,
-    )
-
     def __init__(self, config: ToolCallJudgeConfig | None = None):
         """Initialize with optional config. Also accepts a dict at runtime."""
         self.config = self._init_config(config, ToolCallJudgeConfig)
@@ -214,7 +202,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
     def _openai_state(self, ctx: "StreamingPolicyContext") -> _ToolCallJudgeOpenAIState:
         """Get or create typed request-scoped OpenAI streaming state."""
-        return ctx.policy_ctx.get_state(self._OPENAI_STATE_SLOT)
+        return ctx.policy_ctx.get_policy_state(self, _ToolCallJudgeOpenAIState, _ToolCallJudgeOpenAIState)
 
     def _openai_buffered_tool_calls(self, ctx: "StreamingPolicyContext") -> dict[int, ToolCallStreamBlock]:
         """Get request-scoped OpenAI tool-call buffer."""
@@ -230,7 +218,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
     def _anthropic_state(self, context: "PolicyContext") -> _ToolCallJudgeAnthropicState:
         """Get or create typed request-scoped Anthropic streaming state."""
-        return context.get_state(self._ANTHROPIC_STATE_SLOT)
+        return context.get_policy_state(self, _ToolCallJudgeAnthropicState, _ToolCallJudgeAnthropicState)
 
     def _anthropic_buffered_tool_uses(self, context: "PolicyContext") -> dict[int, _BufferedAnthropicToolUse]:
         """Get request-scoped Anthropic tool_use buffer."""
@@ -424,7 +412,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         This ensures buffers are cleared even if errors occurred during processing.
         """
         # State is request-scoped; explicit cleanup keeps memory usage predictable.
-        ctx.policy_ctx.pop_state(self._OPENAI_STATE_SLOT)
+        ctx.policy_ctx.pop_policy_state(self, _ToolCallJudgeOpenAIState)
 
     async def on_anthropic_stream_complete(self, context: "PolicyContext") -> None:
         """No-op hook for parity with OpenAI lifecycle."""
@@ -432,7 +420,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up Anthropic per-request state after streaming completes."""
-        context.pop_state(self._ANTHROPIC_STATE_SLOT)
+        context.pop_policy_state(self, _ToolCallJudgeAnthropicState)
 
     # ========================================================================
     # Anthropic Interface Implementation

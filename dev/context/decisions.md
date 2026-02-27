@@ -263,4 +263,20 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Framework-Owned Policy State API (2026-02-27)
+
+**Decision**: Prefer framework-owned policy state via `PolicyContext.get_policy_state()/pop_policy_state()` over policy-declared `StateSlot` definitions.
+
+**Mechanics**:
+- State is keyed by `(policy instance, expected state type)` inside `PolicyContext`.
+- Policies provide only `expected_type` + `factory`; they do not own slot keys.
+- Runtime type checks remain enforced on create/get/pop paths.
+
+**Rationale**:
+- Keeps SRP boundaries cleaner: policy execution code does not manage storage descriptors.
+- Removes string-key slot boilerplate from policy classes.
+- Preserves strict typing + per-request isolation while maintaining frozen/stateless policy instances.
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

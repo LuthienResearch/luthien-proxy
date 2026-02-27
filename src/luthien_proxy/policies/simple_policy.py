@@ -35,7 +35,6 @@ from luthien_proxy.policy_core import (
     AnthropicStreamEvent,
     BasePolicy,
     OpenAIPolicyInterface,
-    StateSlot,
     create_finish_chunk,
 )
 from luthien_proxy.policy_core.streaming_utils import (
@@ -93,15 +92,9 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
     methods are called for both formats, with appropriate type conversions handled internally.
     """
 
-    _ANTHROPIC_STATE_SLOT: StateSlot[_SimplePolicyAnthropicState] = StateSlot(
-        name="simple_policy.anthropic_state",
-        expected_type=_SimplePolicyAnthropicState,
-        factory=_SimplePolicyAnthropicState,
-    )
-
     def _anthropic_state(self, context: "PolicyContext") -> _SimplePolicyAnthropicState:
         """Get or create typed request-scoped Anthropic state."""
-        return context.get_state(self._ANTHROPIC_STATE_SLOT)
+        return context.get_policy_state(self, _SimplePolicyAnthropicState, _SimplePolicyAnthropicState)
 
     # ===== Simple methods that subclasses override =====
 
@@ -314,7 +307,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
 
     async def on_anthropic_streaming_policy_complete(self, context: PolicyContext) -> None:
         """Clear request-scoped Anthropic buffers."""
-        context.pop_state(self._ANTHROPIC_STATE_SLOT)
+        context.pop_policy_state(self, _SimplePolicyAnthropicState)
 
     # ===== Anthropic non-streaming hooks =====
 
