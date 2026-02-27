@@ -41,7 +41,7 @@ from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
     AnthropicResponse,
 )
-from luthien_proxy.observability.emitter import EventEmitterProtocol, NullEventEmitter
+from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.session import extract_session_id_from_anthropic_body
 from luthien_proxy.policy_core.anthropic_execution_interface import (
@@ -488,59 +488,6 @@ async def _handle_execution_non_streaming(
             content=dict(final_response),
             headers={"X-Call-ID": call_id},
         )
-
-
-async def _handle_streaming(
-    final_request: AnthropicRequest,
-    policy: AnthropicExecutionInterface,
-    policy_ctx: PolicyContext,
-    anthropic_client: AnthropicClient,
-    call_id: str,
-    root_span: Span,
-    emitter: EventEmitterProtocol | None = None,
-) -> FastAPIStreamingResponse:
-    """Compatibility helper for unit tests using execution-oriented Anthropic policies."""
-    io = _AnthropicPolicyIO(
-        initial_request=final_request,
-        anthropic_client=anthropic_client,
-        emitter=emitter or NullEventEmitter(),
-        call_id=call_id,
-        session_id=policy_ctx.session_id,
-    )
-    emissions = policy.run_anthropic(io, policy_ctx)
-    return await _handle_execution_streaming(
-        emissions=emissions,
-        io=io,
-        call_id=call_id,
-        root_span=root_span,
-        policy_ctx=policy_ctx,
-    )
-
-
-async def _handle_non_streaming(
-    final_request: AnthropicRequest,
-    policy: AnthropicExecutionInterface,
-    policy_ctx: PolicyContext,
-    anthropic_client: AnthropicClient,
-    emitter: EventEmitterProtocol,
-    call_id: str,
-) -> JSONResponse:
-    """Compatibility helper for unit tests using execution-oriented Anthropic policies."""
-    io = _AnthropicPolicyIO(
-        initial_request=final_request,
-        anthropic_client=anthropic_client,
-        emitter=emitter,
-        call_id=call_id,
-        session_id=policy_ctx.session_id,
-    )
-    emissions = policy.run_anthropic(io, policy_ctx)
-    return await _handle_execution_non_streaming(
-        emissions=emissions,
-        io=io,
-        emitter=emitter,
-        policy_ctx=policy_ctx,
-        call_id=call_id,
-    )
 
 
 def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:

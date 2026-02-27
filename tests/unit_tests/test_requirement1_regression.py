@@ -39,10 +39,7 @@ from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
     AnthropicResponse,
 )
-from luthien_proxy.pipeline.anthropic_processor import (
-    _handle_non_streaming,
-    _handle_streaming,
-)
+from luthien_proxy.pipeline.anthropic_processor import process_anthropic_request
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_core.anthropic_interface import AnthropicStreamEvent
 from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -108,6 +105,61 @@ async def async_iter_from_list(items: list[Any]) -> AsyncIterator[Any]:
     """Convert a list to an async iterator."""
     for item in items:
         yield item
+
+
+def _make_mock_fastapi_request(body: AnthropicRequest) -> MagicMock:
+    """Build a minimal FastAPI-like request object for pipeline tests."""
+    request = MagicMock()
+    request.headers = {}
+    request.method = "POST"
+    request.url = MagicMock()
+    request.url.path = "/v1/messages"
+    request.json = AsyncMock(return_value=body)
+    return request
+
+
+async def _handle_non_streaming(
+    *,
+    final_request: AnthropicRequest,
+    policy: NoOpPolicy,
+    policy_ctx: PolicyContext | MagicMock,
+    anthropic_client: AnthropicClient | MagicMock,
+    emitter: MagicMock,
+    call_id: str,
+) -> JSONResponse:
+    """Test-local compatibility helper using process_anthropic_request."""
+    del policy_ctx, call_id
+    request = _make_mock_fastapi_request(final_request)
+    response = await process_anthropic_request(
+        request=request,
+        policy=policy,
+        anthropic_client=anthropic_client,
+        emitter=emitter,
+    )
+    assert isinstance(response, JSONResponse)
+    return response
+
+
+async def _handle_streaming(
+    *,
+    final_request: AnthropicRequest,
+    policy: NoOpPolicy,
+    policy_ctx: PolicyContext | MagicMock,
+    anthropic_client: AnthropicClient | MagicMock,
+    call_id: str,
+    root_span: MagicMock,
+) -> FastAPIStreamingResponse:
+    """Test-local compatibility helper using process_anthropic_request."""
+    del policy_ctx, call_id, root_span
+    request = _make_mock_fastapi_request(final_request)
+    response = await process_anthropic_request(
+        request=request,
+        policy=policy,
+        anthropic_client=anthropic_client,
+        emitter=MagicMock(),
+    )
+    assert isinstance(response, FastAPIStreamingResponse)
+    return response
 
 
 def _make_echo_response(request: AnthropicRequest) -> AnthropicResponse:
