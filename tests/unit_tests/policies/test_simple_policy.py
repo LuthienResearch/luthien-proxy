@@ -1168,7 +1168,7 @@ class TestSimplePolicyAnthropicBufferManagement:
 
     @pytest.mark.asyncio
     async def test_anthropic_buffers_are_scoped_by_transaction(self):
-        """Anthropic streaming buffers are keyed by (transaction_id, index)."""
+        """Anthropic streaming buffers are request-scoped via typed state."""
         policy = AnthropicUppercasePolicy()
         ctx_a = PolicyContext.for_testing(transaction_id="txn-a")
         ctx_b = PolicyContext.for_testing(transaction_id="txn-b")
@@ -1186,12 +1186,15 @@ class TestSimplePolicyAnthropicBufferManagement:
         await policy.on_anthropic_stream_event(start_a, ctx_a)
         await policy.on_anthropic_stream_event(start_b, ctx_b)
 
-        assert ("txn-a", 0) in policy._text_buffer
-        assert ("txn-b", 0) in policy._text_buffer
+        state_a = policy._anthropic_state(ctx_a)
+        state_b = policy._anthropic_state(ctx_b)
+        assert 0 in state_a.text_buffer
+        assert 0 in state_b.text_buffer
+        assert state_a is not state_b
 
     @pytest.mark.asyncio
     async def test_on_anthropic_streaming_policy_complete_cleans_current_transaction_only(self):
-        """Cleanup only removes Anthropic buffers for the completed transaction."""
+        """Cleanup only removes Anthropic buffers for the completed request."""
         policy = AnthropicUppercasePolicy()
         ctx_a = PolicyContext.for_testing(transaction_id="txn-a")
         ctx_b = PolicyContext.for_testing(transaction_id="txn-b")
@@ -1211,8 +1214,8 @@ class TestSimplePolicyAnthropicBufferManagement:
 
         await policy.on_anthropic_streaming_policy_complete(ctx_a)
 
-        assert ("txn-a", 0) not in policy._text_buffer
-        assert ("txn-b", 0) in policy._text_buffer
+        assert policy._anthropic_state(ctx_a).text_buffer == {}
+        assert 0 in policy._anthropic_state(ctx_b).text_buffer
 
 
 # ===== Error Handling Tests =====

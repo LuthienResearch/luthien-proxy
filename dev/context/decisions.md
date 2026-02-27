@@ -218,6 +218,22 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 - UI/UX specs and mockups
 - Historical planning docs (archived)
 - Competitive research
+
+---
+
+## Typed Request State Slots for Policies (2026-02-27)
+
+**Decision**: Add `StateSlot[T]` + `PolicyContext.get_state()/pop_state()` as the framework primitive for request-scoped mutable policy state.
+
+**Rationale**:
+- **Stateless policy instances**: Keep mutable streaming state off policy objects.
+- **Strict typing**: State is stored as typed dataclasses (`T`) with runtime type checks on retrieval.
+- **Consistent lifecycle**: Works for both OpenAI and Anthropic paths using the existing per-request `PolicyContext`.
+- **Predictable cleanup**: Policies clear request state via `pop_state()` in completion hooks.
+
+**Applied in**:
+- `SimplePolicy` Anthropic buffering state
+- `ToolCallJudgePolicy` OpenAI + Anthropic streaming buffering/blocking state
 - Demo scripts and success stories
 
 **Rationale**:

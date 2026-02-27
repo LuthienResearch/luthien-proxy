@@ -77,14 +77,14 @@ def create_mock_context(
     """Create a mock StreamingPolicyContext for testing."""
     ctx = Mock(spec=StreamingPolicyContext)
 
-    # Create PolicyContext
-    ctx.policy_ctx = Mock(spec=PolicyContext)
-    ctx.policy_ctx.transaction_id = transaction_id
-    ctx.policy_ctx.request = Request(
-        model="test-model",
-        messages=[{"role": "user", "content": "test"}],
+    # Create real PolicyContext so typed state helpers work
+    ctx.policy_ctx = PolicyContext.for_testing(
+        transaction_id=transaction_id,
+        request=Request(
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+        ),
     )
-    ctx.policy_ctx.scratchpad = {}
 
     # Create stream state
     ctx.original_streaming_response_state = StreamState()
@@ -348,7 +348,7 @@ class TestToolCallJudgePolicyOpenAIBlockedMessageChunks:
         await policy.on_tool_call_delta(ctx)
 
         # Verify it was buffered
-        assert ("test-call", 0) in policy._buffered_tool_calls
+        assert 0 in policy._openai_buffered_tool_calls(ctx)
 
         # Now complete it (should be allowed)
         block = ToolCallStreamBlock(
@@ -368,13 +368,13 @@ class TestToolCallJudgePolicyOpenAIBlockedMessageChunks:
             await policy.on_tool_call_complete(ctx)
 
         # Verify buffer is NOT yet cleaned up
-        assert ("test-call", 0) in policy._buffered_tool_calls
+        assert 0 in policy._openai_buffered_tool_calls(ctx)
 
         # Now call cleanup
         await policy.on_streaming_policy_complete(ctx)
 
         # Verify buffer is NOW cleaned up
-        assert ("test-call", 0) not in policy._buffered_tool_calls
+        assert policy._openai_buffered_tool_calls(ctx) == {}
 
 
 class TestToolCallJudgePolicyOpenAIToolCallBuffering:
@@ -417,9 +417,9 @@ class TestToolCallJudgePolicyOpenAIToolCallBuffering:
             await policy.on_tool_call_delta(ctx)
 
         # Verify buffered data
-        key = ("test-call", 0)
-        assert key in policy._buffered_tool_calls
-        buffered = policy._buffered_tool_calls[key]
+        buffered_tool_calls = policy._openai_buffered_tool_calls(ctx)
+        assert 0 in buffered_tool_calls
+        buffered = buffered_tool_calls[0]
 
         assert buffered.id == "call-123"
         assert buffered.name == "test_tool"
@@ -692,7 +692,7 @@ class TestToolCallJudgeOpenAIStreamComplete:
 
         # Mark this call as blocked
         ctx = create_mock_context(transaction_id="blocked-call")
-        policy._blocked_calls.add("blocked-call")
+        policy._openai_mark_blocked(ctx)
 
         ctx.original_streaming_response_state.finish_reason = "tool_calls"
         ctx.original_streaming_response_state.blocks = [
@@ -733,37 +733,17 @@ class TestOpenAIStreamingPolicyComplete:
         policy = ToolCallJudgePolicy()
         ctx = create_mock_context(transaction_id="test-call-1")
 
-        # Manually add some buffered tool calls
-        policy._buffered_tool_calls[("test-call-1", 0)] = {
-            "id": "call_abc",
-            "type": "function",
-            "name": "test_tool",
-            "arguments": '{"arg": "value"}',
-        }
-        policy._buffered_tool_calls[("test-call-1", 1)] = {
-            "id": "call_def",
-            "type": "function",
-            "name": "another_tool",
-            "arguments": "{}",
-        }
-        # Add a buffer for a different call (should not be removed)
-        policy._buffered_tool_calls[("other-call", 0)] = {
-            "id": "call_xyz",
-            "type": "function",
-            "name": "other_tool",
-            "arguments": "{}",
-        }
-
-        assert len(policy._buffered_tool_calls) == 3
+        # Manually add buffered tool calls in request-scoped state
+        tool_calls = policy._openai_buffered_tool_calls(ctx)
+        tool_calls[0] = ToolCallStreamBlock(id="call_abc", index=0, name="test_tool", arguments='{"arg":"value"}')
+        tool_calls[1] = ToolCallStreamBlock(id="call_def", index=1, name="another_tool", arguments="{}")
+        assert len(tool_calls) == 2
 
         # Call cleanup
         await policy.on_streaming_policy_complete(ctx)
 
-        # Only the current call's buffers should be removed
-        assert len(policy._buffered_tool_calls) == 1
-        assert ("other-call", 0) in policy._buffered_tool_calls
-        assert ("test-call-1", 0) not in policy._buffered_tool_calls
-        assert ("test-call-1", 1) not in policy._buffered_tool_calls
+        # Current request state should be cleared.
+        assert policy._openai_buffered_tool_calls(ctx) == {}
 
     @pytest.mark.asyncio
     async def test_cleanup_clears_blocked_calls(self):
@@ -771,19 +751,14 @@ class TestOpenAIStreamingPolicyComplete:
         policy = ToolCallJudgePolicy()
         ctx = create_mock_context(transaction_id="test-call-1")
 
-        # Mark some calls as blocked
-        policy._blocked_calls.add("test-call-1")
-        policy._blocked_calls.add("other-call")
-
-        assert len(policy._blocked_calls) == 2
+        policy._openai_mark_blocked(ctx)
+        assert policy._openai_is_blocked(ctx)
 
         # Call cleanup
         await policy.on_streaming_policy_complete(ctx)
 
-        # Only the current call should be removed
-        assert len(policy._blocked_calls) == 1
-        assert "other-call" in policy._blocked_calls
-        assert "test-call-1" not in policy._blocked_calls
+        # Current request state should be cleared.
+        assert not policy._openai_is_blocked(ctx)
 
     @pytest.mark.asyncio
     async def test_cleanup_handles_empty_buffers(self):
@@ -794,8 +769,8 @@ class TestOpenAIStreamingPolicyComplete:
         # Should not raise any errors
         await policy.on_streaming_policy_complete(ctx)
 
-        assert len(policy._buffered_tool_calls) == 0
-        assert len(policy._blocked_calls) == 0
+        assert policy._openai_buffered_tool_calls(ctx) == {}
+        assert not policy._openai_is_blocked(ctx)
 
 
 # ==============================================================================
@@ -1171,10 +1146,10 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         # Should filter out (return empty list) while buffering
         assert result == []
         # Should have buffered the data
-        key = (ctx.transaction_id, 0)
-        assert key in policy._buffered_tool_uses
-        assert policy._buffered_tool_uses[key]["id"] == "tool_123"
-        assert policy._buffered_tool_uses[key]["name"] == "get_weather"
+        buffered_tool_uses = policy._anthropic_buffered_tool_uses(ctx)
+        assert 0 in buffered_tool_uses
+        assert buffered_tool_uses[0].id == "tool_123"
+        assert buffered_tool_uses[0].name == "get_weather"
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_buffers_input_json_delta(self):
@@ -1214,8 +1189,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         assert result1 == []
         assert result2 == []
         # Should have accumulated the JSON
-        key = (ctx.transaction_id, 0)
-        assert policy._buffered_tool_uses[key]["input_json"] == '{"location": "SF"}'
+        assert policy._anthropic_buffered_tool_uses(ctx)[0].input_json == '{"location": "SF"}'
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_judges_on_block_stop_allowed(self):
@@ -1277,7 +1251,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         # Third event: the original stop event
         assert isinstance(result[2], RawContentBlockStopEvent)
         # Buffer should be cleared
-        assert (ctx.transaction_id, 0) not in policy._buffered_tool_uses
+        assert 0 not in policy._anthropic_buffered_tool_uses(ctx)
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_judges_on_block_stop_blocked(self):
@@ -1337,9 +1311,9 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         # Third event: the original stop event
         assert isinstance(result[2], RawContentBlockStopEvent)
         # Should have marked the block as blocked
-        assert (ctx.transaction_id, 0) in policy._blocked_blocks
+        assert 0 in policy._anthropic_blocked_blocks(ctx)
         # Buffer should be cleared
-        assert (ctx.transaction_id, 0) not in policy._buffered_tool_uses
+        assert 0 not in policy._anthropic_buffered_tool_uses(ctx)
 
 
 class TestToolCallJudgePolicyAnthropicStreamingErrorHandling:
@@ -1393,7 +1367,7 @@ class TestToolCallJudgePolicyAnthropicStreamingErrorHandling:
         assert isinstance(result[1].delta, TextDelta)
         assert "test_tool" in result[1].delta.text
         assert isinstance(result[2], RawContentBlockStopEvent)
-        assert (ctx.transaction_id, 0) in policy._blocked_blocks
+        assert 0 in policy._anthropic_blocked_blocks(ctx)
 
     @pytest.mark.asyncio
     async def test_on_anthropic_streaming_policy_complete_cleans_only_current_transaction(self):
@@ -1415,15 +1389,15 @@ class TestToolCallJudgePolicyAnthropicStreamingErrorHandling:
         await policy.on_anthropic_stream_event(start_a, ctx_a)
         await policy.on_anthropic_stream_event(start_b, ctx_b)
 
-        policy._blocked_blocks.add(("txn-a", 0))
-        policy._blocked_blocks.add(("txn-b", 0))
+        policy._anthropic_blocked_blocks(ctx_a).add(0)
+        policy._anthropic_blocked_blocks(ctx_b).add(0)
 
         await policy.on_anthropic_streaming_policy_complete(ctx_a)
 
-        assert ("txn-a", 0) not in policy._buffered_tool_uses
-        assert ("txn-b", 0) in policy._buffered_tool_uses
-        assert ("txn-a", 0) not in policy._blocked_blocks
-        assert ("txn-b", 0) in policy._blocked_blocks
+        assert policy._anthropic_buffered_tool_uses(ctx_a) == {}
+        assert 0 in policy._anthropic_buffered_tool_uses(ctx_b)
+        assert policy._anthropic_blocked_blocks(ctx_a) == set()
+        assert 0 in policy._anthropic_blocked_blocks(ctx_b)
 
 
 class CapturingEmitter:
