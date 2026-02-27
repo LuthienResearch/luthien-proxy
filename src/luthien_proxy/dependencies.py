@@ -37,6 +37,7 @@ class Dependencies:
     admin_key: str | None
     anthropic_client: AnthropicClient | None = field(default=None)
     credential_manager: CredentialManager | None = field(default=None)
+    enable_request_logging: bool = field(default=False)
 
     @property
     def policy(self) -> OpenAIPolicyInterface:

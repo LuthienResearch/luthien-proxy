@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     service_version: str = "2.0.0"
     environment: str = "development"
 
+    # Request/response logging
+    enable_request_logging: bool = False
+
     # LLM Judge policy configuration
     llm_judge_model: str | None = None
     llm_judge_api_base: str | None = None

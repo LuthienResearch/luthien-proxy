@@ -84,6 +84,8 @@ class TestGatewayAuthAndClientResolution:
         deps.credential_manager = mock_credential_manager
         deps.policy = mock_policy
         deps.emitter = MagicMock()
+        deps.db_pool = None
+        deps.enable_request_logging = False
         deps.get_anthropic_policy.return_value = mock_anthropic_policy
 
         app.state.dependencies = deps

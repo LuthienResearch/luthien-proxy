@@ -13,6 +13,8 @@ from luthien_proxy.dependencies import (
     get_anthropic_policy,
     get_api_key,
     get_credential_manager,
+    get_db_pool,
+    get_dependencies,
     get_emitter,
     get_llm_client,
     get_policy,
@@ -25,6 +27,7 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
 )
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
+from luthien_proxy.utils import db
 
 router = APIRouter(tags=["gateway"])
 security = HTTPBearer(auto_error=False)
@@ -127,13 +130,17 @@ async def chat_completions(
     policy: OpenAIPolicyInterface = Depends(get_policy),
     llm_client: LLMClient = Depends(get_llm_client),
     emitter: EventEmitterProtocol = Depends(get_emitter),
+    db_pool: db.DatabasePool | None = Depends(get_db_pool),
 ):
     """OpenAI-compatible chat completions endpoint."""
+    deps = get_dependencies(request)
     return await process_llm_request(
         request=request,
         policy=policy,
         llm_client=llm_client,
         emitter=emitter,
+        db_pool=db_pool,
+        enable_request_logging=deps.enable_request_logging,
     )
 
 
@@ -143,13 +150,17 @@ async def anthropic_messages(
     anthropic_client: AnthropicClient = Depends(resolve_anthropic_client),
     anthropic_policy: AnthropicExecutionInterface = Depends(get_anthropic_policy),
     emitter: EventEmitterProtocol = Depends(get_emitter),
+    db_pool: db.DatabasePool | None = Depends(get_db_pool),
 ):
     """Anthropic Messages API endpoint (native Anthropic path)."""
+    deps = get_dependencies(request)
     return await process_anthropic_request(
         request=request,
         policy=anthropic_policy,
         anthropic_client=anthropic_client,
         emitter=emitter,
+        db_pool=db_pool,
+        enable_request_logging=deps.enable_request_logging,
     )
 
 

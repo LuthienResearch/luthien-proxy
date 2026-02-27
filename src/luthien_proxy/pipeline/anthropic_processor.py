@@ -50,8 +50,10 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyIOProtocol,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
+from luthien_proxy.request_log.recorder import RequestLogRecorder, create_recorder
 from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
+from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
 
@@ -84,6 +86,8 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         emitter: EventEmitterProtocol,
         call_id: str,
         session_id: str | None,
+        request_log_recorder: RequestLogRecorder,
+        is_streaming: bool,
     ) -> None:
         self._request = initial_request
         self._initial_request = initial_request
@@ -91,6 +95,8 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._emitter = emitter
         self._call_id = call_id
         self._session_id = session_id
+        self._request_log_recorder = request_log_recorder
+        self._is_streaming = is_streaming
         self._request_recorded = False
         self._first_backend_response: AnthropicResponse | None = None
 
@@ -131,10 +137,17 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         """Record backend request events."""
         self.ensure_request_recorded(request)
 
+        request_payload = dict(request)
         self._emitter.record(
             self._call_id,
             "pipeline.backend_request",
-            {"payload": dict(request), "session_id": self._session_id},
+            {"payload": request_payload, "session_id": self._session_id},
+        )
+        self._request_log_recorder.record_outbound_request(
+            body=request_payload,
+            model=request["model"],
+            is_streaming=self._is_streaming,
+            endpoint="/v1/messages",
         )
 
     async def complete(self, request: AnthropicRequest | None = None) -> AnthropicResponse:
@@ -181,6 +194,8 @@ async def process_anthropic_request(
     policy: AnthropicExecutionInterface,
     anthropic_client: AnthropicClient,
     emitter: EventEmitterProtocol,
+    db_pool: db.DatabasePool | None = None,
+    enable_request_logging: bool = False,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an Anthropic API request through the native pipeline.
 
@@ -191,6 +206,8 @@ async def process_anthropic_request(
         policy: Anthropic execution policy
         anthropic_client: Client for calling Anthropic API
         emitter: Event emitter for observability
+        db_pool: Database connection pool for request logging
+        enable_request_logging: Whether to record HTTP-level request/response logs
 
     Returns:
         StreamingResponse or JSONResponse depending on stream parameter
@@ -203,6 +220,7 @@ async def process_anthropic_request(
         raise TypeError(f"Policy must implement AnthropicExecutionInterface, got {type(policy).__name__}.")
 
     call_id = str(uuid.uuid4())
+    request_log_recorder = create_recorder(db_pool, call_id, enable_request_logging)
 
     with tracer.start_as_current_span("anthropic_transaction_processing") as root_span:
         root_span.set_attribute("luthien.transaction_id", call_id)
@@ -222,6 +240,17 @@ async def process_anthropic_request(
         root_span.set_attribute("luthien.stream", is_streaming)
         if session_id:
             root_span.set_attribute("luthien.session_id", session_id)
+
+        request_log_recorder.record_inbound_request(
+            method=raw_http_request.method,
+            url=raw_http_request.path,
+            headers=raw_http_request.headers,
+            body=dict(raw_http_request.body),
+            session_id=session_id,
+            model=model,
+            is_streaming=is_streaming,
+            endpoint="/v1/messages",
+        )
 
         # Create policy context
         policy_ctx = PolicyContext(
@@ -244,6 +273,7 @@ async def process_anthropic_request(
             call_id=call_id,
             is_streaming=is_streaming,
             root_span=root_span,
+            request_log_recorder=request_log_recorder,
         )
 
         # Propagate policy summaries if set
@@ -330,6 +360,7 @@ async def _execute_anthropic_policy(
     call_id: str,
     is_streaming: bool,
     root_span: Span,
+    request_log_recorder: RequestLogRecorder,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Execute an Anthropic policy using the execution-oriented runtime."""
     io = _AnthropicPolicyIO(
@@ -338,6 +369,8 @@ async def _execute_anthropic_policy(
         emitter=emitter,
         call_id=call_id,
         session_id=policy_ctx.session_id,
+        request_log_recorder=request_log_recorder,
+        is_streaming=is_streaming,
     )
     emissions = execution_policy.run_anthropic(io, policy_ctx)
 
@@ -348,6 +381,7 @@ async def _execute_anthropic_policy(
             call_id=call_id,
             root_span=root_span,
             policy_ctx=policy_ctx,
+            request_log_recorder=request_log_recorder,
         )
 
     return await _handle_execution_non_streaming(
@@ -356,6 +390,7 @@ async def _execute_anthropic_policy(
         emitter=emitter,
         policy_ctx=policy_ctx,
         call_id=call_id,
+        request_log_recorder=request_log_recorder,
     )
 
 
@@ -365,6 +400,7 @@ async def _handle_execution_streaming(
     call_id: str,
     root_span: Span,
     policy_ctx: PolicyContext,
+    request_log_recorder: RequestLogRecorder,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow for execution-oriented policies."""
     parent_context = get_current()
@@ -374,6 +410,7 @@ async def _handle_execution_streaming(
         with restore_context(parent_context):
             chunk_count = 0
             emitted_any = False
+            final_status = 200
             with tracer.start_as_current_span("process_response") as response_span:
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
@@ -396,6 +433,12 @@ async def _handle_execution_streaming(
                         "policy.execution.streaming_error",
                         {"summary": "Execution policy raised during streaming", "error": str(e)},
                     )
+                    if isinstance(e, AnthropicStatusError):
+                        final_status = e.status_code or 500
+                    elif isinstance(e, AnthropicConnectionError):
+                        final_status = 503
+                    else:
+                        final_status = 500
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
@@ -412,6 +455,10 @@ async def _handle_execution_streaming(
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
+                    # Streaming bodies are not captured (too large to store efficiently)
+                    request_log_recorder.record_inbound_response(status=final_status)
+                    request_log_recorder.record_outbound_response(status=final_status)
+                    request_log_recorder.flush()
 
     return FastAPIStreamingResponse(
         streaming_with_spans(),
@@ -430,6 +477,7 @@ async def _handle_execution_non_streaming(
     emitter: EventEmitterProtocol,
     policy_ctx: PolicyContext,
     call_id: str,
+    request_log_recorder: RequestLogRecorder,
 ) -> JSONResponse:
     """Handle non-streaming response flow for execution-oriented policies."""
     final_response: AnthropicResponse | None = None
@@ -482,15 +530,19 @@ async def _handle_execution_non_streaming(
 
     with tracer.start_as_current_span("send_to_client") as span:
         span.set_attribute("luthien.phase", "send_to_client")
+        final_response_payload = dict(final_response)
 
         emitter.record(
             call_id,
             "pipeline.client_response",
-            {"payload": dict(final_response), "session_id": policy_ctx.session_id},
+            {"payload": final_response_payload, "session_id": policy_ctx.session_id},
         )
+        request_log_recorder.record_outbound_response(body=final_response_payload, status=200)
+        request_log_recorder.record_inbound_response(status=200, body=final_response_payload)
+        request_log_recorder.flush()
 
         return JSONResponse(
-            content=dict(final_response),
+            content=final_response_payload,
             headers={"X-Call-ID": call_id},
         )
 
