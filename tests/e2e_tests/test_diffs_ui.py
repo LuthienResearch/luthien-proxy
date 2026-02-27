@@ -34,10 +34,11 @@ async def test_diffs_page_requires_auth(http_client, gateway_healthy):
     # Request without auth should redirect to login
     response = await http_client.get(f"{GATEWAY_URL}/diffs", follow_redirects=False)
 
-    # Should either redirect (302) or return unauthorized (401)
-    assert response.status_code in [302, 401], f"Expected redirect or unauthorized, got {response.status_code}"
+    # Redirect semantics may be 302 or 303 depending on FastAPI/Starlette response handling.
+    # Some deployments can also return 401 directly.
+    assert response.status_code in [302, 303, 401], f"Expected redirect or unauthorized, got {response.status_code}"
 
-    if response.status_code == 302:
+    if response.status_code in (302, 303):
         location = response.headers.get("location", "")
         assert "/login" in location, f"Expected redirect to login page, got: {location}"
 
