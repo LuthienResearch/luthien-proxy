@@ -205,6 +205,22 @@ class TestCallCountTokens:
         assert "x-api-key" not in headers
 
     @pytest.mark.asyncio
+    async def test_bearer_api_key_uses_x_api_key_header(self):
+        """Anthropic API keys sent as Bearer should still use x-api-key upstream."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=True)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["x-api-key"] == "sk-ant-api03-abc123"
+        assert "authorization" not in headers
+
+    @pytest.mark.asyncio
     async def test_bearer_token_includes_oauth_beta_header(self):
         """Bearer tokens should include the OAuth beta flag in anthropic-beta."""
         mock_response = MagicMock()
@@ -230,6 +246,21 @@ class TestCallCountTokens:
         manager = CredentialManager(db_pool=None, redis_client=None)
         manager._http_client = mock_client
         await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=False)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert "oauth-2025-04-20" not in headers["anthropic-beta"]
+
+    @pytest.mark.asyncio
+    async def test_bearer_api_key_excludes_oauth_beta_header(self):
+        """Anthropic API keys in Bearer form should not use OAuth beta header."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=True)
 
         headers = mock_client.post.call_args.kwargs["headers"]
         assert "oauth-2025-04-20" not in headers["anthropic-beta"]

@@ -658,8 +658,12 @@ class TestMultiParallelExecution:
         ctx = PolicyContext.for_testing()
         response = make_response("hello world")
 
-        # Patch one sub-policy to raise
-        policy._sub_policies[1].on_openai_response = AsyncMock(side_effect=RuntimeError("policy exploded"))
+        # Patch one sub-policy to raise.
+        object.__setattr__(
+            policy._sub_policies[1],
+            "on_openai_response",
+            AsyncMock(side_effect=RuntimeError("policy exploded")),
+        )
 
         with pytest.raises(RuntimeError, match="policy exploded"):
             await policy.on_openai_response(response, ctx)
@@ -674,7 +678,11 @@ class TestMultiParallelExecution:
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello world")
 
-        policy._sub_policies[1].on_anthropic_response = AsyncMock(side_effect=RuntimeError("anthropic exploded"))
+        object.__setattr__(
+            policy._sub_policies[1],
+            "on_anthropic_response",
+            AsyncMock(side_effect=RuntimeError("anthropic exploded")),
+        )
 
         with pytest.raises(RuntimeError, match="anthropic exploded"):
             await policy.on_anthropic_response(response, ctx)

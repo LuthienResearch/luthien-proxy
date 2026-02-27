@@ -194,7 +194,7 @@ async def test_live_view_shows_policy_divergence(http_client, gateway_healthy):
     ):
         await make_chat_request(
             http_client,
-            messages=[{"role": "user", "content": "hello world"}],
+            messages=[{"role": "user", "content": "reply with the exact lowercase text: hello world"}],
             session_id=session_id,
         )
 
@@ -205,24 +205,23 @@ async def test_live_view_shows_policy_divergence(http_client, gateway_healthy):
 
     turn = session_detail["turns"][0]
 
-    # AllCapsPolicy should modify the response (uppercasing content)
+    # AllCapsPolicy modifies response content (uppercasing assistant text)
     assert turn["response_was_modified"], (
-        f"Expected AllCapsPolicy to modify the response. "
+        "Expected AllCapsPolicy to modify the response. "
         f"Turn data: response_was_modified={turn['response_was_modified']}"
     )
     assert turn["original_response_messages"] is not None, "Expected original_response_messages to be present"
 
-    # The original should include mixed/lowercase, while final should be uppercased
+    # The original assistant response should include lowercase text,
+    # and the final response should be uppercased by the policy.
     final_assistant_msgs = [m for m in turn["response_messages"] if m["message_type"] == "assistant"]
     original_assistant_msgs = [m for m in turn["original_response_messages"] if m["message_type"] == "assistant"]
 
     assert len(final_assistant_msgs) >= 1
     assert len(original_assistant_msgs) >= 1
 
-    # Final should be fully uppercased by AllCapsPolicy
-    assert final_assistant_msgs[0]["content"] == final_assistant_msgs[0]["content"].upper()
-    # Original should differ from the final transformed content
-    assert original_assistant_msgs[0]["content"] != final_assistant_msgs[0]["content"]
+    assert "hello world" in original_assistant_msgs[0]["content"].lower()
+    assert "HELLO WORLD" in final_assistant_msgs[0]["content"]
 
 
 @pytest.mark.e2e

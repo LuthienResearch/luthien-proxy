@@ -88,14 +88,16 @@ class PolicyOrchestrator:
             span.set_attribute("request.model", request.model)
             span.set_attribute("request.message_count", len(request.messages))
 
+            # Snapshot before policy execution so in-place policy mutations do not
+            # erase original request state in transaction recording.
+            original_request = request.model_copy(deep=True)
+
             # Set request in context for policy access
             policy_ctx.request = request
 
-            # Snapshot original before policy hooks in case policy mutates in place.
-            original_request = request.model_copy(deep=True)
-
             # Call policy's on_openai_request hook
             final_request = await self.policy.on_openai_request(request, policy_ctx)
+            policy_ctx.request = final_request
             await self.transaction_recorder.record_request(original_request, final_request)
 
             span.set_attribute("request.modified", final_request != original_request)
@@ -171,7 +173,8 @@ class PolicyOrchestrator:
         with tracer.start_as_current_span("policy.process_response") as span:
             span.set_attribute("policy.class", self.policy.__class__.__name__)
 
-            # Snapshot original before policy hooks in case policy mutates in place.
+            # Snapshot before policy execution so in-place policy mutations do not
+            # erase original response state in transaction recording.
             original_response = response.model_copy(deep=True)
 
             # Call policy's on_openai_response hook

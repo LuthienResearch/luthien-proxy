@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from anthropic.types import (
@@ -60,6 +61,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class _BufferedAnthropicToolUse:
+    id: str
+    name: str
+    input_json: str = ""
+
+
+@dataclass
+class _SimplePolicyAnthropicState:
+    text_buffer: dict[int, str] = field(default_factory=dict)
+    tool_buffer: dict[int, _BufferedAnthropicToolUse] = field(default_factory=dict)
+
+
 class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
     """Convenience base class for content-level transformations.
 
@@ -78,11 +92,9 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
     methods are called for both formats, with appropriate type conversions handled internally.
     """
 
-    def __init__(self) -> None:
-        """Initialize the policy with empty stream buffers for Anthropic streaming."""
-        # Buffer for Anthropic streaming content: maps block index to accumulated content
-        self._text_buffer: dict[int, str] = {}
-        self._tool_buffer: dict[int, dict] = {}
+    def _anthropic_state(self, context: "PolicyContext") -> _SimplePolicyAnthropicState:
+        """Get or create typed request-scoped Anthropic state."""
+        return context.get_policy_state(self, _SimplePolicyAnthropicState, _SimplePolicyAnthropicState)
 
     # ===== Simple methods that subclasses override =====
 
@@ -289,6 +301,14 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
         """
         pass
 
+    async def on_anthropic_stream_complete(self, context: PolicyContext) -> None:
+        """No-op hook for parity with OpenAI lifecycle."""
+        pass
+
+    async def on_anthropic_streaming_policy_complete(self, context: PolicyContext) -> None:
+        """Clear request-scoped Anthropic buffers."""
+        context.pop_policy_state(self, _SimplePolicyAnthropicState)
+
     # ===== Anthropic non-streaming hooks =====
 
     async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
@@ -386,47 +406,48 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
         # Content block start: initialize buffer
         if isinstance(event, RawContentBlockStartEvent):
             index = event.index
+            state = self._anthropic_state(context)
             content_block = event.content_block
 
             # Initialize appropriate buffer based on block type
             if hasattr(content_block, "type"):
                 if content_block.type == "text":
-                    self._text_buffer[index] = ""
+                    state.text_buffer[index] = ""
                 elif content_block.type == "tool_use":
                     # Initialize tool buffer with block info from SDK ToolUseBlock
                     if isinstance(content_block, ToolUseBlock):
-                        self._tool_buffer[index] = {
-                            "id": content_block.id,
-                            "name": content_block.name,
-                            "input_json": "",
-                        }
+                        state.tool_buffer[index] = _BufferedAnthropicToolUse(
+                            id=content_block.id,
+                            name=content_block.name,
+                        )
 
             return [event]
 
         # Content block delta: accumulate in buffer, suppress output
         if isinstance(event, RawContentBlockDeltaEvent):
             index = event.index
+            state = self._anthropic_state(context)
             delta = event.delta
 
             if isinstance(delta, TextDelta):
                 # Accumulate text delta
-                if index not in self._text_buffer:
+                if index not in state.text_buffer:
                     raise RuntimeError(
                         f"Received TextDelta for index {index} but no buffer exists. "
                         "This indicates a missing content_block_start event."
                     )
-                self._text_buffer[index] += delta.text
+                state.text_buffer[index] += delta.text
                 # Suppress the delta - we'll emit on stop
                 return []
 
             if isinstance(delta, InputJSONDelta):
                 # Accumulate JSON delta for tool calls
-                if index not in self._tool_buffer:
+                if index not in state.tool_buffer:
                     raise RuntimeError(
                         f"Received InputJSONDelta for index {index} but no buffer exists. "
                         "This indicates a missing content_block_start event."
                     )
-                self._tool_buffer[index]["input_json"] += delta.partial_json
+                state.tool_buffer[index].input_json += delta.partial_json
                 # Suppress the delta - we'll emit on stop
                 return []
 
@@ -436,10 +457,11 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
         # Content block stop: emit transformed content
         if isinstance(event, RawContentBlockStopEvent):
             index = event.index
+            state = self._anthropic_state(context)
 
             # Handle text block completion
-            if index in self._text_buffer:
-                content = self._text_buffer.pop(index)
+            if index in state.text_buffer:
+                content = state.text_buffer.pop(index)
                 transformed = await self.simple_on_response_content(content, context)
 
                 # Emit the complete transformed text as a single delta before the stop
@@ -456,16 +478,16 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
                 return [delta_event, event]
 
             # Handle tool call completion
-            if index in self._tool_buffer:
-                tool_info = self._tool_buffer.pop(index)
+            if index in state.tool_buffer:
+                tool_info = state.tool_buffer.pop(index)
 
                 # Parse the accumulated JSON - empty string means no input
-                input_data = json.loads(tool_info["input_json"]) if tool_info["input_json"] else {}
+                input_data = json.loads(tool_info.input_json) if tool_info.input_json else {}
 
                 tool_block: AnthropicToolUseBlock = {
                     "type": "tool_use",
-                    "id": tool_info["id"],
-                    "name": tool_info["name"],
+                    "id": tool_info.id,
+                    "name": tool_info.name,
                     "input": input_data,
                 }
 

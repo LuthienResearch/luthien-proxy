@@ -275,6 +275,49 @@ class TestMultiSerialAnthropicStreamEvent:
 
 
 # =============================================================================
+# Anthropic Stream Lifecycle Hook Chaining
+# =============================================================================
+
+
+class TestMultiSerialAnthropicStreamLifecycle:
+    @pytest.mark.asyncio
+    async def test_stream_complete_delegates_to_subpolicies(self):
+        class TrackingAnthropicPolicy(AnthropicOnlyPolicy):
+            def __init__(self):
+                super().__init__()
+                self.complete_calls = 0
+
+            async def on_anthropic_stream_complete(self, context: PolicyContext) -> None:
+                self.complete_calls += 1
+
+        tracking = TrackingAnthropicPolicy()
+        policy = MultiSerialPolicy(policies=[])
+        policy._sub_policies = [tracking]
+
+        await policy.on_anthropic_stream_complete(PolicyContext.for_testing())
+
+        assert tracking.complete_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_streaming_policy_complete_delegates_to_subpolicies(self):
+        class TrackingAnthropicPolicy(AnthropicOnlyPolicy):
+            def __init__(self):
+                super().__init__()
+                self.cleanup_calls = 0
+
+            async def on_anthropic_streaming_policy_complete(self, context: PolicyContext) -> None:
+                self.cleanup_calls += 1
+
+        tracking = TrackingAnthropicPolicy()
+        policy = MultiSerialPolicy(policies=[])
+        policy._sub_policies = [tracking]
+
+        await policy.on_anthropic_streaming_policy_complete(PolicyContext.for_testing())
+
+        assert tracking.cleanup_calls == 1
+
+
+# =============================================================================
 # Composability (Nested MultiSerialPolicy)
 # =============================================================================
 

@@ -662,3 +662,90 @@ class TestAnthropicStreamExecutorMultiEvent:
 
         # 1 (message_start) + 3 (A expanded) + 3 (B expanded) = 7
         assert len(results) == 7
+
+
+# =============================================================================
+# Tests for Anthropic Stream Lifecycle Parity
+# =============================================================================
+
+
+class LifecycleTrackingPolicy(AnthropicPolicyInterface):
+    """Policy that tracks Anthropic stream lifecycle hook invocations."""
+
+    def __init__(self, fail_on_text: str | None = None):
+        self.fail_on_text = fail_on_text
+        self.stream_complete_calls: list[str] = []
+        self.cleanup_calls: list[str] = []
+
+    @property
+    def short_policy_name(self) -> str:
+        return "LifecycleTracking"
+
+    async def on_anthropic_request(self, request: Any, context: PolicyContext) -> Any:
+        return request
+
+    async def on_anthropic_response(self, response: Any, context: PolicyContext) -> Any:
+        return response
+
+    async def on_anthropic_stream_event(
+        self, event: AnthropicStreamEvent, context: PolicyContext
+    ) -> list[AnthropicStreamEvent]:
+        if (
+            self.fail_on_text is not None
+            and isinstance(event, RawContentBlockDeltaEvent)
+            and isinstance(event.delta, TextDelta)
+            and self.fail_on_text in event.delta.text
+        ):
+            raise RuntimeError("synthetic lifecycle failure")
+        return [event]
+
+    async def on_anthropic_stream_complete(self, context: PolicyContext) -> None:
+        self.stream_complete_calls.append(context.transaction_id)
+
+    async def on_anthropic_streaming_policy_complete(self, context: PolicyContext) -> None:
+        self.cleanup_calls.append(context.transaction_id)
+
+
+class TestAnthropicStreamExecutorLifecycleParity:
+    """Tests for Anthropic lifecycle hooks matching OpenAI cleanup semantics."""
+
+    @pytest.mark.asyncio
+    async def test_calls_stream_complete_and_cleanup_on_success(self, policy_ctx: PolicyContext):
+        executor = AnthropicStreamExecutor()
+        policy = LifecycleTrackingPolicy()
+
+        stream = async_iter_from_list(
+            [
+                make_message_start_event(),
+                make_text_delta_event("hello"),
+                make_message_stop_event(),
+            ]
+        )
+
+        results = []
+        async for event in executor.process(stream, policy, policy_ctx):
+            results.append(event)
+
+        assert len(results) == 3
+        assert policy.stream_complete_calls == [policy_ctx.transaction_id]
+        assert policy.cleanup_calls == [policy_ctx.transaction_id]
+
+    @pytest.mark.asyncio
+    async def test_calls_cleanup_even_when_policy_raises(self, policy_ctx: PolicyContext):
+        executor = AnthropicStreamExecutor()
+        policy = LifecycleTrackingPolicy(fail_on_text="boom")
+
+        stream = async_iter_from_list(
+            [
+                make_text_delta_event("ok"),
+                make_text_delta_event("boom"),
+            ]
+        )
+
+        with pytest.raises(RuntimeError, match="synthetic lifecycle failure"):
+            async for _ in executor.process(stream, policy, policy_ctx):
+                pass
+
+        # Stream completion should not run on failure, cleanup must always run.
+        assert policy.stream_complete_calls == []
+        assert policy.cleanup_calls == [policy_ctx.transaction_id]

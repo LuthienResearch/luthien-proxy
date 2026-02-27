@@ -246,6 +246,33 @@ if stream_state.finish_reason:
 - **Related**: PR #203 (orphaned containers — previous Docker self-interference incident)
 - **Dangerous commands to watch for**: `docker compose down`, `docker stop`, `docker compose restart` (on gateway), `kill` on gateway PID, `docker compose exec db` (DB access)
 
+## In-Place Policy Mutation Can Hide Live-View Diffs (2026-02-27)
+
+**Gotcha**: If the orchestrator records "original" request/response objects *after* policy hooks run, in-place policy mutation destroys the pre-policy snapshot and `request_was_modified` / `response_was_modified` become false even when content changed.
+
+- **Symptom**: Live view shows transformed output (e.g., ALL CAPS) but `original_*_messages` are missing and `*_was_modified=false`
+- **Cause**: Passing mutable objects directly to `record_request()` / `record_response()` without deep-copying before hook execution
+- **Fix**: In `PolicyOrchestrator`, snapshot with `model_copy(deep=True)` before calling policy hooks, then record `(original_snapshot, final_object)`
+- **Regression coverage**: `tests/unit_tests/orchestration/test_policy_orchestrator_request.py` includes in-place mutation tests for both request and response recording
+
+## Policy Config Validation Flags Public Mutable Attrs (2026-02-27)
+
+**Gotcha**: Policy loading runs a lightweight validation step via `_instantiate_policy(...)` that rejects public mutable container attrs.
+
+- **Symptom**: Policy load fails with `TypeError` about a mutable container attr
+- **Cause**: Public policy attrs should represent immutable config; mutable request data belongs in request context
+- **Correct pattern**: Keep request-scoped mutable data in `PolicyContext.get_policy_state()` / `pop_policy_state()`
+- **Scope**: This is load-time validation only (no runtime instance freezing)
+
+## Passthrough Auth Mode Is DB-Persisted, Not Just Env (2026-02-27)
+
+**Gotcha**: `AUTH_MODE` env var is only the startup default; the effective mode is loaded from `auth_config` in DB on startup. If DB says `proxy_key`, passthrough tests will skip/fail even when container env has `AUTH_MODE=both`.
+
+- **Symptom**: Passthrough tests skip with "Gateway not in passthrough/both auth mode" while env shows `AUTH_MODE=both`
+- **Fix**: Set mode explicitly via admin API: `POST /admin/auth/config {"auth_mode":"both"}`
+
+**Related gotcha**: Anthropic API keys (`sk-ant-api...`) passed in `Authorization: Bearer ...` are not valid bearer/OAuth tokens at Anthropic. Gateway now detects this format and validates/forwards them via `x-api-key` transport.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

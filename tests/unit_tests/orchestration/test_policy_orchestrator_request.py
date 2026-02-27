@@ -75,6 +75,47 @@ class MockLLMClient(LLMClient):
         raise NotImplementedError
 
 
+class InPlaceMutatingPolicy(OpenAIPolicyInterface):
+    """Policy that mutates request/response objects in place."""
+
+    @property
+    def short_policy_name(self) -> str:
+        return "InPlaceMutatingPolicy"
+
+    async def on_openai_request(self, request: Request, context: PolicyContext) -> Request:
+        request.temperature = 0.25
+        return request
+
+    async def on_openai_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
+        if response.choices:
+            response.choices[0].message.content = str(response.choices[0].message.content).upper()
+        return response
+
+    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_content_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_finish_reason(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+    async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
+        pass
+
+
 @pytest.fixture
 def setup_tracing():
     """Setup OpenTelemetry tracing for tests."""
@@ -190,6 +231,31 @@ def orchestrator_with_recording(setup_tracing):
     ), recorder
 
 
+@pytest.fixture
+def orchestrator_with_in_place_policy(setup_tracing):
+    """Create orchestrator with in-place mutating policy and recorder spy."""
+    from unittest.mock import AsyncMock
+
+    from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatter
+    from luthien_proxy.streaming.policy_executor import PolicyExecutor
+
+    policy = InPlaceMutatingPolicy()
+    recorder = NoOpTransactionRecorder()
+
+    recorder.record_request = AsyncMock(wraps=recorder.record_request)
+    recorder.record_response = AsyncMock(wraps=recorder.record_response)
+
+    policy_executor = PolicyExecutor(recorder=recorder)
+    client_formatter = OpenAIClientFormatter(model_name="gpt-4")
+
+    return PolicyOrchestrator(
+        policy=policy,
+        policy_executor=policy_executor,
+        client_formatter=client_formatter,
+        transaction_recorder=recorder,
+    ), recorder
+
+
 @pytest.mark.asyncio
 async def test_process_request_records_transaction(orchestrator_with_recording, setup_tracing):
     """Test that process_request calls record_request with original and final requests."""
@@ -244,3 +310,59 @@ async def test_process_full_response_records_transaction(orchestrator_with_recor
     call_args = recorder.record_response.call_args
     assert call_args[0][0] == original_response  # First positional arg
     assert call_args[0][1] == final_response  # Second positional arg
+
+
+@pytest.mark.asyncio
+async def test_process_request_records_pre_mutation_snapshot(orchestrator_with_in_place_policy, setup_tracing):
+    """record_request should receive original request even when policy mutates in place."""
+    orch, recorder = orchestrator_with_in_place_policy
+    tracer = setup_tracing
+
+    request = Request(
+        model="gpt-4",
+        messages=[{"role": "user", "content": "Hello"}],
+        temperature=1.0,
+    )
+
+    with tracer.start_as_current_span("test"):
+        policy_ctx = PolicyContext(transaction_id="test-123", request=request)
+        final_request = await orch.process_request(request, policy_ctx)
+
+    recorder.record_request.assert_called_once()
+    original_arg, final_arg = recorder.record_request.call_args[0]
+
+    assert final_request.temperature == 0.25
+    assert original_arg.temperature == 1.0
+    assert final_arg.temperature == 0.25
+    assert original_arg != final_arg
+
+
+@pytest.mark.asyncio
+async def test_process_response_records_pre_mutation_snapshot(orchestrator_with_in_place_policy, setup_tracing):
+    """record_response should receive original response even when policy mutates in place."""
+    orch, recorder = orchestrator_with_in_place_policy
+    tracer = setup_tracing
+
+    response = ModelResponse(
+        id="test-id",
+        model="gpt-4",
+        choices=[
+            Choices(
+                index=0,
+                message=Message(content="hello world", role="assistant"),
+                finish_reason="stop",
+            )
+        ],
+    )
+
+    with tracer.start_as_current_span("test"):
+        policy_ctx = PolicyContext(transaction_id="test-123", request=None)
+        final_response = await orch.process_full_response(response, policy_ctx)
+
+    recorder.record_response.assert_called_once()
+    original_arg, final_arg = recorder.record_response.call_args[0]
+
+    assert final_response.choices[0].message.content == "HELLO WORLD"
+    assert original_arg.choices[0].message.content == "hello world"
+    assert final_arg.choices[0].message.content == "HELLO WORLD"
+    assert original_arg != final_arg

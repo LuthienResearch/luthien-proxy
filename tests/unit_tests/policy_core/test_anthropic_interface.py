@@ -112,6 +112,26 @@ class TestAnthropicPolicyInterface:
         }
         assert AnthropicPolicyInterface.__abstractmethods__ == expected_methods
 
+    @pytest.mark.asyncio
+    async def test_default_stream_lifecycle_hooks_are_noop(self):
+        """Lifecycle hooks should default to no-op for backward compatibility."""
+
+        class CompletePolicy(AnthropicPolicyInterface):
+            async def on_anthropic_request(self, request, context):
+                return request
+
+            async def on_anthropic_response(self, response, context):
+                return response
+
+            async def on_anthropic_stream_event(self, event, context):
+                return [event]
+
+        policy = CompletePolicy()
+        mock_context = MagicMock()
+
+        assert await policy.on_anthropic_stream_complete(mock_context) is None
+        assert await policy.on_anthropic_streaming_policy_complete(mock_context) is None
+
 
 class TestAnthropicStreamEventExport:
     """Tests for AnthropicStreamEvent type alias."""

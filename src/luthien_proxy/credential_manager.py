@@ -26,6 +26,7 @@ ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages/count_tokens"
 ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_BETA = "token-counting-2024-11-01"
 ANTHROPIC_OAUTH_BETA = "token-counting-2024-11-01,oauth-2025-04-20"
+ANTHROPIC_API_KEY_PREFIX = "sk-ant-api"
 
 # Minimal payload for credential validation (free endpoint).
 # OAuth tokens have access to different models than API keys, so we use
@@ -70,6 +71,15 @@ class CachedCredential:
 def hash_credential(api_key: str) -> str:
     """SHA-256 hash of a credential for cache lookup and display."""
     return hashlib.sha256(api_key.encode()).hexdigest()
+
+
+def is_anthropic_api_key(credential: str) -> bool:
+    """Best-effort format check for Anthropic API keys.
+
+    Uses the current public key prefix format. If Anthropic changes key formats,
+    this heuristic should be updated.
+    """
+    return credential.startswith(ANTHROPIC_API_KEY_PREFIX)
 
 
 class CredentialManager:
@@ -320,13 +330,16 @@ class CredentialManager:
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(timeout=10.0)
 
-        beta = ANTHROPIC_OAUTH_BETA if is_bearer else ANTHROPIC_BETA
+        # Clients sometimes pass Anthropic API keys in Authorization headers.
+        # Anthropic expects API keys in x-api-key, not bearer auth.
+        use_bearer_transport = is_bearer and not is_anthropic_api_key(credential)
+        beta = ANTHROPIC_OAUTH_BETA if use_bearer_transport else ANTHROPIC_BETA
         headers: dict[str, str] = {
             "anthropic-version": ANTHROPIC_API_VERSION,
             "anthropic-beta": beta,
             "content-type": "application/json",
         }
-        if is_bearer:
+        if use_bearer_transport:
             headers["authorization"] = f"Bearer {credential}"
         else:
             headers["x-api-key"] = credential
@@ -357,6 +370,7 @@ class CredentialManager:
 __all__ = [
     "AuthConfig",
     "AuthMode",
+    "is_anthropic_api_key",
     "CachedCredential",
     "CredentialManager",
     "hash_credential",

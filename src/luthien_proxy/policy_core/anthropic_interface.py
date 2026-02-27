@@ -40,6 +40,8 @@ class AnthropicPolicyInterface(ABC):
 
     For streaming:
     - on_anthropic_stream_event: Process each streaming event, can filter or transform
+    - on_anthropic_stream_complete: Called when stream reaches natural completion
+    - on_anthropic_streaming_policy_complete: Always-called cleanup hook
     """
 
     @abstractmethod
@@ -91,6 +93,22 @@ class AnthropicPolicyInterface(ABC):
             List of events to emit. Empty list filters the event out.
         """
         ...
+
+    async def on_anthropic_stream_complete(self, context: "PolicyContext") -> None:
+        """Called when Anthropic stream processing completes successfully.
+
+        This hook is analogous to OpenAI's on_stream_complete and is intended for
+        end-of-stream tasks that should run only when the stream finished normally.
+        """
+        return None
+
+    async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
+        """Always-called Anthropic cleanup hook.
+
+        This hook is analogous to OpenAI's on_streaming_policy_complete and is
+        guaranteed to run even if streaming/policy processing raises an error.
+        """
+        return None
 
 
 __all__ = [

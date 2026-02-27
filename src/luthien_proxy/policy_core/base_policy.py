@@ -7,6 +7,7 @@ automatic get_config() for Pydantic-based configs.
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping, MutableSequence, MutableSet
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
@@ -25,6 +26,33 @@ class BasePolicy:
     (OpenAIPolicyInterface, AnthropicPolicyInterface) to define which
     API formats they support.
     """
+
+    def freeze_configured_state(self) -> None:
+        """Validate configured instance shape.
+
+        This is intentionally a lightweight one-time guard run at policy load time.
+        It validates that public configuration attributes are not mutable containers,
+        but does not freeze runtime attribute assignment.
+        """
+        self._validate_no_mutable_instance_state()
+
+    def _validate_no_mutable_instance_state(self) -> None:
+        """Fail if public instance attrs contain mutable containers.
+
+        Public mutable attrs are likely runtime state accidentally stored on a long-lived
+        policy instance. Private attrs (leading underscore) are treated as internal
+        implementation details and are not validated here.
+        """
+        mutable_types: tuple[type[Any], ...] = (MutableMapping, MutableSequence, MutableSet, bytearray)
+
+        for attr_name, value in vars(self).items():
+            if attr_name.startswith("_"):
+                continue
+            if isinstance(value, mutable_types):
+                raise TypeError(
+                    f"{self.__class__.__name__}.{attr_name} is a mutable container ({type(value).__name__}). "
+                    "Public policy attrs should be immutable config values; keep request state in PolicyContext."
+                )
 
     @property
     def short_policy_name(self) -> str:

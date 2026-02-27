@@ -6,8 +6,9 @@ that persists across the entire request/response lifecycle.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator, TypeVar, cast
 
 from opentelemetry import trace
 
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from luthien_proxy.llm.types import Request
 
 _tracer = trace.get_tracer(__name__)
+T = TypeVar("T")
 
 
 class PolicyContext:
@@ -70,6 +72,7 @@ class PolicyContext:
         self.session_id: str | None = session_id
         self._emitter: EventEmitterProtocol = emitter or NullEventEmitter()
         self._scratchpad: dict[str, Any] = {}
+        self._policy_state: dict[tuple[int, type[Any]], Any] = {}
 
         # Policy summaries - optional human-readable descriptions of what the policy did.
         # These are set by policies and propagated to span attributes for observability.
@@ -166,6 +169,43 @@ class PolicyContext:
         current_span = trace.get_current_span()
         if current_span.is_recording():
             current_span.add_event(name, attributes=attributes or {})
+
+    def get_policy_state(self, owner: object, expected_type: type[T], factory: Callable[[], T]) -> T:
+        """Get or create typed request-scoped state owned by a policy instance.
+
+        State is scoped by (policy instance, expected state type), so policies do not
+        need to define ad-hoc slot keys. This keeps request execution state framework-owned
+        while preserving strict runtime type checks.
+        """
+        key = (id(owner), expected_type)
+        if key not in self._policy_state:
+            created = factory()
+            if not isinstance(created, expected_type):
+                raise TypeError(
+                    f"Policy state factory for {type(owner).__name__} returned {type(created).__name__}, "
+                    f"expected {expected_type.__name__}"
+                )
+            self._policy_state[key] = created
+            return created
+
+        value = self._policy_state[key]
+        if not isinstance(value, expected_type):
+            raise TypeError(
+                f"Policy state for {type(owner).__name__} expected {expected_type.__name__}, got {type(value).__name__}"
+            )
+        return cast(T, value)
+
+    def pop_policy_state(self, owner: object, expected_type: type[T]) -> T | None:
+        """Remove and return typed request-scoped state owned by a policy instance."""
+        key = (id(owner), expected_type)
+        value = self._policy_state.pop(key, None)
+        if value is None:
+            return None
+        if not isinstance(value, expected_type):
+            raise TypeError(
+                f"Policy state for {type(owner).__name__} expected {expected_type.__name__}, got {type(value).__name__}"
+            )
+        return cast(T, value)
 
     @classmethod
     def for_testing(
