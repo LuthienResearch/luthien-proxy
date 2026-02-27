@@ -40,11 +40,11 @@ def client(app: FastAPI) -> TestClient:
 
 
 class TestValidateEndpoint:
-    """Tests for POST /admin/policies/validate."""
+    """Tests for POST /api/admin/policies/validate."""
 
     def test_valid_code(self, client: TestClient) -> None:
         resp = client.post(
-            "/admin/policies/validate",
+            "/api/admin/policies/validate",
             json={"source_code": VALID_POLICY_SOURCE, "config": {}},
         )
         assert resp.status_code == 200
@@ -54,7 +54,7 @@ class TestValidateEndpoint:
 
     def test_invalid_syntax(self, client: TestClient) -> None:
         resp = client.post(
-            "/admin/policies/validate",
+            "/api/admin/policies/validate",
             json={"source_code": "def broken(:", "config": {}},
         )
         assert resp.status_code == 200
@@ -64,7 +64,7 @@ class TestValidateEndpoint:
 
     def test_disallowed_import(self, client: TestClient) -> None:
         resp = client.post(
-            "/admin/policies/validate",
+            "/api/admin/policies/validate",
             json={"source_code": "import os\nclass Foo:\n  pass", "config": {}},
         )
         assert resp.status_code == 200
@@ -74,7 +74,7 @@ class TestValidateEndpoint:
 
 
 class TestGenerateEndpoint:
-    """Tests for POST /admin/policies/generate."""
+    """Tests for POST /api/admin/policies/generate."""
 
     @patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}, clear=False)
     def test_generate_without_api_key(self, client: TestClient) -> None:
@@ -84,7 +84,7 @@ class TestGenerateEndpoint:
         old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
         try:
             resp = client.post(
-                "/admin/policies/generate",
+                "/api/admin/policies/generate",
                 json={"prompt": "a no-op policy"},
             )
             assert resp.status_code == 503
@@ -98,7 +98,7 @@ class TestGenerateEndpoint:
 
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
             resp = client.post(
-                "/admin/policies/generate",
+                "/api/admin/policies/generate",
                 json={"prompt": "a no-op policy"},
             )
         assert resp.status_code == 200
@@ -108,14 +108,14 @@ class TestGenerateEndpoint:
 
 
 class TestListEndpoint:
-    """Tests for GET /admin/policies/."""
+    """Tests for GET /api/admin/policies/."""
 
     def test_list_without_db(self, client: TestClient, app: FastAPI) -> None:
         from luthien_proxy.dependencies import get_db_pool
 
         app.dependency_overrides[get_db_pool] = lambda: None
 
-        resp = client.get("/admin/policies/")
+        resp = client.get("/api/admin/policies/")
         assert resp.status_code == 503
 
     def test_list_with_db(self, client: TestClient, app: FastAPI) -> None:
@@ -128,6 +128,6 @@ class TestListEndpoint:
 
         app.dependency_overrides[get_db_pool] = lambda: mock_db_pool
 
-        resp = client.get("/admin/policies/")
+        resp = client.get("/api/admin/policies/")
         assert resp.status_code == 200
         assert resp.json() == []

@@ -314,7 +314,7 @@
         showStatus('generate-status', 'Generating policy code...', 'loading');
 
         try {
-            const data = await apiFetch('/admin/policies/generate', {
+            const data = await apiFetch('/api/admin/policies/generate', {
                 method: 'POST',
                 body: JSON.stringify({ prompt })
             });
@@ -335,7 +335,7 @@
 
         showStatus('validate-status', 'Validating...', 'loading');
         try {
-            const data = await apiFetch('/admin/policies/validate', {
+            const data = await apiFetch('/api/admin/policies/validate', {
                 method: 'POST',
                 body: JSON.stringify({ source_code: code, config: {} })
             });
@@ -377,7 +377,7 @@
 
         showStatus('save-status', 'Saving...', 'loading');
         try {
-            await apiFetch('/admin/policies/save', {
+            await apiFetch('/api/admin/policies/save', {
                 method: 'POST',
                 body: JSON.stringify({
                     name,
@@ -400,7 +400,7 @@
     async function loadPolicies() {
         const container = document.getElementById('policies-list');
         try {
-            const policies = await apiFetch('/admin/policies/');
+            const policies = await apiFetch('/api/admin/policies/');
             if (policies.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
@@ -435,7 +435,7 @@
 
     async function viewPolicy(id) {
         try {
-            const p = await apiFetch('/admin/policies/' + id);
+            const p = await apiFetch('/api/admin/policies/' + id);
             document.getElementById('view-modal-title').textContent = p.name;
             document.getElementById('view-code').value = p.source_code;
             document.getElementById('view-code').dataset.id = id;
@@ -458,7 +458,7 @@
     async function activatePolicy(id) {
         if (!confirm('Activate this policy? It will become the live policy for the gateway.')) return;
         try {
-            const result = await apiFetch('/admin/policies/' + id + '/activate', { method: 'POST' });
+            const result = await apiFetch('/api/admin/policies/' + id + '/activate', { method: 'POST' });
             loadPolicies();
         } catch (e) {
             alert('Activation failed: ' + e.message);
@@ -468,7 +468,7 @@
     async function deletePolicy(id) {
         if (!confirm('Delete this policy? This cannot be undone.')) return;
         try {
-            await apiFetch('/admin/policies/' + id, { method: 'DELETE' });
+            await apiFetch('/api/admin/policies/' + id, { method: 'DELETE' });
             loadPolicies();
         } catch (e) {
             alert('Delete failed: ' + e.message);
