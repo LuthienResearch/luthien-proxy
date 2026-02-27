@@ -24,7 +24,10 @@ type AnthropicPolicyEmission = AnthropicResponse | MessageStreamEvent
 
 
 class AnthropicPolicyIOProtocol(Protocol):
-    """I/O surface exposed to Anthropic execution policies."""
+    """I/O surface exposed to Anthropic execution policies.
+
+    Session metadata is available via PolicyContext (not this protocol).
+    """
 
     @property
     def request(self) -> "AnthropicRequest":
@@ -33,6 +36,11 @@ class AnthropicPolicyIOProtocol(Protocol):
 
     def set_request(self, request: "AnthropicRequest") -> None:
         """Replace the current request payload."""
+        ...
+
+    @property
+    def first_backend_response(self) -> "AnthropicResponse | None":
+        """First backend response observed during this request execution."""
         ...
 
     async def complete(self, request: "AnthropicRequest | None" = None) -> "AnthropicResponse":

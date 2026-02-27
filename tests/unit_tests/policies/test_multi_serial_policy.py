@@ -23,7 +23,7 @@ from luthien_proxy.llm.types.anthropic import (
 )
 from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
+    AnthropicExecutionInterface,
     BasePolicy,
     OpenAIPolicyInterface,
 )
@@ -43,9 +43,9 @@ class TestMultiSerialPolicyProtocol:
         policy = MultiSerialPolicy(policies=[noop_config()])
         assert isinstance(policy, OpenAIPolicyInterface)
 
-    def test_implements_anthropic_interface(self):
+    def test_implements_anthropic_execution_interface(self):
         policy = MultiSerialPolicy(policies=[noop_config()])
-        assert isinstance(policy, AnthropicPolicyInterface)
+        assert isinstance(policy, AnthropicExecutionInterface)
 
     def test_policy_name_shows_sub_policies(self):
         policy = MultiSerialPolicy(policies=[noop_config(), allcaps_config()])
@@ -325,7 +325,7 @@ class TestMultiSerialInterfaceValidation:
 
     @pytest.mark.asyncio
     async def test_anthropic_request_raises_for_incompatible_policy(self):
-        """Anthropic call raises TypeError when a sub-policy lacks AnthropicPolicyInterface."""
+        """Anthropic call raises TypeError when a sub-policy lacks AnthropicExecutionInterface."""
         policy = MultiSerialPolicy(policies=[noop_config()])
         policy._sub_policies.append(OpenAIOnlyPolicy())
         ctx = PolicyContext.for_testing()
@@ -335,7 +335,7 @@ class TestMultiSerialInterfaceValidation:
             "max_tokens": 100,
         }
 
-        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicPolicyInterface"):
+        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicExecutionInterface"):
             await policy.on_anthropic_request(request, ctx)
 
     @pytest.mark.asyncio
@@ -346,7 +346,7 @@ class TestMultiSerialInterfaceValidation:
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello")
 
-        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicPolicyInterface"):
+        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicExecutionInterface"):
             await policy.on_anthropic_response(response, ctx)
 
     @pytest.mark.asyncio
@@ -358,7 +358,7 @@ class TestMultiSerialInterfaceValidation:
         text_delta = TextDelta.model_construct(type="text_delta", text="hello")
         event = RawContentBlockDeltaEvent.model_construct(type="content_block_delta", index=0, delta=text_delta)
 
-        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicPolicyInterface"):
+        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicExecutionInterface"):
             await policy.on_anthropic_stream_event(event, ctx)
 
     @pytest.mark.asyncio

@@ -49,7 +49,7 @@ from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.tool_call_judge_policy import ToolCallJudgeConfig, ToolCallJudgePolicy
 from luthien_proxy.policies.tool_call_judge_utils import JudgeResult
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
+    AnthropicExecutionInterface,
     OpenAIPolicyInterface,
 )
 from luthien_proxy.policy_core.chunk_builders import create_text_chunk
@@ -113,9 +113,9 @@ class TestToolCallJudgePolicyProtocols:
         assert isinstance(policy, OpenAIPolicyInterface)
 
     def test_implements_anthropic_interface(self):
-        """ToolCallJudgePolicy satisfies AnthropicPolicyInterface."""
+        """ToolCallJudgePolicy satisfies AnthropicExecutionInterface."""
         policy = ToolCallJudgePolicy()
-        assert isinstance(policy, AnthropicPolicyInterface)
+        assert isinstance(policy, AnthropicExecutionInterface)
 
     def test_has_short_policy_name(self):
         """ToolCallJudgePolicy has correct short_policy_name property."""

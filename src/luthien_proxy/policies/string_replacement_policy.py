@@ -18,8 +18,10 @@ Example config:
 from __future__ import annotations
 
 import re
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, cast
 
+from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     RawContentBlockDeltaEvent,
     TextDelta,
@@ -28,8 +30,9 @@ from litellm.types.utils import Choices, StreamingChoices
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
-    AnthropicStreamEvent,
+    AnthropicExecutionInterface,
+    AnthropicPolicyEmission,
+    AnthropicPolicyIOProtocol,
     BasePolicy,
     OpenAIPolicyInterface,
     PolicyContext,
@@ -175,7 +178,7 @@ def apply_replacements(
     return result
 
 
-class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
+class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
     """Policy that replaces specified strings in response content.
 
     This policy supports:
@@ -344,7 +347,32 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicy
         pass
 
     # -------------------------------------------------------------------------
-    # Anthropic Interface Methods
+    # Anthropic execution interface
+    # -------------------------------------------------------------------------
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
+    ) -> AsyncIterator[AnthropicPolicyEmission]:
+        """Run Anthropic request lifecycle while applying replacements."""
+
+        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
+            final_request = await self.on_anthropic_request(io.request, context)
+            io.set_request(final_request)
+
+            if final_request.get("stream", False):
+                async for event in io.stream(final_request):
+                    emitted_events = await self.on_anthropic_stream_event(event, context)
+                    for emitted_event in emitted_events:
+                        yield emitted_event
+                return
+
+            response = await io.complete(final_request)
+            yield await self.on_anthropic_response(response, context)
+
+        return _run()
+
+    # -------------------------------------------------------------------------
+    # Anthropic helper methods
     # -------------------------------------------------------------------------
 
     async def on_anthropic_request(self, request: "AnthropicRequest", context: PolicyContext) -> "AnthropicRequest":
@@ -377,8 +405,8 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicy
         return response
 
     async def on_anthropic_stream_event(
-        self, event: AnthropicStreamEvent, context: PolicyContext
-    ) -> list[AnthropicStreamEvent]:
+        self, event: MessageStreamEvent, context: PolicyContext
+    ) -> list[MessageStreamEvent]:
         """Transform text_delta events with string replacements.
 
         For content_block_delta events with delta.type == "text_delta",

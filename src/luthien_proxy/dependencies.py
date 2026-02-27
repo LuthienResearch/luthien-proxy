@@ -14,7 +14,6 @@ from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
 )
-from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.utils import db
@@ -50,21 +49,17 @@ class Dependencies:
             )
         return current
 
-    def get_anthropic_policy(self) -> AnthropicPolicyInterface | AnthropicExecutionInterface:
+    def get_anthropic_policy(self) -> AnthropicExecutionInterface:
         """Get the current Anthropic policy.
 
         Raises:
-            HTTPException: If current policy doesn't implement AnthropicPolicyInterface
-                or AnthropicExecutionInterface
+            HTTPException: If current policy doesn't implement AnthropicExecutionInterface
         """
         current = self.policy_manager.current_policy
-        if not isinstance(current, AnthropicPolicyInterface | AnthropicExecutionInterface):
+        if not isinstance(current, AnthropicExecutionInterface):
             raise HTTPException(
                 status_code=500,
-                detail=(
-                    f"Current policy {type(current).__name__} does not implement "
-                    "AnthropicPolicyInterface or AnthropicExecutionInterface"
-                ),
+                detail=(f"Current policy {type(current).__name__} does not implement AnthropicExecutionInterface"),
             )
         return current
 
@@ -199,7 +194,7 @@ def get_anthropic_client(request: Request) -> AnthropicClient | None:
     return get_dependencies(request).anthropic_client
 
 
-def get_anthropic_policy(request: Request) -> AnthropicPolicyInterface | AnthropicExecutionInterface:
+def get_anthropic_policy(request: Request) -> AnthropicExecutionInterface:
     """Get current Anthropic policy from dependencies.
 
     Args:
