@@ -1,63 +1,54 @@
 # Request Processing & Streaming Pipeline Architecture
 
-**Last Updated**: 2025-11-05
+**Last Updated**: 2026-02-27
 
-This document provides a comprehensive overview of how requests flow through the V2 gateway, from initial validation through response delivery. It covers the complete request/response lifecycle, including non-streaming completions and the streaming pipeline architecture.
+This document provides an overview of request flow through the current gateway (`src/luthien_proxy/`), including both OpenAI and Anthropic endpoints.
 
 ---
 
 ## Conceptual Overview
 
-The V2 gateway processes LLM requests through a unified request/response lifecycle orchestrated by `PolicyOrchestrator`:
+The gateway has two primary request-processing paths:
 
-1. **Request Phase**: Client request arrives, contexts are created, policy hooks are invoked to validate/modify the request
-2. **Backend Phase**: Request is forwarded to the LLM backend (via LiteLLM) and the backend produces a response
-3. **Response Phase**: Response is processed through policy hooks and returned to the client
+1. **OpenAI path** (`/v1/chat/completions`): `process_llm_request()` + streaming orchestration via `PolicyOrchestrator`.
+2. **Anthropic path** (`/v1/messages`): native Anthropic processing via `process_anthropic_request()` and `AnthropicExecutionInterface.run_anthropic()`.
 
-The critical difference between streaming and non-streaming is **when** the response arrives:
+Both paths support streaming and non-streaming responses, but they use different policy runtimes:
 
-- **Non-streaming**: Backend returns complete response immediately → process all at once
-- **Streaming**: Backend returns response incrementally as chunks → process each chunk through a pipeline
-
-Both paths use the same request hooks and context threading. Only the response handling differs.
+- **OpenAI**: event-driven hook interfaces.
+- **Anthropic**: execution-oriented runtime where policies emit final responses/events and may make zero or more backend calls.
 
 ---
 
 ## Non-Streaming Pipeline
 
-**The Journey of a Simple Chat Completion**:
+**The Journey of a Simple Chat Completion (OpenAI path)**:
 
 ### 1. Client sends request
 
-Request arrives at `/v1/chat/completions` (OpenAI format) or `/v1/messages` (Anthropic format)
+Request arrives at `/v1/chat/completions` (OpenAI format)
 
 ### 2. Gateway receives request
 
-([gateway_routes.py](../src/luthien_proxy/v2/gateway_routes.py))
+([gateway_routes.py](../src/luthien_proxy/gateway_routes.py))
 
-- Creates `ObservabilityContext` (trace spans, metrics)
-- Creates `PolicyContext` (transaction_id, scratchpad for policy state)
+- Creates request-scoped context (`PolicyContext`, tracing span data)
 - Validates authentication (API key check)
 
 ### 3. Request processing
 
 Via `PolicyOrchestrator.process_request()`
 
-- Policy hook: `on_request_started(request, policy_ctx, obs_ctx)`
 - Policy can modify request, add metadata, or reject
-- Policy hook: `on_request_completed(modified_request, policy_ctx, obs_ctx)`
 
-### 4. LiteLLM forwards to backend
+### 4. Backend call
 
-- Request sent to configured LLM (OpenAI, Anthropic, etc.)
-- LiteLLM handles format conversion between providers
+- Request sent to configured backend via LiteLLM client
 - Backend returns complete response
 
 ### 5. Response processing
 
-**Note**: Currently invokes policy directly via `policy.process_full_response()` (should be refactored to use `PolicyOrchestrator.process_nonstreaming_response()` for consistency with streaming path and proper logging of original vs final response)
-
-- Policy processes complete response (hooks TBD)
+- Policy processes complete response
 - Policy can inspect, modify, or reject response
 
 ### 6. Response returned to client
@@ -67,6 +58,11 @@ Via `PolicyOrchestrator.process_request()`
 - Published to Redis for activity monitoring
 
 **Total time**: ~1-5 seconds depending on LLM latency
+
+### Anthropic non-streaming note
+
+Anthropic non-streaming requests are handled separately by `process_anthropic_request()` in
+`src/luthien_proxy/pipeline/anthropic_processor.py`, where policies implement `run_anthropic()` and emit response objects.
 
 ---
 

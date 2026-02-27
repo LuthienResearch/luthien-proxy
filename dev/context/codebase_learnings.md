@@ -23,6 +23,13 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 Integrated architecture - everything runs in single gateway process.
 
+## Anthropic Runtime Model (2026-02-27)
+
+- Anthropic request handling is execution-oriented, not hook-oriented.
+- Policies on `/v1/messages` implement `AnthropicExecutionInterface.run_anthropic(io, context)` and emit responses/events.
+- Policy runtime is backend-call agnostic: policies may make zero, one, or many backend calls via `io.complete()` / `io.stream()`.
+- Legacy Anthropic compatibility helpers (`_handle_streaming`, `_handle_non_streaming` in `anthropic_processor.py`) were removed from production code.
+
 ## Key Patterns (2025-10-24)
 
 - **Event-driven policies**: Policies implement lifecycle hooks (on_chunk_started, on_content_chunk, on_response_completed) instead of callbacks
