@@ -1,5 +1,6 @@
 """Unit tests for the Anthropic-native pipeline processor module."""
 
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,19 +18,21 @@ from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from httpx import Request as HttpxRequest
 from httpx import Response as HttpxResponse
 
-from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.pipeline.anthropic_processor import (
     _build_error_event,
     _format_sse_event,
     _handle_anthropic_error,
-    _handle_non_streaming,
-    _handle_streaming,
     _process_request,
     process_anthropic_request,
 )
 from luthien_proxy.policies.noop_policy import NoOpPolicy
+from luthien_proxy.policy_core.anthropic_execution_interface import (
+    AnthropicExecutionInterface,
+    AnthropicPolicyIOProtocol,
+)
+from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
 class TestFormatSSEEvent:
@@ -44,7 +47,7 @@ class TestFormatSSEEvent:
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": DEFAULT_TEST_MODEL,
+                "model": "claude-sonnet-4-20250514",
                 "stop_reason": None,
                 "stop_sequence": None,
                 "usage": {"input_tokens": 10, "output_tokens": 0},
@@ -115,7 +118,7 @@ class TestProcessRequest:
     async def test_valid_anthropic_request_parsing(self, mock_request, mock_emitter, mock_span):
         """Test parsing a valid Anthropic format request."""
         anthropic_body = {
-            "model": DEFAULT_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "stream": False,
@@ -132,7 +135,7 @@ class TestProcessRequest:
                 emitter=mock_emitter,
             )
 
-        assert anthropic_request["model"] == DEFAULT_TEST_MODEL
+        assert anthropic_request["model"] == "claude-sonnet-4-20250514"
         assert anthropic_request["max_tokens"] == 1024
         assert anthropic_request.get("stream") is False
         assert raw_http_request.body == anthropic_body
@@ -146,7 +149,7 @@ class TestProcessRequest:
         """Test extracting session ID from metadata.user_id field."""
         # Session ID pattern expects hex UUID format: _session_<hex-uuid>
         anthropic_body = {
-            "model": DEFAULT_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "metadata": {"user_id": "user_abc123_account__session_a1b2c3d4-e5f6-7890-abcd-ef1234567890"},
@@ -212,7 +215,7 @@ class TestProcessRequest:
     async def test_missing_messages_returns_400(self, mock_request, mock_emitter, mock_span):
         """Test that missing messages field returns 400 error."""
         invalid_body = {
-            "model": DEFAULT_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "max_tokens": 1024,
         }
         mock_request.json = AsyncMock(return_value=invalid_body)
@@ -235,7 +238,7 @@ class TestProcessRequest:
     async def test_missing_max_tokens_returns_400(self, mock_request, mock_emitter, mock_span):
         """Test that missing max_tokens field returns 400 error."""
         invalid_body = {
-            "model": DEFAULT_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
         }
         mock_request.json = AsyncMock(return_value=invalid_body)
@@ -255,18 +258,26 @@ class TestProcessRequest:
         assert "max_tokens" in exc_info.value.detail.lower()
 
 
-class TestHandleNonStreaming:
-    """Tests for _handle_non_streaming helper function."""
+class TestAnthropicRequestFlow:
+    """Tests for non-streaming and streaming flow via process_anthropic_request."""
+
+    @pytest.fixture
+    def mock_request(self):
+        request = MagicMock()
+        request.headers = {}
+        request.method = "POST"
+        request.url = MagicMock()
+        request.url.path = "/v1/messages"
+        return request
 
     @pytest.fixture
     def mock_anthropic_response(self) -> AnthropicResponse:
-        """Create a mock Anthropic response."""
         return AnthropicResponse(
             id="msg_test123",
             type="message",
             role="assistant",
             content=[{"type": "text", "text": "Hello there!"}],
-            model=DEFAULT_TEST_MODEL,
+            model="claude-sonnet-4-20250514",
             stop_reason="end_turn",
             stop_sequence=None,
             usage={"input_tokens": 10, "output_tokens": 5},
@@ -274,118 +285,98 @@ class TestHandleNonStreaming:
 
     @pytest.fixture
     def mock_anthropic_client(self, mock_anthropic_response):
-        """Create a mock AnthropicClient."""
         client = MagicMock()
         client.complete = AsyncMock(return_value=mock_anthropic_response)
         return client
 
     @pytest.fixture
-    def mock_policy(self, mock_anthropic_response):
-        """Create an Anthropic policy for testing."""
-        # Use the real NoOpPolicy which implements the interface
+    def mock_policy(self):
         return NoOpPolicy()
 
     @pytest.fixture
-    def mock_policy_ctx(self):
-        """Create a mock PolicyContext."""
-        ctx = MagicMock()
-        ctx.session_id = None
-        return ctx
-
-    @pytest.fixture
     def mock_emitter(self):
-        """Create a mock event emitter."""
         return MagicMock()
 
     @pytest.mark.asyncio
     async def test_non_streaming_returns_json_response(
-        self, mock_anthropic_client, mock_policy, mock_policy_ctx, mock_emitter, mock_anthropic_response
+        self, mock_request, mock_anthropic_client, mock_policy, mock_emitter
     ):
-        """Test non-streaming response returns JSONResponse."""
-        request: AnthropicRequest = {
-            "model": DEFAULT_TEST_MODEL,
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 1024,
-        }
-
-        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
-            mock_span = MagicMock()
-            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
-            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
-
-            response = await _handle_non_streaming(
-                final_request=request,
-                policy=mock_policy,
-                policy_ctx=mock_policy_ctx,
-                anthropic_client=mock_anthropic_client,
-                emitter=mock_emitter,
-                call_id="test-call-id",
-            )
-
-        assert isinstance(response, JSONResponse)
-        assert response.headers.get("x-call-id") == "test-call-id"
-        mock_anthropic_client.complete.assert_called_once_with(request)
-
-    @pytest.mark.asyncio
-    async def test_emits_client_response_event(
-        self, mock_anthropic_client, mock_policy, mock_policy_ctx, mock_emitter, mock_anthropic_response
-    ):
-        """Test that client response event is emitted."""
-        request: AnthropicRequest = {
-            "model": DEFAULT_TEST_MODEL,
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 1024,
-        }
-
-        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
-            mock_span = MagicMock()
-            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
-            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
-
-            await _handle_non_streaming(
-                final_request=request,
-                policy=mock_policy,
-                policy_ctx=mock_policy_ctx,
-                anthropic_client=mock_anthropic_client,
-                emitter=mock_emitter,
-                call_id="test-call-id",
-            )
-
-        mock_emitter.record.assert_called()
-        call_args = mock_emitter.record.call_args
-        assert call_args[0][0] == "test-call-id"
-        assert call_args[0][1] == "pipeline.client_response"
-
-    @pytest.mark.asyncio
-    async def test_emits_transaction_response_recorded_event(
-        self, mock_anthropic_client, mock_policy, mock_policy_ctx, mock_emitter, mock_anthropic_response
-    ):
-        """Non-streaming path should emit transaction.non_streaming_response_recorded for history viewer."""
-        request: AnthropicRequest = {
+        anthropic_body: AnthropicRequest = {
             "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
+            "stream": False,
         }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
 
         with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
             mock_span = MagicMock()
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            await _handle_non_streaming(
-                final_request=request,
+            response = await process_anthropic_request(
+                request=mock_request,
                 policy=mock_policy,
-                policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_anthropic_client,
                 emitter=mock_emitter,
-                call_id="test-call-id",
             )
 
-        # Find the transaction.non_streaming_response_recorded call
+        assert isinstance(response, JSONResponse)
+        assert response.headers.get("x-call-id")
+        mock_anthropic_client.complete.assert_called_once_with(anthropic_body)
+
+    @pytest.mark.asyncio
+    async def test_emits_client_response_event(self, mock_request, mock_anthropic_client, mock_policy, mock_emitter):
+        anthropic_body: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            await process_anthropic_request(
+                request=mock_request,
+                policy=mock_policy,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+            )
+
+        event_types = [call[0][1] for call in mock_emitter.record.call_args_list]
+        assert "pipeline.client_response" in event_types
+
+    @pytest.mark.asyncio
+    async def test_emits_transaction_response_recorded_event(
+        self, mock_request, mock_anthropic_client, mock_policy, mock_emitter
+    ):
+        anthropic_body: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            await process_anthropic_request(
+                request=mock_request,
+                policy=mock_policy,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+            )
+
         event_types = [call[0][1] for call in mock_emitter.record.call_args_list]
         assert "transaction.non_streaming_response_recorded" in event_types
 
-        # Verify payload structure matches what history service expects
         for call in mock_emitter.record.call_args_list:
             if call[0][1] == "transaction.non_streaming_response_recorded":
                 payload = call[0][2]
@@ -394,17 +385,19 @@ class TestHandleNonStreaming:
                 assert payload["final_response"]["role"] == "assistant"
                 break
 
-
-class TestHandleStreaming:
-    """Tests for _handle_streaming helper function."""
-
-    @pytest.fixture
-    def mock_anthropic_client(self):
-        """Create a mock AnthropicClient with stream method."""
-        client = MagicMock()
+    @pytest.mark.asyncio
+    async def test_streaming_returns_streaming_response(
+        self, mock_request, mock_anthropic_client, mock_policy, mock_emitter
+    ):
+        anthropic_body: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
 
         async def mock_stream(request):
-            # Yield a few events using SDK types
             yield RawMessageStartEvent(
                 type="message_start",
                 message={
@@ -420,52 +413,24 @@ class TestHandleStreaming:
             )
             yield RawMessageStopEvent(type="message_stop")
 
-        client.stream = mock_stream
-        return client
-
-    @pytest.fixture
-    def mock_policy(self):
-        """Create a mock Anthropic policy."""
-        policy = NoOpPolicy()
-        return policy
-
-    @pytest.fixture
-    def mock_policy_ctx(self):
-        """Create a mock PolicyContext."""
-        ctx = MagicMock()
-        ctx.response_summary = None
-        return ctx
-
-    @pytest.mark.asyncio
-    async def test_streaming_returns_streaming_response(self, mock_anthropic_client, mock_policy, mock_policy_ctx):
-        """Test streaming handler returns FastAPIStreamingResponse."""
-        request: AnthropicRequest = {
-            "model": DEFAULT_TEST_MODEL,
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 1024,
-            "stream": True,
-        }
+        mock_anthropic_client.stream = mock_stream
 
         with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
             mock_span = MagicMock()
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            mock_root_span = MagicMock()
-
-            response = await _handle_streaming(
-                final_request=request,
+            response = await process_anthropic_request(
+                request=mock_request,
                 policy=mock_policy,
-                policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_anthropic_client,
-                call_id="test-call-id",
-                root_span=mock_root_span,
+                emitter=mock_emitter,
             )
 
         assert isinstance(response, FastAPIStreamingResponse)
         assert response.media_type == "text/event-stream"
         assert response.headers.get("cache-control") == "no-cache"
-        assert response.headers.get("x-call-id") == "test-call-id"
+        assert response.headers.get("x-call-id")
 
 
 class TestProcessAnthropicRequest:
@@ -483,7 +448,7 @@ class TestProcessAnthropicRequest:
 
     @pytest.fixture
     def mock_policy(self):
-        """Create an Anthropic policy implementing AnthropicPolicyInterface."""
+        """Create an Anthropic policy implementing AnthropicExecutionInterface."""
         return NoOpPolicy()
 
     @pytest.fixture
@@ -494,7 +459,7 @@ class TestProcessAnthropicRequest:
             type="message",
             role="assistant",
             content=[{"type": "text", "text": "Hello!"}],
-            model=DEFAULT_TEST_MODEL,
+            model="claude-sonnet-4-20250514",
             stop_reason="end_turn",
             stop_sequence=None,
             usage={"input_tokens": 10, "output_tokens": 5},
@@ -514,7 +479,7 @@ class TestProcessAnthropicRequest:
     ):
         """Test processing a non-streaming Anthropic request end-to-end."""
         anthropic_body = {
-            "model": DEFAULT_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "stream": False,
@@ -579,7 +544,7 @@ class TestProcessAnthropicRequest:
     async def test_streaming_request_returns_streaming_response(self, mock_request, mock_policy, mock_emitter):
         """Test streaming request returns StreamingResponse."""
         anthropic_body = {
-            "model": DEFAULT_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "stream": True,
@@ -645,7 +610,7 @@ class TestProcessAnthropicRequest:
     async def test_span_attributes_set_correctly(self, mock_request, mock_policy, mock_anthropic_client, mock_emitter):
         """Test that span attributes are set correctly."""
         anthropic_body = {
-            "model": DEFAULT_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "stream": False,
@@ -680,7 +645,7 @@ class TestProcessAnthropicRequest:
     ):
         """Test that client_format span attribute is 'anthropic_native'."""
         anthropic_body = {
-            "model": DEFAULT_TEST_MODEL,
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "stream": False,
@@ -751,18 +716,11 @@ class TestMidStreamErrorHandling:
         """Create a mock Anthropic policy."""
         return NoOpPolicy()
 
-    @pytest.fixture
-    def mock_policy_ctx(self):
-        """Create a mock PolicyContext."""
-        ctx = MagicMock()
-        ctx.response_summary = None
-        return ctx
-
     @pytest.mark.asyncio
-    async def test_mid_stream_api_error_emits_error_event(self, mock_policy, mock_policy_ctx):
+    async def test_mid_stream_api_error_emits_error_event(self, mock_policy):
         """Test that API errors mid-stream emit an error event instead of raising."""
-        request: AnthropicRequest = {
-            "model": DEFAULT_TEST_MODEL,
+        anthropic_body: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
             "stream": True,
@@ -795,20 +753,23 @@ class TestMidStreamErrorHandling:
         mock_client = MagicMock()
         mock_client.stream = failing_stream
 
+        mock_fastapi_request = MagicMock()
+        mock_fastapi_request.headers = {}
+        mock_fastapi_request.method = "POST"
+        mock_fastapi_request.url = MagicMock()
+        mock_fastapi_request.url.path = "/v1/messages"
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
         with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
             mock_span = MagicMock()
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            mock_root_span = MagicMock()
-
-            response = await _handle_streaming(
-                final_request=request,
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
                 policy=mock_policy,
-                policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_client,
-                call_id="test-call-id",
-                root_span=mock_root_span,
+                emitter=MagicMock(),
             )
 
             # Collect all events from the stream
@@ -824,10 +785,10 @@ class TestMidStreamErrorHandling:
         assert "Internal server error" in last_event
 
     @pytest.mark.asyncio
-    async def test_mid_stream_connection_error_emits_error_event(self, mock_policy, mock_policy_ctx):
+    async def test_mid_stream_connection_error_emits_error_event(self, mock_policy):
         """Test that connection errors mid-stream emit an error event."""
-        request: AnthropicRequest = {
-            "model": DEFAULT_TEST_MODEL,
+        anthropic_body: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
             "stream": True,
@@ -855,20 +816,23 @@ class TestMidStreamErrorHandling:
         mock_client = MagicMock()
         mock_client.stream = failing_stream
 
+        mock_fastapi_request = MagicMock()
+        mock_fastapi_request.headers = {}
+        mock_fastapi_request.method = "POST"
+        mock_fastapi_request.url = MagicMock()
+        mock_fastapi_request.url.path = "/v1/messages"
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
         with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
             mock_span = MagicMock()
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            mock_root_span = MagicMock()
-
-            response = await _handle_streaming(
-                final_request=request,
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
                 policy=mock_policy,
-                policy_ctx=mock_policy_ctx,
                 anthropic_client=mock_client,
-                call_id="test-call-id",
-                root_span=mock_root_span,
+                emitter=MagicMock(),
             )
 
             events = []
@@ -936,3 +900,415 @@ class TestHandleAnthropicError:
 
         assert exc_info.value.status_code == 502
         assert exc_info.value.error_type == "api_connection_error"
+
+
+class _SyntheticNonStreamingPolicy(AnthropicExecutionInterface):
+    """Execution-style policy that emits a response without backend calls."""
+
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            yield {
+                "id": "msg_synthetic",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Synthetic response"}],
+                "model": io.request["model"],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+
+        return _run()
+
+
+class _SyntheticStreamingPolicy(AnthropicExecutionInterface):
+    """Execution-style policy that emits stream events without backend calls."""
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
+    ) -> AsyncIterator[RawMessageStartEvent | RawMessageStopEvent]:
+        async def _run() -> AsyncIterator[RawMessageStartEvent | RawMessageStopEvent]:
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_stream_synthetic",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": io.request["model"],
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
+            yield RawMessageStopEvent(type="message_stop")
+
+        return _run()
+
+
+class _BackendCompletePolicy(AnthropicExecutionInterface):
+    """Execution-style policy that proxies one backend complete call."""
+
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            response = await io.complete()
+            yield response
+
+        return _run()
+
+
+class _BackendStreamingPolicy(AnthropicExecutionInterface):
+    """Execution-style policy that proxies backend stream events."""
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
+    ) -> AsyncIterator[RawMessageStartEvent | RawMessageStopEvent]:
+        async def _run() -> AsyncIterator[RawMessageStartEvent | RawMessageStopEvent]:
+            async for event in io.stream():
+                yield event
+
+        return _run()
+
+
+class _DoubleBackendCompletePolicy(AnthropicExecutionInterface):
+    """Execution-style policy that calls backend complete twice and emits the second."""
+
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            await io.complete()
+            second = await io.complete()
+            yield second
+
+        return _run()
+
+
+class _InvalidStreamingEmissionPolicy(AnthropicExecutionInterface):
+    """Incorrect execution policy that emits a full response during streaming."""
+
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            yield {
+                "id": "msg_invalid_streaming_emission",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "invalid streaming emission"}],
+                "model": io.request["model"],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+
+        return _run()
+
+
+class _FailingCompletePolicy(AnthropicExecutionInterface):
+    """Execution policy that triggers an upstream complete() failure."""
+
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            await io.complete()
+            if False:  # pragma: no cover - keeps generator typing explicit
+                yield {
+                    "id": "msg_unreachable",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": io.request["model"],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                }
+
+        return _run()
+
+
+class TestExecutionPolicyRuntime:
+    """Tests for execution-oriented Anthropic policy runtime."""
+
+    @pytest.fixture
+    def mock_request(self):
+        request = MagicMock()
+        request.headers = {}
+        request.method = "POST"
+        request.url = MagicMock()
+        request.url.path = "/v1/messages"
+        request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": False,
+            }
+        )
+        return request
+
+    @pytest.fixture
+    def mock_emitter(self):
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_anthropic_client(self):
+        client = MagicMock()
+        client.complete = AsyncMock()
+        client.stream = MagicMock()
+        return client
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_policy_can_emit_without_backend(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Execution policy can emit a non-streaming response with zero backend calls."""
+        policy = _SyntheticNonStreamingPolicy()
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, JSONResponse)
+        payload = response.body.decode()
+        assert "Synthetic response" in payload
+        mock_anthropic_client.complete.assert_not_called()
+        mock_anthropic_client.stream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_streaming_policy_can_emit_without_backend(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Execution policy can emit streaming events with zero backend calls."""
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        policy = _SyntheticStreamingPolicy()
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+
+        full_stream = "".join(chunks)
+        assert "event: message_start" in full_stream
+        assert "event: message_stop" in full_stream
+        mock_anthropic_client.complete.assert_not_called()
+        mock_anthropic_client.stream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_policy_can_proxy_backend_complete(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Execution policy can call io.complete() and emit backend response."""
+        backend_response: AnthropicResponse = {
+            "id": "msg_backend_complete",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Backend complete response"}],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        mock_anthropic_client.complete = AsyncMock(return_value=backend_response)
+        policy = _BackendCompletePolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, JSONResponse)
+        payload = response.body.decode()
+        assert "msg_backend_complete" in payload
+        assert "Backend complete response" in payload
+        mock_anthropic_client.complete.assert_awaited_once()
+        mock_anthropic_client.stream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_streaming_policy_can_proxy_backend_stream(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Execution policy can call io.stream() and emit backend stream events."""
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+
+        async def backend_stream() -> AsyncIterator[RawMessageStartEvent | RawMessageStopEvent]:
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_backend_stream",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-sonnet-4-20250514",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 1, "output_tokens": 0},
+                },
+            )
+            yield RawMessageStopEvent(type="message_stop")
+
+        mock_anthropic_client.stream = MagicMock(return_value=backend_stream())
+        policy = _BackendStreamingPolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+
+        full_stream = "".join(chunks)
+        assert "event: message_start" in full_stream
+        assert "msg_backend_stream" in full_stream
+        assert "event: message_stop" in full_stream
+        mock_anthropic_client.stream.assert_called_once()
+        mock_anthropic_client.complete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_policy_can_make_multiple_backend_calls(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Execution policy can make multiple backend complete calls and emit final output."""
+        first_response: AnthropicResponse = {
+            "id": "msg_backend_first",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "First backend response"}],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        second_response: AnthropicResponse = {
+            "id": "msg_backend_second",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Second backend response"}],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 12, "output_tokens": 6},
+        }
+        mock_anthropic_client.complete = AsyncMock(side_effect=[first_response, second_response])
+        policy = _DoubleBackendCompletePolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, JSONResponse)
+        payload = response.body.decode()
+        assert "msg_backend_second" in payload
+        assert "Second backend response" in payload
+        assert mock_anthropic_client.complete.await_count == 2
+        mock_anthropic_client.stream.assert_not_called()
+
+        backend_request_events = [
+            call for call in mock_emitter.record.call_args_list if call.args[1] == "pipeline.backend_request"
+        ]
+        assert len(backend_request_events) == 2
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_policy_complete_error_raises_backend_api_error(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Errors raised by io.complete() should propagate as BackendAPIError."""
+        mock_httpx_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        mock_httpx_response = HttpxResponse(500, request=mock_httpx_request)
+        mock_anthropic_client.complete = AsyncMock(
+            side_effect=AnthropicStatusError(
+                message="backend failed",
+                response=mock_httpx_response,
+                body={"error": {"type": "api_error", "message": "backend failed"}},
+            )
+        )
+        policy = _FailingCompletePolicy()
+
+        with pytest.raises(BackendAPIError) as exc_info:
+            await process_anthropic_request(
+                request=mock_request,
+                policy=policy,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+            )
+
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.error_type == "api_error"
+
+    @pytest.mark.asyncio
+    async def test_streaming_policy_emitting_full_response_yields_error_event(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Streaming execution policy emitting response objects should produce error event."""
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        policy = _InvalidStreamingEmissionPolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        full_stream = "".join(chunks)
+        assert "event: error" in full_stream
+        assert "must emit streaming events" in full_stream

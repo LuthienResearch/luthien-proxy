@@ -29,7 +29,7 @@ from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types import Request
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
+    AnthropicExecutionInterface,
     BasePolicy,
     OpenAIPolicyInterface,
 )
@@ -53,8 +53,8 @@ class TestNoOpPolicyInheritance:
         assert issubclass(NoOpPolicy, OpenAIPolicyInterface)
 
     def test_inherits_from_anthropic_interface(self):
-        """NoOpPolicy inherits from AnthropicPolicyInterface."""
-        assert issubclass(NoOpPolicy, AnthropicPolicyInterface)
+        """NoOpPolicy inherits from AnthropicExecutionInterface."""
+        assert issubclass(NoOpPolicy, AnthropicExecutionInterface)
 
     def test_instantiation(self):
         """NoOpPolicy can be instantiated."""
@@ -62,7 +62,7 @@ class TestNoOpPolicyInheritance:
         assert policy is not None
         assert isinstance(policy, BasePolicy)
         assert isinstance(policy, OpenAIPolicyInterface)
-        assert isinstance(policy, AnthropicPolicyInterface)
+        assert isinstance(policy, AnthropicExecutionInterface)
 
     def test_short_policy_name(self):
         """NoOpPolicy has correct short_policy_name."""

@@ -33,7 +33,7 @@ from luthien_proxy.llm.types.anthropic import (
 )
 from luthien_proxy.policies.all_caps_policy import AllCapsPolicy
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
+    AnthropicExecutionInterface,
     OpenAIPolicyInterface,
 )
 from luthien_proxy.policy_core.base_policy import BasePolicy
@@ -97,8 +97,8 @@ class TestAllCapsPolicyProtocol:
         assert isinstance(policy, OpenAIPolicyInterface)
 
     def test_implements_anthropic_interface(self, policy):
-        """AllCapsPolicy implements AnthropicPolicyInterface."""
-        assert isinstance(policy, AnthropicPolicyInterface)
+        """AllCapsPolicy implements AnthropicExecutionInterface."""
+        assert isinstance(policy, AnthropicExecutionInterface)
 
     def test_policy_name(self, policy):
         """Test that policy has a readable name."""

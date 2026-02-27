@@ -57,13 +57,14 @@ Luthien runs on your machine or your cloud account.
 <details>
 <summary><b>Example: PipBlockPolicy (click to expand)</b></summary>
 
-```python
-class PipBlockPolicy(SimpleJudgePolicy):
-    RULES = [
-        "Block any 'pip install' or 'pip3 install' commands. Suggest 'uv add' instead.",
-        "Block 'python -m pip install' commands.",
-        "Allow all other tool calls.",
-    ]
+```yaml
+policy:
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  config:
+    probability_threshold: 0.95
+    judge_instructions: |
+      Block any `pip install`, `pip3 install`, or `python -m pip install` tool call.
+      Suggest using `uv add` instead.
 ```
 
 </details>
@@ -141,16 +142,14 @@ Luthien can call an LLM (like Haiku) to evaluate your rules on every request and
 <details>
 <summary><b>Did it do what I asked?</b></summary>
 
-```python
-from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
-
-class PromptCompliance(SimpleJudgePolicy):  # sends the conversation to Haiku after each response
-    RULES = [
-        "Check if the agent actually completed what the user asked for.",
-        "Flag if it claimed 'Done!' but left TODOs, stubs, or placeholder code.",
-        "Flag if it deleted or commented out tests instead of fixing them.",
-    ]
-    # results logged to activity monitor: http://localhost:8000/activity/monitor
+```yaml
+policy:
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  config:
+    probability_threshold: 0.8
+    judge_instructions: |
+      Check if the agent completed what the user asked for.
+      Flag if it claims "Done" but leaves TODOs, stubs, or placeholders.
 ```
 
 </details>
@@ -158,15 +157,14 @@ class PromptCompliance(SimpleJudgePolicy):  # sends the conversation to Haiku af
 <details>
 <summary><b>Did it follow CLAUDE.md?</b></summary>
 
-```python
-from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
-
-class RuleEnforcement(SimpleJudgePolicy):  # reads your CLAUDE.md and checks compliance
-    RULES = [
-        "Block any 'pip install' commands. Suggest 'uv add' instead.",  # from CLAUDE.md: "use uv, not pip"
-        "Flag if agent removed comments or log lines without being asked.",
-        "Flag if agent ignored rules that were explicitly stated in CLAUDE.md.",
-    ]
+```yaml
+policy:
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  config:
+    probability_threshold: 0.85
+    judge_instructions: |
+      Enforce explicit rules from CLAUDE.md for this repo.
+      Flag any command or response that violates those rules.
 ```
 
 </details>
@@ -174,16 +172,15 @@ class RuleEnforcement(SimpleJudgePolicy):  # reads your CLAUDE.md and checks com
 <details>
 <summary><b>Did it do something suspicious?</b></summary>
 
-```python
-from luthien_proxy.policies.simple_judge_policy import SimpleJudgePolicy
-
-class SafetyGuard(SimpleJudgePolicy):  # intercepts tool calls and checks them before they execute
-    RULES = [
-        "Block 'rm -rf' or any recursive delete on project directories.",
-        "Block 'git push --force' to main or master.",
-        "Flag if agent wraps code in try/except that swallows all errors.",
-        "Flag if agent pip-installs packages not in requirements.",
-    ]
+```yaml
+policy:
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  config:
+    probability_threshold: 0.7
+    judge_instructions: |
+      Block recursive deletes on project directories.
+      Block force-pushing to protected branches.
+      Flag suspicious command patterns or hidden side effects.
 ```
 
 </details>
@@ -335,7 +332,7 @@ Example policy configuration:
 
 ```yaml
 policy:
-  class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
     model: "openai/gpt-4o-mini"
     probability_threshold: 0.6

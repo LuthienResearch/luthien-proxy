@@ -18,12 +18,16 @@ Example config:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from collections.abc import AsyncIterator, Callable
+from typing import TYPE_CHECKING, cast
+
+from anthropic.lib.streaming import MessageStreamEvent
 
 from luthien_proxy.policies.multi_policy_utils import load_sub_policy, validate_sub_policies_interface
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
-    AnthropicStreamEvent,
+    AnthropicExecutionInterface,
+    AnthropicPolicyEmission,
+    AnthropicPolicyIOProtocol,
     BasePolicy,
     OpenAIPolicyInterface,
     PolicyProtocol,
@@ -47,14 +51,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
+class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
     """Run multiple policies sequentially, piping each output to the next.
 
     For requests: request flows through policy1 -> policy2 -> ... -> policyN
     For responses: response flows through policy1 -> policy2 -> ... -> policyN
 
-    All sub-policies must implement the interface being called. If any sub-policy
-    doesn't implement the required interface, a TypeError is raised at call time.
+    For Anthropic execution, each policy sees the next policy as its backend.
+    All sub-policies must implement the interface being called.
     """
 
     def __init__(self, policies: list[dict[str, Any]]) -> None:
@@ -81,6 +85,11 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
         validate_sub_policies_interface(
             self._sub_policies, self._validated_interfaces, interface, interface_name, "MultiSerialPolicy"
         )
+
+    def _iter_execution_policies(self) -> list[AnthropicExecutionInterface]:
+        """Return sub-policies as AnthropicExecutionInterface after runtime validation."""
+        self._validate_interface(AnthropicExecutionInterface, "AnthropicExecutionInterface")
+        return [policy for policy in self._sub_policies if isinstance(policy, AnthropicExecutionInterface)]
 
     # =========================================================================
     # OpenAI Interface
@@ -149,40 +158,86 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
             await policy.on_streaming_policy_complete(ctx)  # type: ignore[union-attr]
 
     # =========================================================================
-    # Anthropic Interface
+    # Anthropic execution interface
     # =========================================================================
 
-    async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
-        """Chain request through each sub-policy."""
-        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
+    ) -> AsyncIterator[AnthropicPolicyEmission]:
+        """Execute sub-policies serially by treating policy N+1 as policy N's backend."""
+        execution_policies = self._iter_execution_policies()
+
+        if not execution_policies:
+            return self._passthrough_anthropic(io)
+
+        def _execute_from(index: int, request: AnthropicRequest) -> AsyncIterator[AnthropicPolicyEmission]:
+            if index >= len(execution_policies):
+                return self._call_terminal_backend(io, request)
+
+            downstream = _SerialChainedAnthropicIO(
+                initial_request=request,
+                execute_next=lambda req: _execute_from(index + 1, req),
+                terminal_io=io,
+            )
+            return execution_policies[index].run_anthropic(downstream, context)
+
+        return _execute_from(0, io.request)
+
+    def _passthrough_anthropic(self, io: AnthropicPolicyIOProtocol) -> AsyncIterator[AnthropicPolicyEmission]:
+        """Run without sub-policies as a direct backend passthrough."""
+
+        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
+            request = io.request
+            if request.get("stream", False):
+                async for event in io.stream(request):
+                    yield event
+                return
+            yield await io.complete(request)
+
+        return _run()
+
+    def _call_terminal_backend(
+        self, io: AnthropicPolicyIOProtocol, request: AnthropicRequest
+    ) -> AsyncIterator[AnthropicPolicyEmission]:
+        """Call the actual backend when there are no more serial sub-policies."""
+
+        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
+            if request.get("stream", False):
+                async for event in io.stream(request):
+                    yield event
+                return
+            yield await io.complete(request)
+
+        return _run()
+
+    # =========================================================================
+    # Anthropic helper hooks (for policy-level unit tests)
+    # =========================================================================
+
+    async def on_anthropic_request(self, request: AnthropicRequest, context: "PolicyContext") -> AnthropicRequest:
+        """Chain request helper hooks through each sub-policy."""
+        self._validate_interface(AnthropicExecutionInterface, "AnthropicExecutionInterface")
         for policy in self._sub_policies:
-            request = await policy.on_anthropic_request(request, context)  # type: ignore[union-attr]
+            request = await policy.on_anthropic_request(request, context)  # type: ignore[attr-defined]
         return request
 
-    async def on_anthropic_response(
-        self, response: "AnthropicResponse", context: "PolicyContext"
-    ) -> "AnthropicResponse":
-        """Chain response through each sub-policy."""
-        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+    async def on_anthropic_response(self, response: AnthropicResponse, context: "PolicyContext") -> AnthropicResponse:
+        """Chain response helper hooks through each sub-policy."""
+        self._validate_interface(AnthropicExecutionInterface, "AnthropicExecutionInterface")
         for policy in self._sub_policies:
-            response = await policy.on_anthropic_response(response, context)  # type: ignore[union-attr]
+            response = await policy.on_anthropic_response(response, context)  # type: ignore[attr-defined]
         return response
 
     async def on_anthropic_stream_event(
-        self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> list[AnthropicStreamEvent]:
-        """Chain Anthropic stream events through sub-policies sequentially.
-
-        Each sub-policy can transform or filter events. The output events from
-        one policy become the input events for the next. If any policy filters
-        out all events (returns []), the chain short-circuits.
-        """
-        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+        self, event: MessageStreamEvent, context: "PolicyContext"
+    ) -> list[MessageStreamEvent]:
+        """Chain streaming helper hooks through each sub-policy."""
+        self._validate_interface(AnthropicExecutionInterface, "AnthropicExecutionInterface")
         events = [event]
         for policy in self._sub_policies:
-            next_events: list[AnthropicStreamEvent] = []
+            next_events: list[MessageStreamEvent] = []
             for evt in events:
-                next_events.extend(await policy.on_anthropic_stream_event(evt, context))  # type: ignore[union-attr]
+                next_events.extend(await policy.on_anthropic_stream_event(evt, context))  # type: ignore[attr-defined]
             events = next_events
             if not events:
                 break
@@ -199,6 +254,57 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
         self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
         for policy in self._sub_policies:
             await policy.on_anthropic_streaming_policy_complete(context)  # type: ignore[union-attr]
+
+
+class _SerialChainedAnthropicIO(AnthropicPolicyIOProtocol):
+    """Policy I/O adapter that routes backend calls into the next serial policy."""
+
+    def __init__(
+        self,
+        *,
+        initial_request: AnthropicRequest,
+        execute_next: Callable[[AnthropicRequest], AsyncIterator[AnthropicPolicyEmission]],
+        terminal_io: AnthropicPolicyIOProtocol,
+    ) -> None:
+        self._request = initial_request
+        self._execute_next = execute_next
+        self._terminal_io = terminal_io
+
+    @property
+    def request(self) -> AnthropicRequest:
+        return self._request
+
+    def set_request(self, request: AnthropicRequest) -> None:
+        self._request = request
+
+    @property
+    def first_backend_response(self) -> AnthropicResponse | None:
+        return self._terminal_io.first_backend_response
+
+    async def complete(self, request: AnthropicRequest | None = None) -> AnthropicResponse:
+        final_request = request or self._request
+        response: AnthropicResponse | None = None
+
+        async for emitted in self._execute_next(final_request):
+            if isinstance(emitted, dict) and emitted.get("type") == "message":
+                response = emitted
+                continue
+            raise TypeError("Downstream serial policy emitted streaming events during complete()")
+
+        if response is None:
+            raise RuntimeError("Downstream serial policy emitted no non-streaming response during complete()")
+        return response
+
+    def stream(self, request: AnthropicRequest | None = None) -> AsyncIterator[MessageStreamEvent]:
+        final_request = request or self._request
+
+        async def _stream() -> AsyncIterator[MessageStreamEvent]:
+            async for emitted in self._execute_next(final_request):
+                if isinstance(emitted, dict) and emitted.get("type") == "message":
+                    raise TypeError("Downstream serial policy emitted a non-streaming response during stream()")
+                yield cast(MessageStreamEvent, emitted)
+
+        return _stream()
 
 
 __all__ = ["MultiSerialPolicy"]

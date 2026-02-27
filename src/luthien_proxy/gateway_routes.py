@@ -21,7 +21,9 @@ from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline import process_anthropic_request, process_llm_request
-from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
+from luthien_proxy.policy_core.anthropic_execution_interface import (
+    AnthropicExecutionInterface,
+)
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 
 router = APIRouter(tags=["gateway"])
@@ -139,7 +141,7 @@ async def chat_completions(
 async def anthropic_messages(
     request: Request,
     anthropic_client: AnthropicClient = Depends(resolve_anthropic_client),
-    anthropic_policy: AnthropicPolicyInterface = Depends(get_anthropic_policy),
+    anthropic_policy: AnthropicExecutionInterface = Depends(get_anthropic_policy),
     emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
     """Anthropic Messages API endpoint (native Anthropic path)."""

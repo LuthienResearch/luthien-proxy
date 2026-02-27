@@ -11,12 +11,10 @@ The pipeline creates a structured span hierarchy for observability:
 
     anthropic_transaction_processing (root)
     +-- process_request
-    +-- policy_on_request
-    +-- send_upstream
-    |   +-- anthropic.stream / anthropic.complete
     +-- process_response
-    |   +-- anthropic.stream_executor (streaming only)
-    +-- send_to_client
+    |   +-- policy_execute
+    |   +-- send_upstream (zero or more backend calls)
+    +-- send_to_client (non-streaming)
 """
 
 from __future__ import annotations
@@ -24,7 +22,8 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import AsyncIterator, TypedDict
+from collections.abc import AsyncIterator
+from typing import TypedDict, TypeGuard, cast
 
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
@@ -45,9 +44,12 @@ from luthien_proxy.llm.types.anthropic import (
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.session import extract_session_id_from_anthropic_body
-from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
+from luthien_proxy.policy_core.anthropic_execution_interface import (
+    AnthropicExecutionInterface,
+    AnthropicPolicyEmission,
+    AnthropicPolicyIOProtocol,
+)
 from luthien_proxy.policy_core.policy_context import PolicyContext
-from luthien_proxy.streaming.anthropic_executor import AnthropicStreamExecutor
 from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
@@ -71,28 +73,122 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
+class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
+    """Request-scoped I/O helpers for execution-oriented Anthropic policies."""
+
+    def __init__(
+        self,
+        *,
+        initial_request: AnthropicRequest,
+        anthropic_client: AnthropicClient,
+        emitter: EventEmitterProtocol,
+        call_id: str,
+        session_id: str | None,
+    ) -> None:
+        self._request = initial_request
+        self._initial_request = initial_request
+        self._anthropic_client = anthropic_client
+        self._emitter = emitter
+        self._call_id = call_id
+        self._session_id = session_id
+        self._request_recorded = False
+        self._first_backend_response: AnthropicResponse | None = None
+
+    @property
+    def request(self) -> AnthropicRequest:
+        """Current request payload."""
+        return self._request
+
+    @property
+    def first_backend_response(self) -> AnthropicResponse | None:
+        """First backend response observed during this request execution."""
+        return self._first_backend_response
+
+    def set_request(self, request: AnthropicRequest) -> None:
+        """Replace the current request payload used by backend helper methods."""
+        self._request = request
+
+    def ensure_request_recorded(self, final_request: AnthropicRequest | None = None) -> None:
+        """Record transaction.request_recorded once for this request lifecycle."""
+        if self._request_recorded:
+            return
+
+        effective_request = final_request or self._request
+        self._emitter.record(
+            self._call_id,
+            "transaction.request_recorded",
+            {
+                "original_model": self._initial_request["model"],
+                "final_model": effective_request["model"],
+                "original_request": dict(self._initial_request),
+                "final_request": dict(effective_request),
+                "session_id": self._session_id,
+            },
+        )
+        self._request_recorded = True
+
+    def _record_backend_request(self, request: AnthropicRequest) -> None:
+        """Record backend request events."""
+        self.ensure_request_recorded(request)
+
+        self._emitter.record(
+            self._call_id,
+            "pipeline.backend_request",
+            {"payload": dict(request), "session_id": self._session_id},
+        )
+
+    async def complete(self, request: AnthropicRequest | None = None) -> AnthropicResponse:
+        """Execute a non-streaming backend request."""
+        final_request = request or self._request
+        self._record_backend_request(final_request)
+
+        with tracer.start_as_current_span("send_upstream") as span:
+            span.set_attribute("luthien.phase", "send_upstream")
+            response = await self._anthropic_client.complete(final_request)
+
+        if self._first_backend_response is None:
+            self._first_backend_response = response
+        return response
+
+    def stream(self, request: AnthropicRequest | None = None) -> AsyncIterator[MessageStreamEvent]:
+        """Execute a streaming backend request."""
+        final_request = request or self._request
+        self._record_backend_request(final_request)
+
+        async def _stream() -> AsyncIterator[MessageStreamEvent]:
+            with tracer.start_as_current_span("send_upstream") as span:
+                span.set_attribute("luthien.phase", "send_upstream")
+                async for event in self._anthropic_client.stream(final_request):
+                    yield event
+
+        return _stream()
+
+
+def _is_anthropic_response_emission(emitted: AnthropicPolicyEmission) -> TypeGuard[AnthropicResponse]:
+    """Detect whether an emission is a non-streaming Anthropic response payload."""
+    return (
+        isinstance(emitted, dict)
+        and emitted.get("type") == "message"
+        and isinstance(emitted.get("id"), str)
+        and emitted["id"].startswith("msg_")
+        and "role" in emitted
+        and "content" in emitted
+    )
+
+
 async def process_anthropic_request(
     request: Request,
-    policy: AnthropicPolicyInterface,
+    policy: AnthropicExecutionInterface,
     anthropic_client: AnthropicClient,
     emitter: EventEmitterProtocol,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an Anthropic API request through the native pipeline.
 
-    This function handles Anthropic requests without converting to OpenAI format.
-    It uses AnthropicPolicyInterface for policy hooks and AnthropicClient for
-    backend calls.
-
-    The processing pipeline is:
-    1. process_request: Parse and validate incoming request
-    2. policy_on_request: Apply policy to request
-    3. send_upstream: Send request to Anthropic API
-    4. process_response: Apply policy to response (streaming or full)
-    5. send_to_client: Return response
+    Supports execution-oriented Anthropic policies.
 
     Args:
         request: FastAPI request object
-        policy: Policy implementing AnthropicPolicyInterface
+        policy: Anthropic execution policy
         anthropic_client: Client for calling Anthropic API
         emitter: Event emitter for observability
 
@@ -101,13 +197,10 @@ async def process_anthropic_request(
 
     Raises:
         HTTPException: On request size exceeded or validation errors
-        TypeError: If policy does not implement AnthropicPolicyInterface
+        TypeError: If policy does not implement AnthropicExecutionInterface
     """
-    if not isinstance(policy, AnthropicPolicyInterface):
-        raise TypeError(
-            f"Policy must implement AnthropicPolicyInterface, got {type(policy).__name__}. "
-            "Ensure your policy inherits from AnthropicPolicyInterface or implements all required hooks."
-        )
+    if not isinstance(policy, AnthropicExecutionInterface):
+        raise TypeError(f"Policy must implement AnthropicExecutionInterface, got {type(policy).__name__}.")
 
     call_id = str(uuid.uuid4())
 
@@ -142,58 +235,24 @@ async def process_anthropic_request(
         # Set policy name on root span for easy identification
         root_span.set_attribute("luthien.policy.name", policy.__class__.__name__)
 
-        # Apply policy to request
-        with tracer.start_as_current_span("policy_on_request"):
-            final_request = await policy.on_anthropic_request(anthropic_request, policy_ctx)
+        response = await _execute_anthropic_policy(
+            execution_policy=policy,
+            initial_request=anthropic_request,
+            policy_ctx=policy_ctx,
+            anthropic_client=anthropic_client,
+            emitter=emitter,
+            call_id=call_id,
+            is_streaming=is_streaming,
+            root_span=root_span,
+        )
 
-        # Propagate request summary if policy set one
+        # Propagate policy summaries if set
         if policy_ctx.request_summary:
             root_span.set_attribute("luthien.policy.request_summary", policy_ctx.request_summary)
+        if policy_ctx.response_summary:
+            root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
 
-        # Record request for conversation history viewer
-        emitter.record(
-            call_id,
-            "transaction.request_recorded",
-            {
-                "original_model": anthropic_request["model"],
-                "final_model": final_request["model"],
-                "original_request": dict(anthropic_request),
-                "final_request": dict(final_request),
-                "session_id": session_id,
-            },
-        )
-
-        emitter.record(
-            call_id,
-            "pipeline.backend_request",
-            {"payload": dict(final_request), "session_id": session_id},
-        )
-
-        # Phase 2-4: Send upstream, process response, send to client
-        if is_streaming:
-            return await _handle_streaming(
-                final_request=final_request,
-                policy=policy,
-                policy_ctx=policy_ctx,
-                anthropic_client=anthropic_client,
-                call_id=call_id,
-                root_span=root_span,
-            )
-        else:
-            response = await _handle_non_streaming(
-                final_request=final_request,
-                policy=policy,
-                policy_ctx=policy_ctx,
-                anthropic_client=anthropic_client,
-                emitter=emitter,
-                call_id=call_id,
-            )
-
-            # Propagate response summary if policy set one
-            if policy_ctx.response_summary:
-                root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
-
-            return response
+        return response
 
 
 async def _process_request(
@@ -262,52 +321,94 @@ async def _process_request(
         return anthropic_request, raw_http_request, session_id
 
 
-async def _handle_streaming(
-    final_request: AnthropicRequest,
-    policy: AnthropicPolicyInterface,
+async def _execute_anthropic_policy(
+    execution_policy: AnthropicExecutionInterface,
+    initial_request: AnthropicRequest,
     policy_ctx: PolicyContext,
     anthropic_client: AnthropicClient,
+    emitter: EventEmitterProtocol,
+    call_id: str,
+    is_streaming: bool,
+    root_span: Span,
+) -> FastAPIStreamingResponse | JSONResponse:
+    """Execute an Anthropic policy using the execution-oriented runtime."""
+    io = _AnthropicPolicyIO(
+        initial_request=initial_request,
+        anthropic_client=anthropic_client,
+        emitter=emitter,
+        call_id=call_id,
+        session_id=policy_ctx.session_id,
+    )
+    emissions = execution_policy.run_anthropic(io, policy_ctx)
+
+    if is_streaming:
+        return await _handle_execution_streaming(
+            emissions=emissions,
+            io=io,
+            call_id=call_id,
+            root_span=root_span,
+            policy_ctx=policy_ctx,
+        )
+
+    return await _handle_execution_non_streaming(
+        emissions=emissions,
+        io=io,
+        emitter=emitter,
+        policy_ctx=policy_ctx,
+        call_id=call_id,
+    )
+
+
+async def _handle_execution_streaming(
+    emissions: AsyncIterator[AnthropicPolicyEmission],
+    io: _AnthropicPolicyIO,
     call_id: str,
     root_span: Span,
+    policy_ctx: PolicyContext,
 ) -> FastAPIStreamingResponse:
-    """Handle streaming response flow.
-
-    Phases 2-4 are interleaved for streaming: chunks flow through
-    send_upstream -> process_response -> send_to_client continuously.
-    """
-    # Capture parent context before entering the generator
+    """Handle streaming response flow for execution-oriented policies."""
     parent_context = get_current()
 
-    with tracer.start_as_current_span("send_upstream") as span:
-        span.set_attribute("luthien.phase", "send_upstream")
-        # Note: stream() returns an async iterator, not an awaitable
-        # The actual API call happens when we start iterating
-        backend_stream = anthropic_client.stream(final_request)
-
-    # Create a wrapper generator that manages span context
     async def streaming_with_spans() -> AsyncIterator[str]:
         """Wrapper that creates proper span hierarchy for streaming."""
-        # Attach parent context so spans are siblings under transaction_processing
         with restore_context(parent_context):
             chunk_count = 0
-            # process_response span wraps the entire streaming pipeline
+            emitted_any = False
             with tracer.start_as_current_span("process_response") as response_span:
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
 
                 try:
-                    executor = AnthropicStreamExecutor()
-                    async for event in executor.process(backend_stream, policy, policy_ctx):
-                        chunk_count += 1
-                        sse_line = _format_sse_event(event)
-                        yield sse_line
-                except (AnthropicStatusError, AnthropicConnectionError) as e:
-                    # Emit error event before the stream terminates so clients see the error
-                    # (headers are already sent, so HTTPException won't help)
+                    with tracer.start_as_current_span("policy_execute"):
+                        async for emitted in emissions:
+                            if _is_anthropic_response_emission(emitted):
+                                raise TypeError(
+                                    "Streaming Anthropic execution policies must emit streaming events, "
+                                    "not full response objects."
+                                )
+                            io.ensure_request_recorded()
+                            emitted_any = True
+                            chunk_count += 1
+                            yield _format_sse_event(cast(MessageStreamEvent, emitted))
+                except Exception as e:
+                    # Headers may already be sent, so emit an in-stream error event.
+                    policy_ctx.record_event(
+                        "policy.execution.streaming_error",
+                        {"summary": "Execution policy raised during streaming", "error": str(e)},
+                    )
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
-                    # Always record chunk count and summary, even on error
+                    if not emitted_any:
+                        io.ensure_request_recorded()
+                        logger.warning(
+                            "[%s] Execution policy emitted zero streaming events; returning empty stream",
+                            call_id,
+                        )
+                        policy_ctx.record_event(
+                            "policy.execution.empty_stream",
+                            {"summary": "Execution policy emitted zero streaming events"},
+                        )
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
@@ -323,52 +424,73 @@ async def _handle_streaming(
     )
 
 
-async def _handle_non_streaming(
-    final_request: AnthropicRequest,
-    policy: AnthropicPolicyInterface,
-    policy_ctx: PolicyContext,
-    anthropic_client: AnthropicClient,
+async def _handle_execution_non_streaming(
+    emissions: AsyncIterator[AnthropicPolicyEmission],
+    io: _AnthropicPolicyIO,
     emitter: EventEmitterProtocol,
+    policy_ctx: PolicyContext,
     call_id: str,
 ) -> JSONResponse:
-    """Handle non-streaming response flow."""
-    # Phase 2: Send to upstream
-    with tracer.start_as_current_span("send_upstream") as span:
-        span.set_attribute("luthien.phase", "send_upstream")
-        try:
-            response: AnthropicResponse = await anthropic_client.complete(final_request)
-        except Exception as e:
-            _handle_anthropic_error(e, call_id)
-            raise  # Re-raise if not handled
+    """Handle non-streaming response flow for execution-oriented policies."""
+    final_response: AnthropicResponse | None = None
+    response_count = 0
 
-    # Phase 3: Process response through policy
     with tracer.start_as_current_span("process_response") as span:
         span.set_attribute("luthien.phase", "process_response")
-        processed_response = await policy.on_anthropic_response(response, policy_ctx)
+        try:
+            with tracer.start_as_current_span("policy_execute"):
+                async for emitted in emissions:
+                    if not _is_anthropic_response_emission(emitted):
+                        raise TypeError(
+                            "Non-streaming Anthropic execution policies must emit a response object, "
+                            "not streaming events."
+                        )
+                    final_response = emitted
+                    response_count += 1
+        except Exception as e:
+            _handle_anthropic_error(e, call_id)
+            raise
 
-    # Record response for conversation history viewer
+    io.ensure_request_recorded()
+
+    if final_response is None:
+        raise RuntimeError(
+            "Anthropic execution policy did not emit a non-streaming response. "
+            "Emit exactly one response object in non-streaming mode."
+        )
+
+    if response_count > 1:
+        logger.warning("[%s] Execution policy emitted %d non-streaming responses; using last", call_id, response_count)
+        policy_ctx.record_event(
+            "policy.execution.multiple_non_streaming_responses",
+            {"count": response_count, "summary": "Using last emitted response"},
+        )
+
+    original_response_payload: dict | None = None
+    if io.first_backend_response is not None:
+        original_response_payload = dict(io.first_backend_response)
+
     emitter.record(
         call_id,
         "transaction.non_streaming_response_recorded",
         {
-            "original_response": dict(response),
-            "final_response": dict(processed_response),
+            "original_response": original_response_payload,
+            "final_response": dict(final_response),
             "session_id": policy_ctx.session_id,
         },
     )
 
-    # Phase 4: Send to client
     with tracer.start_as_current_span("send_to_client") as span:
         span.set_attribute("luthien.phase", "send_to_client")
 
         emitter.record(
             call_id,
             "pipeline.client_response",
-            {"payload": dict(processed_response), "session_id": policy_ctx.session_id},
+            {"payload": dict(final_response), "session_id": policy_ctx.session_id},
         )
 
         return JSONResponse(
-            content=dict(processed_response),
+            content=dict(final_response),
             headers={"X-Call-ID": call_id},
         )
 

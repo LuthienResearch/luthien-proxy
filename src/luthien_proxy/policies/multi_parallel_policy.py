@@ -36,12 +36,16 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Callable, TypeVar, cast
+
+from anthropic.lib.streaming import MessageStreamEvent
 
 from luthien_proxy.policies.multi_policy_utils import load_sub_policy, validate_sub_policies_interface
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
-    AnthropicStreamEvent,
+    AnthropicExecutionInterface,
+    AnthropicPolicyEmission,
+    AnthropicPolicyIOProtocol,
     BasePolicy,
     OpenAIPolicyInterface,
     PolicyProtocol,
@@ -89,7 +93,7 @@ def _anthropic_response_content_length(response: "AnthropicResponse") -> int:
     return total
 
 
-class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
+class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
     """Run multiple policies in parallel and consolidate their results.
 
     Each sub-policy receives an independent copy of the original input.
@@ -282,59 +286,184 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         self._streaming_not_supported()
 
     # =========================================================================
-    # Anthropic Interface - Non-streaming
+    # Anthropic execution interface
     # =========================================================================
 
-    async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
-        """Run all sub-policies on the request in parallel."""
-        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
+    ) -> AsyncIterator[AnthropicPolicyEmission]:
+        """Run Anthropic execution policies in parallel and emit the winning output."""
+
+        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
+            self._validate_interface(AnthropicExecutionInterface, "AnthropicExecutionInterface")
+            execution_policies = [
+                policy for policy in self._sub_policies if isinstance(policy, AnthropicExecutionInterface)
+            ]
+
+            if not execution_policies:
+                request = io.request
+                if request.get("stream", False):
+                    async for event in io.stream(request):
+                        yield event
+                    return
+                yield await io.complete(request)
+                return
+
+            request = io.request
+            if request.get("stream", False) and self._strategy != "designated":
+                raise NotImplementedError(
+                    "MultiParallelPolicy supports Anthropic streaming only with consolidation_strategy='designated'."
+                )
+
+            if self._strategy == "designated":
+                designated_idx = cast(int, self._designated_policy_index)
+                designated = execution_policies[designated_idx]
+                designated_io = _ParallelAnthropicIO(
+                    initial_request=copy.deepcopy(request),
+                    terminal_io=io,
+                )
+                designated_ctx = copy.deepcopy(context)
+                async for emitted in designated.run_anthropic(designated_io, designated_ctx):
+                    yield emitted
+                return
+
+            policy_ios = [
+                _ParallelAnthropicIO(initial_request=copy.deepcopy(request), terminal_io=io) for _ in execution_policies
+            ]
+            context_copies = [copy.deepcopy(context) for _ in execution_policies]
+
+            emissions_per_policy = await asyncio.gather(
+                *(
+                    _collect_policy_emissions(policy, policy_io, ctx_copy)
+                    for policy, policy_io, ctx_copy in zip(execution_policies, policy_ios, context_copies)
+                )
+            )
+
+            winner_idx = self._select_winner_index(emissions_per_policy)
+            winner_emissions = emissions_per_policy[winner_idx]
+
+            for emitted in winner_emissions:
+                yield emitted
+
+        return _run()
+
+    def _select_winner_index(self, emissions_per_policy: list[list[AnthropicPolicyEmission]]) -> int:
+        """Choose the winning policy output transcript by configured strategy."""
+        if not emissions_per_policy:
+            return 0
+
+        if self._strategy in {"first_block", "unanimous_pass"}:
+            return 0
+
+        if self._strategy == "most_restrictive":
+            lengths = [_emission_transcript_length(emissions) for emissions in emissions_per_policy]
+            return min(range(len(lengths)), key=lengths.__getitem__)
+
+        if self._strategy == "majority_pass":
+            winner_idx = 0
+            winner_count = 0
+            for idx, emissions in enumerate(emissions_per_policy):
+                count = sum(1 for other in emissions_per_policy if other == emissions)
+                if count > winner_count:
+                    winner_idx = idx
+                    winner_count = count
+            return winner_idx
+
+        # designated is handled in run_anthropic before collection.
+        return 0
+
+    # =========================================================================
+    # Anthropic helper hooks (for policy-level unit tests)
+    # =========================================================================
+
+    async def on_anthropic_request(self, request: AnthropicRequest, context: "PolicyContext") -> AnthropicRequest:
+        """Run Anthropic request helpers in parallel and consolidate results."""
+        self._validate_interface(AnthropicExecutionInterface, "AnthropicExecutionInterface")
         if not self._sub_policies:
             return request
 
-        # Deep copying dicts and contexts is O(size) per policy — may be expensive
-        # for large payloads. Necessary to guarantee each policy sees independent state.
         request_copies = [copy.deepcopy(request) for _ in self._sub_policies]
         context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
         results = await asyncio.gather(
             *(
-                p.on_anthropic_request(req_copy, ctx_copy)  # type: ignore[union-attr]
+                p.on_anthropic_request(req_copy, ctx_copy)  # type: ignore[attr-defined]
                 for p, req_copy, ctx_copy in zip(self._sub_policies, request_copies, context_copies)
             )
         )
         return self._consolidate(request, list(results), size_fn=lambda r: len(str(r.get("messages", []))))
 
-    async def on_anthropic_response(
-        self, response: "AnthropicResponse", context: "PolicyContext"
-    ) -> "AnthropicResponse":
-        """Run all sub-policies on the response in parallel."""
-        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+    async def on_anthropic_response(self, response: AnthropicResponse, context: "PolicyContext") -> AnthropicResponse:
+        """Run Anthropic response helpers in parallel and consolidate results."""
+        self._validate_interface(AnthropicExecutionInterface, "AnthropicExecutionInterface")
         if not self._sub_policies:
             return response
 
-        # Deep copying responses and contexts is O(size) per policy — may be expensive
-        # for large payloads. Necessary to guarantee each policy sees independent state.
         response_copies = [copy.deepcopy(response) for _ in self._sub_policies]
         context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
         results = await asyncio.gather(
             *(
-                p.on_anthropic_response(resp_copy, ctx_copy)  # type: ignore[union-attr]
+                p.on_anthropic_response(resp_copy, ctx_copy)  # type: ignore[attr-defined]
                 for p, resp_copy, ctx_copy in zip(self._sub_policies, response_copies, context_copies)
             )
         )
         return self._consolidate(response, list(results), size_fn=_anthropic_response_content_length)
 
-    # =========================================================================
-    # Anthropic Interface - Streaming (not supported)
-    # =========================================================================
-
     async def on_anthropic_stream_event(
-        self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> list[AnthropicStreamEvent]:
-        """Not supported -- raises NotImplementedError."""
+        self, event: MessageStreamEvent, context: "PolicyContext"
+    ) -> list[MessageStreamEvent]:
+        """Anthropic stream-event helper remains unsupported in parallel mode."""
         raise NotImplementedError(
-            "MultiParallelPolicy does not support Anthropic streaming. "
-            "Parallel policies need to see the complete response to consolidate results."
+            "MultiParallelPolicy does not support Anthropic streaming helper hooks. "
+            "Use run_anthropic for execution-oriented streaming behavior."
         )
+
+
+class _ParallelAnthropicIO(AnthropicPolicyIOProtocol):
+    """Per-policy IO wrapper for parallel Anthropic execution."""
+
+    def __init__(self, *, initial_request: AnthropicRequest, terminal_io: AnthropicPolicyIOProtocol) -> None:
+        self._request = initial_request
+        self._terminal_io = terminal_io
+
+    @property
+    def request(self) -> AnthropicRequest:
+        return self._request
+
+    def set_request(self, request: AnthropicRequest) -> None:
+        self._request = request
+
+    @property
+    def first_backend_response(self) -> AnthropicResponse | None:
+        return self._terminal_io.first_backend_response
+
+    async def complete(self, request: AnthropicRequest | None = None) -> AnthropicResponse:
+        return await self._terminal_io.complete(request or self._request)
+
+    def stream(self, request: AnthropicRequest | None = None) -> AsyncIterator[MessageStreamEvent]:
+        return self._terminal_io.stream(request or self._request)
+
+
+async def _collect_policy_emissions(
+    policy: AnthropicExecutionInterface,
+    io: AnthropicPolicyIOProtocol,
+    context: PolicyContext,
+) -> list[AnthropicPolicyEmission]:
+    """Collect all emissions from a single execution policy."""
+    emissions: list[AnthropicPolicyEmission] = []
+    async for emitted in policy.run_anthropic(io, context):
+        emissions.append(emitted)
+    return emissions
+
+
+def _emission_transcript_length(emissions: list[AnthropicPolicyEmission]) -> int:
+    """Approximate transcript length for most_restrictive consolidation."""
+    total = 0
+    for emitted in emissions:
+        if isinstance(emitted, dict) and emitted.get("type") == "message":
+            total += _anthropic_response_content_length(emitted)
+        else:
+            total += len(str(emitted))
+    return total
 
 
 __all__ = ["MultiParallelPolicy"]
