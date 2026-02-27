@@ -232,4 +232,21 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Anthropic Execution-Oriented Policy Runtime (2026-02-27)
+
+**Decision**: Add an execution-oriented Anthropic policy interface (`AnthropicExecutionInterface`) where policies drive backend calls and emitted client output directly.
+
+**Rationale**:
+- **Backend-optional policies**: A policy can emit a response without any upstream LLM call.
+- **Independent stream transform**: Streaming output is `N -> M`; emitted client events are not coupled to backend chunk/block counts.
+- **Compatibility**: Existing `AnthropicPolicyInterface` policies continue working via a legacy adapter.
+- **Incremental migration**: New policies can adopt the execution model without forcing a big-bang refactor.
+
+**Implementation notes**:
+- Runtime added in `pipeline/anthropic_processor.py` using request-scoped `AnthropicPolicyIO`.
+- `Dependencies.get_anthropic_policy()` now accepts either interface.
+- `/v1/messages` keeps the same API surface; only policy runtime semantics expand.
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

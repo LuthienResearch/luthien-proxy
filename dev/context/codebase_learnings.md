@@ -207,4 +207,15 @@ curl -X POST http://localhost:8000/admin/policy/activate \
 
 ---
 
+## Anthropic Runtime Model (2026-02-27)
+
+- Anthropic path now supports two policy contracts:
+  - Legacy hook contract: `AnthropicPolicyInterface`
+  - Execution contract: `AnthropicExecutionInterface`
+- Execution policies run through request-scoped I/O helpers (`complete()` / `stream()`) and emit outbound artifacts directly.
+- This enables backend-optional behavior:
+  - Non-streaming: policy can emit a full response without upstream calls
+  - Streaming: policy can emit SSE events without upstream calls
+- Legacy policies are wrapped by an internal adapter in `pipeline/anthropic_processor.py`, so existing policies keep working unchanged.
+
 (Add learnings as discovered during development with timestamps: YYYY-MM-DD)
