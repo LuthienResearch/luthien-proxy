@@ -246,6 +246,15 @@ if stream_state.finish_reason:
 - **Related**: PR #203 (orphaned containers — previous Docker self-interference incident)
 - **Dangerous commands to watch for**: `docker compose down`, `docker stop`, `docker compose restart` (on gateway), `kill` on gateway PID, `docker compose exec db` (DB access)
 
+## In-Place Policy Mutation Can Hide Live-View Diffs (2026-02-27)
+
+**Gotcha**: If the orchestrator records "original" request/response objects *after* policy hooks run, in-place policy mutation destroys the pre-policy snapshot and `request_was_modified` / `response_was_modified` become false even when content changed.
+
+- **Symptom**: Live view shows transformed output (e.g., ALL CAPS) but `original_*_messages` are missing and `*_was_modified=false`
+- **Cause**: Passing mutable objects directly to `record_request()` / `record_response()` without deep-copying before hook execution
+- **Fix**: In `PolicyOrchestrator`, snapshot with `model_copy(deep=True)` before calling policy hooks, then record `(original_snapshot, final_object)`
+- **Regression coverage**: `tests/unit_tests/orchestration/test_policy_orchestrator_request.py` includes in-place mutation tests for both request and response recording
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
