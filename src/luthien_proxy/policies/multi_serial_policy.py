@@ -244,16 +244,18 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInt
         return events
 
     async def on_anthropic_stream_complete(self, context: "PolicyContext") -> None:
-        """Delegate Anthropic stream completion hook to sub-policies."""
-        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+        """Delegate Anthropic stream completion helper hook to sub-policies when present."""
         for policy in self._sub_policies:
-            await policy.on_anthropic_stream_complete(context)  # type: ignore[union-attr]
+            maybe_hook = getattr(policy, "on_anthropic_stream_complete", None)
+            if maybe_hook is not None:
+                await maybe_hook(context)
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
-        """Delegate Anthropic always-run cleanup hook to sub-policies."""
-        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+        """Delegate Anthropic cleanup helper hook to sub-policies when present."""
         for policy in self._sub_policies:
-            await policy.on_anthropic_streaming_policy_complete(context)  # type: ignore[union-attr]
+            maybe_hook = getattr(policy, "on_anthropic_streaming_policy_complete", None)
+            if maybe_hook is not None:
+                await maybe_hook(context)
 
 
 class _SerialChainedAnthropicIO(AnthropicPolicyIOProtocol):
