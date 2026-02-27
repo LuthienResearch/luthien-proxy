@@ -57,8 +57,6 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
     doesn't implement the required interface, a TypeError is raised at call time.
     """
 
-    _ALLOWED_MUTABLE_INSTANCE_ATTRS: frozenset[str] = frozenset({"_sub_policies", "_validated_interfaces"})
-
     def __init__(self, policies: list[dict[str, Any]]) -> None:
         """Initialize with a list of policy config dicts to run in sequence."""
         self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]

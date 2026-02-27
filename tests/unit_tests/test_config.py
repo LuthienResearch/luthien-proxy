@@ -176,13 +176,13 @@ policy:
 
 
 class TestPolicyInstantiationGuardrails:
-    def test_instantiated_policy_is_frozen(self):
-        """Configured policies should reject post-init instance mutation."""
+    def test_instantiated_policy_is_validated_but_not_frozen(self):
+        """Configured policies run validation but remain assignable at runtime."""
         policy = _instantiate_policy(_StatelessConfigPolicy, {"flag": True})
         assert policy.flag is True
 
-        with pytest.raises(AttributeError, match="frozen after configuration"):
-            policy.runtime_state = "nope"
+        policy.runtime_state = "allowed"
+        assert policy.runtime_state == "allowed"
 
     def test_instantiation_rejects_mutable_instance_state(self):
         """Mutable instance containers are forbidden on policy objects."""

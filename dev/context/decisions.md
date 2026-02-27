@@ -247,19 +247,19 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
-## Freeze Policy Instances After Configuration (2026-02-27)
+## Policy Config Validation Guardrail (2026-02-27, Revised 2026-02-27)
 
-**Decision**: Enforce policy statelessness at framework level by freezing policy instances immediately after `_instantiate_policy(...)` returns.
+**Decision**: Use a lightweight load-time validation guardrail rather than runtime instance freezing.
 
 **Mechanics**:
-- `BasePolicy.__setattr__` rejects attribute assignment when frozen.
-- `BasePolicy.freeze_configured_state()` validates instance attrs before freezing.
-- Mutable container attrs (`dict`/`list`/`set`/etc.) on policy instances are rejected at instantiation time unless explicitly allowlisted.
+- `_instantiate_policy(...)` calls `BasePolicy.freeze_configured_state()` after construction.
+- `freeze_configured_state()` validates public attrs and rejects mutable containers (`dict`/`list`/`set`/etc.).
+- Runtime attribute assignment is not blocked.
 
 **Rationale**:
-- Prevents accidental request-scoped state from being stored on long-lived policy singletons.
-- Makes statelessness a hard invariant instead of a convention.
-- Forces per-request mutable data into `PolicyContext` typed state slots.
+- Catches obvious config-shape mistakes without forcing invasive code patterns.
+- Avoids per-class escape-hatch complexity for composite policies.
+- Keeps request-scoped mutable data directed into `PolicyContext` state APIs.
 
 ---
 
@@ -276,7 +276,7 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 **Rationale**:
 - Keeps SRP boundaries cleaner: policy execution code does not manage storage descriptors.
 - Removes string-key slot boilerplate from policy classes.
-- Preserves strict typing + per-request isolation while maintaining frozen/stateless policy instances.
+- Preserves strict typing + per-request isolation while keeping policy implementation friction low.
 
 ---
 

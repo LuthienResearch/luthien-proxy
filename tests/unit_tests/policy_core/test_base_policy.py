@@ -12,11 +12,9 @@ class _MutableStatePolicy(BasePolicy):
         self.buffer: list[str] = []
 
 
-class _AllowlistedMutablePolicy(BasePolicy):
-    _ALLOWED_MUTABLE_INSTANCE_ATTRS: frozenset[str] = frozenset({"buffer"})
-
+class _PrivateMutablePolicy(BasePolicy):
     def __init__(self) -> None:
-        self.buffer: dict[str, str] = {}
+        self._buffer: dict[str, str] = {}
         self.label = "config"
 
 
@@ -53,14 +51,13 @@ class TestBasePolicy:
         policy = BasePolicy()
         assert isinstance(policy, BasePolicy)
 
-    def test_freeze_configured_state_blocks_post_freeze_assignment(self):
-        """Policies should reject instance mutation after freeze."""
+    def test_freeze_configured_state_does_not_freeze_attribute_assignment(self):
+        """freeze_configured_state validates but does not freeze runtime assignment."""
         policy = BasePolicy()
         policy.configured_value = "ok"
         policy.freeze_configured_state()
-
-        with pytest.raises(AttributeError, match="frozen after configuration"):
-            policy.runtime_value = "nope"
+        policy.runtime_value = "allowed"
+        assert policy.runtime_value == "allowed"
 
     def test_freeze_configured_state_rejects_mutable_instance_containers(self):
         """Policies with mutable runtime-like containers should fail freeze."""
@@ -69,9 +66,9 @@ class TestBasePolicy:
         with pytest.raises(TypeError, match="mutable container"):
             policy.freeze_configured_state()
 
-    def test_freeze_allows_explicitly_allowlisted_mutable_attrs(self):
-        """Allowlisted mutable attrs are permitted during freeze validation."""
-        policy = _AllowlistedMutablePolicy()
+    def test_freeze_ignores_private_mutable_attrs(self):
+        """Private mutable attrs are internal details and ignored by validation."""
+        policy = _PrivateMutablePolicy()
 
         policy.freeze_configured_state()
         assert policy.label == "config"

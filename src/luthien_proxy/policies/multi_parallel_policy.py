@@ -115,8 +115,6 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     immediately and fails the entire request/response processing for all policies.
     """
 
-    _ALLOWED_MUTABLE_INSTANCE_ATTRS: frozenset[str] = frozenset({"_sub_policies", "_validated_interfaces"})
-
     def __init__(
         self,
         policies: list[dict[str, Any]],

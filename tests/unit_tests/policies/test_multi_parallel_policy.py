@@ -658,7 +658,7 @@ class TestMultiParallelExecution:
         ctx = PolicyContext.for_testing()
         response = make_response("hello world")
 
-        # Patch one frozen sub-policy to raise.
+        # Patch one sub-policy to raise.
         object.__setattr__(
             policy._sub_policies[1],
             "on_openai_response",
