@@ -111,7 +111,10 @@ class PolicyContext:
             event_type: Type of event (e.g., "policy.modified_request")
             data: Event payload
         """
-        self._emitter.record(self.transaction_id, event_type, data)
+        payload = dict(data)
+        if self.session_id and "session_id" not in payload:
+            payload["session_id"] = self.session_id
+        self._emitter.record(self.transaction_id, event_type, payload)
 
     @contextmanager
     def span(self, name: str, attributes: dict[str, Any] | None = None) -> Iterator["Span"]:
