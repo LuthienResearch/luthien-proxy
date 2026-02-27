@@ -74,7 +74,11 @@ def hash_credential(api_key: str) -> str:
 
 
 def is_anthropic_api_key(credential: str) -> bool:
-    """Best-effort format check for Anthropic API keys."""
+    """Best-effort format check for Anthropic API keys.
+
+    Uses the current public key prefix format. If Anthropic changes key formats,
+    this heuristic should be updated.
+    """
     return credential.startswith(ANTHROPIC_API_KEY_PREFIX)
 
 
