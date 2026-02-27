@@ -989,6 +989,46 @@ class _SyntheticStreamingPolicy(AnthropicExecutionInterface):
         return _run()
 
 
+class _BackendCompletePolicy(AnthropicExecutionInterface):
+    """Execution-style policy that proxies one backend complete call."""
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
+    ) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            response = await io.complete()
+            yield response
+
+        return _run()
+
+
+class _BackendStreamingPolicy(AnthropicExecutionInterface):
+    """Execution-style policy that proxies backend stream events."""
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
+    ) -> AsyncIterator[RawMessageStartEvent | RawMessageStopEvent]:
+        async def _run() -> AsyncIterator[RawMessageStartEvent | RawMessageStopEvent]:
+            async for event in io.stream():
+                yield event
+
+        return _run()
+
+
+class _DoubleBackendCompletePolicy(AnthropicExecutionInterface):
+    """Execution-style policy that calls backend complete twice and emits the second."""
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
+    ) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            await io.complete()
+            second = await io.complete()
+            yield second
+
+        return _run()
+
+
 class TestExecutionPolicyRuntime:
     """Tests for execution-oriented Anthropic policy runtime."""
 
@@ -1076,3 +1116,143 @@ class TestExecutionPolicyRuntime:
         assert "event: message_stop" in full_stream
         mock_anthropic_client.complete.assert_not_called()
         mock_anthropic_client.stream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_policy_can_proxy_backend_complete(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Execution policy can call io.complete() and emit backend response."""
+        backend_response: AnthropicResponse = {
+            "id": "msg_backend_complete",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Backend complete response"}],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        mock_anthropic_client.complete = AsyncMock(return_value=backend_response)
+        policy = _BackendCompletePolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, JSONResponse)
+        payload = response.body.decode()
+        assert "msg_backend_complete" in payload
+        assert "Backend complete response" in payload
+        mock_anthropic_client.complete.assert_awaited_once()
+        mock_anthropic_client.stream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_streaming_policy_can_proxy_backend_stream(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Execution policy can call io.stream() and emit backend stream events."""
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+
+        async def backend_stream() -> AsyncIterator[RawMessageStartEvent | RawMessageStopEvent]:
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_backend_stream",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-sonnet-4-20250514",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 1, "output_tokens": 0},
+                },
+            )
+            yield RawMessageStopEvent(type="message_stop")
+
+        mock_anthropic_client.stream = MagicMock(return_value=backend_stream())
+        policy = _BackendStreamingPolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+
+        full_stream = "".join(chunks)
+        assert "event: message_start" in full_stream
+        assert "msg_backend_stream" in full_stream
+        assert "event: message_stop" in full_stream
+        mock_anthropic_client.stream.assert_called_once()
+        mock_anthropic_client.complete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_policy_can_make_multiple_backend_calls(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Execution policy can make multiple backend complete calls and emit final output."""
+        first_response: AnthropicResponse = {
+            "id": "msg_backend_first",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "First backend response"}],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        second_response: AnthropicResponse = {
+            "id": "msg_backend_second",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Second backend response"}],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 12, "output_tokens": 6},
+        }
+        mock_anthropic_client.complete = AsyncMock(side_effect=[first_response, second_response])
+        policy = _DoubleBackendCompletePolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, JSONResponse)
+        payload = response.body.decode()
+        assert "msg_backend_second" in payload
+        assert "Second backend response" in payload
+        assert mock_anthropic_client.complete.await_count == 2
+        mock_anthropic_client.stream.assert_not_called()
+
+        backend_request_events = [
+            call for call in mock_emitter.record.call_args_list if call.args[1] == "pipeline.backend_request"
+        ]
+        assert len(backend_request_events) == 2
