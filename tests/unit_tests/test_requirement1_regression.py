@@ -261,7 +261,6 @@ class TestThinkingBlockPassthrough:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-thinking",
-            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -481,7 +480,6 @@ class TestCacheControlSanitization:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-cache-control",
-            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -719,7 +717,6 @@ class TestOrphanedToolResults:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-orphan",
-            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -943,7 +940,6 @@ class TestStreamingDeduplication:
             anthropic_client=mock_client,
             call_id="test-count",
             root_span=mock_root_span,
-            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, FastAPIStreamingResponse)
@@ -1008,7 +1004,6 @@ class TestImageContentPassthrough:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-base64-image",
-            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -1053,7 +1048,6 @@ class TestImageContentPassthrough:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-url-image",
-            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -1096,7 +1090,6 @@ class TestImageContentPassthrough:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-multi-image",
-            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -1178,7 +1171,6 @@ class TestToolDefinitionUniqueness:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-large-toolset",
-            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -1442,7 +1434,6 @@ class TestRequestPassthroughIntegrity:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-complex",
-            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
@@ -1496,7 +1487,6 @@ class TestRequestPassthroughIntegrity:
             anthropic_client=mock_client,
             emitter=mock_emitter,
             call_id="test-content-types",
-            request_log_recorder=NoOpRequestLogRecorder(),
         )
 
         assert isinstance(response, JSONResponse)
