@@ -1,4 +1,6 @@
 -- Dynamic policies: user-created or LLM-generated policy source code
+\c luthien_control;
+
 CREATE TABLE IF NOT EXISTS dynamic_policies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,
@@ -15,3 +17,5 @@ CREATE TABLE IF NOT EXISTS dynamic_policies (
 
 CREATE INDEX idx_dynamic_policies_is_active ON dynamic_policies (is_active);
 CREATE INDEX idx_dynamic_policies_created_at ON dynamic_policies (created_at DESC);
+
+GRANT ALL PRIVILEGES ON TABLE dynamic_policies TO luthien;

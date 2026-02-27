@@ -24,7 +24,7 @@ from luthien_proxy.utils import db
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/admin/policies", tags=["dynamic-policies"])
+router = APIRouter(prefix="/api/admin/policies", tags=["dynamic-policies"])
 
 
 # === Request / Response Models ===
