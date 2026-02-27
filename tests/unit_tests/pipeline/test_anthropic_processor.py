@@ -1,5 +1,6 @@
 """Unit tests for the Anthropic-native pipeline processor module."""
 
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,6 +30,11 @@ from luthien_proxy.pipeline.anthropic_processor import (
     process_anthropic_request,
 )
 from luthien_proxy.policies.noop_policy import NoOpPolicy
+from luthien_proxy.policy_core.anthropic_execution_interface import (
+    AnthropicExecutionInterface,
+    AnthropicPolicyIOProtocol,
+)
+from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
 class TestFormatSSEEvent:
@@ -935,3 +941,138 @@ class TestHandleAnthropicError:
 
         assert exc_info.value.status_code == 502
         assert exc_info.value.error_type == "api_connection_error"
+
+
+class _SyntheticNonStreamingPolicy(AnthropicExecutionInterface):
+    """Execution-style policy that emits a response without backend calls."""
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
+    ) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            yield {
+                "id": "msg_synthetic",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Synthetic response"}],
+                "model": io.request["model"],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+
+        return _run()
+
+
+class _SyntheticStreamingPolicy(AnthropicExecutionInterface):
+    """Execution-style policy that emits stream events without backend calls."""
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
+    ) -> AsyncIterator[RawMessageStartEvent | RawMessageStopEvent]:
+        async def _run() -> AsyncIterator[RawMessageStartEvent | RawMessageStopEvent]:
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_stream_synthetic",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": io.request["model"],
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
+            yield RawMessageStopEvent(type="message_stop")
+
+        return _run()
+
+
+class TestExecutionPolicyRuntime:
+    """Tests for execution-oriented Anthropic policy runtime."""
+
+    @pytest.fixture
+    def mock_request(self):
+        request = MagicMock()
+        request.headers = {}
+        request.method = "POST"
+        request.url = MagicMock()
+        request.url.path = "/v1/messages"
+        request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": False,
+            }
+        )
+        return request
+
+    @pytest.fixture
+    def mock_emitter(self):
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_anthropic_client(self):
+        client = MagicMock()
+        client.complete = AsyncMock()
+        client.stream = MagicMock()
+        return client
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_policy_can_emit_without_backend(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Execution policy can emit a non-streaming response with zero backend calls."""
+        policy = _SyntheticNonStreamingPolicy()
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, JSONResponse)
+        payload = response.body.decode()
+        assert "Synthetic response" in payload
+        mock_anthropic_client.complete.assert_not_called()
+        mock_anthropic_client.stream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_streaming_policy_can_emit_without_backend(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Execution policy can emit streaming events with zero backend calls."""
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        policy = _SyntheticStreamingPolicy()
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+
+        full_stream = "".join(chunks)
+        assert "event: message_start" in full_stream
+        assert "event: message_stop" in full_stream
+        mock_anthropic_client.complete.assert_not_called()
+        mock_anthropic_client.stream.assert_not_called()

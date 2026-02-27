@@ -11,6 +11,9 @@ from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
+from luthien_proxy.policy_core.anthropic_execution_interface import (
+    AnthropicExecutionInterface,
+)
 from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_manager import PolicyManager
@@ -47,17 +50,21 @@ class Dependencies:
             )
         return current
 
-    def get_anthropic_policy(self) -> AnthropicPolicyInterface:
+    def get_anthropic_policy(self) -> AnthropicPolicyInterface | AnthropicExecutionInterface:
         """Get the current Anthropic policy.
 
         Raises:
             HTTPException: If current policy doesn't implement AnthropicPolicyInterface
+                or AnthropicExecutionInterface
         """
         current = self.policy_manager.current_policy
-        if not isinstance(current, AnthropicPolicyInterface):
+        if not isinstance(current, AnthropicPolicyInterface | AnthropicExecutionInterface):
             raise HTTPException(
                 status_code=500,
-                detail=f"Current policy {type(current).__name__} does not implement AnthropicPolicyInterface",
+                detail=(
+                    f"Current policy {type(current).__name__} does not implement "
+                    "AnthropicPolicyInterface or AnthropicExecutionInterface"
+                ),
             )
         return current
 
@@ -192,7 +199,7 @@ def get_anthropic_client(request: Request) -> AnthropicClient | None:
     return get_dependencies(request).anthropic_client
 
 
-def get_anthropic_policy(request: Request) -> AnthropicPolicyInterface:
+def get_anthropic_policy(request: Request) -> AnthropicPolicyInterface | AnthropicExecutionInterface:
     """Get current Anthropic policy from dependencies.
 
     Args:
