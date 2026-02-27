@@ -188,5 +188,17 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterf
                 break
         return events
 
+    async def on_anthropic_stream_complete(self, context: "PolicyContext") -> None:
+        """Delegate Anthropic stream completion hook to sub-policies."""
+        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+        for policy in self._sub_policies:
+            await policy.on_anthropic_stream_complete(context)  # type: ignore[union-attr]
+
+    async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
+        """Delegate Anthropic always-run cleanup hook to sub-policies."""
+        self._validate_interface(AnthropicPolicyInterface, "AnthropicPolicyInterface")
+        for policy in self._sub_policies:
+            await policy.on_anthropic_streaming_policy_complete(context)  # type: ignore[union-attr]
+
 
 __all__ = ["MultiSerialPolicy"]

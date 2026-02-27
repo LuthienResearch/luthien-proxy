@@ -23,6 +23,9 @@ class AnthropicStreamExecutor:
     - Return [event1, event2, ...] to emit multiple events
 
     Policy errors propagate to the caller - if something fails, it fails loudly.
+    The policy lifecycle mirrors the OpenAI executor:
+    - on_anthropic_stream_complete on normal completion
+    - on_anthropic_streaming_policy_complete always, in finally
     """
 
     async def process(
@@ -47,17 +50,24 @@ class AnthropicStreamExecutor:
             span.set_attribute("policy.name", policy_name)
             event_count = 0
             yielded_count = 0
+            try:
+                async for sdk_event in stream:
+                    event_count += 1
 
-            async for sdk_event in stream:
-                event_count += 1
+                    results = await policy.on_anthropic_stream_event(sdk_event, context)
+                    for result in results:
+                        yielded_count += 1
+                        yield result
 
-                results = await policy.on_anthropic_stream_event(sdk_event, context)
-                for result in results:
-                    yielded_count += 1
-                    yield result
-
-            span.set_attribute("streaming.event_count", event_count)
-            span.set_attribute("streaming.yielded_count", yielded_count)
+                on_stream_complete = getattr(policy, "on_anthropic_stream_complete", None)
+                if on_stream_complete is not None:
+                    await on_stream_complete(context)
+            finally:
+                on_cleanup = getattr(policy, "on_anthropic_streaming_policy_complete", None)
+                if on_cleanup is not None:
+                    await on_cleanup(context)
+                span.set_attribute("streaming.event_count", event_count)
+                span.set_attribute("streaming.yielded_count", yielded_count)
 
 
 __all__ = ["AnthropicStreamExecutor"]

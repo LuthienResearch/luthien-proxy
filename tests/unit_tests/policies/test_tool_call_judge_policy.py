@@ -1171,9 +1171,10 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         # Should filter out (return empty list) while buffering
         assert result == []
         # Should have buffered the data
-        assert 0 in policy._buffered_tool_uses
-        assert policy._buffered_tool_uses[0]["id"] == "tool_123"
-        assert policy._buffered_tool_uses[0]["name"] == "get_weather"
+        key = (ctx.transaction_id, 0)
+        assert key in policy._buffered_tool_uses
+        assert policy._buffered_tool_uses[key]["id"] == "tool_123"
+        assert policy._buffered_tool_uses[key]["name"] == "get_weather"
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_buffers_input_json_delta(self):
@@ -1213,7 +1214,8 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         assert result1 == []
         assert result2 == []
         # Should have accumulated the JSON
-        assert policy._buffered_tool_uses[0]["input_json"] == '{"location": "SF"}'
+        key = (ctx.transaction_id, 0)
+        assert policy._buffered_tool_uses[key]["input_json"] == '{"location": "SF"}'
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_judges_on_block_stop_allowed(self):
@@ -1275,7 +1277,7 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         # Third event: the original stop event
         assert isinstance(result[2], RawContentBlockStopEvent)
         # Buffer should be cleared
-        assert 0 not in policy._buffered_tool_uses
+        assert (ctx.transaction_id, 0) not in policy._buffered_tool_uses
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_judges_on_block_stop_blocked(self):
@@ -1335,9 +1337,9 @@ class TestToolCallJudgePolicyAnthropicStreamEventToolUse:
         # Third event: the original stop event
         assert isinstance(result[2], RawContentBlockStopEvent)
         # Should have marked the block as blocked
-        assert 0 in policy._blocked_blocks
+        assert (ctx.transaction_id, 0) in policy._blocked_blocks
         # Buffer should be cleared
-        assert 0 not in policy._buffered_tool_uses
+        assert (ctx.transaction_id, 0) not in policy._buffered_tool_uses
 
 
 class TestToolCallJudgePolicyAnthropicStreamingErrorHandling:
@@ -1391,7 +1393,37 @@ class TestToolCallJudgePolicyAnthropicStreamingErrorHandling:
         assert isinstance(result[1].delta, TextDelta)
         assert "test_tool" in result[1].delta.text
         assert isinstance(result[2], RawContentBlockStopEvent)
-        assert 0 in policy._blocked_blocks
+        assert (ctx.transaction_id, 0) in policy._blocked_blocks
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_streaming_policy_complete_cleans_only_current_transaction(self):
+        """Cleanup removes only current transaction's Anthropic streaming buffers."""
+        policy = ToolCallJudgePolicy()
+        ctx_a = PolicyContext.for_testing(transaction_id="txn-a")
+        ctx_b = PolicyContext.for_testing(transaction_id="txn-b")
+
+        start_a = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=ToolUseBlock.model_construct(type="tool_use", id="tool_a", name="safe_tool", input={}),
+        )
+        start_b = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=ToolUseBlock.model_construct(type="tool_use", id="tool_b", name="safe_tool", input={}),
+        )
+        await policy.on_anthropic_stream_event(start_a, ctx_a)
+        await policy.on_anthropic_stream_event(start_b, ctx_b)
+
+        policy._blocked_blocks.add(("txn-a", 0))
+        policy._blocked_blocks.add(("txn-b", 0))
+
+        await policy.on_anthropic_streaming_policy_complete(ctx_a)
+
+        assert ("txn-a", 0) not in policy._buffered_tool_uses
+        assert ("txn-b", 0) in policy._buffered_tool_uses
+        assert ("txn-a", 0) not in policy._blocked_blocks
+        assert ("txn-b", 0) in policy._blocked_blocks
 
 
 class CapturingEmitter:

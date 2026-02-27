@@ -180,10 +180,10 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         self._blocked_calls: set[str] = set()  # Track which call_ids have been blocked
 
         # State for buffering Anthropic tool_use during streaming
-        # Key: content block index, Value: accumulated tool_use data
-        self._buffered_tool_uses: dict[int, dict[str, Any]] = {}
-        self._blocked_blocks: set[int] = set()  # Track which blocks have been blocked
-        self._replacement_block_started: set[int] = set()  # Track if replacement text started
+        # Key: (call_id, content block index), Value: accumulated tool_use data
+        self._buffered_tool_uses: dict[tuple[str, int], dict[str, Any]] = {}
+        self._blocked_blocks: set[tuple[str, int]] = set()  # Track which blocks have been blocked
+        self._replacement_block_started: set[tuple[str, int]] = set()  # Track if replacement text started
 
         logger.info(
             f"ToolCallJudgePolicy initialized: model={self._config.model}, "
@@ -387,6 +387,24 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
 
         # Clear blocked call tracking for this request
         self._blocked_calls.discard(call_id)
+
+    async def on_anthropic_stream_complete(self, context: "PolicyContext") -> None:
+        """No-op hook for parity with OpenAI lifecycle."""
+        pass
+
+    async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
+        """Clean up Anthropic per-request state after streaming completes."""
+        call_id = context.transaction_id
+        use_keys = [key for key in self._buffered_tool_uses if key[0] == call_id]
+        blocked_keys = [key for key in self._blocked_blocks if key[0] == call_id]
+        replacement_keys = [key for key in self._replacement_block_started if key[0] == call_id]
+
+        for key in use_keys:
+            del self._buffered_tool_uses[key]
+        for key in blocked_keys:
+            self._blocked_blocks.discard(key)
+        for key in replacement_keys:
+            self._replacement_block_started.discard(key)
 
     # ========================================================================
     # Anthropic Interface Implementation
@@ -626,11 +644,11 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
     ) -> list[AnthropicStreamEvent]:
         """Handle content_block_start event."""
         content_block = event.content_block
-        index = event.index
+        key = (context.transaction_id, event.index)
 
         # Check if this is a tool_use block
         if isinstance(content_block, ToolUseBlock):
-            self._buffered_tool_uses[index] = {
+            self._buffered_tool_uses[key] = {
                 "id": content_block.id,
                 "name": content_block.name,
                 "input_json": "",
@@ -646,12 +664,12 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         context: "PolicyContext",
     ) -> list[AnthropicStreamEvent]:
         """Handle content_block_delta event."""
-        index = event.index
+        key = (context.transaction_id, event.index)
         delta = event.delta
 
         # Check if this is accumulating JSON for a buffered tool_use
-        if index in self._buffered_tool_uses and isinstance(delta, InputJSONDelta):
-            self._buffered_tool_uses[index]["input_json"] += delta.partial_json
+        if key in self._buffered_tool_uses and isinstance(delta, InputJSONDelta):
+            self._buffered_tool_uses[key]["input_json"] += delta.partial_json
             return []
 
         return [event]
@@ -662,18 +680,19 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInte
         context: "PolicyContext",
     ) -> list[AnthropicStreamEvent]:
         """Handle content_block_stop event - judge buffered tool_use if present."""
+        key = (context.transaction_id, event.index)
         index = event.index
 
-        if index not in self._buffered_tool_uses:
+        if key not in self._buffered_tool_uses:
             return [cast(AnthropicStreamEvent, event)]
 
-        buffered = self._buffered_tool_uses.pop(index)
+        buffered = self._buffered_tool_uses.pop(key)
         tool_call = self._tool_call_from_anthropic_buffer(buffered)
 
         blocked_result = await self._evaluate_and_maybe_block_anthropic(tool_call, context)
 
         if blocked_result is not None:
-            self._blocked_blocks.add(index)
+            self._blocked_blocks.add(key)
             logger.info(f"Blocked tool call '{tool_call['name']}' in streaming")
 
             # Replace the tool_use block with a text block containing the blocked message

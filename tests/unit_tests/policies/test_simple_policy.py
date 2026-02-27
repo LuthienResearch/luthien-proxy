@@ -1166,6 +1166,54 @@ class TestSimplePolicyAnthropicBufferManagement:
         assert result0_event.delta.text == "FIRST"
         assert result1_event.delta.text == "SECOND"
 
+    @pytest.mark.asyncio
+    async def test_anthropic_buffers_are_scoped_by_transaction(self):
+        """Anthropic streaming buffers are keyed by (transaction_id, index)."""
+        policy = AnthropicUppercasePolicy()
+        ctx_a = PolicyContext.for_testing(transaction_id="txn-a")
+        ctx_b = PolicyContext.for_testing(transaction_id="txn-b")
+
+        start_a = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock.model_construct(type="text", text=""),
+        )
+        start_b = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock.model_construct(type="text", text=""),
+        )
+        await policy.on_anthropic_stream_event(start_a, ctx_a)
+        await policy.on_anthropic_stream_event(start_b, ctx_b)
+
+        assert ("txn-a", 0) in policy._text_buffer
+        assert ("txn-b", 0) in policy._text_buffer
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_streaming_policy_complete_cleans_current_transaction_only(self):
+        """Cleanup only removes Anthropic buffers for the completed transaction."""
+        policy = AnthropicUppercasePolicy()
+        ctx_a = PolicyContext.for_testing(transaction_id="txn-a")
+        ctx_b = PolicyContext.for_testing(transaction_id="txn-b")
+
+        start_a = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock.model_construct(type="text", text=""),
+        )
+        start_b = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock.model_construct(type="text", text=""),
+        )
+        await policy.on_anthropic_stream_event(start_a, ctx_a)
+        await policy.on_anthropic_stream_event(start_b, ctx_b)
+
+        await policy.on_anthropic_streaming_policy_complete(ctx_a)
+
+        assert ("txn-a", 0) not in policy._text_buffer
+        assert ("txn-b", 0) in policy._text_buffer
+
 
 # ===== Error Handling Tests =====
 

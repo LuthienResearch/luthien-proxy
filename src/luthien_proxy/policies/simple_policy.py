@@ -80,9 +80,10 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
 
     def __init__(self) -> None:
         """Initialize the policy with empty stream buffers for Anthropic streaming."""
-        # Buffer for Anthropic streaming content: maps block index to accumulated content
-        self._text_buffer: dict[int, str] = {}
-        self._tool_buffer: dict[int, dict] = {}
+        # Buffer for Anthropic streaming content. Key is (transaction_id, block_index)
+        # to avoid collisions across concurrent requests sharing one policy instance.
+        self._text_buffer: dict[tuple[str, int], str] = {}
+        self._tool_buffer: dict[tuple[str, int], dict] = {}
 
     # ===== Simple methods that subclasses override =====
 
@@ -289,6 +290,20 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
         """
         pass
 
+    async def on_anthropic_stream_complete(self, context: PolicyContext) -> None:
+        """No-op hook for parity with OpenAI lifecycle."""
+        pass
+
+    async def on_anthropic_streaming_policy_complete(self, context: PolicyContext) -> None:
+        """Clear buffered Anthropic state for the completed transaction."""
+        call_id = context.transaction_id
+        text_keys = [key for key in self._text_buffer if key[0] == call_id]
+        tool_keys = [key for key in self._tool_buffer if key[0] == call_id]
+        for key in text_keys:
+            del self._text_buffer[key]
+        for key in tool_keys:
+            del self._tool_buffer[key]
+
     # ===== Anthropic non-streaming hooks =====
 
     async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
@@ -386,16 +401,17 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
         # Content block start: initialize buffer
         if isinstance(event, RawContentBlockStartEvent):
             index = event.index
+            key = (context.transaction_id, index)
             content_block = event.content_block
 
             # Initialize appropriate buffer based on block type
             if hasattr(content_block, "type"):
                 if content_block.type == "text":
-                    self._text_buffer[index] = ""
+                    self._text_buffer[key] = ""
                 elif content_block.type == "tool_use":
                     # Initialize tool buffer with block info from SDK ToolUseBlock
                     if isinstance(content_block, ToolUseBlock):
-                        self._tool_buffer[index] = {
+                        self._tool_buffer[key] = {
                             "id": content_block.id,
                             "name": content_block.name,
                             "input_json": "",
@@ -406,27 +422,28 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
         # Content block delta: accumulate in buffer, suppress output
         if isinstance(event, RawContentBlockDeltaEvent):
             index = event.index
+            key = (context.transaction_id, index)
             delta = event.delta
 
             if isinstance(delta, TextDelta):
                 # Accumulate text delta
-                if index not in self._text_buffer:
+                if key not in self._text_buffer:
                     raise RuntimeError(
                         f"Received TextDelta for index {index} but no buffer exists. "
                         "This indicates a missing content_block_start event."
                     )
-                self._text_buffer[index] += delta.text
+                self._text_buffer[key] += delta.text
                 # Suppress the delta - we'll emit on stop
                 return []
 
             if isinstance(delta, InputJSONDelta):
                 # Accumulate JSON delta for tool calls
-                if index not in self._tool_buffer:
+                if key not in self._tool_buffer:
                     raise RuntimeError(
                         f"Received InputJSONDelta for index {index} but no buffer exists. "
                         "This indicates a missing content_block_start event."
                     )
-                self._tool_buffer[index]["input_json"] += delta.partial_json
+                self._tool_buffer[key]["input_json"] += delta.partial_json
                 # Suppress the delta - we'll emit on stop
                 return []
 
@@ -436,10 +453,11 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
         # Content block stop: emit transformed content
         if isinstance(event, RawContentBlockStopEvent):
             index = event.index
+            key = (context.transaction_id, index)
 
             # Handle text block completion
-            if index in self._text_buffer:
-                content = self._text_buffer.pop(index)
+            if key in self._text_buffer:
+                content = self._text_buffer.pop(key)
                 transformed = await self.simple_on_response_content(content, context)
 
                 # Emit the complete transformed text as a single delta before the stop
@@ -456,8 +474,8 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
                 return [delta_event, event]
 
             # Handle tool call completion
-            if index in self._tool_buffer:
-                tool_info = self._tool_buffer.pop(index)
+            if key in self._tool_buffer:
+                tool_info = self._tool_buffer.pop(key)
 
                 # Parse the accumulated JSON - empty string means no input
                 input_data = json.loads(tool_info["input_json"]) if tool_info["input_json"] else {}
