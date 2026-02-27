@@ -184,7 +184,7 @@ async def test_live_view_shows_policy_divergence(http_client, gateway_healthy):
     """Verify the live view data shows divergences when a policy modifies content.
 
     Uses the AllCapsPolicy to force a visible modification, then checks
-    that the session detail includes original vs final request data.
+    that the session detail includes original vs final response data.
     """
     session_id = f"e2e-live-diff-{uuid.uuid4().hex[:8]}"
 
@@ -205,23 +205,24 @@ async def test_live_view_shows_policy_divergence(http_client, gateway_healthy):
 
     turn = session_detail["turns"][0]
 
-    # AllCapsPolicy should modify the request (uppercasing content)
-    assert turn["request_was_modified"], (
-        f"Expected AllCapsPolicy to modify the request. Turn data: request_was_modified={turn['request_was_modified']}"
+    # AllCapsPolicy should modify the response (uppercasing content)
+    assert turn["response_was_modified"], (
+        f"Expected AllCapsPolicy to modify the response. "
+        f"Turn data: response_was_modified={turn['response_was_modified']}"
     )
-    assert turn["original_request_messages"] is not None, "Expected original_request_messages to be present"
+    assert turn["original_response_messages"] is not None, "Expected original_response_messages to be present"
 
-    # The original should have lowercase, the final should have uppercase
-    final_user_msgs = [m for m in turn["request_messages"] if m["message_type"] == "user"]
-    original_user_msgs = [m for m in turn["original_request_messages"] if m["message_type"] == "user"]
+    # The original should include mixed/lowercase, while final should be uppercased
+    final_assistant_msgs = [m for m in turn["response_messages"] if m["message_type"] == "assistant"]
+    original_assistant_msgs = [m for m in turn["original_response_messages"] if m["message_type"] == "assistant"]
 
-    assert len(final_user_msgs) >= 1
-    assert len(original_user_msgs) >= 1
+    assert len(final_assistant_msgs) >= 1
+    assert len(original_assistant_msgs) >= 1
 
-    # Original should contain the lowercase version
-    assert "hello world" in original_user_msgs[0]["content"].lower()
-    # Final should be uppercased by AllCapsPolicy
-    assert "HELLO WORLD" in final_user_msgs[0]["content"]
+    # Final should be fully uppercased by AllCapsPolicy
+    assert final_assistant_msgs[0]["content"] == final_assistant_msgs[0]["content"].upper()
+    # Original should differ from the final transformed content
+    assert original_assistant_msgs[0]["content"] != final_assistant_msgs[0]["content"]
 
 
 @pytest.mark.e2e

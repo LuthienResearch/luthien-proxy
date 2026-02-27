@@ -285,20 +285,27 @@ async def test_claude_code_tool_use_read(claude_available, gateway_healthy, tmp_
 @pytest.mark.asyncio
 async def test_claude_code_tool_use_bash(claude_available, gateway_healthy, tmp_path):
     """Test Claude Code can use Bash tool through gateway."""
-    # Don't restrict tools - use default tool set which includes Bash
+    secret = f"bash_secret_{uuid.uuid4().hex[:10]}"
+    secret_file = tmp_path / "bash_secret.txt"
+    secret_file.write_text(secret)
+
     result = await run_claude_code(
-        prompt="Run 'echo hello_from_bash' and tell me what it outputs. Be brief.",
-        tools=None,  # Use default tools
+        prompt=(
+            f"Use the Bash tool to run exactly: cat {secret_file}. "
+            "Reply with only the exact command output."
+        ),
+        tools=None,
         max_turns=3,
         working_dir=str(tmp_path),
+        allowed_tools=["Bash"],
     )
 
     assert result.is_success, f"Request failed: {result.stderr}"
 
     bash_uses = [u for u in result.tool_uses if "bash" in u.get("name", "").lower()]
     assert len(bash_uses) > 0, f"Expected Bash tool use, got: {result.tools_used()}"
-    assert "hello_from_bash" in result.final_result.lower() or any(
-        "hello_from_bash" in str(r) for r in result.tool_results
+    assert secret.lower() in result.final_result.lower() or any(
+        secret in str(r) for r in result.tool_results
     )
 
 
