@@ -17,6 +17,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     InputJSONDelta,
     RawContentBlockDeltaEvent,
@@ -41,9 +42,7 @@ from luthien_proxy.llm.types.anthropic import (
 )
 from luthien_proxy.pipeline.anthropic_processor import process_anthropic_request
 from luthien_proxy.policies.noop_policy import NoOpPolicy
-from luthien_proxy.policy_core.anthropic_interface import AnthropicStreamEvent
 from luthien_proxy.policy_core.policy_context import PolicyContext
-from luthien_proxy.streaming.anthropic_executor import AnthropicStreamExecutor
 
 TEST_MODEL = "claude-haiku-4-5-20251001"
 
@@ -101,12 +100,6 @@ def _mock_tracer():
     anthropic_patcher.stop()
 
 
-async def async_iter_from_list(items: list[Any]) -> AsyncIterator[Any]:
-    """Convert a list to an async iterator."""
-    for item in items:
-        yield item
-
-
 def _make_mock_fastapi_request(body: AnthropicRequest) -> MagicMock:
     """Build a minimal FastAPI-like request object for pipeline tests."""
     request = MagicMock()
@@ -160,6 +153,21 @@ async def _handle_streaming(
     )
     assert isinstance(response, FastAPIStreamingResponse)
     return response
+
+
+def _parse_sse_payload(chunk: str) -> dict[str, Any]:
+    """Parse a single SSE chunk into its JSON payload."""
+    data_line = next((line for line in chunk.splitlines() if line.startswith("data: ")), None)
+    assert data_line is not None, f"Missing SSE data line in chunk: {chunk!r}"
+    return json.loads(data_line[len("data: ") :])
+
+
+async def _collect_sse_payloads(response: FastAPIStreamingResponse) -> list[dict[str, Any]]:
+    """Collect and parse all SSE payloads from a streaming response."""
+    payloads: list[dict[str, Any]] = []
+    async for chunk in response.body_iterator:
+        payloads.append(_parse_sse_payload(chunk))
+    return payloads
 
 
 def _make_echo_response(request: AnthropicRequest) -> AnthropicResponse:
@@ -268,10 +276,10 @@ class TestThinkingBlockPassthrough:
     async def test_thinking_events_stream_through(self, noop_policy: NoOpPolicy, policy_ctx: PolicyContext) -> None:
         """Regression test for #129: thinking events must stream through unchanged.
 
-        The AnthropicStreamExecutor with NoOp policy must pass thinking-related
-        streaming events to the client without dropping or corrupting them.
+        The gateway streaming path with NoOp policy must pass thinking-related
+        events to the client without dropping or corrupting them.
         """
-        events: list[AnthropicStreamEvent] = [
+        events: list[MessageStreamEvent] = [
             RawMessageStartEvent.model_construct(
                 type="message_start",
                 message={
@@ -314,26 +322,47 @@ class TestThinkingBlockPassthrough:
             RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
-        executor = AnthropicStreamExecutor()
-        stream = async_iter_from_list(events)
+        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+            for event in events:
+                yield event
 
-        results = []
-        async for result in executor.process(stream, noop_policy, policy_ctx):
-            results.append(result)
+        mock_client = MagicMock()
+        mock_client.stream = mock_stream
 
-        assert len(results) == len(events)
+        request: AnthropicRequest = {
+            "model": TEST_MODEL,
+            "messages": [{"role": "user", "content": "Think about this."}],
+            "max_tokens": 16000,
+            "stream": True,
+            "thinking": {"type": "enabled", "budget_tokens": 5000},
+        }
+        response = await _handle_streaming(
+            final_request=request,
+            policy=noop_policy,
+            policy_ctx=policy_ctx,
+            anthropic_client=mock_client,
+            call_id="test-thinking-stream",
+            root_span=MagicMock(),
+        )
+        payloads = await _collect_sse_payloads(response)
+
+        assert len(payloads) == len(events)
 
         thinking_deltas = [
-            r for r in results if isinstance(r, RawContentBlockDeltaEvent) and isinstance(r.delta, ThinkingDelta)
+            payload
+            for payload in payloads
+            if payload.get("type") == "content_block_delta" and payload.get("delta", {}).get("type") == "thinking_delta"
         ]
         assert len(thinking_deltas) == 1
-        assert thinking_deltas[0].delta.thinking == "Step 1: analyze..."
+        assert thinking_deltas[0]["delta"]["thinking"] == "Step 1: analyze..."
 
         text_deltas = [
-            r for r in results if isinstance(r, RawContentBlockDeltaEvent) and isinstance(r.delta, TextDelta)
+            payload
+            for payload in payloads
+            if payload.get("type") == "content_block_delta" and payload.get("delta", {}).get("type") == "text_delta"
         ]
         assert len(text_deltas) == 1
-        assert text_deltas[0].delta.text == "The answer is 42."
+        assert text_deltas[0]["delta"]["text"] == "The answer is 42."
 
 
 # =============================================================================
@@ -713,7 +742,7 @@ class TestStreamingDeduplication:
     @pytest.mark.asyncio
     async def test_message_start_not_duplicated(self, noop_policy: NoOpPolicy, policy_ctx: PolicyContext) -> None:
         """Regression test for #59: message_start must appear exactly once."""
-        events: list[AnthropicStreamEvent] = [
+        events: list[MessageStreamEvent] = [
             RawMessageStartEvent.model_construct(
                 type="message_start",
                 message={
@@ -745,19 +774,37 @@ class TestStreamingDeduplication:
             RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
-        executor = AnthropicStreamExecutor()
-        results = []
-        async for result in executor.process(async_iter_from_list(events), noop_policy, policy_ctx):
-            results.append(result)
+        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+            for event in events:
+                yield event
 
-        message_starts = [r for r in results if isinstance(r, RawMessageStartEvent)]
+        mock_client = MagicMock()
+        mock_client.stream = mock_stream
+
+        request: AnthropicRequest = {
+            "model": TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+        response = await _handle_streaming(
+            final_request=request,
+            policy=noop_policy,
+            policy_ctx=policy_ctx,
+            anthropic_client=mock_client,
+            call_id="test-dedup-start",
+            root_span=MagicMock(),
+        )
+        payloads = await _collect_sse_payloads(response)
+
+        message_starts = [payload for payload in payloads if payload.get("type") == "message_start"]
         assert len(message_starts) == 1, f"Expected 1 message_start, got {len(message_starts)}"
 
     @pytest.mark.asyncio
     async def test_content_deltas_not_duplicated(self, noop_policy: NoOpPolicy, policy_ctx: PolicyContext) -> None:
         """Regression test for #61: content deltas must not be duplicated."""
         delta_texts = ["Hello", " ", "world", "!"]
-        events: list[AnthropicStreamEvent] = [
+        events: list[MessageStreamEvent] = [
             RawMessageStartEvent.model_construct(
                 type="message_start",
                 message={
@@ -796,18 +843,38 @@ class TestStreamingDeduplication:
             ]
         )
 
-        executor = AnthropicStreamExecutor()
-        results = []
-        async for result in executor.process(async_iter_from_list(events), noop_policy, policy_ctx):
-            results.append(result)
+        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+            for event in events:
+                yield event
 
-        assert len(results) == len(events)
+        mock_client = MagicMock()
+        mock_client.stream = mock_stream
+
+        request: AnthropicRequest = {
+            "model": TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+        response = await _handle_streaming(
+            final_request=request,
+            policy=noop_policy,
+            policy_ctx=policy_ctx,
+            anthropic_client=mock_client,
+            call_id="test-dedup-deltas",
+            root_span=MagicMock(),
+        )
+        payloads = await _collect_sse_payloads(response)
+
+        assert len(payloads) == len(events)
         text_deltas = [
-            r for r in results if isinstance(r, RawContentBlockDeltaEvent) and isinstance(r.delta, TextDelta)
+            payload
+            for payload in payloads
+            if payload.get("type") == "content_block_delta" and payload.get("delta", {}).get("type") == "text_delta"
         ]
         assert len(text_deltas) == len(delta_texts)
-        for i, td in enumerate(text_deltas):
-            assert td.delta.text == delta_texts[i]
+        for i, text_delta in enumerate(text_deltas):
+            assert text_delta["delta"]["text"] == delta_texts[i]
 
     @pytest.mark.asyncio
     async def test_streaming_event_count_matches_input(
@@ -817,7 +884,7 @@ class TestStreamingDeduplication:
 
         Full pipeline test through _handle_streaming.
         """
-        events: list[AnthropicStreamEvent] = [
+        events: list[MessageStreamEvent] = [
             RawMessageStartEvent.model_construct(
                 type="message_start",
                 message={
@@ -850,7 +917,7 @@ class TestStreamingDeduplication:
             RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
-        async def mock_stream(request: Any) -> AsyncIterator[AnthropicStreamEvent]:
+        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
             for e in events:
                 yield e
 
@@ -1126,7 +1193,7 @@ class TestFullPipelineStreaming:
     @pytest.mark.asyncio
     async def test_tool_use_streaming_passes_through(self, noop_policy: NoOpPolicy, policy_ctx: PolicyContext) -> None:
         """Regression test: tool_use streaming events must pass through intact."""
-        events: list[AnthropicStreamEvent] = [
+        events: list[MessageStreamEvent] = [
             RawMessageStartEvent.model_construct(
                 type="message_start",
                 message={
@@ -1160,29 +1227,47 @@ class TestFullPipelineStreaming:
             RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
-        executor = AnthropicStreamExecutor()
-        results = []
-        async for result in executor.process(async_iter_from_list(events), noop_policy, policy_ctx):
-            results.append(result)
+        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+            for event in events:
+                yield event
 
-        assert len(results) == len(events)
+        mock_client = MagicMock()
+        mock_client.stream = mock_stream
 
-        tool_start = results[1]
-        assert isinstance(tool_start, RawContentBlockStartEvent)
-        assert tool_start.content_block.type == "tool_use"
-        assert tool_start.content_block.name == "read_file"
+        request: AnthropicRequest = {
+            "model": TEST_MODEL,
+            "messages": [{"role": "user", "content": "Read the file"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+        response = await _handle_streaming(
+            final_request=request,
+            policy=noop_policy,
+            policy_ctx=policy_ctx,
+            anthropic_client=mock_client,
+            call_id="test-tool-stream",
+            root_span=MagicMock(),
+        )
+        payloads = await _collect_sse_payloads(response)
 
-        json_delta = results[2]
-        assert isinstance(json_delta, RawContentBlockDeltaEvent)
-        assert isinstance(json_delta.delta, InputJSONDelta)
-        assert '"/tmp/test.txt"' in json_delta.delta.partial_json
+        assert len(payloads) == len(events)
+
+        tool_start = payloads[1]
+        assert tool_start["type"] == "content_block_start"
+        assert tool_start["content_block"]["type"] == "tool_use"
+        assert tool_start["content_block"]["name"] == "read_file"
+
+        json_delta = payloads[2]
+        assert json_delta["type"] == "content_block_delta"
+        assert json_delta["delta"]["type"] == "input_json_delta"
+        assert '"/tmp/test.txt"' in json_delta["delta"]["partial_json"]
 
     @pytest.mark.asyncio
     async def test_mixed_content_and_tool_use_streaming(
         self, noop_policy: NoOpPolicy, policy_ctx: PolicyContext
     ) -> None:
         """Regression test: mixed text + tool_use streams must pass through."""
-        events: list[AnthropicStreamEvent] = [
+        events: list[MessageStreamEvent] = [
             RawMessageStartEvent.model_construct(
                 type="message_start",
                 message={
@@ -1227,21 +1312,44 @@ class TestFullPipelineStreaming:
             RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
-        executor = AnthropicStreamExecutor()
-        results = []
-        async for result in executor.process(async_iter_from_list(events), noop_policy, policy_ctx):
-            results.append(result)
+        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+            for event in events:
+                yield event
 
-        assert len(results) == len(events)
+        mock_client = MagicMock()
+        mock_client.stream = mock_stream
+
+        request: AnthropicRequest = {
+            "model": TEST_MODEL,
+            "messages": [{"role": "user", "content": "Read and explain"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+        response = await _handle_streaming(
+            final_request=request,
+            policy=noop_policy,
+            policy_ctx=policy_ctx,
+            anthropic_client=mock_client,
+            call_id="test-mixed-stream",
+            root_span=MagicMock(),
+        )
+        payloads = await _collect_sse_payloads(response)
+
+        assert len(payloads) == len(events)
         text_deltas = [
-            r for r in results if isinstance(r, RawContentBlockDeltaEvent) and isinstance(r.delta, TextDelta)
+            payload
+            for payload in payloads
+            if payload.get("type") == "content_block_delta" and payload.get("delta", {}).get("type") == "text_delta"
         ]
         json_deltas = [
-            r for r in results if isinstance(r, RawContentBlockDeltaEvent) and isinstance(r.delta, InputJSONDelta)
+            payload
+            for payload in payloads
+            if payload.get("type") == "content_block_delta"
+            and payload.get("delta", {}).get("type") == "input_json_delta"
         ]
         assert len(text_deltas) == 1
         assert len(json_deltas) == 1
-        assert text_deltas[0].delta.text == "Let me read that file."
+        assert text_deltas[0]["delta"]["text"] == "Let me read that file."
 
 
 # =============================================================================

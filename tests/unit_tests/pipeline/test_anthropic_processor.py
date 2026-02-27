@@ -982,6 +982,46 @@ class _DoubleBackendCompletePolicy(AnthropicExecutionInterface):
         return _run()
 
 
+class _InvalidStreamingEmissionPolicy(AnthropicExecutionInterface):
+    """Incorrect execution policy that emits a full response during streaming."""
+
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            yield {
+                "id": "msg_invalid_streaming_emission",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "invalid streaming emission"}],
+                "model": io.request["model"],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+
+        return _run()
+
+
+class _FailingCompletePolicy(AnthropicExecutionInterface):
+    """Execution policy that triggers an upstream complete() failure."""
+
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            await io.complete()
+            if False:  # pragma: no cover - keeps generator typing explicit
+                yield {
+                    "id": "msg_unreachable",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": io.request["model"],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                }
+
+        return _run()
+
+
 class TestExecutionPolicyRuntime:
     """Tests for execution-oriented Anthropic policy runtime."""
 
@@ -1209,3 +1249,66 @@ class TestExecutionPolicyRuntime:
             call for call in mock_emitter.record.call_args_list if call.args[1] == "pipeline.backend_request"
         ]
         assert len(backend_request_events) == 2
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_policy_complete_error_raises_backend_api_error(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Errors raised by io.complete() should propagate as BackendAPIError."""
+        mock_httpx_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
+        mock_httpx_response = HttpxResponse(500, request=mock_httpx_request)
+        mock_anthropic_client.complete = AsyncMock(
+            side_effect=AnthropicStatusError(
+                message="backend failed",
+                response=mock_httpx_response,
+                body={"error": {"type": "api_error", "message": "backend failed"}},
+            )
+        )
+        policy = _FailingCompletePolicy()
+
+        with pytest.raises(BackendAPIError) as exc_info:
+            await process_anthropic_request(
+                request=mock_request,
+                policy=policy,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+            )
+
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.error_type == "api_error"
+
+    @pytest.mark.asyncio
+    async def test_streaming_policy_emitting_full_response_yields_error_event(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Streaming execution policy emitting response objects should produce error event."""
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        policy = _InvalidStreamingEmissionPolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        full_stream = "".join(chunks)
+        assert "event: error" in full_stream
+        assert "must emit streaming events" in full_stream

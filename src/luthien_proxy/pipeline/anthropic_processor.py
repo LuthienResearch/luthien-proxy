@@ -91,7 +91,6 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._emitter = emitter
         self._call_id = call_id
         self._session_id = session_id
-        self._backend_call_count = 0
         self._request_recorded = False
         self._first_backend_response: AnthropicResponse | None = None
 
@@ -137,7 +136,6 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
             "pipeline.backend_request",
             {"payload": dict(request), "session_id": self._session_id},
         )
-        self._backend_call_count += 1
 
     async def complete(self, request: AnthropicRequest | None = None) -> AnthropicResponse:
         """Execute a non-streaming backend request."""
@@ -168,7 +166,14 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
 
 def _is_anthropic_response_emission(emitted: AnthropicPolicyEmission) -> TypeGuard[AnthropicResponse]:
     """Detect whether an emission is a non-streaming Anthropic response payload."""
-    return isinstance(emitted, dict) and emitted.get("type") == "message" and "role" in emitted and "content" in emitted
+    return (
+        isinstance(emitted, dict)
+        and emitted.get("type") == "message"
+        and isinstance(emitted.get("id"), str)
+        and emitted["id"].startswith("msg_")
+        and "role" in emitted
+        and "content" in emitted
+    )
 
 
 async def process_anthropic_request(
