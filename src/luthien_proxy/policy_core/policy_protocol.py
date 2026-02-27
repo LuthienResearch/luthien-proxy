@@ -5,7 +5,7 @@ This module defines PolicyProtocol with hooks for:
 - Stream lifecycle and cleanup
 
 Used for type annotations in policy infrastructure. Concrete policies should
-inherit from BasePolicy + OpenAIPolicyInterface/AnthropicPolicyInterface.
+inherit from BasePolicy + OpenAIPolicyInterface/AnthropicExecutionInterface.
 """
 
 from __future__ import annotations

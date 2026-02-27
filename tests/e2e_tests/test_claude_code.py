@@ -290,10 +290,7 @@ async def test_claude_code_tool_use_bash(claude_available, gateway_healthy, tmp_
     secret_file.write_text(secret)
 
     result = await run_claude_code(
-        prompt=(
-            f"Use the Bash tool to run exactly: cat {secret_file}. "
-            "Reply with only the exact command output."
-        ),
+        prompt=(f"Use the Bash tool to run exactly: cat {secret_file}. Reply with only the exact command output."),
         tools=None,
         max_turns=3,
         working_dir=str(tmp_path),
@@ -304,9 +301,7 @@ async def test_claude_code_tool_use_bash(claude_available, gateway_healthy, tmp_
 
     bash_uses = [u for u in result.tool_uses if "bash" in u.get("name", "").lower()]
     assert len(bash_uses) > 0, f"Expected Bash tool use, got: {result.tools_used()}"
-    assert secret.lower() in result.final_result.lower() or any(
-        secret in str(r) for r in result.tool_results
-    )
+    assert secret.lower() in result.final_result.lower() or any(secret in str(r) for r in result.tool_results)
 
 
 @pytest.mark.e2e

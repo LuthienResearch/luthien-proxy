@@ -53,7 +53,7 @@ class TestGatewayAuthAndClientResolution:
         """Create a minimal FastAPI app with gateway routes for testing."""
         from luthien_proxy.dependencies import Dependencies
         from luthien_proxy.gateway_routes import router
-        from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
+        from luthien_proxy.policy_core import AnthropicExecutionInterface
 
         app = FastAPI()
         app.include_router(router)
@@ -75,7 +75,7 @@ class TestGatewayAuthAndClientResolution:
         )
         mock_credential_manager.validate_credential = AsyncMock(return_value=True)
 
-        mock_anthropic_policy = MagicMock(spec=AnthropicPolicyInterface)
+        mock_anthropic_policy = MagicMock(spec=AnthropicExecutionInterface)
 
         deps = MagicMock(spec=Dependencies)
         deps.api_key = "test-proxy-key"

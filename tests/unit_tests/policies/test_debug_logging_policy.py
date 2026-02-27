@@ -35,7 +35,7 @@ from luthien_proxy.llm.types.anthropic import (
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.debug_logging_policy import DebugLoggingPolicy
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
+    AnthropicExecutionInterface,
     BasePolicy,
     OpenAIPolicyInterface,
 )
@@ -95,9 +95,9 @@ class TestDebugLoggingPolicyProperties:
         assert isinstance(policy, OpenAIPolicyInterface)
 
     def test_implements_anthropic_interface(self):
-        """Test that DebugLoggingPolicy implements AnthropicPolicyInterface."""
+        """Test that DebugLoggingPolicy implements AnthropicExecutionInterface."""
         policy = DebugLoggingPolicy()
-        assert isinstance(policy, AnthropicPolicyInterface)
+        assert isinstance(policy, AnthropicExecutionInterface)
 
 
 # =============================================================================

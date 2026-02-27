@@ -39,7 +39,7 @@ from luthien_proxy.llm.types.anthropic import (
 )
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.simple_policy import SimplePolicy
-from luthien_proxy.policy_core import AnthropicPolicyInterface, OpenAIPolicyInterface
+from luthien_proxy.policy_core import AnthropicExecutionInterface, OpenAIPolicyInterface
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 from luthien_proxy.streaming.stream_state import StreamState
@@ -149,9 +149,9 @@ class TestSimplePolicyProtocol:
         assert isinstance(policy, OpenAIPolicyInterface)
 
     def test_implements_anthropic_interface(self):
-        """SimplePolicy satisfies AnthropicPolicyInterface."""
+        """SimplePolicy satisfies AnthropicExecutionInterface."""
         policy = SimplePolicy()
-        assert isinstance(policy, AnthropicPolicyInterface)
+        assert isinstance(policy, AnthropicExecutionInterface)
 
     def test_has_short_policy_name(self):
         """SimplePolicy has a short_policy_name property defaulting to class name."""
