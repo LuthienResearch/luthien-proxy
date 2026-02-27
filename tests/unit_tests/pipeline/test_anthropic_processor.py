@@ -947,9 +947,7 @@ class TestHandleAnthropicError:
 class _SyntheticNonStreamingPolicy(AnthropicExecutionInterface):
     """Execution-style policy that emits a response without backend calls."""
 
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
-    ) -> AsyncIterator[AnthropicResponse]:
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
         async def _run() -> AsyncIterator[AnthropicResponse]:
             yield {
                 "id": "msg_synthetic",
@@ -993,9 +991,7 @@ class _SyntheticStreamingPolicy(AnthropicExecutionInterface):
 class _BackendCompletePolicy(AnthropicExecutionInterface):
     """Execution-style policy that proxies one backend complete call."""
 
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
-    ) -> AsyncIterator[AnthropicResponse]:
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
         async def _run() -> AsyncIterator[AnthropicResponse]:
             response = await io.complete()
             yield response
@@ -1019,9 +1015,7 @@ class _BackendStreamingPolicy(AnthropicExecutionInterface):
 class _DoubleBackendCompletePolicy(AnthropicExecutionInterface):
     """Execution-style policy that calls backend complete twice and emits the second."""
 
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
-    ) -> AsyncIterator[AnthropicResponse]:
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
         async def _run() -> AsyncIterator[AnthropicResponse]:
             await io.complete()
             second = await io.complete()
