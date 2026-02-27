@@ -35,6 +35,8 @@ from tests.e2e_tests.test_claude_code import (
     parse_stream_json,
 )
 
+ANTHROPIC_MODEL = os.environ.get("E2E_ANTHROPIC_MODEL", "claude-haiku-4-5")
+
 # === Fixtures ===
 
 
@@ -61,7 +63,7 @@ async def passthrough_mode(http_client, gateway_healthy):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 5,
         },
@@ -82,7 +84,7 @@ async def test_client_anthropic_key_non_streaming(gateway_healthy, http_client, 
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
@@ -107,7 +109,7 @@ async def test_client_anthropic_key_streaming(gateway_healthy, anthropic_key):
             "POST",
             f"{GATEWAY_URL}/v1/messages",
             json={
-                "model": "claude-haiku-4-5",
+                "model": ANTHROPIC_MODEL,
                 "messages": [{"role": "user", "content": "Say 'hello'"}],
                 "max_tokens": 10,
                 "stream": True,
@@ -142,7 +144,7 @@ async def test_invalid_client_key_rejected(gateway_healthy, http_client):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
@@ -162,7 +164,7 @@ async def test_empty_client_key_rejected(gateway_healthy, http_client):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
@@ -182,7 +184,7 @@ async def test_fallback_to_proxy_key(gateway_healthy, http_client):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
@@ -201,7 +203,7 @@ async def test_proxy_auth_still_required_with_client_key(gateway_healthy, http_c
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
@@ -224,7 +226,7 @@ async def test_passthrough_mode_direct_auth(http_client, passthrough_mode):
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
@@ -244,7 +246,7 @@ async def test_passthrough_mode_invalid_key_rejected(http_client, passthrough_mo
     response = await http_client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            "model": "claude-haiku-4-5",
+            "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
@@ -263,7 +265,7 @@ async def test_passthrough_mode_streaming(passthrough_mode):
             "POST",
             f"{GATEWAY_URL}/v1/messages",
             json={
-                "model": "claude-haiku-4-5",
+                "model": ANTHROPIC_MODEL,
                 "messages": [{"role": "user", "content": "Say 'hello'"}],
                 "max_tokens": 10,
                 "stream": True,
