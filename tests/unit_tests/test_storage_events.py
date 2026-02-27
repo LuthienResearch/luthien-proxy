@@ -1,5 +1,6 @@
 """Unit tests for V2 event emission helpers."""
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.storage.events import (
     reconstruct_full_response_from_chunks,
 )
@@ -43,16 +44,16 @@ def test_reconstruct_single_chunk_with_content(make_streaming_chunk):
 
 def test_reconstruct_multiple_chunks_accumulate_content(make_streaming_chunk):
     """Test that content accumulates from multiple chunks."""
-    chunk1 = make_streaming_chunk(content="Hello ", id="chatcmpl-456", model="claude-opus-4-1")
-    chunk2 = make_streaming_chunk(content="world", id="chatcmpl-456", model="claude-opus-4-1")
-    chunk3 = make_streaming_chunk(content="!", id="chatcmpl-456", model="claude-opus-4-1", finish_reason="stop")
+    chunk1 = make_streaming_chunk(content="Hello ", id="chatcmpl-456", model=DEFAULT_TEST_MODEL)
+    chunk2 = make_streaming_chunk(content="world", id="chatcmpl-456", model=DEFAULT_TEST_MODEL)
+    chunk3 = make_streaming_chunk(content="!", id="chatcmpl-456", model=DEFAULT_TEST_MODEL, finish_reason="stop")
 
     chunks = [StreamingResponseWrapper(chunk1), StreamingResponseWrapper(chunk2), StreamingResponseWrapper(chunk3)]
 
     result = reconstruct_full_response_from_chunks(chunks)
 
     assert result["id"] == "chatcmpl-456"
-    assert result["model"] == "claude-opus-4-1"
+    assert result["model"] == DEFAULT_TEST_MODEL
     assert result["choices"][0]["message"]["content"] == "Hello world!"
     assert result["choices"][0]["finish_reason"] == "stop"
 

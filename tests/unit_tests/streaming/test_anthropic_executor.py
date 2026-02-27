@@ -25,6 +25,7 @@ from anthropic.types import (
     TextDelta,
 )
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.policy_core.anthropic_interface import (
     AnthropicPolicyInterface,
     AnthropicStreamEvent,
@@ -52,7 +53,7 @@ def make_message_start_event(message_id: str = "msg_test") -> RawMessageStartEve
             "type": "message",
             "role": "assistant",
             "content": [],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": None,
             "usage": {"input_tokens": 10, "output_tokens": 0},
         },
