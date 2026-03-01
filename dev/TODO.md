@@ -11,6 +11,19 @@
 
 - [ ] **`/compact` fails with "Tool names must be unique" error** - When running Claude Code through Luthien, `/compact` returns: `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`. Also saw 500 errors on retry. Works without Luthien. May be related to how Luthien handles/transforms tool definitions. Debug log: [Google Drive](https://drive.google.com/file/d/1Gn2QBZ2WqG6qY0kDK4KsgxJbmmuKRi1S/view?usp=drive_link). PR: [#112](https://github.com/LuthienResearch/luthien-proxy/pull/112). Fix: [#208](https://github.com/LuthienResearch/luthien-proxy/pull/208). Reference: Dogfooding session 2025-12-16.
 
+#### QADNA QA Trial Bugs (2026-02-25)
+
+Source: [QA Trial Report](https://docs.google.com/document/d/1xugPuJjtfxXw3ale54rdhqAlsH5wcvo31RtPVPJLgz4/edit), [Debrief](./dev/peter-qadna-qa-trial-debrief.md)
+
+- [ ] **Activity Monitor broken — `emitter.py` TYPE_CHECKING imports used at runtime** — `RedisEventPublisher` and `DatabasePool` imported under `TYPE_CHECKING` but used in `cast()` calls at runtime. `NameError` silently swallowed by `try/except` + `asyncio.gather(return_exceptions=True)`. Redis pub/sub and DB event sinks silently fail on every request. Fix: remove the `cast()` calls. (Peter/QADNA)
+- [ ] **Policy Diff Viewer 404 on `/debug/calls/{call_id}`** — Clicking any previous call ID in Browse Recent returns `{"detail":"No events found for call_id: ..."}`. Related to emitter.py bug above. (Peter/QADNA)
+- [ ] **Conversation history shows Turn entries but no contents** — Anthropic processor not wired to `DefaultTransactionRecorder` like the OpenAI one. (Peter/QADNA)
+- [ ] **`SamplePydanticPolicy` unimplemented — causes all requests to fail** — Selecting this policy breaks everything. Should either be implemented or removed/hidden. (Peter/QADNA)
+- [ ] **DeSlop policy activation error** — Error when trying to activate DeSlop string replacement policy. [Screenshot](https://imgur.com/a/GHagJn7). (Peter/QADNA)
+- [ ] **No clear API key validation on startup** — Stale/expired API key returns nested JSON error instead of clear "your API key is invalid" message. (Peter/QADNA)
+- [ ] **`DebugLoggingPolicy` logs unclear where to find them** — When DebugLoggingPolicy is active, it's not obvious where the debug output goes or how to view it. Needs better UX guidance. (Peter/QADNA)
+- [ ] **Can't test Active Policy without API key (single users)** — Users without a separate API key can't easily test whether the currently active policy is working. Need a way to test policy behavior without making a real LLM call. (Peter/QADNA)
+
 ### Core Features (User Story Aligned)
 
 - [ ] **Conversation history browser & export** - Enable users to browse and export full conversation logs from past sessions. Maps to `luthien-proxy-edl` (Conversation Viewer UI) in User Stories 1 & 2. Data already in `conversation_events` table. Could include: search by date, export to markdown/JSON, filter by user/session.
@@ -64,13 +77,16 @@
 - [ ] **Add integration tests for error recovery paths** - DB failures, Redis failures, policy timeouts, network failures
 - [ ] **Audit tests for unjustified conditional logic**
 
-### Onboarding & Install (Medium — Tyler feedback 2026-02-10)
+### Onboarding & Install (Medium — Tyler feedback 2026-02-10, Peter/QADNA feedback 2026-02-25)
 
 Source: [Office Hours notes](https://docs.google.com/document/d/1Qo2D5zrtuHO2MF6wJX4v86sJPm-YAmCNwKWPJTcFJvM/edit?tab=t.0), [Gemini transcript](https://docs.google.com/document/d/1lRX5U7_2Ig1oOw775xm9uoGGK6yJx2gip8N2BlAA0JQ/edit?tab=t.fp5fl2phgglm)
 
+- [ ] **Add Python 3.13+ version check to `quick_start.sh`** — Peter had Python 3.10, project requires 3.13+. Script should check and warn before failing. (Peter/QADNA, 2026-02-25)
+- [ ] **Add OAuth/Claude Max guidance to README** — README implies API key is the only option. Users with Claude Pro/Max subscriptions need guidance that they can use their existing subscription. (Peter/QADNA, 2026-02-25)
 - [ ] **Push pre-built Docker images to Docker Hub** - Tyler: "One thing you can do is push the already built image to Docker Hub to speed up the builds." First install required building all images locally.
 - [ ] **Fix quick_start.sh Grafana/gateway health check bug** - Tyler: "Gateway not detected. Did we launch Grafana before?" Jai: "This is a bug... I've been meaning to fix forever."
 - [ ] **Simplify quick_start.sh vs docker compose up** - Jai: "That's redundant... quick start is basically just the same as docker [compose] up" but adds dev refresh stuff. Users should get `docker compose up -d`, devs get `quick_start.sh`.
+- [ ] **Explore `luthien` CLI wrapper (Happy Coder pattern)** - Instead of configuring proxy URLs and env vars, users would `npm install -g luthien-cli && luthien` — a thin wrapper that sets `ANTHROPIC_BASE_URL` and auth, then execs `claude`. Zero config, zero workflow change. Inspired by Happy Coder's `happy` command which wraps Claude Code identically. See `luthien-org/ui-fb-dev/3-ui-mocks/1-value-prop/2026-02-26_onboarding-inspiration/`. Own PR: `feat/luthien-cli`. (2026-02-26)
 
 ### Infrastructure (Medium)
 
