@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Requires: bash 3.2+
 # ABOUTME: Script to launch Claude Code using the gateway with policy enforcement
 # ABOUTME: Configures environment to route Claude API calls through gateway
 
@@ -22,9 +22,12 @@ fi
 
 # Source only the variables we need from .env
 if [ -f .env ]; then
-    export PROXY_API_KEY=$(grep -E '^PROXY_API_KEY=' .env | cut -d '=' -f2-)
-    export GATEWAY_PORT=$(grep -E '^GATEWAY_PORT=' .env | cut -d '=' -f2-)
-    export GATEWAY_HOST=$(grep -E '^GATEWAY_HOST=' .env | cut -d '=' -f2-)
+    PROXY_API_KEY="$(grep -E '^PROXY_API_KEY=' .env | cut -d '=' -f2-)"
+    export PROXY_API_KEY
+    GATEWAY_PORT="$(grep -E '^GATEWAY_PORT=' .env | cut -d '=' -f2-)"
+    export GATEWAY_PORT
+    GATEWAY_HOST="$(grep -E '^GATEWAY_HOST=' .env | cut -d '=' -f2-)"
+    export GATEWAY_HOST
 fi
 
 # Check if gateway is running
@@ -38,7 +41,7 @@ if ! curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health" > /dev/null 2>&1; th
 
     # Wait for gateway to be healthy
     echo -e "${YELLOW}⏳ Waiting for gateway to be ready...${NC}"
-    for i in {1..30}; do
+    for _i in {1..30}; do
         if curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health" > /dev/null 2>&1; then
             break
         fi

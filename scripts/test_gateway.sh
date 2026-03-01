@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Requires: bash 3.2+
 # ABOUTME: Automated test script for gateway health and API compatibility
 # ABOUTME: Tests OpenAI and Anthropic APIs with streaming and non-streaming modes
 
@@ -79,7 +79,8 @@ validate_greeting() {
 
 # Helper function to validate streaming response
 validate_streaming() {
-    local content=$(cat)
+    local content
+    content="$(cat)"
     echo "$content" | grep -q "^data: {" && echo "$content" | grep -q "delta"
 }
 
@@ -90,7 +91,8 @@ validate_anthropic() {
 
 # Helper function to validate Anthropic streaming
 validate_anthropic_streaming() {
-    local content=$(cat)
+    local content
+    content="$(cat)"
     echo "$content" | grep -q "^data: {" && echo "$content" | grep -q "content_block_delta"
 }
 
@@ -160,7 +162,7 @@ echo -e "  ${GREEN}Passed: $TESTS_PASSED${NC}"
 echo -e "  ${RED}Failed: $TESTS_FAILED${NC}"
 echo "==================================="
 
-if [ $TESTS_FAILED -eq 0 ]; then
+if [[ "$TESTS_FAILED" -eq 0 ]]; then
     echo -e "${GREEN}All tests passed! 🎉${NC}"
     exit 0
 else

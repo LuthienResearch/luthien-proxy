@@ -1,4 +1,5 @@
 #!/bin/bash
+# Requires: bash 3.2+
 # ABOUTME: Find available ports for docker compose services at startup.
 # ABOUTME: Source this script before `docker compose up` to auto-select free ports.
 #
@@ -51,11 +52,14 @@ find_free_port() {
 auto_selected=""
 
 # Iterate over vars and defaults in parallel using positional indexing
+# shellcheck disable=SC2086 # Intentional word splitting for bash 3 compat (no arrays)
 set -- $PORT_DEFAULTS
+# shellcheck disable=SC2086
 for var in $PORT_VARS; do
     default="$1"
     shift
 
+    # shellcheck disable=SC2154 # Variable referenced indirectly via eval
     eval "current_val=\${$var}"
     if [ -n "$current_val" ]; then
         # Already set by the user (from .env or environment) -- keep it

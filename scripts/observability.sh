@@ -1,4 +1,5 @@
 #!/bin/bash
+# Requires: bash 3.2+
 # ABOUTME: Helper script to manage observability stack (Tempo distributed tracing)
 
 set -e
@@ -51,15 +52,17 @@ cd "$PROJECT_ROOT"
 # Load .env for port variables
 if [[ -f .env ]]; then
     set -a
+    # shellcheck source=/dev/null
     source .env
     set +a
 fi
 
 # Auto-select free ports for any not pinned in .env
+# shellcheck source=find-available-ports.sh
 source "${SCRIPT_DIR}/find-available-ports.sh"
 
 # Derive project name from worktree directory to avoid collisions between worktrees
-if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+if [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
     worktree_dir="$(basename "$(pwd)")"
     export COMPOSE_PROJECT_NAME="luthien-${worktree_dir}"
 fi
