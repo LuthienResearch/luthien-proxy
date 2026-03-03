@@ -8,6 +8,9 @@ from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
 from anthropic.types import (
     RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
     RawMessageStartEvent,
     RawMessageStopEvent,
     TextDelta,
@@ -25,6 +28,7 @@ from luthien_proxy.pipeline.anthropic_processor import (
     _format_sse_event,
     _handle_anthropic_error,
     _process_request,
+    _reconstruct_response_from_stream_events,
     process_anthropic_request,
 )
 from luthien_proxy.policies.noop_policy import NoOpPolicy
@@ -1312,3 +1316,165 @@ class TestExecutionPolicyRuntime:
         full_stream = "".join(chunks)
         assert "event: error" in full_stream
         assert "must emit streaming events" in full_stream
+
+
+class TestReconstructResponseFromStreamEvents:
+    """Tests for _reconstruct_response_from_stream_events."""
+
+    def _message_start(self, message_id: str = "msg_abc", model: str = "claude-sonnet-4-20250514", input_tokens: int = 10) -> RawMessageStartEvent:
+        return RawMessageStartEvent(
+            type="message_start",
+            message={
+                "id": message_id,
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": model,
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": input_tokens, "output_tokens": 0},
+            },
+        )
+
+    def test_reconstructs_simple_text_response(self):
+        """Typical text streaming response is correctly reconstructed."""
+        events = [
+            self._message_start("msg_abc123", input_tokens=10),
+            RawContentBlockStartEvent(type="content_block_start", index=0, content_block={"type": "text", "text": ""}),
+            RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text="Bucharest")),
+            RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text=" is the capital.")),
+            RawContentBlockStopEvent(type="content_block_stop", index=0),
+            RawMessageDeltaEvent(type="message_delta", delta={"stop_reason": "end_turn", "stop_sequence": None}, usage={"output_tokens": 5}),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert result["id"] == "msg_abc123"
+        assert result["model"] == "claude-sonnet-4-20250514"
+        assert result["role"] == "assistant"
+        assert result["stop_reason"] == "end_turn"
+        assert result["usage"]["input_tokens"] == 10
+        assert result["usage"]["output_tokens"] == 5
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+        assert result["content"][0]["text"] == "Bucharest is the capital."
+
+    def test_concatenates_multiple_text_deltas(self):
+        """Multiple content_block_delta events for the same block are concatenated."""
+        events = [
+            self._message_start(),
+            RawContentBlockStartEvent(type="content_block_start", index=0, content_block={"type": "text", "text": ""}),
+            RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text="Hello")),
+            RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text=", ")),
+            RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text="world")),
+            RawContentBlockStopEvent(type="content_block_stop", index=0),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert result["content"][0]["text"] == "Hello, world"
+
+    def test_returns_none_without_message_start(self):
+        """Returns None when stream lacked a message_start event (e.g., errored early)."""
+        events = [RawMessageStopEvent(type="message_stop")]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is None
+
+    def test_empty_events_returns_none(self):
+        """Returns None for an empty event list."""
+        assert _reconstruct_response_from_stream_events([]) is None
+
+
+class TestStreamingResponseRecording:
+    """Tests that streaming responses are saved to conversation_events."""
+
+    @pytest.fixture
+    def mock_request(self):
+        request = MagicMock()
+        request.headers = {}
+        request.method = "POST"
+        request.url = MagicMock()
+        request.url.path = "/v1/messages"
+        request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Ce a zis vulpea?"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        return request
+
+    @pytest.fixture
+    def mock_emitter(self):
+        return MagicMock()
+
+    @pytest.mark.asyncio
+    async def test_streaming_response_emits_recorded_event(self, mock_request, mock_emitter):
+        """Consuming a streaming response triggers transaction.streaming_response_recorded."""
+
+        class _TextStreamingPolicy(AnthropicExecutionInterface):
+            def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext):
+                async def _run():
+                    yield RawMessageStartEvent(
+                        type="message_start",
+                        message={
+                            "id": "msg_ring_ding",
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [],
+                            "model": io.request["model"],
+                            "stop_reason": None,
+                            "stop_sequence": None,
+                            "usage": {"input_tokens": 8, "output_tokens": 0},
+                        },
+                    )
+                    yield RawContentBlockStartEvent(
+                        type="content_block_start", index=0, content_block={"type": "text", "text": ""}
+                    )
+                    yield RawContentBlockDeltaEvent(
+                        type="content_block_delta",
+                        index=0,
+                        delta=TextDelta(type="text_delta", text="Ring-ding-ding!"),
+                    )
+                    yield RawContentBlockStopEvent(type="content_block_stop", index=0)
+                    yield RawMessageDeltaEvent(
+                        type="message_delta",
+                        delta={"stop_reason": "end_turn", "stop_sequence": None},
+                        usage={"output_tokens": 4},
+                    )
+                    yield RawMessageStopEvent(type="message_stop")
+
+                return _run()
+
+        mock_client = MagicMock()
+        mock_client.complete = AsyncMock()
+        mock_client.stream = MagicMock()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=_TextStreamingPolicy(),
+            anthropic_client=mock_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        async for _ in response.body_iterator:
+            pass
+
+        event_types = [call.args[1] for call in mock_emitter.record.call_args_list]
+        assert "transaction.streaming_response_recorded" in event_types
+
+        recorded_call = next(
+            call for call in mock_emitter.record.call_args_list
+            if call.args[1] == "transaction.streaming_response_recorded"
+        )
+        payload = recorded_call.args[2]
+        assert payload["final_response"]["id"] == "msg_ring_ding"
+        assert payload["final_response"]["content"][0]["text"] == "Ring-ding-ding!"
