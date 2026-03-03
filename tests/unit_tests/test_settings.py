@@ -239,7 +239,7 @@ class TestAuthModeDefaultConsistency:
     def test_credential_manager_initialize_default_matches_settings(self, monkeypatch):
         """CredentialManager.initialize() fallback must match Settings default."""
         monkeypatch.delenv("AUTH_MODE", raising=False)
-        settings_default = Settings(_env_file=None).auth_mode.value
+        settings_default = Settings(_env_file=None).auth_mode
         sig = inspect.signature(CredentialManager.initialize)
         init_default = sig.parameters["default_auth_mode"].default
         assert init_default == settings_default, (

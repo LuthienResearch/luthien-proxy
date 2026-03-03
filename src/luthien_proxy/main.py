@@ -16,7 +16,7 @@ from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
-from luthien_proxy.credential_manager import CredentialManager
+from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
@@ -59,7 +59,7 @@ def create_app(
     redis_client: Redis,
     startup_policy_path: str | None = None,
     policy_source: str = "db-fallback-file",
-    auth_mode: str = "both",
+    auth_mode: AuthMode = AuthMode.BOTH,
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
 
@@ -197,15 +197,9 @@ def create_app(
 
     # Simple utility endpoints
     @app.get("/health")
-    async def health(request: Request):
+    async def health():
         """Health check endpoint."""
-        response: dict[str, object] = {"status": "healthy", "version": "2.0.0"}
-        deps = getattr(request.app.state, "dependencies", None)
-        if deps:
-            cm = getattr(deps, "credential_manager", None)
-            if cm:
-                response["auth_mode"] = cm.config.auth_mode.value
-        return response
+        return {"status": "healthy", "version": "2.0.0"}
 
     # Exception handler for backend API errors
     @app.exception_handler(BackendAPIError)
@@ -360,7 +354,7 @@ if __name__ == "__main__":
                 redis_client=redis_client,
                 startup_policy_path=startup_path,
                 policy_source=config["policy_source"],
-                auth_mode=config.get("auth_mode", "both"),
+                auth_mode=config.get("auth_mode", AuthMode.BOTH),
             )
 
             server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="debug")

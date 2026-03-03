@@ -101,11 +101,11 @@ class CredentialManager:
         )
         self._http_client: httpx.AsyncClient | None = None
 
-    async def initialize(self, default_auth_mode: str = "both") -> None:
+    async def initialize(self, default_auth_mode: AuthMode = AuthMode.BOTH) -> None:
         """Load auth config from DB. Falls back to default on first boot."""
         if self._db_pool is None:
             logger.info("No DB pool - using default auth config")
-            self._config.auth_mode = AuthMode(default_auth_mode)
+            self._config.auth_mode = default_auth_mode
             return
 
         pool = await self._db_pool.get_pool()
@@ -121,20 +121,11 @@ class CredentialManager:
                 updated_by=row["updated_by"],
             )
         else:
-            self._config.auth_mode = AuthMode(default_auth_mode)
+            self._config.auth_mode = default_auth_mode
 
         logger.info(
             f"Auth config loaded: mode={self._config.auth_mode.value}, validate={self._config.validate_credentials}"
         )
-
-        # Warn if DB value differs from the code default (see PR #222 COE)
-        expected = AuthMode(default_auth_mode)
-        if self._config.auth_mode != expected:
-            logger.warning(
-                f"DB auth_mode '{self._config.auth_mode.value}' differs from "
-                f"code default '{expected.value}'. This may cause unexpected "
-                f"auth failures. Update via admin API or DB migration."
-            )
 
     @property
     def config(self) -> AuthConfig:
