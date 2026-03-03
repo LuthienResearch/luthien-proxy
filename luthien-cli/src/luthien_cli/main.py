@@ -6,7 +6,12 @@ import click
 @click.group()
 @click.version_option(version="0.1.0")
 def cli():
-    """Luthien — manage and interact with luthien-proxy gateways."""
+    """Luthien -- manage and interact with luthien-proxy gateways."""
+
+
+from luthien_cli.commands.status import status
+
+cli.add_command(status)
 
 
 if __name__ == "__main__":
