@@ -445,6 +445,64 @@ class TestSendChatRoute:
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_mock_response_sent_by_default(self, mock_client_class, mock_get_settings):
+        """Default use_mock=True sends mock_response in payload so no API key is needed."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_get_settings.return_value = mock_settings
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"choices": [{"message": {"content": "mock"}}]}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        mock_request = MagicMock()
+        mock_request.base_url = "http://localhost:8000/"
+        mock_request.headers = {}
+        request = ChatRequest(model="gpt-4o", message="Hello!")  # use_mock defaults to True
+
+        await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+
+        call_args = mock_client.post.call_args
+        assert "mock_response" in call_args[1]["json"]
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_mock_response_absent_when_use_mock_false(self, mock_client_class, mock_get_settings):
+        """When use_mock=False, mock_response is not included (real LLM call attempted)."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_get_settings.return_value = mock_settings
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"choices": [{"message": {"content": "real"}}]}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        mock_request = MagicMock()
+        mock_request.base_url = "http://localhost:8000/"
+        mock_request.headers = {}
+        request = ChatRequest(model="gpt-4o", message="Hello!", use_mock=False)
+
+        await send_chat(body=request, request=mock_request, _=AUTH_TOKEN)
+
+        call_args = mock_client.post.call_args
+        assert "mock_response" not in call_args[1]["json"]
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
     async def test_preserves_http_when_no_forwarded_proto(self, mock_client_class, mock_get_settings):
         """Test that HTTP is preserved when there's no X-Forwarded-Proto header."""
         mock_settings = MagicMock()

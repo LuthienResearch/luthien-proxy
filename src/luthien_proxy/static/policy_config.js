@@ -705,12 +705,14 @@ async function handleSendChat() {
     metaEl.textContent = '';
 
     try {
+        const useRealLlm = document.getElementById('use-real-llm')?.checked ?? false;
         const result = await apiCall('/api/admin/test/chat', {
             method: 'POST',
             body: JSON.stringify({
                 model: state.selectedModel,
                 message: message,
-                stream: false
+                stream: false,
+                use_mock: !useRealLlm,
             })
         });
 
