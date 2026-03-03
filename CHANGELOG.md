@@ -24,7 +24,7 @@
   - `DOGFOOD_MODE` env var to auto-inject DogfoodSafetyPolicy into any policy chain
   - Replaces hacky approach from #243 with clean, reusable composition mechanism
 
-- Fix SamplePydanticPolicy crash on activation; add Python 3.13+ check to quick_start.sh (#250)
+- Fix SamplePydanticPolicy crash on activation (#250)
 - Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
   - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
   - MultiParallelPolicy: parallel execution with configurable consolidation strategies
