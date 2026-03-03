@@ -199,18 +199,24 @@ const FormRenderer = {
       ? `<span class="field-hint">${this.escapeHtml(schema.description)}</span>`
       : "";
 
-    // Array of arrays — render as a JSON textarea so the user can type/paste
-    // the full nested structure (e.g. [["from", "to"], ["foo", "bar"]]).
-    if (itemSchema && itemSchema.type === "array") {
+    // Array of simple arrays (e.g. list[list[str]]) — render as one input per
+    // item where the value is a comma-separated string of the inner elements.
+    // Splitting on ", " keeps inner arrays as actual JS arrays rather than
+    // storing them as plain strings (which would fail Pydantic validation).
+    if (itemSchema && itemSchema.type === "array" && this.isSimpleType(itemSchema.items)) {
       return `
-        <div class="form-field">
+        <div class="form-field form-field-array">
           <label>${this.escapeHtml(this.pathToLabel(path))}</label>
           ${desc}
-          <textarea
-            x-effect="$el.value = JSON.stringify(formData.${path}, null, 2)"
-            @input="try { formData.${path} = JSON.parse($el.value); $el.classList.remove('invalid') } catch(e) { $el.classList.add('invalid') }"
-            class="config-json"
-            rows="4"></textarea>
+          <template x-for="(item, index) in formData.${path}" :key="index">
+            <div class="array-item">
+              <input type="text"
+                :value="Array.isArray(formData.${path}[index]) ? formData.${path}[index].join(', ') : formData.${path}[index]"
+                @input="formData.${path}[index] = $event.target.value.split(',').map(s => s.trim())">
+              <button type="button" class="btn-remove" @click="formData.${path}.splice(index, 1)">&times;</button>
+            </div>
+          </template>
+          <button type="button" class="btn-add" @click="formData.${path}.push(['', ''])">+ Add</button>
         </div>
       `;
     }
