@@ -216,7 +216,7 @@ const FormRenderer = {
               <button type="button" class="btn-remove" @click="formData.${path}.splice(index, 1)">&times;</button>
             </div>
           </template>
-          <button type="button" class="btn-add" @click="formData.${path}.push(['', ''])">+ Add</button>
+          <button type="button" class="btn-add" @click="formData.${path}.push('')">+ Add</button>
         </div>
       `;
     }
