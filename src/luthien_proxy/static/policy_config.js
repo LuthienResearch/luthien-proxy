@@ -664,9 +664,11 @@ function highlightValidationErrors(errors) {
 
     for (const error of errors) {
         const path = error.loc.join('.');
-        // Find field by path (data attribute or name or id)
+        // Find field by path (data attribute or name or id).
+        // Use [id="..."] instead of #id because paths like "replacements.0"
+        // contain dots which are invalid in CSS ID selectors.
         const field = document.querySelector(
-            `[data-path="${path}"], [name="${path}"], #config-${path}`
+            `[data-path="${path}"], [name="${path}"], [id="config-${path}"]`
         );
         if (field) {
             // Find the container - could be .form-field (Alpine) or .config-field (legacy)
