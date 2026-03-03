@@ -11,9 +11,12 @@ def cli():
 
 from luthien_cli.commands.claude import claude
 from luthien_cli.commands.status import status
+from luthien_cli.commands.up import down, up
 
 cli.add_command(claude)
+cli.add_command(down)
 cli.add_command(status)
+cli.add_command(up)
 
 
 if __name__ == "__main__":
