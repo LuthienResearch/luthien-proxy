@@ -322,7 +322,7 @@ class TestThinkingBlockPassthrough:
             RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
-        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+        async def mock_stream(request: Any, extra_headers: dict | None = None) -> AsyncIterator[MessageStreamEvent]:
             for event in events:
                 yield event
 
@@ -774,7 +774,7 @@ class TestStreamingDeduplication:
             RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
-        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+        async def mock_stream(request: Any, extra_headers: dict | None = None) -> AsyncIterator[MessageStreamEvent]:
             for event in events:
                 yield event
 
@@ -843,7 +843,7 @@ class TestStreamingDeduplication:
             ]
         )
 
-        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+        async def mock_stream(request: Any, extra_headers: dict | None = None) -> AsyncIterator[MessageStreamEvent]:
             for event in events:
                 yield event
 
@@ -917,7 +917,7 @@ class TestStreamingDeduplication:
             RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
-        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+        async def mock_stream(request: Any, extra_headers: dict | None = None) -> AsyncIterator[MessageStreamEvent]:
             for e in events:
                 yield e
 
@@ -1227,7 +1227,7 @@ class TestFullPipelineStreaming:
             RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
-        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+        async def mock_stream(request: Any, extra_headers: dict | None = None) -> AsyncIterator[MessageStreamEvent]:
             for event in events:
                 yield event
 
@@ -1312,7 +1312,7 @@ class TestFullPipelineStreaming:
             RawMessageStopEvent.model_construct(type="message_stop"),
         ]
 
-        async def mock_stream(request: Any) -> AsyncIterator[MessageStreamEvent]:
+        async def mock_stream(request: Any, extra_headers: dict | None = None) -> AsyncIterator[MessageStreamEvent]:
             for event in events:
                 yield event
 

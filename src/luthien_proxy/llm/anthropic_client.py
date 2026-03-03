@@ -114,11 +114,14 @@ class AnthropicClient:
             },
         )
 
-    async def complete(self, request: AnthropicRequest) -> AnthropicResponse:
+    async def complete(
+        self, request: AnthropicRequest, extra_headers: dict[str, str] | None = None
+    ) -> AnthropicResponse:
         """Get complete response from Anthropic API.
 
         Args:
             request: Anthropic Messages API request.
+            extra_headers: Additional headers to forward to the API (e.g. anthropic-beta).
 
         Returns:
             AnthropicResponse with the complete message.
@@ -128,14 +131,20 @@ class AnthropicClient:
             span.set_attribute("llm.stream", False)
 
             kwargs = self._prepare_request_kwargs(request)
-            message = await self._client.messages.create(**kwargs)
+            client: anthropic.AsyncAnthropic = (
+                self._client.with_options(default_headers=extra_headers) if extra_headers else self._client
+            )
+            message = await client.messages.create(**kwargs)
             return self._message_to_response(message)
 
-    async def stream(self, request: AnthropicRequest) -> AsyncIterator["MessageStreamEvent"]:
+    async def stream(
+        self, request: AnthropicRequest, extra_headers: dict[str, str] | None = None
+    ) -> AsyncIterator["MessageStreamEvent"]:
         """Stream response from Anthropic API.
 
         Args:
             request: Anthropic Messages API request.
+            extra_headers: Additional headers to forward to the API (e.g. anthropic-beta).
 
         Yields:
             Streaming events from the Anthropic SDK (includes text, thinking, etc.).
@@ -145,9 +154,12 @@ class AnthropicClient:
             span.set_attribute("llm.stream", True)
 
             kwargs = self._prepare_request_kwargs(request)
-            async with self._client.messages.stream(**kwargs) as stream:
+            client: anthropic.AsyncAnthropic = (
+                self._client.with_options(default_headers=extra_headers) if extra_headers else self._client
+            )
+            async with client.messages.stream(**kwargs) as stream:
                 async for event in stream:
-                    yield event
+                    yield event  # type: ignore[misc]
 
 
 __all__ = ["AnthropicClient"]
