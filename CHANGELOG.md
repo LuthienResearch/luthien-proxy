@@ -16,6 +16,10 @@
 
 - Fix Anthropic observability pipeline: events not written to DB, generic error types, empty conversation history (#249)
 
+- Fix default auth_mode from `proxy_key` to `both` so Claude Code OAuth works on fresh setups (#222)
+  - DB migration: `008_default_auth_mode_both.sql`
+  - Also updates existing `proxy_key` rows to `both`
+
 - Add general-purpose policy composition API (policy-composition)
   - `compose_policy()` function for inserting policies into chains at runtime
   - `MultiSerialPolicy.from_instances()` for building chains from pre-instantiated policies
@@ -32,7 +36,7 @@
   - Both support OpenAI and Anthropic interfaces with interface compatibility validation
   - Shared `load_sub_policy` utility for recursive policy loading from YAML config
 - Add configurable passthrough authentication (passthrough-auth)
-  - Three auth modes: `proxy_key` (default), `passthrough`, `both` - configurable at runtime via admin API
+  - Three auth modes: `proxy_key`, `passthrough`, `both` (default) - configurable at runtime via admin API
   - Credential validation via Anthropic's free `count_tokens` endpoint with Redis caching
   - Configurable TTLs for valid (1hr default) and invalid (5min default) credential cache
   - Admin API: `GET/POST /admin/auth/config`, `GET/DELETE /admin/auth/credentials`
