@@ -211,8 +211,9 @@ const FormRenderer = {
           <template x-for="(item, index) in formData.${path}" :key="index">
             <div class="array-item">
               <input type="text"
+                placeholder="from, to"
                 :value="Array.isArray(formData.${path}[index]) ? formData.${path}[index].join(', ') : formData.${path}[index]"
-                @input="formData.${path}[index] = $event.target.value.split(',').map(s => s.trim())">
+                @input="formData.${path}[index] = $event.target.value.replace(/^\\[|\\]$/g, '').split(',').map(s => s.trim())">
               <button type="button" class="btn-remove" @click="formData.${path}.splice(index, 1)">&times;</button>
             </div>
           </template>
