@@ -24,7 +24,7 @@ from luthien_proxy.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 class PolicySetRequest(BaseModel):

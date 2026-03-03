@@ -179,6 +179,7 @@ for service in gateway; do
     fi
 done
 
+
 if [ "$services_healthy" = true ]; then
     echo ""
     echo "🎉 Luthien is ready!"
@@ -193,6 +194,11 @@ if [ "$services_healthy" = true ]; then
     echo ""
     echo "🛑 To stop all services:"
     echo "   docker compose down"
+    echo ""
+    echo "⚠️  DOGFOODING NOTE: If running Claude Code through this proxy,"
+    echo "   do NOT restart/stop Docker from the proxied session — it will"
+    echo "   kill the proxy and sever the agent's API connection."
+    echo "   Use a separate terminal for Docker commands."
 else
     echo ""
     echo "⚠️ Some services may not be healthy. Check logs:"

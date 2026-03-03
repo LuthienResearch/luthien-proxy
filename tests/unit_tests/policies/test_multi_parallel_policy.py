@@ -18,6 +18,7 @@ from multi_policy_helpers import (
     replacement_config,
 )
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
@@ -25,7 +26,7 @@ from luthien_proxy.llm.types.anthropic import (
 )
 from luthien_proxy.policies.multi_parallel_policy import MultiParallelPolicy
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
+    AnthropicExecutionInterface,
     BasePolicy,
     OpenAIPolicyInterface,
 )
@@ -47,9 +48,9 @@ class TestMultiParallelPolicyProtocol:
         policy = MultiParallelPolicy(policies=[noop_config()])
         assert isinstance(policy, OpenAIPolicyInterface)
 
-    def test_implements_anthropic_interface(self):
+    def test_implements_anthropic_execution_interface(self):
         policy = MultiParallelPolicy(policies=[noop_config()])
-        assert isinstance(policy, AnthropicPolicyInterface)
+        assert isinstance(policy, AnthropicExecutionInterface)
 
     def test_policy_name_shows_strategy_and_sub_policies(self):
         policy = MultiParallelPolicy(
@@ -433,7 +434,7 @@ class TestMultiParallelDesignated:
 
     @pytest.mark.asyncio
     async def test_incompatible_sub_policy_raises_on_anthropic_call(self):
-        """When a sub-policy doesn't implement AnthropicPolicyInterface, raise TypeError."""
+        """When a sub-policy doesn't implement AnthropicExecutionInterface, raise TypeError."""
         policy = MultiParallelPolicy(
             policies=[noop_config(), allcaps_config()],
             consolidation_strategy="designated",
@@ -446,7 +447,7 @@ class TestMultiParallelDesignated:
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello world")
 
-        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicPolicyInterface"):
+        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicExecutionInterface"):
             await policy.on_anthropic_response(response, ctx)
 
 
@@ -540,7 +541,7 @@ class TestMultiParallelAnthropicRequest:
         policy = MultiParallelPolicy(policies=[noop_config()])
         ctx = PolicyContext.for_testing()
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
         }
@@ -603,13 +604,13 @@ class TestMultiParallelInterfaceValidation:
 
     @pytest.mark.asyncio
     async def test_anthropic_response_raises_for_incompatible_policy(self):
-        """Anthropic call raises TypeError when a sub-policy lacks AnthropicPolicyInterface."""
+        """Anthropic call raises TypeError when a sub-policy lacks AnthropicExecutionInterface."""
         policy = MultiParallelPolicy(policies=[noop_config()])
         policy._sub_policies.append(OpenAIOnlyPolicy())
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello")
 
-        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicPolicyInterface"):
+        with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicExecutionInterface"):
             await policy.on_anthropic_response(response, ctx)
 
     @pytest.mark.asyncio
@@ -657,8 +658,12 @@ class TestMultiParallelExecution:
         ctx = PolicyContext.for_testing()
         response = make_response("hello world")
 
-        # Patch one sub-policy to raise
-        policy._sub_policies[1].on_openai_response = AsyncMock(side_effect=RuntimeError("policy exploded"))
+        # Patch one sub-policy to raise.
+        object.__setattr__(
+            policy._sub_policies[1],
+            "on_openai_response",
+            AsyncMock(side_effect=RuntimeError("policy exploded")),
+        )
 
         with pytest.raises(RuntimeError, match="policy exploded"):
             await policy.on_openai_response(response, ctx)
@@ -673,7 +678,11 @@ class TestMultiParallelExecution:
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello world")
 
-        policy._sub_policies[1].on_anthropic_response = AsyncMock(side_effect=RuntimeError("anthropic exploded"))
+        object.__setattr__(
+            policy._sub_policies[1],
+            "on_anthropic_response",
+            AsyncMock(side_effect=RuntimeError("anthropic exploded")),
+        )
 
         with pytest.raises(RuntimeError, match="anthropic exploded"):
             await policy.on_anthropic_response(response, ctx)

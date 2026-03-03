@@ -52,11 +52,18 @@ class Settings(BaseSettings):
     service_version: str = "2.0.0"
     environment: str = "development"
 
+    # Request/response logging
+    enable_request_logging: bool = False
+
     # LLM Judge policy configuration
     llm_judge_model: str | None = None
     llm_judge_api_base: str | None = None
     llm_judge_api_key: str | None = None
     litellm_master_key: str | None = None
+
+    # Dogfood mode — auto-compose DogfoodSafetyPolicy to prevent agents
+    # from killing the proxy they communicate through
+    dogfood_mode: bool = False
 
 
 @lru_cache

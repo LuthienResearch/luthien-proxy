@@ -25,13 +25,13 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ## Observability Checks (2025-10-08, updated 2025-11-11)
 
-- Uses OpenTelemetry for observability - see `dev/observability-v2.md` and `dev/VIEWING_TRACES_GUIDE.md`
+- Uses OpenTelemetry for observability - see `dev/observability.md` and `dev/VIEWING_TRACES_GUIDE.md`
 - Live activity monitoring available at `/activity/monitor` on the gateway
 
 ## Documentation Structure (2025-10-10, updated 2025-11-11)
 
-- **Active docs**: dev/ARCHITECTURE.md, dev/event_driven_policy_guide.md, dev/observability-v2.md, dev/VIEWING_TRACES_GUIDE.md
-- **Common places to check**: README.md, CLAUDE.md, AGENTS.md, dev planning docs, inline code comments
+- **Active docs**: dev/REQUEST_PROCESSING_ARCHITECTURE.md, dev/observability.md, dev/VIEWING_TRACES_GUIDE.md
+- **Common places to check**: README.md, CLAUDE.md, dev planning docs, inline code comments
 - **Streaming behavior**: Emits conversation events via `storage/events.py` using background queue for non-blocking persistence
 
 ## Queue Shutdown for Stream Termination (2025-01-20, updated 2025-10-20)
@@ -179,7 +179,7 @@ if stream_state.finish_reason:
 
 **Context**: Common debugging steps for proxy issues (from co-founder debugging sessions).
 
-1. **Check the raw request/response**: Use `/debug/calls/{call_id}` endpoint to see original vs transformed payloads
+1. **Check the raw request/response**: Use `/api/debug/calls/{call_id}` endpoint to see original vs transformed payloads
 2. **Compare streaming chunks**: Enable debug logging to see each SSE chunk as it flows through pipeline
 3. **Isolate the layer**: Is it request conversion? Response assembly? Policy transformation?
 4. **Reproduce minimally**: Strip the request down to simplest failing case
@@ -187,7 +187,7 @@ if stream_state.finish_reason:
 
 **Tools available**:
 - Activity monitor: `/activity/monitor` - live SSE stream
-- Debug diff viewer: `/debug/diff?call_id=X` - before/after comparison
+- Debug diff viewer: `/diffs?call_id=X` - before/after comparison
 - Tempo traces: Search by `luthien.call_id` attribute via `http://localhost:3200/api/search`
 
 ## Policy Config Dynamic Loading Security (2026-02-04)
@@ -208,7 +208,7 @@ if stream_state.finish_reason:
 
 - **Symptom**: `Bind for 0.0.0.0:6379 failed: port is already allocated` on startup
 - **Cause**: Orphaned containers from a previous run with a different project name
-- **Fix**: `quick_start.sh` now cleans up containers from the default project name before starting
+- **Fix**: `quick_start.sh` now cleans up containers from the default project name before starting. Additionally, `COMPOSE_PROJECT_NAME=luthien-proxy` is now set in `.env.example` so all launch methods use the same project name by default (PR #231).
 - **Manual fix**: `docker compose -p <directory-name> down` (e.g., `docker compose -p luthien-proxy down`)
 ## macOS Bash 3 Compatibility (2026-02-17)
 
@@ -234,6 +234,44 @@ if stream_state.finish_reason:
 - **Bridge**: `start-gateway.sh` maps `PORT → GATEWAY_PORT` so deploys work without manual env var config
 - **Why not just use PORT?**: `GATEWAY_PORT` is more descriptive and consistent with the rest of the settings. `PORT` is ambiguous in multi-service setups.
 - **Why not set GATEWAY_PORT=${{PORT}} in Railway dashboard?**: That's what was tried originally — it was set to empty string and broke every deploy. The shell bridge is less fragile.
+
+## Dogfooding Safety: Agent Can Kill Its Own Proxy (2026-02-25)
+
+**Gotcha**: When dogfooding Luthien (running Claude Code through the proxy on the same machine), the agent can accidentally kill the proxy by running Docker commands like `docker compose down`. This severs the agent's own API connection — session-ending, unrecoverable.
+
+- **Symptom**: "API Error: Unable to connect to API (ConnectionRefused)" — agent is dead, can't even explain what happened
+- **Cause**: No safety layer prevents self-destructive infrastructure commands. The active policy (e.g., DeSlop/StringReplacementPolicy) only processes text — tool calls pass through unexamined.
+- **Workaround**: Never run Docker restart/stop commands from a proxied Claude Code session. Use a separate terminal.
+- **Architectural fix needed**: A "system policy" layer that always runs regardless of user-configured policy, blocking commands that would kill the proxy.
+- **Related**: PR #203 (orphaned containers — previous Docker self-interference incident)
+- **Dangerous commands to watch for**: `docker compose down`, `docker stop`, `docker compose restart` (on gateway), `kill` on gateway PID, `docker compose exec db` (DB access)
+
+## In-Place Policy Mutation Can Hide Live-View Diffs (2026-02-27)
+
+**Gotcha**: If the orchestrator records "original" request/response objects *after* policy hooks run, in-place policy mutation destroys the pre-policy snapshot and `request_was_modified` / `response_was_modified` become false even when content changed.
+
+- **Symptom**: Live view shows transformed output (e.g., ALL CAPS) but `original_*_messages` are missing and `*_was_modified=false`
+- **Cause**: Passing mutable objects directly to `record_request()` / `record_response()` without deep-copying before hook execution
+- **Fix**: In `PolicyOrchestrator`, snapshot with `model_copy(deep=True)` before calling policy hooks, then record `(original_snapshot, final_object)`
+- **Regression coverage**: `tests/unit_tests/orchestration/test_policy_orchestrator_request.py` includes in-place mutation tests for both request and response recording
+
+## Policy Config Validation Flags Public Mutable Attrs (2026-02-27)
+
+**Gotcha**: Policy loading runs a lightweight validation step via `_instantiate_policy(...)` that rejects public mutable container attrs.
+
+- **Symptom**: Policy load fails with `TypeError` about a mutable container attr
+- **Cause**: Public policy attrs should represent immutable config; mutable request data belongs in request context
+- **Correct pattern**: Keep request-scoped mutable data in `PolicyContext.get_policy_state()` / `pop_policy_state()`
+- **Scope**: This is load-time validation only (no runtime instance freezing)
+
+## Passthrough Auth Mode Is DB-Persisted, Not Just Env (2026-02-27)
+
+**Gotcha**: `AUTH_MODE` env var is only the startup default; the effective mode is loaded from `auth_config` in DB on startup. If DB says `proxy_key`, passthrough tests will skip/fail even when container env has `AUTH_MODE=both`.
+
+- **Symptom**: Passthrough tests skip with "Gateway not in passthrough/both auth mode" while env shows `AUTH_MODE=both`
+- **Fix**: Set mode explicitly via admin API: `POST /admin/auth/config {"auth_mode":"both"}`
+
+**Related gotcha**: Anthropic API keys (`sk-ant-api...`) passed in `Authorization: Bearer ...` are not valid bearer/OAuth tokens at Anthropic. Gateway now detects this format and validates/forwards them via `x-api-key` transport.
 
 ---
 

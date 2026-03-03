@@ -1,108 +1,189 @@
-# Luthien Control
+# Luthien
+### Let AI code. Stay in control.
 
-Redwood-style AI Control as an LLM proxy for production agentic deployments.
+[What is it?](#what-is-it) | [What does it look like?](#what-does-it-look-like) | [How does it work?](#how-does-it-work) | [What can it do?](#what-can-it-do) | [Quick start](#quick-start)
+
+---
+
+## What is it?
+
+Luthien is a proxy that sits between Claude Code (client) and the Claude API backend. It logs every request and response and enables you to set arbitrary rules/policies that can block dangerous operations, confirm the output is what you asked for, adheres to your CLAUDE.md, and doesn't contain suspicious stuff — all without changing your dev setup.
+
+---
+
+## What does it look like?
+
+<table>
+<tr>
+<th width="50%">Before</th>
+<th width="50%">After</th>
+</tr>
+<tr>
+<td>
+
+<img src="assets/readme/terminal-without-luthien.svg?v=17" alt="Before: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
+
+</td>
+<td>
+
+<img src="assets/readme/terminal-with-luthien.svg?v=17" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
+
+</td>
+</tr>
+</table>
+
+> ⚠️ Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
+>
+> Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues).
+
+---
+
+## How does it work?
+
+<img src="assets/readme/how-it-works.svg" alt="How Luthien works: sits between Claude Code and the API, logs everything, enforces your rules" width="100%">
+
+Luthien runs on your machine or your cloud account.
+
+---
+
+## What can it do?
+
+- **Block dangerous operations:** `rm -rf`, `git push --force`, dropping database tables
+- **Enforce package standards:** block `pip install`, suggest `uv add` instead
+- **Clean up AI writing tics:** remove em dashes, curly quotes, over-bulleting
+- **Enforce scope boundaries:** only allow changes to files mentioned in the request
+- **Log everything:** get a URL to a live-updating log of your full agent conversation
+
+<details>
+<summary><b>Example: PipBlockPolicy (click to expand)</b></summary>
+
+```yaml
+policy:
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  config:
+    probability_threshold: 0.95
+    judge_instructions: |
+      Block any `pip install`, `pip3 install`, or `python -m pip install` tool call.
+      Suggest using `uv add` instead.
+```
+
+</details>
+
+Every policy action is logged. Measure what got blocked, track false positives, monitor latency overhead.
+
+---
 
 ## Quick Start
 
-### 1. Install and Start
+**Prerequisites:**
+[Docker](https://www.docker.com/products/docker-desktop/) must be running (or `brew install --cask docker`).
+Install [uv](https://docs.astral.sh/uv/) if you haven't: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+### 1. Clone the repo
 
 ```bash
-# Install uv (if needed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy
+```
 
-# Clone and start everything
-git clone https://github.com/LuthienResearch/luthien-proxy
-cd luthien-proxy
+### 2. Add your Anthropic API key to `.env`
 
-# Configure API keys
-cp .env.example .env
-# Edit .env and add your keys:
-#   OPENAI_API_KEY=sk-proj-...
-#   ANTHROPIC_API_KEY=sk-ant-...
+```bash
+cp .env.example .env && echo "ANTHROPIC_API_KEY=your-key-here" >> .env
+```
 
-# Start the stack
+Replace `your-key-here` with your key from [console.anthropic.com](https://console.anthropic.com/settings/keys).
+
+### 3. Run quick start script
+
+```bash
 ./scripts/quick_start.sh
 ```
 
-### 2. Use Claude Code or Codex through the Proxy
-
-Launch your AI assistant through the proxy using the built-in scripts:
-
-**Claude Code:**
+### 4. Launch Claude Code through the proxy
 
 ```bash
 ./scripts/launch_claude_code.sh
 ```
 
-**Codex:**
+🚀🎉 All requests and responses are now logged through the proxy.
 
-```bash
-./scripts/launch_codex.sh
-```
 
-These scripts automatically configure the proxy settings. All requests now flow through the policy enforcement layer!
+### 5. See conversation history and raw logs
 
-Visit <http://localhost:8000/client-setup> for step-by-step setup commands for using Claude Code with the proxy.
+See your conversation history: <http://localhost:8000/history>
 
-### 3. Log In to Admin UI
+Or see full JSONLs in the activity monitor: <http://localhost:8000/activity/monitor>
 
-When you first visit any admin page (Activity Monitor, Policy Config, or Debug views), you'll be redirected to:
+### 6. Set up a DeSlop policy (string replacement)
 
-```
-http://localhost:8000/login
-```
+| Find | Replace with |
+|------|-------------|
+| `—` (em dash) | `-` (hyphen) |
 
-**Default credentials (development):**
-- Admin API Key: `admin-dev-key`
+Runs on every LLM response. Switch policies at [localhost:8000/policy-config](http://localhost:8000/policy-config).
 
-After logging in, your session persists across pages. Click "Sign Out" on any admin page to log out.
-
-⚠️ **For production deployments**: Change `ADMIN_API_KEY` in your `.env` file before exposing to a network.
-
-### 4. Monitor Activity
-
-Open the Activity Monitor in your browser to see requests in real-time:
-
-```
-http://localhost:8000/activity/monitor
-```
-
-Watch as requests flow through, see policy decisions, and inspect before/after diffs.
-
-### 5. Select a Policy
-
-Use the Policy Configuration UI to change policies without restart:
-
-```
-http://localhost:8000/policy-config
-```
-
-1. Browse available policies (NoOp, AllCaps, DebugLogging, etc.)
-2. Click to select and activate
-3. Test immediately - changes take effect instantly
-
-### 6. Create Your Own Policy
-
-Create a new policy by subclassing `SimplePolicy`:
+<details>
+<summary><b>See the code (click to expand)</b></summary>
 
 ```python
-# src/luthien_proxy/policies/my_custom_policy.py
-
 from luthien_proxy.policies.simple_policy import SimplePolicy
 
-class MyCustomPolicy(SimplePolicy):
-    """Custom request/response transformation."""
-
-    async def simple_on_request(self, messages, ctx):
-        # Inspect or modify messages before they reach the LLM
-        return messages
-
-    async def simple_on_response_content(self, content, ctx):
-        # Inspect or modify the LLM response content
-        return content
+class DeSlop(SimplePolicy):
+    async def simple_on_response_content(self, content, ctx):  # runs on every LLM response before it reaches Claude Code
+        return content.replace("\u2014", "-").replace("\u2013", "-")  # em dash → hyphen, en dash → hyphen
 ```
 
-Restart the gateway and your policy appears in the Policy Config UI automatically.
+</details>
+
+### 7. Set up an LLM-as-judge policy
+
+Luthien can call an LLM (like Haiku) to evaluate your rules on every request and response.
+
+<details>
+<summary><b>Did it do what I asked?</b></summary>
+
+```yaml
+policy:
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  config:
+    probability_threshold: 0.8
+    judge_instructions: |
+      Check if the agent completed what the user asked for.
+      Flag if it claims "Done" but leaves TODOs, stubs, or placeholders.
+```
+
+</details>
+
+<details>
+<summary><b>Did it follow CLAUDE.md?</b></summary>
+
+```yaml
+policy:
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  config:
+    probability_threshold: 0.85
+    judge_instructions: |
+      Enforce explicit rules from CLAUDE.md for this repo.
+      Flag any command or response that violates those rules.
+```
+
+</details>
+
+<details>
+<summary><b>Did it do something suspicious?</b></summary>
+
+```yaml
+policy:
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  config:
+    probability_threshold: 0.7
+    judge_instructions: |
+      Block recursive deletes on project directories.
+      Block force-pushing to protected branches.
+      Flag suspicious command patterns or hidden side effects.
+```
+
+</details>
 
 ---
 
@@ -112,20 +193,6 @@ Restart the gateway and your policy appears in the Policy Config UI automaticall
 - **PostgreSQL** and **Redis** fully configured
 - **Real-time monitoring** at <http://localhost:8000/activity/monitor>
 - **Policy management UI** at <http://localhost:8000/policy-config>
-
-The gateway provides:
-
-- OpenAI Chat Completions API (`/v1/chat/completions`)
-- Anthropic Messages API (`/v1/messages`)
-- Integrated policy enforcement via control plane
-- Support for streaming and non-streaming requests
-- Hot-reload policy switching (no restart needed)
-
-## Prerequisites
-
-- Docker
-- Python 3.13+
-- [uv](https://docs.astral.sh/uv/)
 
 ## Development
 
@@ -246,20 +313,6 @@ POLICY_SOURCE=db-fallback-file
 POLICY_CONFIG=/app/config/policy_config.yaml
 ```
 
-### Observability (Optional)
-
-```bash
-# OpenTelemetry tracing
-OTEL_ENABLED=true                                    # Toggle tracing
-OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317       # OTLP endpoint
-
-# Service metadata for distributed tracing
-SERVICE_NAME=luthien-proxy
-SERVICE_VERSION=2.0.0
-ENVIRONMENT=development
-
-```
-
 ### LLM Judge Policies (Optional)
 
 ```bash
@@ -279,7 +332,7 @@ Example policy configuration:
 
 ```yaml
 policy:
-  class: "luthien_proxy.policies.tool_call_judge_v3:ToolCallJudgeV3Policy"
+  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
     model: "openai/gpt-4o-mini"
     probability_threshold: 0.6
@@ -375,14 +428,14 @@ Admin endpoints manage policies at runtime without requiring a restart. All admi
 **Get current policy:**
 
 ```bash
-curl http://localhost:8000/admin/policy/current \
+curl http://localhost:8000/api/admin/policy/current \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
 **Create a named policy instance:**
 
 ```bash
-curl -X POST http://localhost:8000/admin/policy/create \
+curl -X POST http://localhost:8000/api/admin/policy/create \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{
@@ -400,7 +453,7 @@ curl -X POST http://localhost:8000/admin/policy/create \
 **Activate a policy:**
 
 ```bash
-curl -X POST http://localhost:8000/admin/policy/activate \
+curl -X POST http://localhost:8000/api/admin/policy/activate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{"name": "my-policy"}'
@@ -409,14 +462,14 @@ curl -X POST http://localhost:8000/admin/policy/activate \
 **List available policy classes:**
 
 ```bash
-curl http://localhost:8000/admin/policy/list \
+curl http://localhost:8000/api/admin/policy/list \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
 **List saved policy instances:**
 
 ```bash
-curl http://localhost:8000/admin/policy/instances \
+curl http://localhost:8000/api/admin/policy/instances \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
@@ -435,19 +488,6 @@ The gateway uses an event-driven policy architecture with streaming support.
 ### Creating Custom Policies
 
 Subclass `SimplePolicy` for basic request/response transformations. See `src/luthien_proxy/policies/` for examples.
-
-### Testing
-
-```bash
-# Start the gateway
-./scripts/quick_start.sh
-
-# Run automated tests
-./scripts/test_gateway.sh
-
-# View logs
-docker compose logs -f gateway
-```
 
 ## Troubleshooting
 

@@ -6,15 +6,19 @@ E2E tests verify the gateway behavior by making real HTTP requests through the r
 
 - Gateway running (`docker compose up gateway`)
 - Valid API credentials in `.env` or environment variables
+- `AUTH_MODE=both` to run passthrough-auth coverage (otherwise passthrough tests are skipped)
 
 ## Running E2E Tests
 
 ```bash
 # Run all e2e tests (slow - use sparingly)
-uv run pytest -m e2e
+uv run pytest -m e2e -x -v
 
 # Run specific test file
 uv run pytest tests/e2e_tests/test_session_tracking.py -m e2e -v
+
+# Run passthrough-auth tests explicitly
+uv run pytest tests/e2e_tests/test_anthropic_passthrough_auth.py -m e2e -x -v
 ```
 
 ## Shared Test Infrastructure
@@ -50,17 +54,17 @@ async def test_with_custom_policy():
 ```
 
 The context manager:
-1. Calls `POST /admin/policy/set` to activate the specified policy
+1. Calls `POST /api/admin/policy/set` to activate the specified policy
 2. Yields control to your test code
 3. Restores `NoOpPolicy` in the `finally` block
 
 ### Admin API Endpoint
 
-The policy management uses `POST /admin/policy/set` (not `/admin/policy/create` or `/admin/policy/activate`):
+The policy management uses `POST /api/admin/policy/set` (not `/api/admin/policy/create` or `/api/admin/policy/activate`):
 
 ```python
 response = await client.post(
-    f"{gateway_url}/admin/policy/set",
+    f"{gateway_url}/api/admin/policy/set",
     headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     json={
         "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
@@ -85,7 +89,7 @@ async def run_claude_code(prompt: str, timeout_seconds: int = 60):
     cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--max-turns", "1"]
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = GATEWAY_URL
-    env["ANTHROPIC_AUTH_TOKEN"] = API_KEY
+    env["ANTHROPIC_API_KEY"] = API_KEY
     # ...
 ```
 

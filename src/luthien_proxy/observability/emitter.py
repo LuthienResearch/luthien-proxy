@@ -15,11 +15,13 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import Any, Protocol, cast
 
 from opentelemetry import trace
 
+from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.utils.constants import OTEL_SPAN_ID_HEX_LENGTH, OTEL_TRACE_ID_HEX_LENGTH
+from luthien_proxy.utils.db import DatabasePool
 
 
 def _safe_serialize(obj: Any) -> Any:
@@ -62,10 +64,6 @@ def _safe_serialize(obj: Any) -> Any:
     # Fallback: convert to string representation
     return str(obj)
 
-
-if TYPE_CHECKING:
-    from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
-    from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
 

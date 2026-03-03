@@ -81,7 +81,7 @@ gateway.chat_completions (root span)
 
 ## Step 3: Use the Diff Viewer
 
-The diff viewer at `http://localhost:8000/debug/diff` links directly to Tempo traces for each call. Paste a `call_id` to see the before/after policy transformation and click the trace link.
+The diff viewer at `http://localhost:8000/diffs` links directly to Tempo traces for each call. Paste a `call_id` to see the before/after policy transformation and click the trace link.
 
 ---
 

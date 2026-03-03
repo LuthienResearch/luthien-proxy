@@ -25,10 +25,15 @@ REDIS_KEY_PREFIX = "luthien:auth:cred:"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages/count_tokens"
 ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_BETA = "token-counting-2024-11-01"
+ANTHROPIC_OAUTH_BETA = "token-counting-2024-11-01,oauth-2025-04-20"
+ANTHROPIC_API_KEY_PREFIX = "sk-ant-api"
 
-# Minimal payload for credential validation (free endpoint)
+# Minimal payload for credential validation (free endpoint).
+# OAuth tokens have access to different models than API keys, so we use
+# a model available to both: claude-sonnet-4-20250514.
+VALIDATION_MODEL = "claude-sonnet-4-20250514"
 VALIDATION_PAYLOAD = {
-    "model": "claude-haiku-4-5-20250514",
+    "model": VALIDATION_MODEL,
     "messages": [{"role": "user", "content": "hi"}],
 }
 
@@ -68,6 +73,15 @@ def hash_credential(api_key: str) -> str:
     return hashlib.sha256(api_key.encode()).hexdigest()
 
 
+def is_anthropic_api_key(credential: str) -> bool:
+    """Best-effort format check for Anthropic API keys.
+
+    Uses the current public key prefix format. If Anthropic changes key formats,
+    this heuristic should be updated.
+    """
+    return credential.startswith(ANTHROPIC_API_KEY_PREFIX)
+
+
 class CredentialManager:
     """Manages auth configuration and credential validation caching.
 
@@ -80,18 +94,18 @@ class CredentialManager:
         self._db_pool = db_pool
         self._redis = redis_client
         self._config = AuthConfig(
-            auth_mode=AuthMode.PROXY_KEY,
+            auth_mode=AuthMode.BOTH,
             validate_credentials=True,
             valid_cache_ttl_seconds=3600,
             invalid_cache_ttl_seconds=300,
         )
         self._http_client: httpx.AsyncClient | None = None
 
-    async def initialize(self, default_auth_mode: str = "proxy_key") -> None:
+    async def initialize(self, default_auth_mode: AuthMode = AuthMode.BOTH) -> None:
         """Load auth config from DB. Falls back to default on first boot."""
         if self._db_pool is None:
             logger.info("No DB pool - using default auth config")
-            self._config.auth_mode = AuthMode(default_auth_mode)
+            self._config.auth_mode = default_auth_mode
             return
 
         pool = await self._db_pool.get_pool()
@@ -107,7 +121,7 @@ class CredentialManager:
                 updated_by=row["updated_by"],
             )
         else:
-            self._config.auth_mode = AuthMode(default_auth_mode)
+            self._config.auth_mode = default_auth_mode
 
         logger.info(
             f"Auth config loaded: mode={self._config.auth_mode.value}, validate={self._config.validate_credentials}"
@@ -316,12 +330,16 @@ class CredentialManager:
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(timeout=10.0)
 
+        # Clients sometimes pass Anthropic API keys in Authorization headers.
+        # Anthropic expects API keys in x-api-key, not bearer auth.
+        use_bearer_transport = is_bearer and not is_anthropic_api_key(credential)
+        beta = ANTHROPIC_OAUTH_BETA if use_bearer_transport else ANTHROPIC_BETA
         headers: dict[str, str] = {
             "anthropic-version": ANTHROPIC_API_VERSION,
-            "anthropic-beta": ANTHROPIC_BETA,
+            "anthropic-beta": beta,
             "content-type": "application/json",
         }
-        if is_bearer:
+        if use_bearer_transport:
             headers["authorization"] = f"Bearer {credential}"
         else:
             headers["x-api-key"] = credential
@@ -352,6 +370,7 @@ class CredentialManager:
 __all__ = [
     "AuthConfig",
     "AuthMode",
+    "is_anthropic_api_key",
     "CachedCredential",
     "CredentialManager",
     "hash_credential",

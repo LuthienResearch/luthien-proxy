@@ -16,7 +16,7 @@ from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
-from luthien_proxy.credential_manager import CredentialManager
+from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
@@ -28,6 +28,7 @@ from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.policy_manager import PolicyManager
+from luthien_proxy.request_log import router as request_log_router
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
 from luthien_proxy.settings import Settings, get_settings
@@ -58,7 +59,7 @@ def create_app(
     redis_client: Redis,
     startup_policy_path: str | None = None,
     policy_source: str = "db-fallback-file",
-    auth_mode: str = "both",
+    auth_mode: AuthMode = AuthMode.BOTH,
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
 
@@ -130,6 +131,11 @@ def create_app(
         await _credential_manager.initialize(default_auth_mode=auth_mode)
         logger.info(f"CredentialManager initialized: mode={_credential_manager.config.auth_mode.value}")
 
+        # Check if request logging is enabled
+        _enable_request_logging = get_settings().enable_request_logging
+        if _enable_request_logging:
+            logger.info("Request/response logging ENABLED")
+
         # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
@@ -141,6 +147,7 @@ def create_app(
             admin_key=admin_key,
             anthropic_client=_anthropic_client,
             credential_manager=_credential_manager,
+            enable_request_logging=_enable_request_logging,
         )
 
         # Store dependencies container in app state
@@ -179,12 +186,14 @@ def create_app(
 
     # Include routers
     app.include_router(gateway_router)  # /v1/chat/completions, /v1/messages (PolicyOrchestrator)
-    app.include_router(debug_router)  # /debug/*
-    app.include_router(ui_router)  # /activity/*, /policy-config
-    app.include_router(admin_router)  # /admin/* (policy management)
+    app.include_router(debug_router)  # /api/debug/*
+    app.include_router(ui_router)  # /activity/*, /policy-config, /diffs
+    app.include_router(admin_router)  # /api/admin/* (policy management)
     app.include_router(session_router)  # /auth/login, /auth/logout
     app.include_router(login_page_router)  # /login (convenience redirect)
-    app.include_router(history_routes.router)  # /history/* (conversation history viewer)
+    app.include_router(history_routes.router)  # /history/* (conversation history UI)
+    app.include_router(history_routes.api_router)  # /api/history/* (conversation history API)
+    app.include_router(request_log_router)  # /request-logs/* (HTTP-level logging)
 
     # Simple utility endpoints
     @app.get("/health")
@@ -345,7 +354,7 @@ if __name__ == "__main__":
                 redis_client=redis_client,
                 startup_policy_path=startup_path,
                 policy_source=config["policy_source"],
-                auth_mode=config.get("auth_mode", "both"),
+                auth_mode=config.get("auth_mode", AuthMode.BOTH),
             )
 
             server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="debug")

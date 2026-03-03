@@ -64,7 +64,7 @@ async function apiCall(endpoint, options = {}) {
 
 async function loadCurrentPolicy() {
     try {
-        const data = await apiCall('/admin/policy/current');
+        const data = await apiCall('/api/admin/policy/current');
         state.currentPolicy = data;
         renderCurrentPolicyBanner();
     } catch (err) {
@@ -75,7 +75,7 @@ async function loadCurrentPolicy() {
 
 async function loadPolicies() {
     try {
-        const data = await apiCall('/admin/policy/list');
+        const data = await apiCall('/api/admin/policy/list');
         state.availablePolicies = data.policies;
         window.__policyList = data.policies;
         renderPolicyList();
@@ -90,7 +90,7 @@ const DEFAULT_MODEL = 'claude-haiku-4-5-20241022';
 
 async function loadModels() {
     try {
-        const data = await apiCall('/admin/models');
+        const data = await apiCall('/api/admin/models');
         state.availableModels = data.models || [];
         // Default to claude-haiku if available, otherwise first model
         state.selectedModel = state.availableModels.find(m => m.includes('haiku'))
@@ -335,7 +335,7 @@ function renderConfigPanel() {
         <div class="quick-links">
             <h3>Quick Links</h3>
             <a href="/activity/monitor">View Activity Monitor</a>
-            <a href="/debug/diff">View Diff Viewer</a>
+            <a href="/diffs">View Diff Viewer</a>
         </div>
     `;
 
@@ -614,7 +614,7 @@ async function handleActivate() {
     statusContainer.innerHTML = '<div class="status-message info">Activating policy...</div>';
 
     try {
-        const result = await apiCall('/admin/policy/set', {
+        const result = await apiCall('/api/admin/policy/set', {
             method: 'POST',
             body: JSON.stringify({
                 policy_class_ref: state.selectedPolicy.class_ref,
@@ -705,7 +705,7 @@ async function handleSendChat() {
     metaEl.textContent = '';
 
     try {
-        const result = await apiCall('/admin/test/chat', {
+        const result = await apiCall('/api/admin/test/chat', {
             method: 'POST',
             body: JSON.stringify({
                 model: state.selectedModel,

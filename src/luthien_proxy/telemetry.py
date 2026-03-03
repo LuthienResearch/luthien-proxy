@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 
 from opentelemetry import trace
+from opentelemetry.context import Context, attach, detach
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
@@ -24,6 +27,37 @@ from luthien_proxy.settings import get_settings
 from luthien_proxy.utils.constants import OTEL_SPAN_ID_HEX_LENGTH, OTEL_TRACE_ID_HEX_LENGTH
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def restore_context(ctx: Context) -> Generator[object, None, None]:
+    """Attach an OpenTelemetry context and guarantee detach on exit.
+
+    Use this in streaming generators where spans must be created as siblings
+    under a parent context that was captured before the generator was yielded
+    to the caller (e.g. FastAPI's StreamingResponse).
+
+    Example::
+
+        parent_ctx = context.get_current()
+
+
+        async def stream():
+            with restore_context(parent_ctx):
+                with tracer.start_as_current_span("my_span"):
+                    yield chunk
+
+    Args:
+        ctx: The OpenTelemetry context to attach.
+
+    Yields:
+        The token returned by ``context.attach()``.
+    """
+    token = attach(ctx)
+    try:
+        yield token
+    finally:
+        detach(token)
 
 
 def _get_otel_config() -> tuple[bool, str, str, str, str]:
@@ -193,6 +227,7 @@ tracer = trace.get_tracer(__name__)
 
 
 __all__ = [
+    "restore_context",
     "setup_telemetry",
     "tracer",
     "configure_tracing",

@@ -88,14 +88,19 @@ class PolicyOrchestrator:
             span.set_attribute("request.model", request.model)
             span.set_attribute("request.message_count", len(request.messages))
 
+            # Snapshot before policy execution so in-place policy mutations do not
+            # erase original request state in transaction recording.
+            original_request = request.model_copy(deep=True)
+
             # Set request in context for policy access
             policy_ctx.request = request
 
             # Call policy's on_openai_request hook
             final_request = await self.policy.on_openai_request(request, policy_ctx)
-            await self.transaction_recorder.record_request(request, final_request)
+            policy_ctx.request = final_request
+            await self.transaction_recorder.record_request(original_request, final_request)
 
-            span.set_attribute("request.modified", final_request != request)
+            span.set_attribute("request.modified", final_request != original_request)
             return final_request
 
     async def process_streaming_response(
@@ -168,11 +173,15 @@ class PolicyOrchestrator:
         with tracer.start_as_current_span("policy.process_response") as span:
             span.set_attribute("policy.class", self.policy.__class__.__name__)
 
+            # Snapshot before policy execution so in-place policy mutations do not
+            # erase original response state in transaction recording.
+            original_response = response.model_copy(deep=True)
+
             # Call policy's on_openai_response hook
             final_response = await self.policy.on_openai_response(response, policy_ctx)
-            await self.transaction_recorder.record_response(response, final_response)
+            await self.transaction_recorder.record_response(original_response, final_response)
 
-            span.set_attribute("response.modified", final_response != response)
+            span.set_attribute("response.modified", final_response != original_response)
             return final_response
 
     async def _drain_queue(self, queue: asyncio.Queue[str | None]) -> AsyncIterator[str]:

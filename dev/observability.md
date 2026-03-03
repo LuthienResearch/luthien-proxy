@@ -166,7 +166,7 @@ Each event contains:
 
 **Files Created**:
 - `src/luthien_proxy/static/diff_viewer.html` - Diff viewer UI (680 lines)
-- Route: `/debug/diff` - Serves the diff viewer
+- Route: `/diffs` - Serves the diff viewer
 
 **Features**:
 - Side-by-side comparison of original vs final requests/responses

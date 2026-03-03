@@ -144,7 +144,9 @@ def _instantiate_policy(policy_class: type[PolicyProtocol], config: dict[str, An
         TypeError: If config parameters don't match policy constructor
     """
     if not config:
-        return policy_class()
+        policy = policy_class()
+        policy.freeze_configured_state()
+        return policy
 
     sig = inspect.signature(policy_class.__init__)
     params = {
@@ -154,13 +156,17 @@ def _instantiate_policy(policy_class: type[PolicyProtocol], config: dict[str, An
     }
 
     if set(config.keys()) & params:
-        return policy_class(**config)
+        policy = policy_class(**config)
+        policy.freeze_configured_state()
+        return policy
 
     # Config keys don't match any param name. If there's a single param,
     # the user provided the param's inner fields directly (e.g. Pydantic model fields).
     if len(params) == 1:
         param_name = next(iter(params))
-        return policy_class(**{param_name: config})
+        policy = policy_class(**{param_name: config})
+        policy.freeze_configured_state()
+        return policy
 
     raise TypeError(
         f"Config keys {set(config.keys())} don't match any constructor parameter of "

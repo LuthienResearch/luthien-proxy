@@ -1,6 +1,6 @@
 """Policies package initialization.
 
-All policies implement both OpenAIPolicyInterface and AnthropicPolicyInterface,
+All policies implement OpenAIPolicyInterface and/or AnthropicExecutionInterface,
 supporting both API formats through a unified implementation.
 """
 

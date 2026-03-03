@@ -11,7 +11,9 @@ from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
-from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
+from luthien_proxy.policy_core.anthropic_execution_interface import (
+    AnthropicExecutionInterface,
+)
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.utils import db
@@ -35,6 +37,7 @@ class Dependencies:
     admin_key: str | None
     anthropic_client: AnthropicClient | None = field(default=None)
     credential_manager: CredentialManager | None = field(default=None)
+    enable_request_logging: bool = field(default=False)
 
     @property
     def policy(self) -> OpenAIPolicyInterface:
@@ -47,33 +50,17 @@ class Dependencies:
             )
         return current
 
-    def get_anthropic_client(self) -> AnthropicClient:
-        """Get the Anthropic client.
-
-        Returns:
-            The pre-configured AnthropicClient instance.
-
-        Raises:
-            HTTPException: If ANTHROPIC_API_KEY was not set at startup
-        """
-        if self.anthropic_client is None:
-            raise HTTPException(
-                status_code=500,
-                detail="ANTHROPIC_API_KEY not configured for native Anthropic path",
-            )
-        return self.anthropic_client
-
-    def get_anthropic_policy(self) -> AnthropicPolicyInterface:
+    def get_anthropic_policy(self) -> AnthropicExecutionInterface:
         """Get the current Anthropic policy.
 
         Raises:
-            HTTPException: If current policy doesn't implement AnthropicPolicyInterface
+            HTTPException: If current policy doesn't implement AnthropicExecutionInterface
         """
         current = self.policy_manager.current_policy
-        if not isinstance(current, AnthropicPolicyInterface):
+        if not isinstance(current, AnthropicExecutionInterface):
             raise HTTPException(
                 status_code=500,
-                detail=f"Current policy {type(current).__name__} does not implement AnthropicPolicyInterface",
+                detail=(f"Current policy {type(current).__name__} does not implement AnthropicExecutionInterface"),
             )
         return current
 
@@ -199,22 +186,16 @@ def get_admin_key(request: Request) -> str | None:
     return get_dependencies(request).admin_key
 
 
-def get_anthropic_client(request: Request) -> AnthropicClient:
+def get_anthropic_client(request: Request) -> AnthropicClient | None:
     """Get Anthropic client from dependencies.
 
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        Anthropic client instance
-
-    Raises:
-        HTTPException: If ANTHROPIC_API_KEY was not configured at startup
+    Returns None when ANTHROPIC_API_KEY is not configured. The route handler
+    must check for passthrough credentials before using this client.
     """
-    return get_dependencies(request).get_anthropic_client()
+    return get_dependencies(request).anthropic_client
 
 
-def get_anthropic_policy(request: Request) -> AnthropicPolicyInterface:
+def get_anthropic_policy(request: Request) -> AnthropicExecutionInterface:
     """Get current Anthropic policy from dependencies.
 
     Args:

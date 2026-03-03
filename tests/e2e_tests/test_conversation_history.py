@@ -75,7 +75,7 @@ async def get_session_detail(client: httpx.AsyncClient, session_id: str) -> dict
         Session detail dict
     """
     response = await client.get(
-        f"{GATEWAY_URL}/history/api/sessions/{session_id}",
+        f"{GATEWAY_URL}/api/history/sessions/{session_id}",
         headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     )
     assert response.status_code == 200, f"History API failed: {response.text}"
@@ -93,7 +93,7 @@ async def export_session_markdown(client: httpx.AsyncClient, session_id: str) ->
         Markdown string
     """
     response = await client.get(
-        f"{GATEWAY_URL}/history/api/sessions/{session_id}/export",
+        f"{GATEWAY_URL}/api/history/sessions/{session_id}/export",
         headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     )
     assert response.status_code == 200, f"Export failed: {response.text}"
@@ -491,7 +491,7 @@ async def test_session_appears_in_list(http_client, gateway_healthy):
 
     # Get session list
     response = await http_client.get(
-        f"{GATEWAY_URL}/history/api/sessions",
+        f"{GATEWAY_URL}/api/history/sessions",
         headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     )
     assert response.status_code == 200
@@ -531,7 +531,7 @@ async def test_session_list_ordered_by_recency(http_client, gateway_healthy):
 
     # Get session list
     response = await http_client.get(
-        f"{GATEWAY_URL}/history/api/sessions",
+        f"{GATEWAY_URL}/api/history/sessions",
         headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
     )
     assert response.status_code == 200

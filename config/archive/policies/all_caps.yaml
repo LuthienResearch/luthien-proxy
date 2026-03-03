@@ -1,3 +1,0 @@
-policy:
-  class: "luthien_proxy.policies.all_caps:AllCapsPolicy"
-  config: {}

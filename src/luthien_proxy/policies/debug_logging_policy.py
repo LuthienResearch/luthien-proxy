@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+from anthropic.lib.streaming import MessageStreamEvent
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.policy_core import (
-    AnthropicPolicyInterface,
-    AnthropicStreamEvent,
+    AnthropicExecutionInterface,
+    AnthropicPolicyEmission,
+    AnthropicPolicyIOProtocol,
     BasePolicy,
     OpenAIPolicyInterface,
 )
@@ -37,12 +40,12 @@ def _safe_json_dump(obj: Any) -> str:
     return json.dumps(obj, indent=2, default=str)
 
 
-def _event_to_dict(event: AnthropicStreamEvent) -> dict[str, Any]:
+def _event_to_dict(event: MessageStreamEvent) -> dict[str, Any]:
     """Convert Anthropic stream event to dict for logging."""
     return event.model_dump()
 
 
-class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInterface):
+class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
     """Debug policy that logs request/response/streaming data for both API formats.
 
     All hooks log relevant data at INFO level, record events to context for
@@ -121,7 +124,30 @@ class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInter
         """No-op."""
         pass
 
-    # -- Anthropic Interface ---------------------------------------------------
+    # -- Anthropic execution interface -----------------------------------------
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
+    ) -> AsyncIterator[AnthropicPolicyEmission]:
+        """Log Anthropic request/response/stream events while passing through."""
+
+        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
+            final_request = await self.on_anthropic_request(io.request, context)
+            io.set_request(final_request)
+
+            if final_request.get("stream", False):
+                async for event in io.stream(final_request):
+                    emitted_events = await self.on_anthropic_stream_event(event, context)
+                    for emitted_event in emitted_events:
+                        yield emitted_event
+                return
+
+            response = await io.complete(final_request)
+            yield await self.on_anthropic_response(response, context)
+
+        return _run()
+
+    # -- Anthropic helpers -----------------------------------------------------
 
     async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
         """Log request summary."""
@@ -161,8 +187,8 @@ class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicPolicyInter
         return response
 
     async def on_anthropic_stream_event(
-        self, event: AnthropicStreamEvent, context: "PolicyContext"
-    ) -> list[AnthropicStreamEvent]:
+        self, event: MessageStreamEvent, context: "PolicyContext"
+    ) -> list[MessageStreamEvent]:
         """Log stream event."""
         event_dict = _event_to_dict(event)
         logger.info(f"[ANTHROPIC_STREAM_EVENT] {_safe_json_dump(event_dict)}")

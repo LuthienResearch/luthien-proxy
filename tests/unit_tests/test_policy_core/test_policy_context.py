@@ -166,6 +166,32 @@ class TestPolicyContextRecordEvent:
 
         mock_emitter.record.assert_called_once_with("txn-789", "policy.action", {"key": "value"})
 
+    def test_record_event_adds_session_id_when_present(self):
+        """record_event() injects session_id when context has one and payload does not."""
+        mock_emitter = MagicMock()
+        ctx = PolicyContext(transaction_id="txn-789", emitter=mock_emitter, session_id="sess-123")
+
+        ctx.record_event("policy.action", {"key": "value"})
+
+        mock_emitter.record.assert_called_once_with(
+            "txn-789",
+            "policy.action",
+            {"key": "value", "session_id": "sess-123"},
+        )
+
+    def test_record_event_preserves_explicit_session_id_in_payload(self):
+        """record_event() does not overwrite payload session_id when explicitly provided."""
+        mock_emitter = MagicMock()
+        ctx = PolicyContext(transaction_id="txn-789", emitter=mock_emitter, session_id="sess-123")
+
+        ctx.record_event("policy.action", {"key": "value", "session_id": "explicit-session"})
+
+        mock_emitter.record.assert_called_once_with(
+            "txn-789",
+            "policy.action",
+            {"key": "value", "session_id": "explicit-session"},
+        )
+
 
 class TestPolicyContextScratchpad:
     """Tests for PolicyContext.scratchpad property."""

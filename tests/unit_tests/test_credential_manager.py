@@ -28,7 +28,7 @@ class TestHashCredential:
 class TestCredentialManagerInit:
     def test_default_config(self):
         manager = CredentialManager(db_pool=None, redis_client=None)
-        assert manager.config.auth_mode == AuthMode.PROXY_KEY
+        assert manager.config.auth_mode == AuthMode.BOTH
         assert manager.config.validate_credentials is True
         assert manager.config.valid_cache_ttl_seconds == 3600
         assert manager.config.invalid_cache_ttl_seconds == 300
@@ -38,7 +38,7 @@ class TestCredentialManagerInitialize:
     @pytest.mark.asyncio
     async def test_no_db_uses_default(self):
         manager = CredentialManager(db_pool=None, redis_client=None)
-        await manager.initialize(default_auth_mode="passthrough")
+        await manager.initialize(default_auth_mode=AuthMode.PASSTHROUGH)
         assert manager.config.auth_mode == AuthMode.PASSTHROUGH
 
     @pytest.mark.asyncio
@@ -69,7 +69,7 @@ class TestCredentialManagerInitialize:
         mock_db.get_pool.return_value = mock_pool
 
         manager = CredentialManager(db_pool=mock_db, redis_client=None)
-        await manager.initialize(default_auth_mode="passthrough")
+        await manager.initialize(default_auth_mode=AuthMode.PASSTHROUGH)
         assert manager.config.auth_mode == AuthMode.PASSTHROUGH
 
 
@@ -204,6 +204,67 @@ class TestCallCountTokens:
         assert headers["authorization"] == "Bearer eyJhbGciOiJSUz.oauth-token"
         assert "x-api-key" not in headers
 
+    @pytest.mark.asyncio
+    async def test_bearer_api_key_uses_x_api_key_header(self):
+        """Anthropic API keys sent as Bearer should still use x-api-key upstream."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=True)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["x-api-key"] == "sk-ant-api03-abc123"
+        assert "authorization" not in headers
+
+    @pytest.mark.asyncio
+    async def test_bearer_token_includes_oauth_beta_header(self):
+        """Bearer tokens should include the OAuth beta flag in anthropic-beta."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("oauth-token-xyz", is_bearer=True)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert "oauth-2025-04-20" in headers["anthropic-beta"]
+
+    @pytest.mark.asyncio
+    async def test_api_key_excludes_oauth_beta_header(self):
+        """API keys should NOT include the OAuth beta flag in anthropic-beta."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=False)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert "oauth-2025-04-20" not in headers["anthropic-beta"]
+
+    @pytest.mark.asyncio
+    async def test_bearer_api_key_excludes_oauth_beta_header(self):
+        """Anthropic API keys in Bearer form should not use OAuth beta header."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._http_client = mock_client
+        await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=True)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert "oauth-2025-04-20" not in headers["anthropic-beta"]
+
 
 class TestInvalidation:
     @pytest.mark.asyncio
@@ -325,4 +386,4 @@ class TestUpdateConfig:
         manager = CredentialManager(db_pool=None, redis_client=None)
         config = await manager.update_config(validate_credentials=False)
         assert config.validate_credentials is False
-        assert config.auth_mode == AuthMode.PROXY_KEY  # unchanged
+        assert config.auth_mode == AuthMode.BOTH  # unchanged from default
