@@ -942,6 +942,7 @@ name = "luthien-proxy"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "anthropic" },
     { name = "asyncpg" },
     { name = "beartype" },
@@ -976,6 +977,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = ">=3.9.0" },
     { name = "anthropic", specifier = ">=0.71.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "beartype", specifier = ">=0.21.0" },
