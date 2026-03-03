@@ -23,6 +23,13 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 Integrated architecture - everything runs in single gateway process.
 
+## Anthropic Runtime Model (2026-02-27)
+
+- Anthropic request handling is execution-oriented, not hook-oriented.
+- Policies on `/v1/messages` implement `AnthropicExecutionInterface.run_anthropic(io, context)` and emit responses/events.
+- Policy runtime is backend-call agnostic: policies may make zero, one, or many backend calls via `io.complete()` / `io.stream()`.
+- Legacy Anthropic compatibility helpers (`_handle_streaming`, `_handle_non_streaming` in `anthropic_processor.py`) were removed from production code.
+
 ## Key Patterns (2025-10-24)
 
 - **Event-driven policies**: Policies implement lifecycle hooks (on_chunk_started, on_content_chunk, on_response_completed) instead of callbacks
@@ -132,7 +139,7 @@ All admin endpoints require `Authorization: Bearer ${ADMIN_API_KEY}` header.
 **Step 1: Create a named policy instance** (saved to DB but not active):
 
 ```bash
-curl -X POST http://localhost:8000/admin/policy/create \
+curl -X POST http://localhost:8000/api/admin/policy/create \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${ADMIN_API_KEY}" \
   -d '{
@@ -151,7 +158,7 @@ curl -X POST http://localhost:8000/admin/policy/create \
 **Step 2: Activate the policy**:
 
 ```bash
-curl -X POST http://localhost:8000/admin/policy/activate \
+curl -X POST http://localhost:8000/api/admin/policy/activate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${ADMIN_API_KEY}" \
   -d '{"name": "my-policy"}'
@@ -159,9 +166,9 @@ curl -X POST http://localhost:8000/admin/policy/activate \
 
 ### Other Useful Endpoints
 
-- `GET /admin/policy/current` - View active policy and its config
-- `GET /admin/policy/instances` - List all saved policy instances
-- `GET /admin/policy/list` - List available policy classes with descriptions
+- `GET /api/admin/policy/current` - View active policy and its config
+- `GET /api/admin/policy/instances` - List all saved policy instances
+- `GET /api/admin/policy/list` - List available policy classes with descriptions
 
 **Files**: `src/luthien_proxy/admin/routes.py`
 
@@ -204,6 +211,29 @@ curl -X POST http://localhost:8000/admin/policy/activate \
 - [ ] Does the streaming path handle this? (`on_chunk_received`, `on_content_complete`, `on_tool_call_complete`)
 - [ ] Does the non-streaming path handle this? (`on_response`)
 - [ ] Are the transformations equivalent?
+
+---
+
+## Anthropic Streaming Lifecycle Parity Pattern (2026-02-27)
+
+- Anthropic streaming now follows the same two-phase lifecycle as OpenAI streaming:
+  - `on_anthropic_stream_complete(context)`: normal-completion hook
+  - `on_anthropic_streaming_policy_complete(context)`: always-run cleanup hook (even on errors)
+- `AnthropicStreamExecutor` mirrors OpenAI semantics:
+  - calls `on_anthropic_stream_complete` after successful stream iteration
+  - calls `on_anthropic_streaming_policy_complete` in `finally`
+- Buffering convention for per-request policy state:
+  - use framework-owned typed state: `PolicyContext.get_policy_state()` / `pop_policy_state()`
+  - state `T` should be a dataclass with explicit fields (for strict typing)
+  - `PolicyContext` scopes state by `(policy instance, state type)`; per-block maps live inside `T`
+  - cleanup via `pop_policy_state()` in the always-run cleanup hook
+- `PolicyContext` fields available to Anthropic hooks include:
+  - `transaction_id`
+  - `request` (OpenAI-format request when available)
+  - `raw_http_request`
+  - `session_id`
+  - `scratchpad`
+  - `request_summary` / `response_summary` for observability annotations
 
 ---
 

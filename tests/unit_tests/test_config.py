@@ -9,9 +9,20 @@ from pathlib import Path
 
 import pytest
 
-from luthien_proxy.config import load_policy_from_yaml
+from luthien_proxy.config import _instantiate_policy, load_policy_from_yaml
 from luthien_proxy.policies.all_caps_policy import AllCapsPolicy
 from luthien_proxy.policies.simple_policy import SimplePolicy
+from luthien_proxy.policy_core.base_policy import BasePolicy
+
+
+class _StatelessConfigPolicy(BasePolicy):
+    def __init__(self, flag: bool = False) -> None:
+        self.flag = flag
+
+
+class _StatefulBufferPolicy(BasePolicy):
+    def __init__(self) -> None:
+        self.buffer: dict[str, str] = {}
 
 
 class TestLoadPolicyFromYaml:
@@ -162,3 +173,18 @@ policy:
         # and raise FileNotFoundError
         with pytest.raises(FileNotFoundError):
             load_policy_from_yaml()
+
+
+class TestPolicyInstantiationGuardrails:
+    def test_instantiated_policy_is_validated_but_not_frozen(self):
+        """Configured policies run validation but remain assignable at runtime."""
+        policy = _instantiate_policy(_StatelessConfigPolicy, {"flag": True})
+        assert policy.flag is True
+
+        policy.runtime_state = "allowed"
+        assert policy.runtime_state == "allowed"
+
+    def test_instantiation_rejects_mutable_instance_state(self):
+        """Mutable instance containers are forbidden on policy objects."""
+        with pytest.raises(TypeError, match="mutable container"):
+            _instantiate_policy(_StatefulBufferPolicy, {})

@@ -38,7 +38,7 @@ def proxy_headers():
 async def test_string_replacement_policy_activates(http_client, admin_headers):
     """Test that StringReplacementPolicy can be set and activated."""
     set_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
@@ -57,7 +57,7 @@ async def test_string_replacement_policy_activates(http_client, admin_headers):
 
     # Verify it's active
     current_response = await http_client.get(
-        f"{GATEWAY_URL}/admin/policy/current",
+        f"{GATEWAY_URL}/api/admin/policy/current",
         headers=admin_headers,
     )
 
@@ -74,7 +74,7 @@ async def test_string_replacement_basic(http_client, admin_headers, proxy_header
     """Test basic string replacement in non-streaming mode."""
     # Set policy to replace "test" with "example"
     set_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
@@ -127,7 +127,7 @@ async def test_string_replacement_with_capitalization(http_client, admin_headers
     """Test string replacement with capitalization preservation."""
     # Set policy with capitalization matching
     set_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
@@ -180,7 +180,7 @@ async def test_string_replacement_streaming(http_client, admin_headers, proxy_he
     """Test string replacement in streaming mode."""
     # Set policy
     set_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
@@ -259,7 +259,7 @@ async def test_string_replacement_streaming_has_complete_sse_events(http_client,
 
     # Set policy
     set_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
@@ -338,7 +338,7 @@ async def test_string_replacement_cleanup(http_client, admin_headers):
     """Test that we can restore NoOpPolicy after tests."""
     # Restore NoOpPolicy
     set_response = await http_client.post(
-        f"{GATEWAY_URL}/admin/policy/set",
+        f"{GATEWAY_URL}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
@@ -353,7 +353,7 @@ async def test_string_replacement_cleanup(http_client, admin_headers):
 
     # Verify it's active
     current_response = await http_client.get(
-        f"{GATEWAY_URL}/admin/policy/current",
+        f"{GATEWAY_URL}/api/admin/policy/current",
         headers=admin_headers,
     )
 

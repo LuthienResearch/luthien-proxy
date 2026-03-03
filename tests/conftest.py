@@ -6,6 +6,15 @@ import pytest
 
 # Ensure the src/ directory is importable in tests without extra tooling.
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# ---------------------------------------------------------------------------
+# Shared test model constants
+# ---------------------------------------------------------------------------
+# Canonical model string for test fixtures and payloads.  Unit and integration
+# tests mock the upstream API, so the actual model value doesn't matter there.
+# E2E tests *do* hit the real API, so we use haiku for lower cost & latency.
+# Change this single constant to update every test at once.
+DEFAULT_TEST_MODEL = "claude-haiku-4-5-20251001"
 SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Request Logs</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a; color: #e5e5e5; line-height: 1.6;
+        }
+        .container { max-width: 1600px; margin: 0 auto; padding: 24px; }
+        header { margin-bottom: 24px; }
+        h1 { font-size: 24px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+        .subtitle { font-size: 14px; color: #888; }
+
+        .toolbar {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+            margin-bottom: 24px; padding: 16px; background: #141414; border-radius: 8px; border: 1px solid #222;
+        }
+        .toolbar select, .toolbar input {
+            background: #1a1a1a; border: 1px solid #333; color: #e5e5e5;
+            padding: 6px 10px; border-radius: 4px; font-size: 13px;
+        }
+        .toolbar button {
+            background: #2563eb; color: #fff; border: none; padding: 6px 16px;
+            border-radius: 4px; cursor: pointer; font-size: 13px;
+        }
+        .toolbar button:hover { background: #1d4ed8; }
+        .toolbar button.secondary { background: #333; }
+        .toolbar button.secondary:hover { background: #444; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead th {
+            text-align: left; padding: 10px 12px; background: #141414; color: #999;
+            border-bottom: 1px solid #222; font-weight: 600; position: sticky; top: 0;
+        }
+        tbody tr { border-bottom: 1px solid #1a1a1a; cursor: pointer; }
+        tbody tr:hover { background: #141414; }
+        tbody td { padding: 8px 12px; }
+
+        .badge {
+            display: inline-block; padding: 1px 8px; border-radius: 3px;
+            font-size: 11px; font-weight: 600;
+        }
+        .badge.inbound { background: #1e3a5f; color: #60a5fa; }
+        .badge.outbound { background: #3b1f1f; color: #f87171; }
+        .status-ok { color: #4ade80; }
+        .status-err { color: #f87171; }
+        .mono { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; }
+
+        .detail-panel {
+            position: fixed; top: 0; right: 0; width: 55%; height: 100vh;
+            background: #111; border-left: 1px solid #222; overflow-y: auto;
+            transform: translateX(100%); transition: transform 0.2s ease;
+            z-index: 100; padding: 24px;
+        }
+        .detail-panel.open { transform: translateX(0); }
+        .detail-panel .close-btn {
+            position: absolute; top: 12px; right: 16px; background: none;
+            border: none; color: #888; font-size: 24px; cursor: pointer;
+        }
+        .detail-panel h2 { font-size: 18px; margin-bottom: 16px; color: #fff; }
+
+        .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; }
+        .tab-bar button {
+            background: #1a1a1a; border: 1px solid #333; color: #999;
+            padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 13px;
+        }
+        .tab-bar button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+        .json-view {
+            background: #0a0a0a; border: 1px solid #222; border-radius: 6px;
+            padding: 16px; overflow-x: auto; white-space: pre-wrap;
+            font-family: 'SF Mono', Menlo, monospace; font-size: 12px;
+            max-height: 50vh; overflow-y: auto; color: #d4d4d4;
+        }
+        .meta-row { display: flex; gap: 24px; margin-bottom: 16px; flex-wrap: wrap; }
+        .meta-item { font-size: 13px; }
+        .meta-item label { color: #888; margin-right: 4px; }
+
+        .pagination { display: flex; align-items: center; gap: 12px; margin-top: 16px; justify-content: center; }
+        .pagination button { background: #1a1a1a; border: 1px solid #333; color: #e5e5e5; padding: 4px 12px; border-radius: 4px; cursor: pointer; }
+        .pagination button:disabled { opacity: 0.4; cursor: default; }
+        .pagination span { color: #888; font-size: 13px; }
+
+        .empty { text-align: center; padding: 60px 20px; color: #666; font-size: 15px; }
+        .loading { text-align: center; padding: 40px; color: #888; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>Request/Response Logs</h1>
+        <p class="subtitle">HTTP-level inbound and outbound traffic</p>
+    </header>
+
+    <div class="toolbar">
+        <select id="filter-direction">
+            <option value="">All Directions</option>
+            <option value="inbound">Inbound</option>
+            <option value="outbound">Outbound</option>
+        </select>
+        <select id="filter-endpoint">
+            <option value="">All Endpoints</option>
+            <option value="/v1/messages">/v1/messages</option>
+            <option value="/v1/chat/completions">/v1/chat/completions</option>
+        </select>
+        <input type="text" id="filter-model" placeholder="Model..." style="width:140px">
+        <input type="text" id="filter-search" placeholder="Body search..." style="width:160px">
+        <button onclick="loadLogs()">Filter</button>
+        <button class="secondary" onclick="resetFilters()">Reset</button>
+    </div>
+
+    <div id="log-table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Direction</th>
+                    <th>Endpoint</th>
+                    <th>Model</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Stream</th>
+                </tr>
+            </thead>
+            <tbody id="log-body"></tbody>
+        </table>
+    </div>
+
+    <div class="pagination">
+        <button id="prev-btn" onclick="prevPage()" disabled>&larr; Prev</button>
+        <span id="page-info"></span>
+        <button id="next-btn" onclick="nextPage()">Next &rarr;</button>
+    </div>
+</div>
+
+<div class="detail-panel" id="detail-panel">
+    <button class="close-btn" onclick="closeDetail()">&times;</button>
+    <h2 id="detail-title">Transaction Detail</h2>
+    <div class="meta-row" id="detail-meta"></div>
+    <div class="tab-bar" id="detail-tabs"></div>
+    <div class="json-view" id="detail-content"></div>
+</div>
+
+<script>
+const PAGE_SIZE = 50;
+let currentOffset = 0;
+let totalCount = 0;
+
+function getAdminKey() {
+    let key = sessionStorage.getItem('admin_api_key');
+    if (!key) {
+        key = prompt('Enter ADMIN_API_KEY:');
+        if (key) sessionStorage.setItem('admin_api_key', key);
+    }
+    return key;
+}
+
+async function apiFetch(url) {
+    const key = getAdminKey();
+    if (!key) return null;
+    const resp = await fetch(url, {
+        headers: { 'Authorization': 'Bearer ' + key },
+        credentials: 'include'
+    });
+    if (resp.status === 401) {
+        sessionStorage.removeItem('admin_api_key');
+        alert('Invalid admin key. Refresh to retry.');
+        return null;
+    }
+    if (!resp.ok) {
+        console.error('API error', resp.status);
+        return null;
+    }
+    return resp.json();
+}
+
+function buildQueryString() {
+    const params = new URLSearchParams();
+    params.set('limit', PAGE_SIZE);
+    params.set('offset', currentOffset);
+    const dir = document.getElementById('filter-direction').value;
+    const ep = document.getElementById('filter-endpoint').value;
+    const model = document.getElementById('filter-model').value.trim();
+    const search = document.getElementById('filter-search').value.trim();
+    if (dir) params.set('direction', dir);
+    if (ep) params.set('endpoint', ep);
+    if (model) params.set('model', model);
+    if (search) params.set('search', search);
+    return params.toString();
+}
+
+async function loadLogs() {
+    const body = document.getElementById('log-body');
+    body.innerHTML = '<tr><td colspan="7" class="loading">Loading...</td></tr>';
+
+    const data = await apiFetch('/request-logs?' + buildQueryString());
+    if (!data) { body.innerHTML = '<tr><td colspan="7" class="empty">Failed to load</td></tr>'; return; }
+
+    totalCount = data.total;
+    updatePagination();
+
+    if (!data.logs.length) {
+        body.innerHTML = '<tr><td colspan="7" class="empty">No request logs found. Enable ENABLE_REQUEST_LOGGING=true to start recording.</td></tr>';
+        return;
+    }
+
+    body.innerHTML = data.logs.map(log => {
+        const time = new Date(log.started_at).toLocaleTimeString();
+        const statusClass = (log.response_status && log.response_status < 400) ? 'status-ok' : 'status-err';
+        const dur = log.duration_ms != null ? log.duration_ms.toFixed(0) + 'ms' : '-';
+        return `<tr onclick="showTransaction('${log.transaction_id}')">
+            <td class="mono">${time}</td>
+            <td><span class="badge ${log.direction}">${log.direction}</span></td>
+            <td class="mono">${log.endpoint || '-'}</td>
+            <td>${log.model || '-'}</td>
+            <td class="${statusClass}">${log.response_status || '-'}</td>
+            <td class="mono">${dur}</td>
+            <td>${log.is_streaming ? 'Yes' : 'No'}</td>
+        </tr>`;
+    }).join('');
+}
+
+function updatePagination() {
+    const page = Math.floor(currentOffset / PAGE_SIZE) + 1;
+    const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    document.getElementById('page-info').textContent = `Page ${page} of ${totalPages} (${totalCount} total)`;
+    document.getElementById('prev-btn').disabled = currentOffset === 0;
+    document.getElementById('next-btn').disabled = currentOffset + PAGE_SIZE >= totalCount;
+}
+
+function prevPage() { currentOffset = Math.max(0, currentOffset - PAGE_SIZE); loadLogs(); }
+function nextPage() { currentOffset += PAGE_SIZE; loadLogs(); }
+function resetFilters() {
+    document.getElementById('filter-direction').value = '';
+    document.getElementById('filter-endpoint').value = '';
+    document.getElementById('filter-model').value = '';
+    document.getElementById('filter-search').value = '';
+    currentOffset = 0;
+    loadLogs();
+}
+
+async function showTransaction(txnId) {
+    const panel = document.getElementById('detail-panel');
+    panel.classList.add('open');
+    document.getElementById('detail-title').textContent = 'Transaction ' + txnId.slice(0, 8) + '...';
+    document.getElementById('detail-content').textContent = 'Loading...';
+    document.getElementById('detail-meta').innerHTML = '';
+    document.getElementById('detail-tabs').innerHTML = '';
+
+    const data = await apiFetch('/request-logs/' + txnId);
+    if (!data) { document.getElementById('detail-content').textContent = 'Failed to load'; return; }
+
+    const meta = document.getElementById('detail-meta');
+    meta.innerHTML = `
+        <div class="meta-item"><label>Transaction:</label> <span class="mono">${data.transaction_id}</span></div>
+        <div class="meta-item"><label>Session:</label> <span class="mono">${data.session_id || 'none'}</span></div>
+    `;
+
+    const tabs = [];
+    if (data.inbound) {
+        tabs.push({ label: 'Inbound Request', data: data.inbound.request_body });
+        tabs.push({ label: 'Inbound Response', data: data.inbound.response_body });
+        tabs.push({ label: 'Inbound Headers', data: data.inbound.request_headers });
+    }
+    if (data.outbound) {
+        tabs.push({ label: 'Outbound Request', data: data.outbound.request_body });
+        tabs.push({ label: 'Outbound Response', data: data.outbound.response_body });
+    }
+
+    const tabBar = document.getElementById('detail-tabs');
+    const content = document.getElementById('detail-content');
+    tabBar.innerHTML = tabs.map((t, i) =>
+        `<button class="${i === 0 ? 'active' : ''}" onclick="selectTab(this, ${i})">${t.label}</button>`
+    ).join('');
+
+    window._detailTabs = tabs;
+    content.textContent = JSON.stringify(tabs[0]?.data || null, null, 2);
+}
+
+function selectTab(btn, idx) {
+    document.querySelectorAll('#detail-tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('detail-content').textContent =
+        JSON.stringify(window._detailTabs[idx]?.data || null, null, 2);
+}
+
+function closeDetail() { document.getElementById('detail-panel').classList.remove('open'); }
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+
+loadLogs();
+</script>
+</body>
+</html>

@@ -150,7 +150,7 @@ open http://localhost:8000/activity/monitor
 Now let's see **exactly** what the policy changed. Open the **Diff Viewer**:
 
 ```bash
-open http://localhost:8000/debug/diff
+open http://localhost:8000/diffs
 ```
 
 ### Viewing a Specific Call:

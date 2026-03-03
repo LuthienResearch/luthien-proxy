@@ -79,7 +79,7 @@ async def set_policy(
     admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
 
     response = await client.post(
-        f"{gateway_base}/admin/policy/set",
+        f"{gateway_base}/api/admin/policy/set",
         headers=admin_headers,
         json={
             "policy_class_ref": policy_class_ref,
@@ -99,7 +99,7 @@ async def get_current_policy(client: httpx.AsyncClient) -> dict:
     """Get current policy information from admin API."""
     gateway_base = GATEWAY_URL.rstrip("/")
     admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
-    response = await client.get(f"{gateway_base}/admin/policy/current", headers=admin_headers)
+    response = await client.get(f"{gateway_base}/api/admin/policy/current", headers=admin_headers)
     assert response.status_code == 200
     return response.json()
 

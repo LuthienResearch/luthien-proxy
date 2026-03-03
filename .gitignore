@@ -6,6 +6,7 @@ dist/
 wheels/
 *.egg-info
 .coverage
+.coverage.cavil.*
 coverage.json
 
 # Virtual environments
@@ -57,3 +58,4 @@ debug_multitool_nonstreaming.json
 # worktree meta
 .worktree-purpose
 .playwright-mcp/
+.worktrees/

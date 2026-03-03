@@ -30,6 +30,7 @@ from anthropic.types import (
 )
 from litellm.types.utils import ChatCompletionMessageToolCall, Function, ModelResponse
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
@@ -39,7 +40,7 @@ from luthien_proxy.llm.types.anthropic import (
 )
 from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policies.simple_policy import SimplePolicy
-from luthien_proxy.policy_core import AnthropicPolicyInterface, OpenAIPolicyInterface
+from luthien_proxy.policy_core import AnthropicExecutionInterface, OpenAIPolicyInterface
 from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 from luthien_proxy.streaming.stream_state import StreamState
@@ -149,9 +150,9 @@ class TestSimplePolicyProtocol:
         assert isinstance(policy, OpenAIPolicyInterface)
 
     def test_implements_anthropic_interface(self):
-        """SimplePolicy satisfies AnthropicPolicyInterface."""
+        """SimplePolicy satisfies AnthropicExecutionInterface."""
         policy = SimplePolicy()
-        assert isinstance(policy, AnthropicPolicyInterface)
+        assert isinstance(policy, AnthropicExecutionInterface)
 
     def test_has_short_policy_name(self):
         """SimplePolicy has a short_policy_name property defaulting to class name."""
@@ -650,7 +651,7 @@ class TestSimplePolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello world"}],
             "max_tokens": 100,
         }
@@ -666,7 +667,7 @@ class TestSimplePolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "hello world"}],
             "max_tokens": 100,
         }
@@ -683,7 +684,7 @@ class TestSimplePolicyAnthropicRequest:
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "hello world"}
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": [text_block]}],
             "max_tokens": 100,
         }
@@ -701,7 +702,7 @@ class TestSimplePolicyAnthropicRequest:
         ctx = PolicyContext.for_testing()
 
         request: AnthropicRequest = {
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [],
             "max_tokens": 100,
         }
@@ -729,7 +730,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -751,7 +752,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -774,7 +775,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block1, text_block2],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 10},
         }
@@ -803,7 +804,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [tool_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -848,7 +849,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block, tool_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 15},
         }
@@ -872,7 +873,7 @@ class TestSimplePolicyAnthropicResponse:
             "type": "message",
             "role": "assistant",
             "content": [text_block],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 25, "output_tokens": 15},
         }
@@ -880,7 +881,7 @@ class TestSimplePolicyAnthropicResponse:
         result = await policy.on_anthropic_response(response, ctx)
 
         assert result["id"] == "msg_789"
-        assert result["model"] == "claude-sonnet-4-20250514"
+        assert result["model"] == DEFAULT_TEST_MODEL
         assert result.get("stop_reason") == "end_turn"
         assert result["usage"]["input_tokens"] == 25
         assert result["usage"]["output_tokens"] == 15
@@ -905,7 +906,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": "claude-sonnet-4-20250514",
+                "model": DEFAULT_TEST_MODEL,
                 "stop_reason": None,
                 "usage": {"input_tokens": 5, "output_tokens": 0},
             },
@@ -1165,6 +1166,57 @@ class TestSimplePolicyAnthropicBufferManagement:
         assert result0_event.delta.text == "FIRST"
         assert result1_event.delta.text == "SECOND"
 
+    @pytest.mark.asyncio
+    async def test_anthropic_buffers_are_scoped_by_transaction(self):
+        """Anthropic streaming buffers are request-scoped via typed state."""
+        policy = AnthropicUppercasePolicy()
+        ctx_a = PolicyContext.for_testing(transaction_id="txn-a")
+        ctx_b = PolicyContext.for_testing(transaction_id="txn-b")
+
+        start_a = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock.model_construct(type="text", text=""),
+        )
+        start_b = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock.model_construct(type="text", text=""),
+        )
+        await policy.on_anthropic_stream_event(start_a, ctx_a)
+        await policy.on_anthropic_stream_event(start_b, ctx_b)
+
+        state_a = policy._anthropic_state(ctx_a)
+        state_b = policy._anthropic_state(ctx_b)
+        assert 0 in state_a.text_buffer
+        assert 0 in state_b.text_buffer
+        assert state_a is not state_b
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_streaming_policy_complete_cleans_current_transaction_only(self):
+        """Cleanup only removes Anthropic buffers for the completed request."""
+        policy = AnthropicUppercasePolicy()
+        ctx_a = PolicyContext.for_testing(transaction_id="txn-a")
+        ctx_b = PolicyContext.for_testing(transaction_id="txn-b")
+
+        start_a = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock.model_construct(type="text", text=""),
+        )
+        start_b = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock.model_construct(type="text", text=""),
+        )
+        await policy.on_anthropic_stream_event(start_a, ctx_a)
+        await policy.on_anthropic_stream_event(start_b, ctx_b)
+
+        await policy.on_anthropic_streaming_policy_complete(ctx_a)
+
+        assert policy._anthropic_state(ctx_a).text_buffer == {}
+        assert 0 in policy._anthropic_state(ctx_b).text_buffer
+
 
 # ===== Error Handling Tests =====
 
@@ -1304,7 +1356,7 @@ class TestSimplePolicyErrorHandling:
                     "input": {},
                 }  # Missing "id" field
             ],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -1332,7 +1384,7 @@ class TestSimplePolicyErrorHandling:
                     "input": {},
                 }  # Missing "name" field
             ],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }

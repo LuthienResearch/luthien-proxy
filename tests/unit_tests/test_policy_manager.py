@@ -17,7 +17,7 @@ import json
 import os
 import tempfile
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -29,6 +29,7 @@ from luthien_proxy.policy_manager import (
     PolicyInfo,
     PolicyManager,
 )
+from luthien_proxy.settings import Settings
 
 # -- Helpers ------------------------------------------------------------------
 
@@ -54,6 +55,14 @@ def _make_db_mocks(*, fetchrow_return=None, execute_ok=True):
 
 def _db_row_noop():
     return {"policy_class_ref": NOOP_CLASS_REF, "config": {}}
+
+
+@pytest.fixture(autouse=True)
+def _dogfood_mode_disabled():
+    """Keep core PolicyManager tests deterministic regardless of env settings."""
+    settings = Settings(dogfood_mode=False, database_url="", redis_url="", _env_file=None)  # type: ignore[call-arg]
+    with patch("luthien_proxy.settings.get_settings", return_value=settings):
+        yield
 
 
 # -- Dataclass tests ----------------------------------------------------------

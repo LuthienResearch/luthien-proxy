@@ -2,14 +2,33 @@
 
 ## Unreleased | TBA
 
+- Remove dead Anthropic compatibility handlers (`_handle_streaming`, `_handle_non_streaming`) from `anthropic_processor.py`
+  - Update unit/regression tests to exercise `process_anthropic_request()` instead of deleted internal wrappers
+  - Refresh docs/examples to use current policy classes and Anthropic execution runtime terminology
+- Remove dead Anthropic streaming executor path
+  - Delete unused `src/luthien_proxy/streaming/anthropic_executor.py`
+  - Delete executor-only unit tests and migrate requirement regressions to assert streaming behavior through `process_anthropic_request()`
+  - Tighten Anthropic execution-runtime type guard and add tests for invalid streaming emissions and upstream `io.complete()` failures
+
 - Refactor: extract `restore_context()` context manager for OpenTelemetry span context management
   - Replaces manual `attach`/`detach` pattern in both `anthropic_processor.py` and `processor.py`
   - Guarantees cleanup even on exception, reduces nesting depth, improves readability
 
 - Fix Anthropic observability pipeline: events not written to DB, generic error types, empty conversation history (#249)
+
 - Fix default auth_mode from `proxy_key` to `both` so Claude Code OAuth works on fresh setups (#222)
   - DB migration: `008_default_auth_mode_both.sql`
   - Also updates existing `proxy_key` rows to `both`
+
+- Add general-purpose policy composition API (policy-composition)
+  - `compose_policy()` function for inserting policies into chains at runtime
+  - `MultiSerialPolicy.from_instances()` for building chains from pre-instantiated policies
+  - `DogfoodSafetyPolicy` — regex-based safety policy that blocks dangerous commands
+    (docker down, pkill, rm .env, DROP TABLE) when proxying through the gateway
+  - `DOGFOOD_MODE` env var to auto-inject DogfoodSafetyPolicy into any policy chain
+  - Replaces hacky approach from #243 with clean, reusable composition mechanism
+
+- Fix SamplePydanticPolicy crash on activation (#250)
 - Add MultiSerialPolicy and MultiParallelPolicy for composing control policies (#184)
   - MultiSerialPolicy: sequential pipeline where each policy's output feeds the next
   - MultiParallelPolicy: parallel execution with configurable consolidation strategies
@@ -17,7 +36,7 @@
   - Both support OpenAI and Anthropic interfaces with interface compatibility validation
   - Shared `load_sub_policy` utility for recursive policy loading from YAML config
 - Add configurable passthrough authentication (passthrough-auth)
-  - Three auth modes: `proxy_key` (default), `passthrough`, `both` - configurable at runtime via admin API
+  - Three auth modes: `proxy_key`, `passthrough`, `both` (default) - configurable at runtime via admin API
   - Credential validation via Anthropic's free `count_tokens` endpoint with Redis caching
   - Configurable TTLs for valid (1hr default) and invalid (5min default) credential cache
   - Admin API: `GET/POST /admin/auth/config`, `GET/DELETE /admin/auth/credentials`
@@ -201,7 +220,7 @@
 
 - Session-based login for browser access to admin/debug UIs (#88)
   - Add `/login` page with session cookie authentication
-  - Protected UI pages (`/activity/monitor`, `/debug/diff`, `/policy-config`) redirect to login when unauthenticated
+  - Protected UI pages (`/activity/monitor`, `/diffs`, `/policy-config`) redirect to login when unauthenticated
   - Sign out links on all protected pages
   - Backwards compatible: API endpoints still accept Bearer token and x-api-key
 
@@ -351,7 +370,7 @@
     - `/calls` - List recent calls
     - `/calls/{call_id}` - Get call details
     - `/calls/{call_id}/diff` - Compare original vs transformed content
-  - Diff viewer UI at `/debug/diff` with side-by-side JSON comparison
+  - Diff viewer UI at `/diffs` with side-by-side JSON comparison
   - Links to Grafana Tempo traces from all UIs
 
 - **Grafana Dashboards**:

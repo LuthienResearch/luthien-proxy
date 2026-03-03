@@ -4,9 +4,9 @@
 """E2E tests for debug endpoint authentication.
 
 Tests that all debug endpoints require admin authentication:
-- GET /debug/calls - List recent calls
-- GET /debug/calls/{call_id} - Get events for a call
-- GET /debug/calls/{call_id}/diff - Get diff for a call
+- GET /api/debug/calls - List recent calls
+- GET /api/debug/calls/{call_id} - Get events for a call
+- GET /api/debug/calls/{call_id}/diff - Get diff for a call
 
 These tests require:
 - Running gateway service (docker compose up gateway)
@@ -49,12 +49,12 @@ def x_api_key_headers():
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_debug_calls_requires_authentication(http_client):
-    """Test that GET /debug/calls requires authentication."""
-    response = await http_client.get(f"{GATEWAY_URL}/debug/calls")
+    """Test that GET /api/debug/calls requires authentication."""
+    response = await http_client.get(f"{GATEWAY_URL}/api/debug/calls")
     assert response.status_code == 403, "Should reject request without auth"
 
     response = await http_client.get(
-        f"{GATEWAY_URL}/debug/calls",
+        f"{GATEWAY_URL}/api/debug/calls",
         headers={"Authorization": "Bearer wrong-key"},
     )
     assert response.status_code == 403, "Should reject request with wrong key"
@@ -63,9 +63,9 @@ async def test_debug_calls_requires_authentication(http_client):
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_debug_calls_accepts_valid_bearer_token(http_client, admin_headers):
-    """Test that GET /debug/calls accepts valid Bearer token."""
+    """Test that GET /api/debug/calls accepts valid Bearer token."""
     response = await http_client.get(
-        f"{GATEWAY_URL}/debug/calls",
+        f"{GATEWAY_URL}/api/debug/calls",
         headers=admin_headers,
     )
     # May be 200 (with data) or 503 (no DB), but not 403
@@ -75,9 +75,9 @@ async def test_debug_calls_accepts_valid_bearer_token(http_client, admin_headers
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_debug_calls_accepts_x_api_key(http_client, x_api_key_headers):
-    """Test that GET /debug/calls accepts x-api-key header."""
+    """Test that GET /api/debug/calls accepts x-api-key header."""
     response = await http_client.get(
-        f"{GATEWAY_URL}/debug/calls",
+        f"{GATEWAY_URL}/api/debug/calls",
         headers=x_api_key_headers,
     )
     # May be 200 (with data) or 503 (no DB), but not 403
@@ -87,12 +87,12 @@ async def test_debug_calls_accepts_x_api_key(http_client, x_api_key_headers):
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_debug_call_events_requires_authentication(http_client):
-    """Test that GET /debug/calls/{call_id} requires authentication."""
-    response = await http_client.get(f"{GATEWAY_URL}/debug/calls/test-call-id")
+    """Test that GET /api/debug/calls/{call_id} requires authentication."""
+    response = await http_client.get(f"{GATEWAY_URL}/api/debug/calls/test-call-id")
     assert response.status_code == 403, "Should reject request without auth"
 
     response = await http_client.get(
-        f"{GATEWAY_URL}/debug/calls/test-call-id",
+        f"{GATEWAY_URL}/api/debug/calls/test-call-id",
         headers={"Authorization": "Bearer wrong-key"},
     )
     assert response.status_code == 403, "Should reject request with wrong key"
@@ -101,9 +101,9 @@ async def test_debug_call_events_requires_authentication(http_client):
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_debug_call_events_accepts_valid_key(http_client, admin_headers):
-    """Test that GET /debug/calls/{call_id} accepts valid admin key."""
+    """Test that GET /api/debug/calls/{call_id} accepts valid admin key."""
     response = await http_client.get(
-        f"{GATEWAY_URL}/debug/calls/test-call-id",
+        f"{GATEWAY_URL}/api/debug/calls/test-call-id",
         headers=admin_headers,
     )
     # May be 404 (call not found) or 503 (no DB), but not 403
@@ -113,12 +113,12 @@ async def test_debug_call_events_accepts_valid_key(http_client, admin_headers):
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_debug_call_diff_requires_authentication(http_client):
-    """Test that GET /debug/calls/{call_id}/diff requires authentication."""
-    response = await http_client.get(f"{GATEWAY_URL}/debug/calls/test-call-id/diff")
+    """Test that GET /api/debug/calls/{call_id}/diff requires authentication."""
+    response = await http_client.get(f"{GATEWAY_URL}/api/debug/calls/test-call-id/diff")
     assert response.status_code == 403, "Should reject request without auth"
 
     response = await http_client.get(
-        f"{GATEWAY_URL}/debug/calls/test-call-id/diff",
+        f"{GATEWAY_URL}/api/debug/calls/test-call-id/diff",
         headers={"Authorization": "Bearer wrong-key"},
     )
     assert response.status_code == 403, "Should reject request with wrong key"
@@ -127,9 +127,9 @@ async def test_debug_call_diff_requires_authentication(http_client):
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_debug_call_diff_accepts_valid_key(http_client, admin_headers):
-    """Test that GET /debug/calls/{call_id}/diff accepts valid admin key."""
+    """Test that GET /api/debug/calls/{call_id}/diff accepts valid admin key."""
     response = await http_client.get(
-        f"{GATEWAY_URL}/debug/calls/test-call-id/diff",
+        f"{GATEWAY_URL}/api/debug/calls/test-call-id/diff",
         headers=admin_headers,
     )
     # May be 404 (call not found) or 503 (no DB), but not 403

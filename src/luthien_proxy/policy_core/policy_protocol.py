@@ -5,7 +5,7 @@ This module defines PolicyProtocol with hooks for:
 - Stream lifecycle and cleanup
 
 Used for type annotations in policy infrastructure. Concrete policies should
-inherit from BasePolicy + OpenAIPolicyInterface/AnthropicPolicyInterface.
+inherit from BasePolicy + OpenAIPolicyInterface/AnthropicExecutionInterface.
 """
 
 from __future__ import annotations
@@ -29,6 +29,10 @@ class PolicyProtocol(Protocol):
 
     def get_config(self) -> dict[str, Any]:
         """Get the configuration for this policy instance."""
+        ...
+
+    def freeze_configured_state(self) -> None:
+        """Run post-configuration validation for policy instance shape."""
         ...
 
     async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:

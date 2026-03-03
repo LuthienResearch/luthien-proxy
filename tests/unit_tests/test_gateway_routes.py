@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 
@@ -53,7 +54,7 @@ class TestGatewayAuthAndClientResolution:
         """Create a minimal FastAPI app with gateway routes for testing."""
         from luthien_proxy.dependencies import Dependencies
         from luthien_proxy.gateway_routes import router
-        from luthien_proxy.policy_core.anthropic_interface import AnthropicPolicyInterface
+        from luthien_proxy.policy_core import AnthropicExecutionInterface
 
         app = FastAPI()
         app.include_router(router)
@@ -75,7 +76,7 @@ class TestGatewayAuthAndClientResolution:
         )
         mock_credential_manager.validate_credential = AsyncMock(return_value=True)
 
-        mock_anthropic_policy = MagicMock(spec=AnthropicPolicyInterface)
+        mock_anthropic_policy = MagicMock(spec=AnthropicExecutionInterface)
 
         deps = MagicMock(spec=Dependencies)
         deps.api_key = "test-proxy-key"
@@ -83,6 +84,8 @@ class TestGatewayAuthAndClientResolution:
         deps.credential_manager = mock_credential_manager
         deps.policy = mock_policy
         deps.emitter = MagicMock()
+        deps.db_pool = None
+        deps.enable_request_logging = False
         deps.get_anthropic_policy.return_value = mock_anthropic_policy
 
         app.state.dependencies = deps
@@ -98,7 +101,7 @@ class TestGatewayAuthAndClientResolution:
             response = client.post(
                 "/v1/messages",
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": DEFAULT_TEST_MODEL,
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -114,7 +117,7 @@ class TestGatewayAuthAndClientResolution:
         response = client.post(
             "/v1/messages",
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": DEFAULT_TEST_MODEL,
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             },
@@ -132,7 +135,7 @@ class TestGatewayAuthAndClientResolution:
             response = client.post(
                 "/v1/messages",
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": DEFAULT_TEST_MODEL,
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -150,7 +153,7 @@ class TestGatewayAuthAndClientResolution:
         response = client.post(
             "/v1/messages",
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": DEFAULT_TEST_MODEL,
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             },
@@ -168,7 +171,7 @@ class TestGatewayAuthAndClientResolution:
             response = client.post(
                 "/v1/messages",
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": DEFAULT_TEST_MODEL,
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -187,7 +190,7 @@ class TestGatewayAuthAndClientResolution:
             response = client.post(
                 "/v1/messages",
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": DEFAULT_TEST_MODEL,
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -203,7 +206,7 @@ class TestGatewayAuthAndClientResolution:
         response = client.post(
             "/v1/messages",
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": DEFAULT_TEST_MODEL,
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             },
@@ -224,7 +227,7 @@ class TestGatewayAuthAndClientResolution:
             client.post(
                 "/v1/messages",
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": DEFAULT_TEST_MODEL,
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -243,7 +246,7 @@ class TestGatewayAuthAndClientResolution:
         response = client.post(
             "/v1/messages",
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": DEFAULT_TEST_MODEL,
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             },
@@ -270,7 +273,7 @@ class TestGatewayAuthAndClientResolution:
             response = client.post(
                 "/v1/messages",
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": DEFAULT_TEST_MODEL,
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -295,7 +298,7 @@ class TestGatewayAuthAndClientResolution:
             client.post(
                 "/v1/messages",
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": DEFAULT_TEST_MODEL,
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -303,8 +306,8 @@ class TestGatewayAuthAndClientResolution:
             )
             MockClient.assert_called_once_with(auth_token="my-anthropic-token", base_url=None)
 
-    def test_passthrough_api_key_creates_api_key_client(self, mock_app):
-        """In passthrough mode, an x-api-key credential creates an api_key client."""
+    def test_passthrough_bearer_api_key_creates_api_key_client(self, mock_app):
+        """In passthrough mode, Bearer Anthropic API keys are forwarded as api_key."""
         app, _, credential_manager, _ = mock_app
         credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
 
@@ -322,6 +325,29 @@ class TestGatewayAuthAndClientResolution:
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
+                headers={"Authorization": "Bearer sk-ant-api03-test-key"},
+            )
+            MockClient.assert_called_once_with(api_key="sk-ant-api03-test-key", base_url=None)
+
+    def test_passthrough_api_key_creates_api_key_client(self, mock_app):
+        """In passthrough mode, an x-api-key credential creates an api_key client."""
+        app, _, credential_manager, _ = mock_app
+        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+
+        with (
+            patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
+            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+        ):
+            MockClient.return_value = MagicMock()
+            mock_process.return_value = MagicMock()
+            client = TestClient(app)
+            client.post(
+                "/v1/messages",
+                json={
+                    "model": DEFAULT_TEST_MODEL,
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 10,
+                },
                 headers={"x-api-key": "sk-ant-my-key"},
             )
             MockClient.assert_called_once_with(api_key="sk-ant-my-key", base_url=None)
@@ -336,7 +362,7 @@ class TestGatewayAuthAndClientResolution:
         response = client.post(
             "/v1/messages",
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": DEFAULT_TEST_MODEL,
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 10,
             },

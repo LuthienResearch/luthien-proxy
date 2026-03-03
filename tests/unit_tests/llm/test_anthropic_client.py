@@ -18,6 +18,7 @@ from anthropic.types import (
 )
 from anthropic.types.raw_message_delta_event import Delta
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
@@ -26,7 +27,7 @@ from luthien_proxy.llm.types.anthropic import AnthropicRequest
 def sample_request() -> AnthropicRequest:
     """Create a sample Anthropic request."""
     return AnthropicRequest(
-        model="claude-sonnet-4-20250514",
+        model=DEFAULT_TEST_MODEL,
         messages=[{"role": "user", "content": "Hello"}],
         max_tokens=100,
     )
@@ -40,7 +41,7 @@ def sample_message() -> Message:
         type="message",
         role="assistant",
         content=[TextBlock(type="text", text="Hi there!")],
-        model="claude-sonnet-4-20250514",
+        model=DEFAULT_TEST_MODEL,
         stop_reason="end_turn",
         usage=Usage(input_tokens=10, output_tokens=5),
     )
@@ -57,7 +58,7 @@ def sample_stream_events() -> list:
                 type="message",
                 role="assistant",
                 content=[],
-                model="claude-sonnet-4-20250514",
+                model=DEFAULT_TEST_MODEL,
                 stop_reason=None,
                 usage=Usage(input_tokens=10, output_tokens=0),
             ),
@@ -135,7 +136,7 @@ class TestAnthropicClientComplete:
         assert result["id"] == "msg_123"
         assert result["type"] == "message"
         assert result["role"] == "assistant"
-        assert result["model"] == "claude-sonnet-4-20250514"
+        assert result["model"] == DEFAULT_TEST_MODEL
         assert result["stop_reason"] == "end_turn"
         assert len(result["content"]) == 1
         assert result["content"][0]["type"] == "text"
@@ -143,7 +144,7 @@ class TestAnthropicClientComplete:
 
         mock_async_client.messages.create.assert_called_once()
         call_kwargs = mock_async_client.messages.create.call_args.kwargs
-        assert call_kwargs["model"] == "claude-sonnet-4-20250514"
+        assert call_kwargs["model"] == DEFAULT_TEST_MODEL
         assert call_kwargs["max_tokens"] == 100
         assert len(call_kwargs["messages"]) == 1
 
@@ -152,7 +153,7 @@ class TestAnthropicClientComplete:
         """Test completion with system prompt."""
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
-            model="claude-sonnet-4-20250514",
+            model=DEFAULT_TEST_MODEL,
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=100,
             system="You are a helpful assistant.",
@@ -172,7 +173,7 @@ class TestAnthropicClientComplete:
         """Test completion with optional parameters."""
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
-            model="claude-sonnet-4-20250514",
+            model=DEFAULT_TEST_MODEL,
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=100,
             temperature=0.7,
@@ -198,7 +199,7 @@ class TestAnthropicClientComplete:
         """Test that complete excludes None/unset values from request."""
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
-            model="claude-sonnet-4-20250514",
+            model=DEFAULT_TEST_MODEL,
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=100,
             # temperature not set - should not be in call
@@ -218,7 +219,7 @@ class TestAnthropicClientComplete:
         """Test completion with thinking parameter."""
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
-            model="claude-sonnet-4-20250514",
+            model=DEFAULT_TEST_MODEL,
             messages=[{"role": "user", "content": "Think about this"}],
             max_tokens=16000,
             thinking={"type": "enabled", "budget_tokens": 10000},
@@ -272,7 +273,7 @@ class TestAnthropicClientStream:
         """Test that stream passes parameters correctly."""
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
-            model="claude-sonnet-4-20250514",
+            model=DEFAULT_TEST_MODEL,
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=100,
             temperature=0.5,
@@ -296,7 +297,7 @@ class TestAnthropicClientStream:
 
         mock_async_client.messages.stream.assert_called_once()
         call_kwargs = mock_async_client.messages.stream.call_args.kwargs
-        assert call_kwargs["model"] == "claude-sonnet-4-20250514"
+        assert call_kwargs["model"] == DEFAULT_TEST_MODEL
         assert call_kwargs["max_tokens"] == 100
         assert call_kwargs["temperature"] == 0.5
         assert call_kwargs["system"] == "Be concise."

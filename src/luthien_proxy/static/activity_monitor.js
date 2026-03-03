@@ -321,7 +321,7 @@ function connect() {
         eventSource.close();
     }
 
-    eventSource = new EventSource('/activity/stream');
+    eventSource = new EventSource('/api/activity/stream');
 
     eventSource.onopen = () => {
         console.log('Connected to activity stream');

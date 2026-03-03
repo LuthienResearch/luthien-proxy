@@ -188,6 +188,6 @@ Common commands:
 
   ```yaml
   policy:
-    class: "luthien_proxy.policies.event_based_noop:EventBasedNoOpPolicy"
+    class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
     config: {}
   ```
