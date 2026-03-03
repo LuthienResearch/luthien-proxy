@@ -355,7 +355,13 @@ function renderConfigForm(policy) {
     // Check if any parameter schema has Pydantic structure (properties or $defs)
     // Schema is {paramName: paramSchema, ...} so we check each parameter
     const hasPydanticSchema = Object.values(schema).some(
-        paramSchema => paramSchema && (paramSchema.properties || paramSchema.$defs || paramSchema['x-sub-policy-list'])
+        paramSchema => paramSchema && (
+            paramSchema.properties ||
+            paramSchema.$defs ||
+            paramSchema['x-sub-policy-list'] ||
+            // Nested arrays (e.g. list[list[str]]) need FormRenderer's pair-input handling
+            (paramSchema.type === 'array' && paramSchema.items?.type === 'array')
+        )
     );
 
     if (hasPydanticSchema && window.FormRenderer) {
