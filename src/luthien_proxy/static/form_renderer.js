@@ -199,6 +199,31 @@ const FormRenderer = {
       ? `<span class="field-hint">${this.escapeHtml(schema.description)}</span>`
       : "";
 
+    // Array of simple arrays (e.g. list[list[str]]) — render as paired inputs so
+    // each inner array stays an actual JS array, not a plain string.
+    if (itemSchema && itemSchema.type === "array" && this.isSimpleType(itemSchema.items)) {
+      const innerSchema = this.resolveRef(itemSchema.items, rootSchema);
+      const isNumeric = innerSchema && (innerSchema.type === "number" || innerSchema.type === "integer");
+      const inputType = isNumeric ? "number" : "text";
+      const modelModifier = isNumeric ? ".number" : "";
+      const defaultInner = isNumeric ? "0" : "''";
+      return `
+        <div class="form-field form-field-array">
+          <label>${this.escapeHtml(this.pathToLabel(path))}</label>
+          ${desc}
+          <template x-for="(item, index) in formData.${path}" :key="index">
+            <div class="array-item array-item-pair">
+              <input type="${inputType}" x-model${modelModifier}="formData.${path}[index][0]" placeholder="from">
+              <span class="pair-separator">→</span>
+              <input type="${inputType}" x-model${modelModifier}="formData.${path}[index][1]" placeholder="to">
+              <button type="button" class="btn-remove" @click="formData.${path}.splice(index, 1)">&times;</button>
+            </div>
+          </template>
+          <button type="button" class="btn-add" @click="formData.${path}.push([${defaultInner}, ${defaultInner}])">+ Add</button>
+        </div>
+      `;
+    }
+
     if (isSimple) {
       const isNumeric = itemSchema && (itemSchema.type === "number" || itemSchema.type === "integer");
       const inputType = isNumeric ? "number" : "text";
