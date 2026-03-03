@@ -199,27 +199,18 @@ const FormRenderer = {
       ? `<span class="field-hint">${this.escapeHtml(schema.description)}</span>`
       : "";
 
-    // Array of simple arrays (e.g. list[list[str]]) — render as paired inputs so
-    // each inner array stays an actual JS array, not a plain string.
-    if (itemSchema && itemSchema.type === "array" && this.isSimpleType(itemSchema.items)) {
-      const innerSchema = this.resolveRef(itemSchema.items, rootSchema);
-      const isNumeric = innerSchema && (innerSchema.type === "number" || innerSchema.type === "integer");
-      const inputType = isNumeric ? "number" : "text";
-      const modelModifier = isNumeric ? ".number" : "";
-      const defaultInner = isNumeric ? "0" : "''";
+    // Array of arrays — render as a JSON textarea so the user can type/paste
+    // the full nested structure (e.g. [["from", "to"], ["foo", "bar"]]).
+    if (itemSchema && itemSchema.type === "array") {
       return `
-        <div class="form-field form-field-array">
+        <div class="form-field">
           <label>${this.escapeHtml(this.pathToLabel(path))}</label>
           ${desc}
-          <template x-for="(item, index) in formData.${path}" :key="index">
-            <div class="array-item array-item-pair">
-              <input type="${inputType}" x-model${modelModifier}="formData.${path}[index][0]" placeholder="from">
-              <span class="pair-separator">→</span>
-              <input type="${inputType}" x-model${modelModifier}="formData.${path}[index][1]" placeholder="to">
-              <button type="button" class="btn-remove" @click="formData.${path}.splice(index, 1)">&times;</button>
-            </div>
-          </template>
-          <button type="button" class="btn-add" @click="formData.${path}.push([${defaultInner}, ${defaultInner}])">+ Add</button>
+          <textarea
+            x-effect="$el.value = JSON.stringify(formData.${path}, null, 2)"
+            @input="try { formData.${path} = JSON.parse($el.value); $el.classList.remove('invalid') } catch(e) { $el.classList.add('invalid') }"
+            class="config-json"
+            rows="4"></textarea>
         </div>
       `;
     }
