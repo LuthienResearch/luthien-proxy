@@ -38,6 +38,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--gateway-url", default="http://gateway:8000", help="Proxy URL from container perspective")
     parser.add_argument("--api-key", default=None, help="API key for proxy (default: PROXY_API_KEY env)")
+    parser.add_argument(
+        "--passthrough",
+        action="store_true",
+        help="Use ANTHROPIC_API_KEY from env as sandbox credential (passthrough auth through proxy)",
+    )
     parser.add_argument("--turn-timeout", type=int, default=300, help="Timeout per turn in seconds (default: 300)")
     parser.add_argument("--compose-project", default=None, help="Docker Compose project name (default: from COMPOSE_PROJECT_NAME env)")
     return parser.parse_args(argv)
@@ -62,7 +67,14 @@ def ensure_sandbox_running(compose_project: str | None = None) -> None:
 
 async def run_overseer(args: argparse.Namespace) -> None:
     """Main overseer loop: drive turns, analyze, and report."""
-    api_key = args.api_key or os.environ.get("PROXY_API_KEY", DEFAULT_API_KEY)
+    if args.passthrough:
+        api_key = args.api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            logger.error("--passthrough requires ANTHROPIC_API_KEY in env or --api-key")
+            sys.exit(1)
+        logger.info("Passthrough mode: sandbox will authenticate with real credentials")
+    else:
+        api_key = args.api_key or os.environ.get("PROXY_API_KEY", DEFAULT_API_KEY)
     compose_project = args.compose_project or os.environ.get("COMPOSE_PROJECT_NAME")
 
     ensure_sandbox_running(compose_project)
