@@ -24,7 +24,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
-from typing import TypedDict, TypeGuard, cast
+from typing import Literal, TypedDict, TypeGuard, cast
 
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
@@ -39,6 +39,7 @@ from opentelemetry.trace import Span
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (
+    AnthropicContentBlock,
     AnthropicRequest,
     AnthropicResponse,
 )
@@ -228,10 +229,10 @@ def _reconstruct_response_from_stream_events(
             delta = event.delta  # type: ignore[union-attr]
             if idx in blocks_by_index:
                 block = blocks_by_index[idx]
-                if delta.type == "text_delta" and block["type"] == "text":
-                    block["text"] += delta.text
-                elif delta.type == "input_json_delta" and block["type"] == "tool_use":
-                    json_bufs[idx] = json_bufs.get(idx, "") + delta.partial_json
+                if delta.type == "text_delta" and block["type"] == "text":  # type: ignore[union-attr]
+                    block["text"] += delta.text  # type: ignore[union-attr]
+                elif delta.type == "input_json_delta" and block["type"] == "tool_use":  # type: ignore[union-attr]
+                    json_bufs[idx] = json_bufs.get(idx, "") + delta.partial_json  # type: ignore[union-attr]
 
         elif t == "content_block_stop":
             idx = event.index  # type: ignore[union-attr]
@@ -253,14 +254,20 @@ def _reconstruct_response_from_stream_events(
     if message_id is None or model is None:
         return None
 
-    content = [blocks_by_index[i] for i in sorted(blocks_by_index.keys())]
+    content = cast(
+        "list[AnthropicContentBlock]",
+        [blocks_by_index[i] for i in sorted(blocks_by_index.keys())],
+    )
     return AnthropicResponse(
         id=message_id,
         type="message",
         role="assistant",
         content=content,
         model=model,
-        stop_reason=stop_reason,
+        stop_reason=cast(
+            "Literal['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'pause_turn', 'refusal'] | None",
+            stop_reason,
+        ),
         stop_sequence=stop_sequence,
         usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
     )
