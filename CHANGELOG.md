@@ -1,5 +1,8 @@
 # CHANGELOG
 
+<!-- New entries go in changelog.d/ as fragment files, not here directly.
+     Run: uv run python scripts/assemble_changelog.py to merge them. -->
+
 ## Unreleased | TBA
 
 - Remove dead Anthropic compatibility handlers (`_handle_streaming`, `_handle_non_streaming`) from `anthropic_processor.py`
