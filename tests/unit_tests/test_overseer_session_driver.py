@@ -1,7 +1,6 @@
 """Tests for the overseer session driver's command building logic."""
 
 import pytest
-
 from scripts.overseer.session_driver import SessionDriver
 
 

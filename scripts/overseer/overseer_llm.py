@@ -4,7 +4,6 @@ import re
 from dataclasses import dataclass
 
 import anthropic
-
 from scripts.overseer.stream_parser import TurnSummary
 
 OVERSEER_SYSTEM_PROMPT = """\
@@ -70,31 +69,23 @@ def parse_overseer_response(response_text: str) -> OverseerAnalysis:
     anomalies: list[str] = []
     next_prompt = ""
 
-    analysis_match = re.search(
-        r"## Analysis\s*\n(.*?)(?=\n## )", response_text, re.DOTALL
-    )
+    analysis_match = re.search(r"## Analysis\s*\n(.*?)(?=\n## )", response_text, re.DOTALL)
     if analysis_match:
         analysis = analysis_match.group(1).strip()
 
-    anomalies_match = re.search(
-        r"## Anomalies\s*\n(.*?)(?=\n## )", response_text, re.DOTALL
-    )
+    anomalies_match = re.search(r"## Anomalies\s*\n(.*?)(?=\n## )", response_text, re.DOTALL)
     if anomalies_match:
         anomalies_text = anomalies_match.group(1).strip()
         if anomalies_text.lower() != "none":
             anomalies = [
-                line.lstrip("- ").strip()
-                for line in anomalies_text.split("\n")
-                if line.strip().startswith("-")
+                line.lstrip("- ").strip() for line in anomalies_text.split("\n") if line.strip().startswith("-")
             ]
 
     prompt_match = re.search(r"## Next Prompt\s*\n(.*)", response_text, re.DOTALL)
     if prompt_match:
         next_prompt = prompt_match.group(1).strip()
 
-    return OverseerAnalysis(
-        analysis=analysis, anomalies=anomalies, next_prompt=next_prompt
-    )
+    return OverseerAnalysis(analysis=analysis, anomalies=anomalies, next_prompt=next_prompt)
 
 
 async def analyze_turn(
