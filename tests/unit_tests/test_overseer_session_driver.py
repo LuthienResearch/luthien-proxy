@@ -46,3 +46,19 @@ class TestBuildCommand:
     def test_verbose_flag_present(self, driver: SessionDriver):
         cmd = driver._build_command("test prompt")
         assert "--verbose" in cmd
+
+    def test_no_model_flag_by_default(self, driver: SessionDriver):
+        cmd = driver._build_command("test prompt")
+        assert "--model" not in cmd
+
+    def test_model_flag_when_set(self):
+        driver = SessionDriver(
+            container_name="sandbox",
+            gateway_url="http://gateway:8000",
+            api_key="test-key",
+            model="claude-haiku-4-5-20251001",
+        )
+        cmd = driver._build_command("test prompt")
+        assert "--model" in cmd
+        model_idx = cmd.index("--model")
+        assert cmd[model_idx + 1] == "claude-haiku-4-5-20251001"

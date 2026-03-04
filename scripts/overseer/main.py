@@ -31,6 +31,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=600, help="Stop after N seconds total (default: 600)")
     parser.add_argument("--port", type=int, default=8080, help="Report server port (default: 8080)")
     parser.add_argument("--model", default="claude-haiku-4-5-20251001", help="Overseer LLM model")
+    parser.add_argument(
+        "--sandbox-model",
+        default="claude-haiku-4-5-20251001",
+        help="Model for Claude Code inside sandbox (default: claude-haiku-4-5-20251001)",
+    )
     parser.add_argument("--gateway-url", default="http://gateway:8000", help="Proxy URL from container perspective")
     parser.add_argument("--api-key", default=None, help="API key for proxy (default: PROXY_API_KEY env)")
     parser.add_argument("--turn-timeout", type=int, default=300, help="Timeout per turn in seconds (default: 300)")
@@ -73,6 +78,7 @@ async def run_overseer(args: argparse.Namespace) -> None:
         api_key=api_key,
         timeout_seconds=args.turn_timeout,
         compose_project=compose_project,
+        model=args.sandbox_model,
     )
 
     overseer_client = anthropic.AsyncAnthropic()

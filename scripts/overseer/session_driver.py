@@ -22,12 +22,14 @@ class SessionDriver:
         api_key: str,
         timeout_seconds: int = 300,
         compose_project: str | None = None,
+        model: str | None = None,
     ):
         self.container_name = container_name
         self.gateway_url = gateway_url
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
         self.compose_project = compose_project
+        self.model = model
         self.session_id: str | None = None
         self.turn_count = 0
 
@@ -41,6 +43,8 @@ class SessionDriver:
             "--verbose",
             "--dangerously-skip-permissions",
         ]
+        if self.model:
+            cmd.extend(["--model", self.model])
         if session_id:
             cmd.extend(["--resume", session_id])
         cmd.append(prompt)
