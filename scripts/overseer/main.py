@@ -34,19 +34,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gateway-url", default="http://gateway:8000", help="Proxy URL from container perspective")
     parser.add_argument("--api-key", default=None, help="API key for proxy (default: PROXY_API_KEY env)")
     parser.add_argument("--turn-timeout", type=int, default=300, help="Timeout per turn in seconds (default: 300)")
+    parser.add_argument("--compose-project", default=None, help="Docker Compose project name (default: from COMPOSE_PROJECT_NAME env)")
     return parser.parse_args(argv)
 
 
-def ensure_sandbox_running() -> None:
-    """Start the sandbox container via docker compose. Exit on failure."""
-    logger.info("Ensuring sandbox container is running...")
-    result = subprocess.run(
-        ["docker", "compose", "--profile", "overseer", "up", "-d", "sandbox"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        logger.error("Failed to start sandbox container:\n%s\n%s", result.stdout, result.stderr)
+def ensure_sandbox_running(compose_project: str | None = None) -> None:
+    """Verify the sandbox container is running. Exit with instructions if not."""
+    cmd = ["docker", "compose"]
+    if compose_project:
+        cmd.extend(["-p", compose_project])
+    cmd.extend(["ps", "--format", "{{.Name}} {{.Status}}", "sandbox"])
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0 or "Up" not in result.stdout:
+        logger.error(
+            "Sandbox container is not running. Start it first:\n"
+            "  docker compose --profile overseer up -d"
+        )
         sys.exit(1)
     logger.info("Sandbox container is up")
 
@@ -54,8 +58,9 @@ def ensure_sandbox_running() -> None:
 async def run_overseer(args: argparse.Namespace) -> None:
     """Main overseer loop: drive turns, analyze, and report."""
     api_key = args.api_key or os.environ.get("PROXY_API_KEY", DEFAULT_API_KEY)
+    compose_project = args.compose_project or os.environ.get("COMPOSE_PROJECT_NAME")
 
-    ensure_sandbox_running()
+    ensure_sandbox_running(compose_project)
 
     report = ReportServer(port=args.port)
     report.task = args.task
@@ -67,6 +72,7 @@ async def run_overseer(args: argparse.Namespace) -> None:
         gateway_url=args.gateway_url,
         api_key=api_key,
         timeout_seconds=args.turn_timeout,
+        compose_project=compose_project,
     )
 
     overseer_client = anthropic.AsyncAnthropic()

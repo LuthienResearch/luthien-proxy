@@ -21,11 +21,13 @@ class SessionDriver:
         gateway_url: str,
         api_key: str,
         timeout_seconds: int = 300,
+        compose_project: str | None = None,
     ):
         self.container_name = container_name
         self.gateway_url = gateway_url
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
+        self.compose_project = compose_project
         self.session_id: str | None = None
         self.turn_count = 0
 
@@ -49,17 +51,16 @@ class SessionDriver:
         turn_number = self.turn_count + 1
         cmd = self._build_command(prompt, session_id=self.session_id)
 
-        exec_cmd = [
-            "docker",
-            "compose",
-            "exec",
-            "-T",
-            "-e",
-            f"ANTHROPIC_BASE_URL={self.gateway_url}",
-            "-e",
-            f"ANTHROPIC_API_KEY={self.api_key}",
+        exec_cmd = ["docker", "compose"]
+        if self.compose_project:
+            exec_cmd.extend(["-p", self.compose_project])
+        exec_cmd.extend([
+            "exec", "-T",
+            "-e", f"ANTHROPIC_BASE_URL={self.gateway_url}",
+            "-e", f"ANTHROPIC_API_KEY={self.api_key}",
             self.container_name,
-        ] + cmd
+        ])
+        exec_cmd.extend(cmd)
 
         logger.info("Running turn %d: %s", turn_number, exec_cmd)
 
