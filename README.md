@@ -42,7 +42,7 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 </tr>
 </table>
 
-> Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
+> :rotating_light: Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
 >
 > Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues).
 
@@ -50,11 +50,12 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ## What can it do?
 
+### Enforce arbitrary rules/policies
+
 - **Block dangerous operations** - `rm -rf`, `git push --force`, dropping database tables
 - **Enforce package standards** - block `pip install`, suggest `uv add` instead
 - **Clean up AI writing tics** - remove em dashes, curly quotes, over-bulleting
 - **Enforce scope boundaries** - only allow changes to files mentioned in the request
-- **Log everything** - get a URL to a live-updating log of your full agent conversation
 
 **Example: ToolCallJudgePolicy** - an LLM judge that evaluates every tool call:
 
@@ -71,13 +72,31 @@ policy:
       Block 'git push --force' to main or master.
 ```
 
-Every policy action is logged. Measure what got blocked, track false positives, monitor latency overhead.
+### Log everything passing through the proxy
+
+Every request and response between Claude Code and the Anthropic API is recorded automatically.
+
+- **Live conversation view** - open [localhost:8000/history](http://localhost:8000/history) to see your full agent conversation in a readable format, updated in real time
+- **Activity monitor** - open [localhost:8000/activity/monitor](http://localhost:8000/activity/monitor) to see raw JSON request/response pairs streaming through the proxy
+- **Policy action log** - every policy decision (blocked, modified, or allowed) is recorded with the full context of what triggered it
+
+This means you can answer questions like: what did Claude actually send to the API? Did the policy fire? What got blocked vs. allowed? Track false positives and monitor latency overhead - all from a browser tab, no extra tooling needed.
 
 ---
 
 ## How does it work?
 
-<img src="assets/readme/how-it-works.svg" alt="How Luthien works: sits between Claude Code and the API, logs everything, enforces your rules" width="100%">
+```
+You <-> Claude Code <-> Luthien <-> Anthropic API
+                          |
+                   logs every request and response.   ~5-15ms overhead
+                   you can configure rules/policies to
+                   modify or block certain responses or requests:
+                          |
+                          |-- did it do what I asked?
+                          |-- did it follow CLAUDE.md?
+                          +-- did it do something suspicious?
+```
 
 Luthien can call a separate "judge" model (like Claude Haiku) to evaluate whether each response follows your rules. This happens in parallel to reduce latency. You decide which model to use for each policy.
 
@@ -86,7 +105,9 @@ Luthien can call a separate "judge" model (like Claude Haiku) to evaluate whethe
 ## Quick Start
 
 **Prerequisites:**
+
 [Docker](https://www.docker.com/products/docker-desktop/) must be running (or `brew install --cask docker`).
+
 Install [uv](https://docs.astral.sh/uv/) if you haven't: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 ### 1. Clone the repo
@@ -378,7 +399,7 @@ Editor setup (VS Code)
 - Tests: `uv run pytest -q` with coverage for `src/luthien_proxy/**` configured in `[tool.pytest.ini_options]`.
 - Config consolidation: Ruff, Pytest, and Pyright live in `pyproject.toml` to avoid extra files.
 
-## Architecture
+## architecture
 
 The gateway integrates everything into a single FastAPI application:
 
