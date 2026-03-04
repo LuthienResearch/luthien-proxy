@@ -1,4 +1,4 @@
-# Luthien
+# Luthien <!-- README v10 -->
 ### Let AI code. Stay in control.
 
 [What is it?](#what-is-it) | [What does it look like?](#what-does-it-look-like) | [How does it work?](#how-does-it-work) | [What can it do?](#what-can-it-do) | [Quick start](#quick-start)
