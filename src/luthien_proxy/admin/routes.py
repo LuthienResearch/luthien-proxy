@@ -318,7 +318,7 @@ async def send_chat(
     base_url = get_base_url(request)
 
     # Build OpenAI-format request payload
-    payload: dict = {
+    payload: dict[str, Any] = {
         "model": body.model,
         "messages": [{"role": "user", "content": body.message}],
         "stream": False,
