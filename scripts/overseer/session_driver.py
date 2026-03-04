@@ -20,7 +20,7 @@ class SessionDriver:
         container_name: str,
         gateway_url: str,
         api_key: str,
-        timeout_seconds: int = 300,
+        timeout_seconds: int = 600,
         compose_project: str | None = None,
         model: str | None = None,
     ):
@@ -81,8 +81,17 @@ class SessionDriver:
             )
         except asyncio.TimeoutError:
             proc.kill()
-            await proc.communicate()
-            raise
+            stdout_bytes, _ = await proc.communicate()
+            await self._kill_stale_claude_processes()
+            end_time = time.monotonic()
+            stdout = stdout_bytes.decode(errors="replace")
+            summary = summarize_turn(stdout, turn_number, start_time, end_time)
+            summary.anomalies.append(f"Turn timed out after {self.timeout_seconds}s")
+            logger.warning("Turn %d timed out after %ds", turn_number, self.timeout_seconds)
+            if self.session_id is None and summary.session_id:
+                self.session_id = summary.session_id
+            self.turn_count += 1
+            return summary
         end_time = time.monotonic()
 
         stdout = stdout_bytes.decode(errors="replace")
@@ -102,3 +111,13 @@ class SessionDriver:
 
         self.turn_count += 1
         return summary
+
+    async def _kill_stale_claude_processes(self) -> None:
+        """Kill any leftover claude processes in the sandbox after a timeout."""
+        kill_cmd = ["docker", "compose"]
+        if self.compose_project:
+            kill_cmd.extend(["-p", self.compose_project])
+        kill_cmd.extend(["exec", "-T", self.container_name, "sh", "-c", "pkill -f claude || true"])
+        kill_proc = await asyncio.create_subprocess_exec(*kill_cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        await kill_proc.communicate()
+        logger.info("Killed stale claude processes in sandbox")
