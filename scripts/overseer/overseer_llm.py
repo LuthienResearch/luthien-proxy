@@ -1,10 +1,13 @@
 """Overseer LLM -- analyzes turn output and generates next prompts via direct Anthropic API."""
 
+import logging
 import re
 from dataclasses import dataclass
 
 import anthropic
 from scripts.overseer.stream_parser import TurnSummary
+
+log = logging.getLogger(__name__)
 
 OVERSEER_SYSTEM_PROMPT = """\
 You are a test overseer monitoring a Claude Code session running through a proxy gateway.
@@ -85,6 +88,9 @@ def parse_overseer_response(response_text: str) -> OverseerAnalysis:
     if prompt_match:
         next_prompt = prompt_match.group(1).strip()
 
+    if not next_prompt:
+        log.warning("Overseer LLM response missing '## Next Prompt' section — response may be malformed")
+
     return OverseerAnalysis(analysis=analysis, anomalies=anomalies, next_prompt=next_prompt)
 
 
@@ -92,9 +98,11 @@ async def analyze_turn(
     summary: TurnSummary,
     task: str,
     model: str = "claude-haiku-4-5-20251001",
+    client: anthropic.AsyncAnthropic | None = None,
 ) -> OverseerAnalysis:
     """Call the Anthropic API directly to analyze a turn and get the next prompt."""
-    client = anthropic.AsyncAnthropic()
+    if client is None:
+        client = anthropic.AsyncAnthropic()
 
     prompt = build_analysis_prompt(summary, task)
     response = await client.messages.create(

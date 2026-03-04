@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 
+import anthropic
 from scripts.overseer.overseer_llm import analyze_turn
 from scripts.overseer.report_server import ReportServer
 from scripts.overseer.session_driver import SessionDriver
@@ -68,6 +69,8 @@ async def run_overseer(args: argparse.Namespace) -> None:
         timeout_seconds=args.turn_timeout,
     )
 
+    overseer_client = anthropic.AsyncAnthropic()
+
     report.set_status("running")
     current_prompt = args.task
     session_start = time.monotonic()
@@ -87,7 +90,7 @@ async def run_overseer(args: argparse.Namespace) -> None:
                 for a in summary.anomalies:
                     logger.warning("Rule anomaly (turn %d): %s", turn, a)
 
-            analysis = await analyze_turn(summary, args.task, args.model)
+            analysis = await analyze_turn(summary, args.task, args.model, client=overseer_client)
             report.add_llm_anomalies(turn, analysis.anomalies)
 
             if analysis.anomalies:
