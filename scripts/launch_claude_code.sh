@@ -110,17 +110,18 @@ fi
 # OAuth mode: only set ANTHROPIC_BASE_URL. Claude Code uses its existing OAuth session
 #   and sends bearer tokens to the proxy, which forwards them to Anthropic.
 #   No server-side API key is needed.
-#   See https://docs.claude.com/en/docs/claude-code/settings#environment-variables
+
+# You can add these env vars to change the default models used by Claude Code:
+# ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5"
+# ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5"
+# ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-3-5-haiku"
+# CLAUDE_CODE_SUBAGENT_MODEL="anthropic/claude-sonnet-4-5"
+# See https://docs.claude.com/en/docs/claude-code/settings#environment-variables
 if [ "${USE_OAUTH}" = false ]; then
     env \
       ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
       ANTHROPIC_API_KEY="${PROXY_KEY}" \
       claude "$@"
-      # You can add these to change the default models:
-      # ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5" \
-      # ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5" \
-      # ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-3-5-haiku" \
-      # CLAUDE_CODE_SUBAGENT_MODEL="anthropic/claude-sonnet-4-5" \
 else
     env \
       ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
