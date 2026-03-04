@@ -562,7 +562,9 @@ async def _handle_execution_streaming(
                             call_id,
                             "transaction.streaming_response_recorded",
                             {
-                                "original_response": dict(raw_reconstructed) if raw_reconstructed is not None else dict(reconstructed),
+                                "original_response": dict(raw_reconstructed)
+                                if raw_reconstructed is not None
+                                else dict(reconstructed),
                                 "final_response": dict(reconstructed),
                                 "session_id": policy_ctx.session_id,
                             },
