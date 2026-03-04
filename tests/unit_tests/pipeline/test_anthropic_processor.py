@@ -1321,7 +1321,9 @@ class TestExecutionPolicyRuntime:
 class TestReconstructResponseFromStreamEvents:
     """Tests for _reconstruct_response_from_stream_events."""
 
-    def _message_start(self, message_id: str = "msg_abc", model: str = "claude-sonnet-4-20250514", input_tokens: int = 10) -> RawMessageStartEvent:
+    def _message_start(
+        self, message_id: str = "msg_abc", model: str = "claude-sonnet-4-20250514", input_tokens: int = 10
+    ) -> RawMessageStartEvent:
         return RawMessageStartEvent(
             type="message_start",
             message={
@@ -1341,10 +1343,18 @@ class TestReconstructResponseFromStreamEvents:
         events = [
             self._message_start("msg_abc123", input_tokens=10),
             RawContentBlockStartEvent(type="content_block_start", index=0, content_block={"type": "text", "text": ""}),
-            RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text="Bucharest")),
-            RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text=" is the capital.")),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text="Bucharest")
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text=" is the capital.")
+            ),
             RawContentBlockStopEvent(type="content_block_stop", index=0),
-            RawMessageDeltaEvent(type="message_delta", delta={"stop_reason": "end_turn", "stop_sequence": None}, usage={"output_tokens": 5}),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta={"stop_reason": "end_turn", "stop_sequence": None},
+                usage={"output_tokens": 5},
+            ),
             RawMessageStopEvent(type="message_stop"),
         ]
 
@@ -1366,9 +1376,15 @@ class TestReconstructResponseFromStreamEvents:
         events = [
             self._message_start(),
             RawContentBlockStartEvent(type="content_block_start", index=0, content_block={"type": "text", "text": ""}),
-            RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text="Hello")),
-            RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text=", ")),
-            RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text="world")),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text="Hello")
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text=", ")
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta", index=0, delta=TextDelta(type="text_delta", text="world")
+            ),
             RawContentBlockStopEvent(type="content_block_stop", index=0),
             RawMessageStopEvent(type="message_stop"),
         ]
@@ -1472,7 +1488,8 @@ class TestStreamingResponseRecording:
         assert "transaction.streaming_response_recorded" in event_types
 
         recorded_call = next(
-            call for call in mock_emitter.record.call_args_list
+            call
+            for call in mock_emitter.record.call_args_list
             if call.args[1] == "transaction.streaming_response_recorded"
         )
         payload = recorded_call.args[2]
