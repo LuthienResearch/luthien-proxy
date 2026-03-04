@@ -1,82 +1,113 @@
-# Luthien
-### Let AI code. Stay in control.
+# Luthien <!-- README v10 -->
 
-[What is it?](#what-is-it) | [What does it look like?](#what-does-it-look-like) | [How does it work?](#how-does-it-work) | [What can it do?](#what-can-it-do) | [Quick start](#quick-start)
+### Let Claude Code code. Stay in control.
 
----
+[What does it look like?](#what-does-it-look-like) | [What can it do?](#what-can-it-do) | [How does it work?](#how-does-it-work) | [Quick start](#quick-start)
 
-## What is it?
+Open-source proxy that sits between Claude Code and the Anthropic API.
+Logs every request. Enforces your rules.
 
-Luthien is a proxy that sits between Claude Code (client) and the Claude API backend. It logs every request and response and enables you to set arbitrary rules/policies that can block dangerous operations, confirm the output is what you asked for, adheres to your CLAUDE.md, and doesn't contain suspicious stuff — all without changing your dev setup.
+Catches context rot, ignored instructions, and suspicious behavior without changing your dev setup.
 
 ---
 
 ## What does it look like?
 
+Say your `CLAUDE.md` has this rule:
+
+```
+Python packages: use uv add, never pip install.
+```
+
 <table>
 <tr>
-<th width="50%">Before</th>
-<th width="50%">After</th>
+<th width="50%">Without Luthien</th>
+<th width="50%">With Luthien</th>
 </tr>
 <tr>
-<td>
+<td valign="top">
 
-<img src="assets/readme/terminal-without-luthien.svg?v=17" alt="Before: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
+<img src="assets/readme/terminal-without-luthien.svg?v=19" alt="Without Luthien: Claude Code ignores your CLAUDE.md rules and you correct it manually" width="100%">
+
+Claude ignores your CLAUDE.md rule and you correct it manually.
 
 </td>
-<td>
+<td valign="top">
 
-<img src="assets/readme/terminal-with-luthien.svg?v=17" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
+<img src="assets/readme/terminal-with-luthien.svg?v=19" alt="With Luthien: Luthien catches the violation and auto-corrects" width="100%">
+
+Luthien catches the violation and auto-corrects. No human intervention needed.
 
 </td>
 </tr>
 </table>
 
-> ⚠️ Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
+> :rotating_light: Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
 >
 > Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues).
 
 ---
 
-## How does it work?
-
-<img src="assets/readme/how-it-works.svg" alt="How Luthien works: sits between Claude Code and the API, logs everything, enforces your rules" width="100%">
-
-Luthien runs on your machine or your cloud account.
-
----
-
 ## What can it do?
 
-- **Block dangerous operations:** `rm -rf`, `git push --force`, dropping database tables
-- **Enforce package standards:** block `pip install`, suggest `uv add` instead
-- **Clean up AI writing tics:** remove em dashes, curly quotes, over-bulleting
-- **Enforce scope boundaries:** only allow changes to files mentioned in the request
-- **Log everything:** get a URL to a live-updating log of your full agent conversation
+### Enforce arbitrary rules/policies
 
-<details>
-<summary><b>Example: PipBlockPolicy (click to expand)</b></summary>
+- **Block dangerous operations** - `rm -rf`, `git push --force`, dropping database tables
+- **Enforce package standards** - block `pip install`, suggest `uv add` instead
+- **Clean up AI writing tics** - remove em dashes, curly quotes, over-bulleting
+- **Enforce scope boundaries** - only allow changes to files mentioned in the request
+
+**Example: ToolCallJudgePolicy** - an LLM judge that evaluates every tool call:
 
 ```yaml
+# config/policy_config.yaml
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    probability_threshold: 0.95
-    judge_instructions: |
-      Block any `pip install`, `pip3 install`, or `python -m pip install` tool call.
-      Suggest using `uv add` instead.
+    model: "openai/gpt-4o-mini"
+    probability_threshold: 0.6  # block if judge confidence >= 60%
+    judge_instructions: >
+      Block any 'pip install' commands. Suggest 'uv add' instead.
+      Block 'rm -rf' or any recursive delete on project directories.
+      Block 'git push --force' to main or master.
 ```
 
-</details>
+### Log everything passing through the proxy
 
-Every policy action is logged. Measure what got blocked, track false positives, monitor latency overhead.
+Every request and response between Claude Code and the Anthropic API is recorded automatically.
+
+- **Live conversation view** - open [localhost:8000/history](http://localhost:8000/history) to see your full agent conversation in a readable format, updated in real time
+- **Activity monitor** - open [localhost:8000/activity/monitor](http://localhost:8000/activity/monitor) to see raw JSON request/response pairs streaming through the proxy
+- **Policy action log** - every policy decision (blocked, modified, or allowed) is recorded with the full context of what triggered it
+
+This means you can answer questions like: what did Claude actually send to the API? Did the policy fire? What got blocked vs. allowed? Track false positives and monitor latency overhead - all from a browser tab, no extra tooling needed.
+
+---
+
+## How does it work?
+
+```
+You <-> Claude Code <-> Luthien <-> Anthropic API
+                          |
+                   logs every request and response.   ~5-15ms overhead
+                   you can configure rules/policies to
+                   modify or block certain responses or requests:
+                          |
+                          |-- did it do what I asked?
+                          |-- did it follow CLAUDE.md?
+                          +-- did it do something suspicious?
+```
+
+Luthien can call a separate "judge" model (like Claude Haiku) to evaluate whether each response follows your rules. This happens in parallel to reduce latency. You decide which model to use for each policy.
 
 ---
 
 ## Quick Start
 
 **Prerequisites:**
+
 [Docker](https://www.docker.com/products/docker-desktop/) must be running (or `brew install --cask docker`).
+
 Install [uv](https://docs.astral.sh/uv/) if you haven't: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 ### 1. Clone the repo
@@ -98,6 +129,8 @@ Replace `your-key-here` with your key from [console.anthropic.com](https://conso
 ```bash
 ./scripts/quick_start.sh
 ```
+
+The default policy (**No Silent Failures**) is already active -no configuration needed. It catches when Claude silently drops your instructions.
 
 ### 4. Launch Claude Code through the proxy
 
@@ -137,50 +170,57 @@ class DeSlop(SimplePolicy):
 
 ### 7. Set up an LLM-as-judge policy
 
-Luthien can call an LLM (like Haiku) to evaluate your rules on every request and response.
+Luthien can call a separate "judge" model (like Claude Haiku) to evaluate your rules on every request and response. This happens in parallel to reduce latency. You decide which model to use for each policy.
 
 <details>
-<summary><b>Did it do what I asked?</b></summary>
+<summary><b>Did it follow CLAUDE.md? (YAML config)</b></summary>
 
 ```yaml
+# Write your rules in plain English -the judge LLM interprets them
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    probability_threshold: 0.8
-    judge_instructions: |
-      Check if the agent completed what the user asked for.
-      Flag if it claims "Done" but leaves TODOs, stubs, or placeholders.
+    model: "openai/gpt-4o-mini"
+    probability_threshold: 0.6
+    judge_instructions: >
+      Block any 'pip install' commands. Suggest 'uv add' instead.
+      Flag if agent removed comments or log lines without being asked.
+      Flag if agent ignored rules that were explicitly stated in CLAUDE.md.
 ```
 
 </details>
 
 <details>
-<summary><b>Did it follow CLAUDE.md?</b></summary>
+<summary><b>Did it do something suspicious? (YAML config)</b></summary>
 
 ```yaml
+# The judge evaluates every tool call before it executes
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    probability_threshold: 0.85
-    judge_instructions: |
-      Enforce explicit rules from CLAUDE.md for this repo.
-      Flag any command or response that violates those rules.
+    model: "openai/gpt-4o-mini"
+    probability_threshold: 0.5
+    judge_instructions: >
+      Block 'rm -rf' or any recursive delete on project directories.
+      Block 'git push --force' to main or master.
+      Flag if agent wraps code in try/except that swallows all errors.
+      Flag if agent pip-installs packages not in requirements.
 ```
 
 </details>
 
 <details>
-<summary><b>Did it do something suspicious?</b></summary>
+<summary><b>Clean up AI writing tics (string replacement)</b></summary>
 
 ```yaml
+# No LLM needed -runs as a fast string replacement on every response
 policy:
-  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  class: "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
   config:
-    probability_threshold: 0.7
-    judge_instructions: |
-      Block recursive deletes on project directories.
-      Block force-pushing to protected branches.
-      Flag suspicious command patterns or hidden side effects.
+    replacements:
+      - ["\u2014", "-"]   # em dash → hyphen
+      - ["\u2013", "-"]   # en dash → hyphen
+    match_capitalization: true
 ```
 
 </details>
@@ -335,7 +375,7 @@ policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
     model: "openai/gpt-4o-mini"
-    probability_threshold: 0.6
+    probability_threshold: 0.6  # block if judge confidence >= 60% (higher = more permissive)
     temperature: 0.0
     max_tokens: 256
 ```
@@ -359,7 +399,7 @@ Editor setup (VS Code)
 - Tests: `uv run pytest -q` with coverage for `src/luthien_proxy/**` configured in `[tool.pytest.ini_options]`.
 - Config consolidation: Ruff, Pytest, and Pyright live in `pyproject.toml` to avoid extra files.
 
-## Architecture
+## architecture
 
 The gateway integrates everything into a single FastAPI application:
 
@@ -407,15 +447,15 @@ The gateway integrates everything into a single FastAPI application:
 
 **API Endpoints:**
 
-- `POST /v1/chat/completions` — OpenAI Chat Completions API (streaming and non-streaming)
-- `POST /v1/messages` — Anthropic Messages API (streaming and non-streaming)
-- `GET /health` — Health check
+- `POST /v1/chat/completions` -OpenAI Chat Completions API (streaming and non-streaming)
+- `POST /v1/messages` -Anthropic Messages API (streaming and non-streaming)
+- `GET /health` -Health check
 
 **UI Endpoints:**
 
-- `GET /activity/monitor` — Real-time activity monitor (HTML)
-- `GET /activity/live` — WebSocket activity stream (JSON)
-- `GET /debug` — Debug information viewer
+- `GET /activity/monitor` -Real-time activity monitor (HTML)
+- `GET /activity/live` -WebSocket activity stream (JSON)
+- `GET /debug` -Debug information viewer
 
 **Authentication:**
 

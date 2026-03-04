@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="620" height="580" viewBox="0 0 620 580">
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="555" viewBox="0 0 620 555">
   <!-- Terminal background -->
-  <rect width="620" height="580" rx="8" fill="#1e1e1e"/>
+  <rect width="620" height="555" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
   <rect width="620" height="32" rx="8" fill="#323233"/>
@@ -42,12 +42,10 @@
   <text x="140" y="100" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Opus 4.6 · Claude Max</text>
   <text x="140" y="120" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">~/my-project</text>
 
-  <!-- CLAUDE.md indicator -->
-  <rect x="20" y="149" width="420" height="26" rx="4" fill="#252526"/>
-  <rect x="20" y="149" width="3" height="26" rx="1" fill="#569cd6"/>
-  <text x="32" y="166" fill="#569cd6" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">CLAUDE.md</text>
-  <text x="108" y="166" fill="#555555" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">·</text>
-  <text x="120" y="166" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="12">Python packages: use uv add, never pip install.</text>
+  <!-- $ cat CLAUDE.md (Tyler: "literally just cat the CLAUDE.md") -->
+  <text x="20" y="166" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">$</text>
+  <text x="36" y="166" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">cat CLAUDE.md</text>
+  <text x="36" y="184" fill="#808080" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">Python packages: use uv add, never pip install.</text>
 
   <!-- Separator -->
   <line x1="20" y1="195" x2="600" y2="195" stroke="#444444" stroke-width="1"/>
@@ -64,10 +62,14 @@
 
   <text x="36" y="269" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Successfully installed requests-2.31.0</text>
 
-  <!-- 3. User corrects (mild, eye roll) -->
-  <rect x="16" y="288" width="260" height="18" rx="3" fill="#333333"/>
+  <!-- ANNOTATION: red callout on first pip install -->
+  <rect x="380" y="235" width="220" height="20" rx="10" fill="#3a1515" stroke="#ff5f57" stroke-width="1"/>
+  <text x="393" y="249" fill="#ff9090" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="600">← ignores CLAUDE.md rule</text>
+
+  <!-- 3. User corrects -->
+  <rect x="16" y="288" width="200" height="18" rx="3" fill="#333333"/>
   <text x="20" y="301" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="36" y="301" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">uv not pip please.... 🙄</text>
+  <text x="36" y="301" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">uv not pip please....</text>
 
   <!-- 4. Claude AI-ism apology + fix -->
   <text x="20" y="333" fill="#ffffff" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
@@ -96,9 +98,12 @@
 
   <text x="36" y="501" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Successfully installed pytest-8.0.0</text>
 
+  <!-- ANNOTATION: red callout on second pip install -->
+  <rect x="345" y="467" width="255" height="20" rx="10" fill="#3a1515" stroke="#ff5f57" stroke-width="1"/>
+  <text x="358" y="481" fill="#ff9090" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="600">← ...and again, 20 min later</text>
+
   <!-- 8. User explodes -->
-  <rect x="16" y="520" width="420" height="38" rx="3" fill="#333333"/>
+  <rect x="16" y="520" width="350" height="18" rx="3" fill="#333333"/>
   <text x="20" y="533" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="36" y="533" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">UV!!! FOR THE LOVE OF GOD!! DO I NEED</text>
-  <text x="36" y="553" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">ALL CAPS FOR YOU TO REMEMBER?? 🤬</text>
+  <text x="36" y="533" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">UV!!! FOR THE LOVE OF GOD!!</text>
 </svg>
