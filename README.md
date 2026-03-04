@@ -1,13 +1,13 @@
 # Luthien <!-- README v10 -->
-### Let AI code. Stay in control.
 
-[What is it?](#what-is-it) | [What does it look like?](#what-does-it-look-like) | [How does it work?](#how-does-it-work) | [What can it do?](#what-can-it-do) | [Quick start](#quick-start)
+### Let Claude Code code. Stay in control.
 
----
+[What does it look like?](#what-does-it-look-like) | [What can it do?](#what-can-it-do) | [How does it work?](#how-does-it-work) | [Quick start](#quick-start)
 
-## What is it?
+Open-source proxy that sits between Claude Code and the Anthropic API.
+Logs every request. Enforces your rules.
 
-Luthien is a proxy that sits between Claude Code (client) and the Claude API backend. It logs every request and response and enables you to set rules and policies that can block dangerous operations, confirm the output is what you asked for, adheres to your CLAUDE.md, and doesn't contain suspicious stuff — all without changing your dev setup.
+Catches context rot, ignored instructions, and suspicious behavior without changing your dev setup.
 
 ---
 
@@ -27,42 +27,36 @@ Python packages: use uv add, never pip install.
 <tr>
 <td valign="top">
 
-<img src="assets/readme/terminal-without-luthien.svg?v=19" alt="Without Luthien: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
+<img src="assets/readme/terminal-without-luthien.svg?v=19" alt="Without Luthien: Claude Code ignores your CLAUDE.md rules and you correct it manually" width="100%">
+
+Claude ignores your CLAUDE.md rule and you correct it manually.
 
 </td>
 <td valign="top">
 
-<img src="assets/readme/terminal-with-luthien.svg?v=19" alt="With Luthien: pip install is caught and auto-corrected to uv add" width="100%">
+<img src="assets/readme/terminal-with-luthien.svg?v=19" alt="With Luthien: Luthien catches the violation and auto-corrects" width="100%">
+
+Luthien catches the violation and auto-corrects. No human intervention needed.
 
 </td>
 </tr>
 </table>
 
-Without Luthien, Claude sometimes ignores your CLAUDE.md rules (e.g., use uv, not pip). With Luthien, the violation is caught and auto-corrected before it reaches your machine.
-
-> ⚠️ Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
+> Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
 >
 > Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues).
 
 ---
 
-## How does it work?
-
-<img src="assets/readme/how-it-works.svg" alt="How Luthien works: sits between Claude Code and the API, logs everything, enforces your rules" width="100%">
-
-Luthien runs on your machine.
-
----
-
 ## What can it do?
 
-- **Block dangerous operations:** `rm -rf`, `git push --force`, dropping database tables
-- **Enforce package standards:** block `pip install`, suggest `uv add` instead
-- **Clean up AI writing tics:** remove em dashes, curly quotes, over-bulleting
-- **Enforce scope boundaries:** only allow changes to files mentioned in the request
-- **Log everything:** get a URL to a live-updating log of your full agent conversation
+- **Block dangerous operations** - `rm -rf`, `git push --force`, dropping database tables
+- **Enforce package standards** - block `pip install`, suggest `uv add` instead
+- **Clean up AI writing tics** - remove em dashes, curly quotes, over-bulleting
+- **Enforce scope boundaries** - only allow changes to files mentioned in the request
+- **Log everything** - get a URL to a live-updating log of your full agent conversation
 
-**Example: ToolCallJudgePolicy** — an LLM judge that evaluates every tool call:
+**Example: ToolCallJudgePolicy** - an LLM judge that evaluates every tool call:
 
 ```yaml
 # config/policy_config.yaml
@@ -78,6 +72,14 @@ policy:
 ```
 
 Every policy action is logged. Measure what got blocked, track false positives, monitor latency overhead.
+
+---
+
+## How does it work?
+
+<img src="assets/readme/how-it-works.svg" alt="How Luthien works: sits between Claude Code and the API, logs everything, enforces your rules" width="100%">
+
+Luthien can call a separate "judge" model (like Claude Haiku) to evaluate whether each response follows your rules. This happens in parallel to reduce latency. You decide which model to use for each policy.
 
 ---
 
@@ -107,7 +109,7 @@ Replace `your-key-here` with your key from [console.anthropic.com](https://conso
 ./scripts/quick_start.sh
 ```
 
-The default policy (**No Silent Failures**) is already active — no configuration needed. It catches when Claude silently drops your instructions.
+The default policy (**No Silent Failures**) is already active -no configuration needed. It catches when Claude silently drops your instructions.
 
 ### 4. Launch Claude Code through the proxy
 
@@ -147,13 +149,13 @@ class DeSlop(SimplePolicy):
 
 ### 7. Set up an LLM-as-judge policy
 
-Luthien can call a separate, cheaper LLM (e.g., Haiku) to evaluate your rules on every request and response. The judge model runs independently from your main model — it reads the conversation and checks for violations.
+Luthien can call a separate "judge" model (like Claude Haiku) to evaluate your rules on every request and response. This happens in parallel to reduce latency. You decide which model to use for each policy.
 
 <details>
 <summary><b>Did it follow CLAUDE.md? (YAML config)</b></summary>
 
 ```yaml
-# Write your rules in plain English — the judge LLM interprets them
+# Write your rules in plain English -the judge LLM interprets them
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
@@ -190,7 +192,7 @@ policy:
 <summary><b>Clean up AI writing tics (string replacement)</b></summary>
 
 ```yaml
-# No LLM needed — runs as a fast string replacement on every response
+# No LLM needed -runs as a fast string replacement on every response
 policy:
   class: "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
   config:
@@ -424,15 +426,15 @@ The gateway integrates everything into a single FastAPI application:
 
 **API Endpoints:**
 
-- `POST /v1/chat/completions` — OpenAI Chat Completions API (streaming and non-streaming)
-- `POST /v1/messages` — Anthropic Messages API (streaming and non-streaming)
-- `GET /health` — Health check
+- `POST /v1/chat/completions` -OpenAI Chat Completions API (streaming and non-streaming)
+- `POST /v1/messages` -Anthropic Messages API (streaming and non-streaming)
+- `GET /health` -Health check
 
 **UI Endpoints:**
 
-- `GET /activity/monitor` — Real-time activity monitor (HTML)
-- `GET /activity/live` — WebSocket activity stream (JSON)
-- `GET /debug` — Debug information viewer
+- `GET /activity/monitor` -Real-time activity monitor (HTML)
+- `GET /activity/live` -WebSocket activity stream (JSON)
+- `GET /debug` -Debug information viewer
 
 **Authentication:**
 
