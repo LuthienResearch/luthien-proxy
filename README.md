@@ -38,7 +38,7 @@ Python packages: use uv add, never pip install.
 </tr>
 </table>
 
-**Without Luthien**, Claude ignores your CLAUDE.md rule (`Use uv, not pip`) and installs with pip — twice — despite being corrected. **With Luthien**, the violation is caught and auto-corrected before it reaches your machine. No human intervention needed.
+Without Luthien, Claude sometimes ignores your CLAUDE.md rules (e.g., use uv, not pip). With Luthien, the violation is caught and auto-corrected before it reaches your machine.
 
 > ⚠️ Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
 >
