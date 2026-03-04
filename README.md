@@ -13,6 +13,12 @@ Luthien is a proxy that sits between Claude Code (client) and the Claude API bac
 
 ## What does it look like?
 
+Say your `CLAUDE.md` has this rule:
+
+```
+Python packages: use uv add, never pip install.
+```
+
 <table>
 <tr>
 <th width="50%">Without Luthien</th>
