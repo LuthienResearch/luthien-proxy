@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="620" height="420" viewBox="0 0 620 420">
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="505" viewBox="0 0 620 505">
   <!-- Terminal background -->
-  <rect width="620" height="420" rx="8" fill="#1e1e1e"/>
+  <rect width="620" height="505" rx="8" fill="#1e1e1e"/>
 
   <!-- Title bar -->
   <rect width="620" height="32" rx="8" fill="#323233"/>
@@ -58,33 +58,40 @@
   <text x="20" y="217" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
   <text x="36" y="217" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Install requests for the HTTP client</text>
 
-  <!-- 2. Claude uses uv add (CORRECT — Luthien caught pip attempt) -->
+  <!-- 2. Claude attempts pip install (caught by Luthien) -->
   <text x="20" y="249" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
   <text x="36" y="249" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
-  <text x="73" y="249" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(uv add requests)</text>
+  <text x="73" y="249" fill="#ce9178" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(pip install requests)</text>
+  <!-- Strikethrough line over pip command -->
+  <line x1="73" y1="245" x2="260" y2="245" stroke="#ce9178" stroke-width="1" opacity="0.7"/>
 
-  <text x="36" y="269" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Resolved 1 package in 0.5s</text>
+  <!-- 3. Luthien interception: plain English explanation -->
+  <rect x="14" y="264" width="592" height="46" rx="4" fill="#2a2010"/>
+  <rect x="14" y="264" width="3" height="46" rx="1.5" fill="#febc2e"/>
+  <text x="28" y="283" fill="#febc2e" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">⚠ Blocked — your CLAUDE.md says "use uv add, never pip."</text>
+  <text x="28" y="301" fill="#d4a545" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="13">  Retrying with corrected command...</text>
 
-  <!-- ANNOTATION: green callout explaining interception -->
-  <rect x="330" y="233" width="275" height="48" rx="8" fill="#0d2818" stroke="#4ec9b0" stroke-width="1.5"/>
-  <polygon points="324,257 330,251 330,263" fill="#4ec9b0"/>
-  <text x="342" y="253" fill="#4ec9b0" font-family="system-ui,-apple-system,sans-serif" font-size="12" font-weight="600">Luthien caught pip install</text>
-  <text x="342" y="270" fill="#6ee7b7" font-family="system-ui,-apple-system,sans-serif" font-size="12">→ auto-corrected to uv add</text>
+  <!-- 4. Auto-corrected to uv add -->
+  <text x="20" y="333" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
+  <text x="36" y="333" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
+  <text x="73" y="333" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(uv add requests)</text>
 
-  <!-- 3. Second user prompt -->
-  <rect x="16" y="296" width="270" height="18" rx="3" fill="#333333"/>
-  <text x="20" y="309" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="36" y="309" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Now add pytest for testing</text>
+  <text x="36" y="353" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Resolved 1 package in 0.5s</text>
 
-  <!-- 4. Claude uses uv add again (CORRECT) -->
-  <text x="20" y="341" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
-  <text x="36" y="341" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
-  <text x="73" y="341" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(uv add pytest)</text>
+  <!-- 5. Second user prompt -->
+  <rect x="16" y="380" width="270" height="18" rx="3" fill="#333333"/>
+  <text x="20" y="393" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
+  <text x="36" y="393" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">Now add pytest for testing</text>
 
-  <text x="36" y="361" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Resolved 1 package in 0.3s</text>
+  <!-- 6. Claude uses uv add directly (learned from correction) -->
+  <text x="20" y="425" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">●</text>
+  <text x="36" y="425" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14" font-weight="bold">Bash</text>
+  <text x="73" y="425" fill="#4ec9b0" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">(uv add pytest)</text>
 
-  <!-- 5. Happy user -->
-  <rect x="16" y="384" width="190" height="18" rx="3" fill="#333333"/>
-  <text x="20" y="397" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
-  <text x="36" y="397" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">nice, that was easy</text>
+  <text x="36" y="445" fill="#5a5a5a" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">└ Resolved 1 package in 0.3s</text>
+
+  <!-- 7. Happy user -->
+  <rect x="16" y="468" width="190" height="18" rx="3" fill="#333333"/>
+  <text x="20" y="481" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">❯</text>
+  <text x="36" y="481" fill="#d4d4d4" font-family="'SF Mono',Menlo,Consolas,monospace" font-size="14">nice, that was easy</text>
 </svg>

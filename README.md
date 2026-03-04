@@ -25,14 +25,14 @@ Python packages: use uv add, never pip install.
 <th width="50%">With Luthien</th>
 </tr>
 <tr>
-<td>
+<td valign="top">
 
-<img src="assets/readme/terminal-without-luthien.svg?v=18" alt="Without Luthien: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
+<img src="assets/readme/terminal-without-luthien.svg?v=19" alt="Without Luthien: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
 
 </td>
-<td>
+<td valign="top">
 
-<img src="assets/readme/terminal-with-luthien.svg?v=18" alt="With Luthien: pip install is caught and auto-corrected to uv add" width="100%">
+<img src="assets/readme/terminal-with-luthien.svg?v=19" alt="With Luthien: pip install is caught and auto-corrected to uv add" width="100%">
 
 </td>
 </tr>
