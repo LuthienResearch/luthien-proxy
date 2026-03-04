@@ -26,3 +26,6 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-httpx>=0.35.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
