@@ -100,6 +100,20 @@ Source: [Office Hours notes](https://docs.google.com/document/d/1Qo2D5zrtuHO2MF6
 - [ ] **`cancel-delete` not tested e2e** — Soft-delete and cancel-delete flow is unit tested but hasn't been verified against live Railway. (2026-02-05)
 - [ ] **Single environment assumed** — Code always uses `env_edges[0]` (first environment). If additional Railway environments exist on a project, they're ignored. May be fine as a simplifying assumption, but should be documented or validated. (2026-02-05)
 
+### README & Landing Page (Deferred from value-prop work, 2026-03-03)
+
+Source: Sessions 4-9 in [1-value-prop-feedback.md](https://github.com/LuthienResearch/luthien-org/blob/main/ui-fb-dev/1-feedback-synthesis/1-value-prop-feedback.md)
+
+- [ ] **Benchmark data — Bash Arena / Control Arena** — Tyler's #1 ask, Josh convergence. Requires Jai. Major trust-builder.
+- [ ] **Video tutorial** — Tyler: "video at the beginning of the GitHub repo." Separate content creation task.
+- [ ] **"About" section — who are the founders** — Finn (Session 8). First explicit request for team identity on landing page.
+- [ ] **Metrics/bar chart — nothing → prompting → Luthien** — Josh. Requires benchmark data first.
+- [ ] **Simplify quick start to "ask Claude to do it"** — Finn (Session 8): copy README into Claude Code. Separate PR.
+- [ ] **Architecture diagram bigger on landing page** — Finn. Port SVG from README (Session 9 convergence). Separate design task.
+- [ ] **Page flow restructure — "story down the page"** — Darren. Bigger redesign.
+- [ ] **Trial doc generic version for cold sends** — Tyler. Separate doc.
+- [ ] **Move v8-instructions from scottwofford.com to luthienresearch.github.io** — Currently at scottwofford.com/luthien/landing_v8-instructions/, should live at luthienresearch.github.io/luthien-pbc-site/ instead. Update per Tyler's feedback with Redwood contractors (or anyone) as the audience.
+
 ## Low Priority / Future Work
 
 - [ ] **Support ANTHROPIC_AUTH_TOKEN header** - Claude Code uses `x-api-key` header with value from `ANTHROPIC_API_KEY` env var. Some tools may use `Authorization: Bearer` with `ANTHROPIC_AUTH_TOKEN`. Consider supporting both auth header formats for broader compatibility.

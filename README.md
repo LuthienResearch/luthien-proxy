@@ -7,7 +7,7 @@
 
 ## What is it?
 
-Luthien is a proxy that sits between Claude Code (client) and the Claude API backend. It logs every request and response and enables you to set arbitrary rules/policies that can block dangerous operations, confirm the output is what you asked for, adheres to your CLAUDE.md, and doesn't contain suspicious stuff — all without changing your dev setup.
+Luthien is a proxy that sits between Claude Code (client) and the Claude API backend. It logs every request and response and enables you to set rules and policies that can block dangerous operations, confirm the output is what you asked for, adheres to your CLAUDE.md, and doesn't contain suspicious stuff — all without changing your dev setup.
 
 ---
 
@@ -32,6 +32,8 @@ Luthien is a proxy that sits between Claude Code (client) and the Claude API bac
 </tr>
 </table>
 
+In the "Before", Claude ignores your CLAUDE.md rule (`Use uv, not pip`) and installs with pip — twice — despite being corrected. In the "After", Luthien catches the violation and auto-corrects before it reaches your machine. No human intervention needed.
+
 > ⚠️ Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
 >
 > Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues).
@@ -42,7 +44,7 @@ Luthien is a proxy that sits between Claude Code (client) and the Claude API bac
 
 <img src="assets/readme/how-it-works.svg" alt="How Luthien works: sits between Claude Code and the API, logs everything, enforces your rules" width="100%">
 
-Luthien runs on your machine or your cloud account.
+Luthien runs on your machine.
 
 ---
 
@@ -54,20 +56,20 @@ Luthien runs on your machine or your cloud account.
 - **Enforce scope boundaries:** only allow changes to files mentioned in the request
 - **Log everything:** get a URL to a live-updating log of your full agent conversation
 
-<details>
-<summary><b>Example: PipBlockPolicy (click to expand)</b></summary>
+**Example: ToolCallJudgePolicy** — an LLM judge that evaluates every tool call:
 
 ```yaml
+# config/policy_config.yaml
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    probability_threshold: 0.95
-    judge_instructions: |
-      Block any `pip install`, `pip3 install`, or `python -m pip install` tool call.
-      Suggest using `uv add` instead.
+    model: "openai/gpt-4o-mini"
+    probability_threshold: 0.6  # block if judge confidence >= 60%
+    judge_instructions: >
+      Block any 'pip install' commands. Suggest 'uv add' instead.
+      Block 'rm -rf' or any recursive delete on project directories.
+      Block 'git push --force' to main or master.
 ```
-
-</details>
 
 Every policy action is logged. Measure what got blocked, track false positives, monitor latency overhead.
 
@@ -98,6 +100,8 @@ Replace `your-key-here` with your key from [console.anthropic.com](https://conso
 ```bash
 ./scripts/quick_start.sh
 ```
+
+The default policy (**No Silent Failures**) is already active — no configuration needed. It catches when Claude silently drops your instructions.
 
 ### 4. Launch Claude Code through the proxy
 
@@ -137,50 +141,57 @@ class DeSlop(SimplePolicy):
 
 ### 7. Set up an LLM-as-judge policy
 
-Luthien can call an LLM (like Haiku) to evaluate your rules on every request and response.
+Luthien can call a separate, cheaper LLM (e.g., Haiku) to evaluate your rules on every request and response. The judge model runs independently from your main model — it reads the conversation and checks for violations.
 
 <details>
-<summary><b>Did it do what I asked?</b></summary>
+<summary><b>Did it follow CLAUDE.md? (YAML config)</b></summary>
 
 ```yaml
+# Write your rules in plain English — the judge LLM interprets them
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    probability_threshold: 0.8
-    judge_instructions: |
-      Check if the agent completed what the user asked for.
-      Flag if it claims "Done" but leaves TODOs, stubs, or placeholders.
+    model: "openai/gpt-4o-mini"
+    probability_threshold: 0.6
+    judge_instructions: >
+      Block any 'pip install' commands. Suggest 'uv add' instead.
+      Flag if agent removed comments or log lines without being asked.
+      Flag if agent ignored rules that were explicitly stated in CLAUDE.md.
 ```
 
 </details>
 
 <details>
-<summary><b>Did it follow CLAUDE.md?</b></summary>
+<summary><b>Did it do something suspicious? (YAML config)</b></summary>
 
 ```yaml
+# The judge evaluates every tool call before it executes
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    probability_threshold: 0.85
-    judge_instructions: |
-      Enforce explicit rules from CLAUDE.md for this repo.
-      Flag any command or response that violates those rules.
+    model: "openai/gpt-4o-mini"
+    probability_threshold: 0.5
+    judge_instructions: >
+      Block 'rm -rf' or any recursive delete on project directories.
+      Block 'git push --force' to main or master.
+      Flag if agent wraps code in try/except that swallows all errors.
+      Flag if agent pip-installs packages not in requirements.
 ```
 
 </details>
 
 <details>
-<summary><b>Did it do something suspicious?</b></summary>
+<summary><b>Clean up AI writing tics (string replacement)</b></summary>
 
 ```yaml
+# No LLM needed — runs as a fast string replacement on every response
 policy:
-  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  class: "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
   config:
-    probability_threshold: 0.7
-    judge_instructions: |
-      Block recursive deletes on project directories.
-      Block force-pushing to protected branches.
-      Flag suspicious command patterns or hidden side effects.
+    replacements:
+      - ["\u2014", "-"]   # em dash → hyphen
+      - ["\u2013", "-"]   # en dash → hyphen
+    match_capitalization: true
 ```
 
 </details>
@@ -335,7 +346,7 @@ policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
     model: "openai/gpt-4o-mini"
-    probability_threshold: 0.6
+    probability_threshold: 0.6  # block if judge confidence >= 60% (higher = more permissive)
     temperature: 0.0
     max_tokens: 256
 ```
