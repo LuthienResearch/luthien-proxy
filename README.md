@@ -15,24 +15,24 @@ Luthien is a proxy that sits between Claude Code (client) and the Claude API bac
 
 <table>
 <tr>
-<th width="50%">Before</th>
-<th width="50%">After</th>
+<th width="50%">Without Luthien</th>
+<th width="50%">With Luthien</th>
 </tr>
 <tr>
 <td>
 
-<img src="assets/readme/terminal-without-luthien.svg?v=17" alt="Before: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
+<img src="assets/readme/terminal-without-luthien.svg?v=18" alt="Without Luthien: Claude Code runs pip install despite CLAUDE.md rules" width="100%">
 
 </td>
 <td>
 
-<img src="assets/readme/terminal-with-luthien.svg?v=17" alt="After: pip install is blocked by Luthien, Claude retries with uv add" width="100%">
+<img src="assets/readme/terminal-with-luthien.svg?v=18" alt="With Luthien: pip install is caught and auto-corrected to uv add" width="100%">
 
 </td>
 </tr>
 </table>
 
-In the "Before", Claude ignores your CLAUDE.md rule (`Use uv, not pip`) and installs with pip — twice — despite being corrected. In the "After", Luthien catches the violation and auto-corrects before it reaches your machine. No human intervention needed.
+**Without Luthien**, Claude ignores your CLAUDE.md rule (`Use uv, not pip`) and installs with pip — twice — despite being corrected. **With Luthien**, the violation is caught and auto-corrected before it reaches your machine. No human intervention needed.
 
 > ⚠️ Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
 >
