@@ -251,6 +251,12 @@ def build_dashboard_html() -> str:
 </div>
 
 <script>
+function esc(s) {
+  var d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
 var es = new EventSource("/events");
 
 es.onmessage = function(e) {
@@ -283,7 +289,7 @@ es.onmessage = function(e) {
     alEl.innerHTML = d.anomalies.map(function(a) {
       return '<div class="anomaly">' +
         '<span class="anomaly-source">' + a.source + '</span>' +
-        'Turn ' + a.turn + ': ' + a.message + '</div>';
+        'Turn ' + a.turn + ': ' + esc(a.message) + '</div>';
     }).join("");
   }
 
@@ -304,7 +310,7 @@ es.onmessage = function(e) {
         '<span class="turn-cost">$' + t.cost.toFixed(4) + '</span>' +
         anomalyBadge +
         '</div>' +
-        '<div class="turn-preview">' + t.result_preview + '</div>' +
+        '<div class="turn-preview">' + esc(t.result_preview) + '</div>' +
         '</div>';
     }).join("");
   }
