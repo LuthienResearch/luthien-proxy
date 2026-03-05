@@ -111,6 +111,32 @@ class TestExtractPreviewMessage:
         payload = {"original_request": {"messages": [{"role": "user", "content": "Fallback message"}]}}
         assert _extract_preview_message(payload) == "Fallback message"
 
+    @pytest.mark.parametrize(
+        "probe_message",
+        ["count", "Count", "COUNT", "quota", "Quota", "QUOTA"],
+    )
+    def test_skips_claude_code_internal_probe_messages(self, probe_message):
+        """Test that Claude Code internal probe messages are skipped.
+
+        Claude Code sends single-word probe messages (token counting, quota
+        checks) before the real conversation. These should not become the
+        session preview.
+        """
+        payload = {
+            "final_request": {
+                "messages": [
+                    {"role": "user", "content": probe_message},
+                    {"role": "user", "content": "What's the weather?"},
+                ]
+            }
+        }
+        assert _extract_preview_message(payload) == "What's the weather?"
+
+    def test_skips_probe_returns_none_when_no_real_message(self):
+        """Test that skipping probe messages can result in None if no real message follows."""
+        payload = {"final_request": {"messages": [{"role": "user", "content": "quota"}]}}
+        assert _extract_preview_message(payload) is None
+
 
 class TestSafeParseJson:
     """Test safe JSON parsing."""

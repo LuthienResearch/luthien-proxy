@@ -276,8 +276,11 @@ def _extract_preview_message(payload: Any) -> str | None:
     request = payload.get("final_request") or payload.get("original_request") or {}
     messages = request.get("messages", [])
 
-    # Messages to skip as they're not meaningful previews (Claude Code internals)
-    _SKIP_MESSAGES = {"count", ""}
+    # Messages to skip as they're not meaningful previews (Claude Code internals).
+    # Claude Code sends single-word probe messages (token counting, quota checks)
+    # before the real conversation starts. Add new entries as discovered.
+    # Long-term fix: LLM-generated session titles (see dev/TODO.md).
+    _SKIP_MESSAGES = {"count", "quota", ""}
 
     # Find the first meaningful user message (captures session intent)
     for msg in messages:
@@ -358,8 +361,9 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
                 FROM conversation_events
                 WHERE session_id IS NOT NULL
                 AND event_type = 'transaction.request_recorded'
-                -- Skip Claude Code token counting requests (just "count")
-                AND COALESCE(payload->'final_request'->'messages'->0->>'content', '') != 'count'
+                -- Skip Claude Code internal probe messages (token counting, quota checks)
+                AND COALESCE(LOWER(payload->'final_request'->'messages'->0->>'content'), '')
+                    NOT IN ('count', 'quota', '')
                 ORDER BY session_id, created_at ASC
             )
             SELECT
