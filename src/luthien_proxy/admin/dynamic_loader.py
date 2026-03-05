@@ -27,6 +27,7 @@ ALLOWED_IMPORTS = frozenset(
         "luthien_proxy.policy_core.openai_interface",
         "luthien_proxy.policy_core.policy_context",
         "luthien_proxy.policy_core.streaming_policy_context",
+        "luthien_proxy.policy_core.chunk_builders",
         "litellm",
     }
 )
