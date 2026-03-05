@@ -22,6 +22,7 @@ from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.pipeline.anthropic_processor import (
     _build_error_event,
+    _extract_forwardable_headers,
     _format_sse_event,
     _handle_anthropic_error,
     _process_request,
@@ -33,6 +34,65 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyIOProtocol,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
+
+
+class TestExtractForwardableHeaders:
+    """Tests for _extract_forwardable_headers."""
+
+    def test_forwards_anthropic_prefixed_headers(self):
+        headers = {
+            "anthropic-beta": "prompt-caching-2024-07-31",
+            "anthropic-version": "2023-06-01",
+        }
+        assert _extract_forwardable_headers(headers) == {
+            "anthropic-beta": "prompt-caching-2024-07-31",
+            "anthropic-version": "2023-06-01",
+        }
+
+    def test_forwards_user_agent(self):
+        headers = {"user-agent": "claude-code/1.0"}
+        assert _extract_forwardable_headers(headers) == {"user-agent": "claude-code/1.0"}
+
+    def test_blocks_auth_headers(self):
+        headers = {
+            "authorization": "Bearer sk-secret",
+            "x-api-key": "sk-ant-key",
+            "x-anthropic-api-key": "sk-override",
+            "proxy-authorization": "Basic xyz",
+        }
+        assert _extract_forwardable_headers(headers) is None
+
+    def test_blocks_hop_by_hop_and_framing_headers(self):
+        headers = {
+            "host": "localhost:8000",
+            "content-length": "123",
+            "content-type": "application/json",
+            "transfer-encoding": "chunked",
+            "connection": "keep-alive",
+            "keep-alive": "timeout=5",
+            "cookie": "session=abc",
+        }
+        assert _extract_forwardable_headers(headers) is None
+
+    def test_blocks_arbitrary_custom_headers(self):
+        headers = {"x-custom-thing": "value", "x-request-id": "abc"}
+        assert _extract_forwardable_headers(headers) is None
+
+    def test_returns_none_for_empty_input(self):
+        assert _extract_forwardable_headers({}) is None
+
+    def test_mixed_headers_only_forwards_allowed(self):
+        headers = {
+            "anthropic-beta": "prompt-caching-2024-07-31",
+            "user-agent": "test/1.0",
+            "authorization": "Bearer sk-secret",
+            "host": "api.anthropic.com",
+            "x-custom": "ignored",
+        }
+        assert _extract_forwardable_headers(headers) == {
+            "anthropic-beta": "prompt-caching-2024-07-31",
+            "user-agent": "test/1.0",
+        }
 
 
 class TestFormatSSEEvent:
@@ -324,6 +384,51 @@ class TestAnthropicRequestFlow:
         assert isinstance(response, JSONResponse)
         assert response.headers.get("x-call-id")
         mock_anthropic_client.complete.assert_called_once_with(anthropic_body, extra_headers=None)
+
+    @pytest.mark.asyncio
+    async def test_anthropic_headers_forwarded_to_upstream(self, mock_anthropic_client, mock_policy, mock_emitter):
+        """All anthropic-* headers and user-agent are forwarded to the upstream API."""
+        mock_request = MagicMock()
+        mock_request.headers = {
+            "anthropic-beta": "prompt-caching-2024-07-31",
+            "anthropic-version": "2023-06-01",
+            "user-agent": "claude-code/1.0",
+            "authorization": "Bearer sk-secret",
+            "x-api-key": "sk-secret",
+            "host": "localhost:8000",
+            "content-type": "application/json",
+            "x-custom-header": "should-not-forward",
+        }
+        mock_request.method = "POST"
+        mock_request.url = MagicMock()
+        mock_request.url.path = "/v1/messages"
+        body: AnthropicRequest = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 64,
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            await process_anthropic_request(
+                request=mock_request,
+                policy=mock_policy,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+            )
+
+        call_kwargs = mock_anthropic_client.complete.call_args.kwargs
+        forwarded = call_kwargs.get("extra_headers")
+        assert forwarded == {
+            "anthropic-beta": "prompt-caching-2024-07-31",
+            "anthropic-version": "2023-06-01",
+            "user-agent": "claude-code/1.0",
+        }
 
     @pytest.mark.asyncio
     async def test_emits_client_response_event(self, mock_request, mock_anthropic_client, mock_policy, mock_emitter):
@@ -1314,15 +1419,23 @@ class TestExecutionPolicyRuntime:
         assert "must emit streaming events" in full_stream
 
     @pytest.mark.asyncio
-    async def test_anthropic_beta_header_forwarded_to_upstream_client(
+    async def test_auth_and_hop_by_hop_headers_not_forwarded(
         self,
         mock_emitter,
         mock_anthropic_client,
     ):
-        """anthropic-beta header from the client request is forwarded to the upstream API call."""
-        beta_value = "prompt-caching-2024-07-31"
+        """Auth, hop-by-hop, and unrecognized headers must not be forwarded."""
         mock_request = MagicMock()
-        mock_request.headers = {"anthropic-beta": beta_value}
+        mock_request.headers = {
+            "authorization": "Bearer sk-secret",
+            "x-api-key": "sk-ant-key",
+            "x-anthropic-api-key": "sk-override",
+            "host": "localhost:8000",
+            "connection": "keep-alive",
+            "content-length": "123",
+            "content-type": "application/json",
+            "x-custom-thing": "nope",
+        }
         mock_request.method = "POST"
         mock_request.url = MagicMock()
         mock_request.url.path = "/v1/messages"
@@ -1336,7 +1449,7 @@ class TestExecutionPolicyRuntime:
         )
 
         backend_response: AnthropicResponse = {
-            "id": "msg_beta_test",
+            "id": "msg_deny_test",
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "ok"}],
@@ -1357,4 +1470,4 @@ class TestExecutionPolicyRuntime:
 
         mock_anthropic_client.complete.assert_awaited_once()
         call_kwargs = mock_anthropic_client.complete.call_args.kwargs
-        assert call_kwargs.get("extra_headers") == {"anthropic-beta": beta_value}
+        assert call_kwargs.get("extra_headers") is None
