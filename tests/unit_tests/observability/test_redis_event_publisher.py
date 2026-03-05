@@ -380,7 +380,6 @@ class TestStreamActivityEvents:
         heartbeats = [c for c in chunks if "heartbeat" in c]
         assert len(heartbeats) >= 2
 
-
     @pytest.mark.asyncio
     async def test_ignores_non_message_types(self) -> None:
         """Test that non-message type events are ignored."""
