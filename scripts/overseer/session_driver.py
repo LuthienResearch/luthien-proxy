@@ -70,7 +70,14 @@ class SessionDriver:
         exec_cmd.append(self.container_name)
         exec_cmd.extend(cmd)
 
-        logger.info("Running turn %d: %s", turn_number, exec_cmd)
+        safe_cmd = []
+        for arg in exec_cmd:
+            if arg.startswith("ANTHROPIC_AUTH_TOKEN=") or arg.startswith("ANTHROPIC_API_KEY="):
+                key, _, val = arg.partition("=")
+                safe_cmd.append(f"{key}={val[:12]}...")
+            else:
+                safe_cmd.append(arg)
+        logger.info("Running turn %d: %s", turn_number, safe_cmd)
 
         start_time = time.monotonic()
         proc = await asyncio.create_subprocess_exec(
@@ -121,7 +128,14 @@ class SessionDriver:
         kill_cmd = ["docker", "compose"]
         if self.compose_project:
             kill_cmd.extend(["-p", self.compose_project])
-        kill_cmd.extend(["exec", "-T", self.container_name, "sh", "-c", "pkill -f claude || true"])
-        kill_proc = await asyncio.create_subprocess_exec(*kill_cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        kill_cmd.extend([
+            "exec", "-T", self.container_name,
+            "sh", "-c", "pkill -f claude || true",
+        ])
+        kill_proc = await asyncio.create_subprocess_exec(
+            *kill_cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
         await kill_proc.communicate()
         logger.info("Killed stale claude processes in sandbox")

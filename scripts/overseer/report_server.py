@@ -82,7 +82,7 @@ class ReportServer:
 
     def _broadcast(self, data: str) -> None:
         """Push data to all connected SSE client queues."""
-        for queue in self._sse_queues:
+        for queue in list(self._sse_queues):
             queue.put_nowait(data)
 
     async def _handle_index(self, request: web.Request) -> web.Response:
@@ -116,7 +116,7 @@ class ReportServer:
         app.router.add_get("/events", self._handle_sse)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
-        site = web.TCPSite(self._runner, "0.0.0.0", self.port)
+        site = web.TCPSite(self._runner, "127.0.0.1", self.port)
         await site.start()
 
     async def stop(self) -> None:

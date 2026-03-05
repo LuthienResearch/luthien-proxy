@@ -112,5 +112,9 @@ async def analyze_turn(
         messages=[{"role": "user", "content": prompt}],
     )
 
+    if not response.content or not hasattr(response.content[0], "text"):
+        return OverseerAnalysis(
+            analysis="", anomalies=["Empty overseer LLM response"], next_prompt=""
+        )
     response_text = response.content[0].text
     return parse_overseer_response(response_text)
