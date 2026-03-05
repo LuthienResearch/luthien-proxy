@@ -160,16 +160,12 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
         return BlockDescriptor(type="tool_use", content=f"{name}({input_str})")
 
     def _block_descriptor_from_replacement(self, block: ReplacementBlock) -> BlockDescriptor:
-        if block.type == "text":
-            return BlockDescriptor(type="text", content=block.text or "")
         if block.type == "tool_use":
             input_str = json.dumps(block.input or {})
             return BlockDescriptor(type="tool_use", content=f"{block.name}({input_str})")
-        return BlockDescriptor(type=block.type, content=block.text or "")
+        return BlockDescriptor(type="text", content=block.text or "")
 
-    def _replacement_to_anthropic_block(self, block: ReplacementBlock, _index: int) -> dict[str, Any]:
-        if block.type == "text":
-            return {"type": "text", "text": block.text or ""}
+    def _replacement_to_anthropic_block(self, block: ReplacementBlock) -> dict[str, Any]:
         if block.type == "tool_use":
             return {
                 "type": "tool_use",
@@ -177,7 +173,7 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
                 "name": block.name or "",
                 "input": block.input or {},
             }
-        return {"type": block.type, "text": block.text or ""}
+        return {"type": "text", "text": block.text or ""}
 
     async def _judge_block(
         self,
@@ -213,10 +209,6 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
             )
             return None
 
-    def _apply_on_error(self) -> str:
-        """Return 'pass' or 'block' based on on_error config."""
-        return self._config.on_error
-
     def _correct_anthropic_stop_reason(self, response: dict[str, Any], content: list[dict[str, Any]]) -> dict[str, Any]:
         has_tool_use = any(b.get("type") == "tool_use" for b in content)
         expected = "tool_use" if has_tool_use else "end_turn"
@@ -238,6 +230,29 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
         """Pass through request unchanged."""
         return request
 
+    def _apply_openai_replacements(
+        self,
+        action: JudgeAction,
+        emitted_blocks: list[BlockDescriptor],
+        content_parts: list[str],
+        tool_calls: list[ChatCompletionMessageToolCall],
+    ) -> None:
+        """Apply replacement blocks to OpenAI content/tool_call accumulators."""
+        for rblock in action.blocks or ():
+            emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
+            if rblock.type == "text":
+                content_parts.append(rblock.text or "")
+            elif rblock.type == "tool_use":
+                tool_calls.append(
+                    ChatCompletionMessageToolCall(
+                        id=f"call_{uuid4().hex[:24]}",
+                        function=Function(
+                            name=rblock.name or "",
+                            arguments=json.dumps(rblock.input or {}),
+                        ),
+                    )
+                )
+
     async def on_openai_response(self, response: "ModelResponse", context: "PolicyContext") -> "ModelResponse":
         """Judge each content block and apply replacements."""
         if not response.choices:
@@ -248,7 +263,7 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
                 continue
 
             emitted_blocks: list[BlockDescriptor] = []
-            new_content: str | None = None
+            content_parts: list[str] = []
             new_tool_calls: list[ChatCompletionMessageToolCall] = []
 
             # Process text content
@@ -257,32 +272,14 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
                 action = await self._judge_block(descriptor, emitted_blocks, context)
 
                 if action is None:
-                    if self._apply_on_error() == "pass":
-                        new_content = choice.message.content
+                    if self._config.on_error == "pass":
+                        content_parts.append(choice.message.content)
                         emitted_blocks.append(descriptor)
-                    # else block: drop it
                 elif action.action == "pass":
-                    new_content = choice.message.content
+                    content_parts.append(choice.message.content)
                     emitted_blocks.append(descriptor)
                 else:
-                    # replace
-                    for rblock in action.blocks or ():
-                        emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
-                        if rblock.type == "text":
-                            if new_content is None:
-                                new_content = rblock.text or ""
-                            else:
-                                new_content += rblock.text or ""
-                        elif rblock.type == "tool_use":
-                            new_tool_calls.append(
-                                ChatCompletionMessageToolCall(
-                                    id=f"call_{uuid4().hex[:24]}",
-                                    function=Function(
-                                        name=rblock.name or "",
-                                        arguments=json.dumps(rblock.input or {}),
-                                    ),
-                                )
-                            )
+                    self._apply_openai_replacements(action, emitted_blocks, content_parts, new_tool_calls)
 
             # Process tool calls
             if choice.message.tool_calls:
@@ -294,33 +291,16 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
                     action = await self._judge_block(descriptor, emitted_blocks, context)
 
                     if action is None:
-                        if self._apply_on_error() == "pass":
+                        if self._config.on_error == "pass":
                             new_tool_calls.append(tc)
                             emitted_blocks.append(descriptor)
-                        # else block: drop
                     elif action.action == "pass":
                         new_tool_calls.append(tc)
                         emitted_blocks.append(descriptor)
                     else:
-                        for rblock in action.blocks or ():
-                            emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
-                            if rblock.type == "text":
-                                if new_content is None:
-                                    new_content = rblock.text or ""
-                                else:
-                                    new_content += rblock.text or ""
-                            elif rblock.type == "tool_use":
-                                new_tool_calls.append(
-                                    ChatCompletionMessageToolCall(
-                                        id=f"call_{uuid4().hex[:24]}",
-                                        function=Function(
-                                            name=rblock.name or "",
-                                            arguments=json.dumps(rblock.input or {}),
-                                        ),
-                                    )
-                                )
+                        self._apply_openai_replacements(action, emitted_blocks, content_parts, new_tool_calls)
 
-            choice.message.content = new_content
+            choice.message.content = "".join(content_parts) if content_parts else None
             choice.message.tool_calls = new_tool_calls if new_tool_calls else None
 
             has_tool_calls = bool(new_tool_calls)
@@ -359,7 +339,7 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
         action = await self._judge_block(descriptor, state.emitted_blocks, ctx.policy_ctx)
 
         if action is None:
-            if self._apply_on_error() == "pass":
+            if self._config.on_error == "pass":
                 await send_text(ctx, block.content)
                 state.emitted_blocks.append(descriptor)
                 await self._emit_openai_content_finish(ctx)
@@ -384,7 +364,7 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
         action = await self._judge_block(descriptor, state.emitted_blocks, ctx.policy_ctx)
 
         if action is None:
-            if self._apply_on_error() == "pass":
+            if self._config.on_error == "pass":
                 await send_tool_call(ctx, block.tool_call)
                 state.emitted_blocks.append(descriptor)
             # else block: drop
@@ -513,40 +493,28 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
 
             if block_type == "text":
                 descriptor = self._block_descriptor_from_text(block.get("text", ""))
-                action = await self._judge_block(descriptor, emitted_blocks, context)
-
-                if action is None:
-                    if self._apply_on_error() == "pass":
-                        new_content.append(block)
-                        emitted_blocks.append(descriptor)
-                elif action.action == "pass":
-                    new_content.append(block)
-                    emitted_blocks.append(descriptor)
-                else:
-                    for i, rblock in enumerate(action.blocks or ()):
-                        emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
-                        new_content.append(self._replacement_to_anthropic_block(rblock, i))
-
             elif block_type == "tool_use":
                 descriptor = self._block_descriptor_from_tool(
                     block.get("name", ""),
                     block.get("input", {}),
                 )
-                action = await self._judge_block(descriptor, emitted_blocks, context)
-
-                if action is None:
-                    if self._apply_on_error() == "pass":
-                        new_content.append(block)
-                        emitted_blocks.append(descriptor)
-                elif action.action == "pass":
-                    new_content.append(block)
-                    emitted_blocks.append(descriptor)
-                else:
-                    for i, rblock in enumerate(action.blocks or ()):
-                        emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
-                        new_content.append(self._replacement_to_anthropic_block(rblock, i))
             else:
                 new_content.append(block)
+                continue
+
+            action = await self._judge_block(descriptor, emitted_blocks, context)
+
+            if action is None:
+                if self._config.on_error == "pass":
+                    new_content.append(block)
+                    emitted_blocks.append(descriptor)
+            elif action.action == "pass":
+                new_content.append(block)
+                emitted_blocks.append(descriptor)
+            else:
+                for rblock in action.blocks or ():
+                    emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
+                    new_content.append(self._replacement_to_anthropic_block(rblock))
 
         modified_response = dict(response)
         modified_response["content"] = new_content
@@ -619,7 +587,7 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
             action = await self._judge_block(descriptor, state.emitted_blocks, context)
 
             if action is None:
-                if self._apply_on_error() == "pass":
+                if self._config.on_error == "pass":
                     state.emitted_blocks.append(descriptor)
                     return self._emit_anthropic_text_events(index, text, event)
                 return [cast(MessageStreamEvent, event)]
@@ -641,7 +609,7 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
             action = await self._judge_block(descriptor, state.emitted_blocks, context)
 
             if action is None:
-                if self._apply_on_error() == "pass":
+                if self._config.on_error == "pass":
                     state.emitted_blocks.append(descriptor)
                     return self._emit_anthropic_tool_events(index, buffered, event)
                 return [cast(MessageStreamEvent, event)]
