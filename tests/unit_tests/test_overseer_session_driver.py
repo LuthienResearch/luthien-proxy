@@ -13,6 +13,52 @@ def driver() -> SessionDriver:
     )
 
 
+@pytest.fixture
+def oauth_driver() -> SessionDriver:
+    return SessionDriver(
+        container_name="sandbox",
+        gateway_url="http://gateway:8000",
+        auth_token="oauth-token-123",
+    )
+
+
+class TestInit:
+    def test_requires_api_key_or_auth_token(self):
+        with pytest.raises(ValueError, match="Either api_key or auth_token"):
+            SessionDriver(
+                container_name="sandbox",
+                gateway_url="http://gateway:8000",
+            )
+
+    def test_api_key_only(self):
+        d = SessionDriver(
+            container_name="sandbox",
+            gateway_url="http://gateway:8000",
+            api_key="key",
+        )
+        assert d.api_key == "key"
+        assert d.auth_token is None
+
+    def test_auth_token_only(self):
+        d = SessionDriver(
+            container_name="sandbox",
+            gateway_url="http://gateway:8000",
+            auth_token="token",
+        )
+        assert d.auth_token == "token"
+        assert d.api_key is None
+
+    def test_both_api_key_and_auth_token(self):
+        d = SessionDriver(
+            container_name="sandbox",
+            gateway_url="http://gateway:8000",
+            api_key="key",
+            auth_token="token",
+        )
+        assert d.api_key == "key"
+        assert d.auth_token == "token"
+
+
 class TestBuildCommand:
     def test_first_turn_has_no_resume(self, driver: SessionDriver):
         cmd = driver._build_command("hello world")

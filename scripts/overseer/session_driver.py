@@ -19,14 +19,18 @@ class SessionDriver:
         self,
         container_name: str,
         gateway_url: str,
-        api_key: str,
+        api_key: str | None = None,
+        auth_token: str | None = None,
         timeout_seconds: int = 600,
         compose_project: str | None = None,
         model: str | None = None,
     ):
+        if not api_key and not auth_token:
+            raise ValueError("Either api_key or auth_token must be provided")
         self.container_name = container_name
         self.gateway_url = gateway_url
         self.api_key = api_key
+        self.auth_token = auth_token
         self.timeout_seconds = timeout_seconds
         self.compose_project = compose_project
         self.model = model
@@ -58,12 +62,12 @@ class SessionDriver:
         exec_cmd = ["docker", "compose"]
         if self.compose_project:
             exec_cmd.extend(["-p", self.compose_project])
-        exec_cmd.extend([
-            "exec", "-T",
-            "-e", f"ANTHROPIC_BASE_URL={self.gateway_url}",
-            "-e", f"ANTHROPIC_API_KEY={self.api_key}",
-            self.container_name,
-        ])
+        exec_cmd.extend(["exec", "-T", "-e", f"ANTHROPIC_BASE_URL={self.gateway_url}"])
+        if self.auth_token:
+            exec_cmd.extend(["-e", f"ANTHROPIC_AUTH_TOKEN={self.auth_token}"])
+        if self.api_key:
+            exec_cmd.extend(["-e", f"ANTHROPIC_API_KEY={self.api_key}"])
+        exec_cmd.append(self.container_name)
         exec_cmd.extend(cmd)
 
         logger.info("Running turn %d: %s", turn_number, exec_cmd)
