@@ -436,6 +436,10 @@ class _ParallelAnthropicIO(AnthropicPolicyIOProtocol):
     def first_backend_response(self) -> AnthropicResponse | None:
         return self._terminal_io.first_backend_response
 
+    @property
+    def backend_headers(self) -> dict[str, str]:
+        return self._terminal_io.backend_headers
+
     async def complete(self, request: AnthropicRequest | None = None) -> AnthropicResponse:
         return await self._terminal_io.complete(request or self._request)
 

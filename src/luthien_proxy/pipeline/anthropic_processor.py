@@ -74,6 +74,41 @@ class _StreamErrorEvent(TypedDict):
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
+# Headers that should never be forwarded to the upstream API.
+# Auth headers are handled separately by the credential manager.
+_HEADERS_DENY = frozenset(
+    {
+        "authorization",
+        "x-api-key",
+        "x-anthropic-api-key",
+        "proxy-authorization",
+        "host",
+        "content-length",
+        "content-type",
+        "transfer-encoding",
+        "connection",
+        "keep-alive",
+        "cookie",
+    }
+)
+
+
+def _extract_forwardable_headers(headers: dict[str, str]) -> dict[str, str] | None:
+    """Pick client headers that should be forwarded to the upstream Anthropic API.
+
+    Forwards all ``anthropic-*`` headers (beta flags, version pins) plus
+    ``user-agent`` so the upstream sees the real client identity.  Auth and
+    hop-by-hop headers are excluded.
+    """
+    forwarded: dict[str, str] = {}
+    for key, value in headers.items():
+        lower = key.lower()
+        if lower in _HEADERS_DENY:
+            continue
+        if lower.startswith("anthropic-") or lower == "user-agent":
+            forwarded[lower] = value
+    return forwarded or None
+
 
 class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
     """Request-scoped I/O helpers for execution-oriented Anthropic policies."""
@@ -88,7 +123,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         session_id: str | None,
         request_log_recorder: RequestLogRecorder,
         is_streaming: bool,
-        extra_headers: dict[str, str] | None = None,
+        backend_headers: dict[str, str] | None = None,
     ) -> None:
         self._request = initial_request
         self._initial_request = initial_request
@@ -98,7 +133,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._session_id = session_id
         self._request_log_recorder = request_log_recorder
         self._is_streaming = is_streaming
-        self._extra_headers = extra_headers
+        self._backend_headers = backend_headers
         self._request_recorded = False
         self._first_backend_response: AnthropicResponse | None = None
 
@@ -111,6 +146,13 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
     def first_backend_response(self) -> AnthropicResponse | None:
         """First backend response observed during this request execution."""
         return self._first_backend_response
+
+    @property
+    def backend_headers(self) -> dict[str, str]:
+        """Mutable headers that will be sent with the upstream API call."""
+        if self._backend_headers is None:
+            self._backend_headers = {}
+        return self._backend_headers
 
     def set_request(self, request: AnthropicRequest) -> None:
         """Replace the current request payload used by backend helper methods."""
@@ -159,7 +201,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
 
         with tracer.start_as_current_span("send_upstream") as span:
             span.set_attribute("luthien.phase", "send_upstream")
-            response = await self._anthropic_client.complete(final_request, extra_headers=self._extra_headers)
+            response = await self._anthropic_client.complete(final_request, extra_headers=self._backend_headers)
 
         if self._first_backend_response is None:
             self._first_backend_response = response
@@ -170,12 +212,12 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         final_request = request or self._request
         self._record_backend_request(final_request)
 
-        extra_headers = self._extra_headers
+        backend_headers = self._backend_headers
 
         async def _stream() -> AsyncIterator[MessageStreamEvent]:
             with tracer.start_as_current_span("send_upstream") as span:
                 span.set_attribute("luthien.phase", "send_upstream")
-                async for event in self._anthropic_client.stream(final_request, extra_headers=extra_headers):
+                async for event in self._anthropic_client.stream(final_request, extra_headers=backend_headers):
                     yield event
 
         return _stream()
@@ -256,11 +298,7 @@ async def process_anthropic_request(
             endpoint="/v1/messages",
         )
 
-        # Forward anthropic-beta header from client so beta features (e.g. prompt
-        # caching with scope) aren't rejected by the upstream API.
-        forwarded_headers: dict[str, str] | None = None
-        if beta := raw_http_request.headers.get("anthropic-beta"):
-            forwarded_headers = {"anthropic-beta": beta}
+        forwarded_headers = _extract_forwardable_headers(raw_http_request.headers)
 
         # Create policy context
         policy_ctx = PolicyContext(
@@ -284,7 +322,7 @@ async def process_anthropic_request(
             is_streaming=is_streaming,
             root_span=root_span,
             request_log_recorder=request_log_recorder,
-            extra_headers=forwarded_headers,
+            backend_headers=forwarded_headers,
         )
 
         # Propagate policy summaries if set
@@ -372,7 +410,7 @@ async def _execute_anthropic_policy(
     is_streaming: bool,
     root_span: Span,
     request_log_recorder: RequestLogRecorder,
-    extra_headers: dict[str, str] | None = None,
+    backend_headers: dict[str, str] | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Execute an Anthropic policy using the execution-oriented runtime."""
     io = _AnthropicPolicyIO(
@@ -383,7 +421,7 @@ async def _execute_anthropic_policy(
         session_id=policy_ctx.session_id,
         request_log_recorder=request_log_recorder,
         is_streaming=is_streaming,
-        extra_headers=extra_headers,
+        backend_headers=backend_headers,
     )
     emissions = execution_policy.run_anthropic(io, policy_ctx)
 

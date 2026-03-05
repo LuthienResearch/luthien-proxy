@@ -43,6 +43,15 @@ class AnthropicPolicyIOProtocol(Protocol):
         """First backend response observed during this request execution."""
         ...
 
+    @property
+    def backend_headers(self) -> dict[str, str]:
+        """Mutable headers sent with upstream API calls.
+
+        Policies can read or modify these to influence what headers
+        reach the backend (e.g. add/remove anthropic-beta flags).
+        """
+        ...
+
     async def complete(self, request: "AnthropicRequest | None" = None) -> "AnthropicResponse":
         """Execute a non-streaming backend call."""
         ...
