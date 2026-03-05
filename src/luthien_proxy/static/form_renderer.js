@@ -199,6 +199,31 @@ const FormRenderer = {
       ? `<span class="field-hint">${this.escapeHtml(schema.description)}</span>`
       : "";
 
+    // Array of simple arrays (e.g. list[list[str]]) — render as one input per
+    // item where the value is a comma-separated string of the inner elements.
+    // Splitting on ", " keeps inner arrays as actual JS arrays rather than
+    // storing them as plain strings (which would fail Pydantic validation).
+    if (itemSchema && itemSchema.type === "array" && this.isSimpleType(itemSchema.items)) {
+      return `
+        <div class="form-field form-field-array">
+          <label>${this.escapeHtml(this.pathToLabel(path))}</label>
+          ${desc}
+          <template x-for="(item, index) in formData.${path}" :key="index">
+            <div class="array-item">
+              <input type="text"
+                placeholder="from, to"
+                :value="Array.isArray(formData.${path}[index]) ? formData.${path}[index].join(', ') : formData.${path}[index]"
+                @input="formData.${path}[index] = $event.target.value.replace(/^\\[|\\]$/g, '').split(',').map(s => s.trim())">
+              <!-- Note: values containing commas will be split — this is a known limitation -->
+              <!-- for list[list[str]] replacement pairs, which typically don't contain commas. -->
+              <button type="button" class="btn-remove" @click="formData.${path}.splice(index, 1)">&times;</button>
+            </div>
+          </template>
+          <button type="button" class="btn-add" @click="formData.${path}.push([])">+ Add</button>
+        </div>
+      `;
+    }
+
     if (isSimple) {
       const isNumeric = itemSchema && (itemSchema.type === "number" || itemSchema.type === "integer");
       const inputType = isNumeric ? "number" : "text";

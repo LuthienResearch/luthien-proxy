@@ -174,12 +174,19 @@ def create_app(
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-    # Add cache headers to static file responses
+    # Add cache headers to static file responses.
+    # JS/HTML/CSS use no-cache so the browser always revalidates (prevents
+    # stale JS after a gateway restart). Other assets (images, fonts) get a
+    # longer TTL since they change infrequently.
     class StaticCacheMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             response = await call_next(request)
             if request.url.path.startswith("/static/"):
-                response.headers["Cache-Control"] = "public, max-age=3600"
+                path = request.url.path
+                if path.endswith((".js", ".html", ".css")):
+                    response.headers["Cache-Control"] = "no-cache"
+                else:
+                    response.headers["Cache-Control"] = "public, max-age=3600"
             return response
 
     app.add_middleware(StaticCacheMiddleware)
