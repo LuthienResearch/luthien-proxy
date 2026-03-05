@@ -391,7 +391,8 @@ class TestCallSimpleLLMJudge:
         assert call_kwargs["api_key"] == "my-key"
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_settings_key(self):
+    async def test_no_api_key_omits_kwarg(self):
+        """When config has no api_key, the kwarg is not passed to acompletion."""
         config = SimpleLLMJudgeConfig(
             instructions="Be safe",
             model="test-model",
@@ -414,18 +415,10 @@ class TestCallSimpleLLMJudge:
             ],
         )
 
-        mock_settings = type("Settings", (), {"litellm_master_key": "master-key"})()
-
-        with (
-            patch(
-                "luthien_proxy.policies.simple_llm_utils.acompletion",
-                return_value=mock_response,
-            ) as mock_acompletion,
-            patch(
-                "luthien_proxy.policies.simple_llm_utils.get_settings",
-                return_value=mock_settings,
-            ),
-        ):
+        with patch(
+            "luthien_proxy.policies.simple_llm_utils.acompletion",
+            return_value=mock_response,
+        ) as mock_acompletion:
             await call_simple_llm_judge(
                 config=config,
                 current_block=BlockDescriptor(type="text", content="hello"),
@@ -433,7 +426,7 @@ class TestCallSimpleLLMJudge:
             )
 
         call_kwargs = mock_acompletion.call_args[1]
-        assert call_kwargs["api_key"] == "master-key"
+        assert "api_key" not in call_kwargs
 
     @pytest.mark.asyncio
     async def test_error_propagation(self):

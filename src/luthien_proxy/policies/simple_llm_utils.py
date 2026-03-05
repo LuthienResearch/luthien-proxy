@@ -16,7 +16,6 @@ from litellm.types.utils import Choices, Message, ModelResponse
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policies.tool_call_judge_utils import parse_judge_response
-from luthien_proxy.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -169,11 +168,11 @@ async def call_simple_llm_judge(
 ) -> JudgeAction:
     """Call the judge LLM and return its decision.
 
+    The caller (SimpleLLMPolicy) resolves API keys at init time and passes
+    them via config. This function uses config values directly.
     Exceptions propagate to the caller, which applies the on_error policy.
     """
     prompt = build_judge_prompt(config.instructions, current_block, previous_blocks)
-
-    api_key = config.api_key or get_settings().litellm_master_key
 
     kwargs: dict[str, Any] = {
         "model": config.model,
@@ -184,8 +183,8 @@ async def call_simple_llm_judge(
     }
     if config.api_base:
         kwargs["api_base"] = config.api_base
-    if api_key:
-        kwargs["api_key"] = api_key
+    if config.api_key:
+        kwargs["api_key"] = config.api_key
 
     response = await acompletion(**kwargs)
     response = cast(ModelResponse, response)

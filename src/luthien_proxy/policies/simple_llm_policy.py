@@ -632,7 +632,11 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
         # Tool block stop
         if index in state.tool_buffer:
             buffered = state.tool_buffer.pop(index)
-            input_data = json.loads(buffered.input_json) if buffered.input_json else {}
+            try:
+                input_data = json.loads(buffered.input_json) if buffered.input_json else {}
+            except json.JSONDecodeError:
+                logger.warning(f"Malformed tool input JSON for '{buffered.name}', using raw string")
+                input_data = {"_raw": buffered.input_json}
             descriptor = self._block_descriptor_from_tool(buffered.name, input_data)
             action = await self._judge_block(descriptor, state.emitted_blocks, context)
 
