@@ -1363,6 +1363,7 @@ class TestExecutionPolicyRuntime:
         call_kwargs = mock_anthropic_client.complete.call_args.kwargs
         assert call_kwargs.get("extra_headers") == {"anthropic-beta": beta_value}
 
+
 class TestReconstructResponseFromStreamEvents:
     """Tests for _reconstruct_response_from_stream_events."""
 
@@ -1540,4 +1541,3 @@ class TestStreamingResponseRecording:
         payload = recorded_call.args[2]
         assert payload["final_response"]["id"] == "msg_ring_ding"
         assert payload["final_response"]["content"][0]["text"] == "Ring-ding-ding!"
-
