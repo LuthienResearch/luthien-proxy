@@ -273,15 +273,14 @@ if stream_state.finish_reason:
 
 **Related gotcha**: Anthropic API keys (`sk-ant-api...`) passed in `Authorization: Bearer ...` are not valid bearer/OAuth tokens at Anthropic. Gateway now detects this format and validates/forwards them via `x-api-key` transport.
 
-## Claude Code Internal Probe Messages Leak Into Session Titles (2026-03-05)
+## Claude Code Internal Probe Requests Use max_tokens=1 (2026-03-05)
 
-**Gotcha**: Claude Code sends single-word internal probe messages ("count", "quota") as warmup API calls before the real conversation. These get recorded as `transaction.request_recorded` events and the preview extraction logic picks them up as session titles in /history.
+**Gotcha**: Claude Code sends internal probe requests (token counting, quota checks) with `max_tokens=1`. These get recorded as `transaction.request_recorded` events. If not filtered, the probe's content (e.g., "quota", "count") becomes the session title in /history.
 
 - **Symptom**: Session titled "quota" or "count" instead of the actual first user message
-- **Cause**: `_SKIP_MESSAGES` set in `_extract_preview_message()` and the SQL `NOT IN` filter in the `session_first_message` CTE must explicitly list each probe word. New probe words from Claude Code updates will leak through.
-- **Fix**: Add new probe words to BOTH `_SKIP_MESSAGES` (Python, line ~283 in `history/service.py`) AND the SQL `NOT IN` clause (line ~365). They must stay in sync.
-- **Long-term fix**: LLM-generated session titles (tracked in `dev/TODO.md`) would eliminate this class of bug entirely.
-- **Known probes**: `count` (token counting), `quota` (quota check). Expect more as Claude Code evolves.
+- **Detection**: Both Python (`_extract_preview_message`) and SQL (`session_first_message` CTE) filter requests where `max_tokens <= 1`. This is a structural signal — no real conversation uses `max_tokens=1`.
+- **Why not a content blocklist?**: The original fix (PR #133) used a blocklist of probe words. This required manual updates for each new probe. The structural `max_tokens` check catches all probes regardless of content.
+- **If this breaks again**: A probe with `max_tokens > 1` would bypass the filter. Check the actual `max_tokens` value in the DB for the offending request before changing the approach.
 
 ---
 
