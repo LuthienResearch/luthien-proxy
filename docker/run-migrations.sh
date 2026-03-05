@@ -45,6 +45,21 @@ compute_hash() {
 }
 
 # ============================================================================
+# ONE-TIME FIXUPS: Update hashes for migrations with known-safe content changes
+# ============================================================================
+# PR #281 removed a hardcoded `\c luthien_control` from migration 008 that
+# broke Railway deployments. The schema effect is identical — only the connect
+# command and GRANT wrapper changed. Update the stored hash so validation passes.
+OLD_008_HASH="49ad0e5ce7fc13692a5300ed30f1a96e"
+NEW_008_HASH="76cfa2f26a6925f00ca10e76159bb2ea"
+psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -q <<EOF
+UPDATE _migrations
+   SET content_hash = '$NEW_008_HASH'
+ WHERE filename = '008_add_request_logs_table.sql'
+   AND content_hash = '$OLD_008_HASH';
+EOF
+
+# ============================================================================
 # VALIDATION PHASE: Fail fast if migrations are inconsistent
 # ============================================================================
 echo "🔍 Validating migration consistency..."
