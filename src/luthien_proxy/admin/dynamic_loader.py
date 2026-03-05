@@ -1,8 +1,18 @@
-"""Dynamic policy loader: compile and instantiate policies from Python source code."""
+"""Dynamic policy loader: compile and instantiate policies from Python source code.
+
+Security model: defense-in-depth with three layers:
+1. AST validation blocks dangerous names/imports before compilation
+2. Restricted __builtins__ limits what's available at runtime
+3. ALLOWED_IMPORTS whitelist controls module access
+
+This is NOT a true sandbox — determined attackers can escape Python exec().
+For untrusted code, containerized execution is needed (see TODO.md).
+"""
 
 from __future__ import annotations
 
 import ast
+import builtins
 import logging
 from typing import Any
 
@@ -14,7 +24,6 @@ logger = logging.getLogger(__name__)
 ALLOWED_IMPORTS = frozenset(
     {
         "__future__",
-        "asyncio",
         "json",
         "re",
         "logging",
@@ -57,8 +66,87 @@ BLOCKED_NAMES = frozenset(
         "shelve",
         "multiprocessing",
         "threading",
+        # Reflection/introspection — prevents sandbox escape via object traversal
+        "getattr",
+        "setattr",
+        "delattr",
+        "__class__",
+        "__bases__",
+        "__subclasses__",
+        "__mro__",
+        "__globals__",
+        "__code__",
+        "__closure__",
+        "__dict__",
+        "__builtins__",
     }
 )
+
+# Builtins available to dynamic policy code (everything else is blocked)
+_SAFE_BUILTINS = {
+    name: getattr(builtins, name)
+    for name in (
+        "True",
+        "False",
+        "None",
+        "abs",
+        "all",
+        "any",
+        "bool",
+        "bytes",
+        "callable",
+        "chr",
+        "classmethod",
+        "complex",
+        "dict",
+        "divmod",
+        "enumerate",
+        "filter",
+        "float",
+        "format",
+        "frozenset",
+        "hasattr",
+        "hash",
+        "hex",
+        "id",
+        "int",
+        "isinstance",
+        "issubclass",
+        "iter",
+        "len",
+        "list",
+        "map",
+        "max",
+        "min",
+        "next",
+        "object",
+        "oct",
+        "ord",
+        "pow",
+        "print",
+        "property",
+        "range",
+        "repr",
+        "reversed",
+        "round",
+        "set",
+        "slice",
+        "sorted",
+        "staticmethod",
+        "str",
+        "sum",
+        "super",
+        "tuple",
+        "type",
+        "zip",
+        # Needed for import statements to work inside exec
+        "__import__",
+        # Needed for class definitions
+        "__name__",
+        "__build_class__",
+    )
+    if hasattr(builtins, name)
+}
 
 
 class PolicyLoadError(Exception):
@@ -143,8 +231,8 @@ def load_policy_from_source(
     except Exception as e:
         raise PolicyLoadError(f"Compilation failed: {e}") from e
 
-    # Execute in a namespace that has access to the policy framework
-    namespace: dict[str, Any] = {}
+    # Execute with restricted builtins
+    namespace: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
     try:
         exec(code, namespace)  # noqa: S102
     except Exception as e:

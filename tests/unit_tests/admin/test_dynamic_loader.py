@@ -123,6 +123,82 @@ class Foo:
         issues = validate_source(code)
         assert issues == []
 
+    def test_blocked_getattr(self) -> None:
+        code = "class Foo:\n  def run(self): getattr(self, 'x')"
+        issues = validate_source(code)
+        assert any("getattr" in i for i in issues)
+
+    def test_blocked_setattr(self) -> None:
+        code = "class Foo:\n  def run(self): setattr(self, 'x', 1)"
+        issues = validate_source(code)
+        assert any("setattr" in i for i in issues)
+
+    def test_blocked_delattr(self) -> None:
+        code = "class Foo:\n  def run(self): delattr(self, 'x')"
+        issues = validate_source(code)
+        assert any("delattr" in i for i in issues)
+
+    def test_blocked_dunder_class(self) -> None:
+        code = "class Foo:\n  def run(self): x = self.__class__"
+        issues = validate_source(code)
+        assert any("__class__" in i for i in issues)
+
+    def test_blocked_dunder_bases(self) -> None:
+        code = "class Foo:\n  def run(self): x = object.__bases__"
+        issues = validate_source(code)
+        assert any("__bases__" in i for i in issues)
+
+    def test_blocked_dunder_subclasses(self) -> None:
+        code = "class Foo:\n  def run(self): x = object.__subclasses__()"
+        issues = validate_source(code)
+        assert any("__subclasses__" in i for i in issues)
+
+    def test_blocked_dunder_mro(self) -> None:
+        code = "class Foo:\n  def run(self): x = type.__mro__"
+        issues = validate_source(code)
+        assert any("__mro__" in i for i in issues)
+
+    def test_blocked_dunder_globals(self) -> None:
+        code = "class Foo:\n  def run(self): x = self.run.__globals__"
+        issues = validate_source(code)
+        assert any("__globals__" in i for i in issues)
+
+    def test_blocked_dunder_builtins(self) -> None:
+        code = "class Foo:\n  def run(self): x = __builtins__"
+        issues = validate_source(code)
+        assert any("__builtins__" in i for i in issues)
+
+    def test_blocked_asyncio_import(self) -> None:
+        code = "import asyncio\nclass Foo:\n  pass"
+        issues = validate_source(code)
+        assert any("asyncio" in i for i in issues)
+
+    def test_chunk_builders_import_allowed(self) -> None:
+        code = "from luthien_proxy.policy_core.chunk_builders import create_text_chunk\nclass Foo:\n  pass"
+        issues = validate_source(code)
+        assert issues == []
+
+
+class TestRestrictedBuiltins:
+    """Tests that the restricted builtins prevent sandbox escapes at runtime."""
+
+    def test_open_not_available(self) -> None:
+        code = """
+from luthien_proxy.policy_core.base_policy import BasePolicy
+class Foo(BasePolicy):
+    def run(self):
+        open('/etc/passwd')
+"""
+        # AST validation catches 'open', but even if it didn't, builtins restriction would
+        with pytest.raises(PolicyValidationError):
+            load_policy_from_source(code)
+
+    def test_valid_policy_works_with_restricted_builtins(self) -> None:
+        """Ensure the VALID_POLICY still loads with restricted builtins."""
+        policy = load_policy_from_source(VALID_POLICY, policy_name="restricted-test")
+        assert isinstance(policy, BasePolicy)
+        assert policy.short_policy_name == "Test"
+
 
 class TestLoadPolicyFromSource:
     """Tests for loading and instantiating policies from source."""
