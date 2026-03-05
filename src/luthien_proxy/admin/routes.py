@@ -80,10 +80,10 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="Message to send")
     stream: bool = Field(default=False, description="Whether to stream the response")
     use_mock: bool = Field(
-        default=True,
+        default=False,
         description="Use a mock LLM response so no upstream API key is required. "
         "The policy pipeline still runs on both the request and the mock response. "
-        "Set to False to make a real LLM call (requires server-side LLM credentials).",
+        "Set to True to skip the real LLM call (useful when no server-side LLM credentials are configured).",
     )
 
 
