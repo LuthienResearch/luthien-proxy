@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import anthropic
 from scripts.overseer.stream_parser import TurnSummary
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 OVERSEER_SYSTEM_PROMPT = """\
 You are a test overseer monitoring a Claude Code session running through a proxy gateway.
@@ -89,7 +89,7 @@ def parse_overseer_response(response_text: str) -> OverseerAnalysis:
         next_prompt = prompt_match.group(1).strip()
 
     if not next_prompt:
-        log.warning("Overseer LLM response missing '## Next Prompt' section — response may be malformed")
+        logger.warning("Overseer LLM response missing '## Next Prompt' section — response may be malformed")
 
     return OverseerAnalysis(analysis=analysis, anomalies=anomalies, next_prompt=next_prompt)
 
@@ -113,8 +113,6 @@ async def analyze_turn(
     )
 
     if not response.content or not hasattr(response.content[0], "text"):
-        return OverseerAnalysis(
-            analysis="", anomalies=["Empty overseer LLM response"], next_prompt=""
-        )
+        return OverseerAnalysis(analysis="", anomalies=["Empty overseer LLM response"], next_prompt="")
     response_text = response.content[0].text
     return parse_overseer_response(response_text)

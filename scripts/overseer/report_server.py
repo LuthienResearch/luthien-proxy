@@ -29,7 +29,7 @@ class ReportServer:
         self._sse_queues: list[asyncio.Queue[str]] = []
         self._runner: web.AppRunner | None = None
 
-    def add_turn(self, summary: TurnSummary, overseer_analysis: str = "") -> None:
+    def add_turn(self, summary: TurnSummary) -> None:
         """Append a turn summary, accumulate cost, extract anomalies, broadcast."""
         self.turns.append(summary)
         self.total_cost += summary.cost_usd
@@ -103,7 +103,7 @@ class ReportServer:
             while True:
                 data = await queue.get()
                 await response.write(f"data: {data}\n\n".encode())
-        except (asyncio.CancelledError, ConnectionResetError):
+        except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError):
             pass
         finally:
             self._sse_queues.remove(queue)

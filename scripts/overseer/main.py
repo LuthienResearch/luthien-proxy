@@ -37,10 +37,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Model for Claude Code inside sandbox (default: claude-haiku-4-5-20251001)",
     )
     parser.add_argument("--gateway-url", default="http://gateway:8000", help="Proxy URL from container perspective")
-    parser.add_argument("--auth-token", default=None, help="OAuth token for sandbox auth (default: ANTHROPIC_AUTH_TOKEN env)")
+    parser.add_argument(
+        "--auth-token", default=None, help="OAuth token for sandbox auth (default: ANTHROPIC_AUTH_TOKEN env)"
+    )
     parser.add_argument("--api-key", default=None, help="API key for sandbox auth (fallback if no auth token)")
     parser.add_argument("--turn-timeout", type=int, default=600, help="Timeout per turn in seconds (default: 600)")
-    parser.add_argument("--compose-project", default=None, help="Docker Compose project name (default: from COMPOSE_PROJECT_NAME env)")
+    parser.add_argument(
+        "--compose-project", default=None, help="Docker Compose project name (default: from COMPOSE_PROJECT_NAME env)"
+    )
     return parser.parse_args(argv)
 
 
@@ -53,10 +57,7 @@ def ensure_sandbox_running(compose_project: str | None = None) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0 or "Up" not in result.stdout:
-        logger.error(
-            "Sandbox container is not running. Start it first:\n"
-            "  docker compose --profile overseer up -d"
-        )
+        logger.error("Sandbox container is not running. Start it first:\n  docker compose --profile overseer up -d")
         sys.exit(1)
     logger.info("Sandbox container is up")
 
@@ -67,7 +68,7 @@ async def run_overseer(args: argparse.Namespace) -> None:
     api_key = args.api_key or os.environ.get("PROXY_API_KEY", DEFAULT_API_KEY) if not auth_token else None
     compose_project = args.compose_project or os.environ.get("COMPOSE_PROJECT_NAME")
 
-    auth_desc = "OAuth token" if auth_token else f"API key ({api_key[:12]}...)"
+    auth_desc = "OAuth token" if auth_token else "API key (set)"
     logger.info("Sandbox auth: %s", auth_desc)
 
     ensure_sandbox_running(compose_project)
