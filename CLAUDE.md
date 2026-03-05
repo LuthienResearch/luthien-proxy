@@ -19,7 +19,7 @@
 2. Make sure we're on a feature branch (not `main`)
 3. Commit the changes, push to origin, and open a draft PR (to `main`)
 4. Implement the OBJECTIVE. Add any items that should be done but are out of scope for the current OBJECTIVE to `dev/TODO.md` (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
-5. Regularly format + test (`scripts/dev_checks.sh`), commit, and push to origin (on the feature branch).
+5. Regularly run `scripts/dev_checks.sh`, then commit and push any formatting/lint fixes along with your changes to origin (on the feature branch).
 6. When the OBJECTIVE is complete, update `CHANGELOG.md`
 7. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
 8. Mark the PR as ready.
