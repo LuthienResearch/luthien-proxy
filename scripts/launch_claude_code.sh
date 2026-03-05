@@ -25,6 +25,8 @@ if [ -f .env ]; then
     export PROXY_API_KEY=$(grep -E '^PROXY_API_KEY=' .env | cut -d '=' -f2-)
     export GATEWAY_PORT=$(grep -E '^GATEWAY_PORT=' .env | cut -d '=' -f2-)
     export GATEWAY_HOST=$(grep -E '^GATEWAY_HOST=' .env | cut -d '=' -f2-)
+    # Read the upstream Anthropic key so we can detect Claude Max / OAuth mode below
+    ANTHROPIC_API_KEY_ENV=$(grep -E '^ANTHROPIC_API_KEY=' .env | cut -d '=' -f2-)
 fi
 
 # Check if gateway is running
@@ -59,9 +61,27 @@ echo -e "${GREEN}✅ gateway is running on port ${GATEWAY_PORT_VAR}${NC}"
 PROXY_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
 GATEWAY_URL="http://localhost:${GATEWAY_PORT_VAR}/"
 
+# Detect auth mode:
+#   API key mode  — ANTHROPIC_API_KEY in .env starts with "sk-ant-api" (real key present).
+#                   Claude Code authenticates to the proxy with PROXY_API_KEY; the proxy
+#                   uses its own server-side key to call Anthropic upstream.
+#   OAuth mode    — No real Anthropic API key in .env (Claude Pro/Max subscribers).
+#                   Claude Code uses its existing login session; the proxy forwards the
+#                   OAuth bearer token to Anthropic (AUTH_MODE=both, the default).
+if [[ "${ANTHROPIC_API_KEY_ENV}" == sk-ant-api* ]]; then
+    AUTH_MODE_LABEL="API key"
+    USE_OAUTH=false
+else
+    AUTH_MODE_LABEL="Claude Max/OAuth passthrough"
+    USE_OAUTH=true
+fi
+
 echo -e "${BLUE}📋 Gateway Configuration:${NC}"
 echo -e "   • Gateway URL:     ${GATEWAY_URL} (SDK will append /v1/messages)"
-echo -e "   • API Key:         ${PROXY_KEY:0:10}... (sent as x-api-key header via ANTHROPIC_API_KEY)"
+echo -e "   • Auth mode:       ${AUTH_MODE_LABEL}"
+if [ "${USE_OAUTH}" = false ]; then
+    echo -e "   • Proxy key:       ${PROXY_KEY:0:10}... (sent as x-api-key to the gateway)"
+fi
 echo ""
 echo -e "${GREEN}🎯 Claude Code will now route through the gateway with policy enforcement${NC}"
 echo -e "${YELLOW}📊 Monitor requests at:${NC}"
@@ -80,20 +100,30 @@ if ! command -v claude &> /dev/null; then
     exit 1
 fi
 
-# Launch Claude Code with proxy configuration
-# Setting env vars inline ensures Claude Code picks them up at startup and skips onboarding
+# Launch Claude Code with proxy configuration.
+# Setting env vars inline ensures Claude Code picks them up at startup.
 #
-# ANTHROPIC_API_KEY (not ANTHROPIC_AUTH_TOKEN) is the reliable env var:
-# - Claude Code sends it as `x-api-key` header, which the gateway expects
-# - ANTHROPIC_AUTH_TOKEN works for some versions but behavior varies
-# - The e2e tests also use ANTHROPIC_API_KEY for consistency
-env \
-  ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
-  ANTHROPIC_API_KEY="${PROXY_KEY}" \
-  claude "$@"
-  # You can add these arguments to modify the default models used
-  # See https://docs.claude.com/en/docs/claude-code/settings#environment-variables
-  # ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5" \
-  # ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5" \
-  # ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-3-5-haiku" \
-  # CLAUDE_CODE_SUBAGENT_MODEL="anthropic/claude-sonnet-4-5" \
+# API key mode: override ANTHROPIC_API_KEY with the proxy's own key so Claude Code
+#   authenticates to the proxy (not directly to Anthropic). The proxy uses the real
+#   ANTHROPIC_API_KEY from .env for the upstream call.
+#
+# OAuth mode: only set ANTHROPIC_BASE_URL. Claude Code uses its existing OAuth session
+#   and sends bearer tokens to the proxy, which forwards them to Anthropic.
+#   No server-side API key is needed.
+
+# You can add these env vars to change the default models used by Claude Code:
+# ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5"
+# ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5"
+# ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-3-5-haiku"
+# CLAUDE_CODE_SUBAGENT_MODEL="anthropic/claude-sonnet-4-5"
+# See https://docs.claude.com/en/docs/claude-code/settings#environment-variables
+if [ "${USE_OAUTH}" = false ]; then
+    env \
+      ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
+      ANTHROPIC_API_KEY="${PROXY_KEY}" \
+      claude "$@"
+else
+    env \
+      ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
+      claude "$@"
+fi

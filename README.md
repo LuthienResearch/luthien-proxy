@@ -116,13 +116,31 @@ Install [uv](https://docs.astral.sh/uv/) if you haven't: `curl -LsSf https://ast
 git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy
 ```
 
-### 2. Add your Anthropic API key to `.env`
+### 2. Configure authentication
+
+Copy the example env file:
 
 ```bash
-cp .env.example .env && echo "ANTHROPIC_API_KEY=your-key-here" >> .env
+cp .env.example .env
+```
+
+**Option A — Anthropic API key** (pay-per-use):
+
+```bash
+echo "ANTHROPIC_API_KEY=your-key-here" >> .env
 ```
 
 Replace `your-key-here` with your key from [console.anthropic.com](https://console.anthropic.com/settings/keys).
+
+**Option B — Claude Pro/Max subscription** (no API key needed):
+
+Make sure you're already logged in to Claude Code:
+
+```bash
+claude auth login
+```
+
+That's it — leave `ANTHROPIC_API_KEY` blank in `.env`. The proxy will forward your login session to Anthropic automatically.
 
 ### 3. Run quick start script
 
@@ -550,7 +568,9 @@ docker compose down && ./scripts/quick_start.sh
 ### API requests failing
 
 1. **Check API key**: Ensure `Authorization: Bearer <PROXY_API_KEY>` header is set
-2. **Check upstream credentials**: Verify `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in `.env`
+2. **Check upstream credentials**:
+   - *API key mode*: Verify `ANTHROPIC_API_KEY` starts with `sk-ant-api` in `.env`
+   - *Claude Max/OAuth mode*: Run `claude auth login` to ensure your session is active
 3. **Check logs**: `docker compose logs -f gateway`
 
 ### Tests failing
