@@ -28,18 +28,18 @@ T = TypeVar("T")
 
 
 class PolicyContext:
-    """Shared mutable state across the entire request/response lifecycle.
+    """Request-scoped mutable state for the entire request/response lifecycle.
 
-    This context is created at the gateway level and passed through both
-    request processing and streaming response processing. It provides
-    cross-stage state storage via a scratchpad dictionary and access to
-    the event emitter for recording observability events.
+    One ``PolicyContext`` is created per incoming request and flows through
+    both request processing and streaming response processing. It is the
+    canonical place for per-request state — policies are stateless singletons
+    and must not hold request data themselves.
 
-    Policies can use the scratchpad to:
-    - Track whether safety checks have been performed
-    - Store intermediate results from trusted monitors
-    - Accumulate metrics across streaming chunks
-    - Share any state between request and response processing
+    Key facilities:
+    - ``get_request_state()`` / ``pop_request_state()``: typed per-policy
+      state keyed by (policy instance, type).
+    - ``emitter``: fire-and-forget observability event recording.
+    - ``span()`` / ``add_span_event()``: OpenTelemetry tracing helpers.
 
     The context is NOT thread-safe and should only be accessed from async
     code within a single request handler.
@@ -72,7 +72,7 @@ class PolicyContext:
         self.session_id: str | None = session_id
         self._emitter: EventEmitterProtocol = emitter or NullEventEmitter()
         self._scratchpad: dict[str, Any] = {}
-        self._policy_state: dict[tuple[int, type[Any]], Any] = {}
+        self._request_state: dict[tuple[int, type[Any]], Any] = {}
 
         # Policy summaries - optional human-readable descriptions of what the policy did.
         # These are set by policies and propagated to span attributes for observability.
@@ -93,15 +93,11 @@ class PolicyContext:
 
     @property
     def scratchpad(self) -> dict[str, Any]:
-        """Mutable dictionary for storing arbitrary policy state.
+        """Untyped mutable dictionary for ad-hoc state.
 
-        Policies can use this to share state across invocations. For example:
-        - Track whether a safety check has been performed
-        - Store intermediate results from trusted monitors
-        - Accumulate metrics across streaming chunks
-
-        Returns:
-            Mutable dictionary unique to this context
+        Prefer ``get_request_state()`` for typed, collision-free per-policy
+        state. The scratchpad remains available for quick prototyping but
+        offers no type safety or key-collision prevention.
         """
         return self._scratchpad
 
@@ -170,7 +166,7 @@ class PolicyContext:
         if current_span.is_recording():
             current_span.add_event(name, attributes=attributes or {})
 
-    def get_policy_state(self, owner: object, expected_type: type[T], factory: Callable[[], T]) -> T:
+    def get_request_state(self, owner: object, expected_type: type[T], factory: Callable[[], T]) -> T:
         """Get or create typed request-scoped state owned by a policy instance.
 
         State is scoped by (policy instance, expected state type), so policies do not
@@ -178,27 +174,27 @@ class PolicyContext:
         while preserving strict runtime type checks.
         """
         key = (id(owner), expected_type)
-        if key not in self._policy_state:
+        if key not in self._request_state:
             created = factory()
             if not isinstance(created, expected_type):
                 raise TypeError(
                     f"Policy state factory for {type(owner).__name__} returned {type(created).__name__}, "
                     f"expected {expected_type.__name__}"
                 )
-            self._policy_state[key] = created
+            self._request_state[key] = created
             return created
 
-        value = self._policy_state[key]
+        value = self._request_state[key]
         if not isinstance(value, expected_type):
             raise TypeError(
                 f"Policy state for {type(owner).__name__} expected {expected_type.__name__}, got {type(value).__name__}"
             )
         return cast(T, value)
 
-    def pop_policy_state(self, owner: object, expected_type: type[T]) -> T | None:
+    def pop_request_state(self, owner: object, expected_type: type[T]) -> T | None:
         """Remove and return typed request-scoped state owned by a policy instance."""
         key = (id(owner), expected_type)
-        value = self._policy_state.pop(key, None)
+        value = self._request_state.pop(key, None)
         if value is None:
             return None
         if not isinstance(value, expected_type):

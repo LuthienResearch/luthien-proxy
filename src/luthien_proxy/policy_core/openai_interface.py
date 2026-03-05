@@ -52,7 +52,7 @@ class OpenAIPolicyInterface(ABC):
 
         Args:
             request: The OpenAI-format request
-            context: Policy context with scratchpad, emitter, etc.
+            context: Request-scoped policy context (emitter, request state, etc.)
 
         Returns:
             Potentially modified request to send to the LLM
@@ -65,7 +65,7 @@ class OpenAIPolicyInterface(ABC):
 
         Args:
             response: The LiteLLM ModelResponse
-            context: Policy context with scratchpad, emitter, etc.
+            context: Request-scoped policy context (emitter, request state, etc.)
 
         Returns:
             Potentially modified response to return to client

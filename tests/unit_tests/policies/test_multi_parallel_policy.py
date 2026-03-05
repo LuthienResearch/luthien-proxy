@@ -441,8 +441,8 @@ class TestMultiParallelDesignated:
             designated_policy_index=1,
         )
 
-        # Replace the first sub-policy with an OpenAI-only stub
-        policy._sub_policies[0] = OpenAIOnlyPolicy()
+        # Replace sub-policies tuple to inject an incompatible policy
+        policy._sub_policies = (OpenAIOnlyPolicy(), policy._sub_policies[1])
 
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello world")
@@ -595,7 +595,7 @@ class TestMultiParallelInterfaceValidation:
     async def test_openai_request_raises_for_incompatible_policy(self):
         """OpenAI call raises TypeError when a sub-policy lacks OpenAIPolicyInterface."""
         policy = MultiParallelPolicy(policies=[noop_config()])
-        policy._sub_policies.append(AnthropicOnlyPolicy())
+        policy._sub_policies = (*policy._sub_policies, AnthropicOnlyPolicy())
         ctx = PolicyContext.for_testing()
         request = Request(model="test", messages=[{"role": "user", "content": "hi"}])
 
@@ -606,7 +606,7 @@ class TestMultiParallelInterfaceValidation:
     async def test_anthropic_response_raises_for_incompatible_policy(self):
         """Anthropic call raises TypeError when a sub-policy lacks AnthropicExecutionInterface."""
         policy = MultiParallelPolicy(policies=[noop_config()])
-        policy._sub_policies.append(OpenAIOnlyPolicy())
+        policy._sub_policies = (*policy._sub_policies, OpenAIOnlyPolicy())
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello")
 

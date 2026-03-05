@@ -223,10 +223,10 @@ curl -X POST http://localhost:8000/api/admin/policy/activate \
   - calls `on_anthropic_stream_complete` after successful stream iteration
   - calls `on_anthropic_streaming_policy_complete` in `finally`
 - Buffering convention for per-request policy state:
-  - use framework-owned typed state: `PolicyContext.get_policy_state()` / `pop_policy_state()`
+  - use framework-owned typed state: `PolicyContext.get_request_state()` / `pop_request_state()`
   - state `T` should be a dataclass with explicit fields (for strict typing)
   - `PolicyContext` scopes state by `(policy instance, state type)`; per-block maps live inside `T`
-  - cleanup via `pop_policy_state()` in the always-run cleanup hook
+  - cleanup via `pop_request_state()` in the always-run cleanup hook
 - `PolicyContext` fields available to Anthropic hooks include:
   - `transaction_id`
   - `request` (OpenAI-format request when available)

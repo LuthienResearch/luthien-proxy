@@ -312,6 +312,7 @@ async def run_claude_code_oauth(
     # Remove explicit key env vars so Claude Code uses OAuth
     env.pop("ANTHROPIC_API_KEY", None)
     env.pop("ANTHROPIC_AUTH_TOKEN", None)
+    # Allow nested Claude Code sessions when running from within Claude Code
     env.pop("CLAUDECODE", None)
     env.pop("CLAUDE_CODE_ENTRYPOINT", None)
 

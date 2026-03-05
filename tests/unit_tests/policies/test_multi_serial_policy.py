@@ -349,7 +349,7 @@ class TestMultiSerialInterfaceValidation:
     async def test_openai_request_raises_for_incompatible_policy(self):
         """OpenAI call raises TypeError when a sub-policy lacks OpenAIPolicyInterface."""
         policy = MultiSerialPolicy(policies=[noop_config()])
-        policy._sub_policies.append(AnthropicOnlyPolicy())
+        policy._sub_policies = (*policy._sub_policies, AnthropicOnlyPolicy())
         ctx = PolicyContext.for_testing()
         request = Request(model="test", messages=[{"role": "user", "content": "hi"}])
 
@@ -360,7 +360,7 @@ class TestMultiSerialInterfaceValidation:
     async def test_openai_response_raises_for_incompatible_policy(self):
         """OpenAI response call raises TypeError for incompatible sub-policy."""
         policy = MultiSerialPolicy(policies=[noop_config()])
-        policy._sub_policies.append(AnthropicOnlyPolicy())
+        policy._sub_policies = (*policy._sub_policies, AnthropicOnlyPolicy())
         ctx = PolicyContext.for_testing()
         response = make_response("hello")
 
@@ -371,7 +371,7 @@ class TestMultiSerialInterfaceValidation:
     async def test_anthropic_request_raises_for_incompatible_policy(self):
         """Anthropic call raises TypeError when a sub-policy lacks AnthropicExecutionInterface."""
         policy = MultiSerialPolicy(policies=[noop_config()])
-        policy._sub_policies.append(OpenAIOnlyPolicy())
+        policy._sub_policies = (*policy._sub_policies, OpenAIOnlyPolicy())
         ctx = PolicyContext.for_testing()
         request: AnthropicRequest = {
             "model": DEFAULT_TEST_MODEL,
@@ -386,7 +386,7 @@ class TestMultiSerialInterfaceValidation:
     async def test_anthropic_response_raises_for_incompatible_policy(self):
         """Anthropic response call raises TypeError for incompatible sub-policy."""
         policy = MultiSerialPolicy(policies=[noop_config()])
-        policy._sub_policies.append(OpenAIOnlyPolicy())
+        policy._sub_policies = (*policy._sub_policies, OpenAIOnlyPolicy())
         ctx = PolicyContext.for_testing()
         response = make_anthropic_response("hello")
 
@@ -397,7 +397,7 @@ class TestMultiSerialInterfaceValidation:
     async def test_anthropic_stream_event_raises_for_incompatible_policy(self):
         """Anthropic stream event raises TypeError for incompatible sub-policy."""
         policy = MultiSerialPolicy(policies=[noop_config()])
-        policy._sub_policies.append(OpenAIOnlyPolicy())
+        policy._sub_policies = (*policy._sub_policies, OpenAIOnlyPolicy())
         ctx = PolicyContext.for_testing()
         text_delta = TextDelta.model_construct(type="text_delta", text="hello")
         event = RawContentBlockDeltaEvent.model_construct(type="content_block_delta", index=0, delta=text_delta)
