@@ -112,30 +112,52 @@ class TestExtractPreviewMessage:
         assert _extract_preview_message(payload) == "Fallback message"
 
     @pytest.mark.parametrize(
-        "probe_message",
-        ["count", "Count", "COUNT", "quota", "Quota", "QUOTA"],
+        "probe_content",
+        ["count", "quota", "ping", "any-future-probe"],
     )
-    def test_skips_claude_code_internal_probe_messages(self, probe_message):
-        """Test that Claude Code internal probe messages are skipped.
+    def test_skips_probe_requests_with_max_tokens_1(self, probe_content):
+        """Test that requests with max_tokens=1 are skipped regardless of content.
 
-        Claude Code sends single-word probe messages (token counting, quota
-        checks) before the real conversation. These should not become the
-        session preview.
+        Claude Code sends internal probes (token counting, quota checks) with
+        max_tokens=1. This structural signal catches all probes without needing
+        a content blocklist.
         """
         payload = {
             "final_request": {
-                "messages": [
-                    {"role": "user", "content": probe_message},
-                    {"role": "user", "content": "What's the weather?"},
-                ]
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": probe_content}],
             }
         }
-        assert _extract_preview_message(payload) == "What's the weather?"
-
-    def test_skips_probe_returns_none_when_no_real_message(self):
-        """Test that skipping probe messages can result in None if no real message follows."""
-        payload = {"final_request": {"messages": [{"role": "user", "content": "quota"}]}}
         assert _extract_preview_message(payload) is None
+
+    def test_normal_max_tokens_not_skipped(self):
+        """Test that requests with normal max_tokens are not skipped."""
+        payload = {
+            "final_request": {
+                "max_tokens": 32000,
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+        }
+        assert _extract_preview_message(payload) == "Hello"
+
+    def test_max_tokens_string_1_skipped(self):
+        """Test that max_tokens as string "1" is also caught (JSON parsing)."""
+        payload = {
+            "final_request": {
+                "max_tokens": "1",
+                "messages": [{"role": "user", "content": "quota"}],
+            }
+        }
+        assert _extract_preview_message(payload) is None
+
+    def test_missing_max_tokens_not_skipped(self):
+        """Test that missing max_tokens doesn't skip (backwards compat)."""
+        payload = {
+            "final_request": {
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+        }
+        assert _extract_preview_message(payload) == "Hello"
 
 
 class TestSafeParseJson:
