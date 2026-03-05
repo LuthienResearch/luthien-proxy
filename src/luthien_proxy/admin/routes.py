@@ -79,6 +79,12 @@ class ChatRequest(BaseModel):
     model: str = Field(..., description="Model to use (e.g., 'gpt-4o', 'claude-3-5-sonnet-20241022')")
     message: str = Field(..., description="Message to send")
     stream: bool = Field(default=False, description="Whether to stream the response")
+    use_mock: bool = Field(
+        default=False,
+        description="Use a mock LLM response so no upstream API key is required. "
+        "The policy pipeline still runs on both the request and the mock response. "
+        "Set to True to skip the real LLM call (useful when no server-side LLM credentials are configured).",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -312,11 +318,17 @@ async def send_chat(
     base_url = get_base_url(request)
 
     # Build OpenAI-format request payload
-    payload = {
+    payload: dict[str, Any] = {
         "model": body.model,
         "messages": [{"role": "user", "content": body.message}],
         "stream": False,
     }
+    # When mock mode is enabled (the default), LiteLLM returns a synthetic
+    # response without calling any upstream API. The full policy pipeline still
+    # runs on both the request and the mock response, so policies can be
+    # verified without any LLM credentials.
+    if body.use_mock:
+        payload["mock_response"] = "[Mock LLM response] Hello! I am a simulated response for policy testing."
 
     try:
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
