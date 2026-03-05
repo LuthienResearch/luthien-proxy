@@ -19,11 +19,12 @@ The pipeline creates a structured span hierarchy for observability:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
-from typing import TypedDict, TypeGuard, cast
+from typing import Literal, TypedDict, TypeGuard, cast
 
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
@@ -38,6 +39,7 @@ from opentelemetry.trace import Span
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (
+    AnthropicContentBlock,
     AnthropicRequest,
     AnthropicResponse,
 )
@@ -88,6 +90,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         session_id: str | None,
         request_log_recorder: RequestLogRecorder,
         is_streaming: bool,
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         self._request = initial_request
         self._initial_request = initial_request
@@ -97,8 +100,10 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._session_id = session_id
         self._request_log_recorder = request_log_recorder
         self._is_streaming = is_streaming
+        self._extra_headers = extra_headers
         self._request_recorded = False
         self._first_backend_response: AnthropicResponse | None = None
+        self._raw_backend_events: list[MessageStreamEvent] = []
 
     @property
     def request(self) -> AnthropicRequest:
@@ -157,10 +162,11 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
 
         with tracer.start_as_current_span("send_upstream") as span:
             span.set_attribute("luthien.phase", "send_upstream")
-            response = await self._anthropic_client.complete(final_request)
+            response = await self._anthropic_client.complete(final_request, extra_headers=self._extra_headers)
 
         if self._first_backend_response is None:
-            self._first_backend_response = response
+            # Deep-copy to preserve pre-policy content (policies may mutate in-place)
+            self._first_backend_response = copy.deepcopy(response)
         return response
 
     def stream(self, request: AnthropicRequest | None = None) -> AsyncIterator[MessageStreamEvent]:
@@ -168,13 +174,107 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         final_request = request or self._request
         self._record_backend_request(final_request)
 
+        extra_headers = self._extra_headers
+
         async def _stream() -> AsyncIterator[MessageStreamEvent]:
             with tracer.start_as_current_span("send_upstream") as span:
                 span.set_attribute("luthien.phase", "send_upstream")
-                async for event in self._anthropic_client.stream(final_request):
+                async for event in self._anthropic_client.stream(final_request, extra_headers=extra_headers):
+                    self._raw_backend_events.append(event)
                     yield event
 
         return _stream()
+
+
+def _reconstruct_response_from_stream_events(
+    events: list[MessageStreamEvent],
+) -> AnthropicResponse | None:
+    """Reconstruct a complete AnthropicResponse from Anthropic SDK streaming events.
+
+    Accumulates message_start, content_block_*, and message_delta events to rebuild
+    the full response for storage in conversation history.
+
+    Returns None if the stream lacked sufficient events to reconstruct (e.g., errored
+    before message_start).
+    """
+    message_id: str | None = None
+    model: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    stop_reason: str | None = None
+    stop_sequence: str | None = None
+
+    # Index-keyed content block accumulation (handles multiple blocks / tool use)
+    blocks_by_index: dict[int, dict] = {}
+    json_bufs: dict[int, str] = {}  # partial JSON accumulator for tool_use inputs
+
+    for event in events:
+        t = event.type  # type: ignore[union-attr]
+
+        if t == "message_start":
+            msg = event.message  # type: ignore[union-attr]
+            message_id = msg.id
+            model = msg.model
+            if msg.usage:
+                input_tokens = msg.usage.input_tokens
+
+        elif t == "content_block_start":
+            idx: int = event.index  # type: ignore[union-attr]
+            cb = event.content_block  # type: ignore[union-attr]
+            if cb.type == "text":
+                blocks_by_index[idx] = {"type": "text", "text": ""}
+            elif cb.type == "tool_use":
+                blocks_by_index[idx] = {"type": "tool_use", "id": cb.id, "name": cb.name, "input": {}}
+                json_bufs[idx] = ""
+            # thinking blocks are intentionally excluded from history
+
+        elif t == "content_block_delta":
+            idx = event.index  # type: ignore[union-attr]
+            delta = event.delta  # type: ignore[union-attr]
+            if idx in blocks_by_index:
+                block = blocks_by_index[idx]
+                if delta.type == "text_delta" and block["type"] == "text":  # type: ignore[union-attr]
+                    block["text"] += delta.text  # type: ignore[union-attr]
+                elif delta.type == "input_json_delta" and block["type"] == "tool_use":  # type: ignore[union-attr]
+                    json_bufs[idx] = json_bufs.get(idx, "") + delta.partial_json  # type: ignore[union-attr]
+
+        elif t == "content_block_stop":
+            idx = event.index  # type: ignore[union-attr]
+            if idx in json_bufs and idx in blocks_by_index:
+                try:
+                    blocks_by_index[idx]["input"] = json.loads(json_bufs[idx])
+                except (json.JSONDecodeError, ValueError):
+                    pass
+                del json_bufs[idx]
+
+        elif t == "message_delta":
+            delta = event.delta  # type: ignore[union-attr]
+            stop_reason = getattr(delta, "stop_reason", None)
+            stop_sequence = getattr(delta, "stop_sequence", None)
+            usage = getattr(event, "usage", None)
+            if usage:
+                output_tokens = getattr(usage, "output_tokens", 0)
+
+    if message_id is None or model is None:
+        return None
+
+    content = cast(
+        "list[AnthropicContentBlock]",
+        [blocks_by_index[i] for i in sorted(blocks_by_index.keys())],
+    )
+    return AnthropicResponse(
+        id=message_id,
+        type="message",
+        role="assistant",
+        content=content,
+        model=model,
+        stop_reason=cast(
+            "Literal['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'pause_turn', 'refusal'] | None",
+            stop_reason,
+        ),
+        stop_sequence=stop_sequence,
+        usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
+    )
 
 
 def _is_anthropic_response_emission(emitted: AnthropicPolicyEmission) -> TypeGuard[AnthropicResponse]:
@@ -252,6 +352,12 @@ async def process_anthropic_request(
             endpoint="/v1/messages",
         )
 
+        # Forward anthropic-beta header from client so beta features (e.g. prompt
+        # caching with scope) aren't rejected by the upstream API.
+        forwarded_headers: dict[str, str] | None = None
+        if beta := raw_http_request.headers.get("anthropic-beta"):
+            forwarded_headers = {"anthropic-beta": beta}
+
         # Create policy context
         policy_ctx = PolicyContext(
             transaction_id=call_id,
@@ -274,6 +380,7 @@ async def process_anthropic_request(
             is_streaming=is_streaming,
             root_span=root_span,
             request_log_recorder=request_log_recorder,
+            extra_headers=forwarded_headers,
         )
 
         # Propagate policy summaries if set
@@ -361,6 +468,7 @@ async def _execute_anthropic_policy(
     is_streaming: bool,
     root_span: Span,
     request_log_recorder: RequestLogRecorder,
+    extra_headers: dict[str, str] | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Execute an Anthropic policy using the execution-oriented runtime."""
     io = _AnthropicPolicyIO(
@@ -371,6 +479,7 @@ async def _execute_anthropic_policy(
         session_id=policy_ctx.session_id,
         request_log_recorder=request_log_recorder,
         is_streaming=is_streaming,
+        extra_headers=extra_headers,
     )
     emissions = execution_policy.run_anthropic(io, policy_ctx)
 
@@ -382,6 +491,7 @@ async def _execute_anthropic_policy(
             root_span=root_span,
             policy_ctx=policy_ctx,
             request_log_recorder=request_log_recorder,
+            emitter=emitter,
         )
 
     return await _handle_execution_non_streaming(
@@ -401,6 +511,7 @@ async def _handle_execution_streaming(
     root_span: Span,
     policy_ctx: PolicyContext,
     request_log_recorder: RequestLogRecorder,
+    emitter: EventEmitterProtocol,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow for execution-oriented policies."""
     parent_context = get_current()
@@ -411,6 +522,7 @@ async def _handle_execution_streaming(
             chunk_count = 0
             emitted_any = False
             final_status = 200
+            accumulated_events: list[MessageStreamEvent] = []
             with tracer.start_as_current_span("process_response") as response_span:
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
@@ -426,6 +538,7 @@ async def _handle_execution_streaming(
                             io.ensure_request_recorded()
                             emitted_any = True
                             chunk_count += 1
+                            accumulated_events.append(cast(MessageStreamEvent, emitted))
                             yield _format_sse_event(cast(MessageStreamEvent, emitted))
                 except Exception as e:
                     # Headers may already be sent, so emit an in-stream error event.
@@ -455,7 +568,20 @@ async def _handle_execution_streaming(
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
-                    # Streaming bodies are not captured (too large to store efficiently)
+                    reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
+                    if reconstructed is not None:
+                        raw_reconstructed = _reconstruct_response_from_stream_events(io._raw_backend_events)
+                        emitter.record(
+                            call_id,
+                            "transaction.streaming_response_recorded",
+                            {
+                                "original_response": dict(raw_reconstructed)
+                                if raw_reconstructed is not None
+                                else dict(reconstructed),
+                                "final_response": dict(reconstructed),
+                                "session_id": policy_ctx.session_id,
+                            },
+                        )
                     request_log_recorder.record_inbound_response(status=final_status)
                     request_log_recorder.record_outbound_response(status=final_status)
                     request_log_recorder.flush()
@@ -655,4 +781,4 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
     # For other exceptions, let them propagate
 
 
-__all__ = ["process_anthropic_request"]
+__all__ = ["process_anthropic_request", "_reconstruct_response_from_stream_events"]

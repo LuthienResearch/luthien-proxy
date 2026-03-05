@@ -179,6 +179,7 @@ for service in gateway; do
     fi
 done
 
+
 if [ "$services_healthy" = true ]; then
     echo ""
     echo "🎉 Luthien is ready!"

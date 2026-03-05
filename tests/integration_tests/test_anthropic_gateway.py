@@ -238,7 +238,7 @@ class TestAnthropicStreaming:
         client = MagicMock(spec=AnthropicClient)
         client._base_url = None
 
-        async def mock_stream(request):
+        async def mock_stream(request, extra_headers=None):
             # Simulate streaming events as Pydantic models
             events = [
                 MagicMock(

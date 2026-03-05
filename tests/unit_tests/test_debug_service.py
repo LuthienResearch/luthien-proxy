@@ -145,8 +145,8 @@ class TestComputeRequestDiff:
 class TestComputeResponseDiff:
     """Test response diff computation."""
 
-    def test_no_changes(self):
-        """Test diff when nothing changed."""
+    def test_no_changes_openai_format(self):
+        """Test diff when nothing changed (OpenAI format)."""
         original = final = {"choices": [{"message": {"content": "Hello"}, "finish_reason": "stop"}]}
 
         diff = compute_response_diff(original, final)
@@ -162,8 +162,8 @@ class TestComputeResponseDiff:
             ("Removed", ""),
         ],
     )
-    def test_content_changes(self, orig_content, final_content):
-        """Test diff when content changes."""
+    def test_content_changes_openai_format(self, orig_content, final_content):
+        """Test diff when content changes (OpenAI format)."""
         original = {"choices": [{"message": {"content": orig_content}}]}
         final = {"choices": [{"message": {"content": final_content}}]}
 
@@ -173,8 +173,8 @@ class TestComputeResponseDiff:
         assert diff.original_content == orig_content
         assert diff.final_content == final_content
 
-    def test_finish_reason_changed(self):
-        """Test diff when finish_reason changed."""
+    def test_finish_reason_changed_openai_format(self):
+        """Test diff when finish_reason changed (OpenAI format)."""
         original = {"choices": [{"message": {"content": ""}, "finish_reason": "stop"}]}
         final = {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]}
 
@@ -183,6 +183,40 @@ class TestComputeResponseDiff:
         assert diff.finish_reason_changed
         assert diff.original_finish_reason == "stop"
         assert diff.final_finish_reason == "length"
+
+    def test_no_changes_anthropic_format(self):
+        """Test diff when nothing changed (Anthropic format)."""
+        original = final = {
+            "content": [{"type": "text", "text": "Hello"}],
+            "stop_reason": "end_turn",
+        }
+
+        diff = compute_response_diff(original, final)
+
+        assert not diff.content_changed
+        assert not diff.finish_reason_changed
+
+    def test_content_changes_anthropic_format(self):
+        """Test diff when content changes (Anthropic format)."""
+        original = {"content": [{"type": "text", "text": "Original"}], "stop_reason": "end_turn"}
+        final = {"content": [{"type": "text", "text": "Modified"}], "stop_reason": "end_turn"}
+
+        diff = compute_response_diff(original, final)
+
+        assert diff.content_changed
+        assert diff.original_content == "Original"
+        assert diff.final_content == "Modified"
+
+    def test_stop_reason_changed_anthropic_format(self):
+        """Test diff when stop_reason changed (Anthropic format)."""
+        original = {"content": [{"type": "text", "text": "Hi"}], "stop_reason": "end_turn"}
+        final = {"content": [{"type": "text", "text": "Hi"}], "stop_reason": "max_tokens"}
+
+        diff = compute_response_diff(original, final)
+
+        assert diff.finish_reason_changed
+        assert diff.original_finish_reason == "end_turn"
+        assert diff.final_finish_reason == "max_tokens"
 
 
 class TestFetchCallEvents:
@@ -193,9 +227,9 @@ class TestFetchCallEvents:
         """Test successful event fetching."""
         mock_row = {
             "call_id": "test-call-id",
-            "event_type": "v2_request",
+            "event_type": "transaction.request_recorded",
             "created_at": datetime(2025, 10, 20, 10, 0, 0),
-            "payload": {"data": "test"},
+            "payload": {"original_request": {}, "final_request": {}},
             "session_id": "test-session-id",
         }
 
@@ -209,7 +243,7 @@ class TestFetchCallEvents:
 
         assert result.call_id == "test-call-id"
         assert len(result.events) == 1
-        assert result.events[0].event_type == "v2_request"
+        assert result.events[0].event_type == "transaction.request_recorded"
         assert result.tempo_trace_url is not None
 
     @pytest.mark.asyncio
@@ -230,15 +264,16 @@ class TestFetchCallDiff:
 
     @pytest.mark.asyncio
     async def test_successful_diff(self):
-        """Test successful diff computation."""
+        """Test successful diff computation with transaction.request_recorded event."""
         mock_request_row = {
             "call_id": "test-call-id",
-            "event_type": "v2_request",
+            "event_type": "transaction.request_recorded",
             "payload": {
-                "data": {
-                    "original": {"model": "gpt-4", "messages": []},
-                    "final": {"model": "gpt-3.5-turbo", "messages": []},
-                }
+                "original_request": {"model": "gpt-4", "messages": []},
+                "final_request": {"model": "gpt-3.5-turbo", "messages": []},
+                "original_model": "gpt-4",
+                "final_model": "gpt-3.5-turbo",
+                "session_id": None,
             },
         }
 
@@ -255,28 +290,28 @@ class TestFetchCallDiff:
         assert result.request.model_changed
         assert result.tempo_trace_url is not None
 
+    @pytest.mark.parametrize(
+        "response_event_type",
+        ["transaction.non_streaming_response_recorded", "transaction.streaming_response_recorded"],
+    )
     @pytest.mark.asyncio
-    async def test_both_request_and_response(self):
-        """Test diff with both request and response events."""
+    async def test_both_request_and_response(self, response_event_type):
+        """Test diff with both request and response events (OpenAI format)."""
         mock_rows = [
             {
                 "call_id": "test-call-id",
-                "event_type": "v2_request",
+                "event_type": "transaction.request_recorded",
                 "payload": {
-                    "data": {
-                        "original": {"model": "gpt-4", "messages": []},
-                        "final": {"model": "gpt-4", "messages": []},
-                    }
+                    "original_request": {"model": "gpt-4", "messages": []},
+                    "final_request": {"model": "gpt-4", "messages": []},
                 },
             },
             {
                 "call_id": "test-call-id",
-                "event_type": "v2_response",
+                "event_type": response_event_type,
                 "payload": {
-                    "response": {
-                        "original": {"choices": [{"message": {"content": "A"}}]},
-                        "final": {"choices": [{"message": {"content": "B"}}]},
-                    }
+                    "original_response": {"choices": [{"message": {"content": "A"}}]},
+                    "final_response": {"choices": [{"message": {"content": "B"}}]},
                 },
             },
         ]
@@ -292,6 +327,47 @@ class TestFetchCallDiff:
         assert result.request is not None
         assert result.response is not None
         assert result.response.content_changed
+
+    @pytest.mark.asyncio
+    async def test_anthropic_format_response(self):
+        """Test diff with Anthropic-format response (content blocks, stop_reason)."""
+        mock_rows = [
+            {
+                "call_id": "test-call-id",
+                "event_type": "transaction.request_recorded",
+                "payload": {
+                    "original_request": {"model": "claude-3-5-sonnet-20241022", "messages": []},
+                    "final_request": {"model": "claude-3-5-sonnet-20241022", "messages": []},
+                },
+            },
+            {
+                "call_id": "test-call-id",
+                "event_type": "transaction.non_streaming_response_recorded",
+                "payload": {
+                    "original_response": {
+                        "content": [{"type": "text", "text": "Original"}],
+                        "stop_reason": "end_turn",
+                    },
+                    "final_response": {
+                        "content": [{"type": "text", "text": "Modified"}],
+                        "stop_reason": "end_turn",
+                    },
+                },
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        result = await fetch_call_diff("test-call-id", mock_pool)
+
+        assert result.response is not None
+        assert result.response.content_changed
+        assert result.response.original_content == "Original"
+        assert result.response.final_content == "Modified"
 
     @pytest.mark.asyncio
     async def test_no_events_found(self):
