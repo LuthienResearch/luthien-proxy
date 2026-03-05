@@ -12,6 +12,7 @@
 - **luthien-org** (`~/build/luthien-org`): Org-level repo for feedback synthesis, requirements, planning docs, and UI mockups. Lives at `LuthienResearch/luthien-org` on GitHub.
 - Cross-repo work (e.g. updating feedback synthesis docs alongside a README PR) should be tracked in the luthien-proxy PR description, not as separate PRs in luthien-org. Commit directly to luthien-org main and link from the luthien-proxy PR.
 - Key paths: `ui-fb-dev/1-feedback-synthesis/` (user interview takeaways, value-prop feedback), `ui-fb-dev/2-requirements/` (live requirements docs).
+- **Design system:** `ui-fb-dev/design-system.md` — tone, copy constraints, visual specs, trust signals. Load this when editing any user-facing page (landing page, README, UI).
 
 ## Development Workflow
 
@@ -30,7 +31,7 @@
 - **Infrastructure change needed for a feature?** Separate PR, feature depends on it.
 - **Ask:** "Could these be reviewed/merged independently?" If yes, split them.
 
-This keeps PRs focused, easier to review, and allows independent merging. (Added 2026-01-29 after PR #141 bundled a SimplePolicy fix with the DeSlop feature.)
+This keeps PRs focused, easier to review, and allows independent merging. **Bug fixes bundled into feature PRs bypass the COE process** — no root cause analysis, no "what else could break" sweep. Always split bug fixes into their own PR so they get a COE. (Example: PR #133 bundled a probe-filtering fix into a feature, skipping COE → same class of bug recurred 38 days later in PR #277.)
 
 ### Maintaining Context
 

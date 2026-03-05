@@ -273,6 +273,15 @@ if stream_state.finish_reason:
 
 **Related gotcha**: Anthropic API keys (`sk-ant-api...`) passed in `Authorization: Bearer ...` are not valid bearer/OAuth tokens at Anthropic. Gateway now detects this format and validates/forwards them via `x-api-key` transport.
 
+## Claude Code Internal Probe Requests Use max_tokens=1 (2026-03-05)
+
+**Gotcha**: Claude Code sends internal probe requests (token counting, quota checks) with `max_tokens=1`. These get recorded as `transaction.request_recorded` events. If not filtered, the probe's content (e.g., "quota", "count") becomes the session title in /history.
+
+- **Symptom**: Session titled "quota" or "count" instead of the actual first user message
+- **Detection**: Both Python (`_extract_preview_message`) and SQL (`session_first_message` CTE) filter requests where `max_tokens <= 1`. This is a structural signal — no real conversation uses `max_tokens=1`.
+- **Why not a content blocklist?**: The original fix (PR #133) used a blocklist of probe words. This required manual updates for each new probe. The structural `max_tokens` check catches all probes regardless of content.
+- **If this breaks again**: A probe with `max_tokens > 1` would bypass the filter. Check the actual `max_tokens` value in the DB for the offending request before changing the approach.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

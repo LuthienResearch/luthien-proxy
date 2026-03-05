@@ -274,10 +274,19 @@ def _extract_preview_message(payload: Any) -> str | None:
 
     # Get the final request (prefer this as it's what was actually sent)
     request = payload.get("final_request") or payload.get("original_request") or {}
-    messages = request.get("messages", [])
 
-    # Messages to skip as they're not meaningful previews (Claude Code internals)
-    _SKIP_MESSAGES = {"count", ""}
+    # Skip probe requests structurally: Claude Code sends internal probes
+    # (token counting, quota checks) with max_tokens=1. No real conversation
+    # uses max_tokens=1, so this catches all probes without a content blocklist.
+    max_tokens = request.get("max_tokens")
+    if max_tokens is not None:
+        try:
+            if int(max_tokens) <= 1:
+                return None
+        except (TypeError, ValueError):
+            pass
+
+    messages = request.get("messages", [])
 
     # Find the first meaningful user message (captures session intent)
     for msg in messages:
@@ -291,8 +300,7 @@ def _extract_preview_message(payload: Any) -> str | None:
                 # Skip system-reminder tags (Claude Code injects these)
                 if content.startswith("<system-reminder>"):
                     content = _SYSTEM_REMINDER_PATTERN.sub("", content).strip()
-                # Skip non-meaningful messages (like Claude Code's token counting)
-                if content.lower() in _SKIP_MESSAGES:
+                if not content:
                     continue
                 # Replace newlines with spaces for single-line preview
                 content = " ".join(content.split())
@@ -358,8 +366,9 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
                 FROM conversation_events
                 WHERE session_id IS NOT NULL
                 AND event_type = 'transaction.request_recorded'
-                -- Skip Claude Code token counting requests (just "count")
-                AND COALESCE(payload->'final_request'->'messages'->0->>'content', '') != 'count'
+                -- Skip probe requests: max_tokens=1 means internal probe (token counting, quota).
+                -- COALESCE to 2 so requests without max_tokens are not skipped.
+                AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
                 ORDER BY session_id, created_at ASC
             )
             SELECT

@@ -111,6 +111,54 @@ class TestExtractPreviewMessage:
         payload = {"original_request": {"messages": [{"role": "user", "content": "Fallback message"}]}}
         assert _extract_preview_message(payload) == "Fallback message"
 
+    @pytest.mark.parametrize(
+        "probe_content",
+        ["count", "quota", "ping", "any-future-probe"],
+    )
+    def test_skips_probe_requests_with_max_tokens_1(self, probe_content):
+        """Test that requests with max_tokens=1 are skipped regardless of content.
+
+        Claude Code sends internal probes (token counting, quota checks) with
+        max_tokens=1. This structural signal catches all probes without needing
+        a content blocklist.
+        """
+        payload = {
+            "final_request": {
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": probe_content}],
+            }
+        }
+        assert _extract_preview_message(payload) is None
+
+    def test_normal_max_tokens_not_skipped(self):
+        """Test that requests with normal max_tokens are not skipped."""
+        payload = {
+            "final_request": {
+                "max_tokens": 32000,
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+        }
+        assert _extract_preview_message(payload) == "Hello"
+
+    def test_max_tokens_string_1_skipped(self):
+        """Test that max_tokens as string "1" is also caught (JSON parsing)."""
+        payload = {
+            "final_request": {
+                "max_tokens": "1",
+                "messages": [{"role": "user", "content": "quota"}],
+            }
+        }
+        assert _extract_preview_message(payload) is None
+
+    def test_missing_max_tokens_not_skipped(self):
+        """Test that missing max_tokens doesn't skip (backwards compat)."""
+        payload = {
+            "final_request": {
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+        }
+        assert _extract_preview_message(payload) == "Hello"
+
 
 class TestSafeParseJson:
     """Test safe JSON parsing."""
