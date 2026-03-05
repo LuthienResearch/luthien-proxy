@@ -132,12 +132,45 @@ def compute_request_diff(original: dict[str, Any], final: dict[str, Any]) -> Req
     )
 
 
+def _extract_response_content(response: dict[str, Any]) -> str:
+    """Extract text content from either OpenAI or Anthropic format response.
+
+    OpenAI format: choices[0].message.content
+    Anthropic format: content[].text (joined from text blocks)
+    """
+    # OpenAI format
+    choices = response.get("choices", [])
+    if choices:
+        msg = choices[0].get("message", {})
+        return str(msg.get("content", "") or "")
+
+    # Anthropic format
+    content_blocks = response.get("content", [])
+    if content_blocks:
+        texts = [block.get("text", "") for block in content_blocks if block.get("type") == "text"]
+        return "\n".join(texts)
+
+    return ""
+
+
+def _extract_finish_reason(response: dict[str, Any]) -> str | None:
+    """Extract finish reason from either OpenAI or Anthropic format response.
+
+    OpenAI format: choices[0].finish_reason
+    Anthropic format: stop_reason
+    """
+    choices = response.get("choices", [])
+    if choices:
+        return choices[0].get("finish_reason")
+    return response.get("stop_reason")
+
+
 def compute_response_diff(original: dict[str, Any], final: dict[str, Any]) -> ResponseDiff:
     """Compute diff between original and final response.
 
     Compares:
-    - message content from first choice
-    - finish_reason from first choice
+    - message content (supports both OpenAI choices and Anthropic content blocks)
+    - finish_reason / stop_reason
 
     Args:
         original: Original response payload
@@ -146,30 +179,10 @@ def compute_response_diff(original: dict[str, Any], final: dict[str, Any]) -> Re
     Returns:
         Structured diff showing what changed
     """
-    # Extract content from choices
-    orig_content = ""
-    final_content = ""
-
-    orig_choices = original.get("choices", [])
-    final_choices = final.get("choices", [])
-
-    if orig_choices:
-        orig_msg = orig_choices[0].get("message", {})
-        orig_content = orig_msg.get("content", "")
-
-    if final_choices:
-        final_msg = final_choices[0].get("message", {})
-        final_content = final_msg.get("content", "")
-
-    # Extract finish_reason
-    orig_finish_reason = None
-    final_finish_reason = None
-
-    if orig_choices:
-        orig_finish_reason = orig_choices[0].get("finish_reason")
-
-    if final_choices:
-        final_finish_reason = final_choices[0].get("finish_reason")
+    orig_content = _extract_response_content(original)
+    final_content = _extract_response_content(final)
+    orig_finish_reason = _extract_finish_reason(original)
+    final_finish_reason = _extract_finish_reason(final)
 
     return ResponseDiff(
         content_changed=(orig_content != final_content),
@@ -255,7 +268,11 @@ async def fetch_call_diff(call_id: str, db_pool: DatabasePool) -> CallDiffRespon
             """
             SELECT call_id, event_type, payload
             FROM conversation_events
-            WHERE call_id = $1 AND event_type IN ('v2_request', 'v2_response')
+            WHERE call_id = $1 AND event_type IN (
+                'transaction.request_recorded',
+                'transaction.non_streaming_response_recorded',
+                'transaction.streaming_response_recorded'
+            )
             ORDER BY created_at ASC
             """,
             call_id,
@@ -274,23 +291,20 @@ async def fetch_call_diff(call_id: str, db_pool: DatabasePool) -> CallDiffRespon
         if not payload:
             continue
 
-        if event_type == "v2_request":
-            # payload has {data: {original: {...}, final: {...}}}
-            data = payload.get("data", {})
-            if not isinstance(data, dict):
-                continue
-            original = data.get("original", {})
-            final = data.get("final", {})
+        if event_type == "transaction.request_recorded":
+            # payload has {original_request: {...}, final_request: {...}, ...}
+            original = payload.get("original_request", {})
+            final = payload.get("final_request", {})
             if isinstance(original, dict) and isinstance(final, dict):
                 request_diff = compute_request_diff(original, final)
 
-        elif event_type == "v2_response":
-            # payload has {response: {original: {...}, final: {...}}}
-            response_data = payload.get("response", {})
-            if not isinstance(response_data, dict):
-                continue
-            original = response_data.get("original", {})
-            final = response_data.get("final", {})
+        elif event_type in (
+            "transaction.non_streaming_response_recorded",
+            "transaction.streaming_response_recorded",
+        ):
+            # payload has {original_response: {...}, final_response: {...}, ...}
+            original = payload.get("original_response") or {}
+            final = payload.get("final_response") or {}
             if isinstance(original, dict) and isinstance(final, dict):
                 response_diff = compute_response_diff(original, final)
 

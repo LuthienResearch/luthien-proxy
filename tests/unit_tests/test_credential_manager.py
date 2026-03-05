@@ -28,7 +28,7 @@ class TestHashCredential:
 class TestCredentialManagerInit:
     def test_default_config(self):
         manager = CredentialManager(db_pool=None, redis_client=None)
-        assert manager.config.auth_mode == AuthMode.PROXY_KEY
+        assert manager.config.auth_mode == AuthMode.BOTH
         assert manager.config.validate_credentials is True
         assert manager.config.valid_cache_ttl_seconds == 3600
         assert manager.config.invalid_cache_ttl_seconds == 300
@@ -38,7 +38,7 @@ class TestCredentialManagerInitialize:
     @pytest.mark.asyncio
     async def test_no_db_uses_default(self):
         manager = CredentialManager(db_pool=None, redis_client=None)
-        await manager.initialize(default_auth_mode="passthrough")
+        await manager.initialize(default_auth_mode=AuthMode.PASSTHROUGH)
         assert manager.config.auth_mode == AuthMode.PASSTHROUGH
 
     @pytest.mark.asyncio
@@ -69,7 +69,7 @@ class TestCredentialManagerInitialize:
         mock_db.get_pool.return_value = mock_pool
 
         manager = CredentialManager(db_pool=mock_db, redis_client=None)
-        await manager.initialize(default_auth_mode="passthrough")
+        await manager.initialize(default_auth_mode=AuthMode.PASSTHROUGH)
         assert manager.config.auth_mode == AuthMode.PASSTHROUGH
 
 
@@ -386,4 +386,4 @@ class TestUpdateConfig:
         manager = CredentialManager(db_pool=None, redis_client=None)
         config = await manager.update_config(validate_credentials=False)
         assert config.validate_credentials is False
-        assert config.auth_mode == AuthMode.PROXY_KEY  # unchanged
+        assert config.auth_mode == AuthMode.BOTH  # unchanged from default

@@ -94,18 +94,18 @@ class CredentialManager:
         self._db_pool = db_pool
         self._redis = redis_client
         self._config = AuthConfig(
-            auth_mode=AuthMode.PROXY_KEY,
+            auth_mode=AuthMode.BOTH,
             validate_credentials=True,
             valid_cache_ttl_seconds=3600,
             invalid_cache_ttl_seconds=300,
         )
         self._http_client: httpx.AsyncClient | None = None
 
-    async def initialize(self, default_auth_mode: str = "proxy_key") -> None:
+    async def initialize(self, default_auth_mode: AuthMode = AuthMode.BOTH) -> None:
         """Load auth config from DB. Falls back to default on first boot."""
         if self._db_pool is None:
             logger.info("No DB pool - using default auth config")
-            self._config.auth_mode = AuthMode(default_auth_mode)
+            self._config.auth_mode = default_auth_mode
             return
 
         pool = await self._db_pool.get_pool()
@@ -121,7 +121,7 @@ class CredentialManager:
                 updated_by=row["updated_by"],
             )
         else:
-            self._config.auth_mode = AuthMode(default_auth_mode)
+            self._config.auth_mode = default_auth_mode
 
         logger.info(
             f"Auth config loaded: mode={self._config.auth_mode.value}, validate={self._config.validate_credentials}"

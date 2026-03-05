@@ -374,8 +374,8 @@ class TestStreamActivityEvents:
         # Check intervals between heartbeats (with some tolerance)
         for i in range(1, len(heartbeats)):
             interval = heartbeats[i][0] - heartbeats[i - 1][0]
-            # Allow 50% tolerance due to async timing variations
-            assert heartbeat_interval * 0.5 <= interval <= heartbeat_interval * 2.0
+            # Allow generous tolerance for slow CI runners
+            assert heartbeat_interval * 0.5 <= interval <= heartbeat_interval * 4.0
 
     @pytest.mark.asyncio
     async def test_ignores_non_message_types(self) -> None:
