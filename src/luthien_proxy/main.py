@@ -16,7 +16,7 @@ from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
-from luthien_proxy.credential_manager import CredentialManager
+from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
@@ -59,7 +59,7 @@ def create_app(
     redis_client: Redis,
     startup_policy_path: str | None = None,
     policy_source: str = "db-fallback-file",
-    auth_mode: str = "both",
+    auth_mode: AuthMode = AuthMode.BOTH,
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
 
@@ -174,12 +174,19 @@ def create_app(
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-    # Add cache headers to static file responses
+    # Add cache headers to static file responses.
+    # JS/HTML/CSS use no-cache so the browser always revalidates (prevents
+    # stale JS after a gateway restart). Other assets (images, fonts) get a
+    # longer TTL since they change infrequently.
     class StaticCacheMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             response = await call_next(request)
             if request.url.path.startswith("/static/"):
-                response.headers["Cache-Control"] = "public, max-age=3600"
+                path = request.url.path
+                if path.endswith((".js", ".html", ".css")):
+                    response.headers["Cache-Control"] = "no-cache"
+                else:
+                    response.headers["Cache-Control"] = "public, max-age=3600"
             return response
 
     app.add_middleware(StaticCacheMiddleware)
@@ -354,7 +361,7 @@ if __name__ == "__main__":
                 redis_client=redis_client,
                 startup_policy_path=startup_path,
                 policy_source=config["policy_source"],
-                auth_mode=config.get("auth_mode", "both"),
+                auth_mode=config.get("auth_mode", AuthMode.BOTH),
             )
 
             server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="debug")
