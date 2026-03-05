@@ -24,9 +24,12 @@ type AnthropicPolicyEmission = AnthropicResponse | MessageStreamEvent
 
 
 class AnthropicPolicyIOProtocol(Protocol):
-    """I/O surface exposed to Anthropic execution policies.
+    """Request-scoped I/O surface for Anthropic execution policies.
 
-    Session metadata is available via PolicyContext (not this protocol).
+    This is the stateful counterpart to a stateless policy: one instance is
+    created per request and holds the mutable request payload, accumulated
+    backend response, and methods for calling the backend (``complete()``,
+    ``stream()``). Session metadata is available via PolicyContext.
     """
 
     @property

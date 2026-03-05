@@ -25,7 +25,7 @@ class StreamingPolicyContext:
     - Call keepalive() during long-running operations to prevent timeout
     """
 
-    policy_ctx: PolicyContext  # Contains transaction_id, scratchpad, request
+    policy_ctx: PolicyContext  # Request-scoped state: transaction_id, request, emitter
     egress_queue: asyncio.Queue[ModelResponse]  # Where policies write chunks
     original_streaming_response_state: StreamState  # Assembler state (auto-updated)
     keepalive: Callable[[], None]  # Reset timeout during long-running operations

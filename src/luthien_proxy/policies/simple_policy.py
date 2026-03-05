@@ -87,7 +87,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
     - simple_on_response_content (complete content str->str)
     - simple_on_response_tool_call (complete tool call -> tool call)
 
-    You still have access to PolicyContext for observability, scratchpad, etc, enabling you to
+    You still have access to PolicyContext for observability, request state, etc, enabling you to
     do everything a full PolicyProtocol implementation can do, just with less complexity (and no
     streaming responsiveness).
 
@@ -97,7 +97,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
 
     def _anthropic_state(self, context: "PolicyContext") -> _SimplePolicyAnthropicState:
         """Get or create typed request-scoped Anthropic state."""
-        return context.get_policy_state(self, _SimplePolicyAnthropicState, _SimplePolicyAnthropicState)
+        return context.get_request_state(self, _SimplePolicyAnthropicState, _SimplePolicyAnthropicState)
 
     # ===== Simple methods that subclasses override =====
 
@@ -106,7 +106,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
 
         Args:
             request_str (str): The original request as a string
-            context (PolicyContext): Policy context (includes observability, scratchpad)
+            context (PolicyContext): Policy context (includes observability, request state)
         """
         return request_str
 
@@ -115,7 +115,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
 
         Args:
             content (str): Complete response content ("Hello user")
-            context (PolicyContext): Policy context (includes request, response metadata, observability, scratchpad)
+            context (PolicyContext): Policy context (includes request, response metadata, observability, request state)
 
         """
         return content
@@ -127,7 +127,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
 
         Args:
             tool_call (ChatCompletionMessageToolCall): The complete tool call
-            context (PolicyContext): Policy context (includes request, response metadata, observability, scratchpad)
+            context (PolicyContext): Policy context (includes request, response metadata, observability, request state)
         """
         return tool_call
 
@@ -141,7 +141,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
 
         Args:
             tool_call: The complete Anthropic tool_use block
-            context: Policy context (includes request, response metadata, observability, scratchpad)
+            context: Policy context (includes request, response metadata, observability, request state)
 
         Returns:
             Transformed tool_use block
@@ -155,7 +155,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
 
         Args:
             request (Request): The original request
-            context (PolicyContext): Policy context (includes observability, scratchpad)
+            context (PolicyContext): Policy context (includes observability, request state)
         """
         response_str: str = await self.simple_on_request(request.last_message, context)
         request.messages[-1]["content"] = response_str
@@ -310,7 +310,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
 
     async def on_anthropic_streaming_policy_complete(self, context: PolicyContext) -> None:
         """Clear request-scoped Anthropic buffers."""
-        context.pop_policy_state(self, _SimplePolicyAnthropicState)
+        context.pop_request_state(self, _SimplePolicyAnthropicState)
 
     # ===== Anthropic execution interface =====
 
@@ -342,7 +342,7 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
 
         Args:
             request: The Anthropic Messages API request
-            context: Policy context (includes observability, scratchpad)
+            context: Policy context (includes observability, request state)
 
         Returns:
             Request with potentially modified last message content

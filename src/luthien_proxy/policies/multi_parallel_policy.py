@@ -131,8 +131,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
                 f"Unknown consolidation_strategy '{consolidation_strategy}'. Valid options: {sorted(VALID_STRATEGIES)}"
             )
 
-        self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
-        self._validated_interfaces: set[type] = set()
+        self._sub_policies: tuple[PolicyProtocol, ...] = tuple(load_sub_policy(cfg) for cfg in policies)
         if not self._sub_policies:
             # Warning (not error) because an empty list is a valid degenerate case:
             # the multi-policy becomes a no-op passthrough, which is safe and predictable.
@@ -165,9 +164,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
 
     def _validate_interface(self, interface: type, interface_name: str) -> None:
         """Raise TypeError if any sub-policy doesn't implement the required interface."""
-        validate_sub_policies_interface(
-            self._sub_policies, self._validated_interfaces, interface, interface_name, "MultiParallelPolicy"
-        )
+        validate_sub_policies_interface(self._sub_policies, interface, interface_name, "MultiParallelPolicy")
 
     # =========================================================================
     # OpenAI Interface - Non-streaming

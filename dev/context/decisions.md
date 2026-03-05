@@ -265,7 +265,7 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ## Framework-Owned Policy State API (2026-02-27)
 
-**Decision**: Use framework-owned policy state via `PolicyContext.get_policy_state()/pop_policy_state()` and remove legacy slot APIs.
+**Decision**: Use framework-owned policy state via `PolicyContext.get_request_state()/pop_request_state()` and remove legacy slot APIs.
 
 **Mechanics**:
 - State is keyed by `(policy instance, expected state type)` inside `PolicyContext`.

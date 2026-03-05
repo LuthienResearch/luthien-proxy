@@ -63,11 +63,8 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInt
 
     def __init__(self, policies: list[dict[str, Any]]) -> None:
         """Initialize with a list of policy config dicts to run in sequence."""
-        self._sub_policies: list[PolicyProtocol] = [load_sub_policy(cfg) for cfg in policies]
-        self._validated_interfaces: set[type] = set()
+        self._sub_policies: tuple[PolicyProtocol, ...] = tuple(load_sub_policy(cfg) for cfg in policies)
         if not self._sub_policies:
-            # Warning (not error) because an empty list is a valid degenerate case:
-            # the multi-policy becomes a no-op passthrough, which is safe and predictable.
             logger.warning(
                 "MultiSerialPolicy initialized with empty policy list — requests will pass through unchanged"
             )
@@ -82,8 +79,7 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInt
         composition) and don't need config-based loading.
         """
         instance = object.__new__(cls)
-        instance._sub_policies = list(policies)
-        instance._validated_interfaces = set()
+        instance._sub_policies = tuple(policies)
         if not instance._sub_policies:
             logger.warning(
                 "MultiSerialPolicy initialized with empty policy list — requests will pass through unchanged"
@@ -100,9 +96,7 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInt
 
     def _validate_interface(self, interface: type, interface_name: str) -> None:
         """Raise TypeError if any sub-policy doesn't implement the required interface."""
-        validate_sub_policies_interface(
-            self._sub_policies, self._validated_interfaces, interface, interface_name, "MultiSerialPolicy"
-        )
+        validate_sub_policies_interface(self._sub_policies, interface, interface_name, "MultiSerialPolicy")
 
     def _iter_execution_policies(self) -> list[AnthropicExecutionInterface]:
         """Return sub-policies as AnthropicExecutionInterface after runtime validation."""

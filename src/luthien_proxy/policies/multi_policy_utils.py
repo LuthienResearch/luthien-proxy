@@ -29,18 +29,12 @@ def load_sub_policy(policy_config: dict[str, Any]) -> PolicyProtocol:
 
 
 def validate_sub_policies_interface(
-    sub_policies: list[PolicyProtocol],
-    validated_cache: set[type],
+    sub_policies: tuple[PolicyProtocol, ...],
     interface: type,
     interface_name: str,
     caller_name: str,
 ) -> None:
-    """Raise TypeError if any sub-policy doesn't implement the required interface.
-
-    Results are cached in validated_cache since sub-policies are immutable after init.
-    """
-    if interface in validated_cache:
-        return
+    """Raise TypeError if any sub-policy doesn't implement the required interface."""
     for policy in sub_policies:
         if not isinstance(policy, interface):
             raise TypeError(
@@ -48,7 +42,6 @@ def validate_sub_policies_interface(
                 f"{interface_name}, but {caller_name} received a {interface_name} call. "
                 f"All sub-policies must implement the interface being called."
             )
-    validated_cache.add(interface)
 
 
 __all__ = ["load_sub_policy", "validate_sub_policies_interface"]

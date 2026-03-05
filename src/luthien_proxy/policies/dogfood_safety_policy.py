@@ -148,8 +148,8 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
     def __init__(self, config: DogfoodSafetyConfig | None = None):
         """Initialize with optional config for blocked patterns and tool names."""
         self.config = self._init_config(config, DogfoodSafetyConfig)
-        self._compiled_patterns = [re.compile(p, re.IGNORECASE) for p in self.config.blocked_patterns]
-        self._tool_names_lower = {n.lower() for n in self.config.tool_names}
+        self._compiled_patterns = tuple(re.compile(p, re.IGNORECASE) for p in self.config.blocked_patterns)
+        self._tool_names_lower = frozenset(n.lower() for n in self.config.tool_names)
 
         logger.info(
             f"DogfoodSafetyPolicy initialized: "
@@ -159,7 +159,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
 
     def _openai_state(self, ctx: "StreamingPolicyContext") -> _DogfoodOpenAIState:
         """Get or create request-scoped OpenAI streaming state."""
-        return ctx.policy_ctx.get_policy_state(self, _DogfoodOpenAIState, _DogfoodOpenAIState)
+        return ctx.policy_ctx.get_request_state(self, _DogfoodOpenAIState, _DogfoodOpenAIState)
 
     def _openai_buffered_tool_calls(self, ctx: "StreamingPolicyContext") -> dict[int, _BufferedOpenAIToolCall]:
         """Get request-scoped OpenAI tool-call buffers."""
@@ -175,7 +175,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
 
     def _anthropic_state(self, context: "PolicyContext") -> _DogfoodAnthropicState:
         """Get or create request-scoped Anthropic streaming state."""
-        return context.get_policy_state(self, _DogfoodAnthropicState, _DogfoodAnthropicState)
+        return context.get_request_state(self, _DogfoodAnthropicState, _DogfoodAnthropicState)
 
     def _anthropic_buffered_tool_uses(self, context: "PolicyContext") -> dict[int, _BufferedAnthropicToolUse]:
         """Get request-scoped Anthropic tool_use buffers."""
@@ -362,7 +362,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
 
     async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
         """Clean up request-scoped OpenAI state."""
-        ctx.policy_ctx.pop_policy_state(self, _DogfoodOpenAIState)
+        ctx.policy_ctx.pop_request_state(self, _DogfoodOpenAIState)
 
     # ========================================================================
     # Anthropic execution interface
@@ -517,7 +517,7 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up request-scoped Anthropic state."""
-        context.pop_policy_state(self, _DogfoodAnthropicState)
+        context.pop_request_state(self, _DogfoodAnthropicState)
 
 
 __all__ = ["DogfoodSafetyPolicy", "DogfoodSafetyConfig"]

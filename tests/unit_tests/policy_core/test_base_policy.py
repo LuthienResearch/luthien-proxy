@@ -66,9 +66,9 @@ class TestBasePolicy:
         with pytest.raises(TypeError, match="mutable container"):
             policy.freeze_configured_state()
 
-    def test_freeze_ignores_private_mutable_attrs(self):
-        """Private mutable attrs are internal details and ignored by validation."""
+    def test_freeze_rejects_private_mutable_attrs(self):
+        """Private mutable attrs are also rejected — policies must be fully immutable."""
         policy = _PrivateMutablePolicy()
 
-        policy.freeze_configured_state()
-        assert policy.label == "config"
+        with pytest.raises(TypeError, match="mutable container"):
+            policy.freeze_configured_state()

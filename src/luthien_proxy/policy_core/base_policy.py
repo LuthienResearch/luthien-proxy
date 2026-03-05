@@ -18,6 +18,14 @@ T = TypeVar("T", bound=BaseModel)
 class BasePolicy:
     """Base class for all policies.
 
+    **Statelessness invariant:** Policy instances are singletons created once at
+    startup and shared across all concurrent requests. They must never hold
+    request-scoped mutable state. Per-request data belongs on ``PolicyContext``
+    (via ``get_request_state()``) or on the request-scoped IO object.
+
+    ``freeze_configured_state()`` enforces this at load time by rejecting mutable
+    container attributes on the policy instance.
+
     Provides common functionality shared by all policy types:
     - short_policy_name property for human-readable identification
     - get_config() method for serializing policy configuration
@@ -37,21 +45,21 @@ class BasePolicy:
         self._validate_no_mutable_instance_state()
 
     def _validate_no_mutable_instance_state(self) -> None:
-        """Fail if public instance attrs contain mutable containers.
+        """Fail if any instance attrs contain mutable containers.
 
-        Public mutable attrs are likely runtime state accidentally stored on a long-lived
-        policy instance. Private attrs (leading underscore) are treated as internal
-        implementation details and are not validated here.
+        Policies are long-lived singletons shared across concurrent requests.
+        Mutable containers on the instance are almost certainly bugs — use
+        tuple/frozenset for config-time collections and ``PolicyContext`` for
+        request-scoped state.
         """
         mutable_types: tuple[type[Any], ...] = (MutableMapping, MutableSequence, MutableSet, bytearray)
 
         for attr_name, value in vars(self).items():
-            if attr_name.startswith("_"):
-                continue
             if isinstance(value, mutable_types):
                 raise TypeError(
                     f"{self.__class__.__name__}.{attr_name} is a mutable container ({type(value).__name__}). "
-                    "Public policy attrs should be immutable config values; keep request state in PolicyContext."
+                    "Policy attrs must be immutable (use tuple/frozenset); "
+                    "keep request state in PolicyContext."
                 )
 
     @property
