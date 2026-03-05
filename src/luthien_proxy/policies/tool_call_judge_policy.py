@@ -205,7 +205,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
 
     def _openai_state(self, ctx: "StreamingPolicyContext") -> _ToolCallJudgeOpenAIState:
         """Get or create typed request-scoped OpenAI streaming state."""
-        return ctx.policy_ctx.get_policy_state(self, _ToolCallJudgeOpenAIState, _ToolCallJudgeOpenAIState)
+        return ctx.policy_ctx.get_request_state(self, _ToolCallJudgeOpenAIState, _ToolCallJudgeOpenAIState)
 
     def _openai_buffered_tool_calls(self, ctx: "StreamingPolicyContext") -> dict[int, ToolCallStreamBlock]:
         """Get request-scoped OpenAI tool-call buffer."""
@@ -221,7 +221,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
 
     def _anthropic_state(self, context: "PolicyContext") -> _ToolCallJudgeAnthropicState:
         """Get or create typed request-scoped Anthropic streaming state."""
-        return context.get_policy_state(self, _ToolCallJudgeAnthropicState, _ToolCallJudgeAnthropicState)
+        return context.get_request_state(self, _ToolCallJudgeAnthropicState, _ToolCallJudgeAnthropicState)
 
     def _anthropic_buffered_tool_uses(self, context: "PolicyContext") -> dict[int, _BufferedAnthropicToolUse]:
         """Get request-scoped Anthropic tool_use buffer."""
@@ -415,7 +415,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
         This ensures buffers are cleared even if errors occurred during processing.
         """
         # State is request-scoped; explicit cleanup keeps memory usage predictable.
-        ctx.policy_ctx.pop_policy_state(self, _ToolCallJudgeOpenAIState)
+        ctx.policy_ctx.pop_request_state(self, _ToolCallJudgeOpenAIState)
 
     async def on_anthropic_stream_complete(self, context: "PolicyContext") -> None:
         """No-op hook for parity with OpenAI lifecycle."""
@@ -423,7 +423,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up Anthropic per-request state after streaming completes."""
-        context.pop_policy_state(self, _ToolCallJudgeAnthropicState)
+        context.pop_request_state(self, _ToolCallJudgeAnthropicState)
 
     # ========================================================================
     # Anthropic execution interface

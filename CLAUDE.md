@@ -181,6 +181,15 @@ Common commands:
 - Update `config/policy_config.yaml` rather than hardcoding.
 - Validate setup with test requests to the gateway at `http://localhost:8000`.
 
+## Policy Architecture
+
+Policy instances are **singletons created once at startup** and shared across all concurrent requests. They must be stateless — no request-scoped data on the policy object.
+
+- **Request-scoped state** belongs on `PolicyContext` (via `get_request_state()`) or on the IO object (`AnthropicPolicyIOProtocol`).
+- **`PolicyContext`** is created per-request and flows through the entire request/response lifecycle. Use `get_request_state(owner, type, factory)` for typed per-policy state.
+- **`AnthropicPolicyIOProtocol`** is the request-scoped I/O surface for Anthropic execution policies — it holds the mutable request, backend response, and streaming methods.
+- **`freeze_configured_state()`** runs at policy load time and rejects mutable container attributes on the policy instance. Config-time collections should be immutable (tuple, frozenset).
+
 ## Policy Selection
 
 - Policies are loaded from the YAML file pointed to by `POLICY_CONFIG` (default `config/policy_config.yaml`).

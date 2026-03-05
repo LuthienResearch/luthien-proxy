@@ -261,7 +261,7 @@ if stream_state.finish_reason:
 
 - **Symptom**: Policy load fails with `TypeError` about a mutable container attr
 - **Cause**: Public policy attrs should represent immutable config; mutable request data belongs in request context
-- **Correct pattern**: Keep request-scoped mutable data in `PolicyContext.get_policy_state()` / `pop_policy_state()`
+- **Correct pattern**: Keep request-scoped mutable data in `PolicyContext.get_request_state()` / `pop_request_state()`
 - **Scope**: This is load-time validation only (no runtime instance freezing)
 
 ## Passthrough Auth Mode Is DB-Persisted, Not Just Env (2026-02-27)
