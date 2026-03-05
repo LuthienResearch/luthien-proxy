@@ -31,7 +31,7 @@
 - **Infrastructure change needed for a feature?** Separate PR, feature depends on it.
 - **Ask:** "Could these be reviewed/merged independently?" If yes, split them.
 
-This keeps PRs focused, easier to review, and allows independent merging. **Critically, bug fixes bundled into feature PRs bypass the COE process** — no 5 Whys, no "what else could break" sweep, no detection action items. This is how PR #133 fixed "count" without catching "quota" (same class of bug, 38 days later). (Added 2026-01-29 after PR #141; updated 2026-03-05 after PR #277 COE.)
+This keeps PRs focused, easier to review, and allows independent merging. **Bug fixes bundled into feature PRs bypass the COE process** — no root cause analysis, no "what else could break" sweep. Always split bug fixes into their own PR so they get a COE. (Example: PR #133 bundled a probe-filtering fix into a feature, skipping COE → same class of bug recurred 38 days later in PR #277.)
 
 ### Maintaining Context
 
