@@ -59,3 +59,4 @@ debug_multitool_nonstreaming.json
 .worktree-purpose
 .playwright-mcp/
 .worktrees/
+.claude/worktrees/
