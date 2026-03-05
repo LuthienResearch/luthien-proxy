@@ -323,7 +323,7 @@ class TestAnthropicRequestFlow:
 
         assert isinstance(response, JSONResponse)
         assert response.headers.get("x-call-id")
-        mock_anthropic_client.complete.assert_called_once_with(anthropic_body)
+        mock_anthropic_client.complete.assert_called_once_with(anthropic_body, extra_headers=None)
 
     @pytest.mark.asyncio
     async def test_emits_client_response_event(self, mock_request, mock_anthropic_client, mock_policy, mock_emitter):
@@ -397,7 +397,7 @@ class TestAnthropicRequestFlow:
         }
         mock_request.json = AsyncMock(return_value=anthropic_body)
 
-        async def mock_stream(request):
+        async def mock_stream(request, extra_headers=None):
             yield RawMessageStartEvent(
                 type="message_start",
                 message={
@@ -552,7 +552,7 @@ class TestProcessAnthropicRequest:
         mock_request.json = AsyncMock(return_value=anthropic_body)
 
         # Create streaming client
-        async def mock_stream(request):
+        async def mock_stream(request, extra_headers=None):
             yield RawMessageStartEvent(
                 type="message_start",
                 message={
@@ -734,7 +734,7 @@ class TestMidStreamErrorHandling:
             body=None,
         )
 
-        async def failing_stream(req):
+        async def failing_stream(req, extra_headers=None):
             yield RawMessageStartEvent(
                 type="message_start",
                 message={
@@ -797,7 +797,7 @@ class TestMidStreamErrorHandling:
         mock_request = HttpxRequest("POST", "https://api.anthropic.com/v1/messages")
         connection_error = AnthropicConnectionError(request=mock_request)
 
-        async def failing_stream(req):
+        async def failing_stream(req, extra_headers=None):
             yield RawMessageStartEvent(
                 type="message_start",
                 message={
@@ -1312,3 +1312,49 @@ class TestExecutionPolicyRuntime:
         full_stream = "".join(chunks)
         assert "event: error" in full_stream
         assert "must emit streaming events" in full_stream
+
+    @pytest.mark.asyncio
+    async def test_anthropic_beta_header_forwarded_to_upstream_client(
+        self,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """anthropic-beta header from the client request is forwarded to the upstream API call."""
+        beta_value = "prompt-caching-2024-07-31"
+        mock_request = MagicMock()
+        mock_request.headers = {"anthropic-beta": beta_value}
+        mock_request.method = "POST"
+        mock_request.url = MagicMock()
+        mock_request.url.path = "/v1/messages"
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": False,
+            }
+        )
+
+        backend_response: AnthropicResponse = {
+            "id": "msg_beta_test",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "ok"}],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 5, "output_tokens": 1},
+        }
+        mock_anthropic_client.complete = AsyncMock(return_value=backend_response)
+        policy = _BackendCompletePolicy()
+
+        await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        mock_anthropic_client.complete.assert_awaited_once()
+        call_kwargs = mock_anthropic_client.complete.call_args.kwargs
+        assert call_kwargs.get("extra_headers") == {"anthropic-beta": beta_value}
