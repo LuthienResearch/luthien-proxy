@@ -5,7 +5,13 @@
 
 set -e
 
-echo "🚀 Starting Luthien Control quick setup..."
+BUILD_FLAG="--build"
+if [ "${1:-}" = "--skip-build" ]; then
+    BUILD_FLAG=""
+    echo "🚀 Starting Luthien Control quick setup (skipping image builds)..."
+else
+    echo "🚀 Starting Luthien Control quick setup..."
+fi
 
 # Check required dependencies
 echo "🔍 Checking dependencies..."
@@ -138,7 +144,7 @@ fi
 
 # Start core services
 echo "🐳 Starting core services..."
-docker compose up -d --build db redis
+docker compose up -d db redis
 
 # Wait for database to be ready
 echo "⏳ Waiting for PostgreSQL to be ready..."
@@ -168,7 +174,7 @@ echo "✅ Redis is ready"
 
 # Start gateway (integrated FastAPI + LiteLLM)
 echo "🚀 Starting gateway (integrated proxy)..."
-docker compose up -d --build gateway
+docker compose up -d $BUILD_FLAG gateway
 
 # Wait for services to be healthy
 echo "⏳ Waiting for services to be healthy..."
