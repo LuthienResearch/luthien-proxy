@@ -1,6 +1,6 @@
 [project]
 name = "luthien-cli"
-version = "0.1.4"
+version = "0.1.5"
 description = "CLI tool for managing luthien-proxy gateways"
 requires-python = ">=3.11"
 dependencies = [
