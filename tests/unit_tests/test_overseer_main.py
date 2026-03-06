@@ -12,7 +12,7 @@ class TestParseArgs:
     def test_defaults(self):
         args = parse_args(["--task", "test"])
         assert args.max_turns == 20
-        assert args.timeout == 600
+        assert args.timeout == 20 * 600  # max_turns * turn_timeout
         assert args.port == 8080
         assert args.model == "claude-haiku-4-5-20251001"
         assert args.sandbox_model == "claude-haiku-4-5-20251001"
