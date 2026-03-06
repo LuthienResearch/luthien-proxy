@@ -237,4 +237,13 @@ curl -X POST http://localhost:8000/api/admin/policy/activate \
 
 ---
 
+## Database Migrations Lifecycle (2026-03-05)
+
+- Migrations run as a separate Docker service (`migrations` in `docker-compose.yaml`) **before** the gateway starts (gateway depends on `migrations` service).
+- On startup, the gateway calls `check_migrations(db_pool)` to validate all migrations have been applied. If any are pending, startup fails with a clear error.
+- New tables/columns added by migrations (e.g. `telemetry_config`) are guaranteed to exist by the time application code runs. This means config resolution code can assume tables exist and treat DB errors as transient failures, not missing-schema issues.
+- Migration files live in `migrations/` and are auto-discovered by filename sort order (e.g. `009_add_telemetry_config.sql`).
+
+---
+
 (Add learnings as discovered during development with timestamps: YYYY-MM-DD)

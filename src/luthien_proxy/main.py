@@ -39,6 +39,9 @@ from luthien_proxy.telemetry import (
     instrument_redis,
 )
 from luthien_proxy.ui import router as ui_router
+from luthien_proxy.usage_telemetry.collector import UsageCollector
+from luthien_proxy.usage_telemetry.config import resolve_telemetry_config
+from luthien_proxy.usage_telemetry.sender import TelemetrySender
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import DB_URL_PREVIEW_LENGTH
 from luthien_proxy.utils.migration_check import check_migrations
@@ -136,6 +139,25 @@ def create_app(
         if _enable_request_logging:
             logger.info("Request/response logging ENABLED")
 
+        # Initialize usage telemetry
+        settings = get_settings()
+        _telemetry_config = await resolve_telemetry_config(
+            db_pool=db_pool,
+            env_value=settings.usage_telemetry,
+        )
+        _usage_collector: UsageCollector | None = None
+        _telemetry_sender: TelemetrySender | None = None
+        if _telemetry_config.enabled:
+            _usage_collector = UsageCollector()
+            _telemetry_sender = TelemetrySender(
+                config=_telemetry_config,
+                collector=_usage_collector,
+                endpoint=settings.telemetry_endpoint,
+            )
+            _telemetry_sender.start()
+        else:
+            logger.info("Usage telemetry disabled")
+
         # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
@@ -148,6 +170,7 @@ def create_app(
             anthropic_client=_anthropic_client,
             credential_manager=_credential_manager,
             enable_request_logging=_enable_request_logging,
+            usage_collector=_usage_collector,
         )
 
         # Store dependencies container in app state
@@ -157,6 +180,8 @@ def create_app(
         yield
 
         # Shutdown
+        if _telemetry_sender is not None:
+            await _telemetry_sender.stop()
         await _credential_manager.close()
         # Note: db_pool and redis_client are NOT closed here - they are owned by
         # the caller who passed them in. The caller is responsible for cleanup.

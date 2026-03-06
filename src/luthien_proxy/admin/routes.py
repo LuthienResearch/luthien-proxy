@@ -14,13 +14,15 @@ from luthien_proxy.admin.policy_discovery import discover_policies, validate_pol
 from luthien_proxy.auth import get_base_url, verify_admin_token
 from luthien_proxy.config import _import_policy_class
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
-from luthien_proxy.dependencies import get_policy_manager, require_credential_manager
+from luthien_proxy.dependencies import get_db_pool, get_policy_manager, require_credential_manager
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
     PolicyManager,
 )
 from luthien_proxy.settings import get_settings
+from luthien_proxy.usage_telemetry.config import resolve_telemetry_config
+from luthien_proxy.utils import db
 
 logger = logging.getLogger(__name__)
 
@@ -470,6 +472,64 @@ async def invalidate_all_credentials(
     """Invalidate all cached credentials."""
     count = await credential_manager.invalidate_all()
     return {"success": True, "count": count, "message": f"Invalidated {count} cached credentials"}
+
+
+# === Telemetry ===
+
+
+class TelemetryConfigResponse(BaseModel):
+    """Response with current telemetry configuration."""
+
+    enabled: bool
+    deployment_id: str
+    env_override: bool
+    user_configured: bool
+
+
+class TelemetryConfigUpdateRequest(BaseModel):
+    """Request to update telemetry enabled state."""
+
+    enabled: bool
+
+
+@router.get("/telemetry")
+async def get_telemetry_config(
+    _: str = Depends(verify_admin_token),
+    db_pool: db.DatabasePool | None = Depends(get_db_pool),
+):
+    """Get current telemetry configuration."""
+    settings = get_settings()
+    config = await resolve_telemetry_config(db_pool=db_pool, env_value=settings.usage_telemetry)
+    return TelemetryConfigResponse(
+        enabled=config.enabled,
+        deployment_id=config.deployment_id,
+        env_override=settings.usage_telemetry is not None,
+        user_configured=config.user_configured,
+    )
+
+
+@router.put("/telemetry")
+async def update_telemetry_config(
+    body: TelemetryConfigUpdateRequest,
+    _: str = Depends(verify_admin_token),
+    db_pool: db.DatabasePool | None = Depends(get_db_pool),
+):
+    """Update telemetry enabled state (stored in DB)."""
+    settings = get_settings()
+    if settings.usage_telemetry is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="USAGE_TELEMETRY env var is set — DB config cannot override it",
+        )
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    pool = await db_pool.get_pool()
+    await pool.execute(
+        "UPDATE telemetry_config SET enabled = $1, updated_at = NOW(), updated_by = 'admin-api' WHERE id = 1",
+        body.enabled,
+    )
+    return {"success": True, "enabled": body.enabled}
 
 
 __all__ = ["router"]

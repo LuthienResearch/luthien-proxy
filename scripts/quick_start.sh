@@ -180,6 +180,52 @@ for service in gateway; do
 done
 
 
+# Telemetry opt-in/out prompt (only when no env var and no DB value)
+if [ "$services_healthy" = true ] && [ -z "${USAGE_TELEMETRY:-}" ]; then
+    gateway_url="http://localhost:${GATEWAY_PORT:-8000}"
+    admin_key="${ADMIN_API_KEY:-}"
+
+    if [ -n "$admin_key" ]; then
+        telemetry_resp=$(curl -s -H "Authorization: Bearer $admin_key" "${gateway_url}/api/admin/telemetry" 2>/dev/null || echo "")
+
+        # Only prompt if no one has made an explicit choice yet
+        needs_prompt=$(echo "$telemetry_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    # Skip if env var overrides or user already configured via API/prompt
+    print('no' if d.get('env_override') or d.get('user_configured') else 'yes')
+except Exception:
+    print('no')
+" 2>/dev/null || echo "no")
+
+        if [ "$needs_prompt" = "yes" ]; then
+            echo ""
+            echo "📊 Anonymous usage telemetry helps the Luthien team understand"
+            echo "   how the proxy is being used (aggregate counts only, no"
+            echo "   identifying data)."
+            echo ""
+            read -r -p "   Send anonymous usage data? [Y/n] " telemetry_choice </dev/tty 2>/dev/null || telemetry_choice="Y"
+            case "$telemetry_choice" in
+                [nN]*)
+                    curl -s -X PUT -H "Authorization: Bearer $admin_key" \
+                        -H "Content-Type: application/json" \
+                        -d '{"enabled": false}' \
+                        "${gateway_url}/api/admin/telemetry" > /dev/null 2>&1
+                    echo "   ✅ Telemetry disabled. Change anytime via USAGE_TELEMETRY env var or admin API."
+                    ;;
+                *)
+                    curl -s -X PUT -H "Authorization: Bearer $admin_key" \
+                        -H "Content-Type: application/json" \
+                        -d '{"enabled": true}' \
+                        "${gateway_url}/api/admin/telemetry" > /dev/null 2>&1
+                    echo "   ✅ Telemetry enabled. Change anytime via USAGE_TELEMETRY env var or admin API."
+                    ;;
+            esac
+        fi
+    fi
+fi
+
 if [ "$services_healthy" = true ]; then
     echo ""
     echo "🎉 Luthien is ready!"

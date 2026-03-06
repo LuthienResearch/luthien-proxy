@@ -57,6 +57,7 @@ from luthien_proxy.streaming.client_formatter.openai import OpenAIClientFormatte
 from luthien_proxy.streaming.policy_executor.executor import PolicyExecutor
 from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
+from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
@@ -71,6 +72,7 @@ async def process_llm_request(
     emitter: EventEmitterProtocol,
     db_pool: "db.DatabasePool | None" = None,
     enable_request_logging: bool = False,
+    usage_collector: UsageCollector | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an OpenAI-format LLM request through the pipeline.
 
@@ -87,6 +89,7 @@ async def process_llm_request(
         emitter: Event emitter for observability
         db_pool: Database connection pool for request logging
         enable_request_logging: Whether to record HTTP-level request/response logs
+        usage_collector: Optional usage telemetry collector for counting requests
 
     Returns:
         StreamingResponse or JSONResponse depending on stream parameter
@@ -103,6 +106,9 @@ async def process_llm_request(
 
     call_id = str(uuid.uuid4())
     request_log_recorder = create_recorder(db_pool, call_id, enable_request_logging)
+
+    if usage_collector:
+        usage_collector.record_accepted()
 
     with tracer.start_as_current_span("transaction_processing") as root_span:
         root_span.set_attribute("luthien.transaction_id", call_id)
@@ -121,6 +127,8 @@ async def process_llm_request(
         root_span.set_attribute("luthien.stream", is_streaming)
         if session_id:
             root_span.set_attribute("luthien.session_id", session_id)
+        if usage_collector:
+            usage_collector.record_session(session_id)
 
         # Record inbound request for HTTP-level logging
         request_log_recorder.record_inbound_request(
@@ -191,6 +199,7 @@ async def process_llm_request(
                 call_id=call_id,
                 root_span=root_span,
                 request_log_recorder=request_log_recorder,
+                usage_collector=usage_collector,
             )
         else:
             response = await _handle_non_streaming(
@@ -201,6 +210,7 @@ async def process_llm_request(
                 emitter=emitter,
                 call_id=call_id,
                 request_log_recorder=request_log_recorder,
+                usage_collector=usage_collector,
             )
 
             # Propagate response summary if policy set one
@@ -305,6 +315,7 @@ async def _handle_streaming(
     call_id: str,
     root_span: Span,
     request_log_recorder: RequestLogRecorder,
+    usage_collector: UsageCollector | None = None,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow.
 
@@ -359,6 +370,8 @@ async def _handle_streaming(
                     request_log_recorder.record_inbound_response(status=final_status, error=stream_error)
                     request_log_recorder.record_outbound_response(status=final_status, error=stream_error)
                     request_log_recorder.flush()
+                    if usage_collector and final_status == 200:
+                        usage_collector.record_completed(is_streaming=True)
 
     return FastAPIStreamingResponse(
         streaming_with_spans(),
@@ -379,6 +392,7 @@ async def _handle_non_streaming(
     emitter: EventEmitterProtocol,
     call_id: str,
     request_log_recorder: RequestLogRecorder,
+    usage_collector: UsageCollector | None = None,
 ) -> JSONResponse:
     """Handle non-streaming response flow."""
     # Phase 2: Send to upstream
@@ -410,6 +424,9 @@ async def _handle_non_streaming(
         request_log_recorder.record_outbound_response(body=final_response, status=200)
         request_log_recorder.record_inbound_response(status=200, body=final_response)
         request_log_recorder.flush()
+
+        if usage_collector:
+            usage_collector.record_completed(is_streaming=False)
 
         return JSONResponse(
             content=final_response,

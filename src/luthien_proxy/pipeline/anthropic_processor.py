@@ -55,6 +55,7 @@ from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.request_log.recorder import RequestLogRecorder, create_recorder
 from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
+from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 
@@ -296,6 +297,7 @@ async def process_anthropic_request(
     emitter: EventEmitterProtocol,
     db_pool: db.DatabasePool | None = None,
     enable_request_logging: bool = False,
+    usage_collector: UsageCollector | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an Anthropic API request through the native pipeline.
 
@@ -308,6 +310,7 @@ async def process_anthropic_request(
         emitter: Event emitter for observability
         db_pool: Database connection pool for request logging
         enable_request_logging: Whether to record HTTP-level request/response logs
+        usage_collector: Optional usage telemetry collector for counting requests
 
     Returns:
         StreamingResponse or JSONResponse depending on stream parameter
@@ -321,6 +324,9 @@ async def process_anthropic_request(
 
     call_id = str(uuid.uuid4())
     request_log_recorder = create_recorder(db_pool, call_id, enable_request_logging)
+
+    if usage_collector:
+        usage_collector.record_accepted()
 
     with tracer.start_as_current_span("anthropic_transaction_processing") as root_span:
         root_span.set_attribute("luthien.transaction_id", call_id)
@@ -340,6 +346,8 @@ async def process_anthropic_request(
         root_span.set_attribute("luthien.stream", is_streaming)
         if session_id:
             root_span.set_attribute("luthien.session_id", session_id)
+        if usage_collector:
+            usage_collector.record_session(session_id)
 
         request_log_recorder.record_inbound_request(
             method=raw_http_request.method,
@@ -381,6 +389,7 @@ async def process_anthropic_request(
             root_span=root_span,
             request_log_recorder=request_log_recorder,
             extra_headers=forwarded_headers,
+            usage_collector=usage_collector,
         )
 
         # Propagate policy summaries if set
@@ -469,6 +478,7 @@ async def _execute_anthropic_policy(
     root_span: Span,
     request_log_recorder: RequestLogRecorder,
     extra_headers: dict[str, str] | None = None,
+    usage_collector: UsageCollector | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Execute an Anthropic policy using the execution-oriented runtime."""
     io = _AnthropicPolicyIO(
@@ -492,6 +502,7 @@ async def _execute_anthropic_policy(
             policy_ctx=policy_ctx,
             request_log_recorder=request_log_recorder,
             emitter=emitter,
+            usage_collector=usage_collector,
         )
 
     return await _handle_execution_non_streaming(
@@ -501,6 +512,7 @@ async def _execute_anthropic_policy(
         policy_ctx=policy_ctx,
         call_id=call_id,
         request_log_recorder=request_log_recorder,
+        usage_collector=usage_collector,
     )
 
 
@@ -512,6 +524,7 @@ async def _handle_execution_streaming(
     policy_ctx: PolicyContext,
     request_log_recorder: RequestLogRecorder,
     emitter: EventEmitterProtocol,
+    usage_collector: UsageCollector | None = None,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow for execution-oriented policies."""
     parent_context = get_current()
@@ -585,6 +598,14 @@ async def _handle_execution_streaming(
                     request_log_recorder.record_inbound_response(status=final_status)
                     request_log_recorder.record_outbound_response(status=final_status)
                     request_log_recorder.flush()
+                    if usage_collector and final_status == 200:
+                        usage_collector.record_completed(is_streaming=True)
+                        if reconstructed is not None and "usage" in reconstructed:
+                            usage = reconstructed["usage"]
+                            usage_collector.record_tokens(
+                                input_tokens=usage.get("input_tokens", 0),
+                                output_tokens=usage.get("output_tokens", 0),
+                            )
 
     return FastAPIStreamingResponse(
         streaming_with_spans(),
@@ -604,6 +625,7 @@ async def _handle_execution_non_streaming(
     policy_ctx: PolicyContext,
     call_id: str,
     request_log_recorder: RequestLogRecorder,
+    usage_collector: UsageCollector | None = None,
 ) -> JSONResponse:
     """Handle non-streaming response flow for execution-oriented policies."""
     final_response: AnthropicResponse | None = None
@@ -666,6 +688,15 @@ async def _handle_execution_non_streaming(
         request_log_recorder.record_outbound_response(body=final_response_payload, status=200)
         request_log_recorder.record_inbound_response(status=200, body=final_response_payload)
         request_log_recorder.flush()
+
+        if usage_collector:
+            usage_collector.record_completed(is_streaming=False)
+            usage = final_response.get("usage")
+            if usage:
+                usage_collector.record_tokens(
+                    input_tokens=usage.get("input_tokens", 0),
+                    output_tokens=usage.get("output_tokens", 0),
+                )
 
         return JSONResponse(
             content=final_response_payload,
