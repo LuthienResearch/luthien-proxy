@@ -115,6 +115,12 @@ Source: Sessions 4-9 in [1-value-prop-feedback.md](https://github.com/LuthienRes
 - [ ] **Trial doc generic version for cold sends** — Tyler. Separate doc.
 - [ ] **Move v8-instructions from scottwofford.com to luthienresearch.github.io** — Currently at scottwofford.com/luthien/landing_v8-instructions/, should live at luthienresearch.github.io/luthien-pbc-site/ instead. Update per Tyler's feedback with Redwood contractors (or anyone) as the audience.
 
+### Dynamic Policy Sandbox (2026-03-05)
+
+- [ ] **Containerized policy execution** — Current dynamic policy sandbox uses defense-in-depth (AST validation + restricted builtins + import allowlist) but Python exec() can never be fully sandboxed. For truly untrusted code, run dynamic policies in containers via a ContainerizedPolicy wrapper that communicates over IPC. Main challenge: streaming — on_chunk_received fires per-chunk, so the IPC protocol needs to handle bidirectional streaming efficiently. See `dynamic_loader.py` module docstring.
+- [ ] **Dynamic policy restart recovery** — The `current_policy` table stores `dynamic:{class_name}` but there's no startup code path to reload dynamic policies from the `dynamic_policies` table. If the gateway restarts, the active dynamic policy is lost.
+- [ ] **Hot-swap ordering in activate_policy** — `set_dynamic_policy()` is called before the DB transaction commits. If the transaction fails, in-memory state is inconsistent. Should swap after commit or add rollback logic.
+
 ## Low Priority / Future Work
 
 - [ ] **Support ANTHROPIC_AUTH_TOKEN header** - Claude Code uses `x-api-key` header with value from `ANTHROPIC_API_KEY` env var. Some tools may use `Authorization: Bearer` with `ANTHROPIC_AUTH_TOKEN`. Consider supporting both auth header formats for broader compatibility.
