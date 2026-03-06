@@ -6,7 +6,7 @@ Every bug fix PR in this repo must include an RCA/COE in the PR description.
 
 1. Run `git log main..HEAD --oneline` and `git diff main...HEAD` to understand the changes
 2. Read the modified files to understand the bug context
-3. Check prior COEs for patterns — run `gh pr list --state merged --search "RCA/COE" --limit 10` and review recent bug fix PRs listed in the "Bug fix PRs require RCA/COE" section of CLAUDE.md
+3. Check prior COEs for patterns — run `gh pr list --state merged --search "RCA/COE" --limit 10` and review the reference examples at the bottom of this file
 4. Draft ALL sections below — do not skip any
 5. Output the COE as markdown ready to paste into the PR description
 
@@ -40,7 +40,7 @@ Every bug fix PR in this repo must include an RCA/COE in the PR description.
 
 **The Pattern:**
 
-Search prior COEs (CLAUDE.md has the list). Is this a new class of bug, or the Nth instance of an existing pattern?
+Search prior COEs (see reference examples below). Is this a new class of bug, or the Nth instance of an existing pattern?
 
 | PR | Date | What went wrong | How discovered |
 |----|------|----------------|----------------|
