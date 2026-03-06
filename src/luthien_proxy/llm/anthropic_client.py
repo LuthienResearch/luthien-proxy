@@ -50,21 +50,18 @@ def _sanitize_messages(messages: list[Any]) -> list[Any]:
 
         filtered = [block for block in content if not _is_empty_text_block(block)]
 
-        if filtered != content:
+        removed_count = len(content) - len(filtered)
+        if removed_count == 0 or not filtered:
+            # Nothing removed, or ALL blocks were empty (keep original
+            # to avoid breaking message structure — API rejects either way)
+            sanitized.append(msg)
+        else:
             logger.debug(
                 "Stripped %d empty text block(s) from %s message",
-                len(content) - len(filtered),
+                removed_count,
                 msg.get("role", "unknown"),
             )
-
-        # If filtering removed ALL blocks, keep original to avoid
-        # breaking message structure (API will reject either way)
-        if not filtered:
-            sanitized.append(msg)
-        elif len(filtered) != len(content):
             sanitized.append({**msg, "content": filtered})
-        else:
-            sanitized.append(msg)
 
     return sanitized
 
