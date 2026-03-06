@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Requires: bash 3.2+
 # ABOUTME: Automated test script for gateway health and API compatibility
 # ABOUTME: Tests OpenAI and Anthropic APIs with streaming and non-streaming modes
 
@@ -39,12 +39,12 @@ for i in $(seq 1 $GATEWAY_RETRY_COUNT); do
     dots="${dots}."                                                              # Accumulate dots for visual progress
     printf "\r%s Attempt %d/%d" "$dots" "$i" "$GATEWAY_RETRY_COUNT"              # \r returns cursor to line start, overwrites previous
     if curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; then                     # -s silent, -f fail on HTTP errors
-        printf "\n${GREEN}Gateway ready!${NC}\n"
+        printf "\n%sGateway ready!%s\n" "${GREEN}" "${NC}"
         break
     fi
     if [ "$i" -eq "$GATEWAY_RETRY_COUNT" ]; then                                 # On final attempt, fail instead of sleeping again
         total_wait=$((GATEWAY_RETRY_COUNT * GATEWAY_RETRY_INTERVAL))
-        printf "\n${RED}Gateway not ready after ${total_wait}s${NC}\n"
+        printf "\n%sGateway not ready after %ss%s\n" "${RED}" "${total_wait}" "${NC}"
         exit 1
     fi
     sleep "$GATEWAY_RETRY_INTERVAL"
@@ -70,29 +70,32 @@ test_endpoint() {
 }
 
 # Helper function to extract content from response
+# shellcheck disable=SC2317 # These functions are called indirectly via eval
 extract_content() {
     jq -r '.choices[0].message.content // empty'
 }
 
-# Helper function to validate content contains greeting
+# shellcheck disable=SC2317
 validate_greeting() {
     grep -iq "hello\|hi\|hey\|greetings"
 }
 
-# Helper function to validate streaming response
+# shellcheck disable=SC2317
 validate_streaming() {
-    local content=$(cat)
+    local content
+    content="$(cat)"
     echo "$content" | grep -q "^data: {" && echo "$content" | grep -q "delta"
 }
 
-# Helper function to validate Anthropic response
+# shellcheck disable=SC2317
 validate_anthropic() {
     jq -e '.content[0].text | length > 0' > /dev/null
 }
 
-# Helper function to validate Anthropic streaming
+# shellcheck disable=SC2317
 validate_anthropic_streaming() {
-    local content=$(cat)
+    local content
+    content="$(cat)"
     echo "$content" | grep -q "^data: {" && echo "$content" | grep -q "content_block_delta"
 }
 
@@ -188,7 +191,7 @@ echo -e "  ${GREEN}Passed: $TESTS_PASSED${NC}"
 echo -e "  ${RED}Failed: $TESTS_FAILED${NC}"
 echo "==================================="
 
-if [ $TESTS_FAILED -eq 0 ]; then
+if [[ "$TESTS_FAILED" -eq 0 ]]; then
     echo -e "${GREEN}All tests passed! 🎉${NC}"
     exit 0
 else
