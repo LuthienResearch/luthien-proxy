@@ -296,6 +296,19 @@ By default, the gateway runs **without** the observability stack. To enable it:
 
 The observability stack is completely optional and does not affect core functionality.
 
+## Usage Telemetry
+
+Luthien collects anonymous, aggregate usage metrics (request counts, token counts) to help improve the project. **No model names, API keys, IP addresses, or request/response content is collected.**
+
+Telemetry is enabled by default and can be disabled:
+
+```bash
+# In .env or environment
+USAGE_TELEMETRY=false
+```
+
+Or at runtime via the admin API: `PUT /api/admin/telemetry` with `{"enabled": false}`.
+
 ### Features
 
 - **Distributed tracing** with OpenTelemetry and Tempo

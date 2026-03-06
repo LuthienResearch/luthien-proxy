@@ -24,9 +24,11 @@ from luthien_proxy.admin.routes import (
     ChatResponse,
     PolicyEnableResponse,
     PolicySetRequest,
+    TelemetryConfigUpdateRequest,
     _config_to_response,
     get_auth_config,
     get_available_models,
+    get_telemetry_config,
     invalidate_all_credentials,
     invalidate_credential,
     list_cached_credentials,
@@ -34,6 +36,7 @@ from luthien_proxy.admin.routes import (
     send_chat,
     set_policy,
     update_auth_config,
+    update_telemetry_config,
 )
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CachedCredential, CredentialManager
 from luthien_proxy.dependencies import require_credential_manager
@@ -727,3 +730,77 @@ class TestConfigToResponse:
         assert result.validate_credentials is True
         assert result.valid_cache_ttl_seconds == 3600
         assert result.updated_by == "admin"
+
+
+class TestGetTelemetryConfig:
+    """Test get_telemetry_config route handler."""
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.resolve_telemetry_config")
+    @patch("luthien_proxy.admin.routes.get_settings")
+    async def test_returns_config(self, mock_settings, mock_resolve):
+        from luthien_proxy.usage_telemetry.config import TelemetryConfig
+
+        mock_settings.return_value = MagicMock(usage_telemetry=None)
+        mock_resolve.return_value = TelemetryConfig(enabled=True, deployment_id="test-uuid")
+
+        result = await get_telemetry_config(_=AUTH_TOKEN, db_pool=MagicMock())
+
+        assert result.enabled is True
+        assert result.deployment_id == "test-uuid"
+        assert result.env_override is False
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.resolve_telemetry_config")
+    @patch("luthien_proxy.admin.routes.get_settings")
+    async def test_env_override_flag(self, mock_settings, mock_resolve):
+        from luthien_proxy.usage_telemetry.config import TelemetryConfig
+
+        mock_settings.return_value = MagicMock(usage_telemetry=False)
+        mock_resolve.return_value = TelemetryConfig(enabled=False, deployment_id="test-uuid")
+
+        result = await get_telemetry_config(_=AUTH_TOKEN, db_pool=MagicMock())
+
+        assert result.env_override is True
+        assert result.enabled is False
+
+
+class TestUpdateTelemetryConfig:
+    """Test update_telemetry_config route handler."""
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    async def test_updates_db(self, mock_settings):
+        mock_settings.return_value = MagicMock(usage_telemetry=None)
+        mock_pool = MagicMock()
+        mock_conn = AsyncMock()
+        mock_pool.get_pool = AsyncMock(return_value=mock_conn)
+
+        body = TelemetryConfigUpdateRequest(enabled=False)
+        result = await update_telemetry_config(body=body, _=AUTH_TOKEN, db_pool=mock_pool)
+
+        assert result["success"] is True
+        assert result["enabled"] is False
+        mock_conn.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    async def test_rejects_when_env_override_set(self, mock_settings):
+        mock_settings.return_value = MagicMock(usage_telemetry=True)
+
+        body = TelemetryConfigUpdateRequest(enabled=False)
+        with pytest.raises(HTTPException) as exc_info:
+            await update_telemetry_config(body=body, _=AUTH_TOKEN, db_pool=MagicMock())
+
+        assert exc_info.value.status_code == 409
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    async def test_rejects_when_no_db(self, mock_settings):
+        mock_settings.return_value = MagicMock(usage_telemetry=None)
+
+        body = TelemetryConfigUpdateRequest(enabled=True)
+        with pytest.raises(HTTPException) as exc_info:
+            await update_telemetry_config(body=body, _=AUTH_TOKEN, db_pool=None)
+
+        assert exc_info.value.status_code == 503
