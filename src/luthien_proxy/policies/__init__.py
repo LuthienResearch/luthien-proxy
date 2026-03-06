@@ -6,6 +6,7 @@ supporting both API formats through a unified implementation.
 
 from luthien_proxy.policies.all_caps_policy import AllCapsPolicy
 from luthien_proxy.policies.debug_logging_policy import DebugLoggingPolicy
+from luthien_proxy.policies.luthien_indicator_policy import LuthienIndicatorPolicy
 from luthien_proxy.policies.multi_parallel_policy import MultiParallelPolicy
 from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
 from luthien_proxy.policies.noop_policy import NoOpPolicy
@@ -21,6 +22,7 @@ __all__ = [
     # Policies
     "AllCapsPolicy",
     "DebugLoggingPolicy",
+    "LuthienIndicatorPolicy",
     "MultiParallelPolicy",
     "MultiSerialPolicy",
     "NoOpPolicy",
