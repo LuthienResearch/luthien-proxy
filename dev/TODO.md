@@ -13,6 +13,7 @@
 
 ### Core Features (User Story Aligned)
 
+- [ ] **Docker-free install path with SQLite support** — Allow running without Docker/PostgreSQL for individual developers. Use SQLite as an alternative storage backend for simpler local setups.
 - [ ] **Conversation history browser & export** - Enable users to browse and export full conversation logs from past sessions. Maps to `luthien-proxy-edl` (Conversation Viewer UI) in User Stories 1 & 2. Data already in `conversation_events` table. Could include: search by date, export to markdown/JSON, filter by user/session.
 
 ### Policy UI & Admin
@@ -47,8 +48,7 @@
 ### Code Improvements
 
 - [ ] **Eliminate `AnthropicClient` wrapper — use `AsyncAnthropic` directly** - Our `AnthropicClient` is a shallow wrapper around the SDK's `AsyncAnthropic`. The SDK already supports `api_key`/`auth_token` construction, has a public `base_url` property, and `copy()`/`with_options()` for per-request client variants. The wrapper's OTel spans duplicate what `anthropic_processor.py` already provides. Two utility functions (`prepare_request_kwargs`, `message_to_response`) still needed but don't justify a class. `with_api_key()`/`with_auth_token()` are dead code post-PR #221 refactor. Reference: PR #221 review, 2026-02-20.
-- [ ] **Remove dead legacy policy config UI renderer (`renderLegacyForm`)** - `src/luthien_proxy/static/policy_config.js` still has a fallback branch for non-Pydantic config rendering. Current discovered built-in policies all use the new recursive renderer path, so this legacy branch appears unused dead code.
-- [ ] **Remove unused conversation event persistence pipeline (`storage/persistence.py`)** - `build_conversation_events`, `record_conversation_events`, and `publish_conversation_event` have no runtime callsites in `src/` (only tests/re-exports). Delete module + exports and remove stale tests that cover this unused path.
+- [ ] **Investigate whether proxy pipeline introduces tool duplication (see PR #208 discussion)** — dedup fix is defensive but may mask a deeper bug where the proxy itself duplicates tool definitions before they reach the Anthropic API
 - [ ] **Anthropic-only policy configuration support** - Current implementation requires all policies to implement both OpenAI and Anthropic interfaces. There's no way to configure an Anthropic-only policy through the config system. Noted as Phase 2 work in split-apis design doc. Reference: PR #169, 2026-02-03.
 - [ ] **Add runtime validation for Anthropic TypedDict assignments** - `anthropic_processor.py:238` uses direct dict-to-TypedDict assignment after basic field validation. Consider adding runtime validation for production robustness. Reference: PR #169, 2026-02-03.
 - [ ] **SimplePolicy image support** - Add support for requests containing images in SimplePolicy. Currently `simple_on_request` receives text content only; needs to handle multimodal content blocks. (Niche use case - images pass through proxy correctly already)
@@ -68,7 +68,7 @@
 
 Source: [Office Hours notes](https://docs.google.com/document/d/1Qo2D5zrtuHO2MF6wJX4v86sJPm-YAmCNwKWPJTcFJvM/edit?tab=t.0), [Gemini transcript](https://docs.google.com/document/d/1lRX5U7_2Ig1oOw775xm9uoGGK6yJx2gip8N2BlAA0JQ/edit?tab=t.fp5fl2phgglm)
 
-- [ ] **Push pre-built Docker images to Docker Hub** - Tyler: "One thing you can do is push the already built image to Docker Hub to speed up the builds." First install required building all images locally.
+- [x] **Push pre-built Docker images to Docker Hub** - Tyler: "One thing you can do is push the already built image to Docker Hub to speed up the builds." First install required building all images locally. (Done: PR #286)
 - [ ] **Fix quick_start.sh Grafana/gateway health check bug** - Tyler: "Gateway not detected. Did we launch Grafana before?" Jai: "This is a bug... I've been meaning to fix forever."
 - [ ] **Simplify quick_start.sh vs docker compose up** - Jai: "That's redundant... quick start is basically just the same as docker [compose] up" but adds dev refresh stuff. Users should get `docker compose up -d`, devs get `quick_start.sh`.
 
