@@ -742,13 +742,14 @@ class TestGetTelemetryConfig:
         from luthien_proxy.usage_telemetry.config import TelemetryConfig
 
         mock_settings.return_value = MagicMock(usage_telemetry=None)
-        mock_resolve.return_value = TelemetryConfig(enabled=True, deployment_id="test-uuid")
+        mock_resolve.return_value = TelemetryConfig(enabled=True, deployment_id="test-uuid", user_configured=True)
 
         result = await get_telemetry_config(_=AUTH_TOKEN, db_pool=MagicMock())
 
         assert result.enabled is True
         assert result.deployment_id == "test-uuid"
         assert result.env_override is False
+        assert result.user_configured is True
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.resolve_telemetry_config")

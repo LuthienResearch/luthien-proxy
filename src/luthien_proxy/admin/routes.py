@@ -483,6 +483,7 @@ class TelemetryConfigResponse(BaseModel):
     enabled: bool
     deployment_id: str
     env_override: bool
+    user_configured: bool
 
 
 class TelemetryConfigUpdateRequest(BaseModel):
@@ -503,6 +504,7 @@ async def get_telemetry_config(
         enabled=config.enabled,
         deployment_id=config.deployment_id,
         env_override=settings.usage_telemetry is not None,
+        user_configured=config.user_configured,
     )
 
 

@@ -23,6 +23,7 @@ class TelemetryConfig:
 
     enabled: bool
     deployment_id: str
+    user_configured: bool = False
 
 
 async def resolve_telemetry_config(
@@ -41,14 +42,18 @@ async def resolve_telemetry_config(
     """
     db_enabled: bool | None = None
     deployment_id: str = str(uuid.uuid4())
+    user_configured = False
 
     if db_pool is not None:
         try:
             pool = await db_pool.get_pool()
-            row = await pool.fetchrow("SELECT enabled, deployment_id FROM telemetry_config WHERE id = 1")
+            row = await pool.fetchrow(
+                "SELECT enabled, deployment_id, updated_by FROM telemetry_config WHERE id = 1"
+            )
             if row:
                 db_enabled = bool(row["enabled"]) if row["enabled"] is not None else None
                 deployment_id = str(row["deployment_id"])
+                user_configured = row["updated_by"] is not None
         except Exception:
             logger.warning("Failed to read telemetry_config from DB, using defaults", exc_info=True)
 
@@ -60,4 +65,6 @@ async def resolve_telemetry_config(
     else:
         enabled = True
 
-    return TelemetryConfig(enabled=enabled, deployment_id=deployment_id)
+    return TelemetryConfig(
+        enabled=enabled, deployment_id=deployment_id, user_configured=user_configured
+    )

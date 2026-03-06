@@ -188,16 +188,22 @@ if [ "$services_healthy" = true ] && [ -z "${USAGE_TELEMETRY:-}" ]; then
     if [ -n "$admin_key" ]; then
         telemetry_resp=$(curl -s -H "Authorization: Bearer $admin_key" "${gateway_url}/api/admin/telemetry" 2>/dev/null || echo "")
 
-        # Check if DB has a stored value (env_override=false means no env var set)
-        has_db_value=$(echo "$telemetry_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes')" 2>/dev/null || echo "no")
+        # Only prompt if no one has made an explicit choice yet
+        needs_prompt=$(echo "$telemetry_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    # Skip if env var overrides or user already configured via API/prompt
+    print('no' if d.get('env_override') or d.get('user_configured') else 'yes')
+except Exception:
+    print('no')
+" 2>/dev/null || echo "no")
 
-        if [ "$has_db_value" = "yes" ]; then
-            # First run or DB exists — check if we should prompt
-            # The API returns current config; if it's just the default, prompt
+        if [ "$needs_prompt" = "yes" ]; then
             echo ""
             echo "📊 Anonymous usage telemetry helps the Luthien team understand"
             echo "   how the proxy is being used (aggregate counts only, no"
-            echo "   identifying data). See docs/plans/2026-03-05-usage-telemetry-design.md"
+            echo "   identifying data)."
             echo ""
             read -r -p "   Send anonymous usage data? [Y/n] " telemetry_choice </dev/tty 2>/dev/null || telemetry_choice="Y"
             case "$telemetry_choice" in
@@ -206,14 +212,14 @@ if [ "$services_healthy" = true ] && [ -z "${USAGE_TELEMETRY:-}" ]; then
                         -H "Content-Type: application/json" \
                         -d '{"enabled": false}' \
                         "${gateway_url}/api/admin/telemetry" > /dev/null 2>&1
-                    echo "   ✅ Telemetry disabled. Change anytime at ${gateway_url}/credentials"
+                    echo "   ✅ Telemetry disabled. Change anytime via USAGE_TELEMETRY env var or admin API."
                     ;;
                 *)
                     curl -s -X PUT -H "Authorization: Bearer $admin_key" \
                         -H "Content-Type: application/json" \
                         -d '{"enabled": true}' \
                         "${gateway_url}/api/admin/telemetry" > /dev/null 2>&1
-                    echo "   ✅ Telemetry enabled. Change anytime at ${gateway_url}/credentials"
+                    echo "   ✅ Telemetry enabled. Change anytime via USAGE_TELEMETRY env var or admin API."
                     ;;
             esac
         fi
