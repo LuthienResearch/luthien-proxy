@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,8 @@ import tomli_w
 
 DEFAULT_CONFIG_DIR = Path.home() / ".luthien"
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.toml"
+
+SECRET_KEYS = {"api_key", "admin_key"}
 
 
 @dataclass
@@ -41,7 +44,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> LuthienConfig:
 
 def save_config(config: LuthienConfig, path: Path = DEFAULT_CONFIG_PATH) -> None:
     """Save config to TOML file. Creates parent directories if needed."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     data: dict = {
         "gateway": {
@@ -58,3 +61,4 @@ def save_config(config: LuthienConfig, path: Path = DEFAULT_CONFIG_PATH) -> None
 
     with open(path, "wb") as f:
         tomli_w.dump(data, f)
+    os.chmod(path, 0o600)

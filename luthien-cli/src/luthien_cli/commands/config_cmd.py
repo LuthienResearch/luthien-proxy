@@ -6,7 +6,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
+from luthien_cli.config import DEFAULT_CONFIG_PATH, SECRET_KEYS, load_config, save_config
 
 FIELD_MAP = {
     "gateway.url": "gateway_url",
@@ -43,7 +43,7 @@ def show():
 @click.argument("key")
 @click.argument("value")
 def set_value(key: str, value: str):
-    """Set a config value. Keys: gateway.url, gateway.api_key, gateway.admin_key, local.repo_path"""
+    """Set a config value. Keys: gateway.url, gateway.api_key, gateway.admin_key, local.repo_path."""
     console = Console()
     cfg = load_config(DEFAULT_CONFIG_PATH)
 
@@ -54,7 +54,9 @@ def set_value(key: str, value: str):
 
     setattr(cfg, FIELD_MAP[key], value)
     save_config(cfg, DEFAULT_CONFIG_PATH)
-    console.print(f"[green]Set {key} = {value}[/green]")
+
+    display_value = _mask(value) if FIELD_MAP[key] in SECRET_KEYS else value
+    console.print(f"[green]Set {key} = {display_value}[/green]")
 
 
 def _mask(value: str | None) -> str:
