@@ -20,7 +20,7 @@ def wait_for_healthy(url: str, timeout: int = 60) -> bool:
             r = httpx.get(f"{url}/health", timeout=5.0)
             if r.status_code == 200:
                 return True
-        except (httpx.ConnectError, httpx.TimeoutException):
+        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException):
             pass
         time.sleep(2)
     return False

@@ -22,7 +22,7 @@ class GatewayClient:
     def _admin_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
         if self.admin_key:
-            headers["x-admin-key"] = self.admin_key
+            headers["Authorization"] = f"Bearer {self.admin_key}"
         return headers
 
     def _get(self, path: str, admin: bool = False) -> dict[str, Any]:
