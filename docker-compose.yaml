@@ -127,6 +127,24 @@ services:
           cpus: '0.5'
           memory: 256M
 
+  # Sandbox for overseer e2e tests (Claude Code sessions in isolation)
+  sandbox:
+    build:
+      context: .
+      dockerfile: docker/sandbox/Dockerfile
+    profiles: ["overseer"]
+    environment:
+      - ANTHROPIC_BASE_URL=http://gateway:8000
+      - ANTHROPIC_API_KEY=${PROXY_API_KEY}
+    depends_on:
+      gateway:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+
   # === OBSERVABILITY STACK ===
   # Services: Tempo (distributed tracing)
   # See: observability/README.md
