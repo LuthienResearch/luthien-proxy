@@ -5,7 +5,34 @@
 
 set -e
 
-echo "🚀 Starting Luthien Control quick setup..."
+usage() {
+    echo "Usage: $0 [--skip-build]"
+    echo ""
+    echo "Start the Luthien development environment."
+    echo "Rebuilds gateway and migrations images by default to pick up code changes."
+    echo ""
+    echo "Options:"
+    echo "  --skip-build  Skip Docker image rebuilds (faster when images are current)"
+    exit 0
+}
+
+BUILD_FLAG="--build"
+case "${1:-}" in
+    --skip-build)
+        BUILD_FLAG=""
+        echo "🚀 Starting Luthien Control quick setup (skipping image builds)..."
+        ;;
+    --help|-h)
+        usage
+        ;;
+    "")
+        echo "🚀 Starting Luthien Control quick setup..."
+        ;;
+    *)
+        echo "Unknown option: $1"
+        usage
+        ;;
+esac
 
 # Check required dependencies
 echo "🔍 Checking dependencies..."
@@ -168,7 +195,7 @@ echo "✅ Redis is ready"
 
 # Start gateway (integrated FastAPI + LiteLLM)
 echo "🚀 Starting gateway (integrated proxy)..."
-docker compose up -d gateway
+docker compose up -d $BUILD_FLAG gateway
 
 # Wait for services to be healthy
 echo "⏳ Waiting for services to be healthy..."
