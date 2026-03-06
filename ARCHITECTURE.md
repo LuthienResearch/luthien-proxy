@@ -1,0 +1,265 @@
+# Architecture
+
+This document describes how luthien-proxy is structured and how requests flow through it. It should take about 10 minutes to read. A [visual version](docs/architecture-visual.html) is also available (open in a browser).
+
+## What Is Luthien
+
+Luthien is an LLM gateway that sits between AI clients and backend LLM providers. It intercepts requests and responses, applying configurable **policies** that can observe, modify, or block LLM interactions. Think of it as a programmable HTTP proxy specifically designed for AI control.
+
+```
+Client (Claude Code, etc.)
+    |
+    v
+Luthien Gateway (FastAPI)
+    |-- Policy: inspect/modify request
+    |-- Forward to backend LLM
+    |-- Policy: inspect/modify response
+    |
+    v
+Client receives (possibly modified) response
+```
+
+The gateway supports two API formats natively:
+- **OpenAI** (`/v1/chat/completions`) — via LiteLLM, supporting any LiteLLM-compatible provider
+- **Anthropic** (`/v1/messages`) — native Anthropic SDK, preserving features like extended thinking and prompt caching
+
+## Request Lifecycle
+
+A request flows through four phases. The entry points are `process_llm_request()` (OpenAI path) and `process_anthropic_request()` (Anthropic path) in `src/luthien_proxy/pipeline/`.
+
+### 1. Ingest & Authenticate
+
+`gateway_routes.py` receives the HTTP request, verifies the API key (proxy key, passthrough, or both modes via `CredentialManager`), and dispatches to the appropriate pipeline processor.
+
+### 2. Policy on Request
+
+A `PolicyContext` is created for this request (unique `transaction_id`, session tracking, observability emitter). The policy's request hook runs, potentially modifying the request before it reaches the backend.
+
+### 3. Send to Backend
+
+The (possibly modified) request is forwarded to the backend LLM. For OpenAI format, this goes through `LiteLLMClient`. For Anthropic format, through `AnthropicClient`.
+
+### 4. Policy on Response & Send to Client
+
+**Non-streaming:** The complete response passes through the policy's response hook, then is returned as JSON.
+
+**Streaming (OpenAI path):** A three-stage async pipeline connected by `asyncio.Queue`s:
+
+```
+Backend stream (ModelResponse chunks)
+    |
+    v
+PolicyExecutor: assembles chunks into blocks, fires policy hooks
+    |  (on_content_complete, on_tool_call_complete, etc.)
+    v
+ClientFormatter: converts ModelResponse -> SSE strings
+    |
+    v
+Client receives SSE events
+```
+
+**Streaming (Anthropic path):** The policy drives execution directly via `run_anthropic()`, yielding `MessageStreamEvent`s that are formatted as SSE and sent to the client.
+
+## Module Map
+
+### Core Pipeline
+
+| Module | Responsibility |
+|--------|---------------|
+| `main.py` | App factory, lifespan management, dependency wiring |
+| `gateway_routes.py` | HTTP endpoints, authentication |
+| `pipeline/processor.py` | OpenAI request pipeline (phases 1-4) |
+| `pipeline/anthropic_processor.py` | Anthropic request pipeline (phases 1-4) |
+| `dependencies.py` | DI container (`Dependencies` dataclass), FastAPI `Depends()` functions |
+
+### Policy System
+
+| Module | Responsibility |
+|--------|---------------|
+| `policy_core/base_policy.py` | `BasePolicy` — shared base with config helpers and singleton safety checks |
+| `policy_core/openai_interface.py` | `OpenAIPolicyInterface` — abstract hooks for OpenAI-format request/response |
+| `policy_core/anthropic_execution_interface.py` | `AnthropicExecutionInterface` — execution-oriented Anthropic policy contract |
+| `policy_core/policy_context.py` | `PolicyContext` — per-request mutable state (transaction ID, emitter, typed state slots) |
+| `policy_core/streaming_policy_context.py` | `StreamingPolicyContext` — streaming-specific context (egress queue, stream state, keepalive) |
+| `policy_core/policy_protocol.py` | `PolicyProtocol` — structural typing protocol for policy infrastructure |
+| `policy_manager.py` | Runtime policy loading, hot-swapping, DB persistence |
+| `policies/` | Concrete policy implementations |
+
+### Streaming Infrastructure
+
+| Module | Responsibility |
+|--------|---------------|
+| `orchestration/policy_orchestrator.py` | `PolicyOrchestrator` — wires PolicyExecutor + ClientFormatter + queues |
+| `streaming/policy_executor/` | Chunk assembly, policy hook dispatch, timeout management |
+| `streaming/client_formatter/` | ModelResponse -> SSE string conversion |
+| `streaming/stream_blocks.py` | `ContentStreamBlock`, `ToolCallStreamBlock` — accumulated block types |
+| `streaming/stream_state.py` | `StreamState` — tracks blocks, finish reason, raw chunks during streaming |
+
+### Storage & Observability
+
+| Module | Responsibility |
+|--------|---------------|
+| `storage/persistence.py` | `ConversationEvent` model, DB writes, Redis pub/sub |
+| `observability/emitter.py` | `EventEmitter` — fire-and-forget event recording (DB + Redis + stdout) |
+| `observability/transaction_recorder.py` | Records request/response pairs for conversation history |
+
+### Configuration & Authentication
+
+| Module | Responsibility |
+|--------|---------------|
+| `settings.py` | `Settings` (pydantic-settings) — centralized env var loading with validation and defaults |
+| `credential_manager.py` | `CredentialManager` — auth mode resolution (proxy key, passthrough, or both), Anthropic credential validation with Redis caching |
+| `config/` | YAML policy config loading |
+
+### Other
+
+| Module | Responsibility |
+|--------|---------------|
+| `llm/litellm_client.py` | OpenAI-format backend calls via LiteLLM |
+| `llm/anthropic_client.py` | Anthropic-format backend calls via native SDK |
+| `admin/` | Runtime policy management API (`/api/admin/*`) |
+| `ui/` | Activity monitor, diff viewer (`/activity/*`, `/diffs`) |
+| `history/` | Conversation history API and UI (`/history/*`) |
+| `request_log/` | HTTP request logging, header sanitization, log viewer UI (`/logs/*`) |
+| `debug/` | Debug endpoints for inspecting conversation events |
+| `usage_telemetry/` | `UsageCollector` — in-memory aggregate metrics (request counts, token counts), periodic send to telemetry endpoint |
+
+## Key Abstractions
+
+### BasePolicy
+
+All policies inherit from `BasePolicy`. It provides:
+- `short_policy_name` for identification
+- `get_config()` for serializing policy configuration
+- `freeze_configured_state()` — load-time check that rejects mutable containers on the instance (policies are singletons shared across concurrent requests)
+
+### OpenAIPolicyInterface
+
+Defines hooks for the OpenAI format pipeline. Two required hooks for non-streaming:
+- `on_openai_request(request, context) -> request`
+- `on_openai_response(response, context) -> response`
+
+Plus streaming hooks that fire as chunks arrive: `on_chunk_received`, `on_content_delta`, `on_content_complete`, `on_tool_call_delta`, `on_tool_call_complete`, `on_finish_reason`, `on_stream_complete`, `on_streaming_policy_complete`.
+
+### AnthropicExecutionInterface
+
+An execution-oriented contract where the policy drives the entire request lifecycle:
+
+```python
+def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicPolicyEmission]:
+```
+
+The policy receives an `io` object with `complete()` and `stream()` methods. It can call the backend zero or more times and yields outbound events for the client. This design supports multi-turn patterns (e.g., an overseer that calls the backend, inspects tool use, then decides whether to proceed).
+
+### PolicyContext
+
+Created per-request. Carries:
+- `transaction_id` — unique ID for this request/response cycle
+- `emitter` — fire-and-forget event recording
+- `get_request_state(owner, type, factory)` — typed per-policy state keyed by `(policy_instance, type)`, preventing key collisions between policies
+- `session_id` — optional client session tracking
+- Span helpers for OpenTelemetry tracing
+
+### SimplePolicy
+
+A convenience base class that buffers streaming content and surfaces three simple override points:
+
+```python
+async def simple_on_request(self, request_str: str, context) -> str
+async def simple_on_response_content(self, content: str, context) -> str
+async def simple_on_response_tool_call(self, tool_call, context) -> tool_call
+```
+
+Supports both OpenAI and Anthropic formats. Trades streaming responsiveness for implementation simplicity.
+
+## Data Model
+
+All tables live in the `luthien_control` Postgres database. Migrations are in `migrations/`.
+
+### Conversation Tracking
+
+```
+conversation_calls: one row per API call
+  - call_id (PK), model_name, provider, status, session_id, created_at, completed_at
+
+conversation_events: request and response events per call
+  - id (PK, UUID), call_id (FK → conversation_calls, CASCADE), event_type, payload (JSONB), session_id, created_at
+
+policy_events: policy decisions and modifications per call
+  - id (PK, UUID), call_id (FK → conversation_calls, CASCADE), policy_class, policy_config (JSONB),
+    event_type, original_event_id (FK → conversation_events), modified_event_id (FK → conversation_events),
+    metadata (JSONB), created_at
+
+conversation_judge_decisions: LLM judge traces (ToolCallJudgePolicy)
+  - id (PK, UUID), call_id (FK → conversation_calls, CASCADE), trace_id, tool_call_id,
+    probability, explanation, tool_call (JSONB), judge_prompt (JSONB), judge_response_text,
+    original_request (JSONB), original_response (JSONB), blocked_response (JSONB),
+    timing (JSONB), judge_config (JSONB), created_at
+```
+
+Events store both original (pre-policy) and final (post-policy) data, enabling diff views.
+
+### HTTP Request Logs
+
+```
+request_logs: raw HTTP-level logging (client↔proxy and proxy↔backend)
+  - id (PK, UUID), transaction_id, session_id, direction ("inbound" | "outbound"),
+    http_method, url, request_headers (JSONB), request_body (JSONB),
+    response_status, response_headers (JSONB), response_body (JSONB),
+    started_at, completed_at, duration_ms, model, is_streaming, endpoint, error, created_at
+```
+
+### Single-Row Config Tables
+
+These tables enforce exactly one row via `CHECK (id = 1)`:
+
+```
+current_policy: active policy configuration
+  - policy_class_ref, config (JSONB), enabled_at, enabled_by
+  - Protected by Redis distributed lock on changes
+
+auth_config: gateway authentication settings
+  - auth_mode ("proxy_key" | "passthrough" | "both"), validate_credentials,
+    valid_cache_ttl_seconds, invalid_cache_ttl_seconds, updated_at, updated_by
+
+telemetry_config: usage telemetry opt-out
+  - enabled (null = default on), deployment_id (UUID), updated_at, updated_by
+```
+
+### Debug Logs
+
+```
+debug_logs: general-purpose debug storage
+  - id (PK, UUID), time_created, debug_type_identifier, jsonblob (JSONB)
+```
+
+## How to Add a New Policy
+
+1. Create `src/luthien_proxy/policies/my_policy.py`
+2. Choose your base class:
+   - **`SimplePolicy`** — easiest: override `simple_on_request`, `simple_on_response_content`, `simple_on_response_tool_call`. Works with both OpenAI and Anthropic formats. Content is buffered until block completion, then your hook runs on the complete content. Use this when you only need to inspect or transform finished text/tool calls and don't need to control streaming behavior.
+   - **`BasePolicy` + `OpenAIPolicyInterface` + `AnthropicExecutionInterface`** — full control over streaming and both API formats. Use this when you need to buffer blocks yourself, make multiple backend calls, reconstruct streaming events, or implement complex multi-turn patterns (e.g., an overseer that inspects tool use and decides whether to proceed). Per-request state goes on `PolicyContext` via `context.get_request_state(self, StateType, factory)`.
+3. Add a Pydantic config model if your policy needs configuration
+4. Enable via YAML config or the admin API:
+
+```yaml
+# config/policy_config.yaml
+policy:
+  class: "luthien_proxy.policies.my_policy:MyPolicy"
+  config:
+    some_setting: "value"
+```
+
+Or at runtime:
+```bash
+curl -X POST http://localhost:8000/api/admin/policy/enable \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -d '{"policy_class_ref": "luthien_proxy.policies.my_policy:MyPolicy", "config": {}}'
+```
+
+### Policy Rules
+
+- Policies are **singletons** — never store request-scoped data on `self`. Use `context.get_request_state()`.
+- Config-time collections must be immutable (`tuple`, `frozenset`). `freeze_configured_state()` enforces this.
+- For `SimplePolicy`, streaming content is buffered until block completion, then your hook runs on the complete content.
+- For full `OpenAIPolicyInterface`, you control what gets pushed to the egress queue via `ctx.push_chunk()`.
