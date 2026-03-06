@@ -2,6 +2,15 @@
 
 ## Unreleased | TBA
 
+- Add anonymous usage telemetry for aggregate product analytics
+  - In-memory counters with periodic 5-minute rollups to `telemetry.luthien.io`
+  - Tracks: requests accepted/completed, streaming/non-streaming counts, token usage (Anthropic only), distinct sessions
+  - Opt-out: `USAGE_TELEMETRY=false` env var, admin API toggle, or first-run prompt in `quick_start.sh`
+  - Three-layer precedence: env var > DB stored value > default enabled
+  - Admin API: `GET/PUT /api/admin/telemetry` for config management
+  - DB migration `009_add_telemetry_config.sql` for config persistence
+  - No model names, API keys, IP addresses, or request content collected
+
 - Remove dead Anthropic compatibility handlers (`_handle_streaming`, `_handle_non_streaming`) from `anthropic_processor.py`
   - Update unit/regression tests to exercise `process_anthropic_request()` instead of deleted internal wrappers
   - Refresh docs/examples to use current policy classes and Anthropic execution runtime terminology

@@ -16,6 +16,7 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
 )
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_manager import PolicyManager
+from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
 
 
@@ -38,6 +39,7 @@ class Dependencies:
     anthropic_client: AnthropicClient | None = field(default=None)
     credential_manager: CredentialManager | None = field(default=None)
     enable_request_logging: bool = field(default=False)
+    usage_collector: UsageCollector | None = field(default=None)
 
     @property
     def policy(self) -> OpenAIPolicyInterface:
@@ -212,6 +214,11 @@ def get_credential_manager(request: Request) -> CredentialManager | None:
     return get_dependencies(request).credential_manager
 
 
+def get_usage_collector(request: Request) -> UsageCollector | None:
+    """Get usage telemetry collector from dependencies."""
+    return get_dependencies(request).usage_collector
+
+
 async def require_credential_manager(
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
 ) -> CredentialManager:
@@ -236,4 +243,5 @@ __all__ = [
     "get_anthropic_policy",
     "get_credential_manager",
     "require_credential_manager",
+    "get_usage_collector",
 ]

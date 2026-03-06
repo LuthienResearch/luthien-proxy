@@ -12,6 +12,8 @@ from typing import TypedDict
 
 
 class MetricsSnapshot(TypedDict):
+    """Snapshot of usage metrics for a single rollup interval."""
+
     requests_accepted: int
     requests_completed: int
     input_tokens: int
@@ -25,6 +27,7 @@ class UsageCollector:
     """Collects aggregate usage metrics in memory."""
 
     def __init__(self) -> None:
+        """Initialize with zeroed counters."""
         self._lock = threading.Lock()
         self._requests_accepted = 0
         self._requests_completed = 0

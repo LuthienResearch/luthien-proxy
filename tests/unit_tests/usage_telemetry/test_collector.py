@@ -1,6 +1,5 @@
 """Tests for usage telemetry collector."""
 
-import pytest
 
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 

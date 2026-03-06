@@ -59,6 +59,7 @@ class TelemetrySender:
         endpoint: str,
         interval_seconds: int = 300,
     ) -> None:
+        """Initialize sender with config, collector, and endpoint."""
         self._config = config
         self._collector = collector
         self._endpoint = endpoint

@@ -1,11 +1,11 @@
 """Tests for telemetry config resolution."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from luthien_proxy.usage_telemetry.config import TelemetryConfig, resolve_telemetry_config
+from luthien_proxy.usage_telemetry.config import resolve_telemetry_config
 
 
 class TestResolveConfig:
@@ -15,10 +15,12 @@ class TestResolveConfig:
         db_pool = MagicMock()
         pool = AsyncMock()
         db_pool.get_pool = AsyncMock(return_value=pool)
-        pool.fetchrow = AsyncMock(return_value={
-            "enabled": False,
-            "deployment_id": uuid.uuid4(),
-        })
+        pool.fetchrow = AsyncMock(
+            return_value={
+                "enabled": False,
+                "deployment_id": uuid.uuid4(),
+            }
+        )
 
         config = await resolve_telemetry_config(db_pool=db_pool, env_value=True)
         assert config.enabled is True
@@ -28,10 +30,12 @@ class TestResolveConfig:
         db_pool = MagicMock()
         pool = AsyncMock()
         db_pool.get_pool = AsyncMock(return_value=pool)
-        pool.fetchrow = AsyncMock(return_value={
-            "enabled": True,
-            "deployment_id": uuid.uuid4(),
-        })
+        pool.fetchrow = AsyncMock(
+            return_value={
+                "enabled": True,
+                "deployment_id": uuid.uuid4(),
+            }
+        )
 
         config = await resolve_telemetry_config(db_pool=db_pool, env_value=False)
         assert config.enabled is False
@@ -41,10 +45,12 @@ class TestResolveConfig:
         db_pool = MagicMock()
         pool = AsyncMock()
         db_pool.get_pool = AsyncMock(return_value=pool)
-        pool.fetchrow = AsyncMock(return_value={
-            "enabled": False,
-            "deployment_id": uuid.uuid4(),
-        })
+        pool.fetchrow = AsyncMock(
+            return_value={
+                "enabled": False,
+                "deployment_id": uuid.uuid4(),
+            }
+        )
 
         config = await resolve_telemetry_config(db_pool=db_pool, env_value=None)
         assert config.enabled is False
@@ -55,10 +61,12 @@ class TestResolveConfig:
         db_pool = MagicMock()
         pool = AsyncMock()
         db_pool.get_pool = AsyncMock(return_value=pool)
-        pool.fetchrow = AsyncMock(return_value={
-            "enabled": None,
-            "deployment_id": uuid.uuid4(),
-        })
+        pool.fetchrow = AsyncMock(
+            return_value={
+                "enabled": None,
+                "deployment_id": uuid.uuid4(),
+            }
+        )
 
         config = await resolve_telemetry_config(db_pool=db_pool, env_value=None)
         assert config.enabled is True
@@ -69,10 +77,12 @@ class TestResolveConfig:
         db_pool = MagicMock()
         pool = AsyncMock()
         db_pool.get_pool = AsyncMock(return_value=pool)
-        pool.fetchrow = AsyncMock(return_value={
-            "enabled": None,
-            "deployment_id": dep_id,
-        })
+        pool.fetchrow = AsyncMock(
+            return_value={
+                "enabled": None,
+                "deployment_id": dep_id,
+            }
+        )
 
         config = await resolve_telemetry_config(db_pool=db_pool, env_value=None)
         assert config.deployment_id == str(dep_id)

@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TelemetryConfig:
+    """Resolved telemetry configuration (enabled state + deployment ID)."""
+
     enabled: bool
     deployment_id: str
 
@@ -45,7 +47,7 @@ async def resolve_telemetry_config(
             pool = await db_pool.get_pool()
             row = await pool.fetchrow("SELECT enabled, deployment_id FROM telemetry_config WHERE id = 1")
             if row:
-                db_enabled = row["enabled"]
+                db_enabled = bool(row["enabled"]) if row["enabled"] is not None else None
                 deployment_id = str(row["deployment_id"])
         except Exception:
             logger.warning("Failed to read telemetry_config from DB, using defaults", exc_info=True)
