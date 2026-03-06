@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     # Request/response logging
     enable_request_logging: bool = False
 
+    # Usage telemetry (anonymous aggregate metrics sent to central endpoint)
+    # None = defer to DB config; True/False = env var takes precedence over DB
+    usage_telemetry: bool | None = None
+    telemetry_endpoint: str = "https://telemetry.luthien.io/v1/events"
+
     # LLM Judge policy configuration
     llm_judge_model: str | None = None
     llm_judge_api_base: str | None = None
