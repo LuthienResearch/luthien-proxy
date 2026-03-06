@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -33,9 +32,7 @@ from luthien_proxy.llm.types.anthropic import (
     AnthropicToolUseBlock,
 )
 from luthien_proxy.policy_core import (
-    AnthropicExecutionInterface,
-    AnthropicPolicyEmission,
-    AnthropicPolicyIOProtocol,
+    AnthropicHookPolicy,
     BasePolicy,
     OpenAIPolicyInterface,
     create_finish_chunk,
@@ -77,7 +74,7 @@ class _SimplePolicyAnthropicState:
     tool_buffer: dict[int, _BufferedAnthropicToolUse] = field(default_factory=dict)
 
 
-class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
+class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
     """Convenience base class for content-level transformations.
 
     This class simplifies policy authoring by buffering streaming content, effectively trading
@@ -247,31 +244,6 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
         transformed = await self.simple_on_response_tool_call(tool_call, ctx.policy_ctx)
         await send_tool_call(ctx, transformed)
 
-    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
-        """Buffer deltas, don't emit yet.
-
-        SimplePolicy buffers all content deltas and emits the full transformed content
-        in on_content_complete instead of forwarding individual deltas.
-        """
-        pass
-
-    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
-        """Buffer deltas, don't emit yet.
-
-        SimplePolicy buffers all tool call deltas and emits the full transformed tool call
-        in on_tool_call_complete instead of forwarding individual deltas.
-        """
-        pass
-
-    async def on_finish_reason(self, ctx: StreamingPolicyContext) -> None:
-        """Handle finish_reason chunk.
-
-        SimplePolicy handles finish_reason differently depending on content type:
-        - Content blocks emit finish_reason in on_content_complete
-        - Tool calls emit finish_reason in on_stream_complete
-        """
-        pass
-
     async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
         """Stream complete hook - emit final finish_reason chunk."""
         # Get the finish_reason from the original stream
@@ -296,46 +268,11 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterfac
             )
             await send_chunk(ctx, finish_chunk)
 
-    async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
-        """Called after all streaming policy processing completes.
-
-        This hook is guaranteed to run even if errors occurred during policy processing.
-        SimplePolicy uses this to clear any accumulated buffers.
-        """
-        pass
-
-    async def on_anthropic_stream_complete(self, context: PolicyContext) -> None:
-        """No-op hook for parity with OpenAI lifecycle."""
-        pass
-
     async def on_anthropic_streaming_policy_complete(self, context: PolicyContext) -> None:
         """Clear request-scoped Anthropic buffers."""
         context.pop_request_state(self, _SimplePolicyAnthropicState)
 
-    # ===== Anthropic execution interface =====
-
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Run Anthropic request lifecycle using SimplePolicy helper hooks."""
-
-        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
-            final_request = await self.on_anthropic_request(io.request, context)
-            io.set_request(final_request)
-
-            if final_request.get("stream", False):
-                async for event in io.stream(final_request):
-                    emitted_events = await self.on_anthropic_stream_event(event, context)
-                    for emitted_event in emitted_events:
-                        yield emitted_event
-                return
-
-            response = await io.complete(final_request)
-            yield await self.on_anthropic_response(response, context)
-
-        return _run()
-
-    # ===== Anthropic non-streaming hooks =====
+    # ===== Anthropic hooks (via AnthropicHookPolicy) =====
 
     async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
         """Process request by extracting last message text and calling simple_on_request.
