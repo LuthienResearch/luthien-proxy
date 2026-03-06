@@ -58,4 +58,9 @@ admin_key = "admin-your-key"
 repo_path = "/path/to/luthien-proxy"
 ```
 
-Config keys: `gateway.url`, `gateway.api_key`, `gateway.admin_key`, `local.repo_path`
+| Key | Description |
+|-----|-------------|
+| `gateway.url` | Gateway base URL (default: `http://localhost:8000`) |
+| `gateway.api_key` | Proxy API key — sent as `ANTHROPIC_API_KEY` when launching Claude Code |
+| `gateway.admin_key` | Admin API key — sent as `Authorization: Bearer <key>` for admin endpoints (`luthien status`) |
+| `local.repo_path` | Path to luthien-proxy repo checkout (for `up`/`down`/`logs`) |
