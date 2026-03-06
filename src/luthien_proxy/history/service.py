@@ -566,6 +566,8 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
             raise TypeError(f"Unexpected payload type: {type(raw_payload).__name__}")
 
         raw_created_at = row["created_at"]
+        if isinstance(raw_created_at, str):
+            raw_created_at = datetime.fromisoformat(raw_created_at)
         if not isinstance(raw_created_at, datetime):
             raise TypeError(f"created_at must be datetime, got {type(raw_created_at).__name__}")
 
@@ -592,14 +594,16 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         if turn.had_policy_intervention:
             total_interventions += len(turn.annotations)
 
-    # Get timestamps
+    # Get timestamps (SQLite returns strings, PostgreSQL returns datetime)
     first_ts = rows[0]["created_at"]
     last_ts = rows[-1]["created_at"]
+    first_ts_str = first_ts if isinstance(first_ts, str) else cast(datetime, first_ts).isoformat()
+    last_ts_str = last_ts if isinstance(last_ts, str) else cast(datetime, last_ts).isoformat()
 
     return SessionDetail(
         session_id=session_id,
-        first_timestamp=cast(datetime, first_ts).isoformat(),
-        last_timestamp=cast(datetime, last_ts).isoformat(),
+        first_timestamp=first_ts_str,
+        last_timestamp=last_ts_str,
         turns=turns,
         total_policy_interventions=total_interventions,
         models_used=sorted(all_models),

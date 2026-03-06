@@ -139,7 +139,8 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
 CREATE TABLE IF NOT EXISTS telemetry_config (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     enabled INTEGER,
-    deployment_id TEXT NOT NULL,
+    deployment_id TEXT NOT NULL DEFAULT 'local',
     updated_at TEXT DEFAULT (datetime('now')),
     updated_by TEXT
 );
+INSERT OR IGNORE INTO telemetry_config (id) VALUES (1);
