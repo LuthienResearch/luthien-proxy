@@ -191,6 +191,14 @@ Policy instances are **singletons created once at startup** and shared across al
 - **`AnthropicPolicyIOProtocol`** is the request-scoped I/O surface for Anthropic execution policies — it holds the mutable request, backend response, and streaming methods.
 - **`freeze_configured_state()`** runs at policy load time and rejects mutable container attributes on the policy instance. Config-time collections should be immutable (tuple, frozenset).
 
+## COE Examples
+
+PRs with RCA/COE analysis. Check these before writing a new COE to identify recurring patterns.
+
+- [PR #201: Empty/whitespace text content blocks cause Anthropic API 400 errors](https://github.com/LuthienResearch/luthien-proxy/pull/201) (2026-02-17) — 4th instance of missing request validation layer
+- [PR #202: find-available-ports.sh fails on macOS bash 3.2](https://github.com/LuthienResearch/luthien-proxy/pull/202) (2026-02-17) — no shell script linting/CI
+- [PR #203: Port bind failures from orphaned Docker containers](https://github.com/LuthienResearch/luthien-proxy/pull/203) (2026-02-17) — infrastructure change without transition plan
+
 ## Policy Selection
 
 - Policies are loaded from the YAML file pointed to by `POLICY_CONFIG` (default `config/policy_config.yaml`).
