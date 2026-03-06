@@ -145,13 +145,18 @@ def create_app(
             db_pool=db_pool,
             env_value=settings.usage_telemetry,
         )
-        _usage_collector = UsageCollector()
-        _telemetry_sender = TelemetrySender(
-            config=_telemetry_config,
-            collector=_usage_collector,
-            endpoint=settings.telemetry_endpoint,
-        )
-        _telemetry_sender.start()
+        _usage_collector: UsageCollector | None = None
+        _telemetry_sender: TelemetrySender | None = None
+        if _telemetry_config.enabled:
+            _usage_collector = UsageCollector()
+            _telemetry_sender = TelemetrySender(
+                config=_telemetry_config,
+                collector=_usage_collector,
+                endpoint=settings.telemetry_endpoint,
+            )
+            _telemetry_sender.start()
+        else:
+            logger.info("Usage telemetry disabled")
 
         # Create Dependencies container with all services
         _dependencies = Dependencies(
@@ -175,7 +180,8 @@ def create_app(
         yield
 
         # Shutdown
-        await _telemetry_sender.stop()
+        if _telemetry_sender is not None:
+            await _telemetry_sender.stop()
         await _credential_manager.close()
         # Note: db_pool and redis_client are NOT closed here - they are owned by
         # the caller who passed them in. The caller is responsible for cleanup.

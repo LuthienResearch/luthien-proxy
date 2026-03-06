@@ -73,8 +73,13 @@ class TelemetrySender:
 
         metrics = self._collector.snapshot_and_reset()
 
-        # Skip empty intervals
-        if metrics["requests_accepted"] == 0:
+        has_data = (
+            metrics["requests_accepted"] > 0
+            or metrics["requests_completed"] > 0
+            or metrics["input_tokens"] > 0
+            or metrics["output_tokens"] > 0
+        )
+        if not has_data:
             return
 
         payload = build_payload(
@@ -99,9 +104,6 @@ class TelemetrySender:
 
     def start(self) -> None:
         """Start the periodic send loop as a background task."""
-        if not self._config.enabled:
-            logger.info("Usage telemetry disabled")
-            return
         logger.info(
             "Usage telemetry enabled (interval=%ds, endpoint=%s)",
             self._interval_seconds,
