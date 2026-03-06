@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Luthien Proxy — Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --font-body: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  --bg: #0b0e14;
+  --surface: #12161f;
+  --surface-elevated: #181d2a;
+  --surface-glow: #1e2536;
+  --border: rgba(100, 220, 255, 0.08);
+  --border-bright: rgba(100, 220, 255, 0.18);
+  --text: #dce6f0;
+  --text-dim: #6b7d8e;
+  --text-bright: #f0f6fc;
+  --accent: #38bdf8;
+  --accent-dim: rgba(56, 189, 248, 0.1);
+  --accent-glow: rgba(56, 189, 248, 0.25);
+  --policy: #a78bfa;
+  --policy-dim: rgba(167, 139, 250, 0.12);
+  --stream: #34d399;
+  --stream-dim: rgba(52, 211, 153, 0.12);
+  --store: #fb923c;
+  --store-dim: rgba(251, 146, 60, 0.10);
+  --warn: #f472b6;
+  --warn-dim: rgba(244, 114, 182, 0.10);
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f5f7fa;
+    --surface: #ffffff;
+    --surface-elevated: #ffffff;
+    --surface-glow: #f0f4f8;
+    --border: rgba(0, 0, 0, 0.07);
+    --border-bright: rgba(0, 0, 0, 0.14);
+    --text: #1e293b;
+    --text-dim: #64748b;
+    --text-bright: #0f172a;
+    --accent: #0284c7;
+    --accent-dim: rgba(2, 132, 199, 0.08);
+    --accent-glow: rgba(2, 132, 199, 0.15);
+    --policy: #7c3aed;
+    --policy-dim: rgba(124, 58, 237, 0.08);
+    --stream: #059669;
+    --stream-dim: rgba(5, 150, 105, 0.08);
+    --store: #ea580c;
+    --store-dim: rgba(234, 88, 12, 0.08);
+    --warn: #db2777;
+    --warn-dim: rgba(219, 39, 119, 0.08);
+  }
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+body::before {
+  content: '';
+  position: fixed;
+  top: -30%; left: -10%;
+  width: 60%; height: 60%;
+  background: radial-gradient(circle, var(--accent-dim) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+body::after {
+  content: '';
+  position: fixed;
+  bottom: -20%; right: -10%;
+  width: 50%; height: 50%;
+  background: radial-gradient(circle, var(--policy-dim) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+.page { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+/* ---- Hero ---- */
+.hero { text-align: center; padding: 3rem 0 2.5rem; }
+.hero h1 { font-size: 2.8rem; font-weight: 700; letter-spacing: -0.03em; color: var(--text-bright); }
+.hero h1 span { color: var(--accent); }
+.hero .sub { font-size: 1.15rem; color: var(--text-dim); margin-top: 0.5rem; max-width: 640px; margin-left: auto; margin-right: auto; }
+
+/* ---- Section ---- */
+section { margin-top: 3rem; }
+section h2 {
+  font-size: 1.5rem; font-weight: 600; color: var(--text-bright);
+  display: flex; align-items: center; gap: 0.6rem;
+  margin-bottom: 1.2rem;
+}
+section h2 .tag {
+  font-size: 0.7rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 0.15rem 0.55rem; border-radius: 4px;
+}
+.tag-accent { background: var(--accent-dim); color: var(--accent); }
+.tag-policy { background: var(--policy-dim); color: var(--policy); }
+.tag-stream { background: var(--stream-dim); color: var(--stream); }
+.tag-store  { background: var(--store-dim);  color: var(--store); }
+
+/* ---- Cards ---- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+  transition: border-color 0.2s;
+}
+.card:hover { border-color: var(--border-bright); }
+.card h3 { font-size: 1.1rem; font-weight: 600; color: var(--text-bright); margin-bottom: 0.6rem; }
+.card p, .card li { font-size: 0.92rem; color: var(--text); }
+.card code {
+  font-family: var(--font-mono); font-size: 0.82rem;
+  background: var(--surface-glow); padding: 0.12rem 0.4rem; border-radius: 4px;
+  color: var(--accent);
+}
+.card ul { list-style: none; padding: 0; }
+.card li { padding: 0.2rem 0 0.2rem 1.2rem; position: relative; }
+.card li::before { content: ''; position: absolute; left: 0; top: 0.65rem; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+
+/* ---- Flow diagram ---- */
+.flow-container { display: flex; flex-direction: column; gap: 0; align-items: center; }
+.flow-step {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.5rem;
+  width: 100%; max-width: 600px;
+  position: relative;
+}
+.flow-step .num {
+  position: absolute; left: -2.2rem; top: 50%; transform: translateY(-50%);
+  width: 1.6rem; height: 1.6rem; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.75rem; font-weight: 700;
+}
+.flow-step h4 { font-size: 0.95rem; font-weight: 600; color: var(--text-bright); }
+.flow-step p { font-size: 0.85rem; color: var(--text-dim); margin-top: 0.2rem; }
+.flow-arrow {
+  width: 2px; height: 28px;
+  background: linear-gradient(to bottom, var(--accent), transparent);
+  margin: 0 auto;
+}
+.flow-step.s1 { border-left: 3px solid var(--accent); }
+.flow-step.s1 .num { background: var(--accent-dim); color: var(--accent); }
+.flow-step.s2 { border-left: 3px solid var(--policy); }
+.flow-step.s2 .num { background: var(--policy-dim); color: var(--policy); }
+.flow-step.s3 { border-left: 3px solid var(--stream); }
+.flow-step.s3 .num { background: var(--stream-dim); color: var(--stream); }
+.flow-step.s4 { border-left: 3px solid var(--store); }
+.flow-step.s4 .num { background: var(--store-dim); color: var(--store); }
+
+/* ---- Module grid ---- */
+.mod-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+@media (max-width: 700px) { .mod-grid { grid-template-columns: 1fr; } }
+.mod-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.mod-card:hover { border-color: var(--border-bright); box-shadow: 0 0 20px var(--accent-dim); }
+.mod-card .mod-path { font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); margin-bottom: 0.3rem; }
+.mod-card .mod-desc { font-size: 0.85rem; color: var(--text-dim); }
+.mod-card .mod-class { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text); margin-top: 0.2rem; }
+
+/* ---- Group label ---- */
+.group-label {
+  font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;
+  padding: 0.3rem 0.7rem; border-radius: 6px; display: inline-block; margin-bottom: 0.6rem;
+}
+
+/* ---- Policy decision ---- */
+.decision-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+.decision-box .option {
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 0.8rem;
+}
+.decision-box .option:last-child { margin-bottom: 0; }
+.option-simple { background: var(--stream-dim); border-left: 3px solid var(--stream); }
+.option-full { background: var(--policy-dim); border-left: 3px solid var(--policy); }
+.option h4 { font-size: 0.95rem; font-weight: 600; }
+.option-simple h4 { color: var(--stream); }
+.option-full h4 { color: var(--policy); }
+.option p { font-size: 0.85rem; color: var(--text-dim); margin-top: 0.25rem; }
+.option .use-when { font-size: 0.82rem; color: var(--text); margin-top: 0.4rem; font-style: italic; }
+
+/* ---- Mermaid ---- */
+.mermaid-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  overflow-x: auto;
+}
+.mermaid { display: flex; justify-content: center; }
+
+/* ---- Data model ---- */
+.schema-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.85rem;
+}
+.schema-table th {
+  text-align: left; padding: 0.6rem 1rem;
+  background: var(--surface-glow);
+  color: var(--text-dim); font-weight: 500; font-size: 0.78rem;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.schema-table td {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.schema-table td:first-child {
+  font-family: var(--font-mono); font-size: 0.82rem; color: var(--accent);
+}
+.schema-table tr:last-child td { border-bottom: none; }
+.table-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+.table-card .table-title {
+  padding: 0.8rem 1rem;
+  font-family: var(--font-mono); font-size: 0.85rem;
+  font-weight: 600; color: var(--store);
+  border-bottom: 1px solid var(--border);
+  background: var(--store-dim);
+}
+
+/* ---- Footer ---- */
+.footer { text-align: center; margin-top: 3rem; color: var(--text-dim); font-size: 0.8rem; }
+
+/* ---- Streaming pipeline ---- */
+.pipeline {
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+}
+.pipe-stage {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.8rem 1.5rem;
+  text-align: center;
+  width: 100%; max-width: 520px;
+}
+.pipe-stage h4 { font-size: 0.9rem; font-weight: 600; }
+.pipe-stage p { font-size: 0.82rem; color: var(--text-dim); }
+.pipe-arrow {
+  display: flex; flex-direction: column; align-items: center; gap: 0; padding: 0.15rem 0;
+}
+.pipe-arrow .shaft { width: 2px; height: 18px; background: var(--stream); opacity: 0.5; }
+.pipe-arrow .label { font-size: 0.7rem; color: var(--stream); font-family: var(--font-mono); }
+.pipe-arrow .shaft2 { width: 2px; height: 8px; background: var(--stream); opacity: 0.5; }
+
+.pipe-stage.backend { border-color: var(--accent); }
+.pipe-stage.backend h4 { color: var(--accent); }
+.pipe-stage.executor { border-color: var(--policy); }
+.pipe-stage.executor h4 { color: var(--policy); }
+.pipe-stage.formatter { border-color: var(--stream); }
+.pipe-stage.formatter h4 { color: var(--stream); }
+.pipe-stage.client { border-color: var(--store); }
+.pipe-stage.client h4 { color: var(--store); }
+
+/* ---- Two-col at top ---- */
+.overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 700px) { .overview-grid { grid-template-columns: 1fr; } }
+.overview-grid .card { margin-bottom: 0; }
+
+/* ---- Anthropic vs OpenAI badges ---- */
+.badge {
+  display: inline-block; font-size: 0.7rem; font-weight: 600;
+  padding: 0.1rem 0.45rem; border-radius: 4px; vertical-align: middle;
+}
+.badge-openai { background: var(--stream-dim); color: var(--stream); }
+.badge-anthropic { background: var(--policy-dim); color: var(--policy); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Hero -->
+<div class="hero">
+  <h1>Luthien <span>Architecture</span></h1>
+  <p class="sub">An LLM gateway that intercepts requests and responses, applying configurable policies that can observe, modify, or block AI interactions.</p>
+</div>
+
+<!-- What Luthien Is -->
+<section>
+  <h2>Gateway Overview <span class="tag tag-accent">Core</span></h2>
+  <div class="overview-grid">
+    <div class="card">
+      <h3>Two API Formats</h3>
+      <ul>
+        <li><span class="badge badge-openai">OpenAI</span> <code>/v1/chat/completions</code> via LiteLLM</li>
+        <li><span class="badge badge-anthropic">Anthropic</span> <code>/v1/messages</code> via native SDK</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Core Loop</h3>
+      <p>Client &rarr; Luthien &rarr; Policy (inspect/modify) &rarr; Backend LLM &rarr; Policy (inspect/modify) &rarr; Client</p>
+    </div>
+  </div>
+</section>
+
+<!-- Request Lifecycle -->
+<section>
+  <h2>Request Lifecycle <span class="tag tag-accent">Flow</span></h2>
+  <div class="flow-container" style="padding-left: 2.5rem;">
+    <div class="flow-step s1">
+      <div class="num">1</div>
+      <h4>Ingest & Authenticate</h4>
+      <p><code>gateway_routes.py</code> receives HTTP, verifies API key via <code>CredentialManager</code>, dispatches to pipeline</p>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-step s2">
+      <div class="num">2</div>
+      <h4>Policy on Request</h4>
+      <p><code>PolicyContext</code> created (transaction ID, session, emitter). Policy request hook runs &mdash; may modify the request.</p>
+    </div>
+    <div class="flow-arrow" style="background: linear-gradient(to bottom, var(--policy), transparent);"></div>
+    <div class="flow-step s3">
+      <div class="num">3</div>
+      <h4>Send to Backend</h4>
+      <p>Forwarded via <code>LiteLLMClient</code> <span class="badge badge-openai">OpenAI</span> or <code>AnthropicClient</code> <span class="badge badge-anthropic">Anthropic</span></p>
+    </div>
+    <div class="flow-arrow" style="background: linear-gradient(to bottom, var(--stream), transparent);"></div>
+    <div class="flow-step s4">
+      <div class="num">4</div>
+      <h4>Policy on Response & Return</h4>
+      <p>Response passes through policy response hook, then returns as JSON or SSE stream</p>
+    </div>
+  </div>
+</section>
+
+<!-- Streaming Pipelines -->
+<section>
+  <h2>Streaming Pipelines <span class="tag tag-stream">Streaming</span></h2>
+  <div class="overview-grid">
+    <div class="card" style="border-top: 2px solid var(--stream);">
+      <h3><span class="badge badge-openai">OpenAI</span> Queue-Based Pipeline</h3>
+      <div class="pipeline" style="margin-top: 0.8rem;">
+        <div class="pipe-stage backend"><h4>Backend Stream</h4><p>ModelResponse chunks</p></div>
+        <div class="pipe-arrow"><div class="shaft"></div><div class="label">asyncio.Queue</div><div class="shaft2"></div></div>
+        <div class="pipe-stage executor"><h4>PolicyExecutor</h4><p>Assembles chunks into blocks, fires policy hooks</p></div>
+        <div class="pipe-arrow"><div class="shaft"></div><div class="label">asyncio.Queue</div><div class="shaft2"></div></div>
+        <div class="pipe-stage formatter"><h4>ClientFormatter</h4><p>ModelResponse &rarr; SSE strings</p></div>
+        <div class="pipe-arrow"><div class="shaft"></div><div class="label">yield</div><div class="shaft2"></div></div>
+        <div class="pipe-stage client"><h4>Client</h4><p>Receives SSE events</p></div>
+      </div>
+    </div>
+    <div class="card" style="border-top: 2px solid var(--policy);">
+      <h3><span class="badge badge-anthropic">Anthropic</span> Execution-Driven</h3>
+      <div class="pipeline" style="margin-top: 0.8rem;">
+        <div class="pipe-stage executor"><h4>Policy.run_anthropic()</h4><p>Policy drives the entire lifecycle</p></div>
+        <div class="pipe-arrow"><div class="shaft"></div><div class="label">io.stream() / io.complete()</div><div class="shaft2"></div></div>
+        <div class="pipe-stage backend"><h4>Backend (0..N calls)</h4><p>Policy decides when and how many times</p></div>
+        <div class="pipe-arrow"><div class="shaft"></div><div class="label">yield AnthropicPolicyEmission</div><div class="shaft2"></div></div>
+        <div class="pipe-stage client"><h4>Client</h4><p>Receives MessageStreamEvents as SSE</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Module Map -->
+<section>
+  <h2>Module Map <span class="tag tag-accent">Code</span></h2>
+
+  <div class="group-label" style="background: var(--accent-dim); color: var(--accent);">Core Pipeline</div>
+  <div class="mod-grid">
+    <div class="mod-card"><div class="mod-path">main.py</div><div class="mod-desc">App factory, lifespan management, dependency wiring</div></div>
+    <div class="mod-card"><div class="mod-path">gateway_routes.py</div><div class="mod-desc">HTTP endpoints, authentication dispatch</div></div>
+    <div class="mod-card"><div class="mod-path">pipeline/processor.py</div><div class="mod-desc">OpenAI request pipeline (phases 1-4)</div><div class="mod-class">process_llm_request()</div></div>
+    <div class="mod-card"><div class="mod-path">pipeline/anthropic_processor.py</div><div class="mod-desc">Anthropic request pipeline (phases 1-4)</div><div class="mod-class">process_anthropic_request()</div></div>
+    <div class="mod-card"><div class="mod-path">dependencies.py</div><div class="mod-desc">DI container (Dependencies dataclass)</div></div>
+    <div class="mod-card"><div class="mod-path">settings.py</div><div class="mod-desc">Centralized env config via pydantic-settings</div><div class="mod-class">Settings, get_settings()</div></div>
+  </div>
+
+  <div class="group-label" style="background: var(--policy-dim); color: var(--policy); margin-top: 1.2rem;">Policy System</div>
+  <div class="mod-grid">
+    <div class="mod-card"><div class="mod-path">policy_core/base_policy.py</div><div class="mod-desc">Shared base: config helpers, singleton safety</div><div class="mod-class">BasePolicy</div></div>
+    <div class="mod-card"><div class="mod-path">policy_core/openai_interface.py</div><div class="mod-desc">Abstract hooks for OpenAI request/response</div><div class="mod-class">OpenAIPolicyInterface</div></div>
+    <div class="mod-card"><div class="mod-path">policy_core/anthropic_execution_interface.py</div><div class="mod-desc">Execution-oriented Anthropic policy contract</div><div class="mod-class">AnthropicExecutionInterface</div></div>
+    <div class="mod-card"><div class="mod-path">policy_core/policy_context.py</div><div class="mod-desc">Per-request mutable state, typed state slots</div><div class="mod-class">PolicyContext</div></div>
+    <div class="mod-card"><div class="mod-path">policy_core/streaming_policy_context.py</div><div class="mod-desc">Streaming context: egress queue, keepalive</div><div class="mod-class">StreamingPolicyContext</div></div>
+    <div class="mod-card"><div class="mod-path">policy_core/policy_protocol.py</div><div class="mod-desc">Structural typing protocol</div><div class="mod-class">PolicyProtocol</div></div>
+    <div class="mod-card"><div class="mod-path">policy_manager.py</div><div class="mod-desc">Runtime policy loading, hot-swap, DB persistence</div><div class="mod-class">PolicyManager</div></div>
+    <div class="mod-card"><div class="mod-path">policies/</div><div class="mod-desc">Concrete policy implementations</div><div class="mod-class">NoOpPolicy, SimplePolicy, ToolCallJudgePolicy, ...</div></div>
+  </div>
+
+  <div class="group-label" style="background: var(--stream-dim); color: var(--stream); margin-top: 1.2rem;">Streaming Infrastructure</div>
+  <div class="mod-grid">
+    <div class="mod-card"><div class="mod-path">orchestration/policy_orchestrator.py</div><div class="mod-desc">Wires PolicyExecutor + ClientFormatter + queues</div><div class="mod-class">PolicyOrchestrator</div></div>
+    <div class="mod-card"><div class="mod-path">streaming/policy_executor/</div><div class="mod-desc">Chunk assembly, policy hook dispatch, timeouts</div></div>
+    <div class="mod-card"><div class="mod-path">streaming/client_formatter/</div><div class="mod-desc">ModelResponse &rarr; SSE string conversion</div></div>
+    <div class="mod-card"><div class="mod-path">streaming/stream_blocks.py</div><div class="mod-desc">Accumulated content and tool call blocks</div><div class="mod-class">ContentStreamBlock, ToolCallStreamBlock</div></div>
+    <div class="mod-card"><div class="mod-path">streaming/stream_state.py</div><div class="mod-desc">Tracks blocks, finish reason, raw chunks</div><div class="mod-class">StreamState</div></div>
+  </div>
+
+  <div class="group-label" style="background: var(--store-dim); color: var(--store); margin-top: 1.2rem;">Storage & Observability</div>
+  <div class="mod-grid">
+    <div class="mod-card"><div class="mod-path">storage/persistence.py</div><div class="mod-desc">ConversationEvent model, DB writes, Redis pub/sub</div></div>
+    <div class="mod-card"><div class="mod-path">observability/emitter.py</div><div class="mod-desc">Fire-and-forget event recording</div><div class="mod-class">EventEmitter</div></div>
+    <div class="mod-card"><div class="mod-path">observability/transaction_recorder.py</div><div class="mod-desc">Records request/response pairs for history</div></div>
+    <div class="mod-card"><div class="mod-path">usage_telemetry/</div><div class="mod-desc">Aggregate usage metrics, periodic send</div><div class="mod-class">UsageCollector</div></div>
+  </div>
+
+  <div class="group-label" style="background: var(--accent-dim); color: var(--accent); margin-top: 1.2rem;">Auth, LLM Clients & UI</div>
+  <div class="mod-grid">
+    <div class="mod-card"><div class="mod-path">credential_manager.py</div><div class="mod-desc">Auth mode (proxy key / passthrough / both), credential validation with Redis caching</div><div class="mod-class">CredentialManager</div></div>
+    <div class="mod-card"><div class="mod-path">llm/litellm_client.py</div><div class="mod-desc">OpenAI-format backend calls via LiteLLM</div><div class="mod-class">LiteLLMClient</div></div>
+    <div class="mod-card"><div class="mod-path">llm/anthropic_client.py</div><div class="mod-desc">Anthropic-format backend calls via native SDK</div><div class="mod-class">AnthropicClient</div></div>
+    <div class="mod-card"><div class="mod-path">admin/</div><div class="mod-desc">Runtime policy management API</div><div class="mod-class">/api/admin/*</div></div>
+    <div class="mod-card"><div class="mod-path">ui/</div><div class="mod-desc">Activity monitor, diff viewer</div><div class="mod-class">/activity/*, /diffs, /history</div></div>
+  </div>
+</section>
+
+<!-- Policy Decision Tree -->
+<section>
+  <h2>Choosing a Policy Base Class <span class="tag tag-policy">Policy</span></h2>
+  <div class="decision-box">
+    <div class="option option-simple">
+      <h4>SimplePolicy</h4>
+      <p>Override <code>simple_on_request</code>, <code>simple_on_response_content</code>, <code>simple_on_response_tool_call</code></p>
+      <p class="use-when">Use when: you only need to inspect or transform finished text/tool calls. Content is buffered until block completion. Works with both OpenAI and Anthropic.</p>
+    </div>
+    <div class="option option-full">
+      <h4>BasePolicy + OpenAIPolicyInterface + AnthropicExecutionInterface</h4>
+      <p>Full streaming control. Custom block buffering. Multiple backend calls. Event reconstruction.</p>
+      <p class="use-when">Use when: you need to control streaming behavior, buffer blocks yourself, make multi-turn backend calls, or implement complex patterns like overseer/judge policies. Per-request state via <code>context.get_request_state(self, StateType, factory)</code>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Key Abstractions -->
+<section>
+  <h2>Key Abstractions <span class="tag tag-policy">API</span></h2>
+  <div class="mermaid-wrap">
+    <pre class="mermaid">
+classDiagram
+    class BasePolicy {
+        +short_policy_name: str
+        +get_config() dict
+        +freeze_configured_state()
+    }
+
+    class OpenAIPolicyInterface {
+        +on_openai_request(request, ctx)
+        +on_openai_response(response, ctx)
+        +on_chunk_received(chunk, ctx)
+        +on_content_delta(delta, block, ctx)
+        +on_content_complete(block, ctx)
+        +on_tool_call_delta(delta, block, ctx)
+        +on_tool_call_complete(block, ctx)
+        +on_finish_reason(reason, ctx)
+        +on_stream_complete(state, ctx)
+        +on_streaming_policy_complete(ctx)
+    }
+
+    class AnthropicExecutionInterface {
+        +run_anthropic(io, context) AsyncIterator
+    }
+
+    class SimplePolicy {
+        +simple_on_request(request_str, ctx)
+        +simple_on_response_content(content, ctx)
+        +simple_on_response_tool_call(tool_call, ctx)
+    }
+
+    class PolicyContext {
+        +transaction_id: str
+        +session_id: str
+        +emitter: EventEmitter
+        +get_request_state(owner, type, factory)
+    }
+
+    BasePolicy <|-- SimplePolicy
+    BasePolicy <|-- OpenAIPolicyInterface
+    BasePolicy <|-- AnthropicExecutionInterface
+    SimplePolicy ..|> OpenAIPolicyInterface : implements
+    SimplePolicy ..|> AnthropicExecutionInterface : implements
+    OpenAIPolicyInterface ..> PolicyContext : uses
+    AnthropicExecutionInterface ..> PolicyContext : uses
+    </pre>
+  </div>
+</section>
+
+<!-- Data Model -->
+<section>
+  <h2>Data Model <span class="tag tag-store">Storage</span></h2>
+  <div class="table-card">
+    <div class="table-title">conversation_calls</div>
+    <table class="schema-table">
+      <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+      <tr><td>call_id</td><td>PK</td><td>Unique per transaction</td></tr>
+      <tr><td>model_name</td><td>text</td><td></td></tr>
+      <tr><td>status</td><td>text</td><td></td></tr>
+      <tr><td>created_at</td><td>timestamp</td><td></td></tr>
+      <tr><td>completed_at</td><td>timestamp</td><td></td></tr>
+    </table>
+  </div>
+  <div class="table-card">
+    <div class="table-title">conversation_events</div>
+    <table class="schema-table">
+      <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+      <tr><td>call_id</td><td>FK</td><td>References conversation_calls</td></tr>
+      <tr><td>event_type</td><td>text</td><td>"request" | "response"</td></tr>
+      <tr><td>payload</td><td>JSONB</td><td>Original + final (pre/post-policy)</td></tr>
+      <tr><td>created_at</td><td>timestamp</td><td></td></tr>
+    </table>
+  </div>
+  <div class="table-card">
+    <div class="table-title">current_policy</div>
+    <table class="schema-table">
+      <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+      <tr><td>id</td><td>int</td><td>Always 1 (single-row table)</td></tr>
+      <tr><td>policy_class_ref</td><td>text</td><td>e.g. "luthien_proxy.policies.noop_policy:NoOpPolicy"</td></tr>
+      <tr><td>config</td><td>JSONB</td><td>Policy configuration</td></tr>
+      <tr><td>enabled_at</td><td>timestamp</td><td></td></tr>
+      <tr><td>enabled_by</td><td>text</td><td></td></tr>
+    </table>
+  </div>
+  <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.5rem;">Policy changes protected by Redis distributed lock.</p>
+</section>
+
+<!-- Singleton Rules -->
+<section>
+  <h2>Policy Rules <span class="tag tag-policy">Important</span></h2>
+  <div class="card" style="border-left: 3px solid var(--warn);">
+    <ul>
+      <li>Policies are <strong>singletons</strong> &mdash; never store request-scoped data on <code>self</code>. Use <code>context.get_request_state()</code>.</li>
+      <li>Config-time collections must be immutable (<code>tuple</code>, <code>frozenset</code>). <code>freeze_configured_state()</code> enforces this at load time.</li>
+      <li>For <code>SimplePolicy</code>, streaming content is buffered until block completion, then your hook runs on complete content.</li>
+      <li>For full <code>OpenAIPolicyInterface</code>, you control what gets pushed to the egress queue via <code>ctx.push_chunk()</code>.</li>
+    </ul>
+  </div>
+</section>
+
+<div class="footer">
+  Generated from <a href="ARCHITECTURE.md" style="color: var(--accent);">ARCHITECTURE.md</a> &mdash; Luthien Proxy
+</div>
+
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+  themeVariables: {
+    primaryColor: '#38bdf8',
+    primaryTextColor: '#dce6f0',
+    primaryBorderColor: '#38bdf8',
+    lineColor: '#6b7d8e',
+    secondaryColor: '#a78bfa',
+    tertiaryColor: '#1e2536',
+    fontFamily: 'Space Grotesk, system-ui, sans-serif',
+    fontSize: '13px',
+  },
+  classDiagram: {
+    padding: 20,
+  }
+});
+</script>
+</body>
+</html>

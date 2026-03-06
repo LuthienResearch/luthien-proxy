@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes how luthien-proxy is structured and how requests flow through it. It should take about 10 minutes to read.
+This document describes how luthien-proxy is structured and how requests flow through it. It should take about 10 minutes to read. A [visual version](docs/architecture-visual.html) is also available (open in a browser).
 
 ## What Is Luthien
 
