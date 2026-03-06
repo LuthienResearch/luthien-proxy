@@ -10,7 +10,7 @@ This document covers how policy loading works, the security implications, and re
 
 At startup, the proxy loads a policy through a chain of resolution:
 
-1. **Environment variable** `POLICY_CONFIG` points to a YAML file path (default: `config/policy_config.yaml`)
+1. **Environment variable** `POLICY_CONFIG` points to a YAML file path (no default — if unset, no YAML file is loaded)
 2. **YAML file** contains a `policy.class` field with a Python module reference (e.g., `luthien_proxy.policies.noop_policy:NoOpPolicy`)
 3. **Python's `__import__`** dynamically imports the module and loads the class
 4. The class is instantiated with any `config` parameters from the YAML
@@ -38,9 +38,9 @@ The `POLICY_SOURCE` environment variable controls where the policy is loaded fro
 
 The admin API allows changing the active policy without restarting the proxy:
 
-- **`POST /admin/policy/set`** accepts a `policy_class_ref` string and `config` dict, dynamically imports the class, validates config, instantiates it, and persists the selection to the database.
-- **`GET /admin/policy/current`** returns the active policy and its configuration.
-- **`GET /admin/policy/list`** discovers all policy classes in the `luthien_proxy.policies` package.
+- **`POST /api/admin/policy/set`** accepts a `policy_class_ref` string and `config` dict, dynamically imports the class, validates config, instantiates it, and persists the selection to the database.
+- **`GET /api/admin/policy/current`** returns the active policy and its configuration.
+- **`GET /api/admin/policy/list`** discovers all policy classes in the `luthien_proxy.policies` package.
 
 ### Class Resolution Internals
 
@@ -68,9 +68,9 @@ The `__import__` call will import any Python module reachable on the Python path
 
 ### Arbitrary Code Execution via Admin API
 
-**Risk:** The `POST /admin/policy/set` endpoint accepts any `policy_class_ref` string. An attacker with access to this endpoint can trigger the same dynamic import path.
+**Risk:** The `POST /api/admin/policy/set` endpoint accepts any `policy_class_ref` string. An attacker with access to this endpoint can trigger the same dynamic import path.
 
-The admin API is protected by `ADMIN_API_KEY`, verified via `verify_admin_token` in `src/luthien_proxy/auth.py`. Authentication supports:
+The admin API is protected by `ADMIN_API_KEY`, verified via `verify_admin_token` in `src/luthien_proxy/auth.py`. Authentication supports (checked in this order):
 - Session cookie (browser login)
 - Bearer token in Authorization header
 - `x-api-key` header
@@ -79,7 +79,7 @@ All comparisons use `secrets.compare_digest` (constant-time) to prevent timing a
 
 ### Policy Config Leaks Operational Details
 
-The `GET /admin/policy/current` endpoint returns the full policy configuration, which may include model names, API endpoints, thresholds, and other operational parameters. This is useful for administration but should not be exposed to untrusted parties.
+The `GET /api/admin/policy/current` endpoint returns the full policy configuration, which may include model names, API endpoints, thresholds, and other operational parameters. This is useful for administration but should not be exposed to untrusted parties.
 
 ## Required Mitigations
 
@@ -108,11 +108,11 @@ In the Docker deployment, `config/` is mounted read-only into the container (`./
 
 ### 3. Restrict Network Access to Admin Endpoints
 
-The `/admin/*` endpoints should not be reachable from the public internet.
+The `/api/admin/*` endpoints should not be reachable from the public internet.
 
 **Recommended approaches:**
 
-- **Reverse proxy rules:** Block `/admin/*` paths at the load balancer or reverse proxy (nginx, Caddy, cloud ALB) so they are only accessible from internal networks.
+- **Reverse proxy rules:** Block `/api/admin/*` paths at the load balancer or reverse proxy (nginx, Caddy, cloud ALB) so they are only accessible from internal networks.
 - **Network segmentation:** Use VPC security groups, firewall rules, or Docker network isolation to restrict access to the admin port.
 - **VPN or bastion host:** Require operators to connect via VPN before accessing admin endpoints.
 
@@ -140,7 +140,7 @@ Since `__import__` loads any module on `sys.path`, limit what code is available:
 |------|--------|
 | `ADMIN_API_KEY` set to a strong, unique value | |
 | `ADMIN_API_KEY` stored in a secrets manager (not in code or config files) | |
-| `/admin/*` endpoints blocked at the network/reverse-proxy level from public access | |
+| `/api/admin/*` endpoints blocked at the network/reverse-proxy level from public access | |
 | `config/policy_config.yaml` is read-only and owned by the gateway process | |
 | Database credentials are strong and stored securely | |
 | Database network access is restricted to the gateway | |
@@ -155,7 +155,7 @@ Since `__import__` loads any module on `sys.path`, limit what code is available:
 |------|------|
 | `src/luthien_proxy/config.py` | `_import_policy_class` -- dynamic import, `BasePolicy` subclass check |
 | `src/luthien_proxy/policy_manager.py` | Startup loading strategies, `enable_policy` for runtime swaps |
-| `src/luthien_proxy/admin/routes.py` | Admin API endpoints (`/admin/policy/set`, `/admin/policy/current`, `/admin/policy/list`) |
+| `src/luthien_proxy/admin/routes.py` | Admin API endpoints (`/api/admin/policy/set`, `/api/admin/policy/current`, `/api/admin/policy/list`) |
 | `src/luthien_proxy/auth.py` | `verify_admin_token` -- admin authentication logic |
 | `src/luthien_proxy/settings.py` | Environment variable definitions (`POLICY_CONFIG`, `ADMIN_API_KEY`, etc.) |
 | `config/policy_config.yaml` | Default policy configuration file |
