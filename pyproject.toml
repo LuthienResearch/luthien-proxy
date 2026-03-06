@@ -39,6 +39,7 @@ dependencies = [
     "redis>=6.4.0",
     "vulture>=2.14",
     "anthropic>=0.84.0",
+    "aiohttp>=3.9.0",
 ]
 
 [tool.hatch.build.targets.wheel]

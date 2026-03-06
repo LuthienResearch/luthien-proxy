@@ -2,6 +2,8 @@
 
 ## Unreleased | TBA
 
+- **SimpleLLMPolicy**: New policy that applies plain-English instructions to LLM response blocks using a configurable judge LLM. Supports pass-through, text/tool replacement, and cross-type replacement (tool_use → text, text → tool_use). Works with both OpenAI and Anthropic APIs in streaming and non-streaming modes. Configurable error handling (fail-open/fail-secure) and automatic stop_reason correction.
+
 - Add opt-out anonymous usage telemetry (aggregate request/token counts, no PII)
   - Disable with `USAGE_TELEMETRY=false` or admin API (`GET/PUT /api/admin/telemetry`)
 

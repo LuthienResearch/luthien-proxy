@@ -2,8 +2,6 @@
 -- Captures both inbound (client↔proxy) and outbound (proxy↔backend)
 -- HTTP details with structured, queryable columns.
 
-\c luthien_control;
-
 CREATE TABLE IF NOT EXISTS request_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -52,4 +50,12 @@ CREATE INDEX idx_request_logs_response_status ON request_logs(response_status);
 CREATE INDEX idx_request_logs_model ON request_logs(model);
 CREATE INDEX idx_request_logs_direction_started_at ON request_logs(direction, started_at DESC);
 
-GRANT ALL PRIVILEGES ON TABLE request_logs TO luthien;
+-- Only grant if the luthien role exists (local Docker dev);
+-- on Railway/PaaS the owning user (postgres) already has full access.
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'luthien') THEN
+        EXECUTE 'GRANT ALL PRIVILEGES ON TABLE request_logs TO luthien';
+    END IF;
+END
+$$;
