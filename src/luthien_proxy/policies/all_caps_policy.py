@@ -29,6 +29,7 @@ class AllCapsPolicy(TextModifierPolicy):
     """
 
     def modify_text(self, text: str) -> str:
+        """Convert text to uppercase."""
         return text.upper()
 
     # -- Anthropic helpers for MultiParallelPolicy compatibility ---------------
@@ -36,13 +37,17 @@ class AllCapsPolicy(TextModifierPolicy):
     # directly on sub-policies. TextModifierPolicy handles Anthropic via
     # run_anthropic, so we expose these for backward compatibility.
 
-    async def on_anthropic_response(self, response: "AnthropicResponse", context: "PolicyContext") -> "AnthropicResponse":
+    async def on_anthropic_response(
+        self, response: "AnthropicResponse", context: "PolicyContext"
+    ) -> "AnthropicResponse":
+        """Transform text blocks to uppercase in Anthropic response."""
         self._modify_anthropic_response(response)
         return response
 
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
+        """Transform text_delta events to uppercase in Anthropic streaming."""
         if isinstance(event, RawContentBlockDeltaEvent) and isinstance(event.delta, TextDelta):
             new_delta = event.delta.model_copy(update={"text": self.modify_text(event.delta.text)})
             return [event.model_copy(update={"delta": new_delta})]

@@ -16,7 +16,6 @@ from litellm.types.utils import Choices, Message, ModelResponse
 from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import (
-    AnthropicRequest,
     AnthropicResponse,
     AnthropicTextBlock,
     AnthropicToolUseBlock,
@@ -189,7 +188,6 @@ class TestAllCapsPolicyAnthropicResponse:
     @pytest.mark.asyncio
     async def test_transforms_text_to_uppercase(self):
         policy = AllCapsPolicy()
-        ctx = PolicyContext.for_testing()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "Hello, world!"}
         response: AnthropicResponse = {
