@@ -103,6 +103,14 @@ Client receives SSE events
 | `observability/emitter.py` | `EventEmitter` — fire-and-forget event recording (DB + Redis + stdout) |
 | `observability/transaction_recorder.py` | Records request/response pairs for conversation history |
 
+### Configuration & Authentication
+
+| Module | Responsibility |
+|--------|---------------|
+| `settings.py` | `Settings` (pydantic-settings) — centralized env var loading with validation and defaults |
+| `credential_manager.py` | `CredentialManager` — auth mode resolution (proxy key, passthrough, or both), Anthropic credential validation with Redis caching |
+| `config/` | YAML policy config loading |
+
 ### Other
 
 | Module | Responsibility |
@@ -111,7 +119,7 @@ Client receives SSE events
 | `llm/anthropic_client.py` | Anthropic-format backend calls via native SDK |
 | `admin/` | Runtime policy management API (`/api/admin/*`) |
 | `ui/` | Activity monitor, diff viewer (`/activity/*`, `/diffs`) |
-| `config/` | YAML policy config loading |
+| `usage_telemetry/` | `UsageCollector` — in-memory aggregate metrics (request counts, token counts), periodic send to telemetry endpoint |
 
 ## Key Abstractions
 
@@ -193,8 +201,8 @@ Policy changes are protected by a Redis distributed lock.
 
 1. Create `src/luthien_proxy/policies/my_policy.py`
 2. Choose your base class:
-   - **`SimplePolicy`** — easiest: override `simple_on_request`, `simple_on_response_content`, `simple_on_response_tool_call`. Works with both OpenAI and Anthropic formats.
-   - **`BasePolicy` + `OpenAIPolicyInterface` + `AnthropicExecutionInterface`** — full control over streaming and both API formats.
+   - **`SimplePolicy`** — easiest: override `simple_on_request`, `simple_on_response_content`, `simple_on_response_tool_call`. Works with both OpenAI and Anthropic formats. Content is buffered until block completion, then your hook runs on the complete content. Use this when you only need to inspect or transform finished text/tool calls and don't need to control streaming behavior.
+   - **`BasePolicy` + `OpenAIPolicyInterface` + `AnthropicExecutionInterface`** — full control over streaming and both API formats. Use this when you need to buffer blocks yourself, make multiple backend calls, reconstruct streaming events, or implement complex multi-turn patterns (e.g., an overseer that inspects tool use and decides whether to proceed). Per-request state goes on `PolicyContext` via `context.get_request_state(self, StateType, factory)`.
 3. Add a Pydantic config model if your policy needs configuration
 4. Enable via YAML config or the admin API:
 

@@ -465,6 +465,7 @@ The gateway integrates everything into a single FastAPI application:
 
 **Documentation**:
 
+- **Architecture overview**: [ARCHITECTURE.md](ARCHITECTURE.md) - How the codebase is structured, how requests flow, where to find things
 - **Start here**: [Development docs index](dev/README.md) - Guide to all documentation
 - Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
 - Live policy updates: [dev/LIVE_POLICY_DEMO.md](dev/LIVE_POLICY_DEMO.md) - Switching policies without restart in Claude Code
