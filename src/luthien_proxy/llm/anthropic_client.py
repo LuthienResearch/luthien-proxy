@@ -1,7 +1,8 @@
 """Anthropic SDK client wrapper for making API calls."""
 
-from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+import logging
+from collections.abc import AsyncIterator, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 import anthropic
 from opentelemetry import trace
@@ -11,7 +12,31 @@ from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicRespons
 if TYPE_CHECKING:
     from anthropic.lib.streaming import MessageStreamEvent
 
+logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+_ToolT = Mapping[str, Any]
+
+
+def _deduplicate_tools(tools: Sequence[_ToolT]) -> list[_ToolT]:
+    """Deduplicate tools by name, keeping the first occurrence.
+
+    Anthropic API rejects requests with duplicate tool names, but clients like
+    Claude Code may send duplicates (e.g. during /compact). This silently drops
+    duplicates so the request succeeds.
+    """
+    seen: set[str] = set()
+    result: list[_ToolT] = []
+    for tool in tools:
+        name = tool.get("name")
+        if name and name in seen:
+            logger.debug("Dropping duplicate tool: %s", name)
+            continue
+        if name:
+            seen.add(name)
+        result.append(tool)
+    return result
 
 
 class AnthropicClient:
@@ -75,7 +100,7 @@ class AnthropicClient:
         if "system" in request:
             kwargs["system"] = request["system"]
         if "tools" in request:
-            kwargs["tools"] = request["tools"]
+            kwargs["tools"] = _deduplicate_tools(request["tools"])
         if "tool_choice" in request:
             kwargs["tool_choice"] = request["tool_choice"]
         if "temperature" in request:
