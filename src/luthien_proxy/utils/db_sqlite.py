@@ -1,0 +1,241 @@
+"""SQLite adapter implementing the same ConnectionProtocol/PoolProtocol as asyncpg.
+
+Allows the application to run without PostgreSQL/Docker by using a local SQLite file.
+Designed for single-user local development, not production multi-user deployments.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import AsyncIterator, Mapping, Sequence
+
+import aiosqlite
+
+
+def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[object, ...]]:
+    """Translate asyncpg-style $1,$2 parameters to SQLite ? placeholders.
+
+    Also rewrites PostgreSQL-specific SQL constructs to SQLite equivalents.
+    """
+    # Replace $N placeholders with ? (must replace in reverse order to handle $10+ correctly)
+    indices = sorted(set(int(m.group(1)) for m in re.finditer(r"\$(\d+)", query)), reverse=True)
+    translated = query
+    for idx in indices:
+        translated = translated.replace(f"${idx}", "?")
+
+    # Strip PostgreSQL type casts (::jsonb, ::text, ::float, ::int[], etc.)
+    translated = re.sub(r"::\w+(\[\])?", "", translated)
+
+    # LEAST(a, b) → MIN(a, b)
+    translated = translated.replace("LEAST(", "MIN(")
+
+    # to_timestamp(?) → datetime(?, 'unixepoch')
+    translated = re.sub(r"to_timestamp\(\?\)", "datetime(?, 'unixepoch')", translated)
+
+    # NOW() → datetime('now')
+    translated = re.sub(r"\bNOW\(\)", "datetime('now')", translated, flags=re.IGNORECASE)
+
+    # ILIKE → LIKE (SQLite LIKE is case-insensitive for ASCII by default)
+    translated = translated.replace(" ILIKE ", " LIKE ")
+
+    return translated, args
+
+
+def _convert_arg(value: object) -> object:
+    """Convert Python values to SQLite-compatible types."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, dict | list):
+        return json.dumps(value)
+    return value
+
+
+def _convert_args(args: tuple[object, ...]) -> tuple[object, ...]:
+    """Convert all args to SQLite-compatible types."""
+    return tuple(_convert_arg(a) for a in args)
+
+
+class _RowProxy(Mapping[str, object]):
+    """Dict-like wrapper around aiosqlite.Row for compatibility with asyncpg Record."""
+
+    def __init__(self, keys: tuple[str, ...], values: Sequence[object]) -> None:
+        self._data = dict(zip(keys, values))
+
+    def __getitem__(self, key: str) -> object:
+        return self._data[key]
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __repr__(self) -> str:
+        return f"_RowProxy({self._data!r})"
+
+
+class SqliteConnection:
+    """Wraps an aiosqlite connection to match ConnectionProtocol."""
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:  # noqa: D107
+        self._conn = conn
+
+    async def close(self) -> None:
+        """Close the underlying connection."""
+        await self._conn.close()
+
+    async def fetch(self, query: str, *args: object) -> Sequence[Mapping[str, object]]:
+        """Execute query and return all rows."""
+        translated, targs = _translate_params(query, args)
+        targs = _convert_args(targs)
+        cursor = await self._conn.execute(translated, targs)
+        rows = await cursor.fetchall()
+        if not rows or cursor.description is None:
+            return []
+        keys = tuple(d[0] for d in cursor.description)
+        return [_RowProxy(keys, row) for row in rows]
+
+    async def fetchrow(self, query: str, *args: object) -> Mapping[str, object] | None:
+        """Execute query and return the first row."""
+        translated, targs = _translate_params(query, args)
+        targs = _convert_args(targs)
+        cursor = await self._conn.execute(translated, targs)
+        row = await cursor.fetchone()
+        if row is None or cursor.description is None:
+            return None
+        keys = tuple(d[0] for d in cursor.description)
+        return _RowProxy(keys, row)
+
+    async def fetchval(self, query: str, *args: object) -> object:
+        """Execute query and return the first column of the first row."""
+        row = await self.fetchrow(query, *args)
+        if row is None:
+            return None
+        return next(iter(row.values()))
+
+    async def execute(self, query: str, *args: object) -> object:
+        """Execute a query (INSERT/UPDATE/DELETE)."""
+        translated, targs = _translate_params(query, args)
+        targs = _convert_args(targs)
+        cursor = await self._conn.execute(translated, targs)
+        await self._conn.commit()
+        return f"OK {cursor.rowcount}"
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        """Context manager for explicit transactions."""
+        await self._conn.execute("BEGIN")
+        try:
+            yield
+            await self._conn.commit()
+        except Exception:
+            await self._conn.rollback()
+            raise
+
+
+class SqlitePool:
+    """Lightweight pool that serializes access to a single SQLite connection.
+
+    SQLite only supports one writer at a time, so we use a lock to serialize access.
+    For the single-user local dev use case this is fine.
+    """
+
+    def __init__(self, db_path: str) -> None:  # noqa: D107
+        self._db_path = db_path
+        self._conn: aiosqlite.Connection | None = None
+        self._lock = asyncio.Lock()
+
+    async def _get_conn(self) -> aiosqlite.Connection:
+        if self._conn is None:
+            self._conn = await aiosqlite.connect(self._db_path)
+            # WAL mode for better concurrent read performance
+            await self._conn.execute("PRAGMA journal_mode=WAL")
+            await self._conn.execute("PRAGMA foreign_keys=ON")
+            # Return rows as tuples (we wrap them in _RowProxy)
+            self._conn.row_factory = None  # type: ignore[assignment]
+        return self._conn
+
+    @asynccontextmanager
+    async def acquire(self) -> AsyncIterator[SqliteConnection]:
+        """Yield a connection, serializing access with a lock."""
+        async with self._lock:
+            conn = await self._get_conn()
+            yield SqliteConnection(conn)
+
+    async def close(self) -> None:
+        """Close the underlying connection."""
+        if self._conn is not None:
+            await self._conn.close()
+            self._conn = None
+
+    async def fetch(self, query: str, *args: object) -> Sequence[Mapping[str, object]]:
+        """Execute query and return all rows."""
+        async with self.acquire() as conn:
+            return await conn.fetch(query, *args)
+
+    async def fetchrow(self, query: str, *args: object) -> Mapping[str, object] | None:
+        """Execute query and return the first row."""
+        async with self.acquire() as conn:
+            return await conn.fetchrow(query, *args)
+
+    async def execute(self, query: str, *args: object) -> object:
+        """Execute a query (INSERT/UPDATE/DELETE)."""
+        async with self.acquire() as conn:
+            return await conn.execute(query, *args)
+
+
+def parse_sqlite_url(url: str) -> str:
+    """Extract file path from a sqlite:// URL.
+
+    Supports:
+      sqlite:///path/to/db.sqlite  → /path/to/db.sqlite
+      sqlite:///./relative.db      → ./relative.db
+      sqlite://:memory:            → :memory:
+    """
+    if url == "sqlite://:memory:":
+        return ":memory:"
+    prefix = "sqlite:///"
+    if url.startswith(prefix):
+        return url[len(prefix) :]
+    raise ValueError(f"Invalid SQLite URL: {url}. Expected sqlite:///path or sqlite://:memory:")
+
+
+async def create_sqlite_pool(url: str) -> SqlitePool:
+    """Create a SqlitePool from a sqlite:// URL."""
+    db_path = parse_sqlite_url(url)
+
+    # Ensure parent directory exists for file-based databases
+    if db_path != ":memory:":
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+
+    pool = SqlitePool(db_path)
+    # Eagerly open connection to validate the path
+    async with pool.acquire():
+        pass
+    return pool
+
+
+def is_sqlite_url(url: str) -> bool:
+    """Check if a DATABASE_URL points to SQLite."""
+    return url.startswith("sqlite://")
+
+
+# UUID generation helper for SQLite (PostgreSQL has gen_random_uuid())
+def generate_uuid() -> str:
+    """Generate a UUID string for use as a primary key."""
+    return str(uuid.uuid4())
+
+
+__all__ = [
+    "SqliteConnection",
+    "SqlitePool",
+    "create_sqlite_pool",
+    "is_sqlite_url",
+    "parse_sqlite_url",
+    "generate_uuid",
+]

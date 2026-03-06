@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Mapping, Sequence, TypedDict, cast
 
 from .models import (
     ConversationMessage,
@@ -322,8 +322,14 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
     Returns:
         List of session summaries ordered by most recent activity
     """
+    if getattr(db_pool, "is_sqlite", False) is True:
+        return await _fetch_session_list_sqlite(limit, db_pool, offset)
+    return await _fetch_session_list_pg(limit, db_pool, offset)
+
+
+async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+    """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg)."""
     async with db_pool.connection() as conn:
-        # Get total count of sessions
         total_count = await conn.fetchval(
             """
             SELECT COUNT(DISTINCT session_id)
@@ -332,7 +338,6 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
             """
         )
 
-        # Get session summaries with aggregated stats
         rows = await conn.fetch(
             """
             WITH session_stats AS (
@@ -416,6 +421,107 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
     return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
 
 
+async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+    """SQLite version using standard SQL (no FILTER, DISTINCT ON, array_agg)."""
+    async with db_pool.connection() as conn:
+        total_count = await conn.fetchval(
+            """
+            SELECT COUNT(DISTINCT session_id)
+            FROM conversation_events
+            WHERE session_id IS NOT NULL
+            """
+        )
+
+        rows = await conn.fetch(
+            """
+            SELECT
+                session_id,
+                MIN(created_at) as first_ts,
+                MAX(created_at) as last_ts,
+                COUNT(*) as total_events,
+                COUNT(DISTINCT call_id) as turn_count,
+                SUM(CASE
+                    WHEN event_type LIKE 'policy.%'
+                    AND event_type NOT LIKE 'policy.judge.evaluation%'
+                    THEN 1 ELSE 0
+                END) as policy_interventions
+            FROM conversation_events
+            WHERE session_id IS NOT NULL
+            GROUP BY session_id
+            ORDER BY last_ts DESC
+            LIMIT ? OFFSET ?
+            """,
+            limit,
+            offset,
+        )
+
+    sessions = []
+    for row in rows:
+        sid = str(row["session_id"])
+
+        # Fetch models for this session (replaces array_agg + JSON operator)
+        model_rows = await _fetch_session_models_sqlite(db_pool, sid)
+        models = [str(r["model"]) for r in model_rows if r["model"]]
+
+        # Fetch first message for preview (replaces DISTINCT ON)
+        preview = await _fetch_session_preview_sqlite(db_pool, sid)
+
+        sessions.append(
+            SessionSummary(
+                session_id=sid,
+                first_timestamp=str(row["first_ts"]),
+                last_timestamp=str(row["last_ts"]),
+                turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
+                total_events=int(row["total_events"]),  # type: ignore[arg-type]
+                policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
+                models_used=models,
+                preview_message=preview,
+            )
+        )
+
+    total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
+    has_more = offset + len(sessions) < total
+    return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
+
+
+async def _fetch_session_models_sqlite(db_pool: DatabasePool, session_id: str) -> Sequence[Mapping[str, Any]]:
+    """Fetch distinct models used in a session (SQLite-compatible)."""
+    async with db_pool.connection() as conn:
+        return await conn.fetch(
+            """
+            SELECT DISTINCT json_extract(payload, '$.final_model') as model
+            FROM conversation_events
+            WHERE session_id = ?
+            AND event_type = 'transaction.request_recorded'
+            AND json_extract(payload, '$.final_model') IS NOT NULL
+            """,
+            session_id,
+        )
+
+
+async def _fetch_session_preview_sqlite(db_pool: DatabasePool, session_id: str) -> str | None:
+    """Fetch the first non-probe request payload for preview (SQLite-compatible)."""
+    async with db_pool.connection() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT payload as request_payload
+            FROM conversation_events
+            WHERE session_id = ?
+            AND event_type = 'transaction.request_recorded'
+            AND COALESCE(
+                CAST(json_extract(payload, '$.final_request.max_tokens') AS INTEGER),
+                2
+            ) > 1
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            session_id,
+        )
+    if row is None:
+        return None
+    return _extract_preview_message(row["request_payload"])
+
+
 async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> SessionDetail:
     """Fetch full session detail with conversation turns.
 
@@ -459,6 +565,8 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
             raise TypeError(f"Unexpected payload type: {type(raw_payload).__name__}")
 
         raw_created_at = row["created_at"]
+        if isinstance(raw_created_at, str):
+            raw_created_at = datetime.fromisoformat(raw_created_at)
         if not isinstance(raw_created_at, datetime):
             raise TypeError(f"created_at must be datetime, got {type(raw_created_at).__name__}")
 
@@ -485,14 +593,16 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         if turn.had_policy_intervention:
             total_interventions += len(turn.annotations)
 
-    # Get timestamps
+    # Get timestamps (SQLite returns strings, PostgreSQL returns datetime)
     first_ts = rows[0]["created_at"]
     last_ts = rows[-1]["created_at"]
+    first_ts_str = first_ts if isinstance(first_ts, str) else cast(datetime, first_ts).isoformat()
+    last_ts_str = last_ts if isinstance(last_ts, str) else cast(datetime, last_ts).isoformat()
 
     return SessionDetail(
         session_id=session_id,
-        first_timestamp=cast(datetime, first_ts).isoformat(),
-        last_timestamp=cast(datetime, last_ts).isoformat(),
+        first_timestamp=first_ts_str,
+        last_timestamp=last_ts_str,
         turns=turns,
         total_policy_interventions=total_interventions,
         models_used=sorted(all_models),
