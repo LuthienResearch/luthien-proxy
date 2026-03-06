@@ -456,6 +456,8 @@ section h2 .tag {
   <div class="mermaid-wrap">
     <pre class="mermaid">
 classDiagram
+    direction TB
+
     class BasePolicy {
         +short_policy_name: str
         +get_config() dict
@@ -492,11 +494,10 @@ classDiagram
         +get_request_state(owner, type, factory)
     }
 
-    BasePolicy --|> SimplePolicy : extends
-    BasePolicy --|> OpenAIPolicyInterface : extends
-    BasePolicy --|> AnthropicExecutionInterface : extends
-    SimplePolicy ..|> OpenAIPolicyInterface : implements
-    SimplePolicy ..|> AnthropicExecutionInterface : implements
+    BasePolicy <|-- OpenAIPolicyInterface
+    BasePolicy <|-- AnthropicExecutionInterface
+    OpenAIPolicyInterface <|.. SimplePolicy : implements
+    AnthropicExecutionInterface <|.. SimplePolicy : implements
     OpenAIPolicyInterface ..> PolicyContext : uses
     AnthropicExecutionInterface ..> PolicyContext : uses
     </pre>
