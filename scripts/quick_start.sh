@@ -175,6 +175,7 @@ docker compose up -d gateway
 # Wait for services to be healthy
 echo "⏳ Waiting for services to be healthy..."
 services_healthy=true
+# shellcheck disable=SC2043 # Will expand to multiple services later
 for service in gateway; do
     if ! wait_for_service "$service" 60; then
         services_healthy=false

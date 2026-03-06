@@ -35,7 +35,8 @@ echo "  API Key: ${API_KEY:0:12}..."
 export PROXY_API_KEY="$API_KEY"
 
 # Set PYTHONPATH to find luthien_proxy module
-export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)/src"
+PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)/src"
+export PYTHONPATH
 
 # Start the gateway
 cd "$(dirname "$0")/.." && exec uv run python -m luthien_proxy.main

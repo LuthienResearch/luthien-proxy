@@ -6,14 +6,17 @@ echo "== Shellcheck (shell scripts) =="
 if command -v shellcheck &>/dev/null; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     shellcheck_failed=0
-    for script in "${SCRIPT_DIR}"/*.sh; do
+    # Run from the scripts directory so relative source= directives resolve correctly
+    pushd "$SCRIPT_DIR" > /dev/null
+    for script in *.sh; do
         if [[ -f "$script" ]]; then
-            echo "  Checking $(basename "$script")..."
-            if ! shellcheck --shell=bash "$script"; then
+            echo "  Checking $script..."
+            if ! shellcheck --shell=bash -x "$script"; then
                 shellcheck_failed=1
             fi
         fi
     done
+    popd > /dev/null
     if [[ "$shellcheck_failed" -ne 0 ]]; then
         echo "Shellcheck found issues. Please fix them before proceeding."
         exit 1
