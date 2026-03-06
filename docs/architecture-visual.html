@@ -429,7 +429,10 @@ section h2 .tag {
     <div class="mod-card"><div class="mod-path">llm/litellm_client.py</div><div class="mod-desc">OpenAI-format backend calls via LiteLLM</div><div class="mod-class">LiteLLMClient</div></div>
     <div class="mod-card"><div class="mod-path">llm/anthropic_client.py</div><div class="mod-desc">Anthropic-format backend calls via native SDK</div><div class="mod-class">AnthropicClient</div></div>
     <div class="mod-card"><div class="mod-path">admin/</div><div class="mod-desc">Runtime policy management API</div><div class="mod-class">/api/admin/*</div></div>
-    <div class="mod-card"><div class="mod-path">ui/</div><div class="mod-desc">Activity monitor, diff viewer</div><div class="mod-class">/activity/*, /diffs, /history</div></div>
+    <div class="mod-card"><div class="mod-path">ui/</div><div class="mod-desc">Activity monitor, diff viewer</div><div class="mod-class">/activity/*, /diffs</div></div>
+    <div class="mod-card"><div class="mod-path">history/</div><div class="mod-desc">Conversation history API and UI</div><div class="mod-class">/history/*</div></div>
+    <div class="mod-card"><div class="mod-path">request_log/</div><div class="mod-desc">HTTP request logging, sanitization, log viewer</div><div class="mod-class">/logs/*</div></div>
+    <div class="mod-card"><div class="mod-path">debug/</div><div class="mod-desc">Debug endpoints for conversation events</div><div class="mod-class">/debug</div></div>
   </div>
 </section>
 
@@ -648,7 +651,7 @@ classDiagram
 </section>
 
 <div class="footer">
-  Generated from <a href="ARCHITECTURE.md" style="color: var(--accent);">ARCHITECTURE.md</a> &mdash; Luthien Proxy
+  Generated from <a href="../ARCHITECTURE.md" style="color: var(--accent);">ARCHITECTURE.md</a> &mdash; Luthien Proxy
 </div>
 
 </div>

@@ -119,6 +119,9 @@ Client receives SSE events
 | `llm/anthropic_client.py` | Anthropic-format backend calls via native SDK |
 | `admin/` | Runtime policy management API (`/api/admin/*`) |
 | `ui/` | Activity monitor, diff viewer (`/activity/*`, `/diffs`) |
+| `history/` | Conversation history API and UI (`/history/*`) |
+| `request_log/` | HTTP request logging, header sanitization, log viewer UI (`/logs/*`) |
+| `debug/` | Debug endpoints for inspecting conversation events |
 | `usage_telemetry/` | `UsageCollector` — in-memory aggregate metrics (request counts, token counts), periodic send to telemetry endpoint |
 
 ## Key Abstractions
