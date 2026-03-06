@@ -4,8 +4,16 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
+from anthropic.lib.streaming import MessageStreamEvent
+from anthropic.types import (
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    TextBlock,
+    TextDelta,
+)
 from litellm.types.utils import Choices, ModelResponse
 
 from luthien_proxy.llm.types.anthropic import AnthropicResponse
@@ -95,14 +103,43 @@ class LuthienIndicatorPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecuti
     def run_anthropic(
         self, io: AnthropicPolicyIOProtocol, context: PolicyContext
     ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Run Anthropic request, appending indicator to non-streaming responses."""
+        """Run Anthropic request, appending indicator to both streaming and non-streaming responses."""
 
         async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
             request = io.request
 
             if request.get("stream", False):
+                max_index = -1
                 async for event in io.stream(request):
+                    if isinstance(event, RawContentBlockStartEvent):
+                        max_index = max(max_index, event.index)
                     yield event
+
+                # Emit a new text content block with the indicator after the stream
+                new_index = max_index + 1
+                yield cast(
+                    MessageStreamEvent,
+                    RawContentBlockStartEvent(
+                        type="content_block_start",
+                        index=new_index,
+                        content_block=TextBlock(type="text", text=""),
+                    ),
+                )
+                yield cast(
+                    MessageStreamEvent,
+                    RawContentBlockDeltaEvent(
+                        type="content_block_delta",
+                        index=new_index,
+                        delta=TextDelta(type="text_delta", text=self._indicator),
+                    ),
+                )
+                yield cast(
+                    MessageStreamEvent,
+                    RawContentBlockStopEvent(
+                        type="content_block_stop",
+                        index=new_index,
+                    ),
+                )
                 return
 
             response = await io.complete(request)
