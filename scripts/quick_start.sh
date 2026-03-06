@@ -27,22 +27,30 @@ fi
 
 echo "✅ Dependencies check passed"
 
-wait_for_service() {
-    local service="$1"
+wait_for_gateway() {
+    local url="$1"
     local timeout="$2"
     local elapsed=0
-    local interval=2
 
     while [ "$elapsed" -lt "$timeout" ]; do
-        if docker compose ps "$service" | tail -n +2 | grep -q "Up"; then
-            echo "✅ $service is healthy"
+        if curl -sf "$url" > /dev/null 2>&1; then
             return 0
         fi
-        sleep "$interval"
-        elapsed=$((elapsed + interval))
+
+        # Fail fast if the gateway container exited (e.g. migration error, crash)
+        local state
+        state=$(docker compose ps gateway --format '{{.State}}' 2>/dev/null || echo "unknown")
+        if [ "$state" = "exited" ] || [ "$state" = "dead" ]; then
+            echo "   Gateway container exited unexpectedly (state: ${state})"
+            return 1
+        fi
+
+        printf "."
+        sleep 2
+        elapsed=$((elapsed + 2))
     done
 
-    echo "⚠️ $service did not become healthy within ${timeout}s"
+    echo ""
     return 1
 }
 
@@ -170,19 +178,27 @@ echo "✅ Redis is ready"
 echo "🚀 Starting gateway (integrated proxy)..."
 docker compose up -d gateway
 
-# Wait for services to be healthy
-echo "⏳ Waiting for services to be healthy..."
+# Wait for gateway HTTP endpoint to respond
+gateway_port="${GATEWAY_PORT:-8000}"
+gateway_url="http://localhost:${gateway_port}"
+echo "⏳ Waiting for gateway at ${gateway_url}/health ..."
 services_healthy=true
-for service in gateway; do
-    if ! wait_for_service "$service" 60; then
-        services_healthy=false
-    fi
-done
-
+if wait_for_gateway "${gateway_url}/health" 60; then
+    echo "✅ Gateway is healthy on port ${gateway_port}"
+else
+    echo "❌ Gateway not reachable at ${gateway_url}/health after 60s"
+    echo ""
+    echo "   Recent gateway logs:"
+    docker compose logs gateway --tail 20 2>&1 | sed 's/^/   /'
+    echo ""
+    echo "   Troubleshooting:"
+    echo "   • Check if another service is using port ${gateway_port}: lsof -i :${gateway_port}"
+    echo "   • Full gateway logs: docker compose logs gateway"
+    services_healthy=false
+fi
 
 # Telemetry opt-in/out prompt (only when no env var and no DB value)
 if [ "$services_healthy" = true ] && [ -z "${USAGE_TELEMETRY:-}" ]; then
-    gateway_url="http://localhost:${GATEWAY_PORT:-8000}"
     admin_key="${ADMIN_API_KEY:-}"
 
     if [ -n "$admin_key" ]; then
@@ -231,7 +247,7 @@ if [ "$services_healthy" = true ]; then
     echo "🎉 Luthien is ready!"
     echo ""
     echo "📋 Service URLs:"
-    echo "   • Gateway (OpenAI-compatible): http://localhost:${GATEWAY_PORT:-8000}"
+    echo "   • Gateway (OpenAI-compatible): ${gateway_url}"
     echo "   • PostgreSQL:     localhost:${POSTGRES_PORT:-5432}"
     echo "   • Redis:          localhost:${REDIS_PORT:-6379}"
     echo ""
