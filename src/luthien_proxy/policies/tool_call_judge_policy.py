@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
@@ -55,9 +54,7 @@ from luthien_proxy.policies.tool_call_judge_utils import (
     create_blocked_response,
 )
 from luthien_proxy.policy_core import (
-    AnthropicExecutionInterface,
-    AnthropicPolicyEmission,
-    AnthropicPolicyIOProtocol,
+    AnthropicHookPolicy,
     BasePolicy,
     OpenAIPolicyInterface,
     create_finish_chunk,
@@ -73,7 +70,6 @@ from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS, TOOL_ARGS_TR
 if TYPE_CHECKING:
     from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
-        AnthropicRequest,
         AnthropicResponse,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -132,7 +128,7 @@ class ToolCallJudgeConfig(BaseModel):
     )
 
 
-class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
+class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
     """Policy that evaluates tool calls with a judge LLM and blocks harmful ones.
 
     This policy demonstrates buffering, external LLM calls, and content replacement.
@@ -297,10 +293,6 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
         current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
         ctx.egress_queue.put_nowait(current_chunk)
 
-    async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Default - do nothing for content completion."""
-        pass
-
     async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
         """Buffer tool call deltas instead of forwarding them.
 
@@ -371,10 +363,6 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
 
         # Note: Cleanup happens in on_streaming_policy_complete()
 
-    async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
-        """Default - do nothing for finish reason."""
-        pass
-
     async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
         """Emit final finish_reason chunk for tool call responses.
 
@@ -417,46 +405,13 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
         # State is request-scoped; explicit cleanup keeps memory usage predictable.
         ctx.policy_ctx.pop_request_state(self, _ToolCallJudgeOpenAIState)
 
-    async def on_anthropic_stream_complete(self, context: "PolicyContext") -> None:
-        """No-op hook for parity with OpenAI lifecycle."""
-        pass
-
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up Anthropic per-request state after streaming completes."""
         context.pop_request_state(self, _ToolCallJudgeAnthropicState)
 
     # ========================================================================
-    # Anthropic execution interface
+    # Anthropic hooks (via AnthropicHookPolicy)
     # ========================================================================
-
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Run Anthropic request lifecycle with tool-call judging."""
-
-        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
-            final_request = await self.on_anthropic_request(io.request, context)
-            io.set_request(final_request)
-
-            if final_request.get("stream", False):
-                async for event in io.stream(final_request):
-                    emitted_events = await self.on_anthropic_stream_event(event, context)
-                    for emitted_event in emitted_events:
-                        yield emitted_event
-                return
-
-            response = await io.complete(final_request)
-            yield await self.on_anthropic_response(response, context)
-
-        return _run()
-
-    # ========================================================================
-    # Anthropic Interface Implementation
-    # ========================================================================
-
-    async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
-        """Pass through request unchanged."""
-        return request
 
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
