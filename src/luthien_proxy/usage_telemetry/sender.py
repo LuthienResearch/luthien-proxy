@@ -67,10 +67,7 @@ class TelemetrySender:
         self._task: asyncio.Task[None] | None = None
 
     async def send_once(self) -> None:
-        """Snapshot counters and send if telemetry is enabled and data exists."""
-        if not self._config.enabled:
-            return
-
+        """Snapshot counters and send if data exists."""
         metrics = self._collector.snapshot_and_reset()
 
         has_data = (

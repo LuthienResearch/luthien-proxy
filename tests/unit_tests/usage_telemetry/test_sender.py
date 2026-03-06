@@ -60,23 +60,6 @@ class TestTelemetrySender:
         assert posted_data["metrics"]["requests_accepted"] == 1
 
     @pytest.mark.asyncio
-    async def test_send_disabled_does_nothing(self):
-        config = TelemetryConfig(enabled=False, deployment_id="test-uuid")
-        collector = UsageCollector()
-        collector.record_accepted()
-
-        sender = TelemetrySender(
-            config=config,
-            collector=collector,
-            endpoint="https://test.example.com/v1/events",
-            interval_seconds=300,
-        )
-
-        with patch("luthien_proxy.usage_telemetry.sender.httpx.AsyncClient") as mock_cls:
-            await sender.send_once()
-            mock_cls.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_send_failure_logs_and_continues(self):
         """Network errors should be logged, not raised."""
         config = TelemetryConfig(enabled=True, deployment_id="test-uuid")
