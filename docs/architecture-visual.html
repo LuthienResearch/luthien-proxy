@@ -492,9 +492,9 @@ classDiagram
         +get_request_state(owner, type, factory)
     }
 
-    BasePolicy <|-- SimplePolicy
-    BasePolicy <|-- OpenAIPolicyInterface
-    BasePolicy <|-- AnthropicExecutionInterface
+    BasePolicy --|> SimplePolicy : extends
+    BasePolicy --|> OpenAIPolicyInterface : extends
+    BasePolicy --|> AnthropicExecutionInterface : extends
     SimplePolicy ..|> OpenAIPolicyInterface : implements
     SimplePolicy ..|> AnthropicExecutionInterface : implements
     OpenAIPolicyInterface ..> PolicyContext : uses
