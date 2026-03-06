@@ -1,7 +1,6 @@
 """Tests for overseer CLI argument parsing."""
 
 import pytest
-
 from scripts.overseer.main import parse_args
 
 

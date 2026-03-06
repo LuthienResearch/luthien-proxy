@@ -128,10 +128,16 @@ class SessionDriver:
         kill_cmd = ["docker", "compose"]
         if self.compose_project:
             kill_cmd.extend(["-p", self.compose_project])
-        kill_cmd.extend([
-            "exec", "-T", self.container_name,
-            "sh", "-c", "pkill -f claude || true",
-        ])
+        kill_cmd.extend(
+            [
+                "exec",
+                "-T",
+                self.container_name,
+                "sh",
+                "-c",
+                "pkill -f claude || true",
+            ]
+        )
         kill_proc = await asyncio.create_subprocess_exec(
             *kill_cmd,
             stdout=asyncio.subprocess.DEVNULL,
