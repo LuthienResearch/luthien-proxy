@@ -151,6 +151,46 @@ class TestProcessRequest:
         assert "payload too large" in exc_info.value.detail.lower()
 
     @pytest.mark.asyncio
+    async def test_too_many_messages_raises_400(self, mock_request, mock_emitter, mock_span):
+        """Test that requests with too many messages raise HTTPException."""
+        messages = [{"role": "user", "content": f"msg {i}"} for i in range(2049)]
+        mock_request.headers = {"content-length": "100"}
+        mock_request.json = AsyncMock(return_value={"model": "gpt-4", "messages": messages})
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _process_request(
+                    request=mock_request,
+                    call_id="test-call-id",
+                    emitter=mock_emitter,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert "too many messages" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_messages_at_limit_accepted(self, mock_request, mock_emitter, mock_span):
+        """Test that requests with exactly MAX_MESSAGES_PER_REQUEST messages are accepted."""
+        messages = [{"role": "user", "content": f"msg {i}"} for i in range(2048)]
+        mock_request.headers = {"content-length": "100"}
+        mock_request.json = AsyncMock(return_value={"model": "gpt-4", "messages": messages})
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            request_message, _raw, _session = await _process_request(
+                request=mock_request,
+                call_id="test-call-id",
+                emitter=mock_emitter,
+            )
+
+        assert request_message.model == "gpt-4"
+
+    @pytest.mark.asyncio
     async def test_request_within_size_limit(self, mock_request, mock_emitter, mock_span):
         """Test that appropriately sized requests are processed."""
         mock_request.headers = {"content-length": "100"}

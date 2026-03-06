@@ -63,6 +63,10 @@ QUEUE_PUT_TIMEOUT_SECONDS = 30.0
 # Prevents OOM attacks and limits request complexity.
 MAX_REQUEST_PAYLOAD_BYTES = 10_485_760
 
+# Maximum number of messages allowed in a single API request.
+# Generous default that prevents abuse while accommodating long conversations.
+MAX_MESSAGES_PER_REQUEST = 2048
+
 # ------------------------------------------------------------------------------
 # Debug/Admin Endpoint Defaults
 # ------------------------------------------------------------------------------

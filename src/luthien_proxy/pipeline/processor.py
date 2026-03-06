@@ -59,7 +59,7 @@ from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
-from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
+from luthien_proxy.utils.constants import MAX_MESSAGES_PER_REQUEST, MAX_REQUEST_PAYLOAD_BYTES
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -259,6 +259,14 @@ async def _process_request(
 
         # Log incoming request
         emitter.record(call_id, "pipeline.client_request", {"payload": body})
+
+        # Check message count
+        messages = body.get("messages", [])
+        if isinstance(messages, list) and len(messages) > MAX_MESSAGES_PER_REQUEST:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Too many messages: {len(messages)} exceeds limit of {MAX_MESSAGES_PER_REQUEST}",
+            )
 
         # Extract session ID from headers
         session_id = extract_session_id_from_headers(headers)

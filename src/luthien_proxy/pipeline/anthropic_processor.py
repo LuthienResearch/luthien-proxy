@@ -57,7 +57,7 @@ from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
-from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
+from luthien_proxy.utils.constants import MAX_MESSAGES_PER_REQUEST, MAX_REQUEST_PAYLOAD_BYTES
 
 
 class _ErrorDetail(TypedDict):
@@ -449,6 +449,13 @@ async def _process_request(
             raise HTTPException(status_code=400, detail="Missing required field: model")
         if "messages" not in body:
             raise HTTPException(status_code=400, detail="Missing required field: messages")
+
+        # Check message count (messages already confirmed present above)
+        if isinstance(body["messages"], list) and len(body["messages"]) > MAX_MESSAGES_PER_REQUEST:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Too many messages: {len(body['messages'])} exceeds limit of {MAX_MESSAGES_PER_REQUEST}",
+            )
         if "max_tokens" not in body:
             raise HTTPException(status_code=400, detail="Missing required field: max_tokens")
 
