@@ -1,10 +1,12 @@
 """CLI entry point."""
 
+from importlib.metadata import version
+
 import click
 
 
 @click.group()
-@click.version_option(version="0.1.3")
+@click.version_option(version=version("luthien-cli"))
 def cli():
     """Luthien -- manage and interact with luthien-proxy gateways."""
 
