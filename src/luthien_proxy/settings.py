@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # Database and Redis
     database_url: str = ""
-    redis_url: str = "redis://localhost:6379"
+    redis_url: str = ""
 
     # Policy configuration
     policy_source: str = "db-fallback-file"

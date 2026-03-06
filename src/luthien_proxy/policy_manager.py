@@ -9,6 +9,7 @@ Manages policy lifecycle including:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -66,11 +67,11 @@ class PolicyManager:
     def __init__(
         self,
         db_pool: db.DatabasePool,
-        redis_client: Redis,
+        redis_client: Redis | None,
         startup_policy_path: str | None = None,
         policy_source: str = "db-fallback-file",
     ):
-        """Initialize PolicyManager with DB pool, Redis client, and source strategy."""
+        """Initialize PolicyManager with DB pool, optional Redis client, and source strategy."""
         if policy_source not in VALID_POLICY_SOURCES:
             raise ValueError(
                 f"Invalid policy_source '{policy_source}'. Must be one of: {', '.join(sorted(VALID_POLICY_SOURCES))}"
@@ -82,6 +83,7 @@ class PolicyManager:
         self.policy_source = policy_source
         self._current_policy: PolicyProtocol | None = None
         self.lock_key = "luthien:policy:lock"
+        self._local_lock = asyncio.Lock()
 
         logger.info(f"PolicyManager initialized (source={policy_source}, file={startup_policy_path or 'none'})")
 
@@ -292,7 +294,10 @@ class PolicyManager:
 
     @asynccontextmanager
     async def _acquire_lock(self, timeout: int = REDIS_LOCK_TIMEOUT_SECONDS):
-        """Acquire distributed lock via Redis.
+        """Acquire a lock for policy changes.
+
+        Uses Redis distributed lock when available, falls back to a local
+        asyncio.Lock for single-process deployments (SQLite mode).
 
         Args:
             timeout: Lock timeout in seconds
@@ -303,6 +308,11 @@ class PolicyManager:
         Raises:
             Exception: If lock cannot be acquired
         """
+        if self.redis is None:
+            async with self._local_lock:
+                yield
+            return
+
         lock = self.redis.lock(self.lock_key, timeout=timeout)
         acquired = await lock.acquire(blocking=True, blocking_timeout=REDIS_LOCK_TIMEOUT_SECONDS)
         if not acquired:
