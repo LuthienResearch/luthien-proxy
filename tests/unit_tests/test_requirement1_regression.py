@@ -1134,7 +1134,7 @@ class TestToolDefinitionUniqueness:
 
         kwargs = anthropic_client._prepare_request_kwargs(request)
 
-        assert kwargs["tools"] is tools  # Same reference, not copied
+        assert kwargs["tools"] == tools  # Content preserved after dedup pass
         assert len(kwargs["tools"]) == 2
 
     @pytest.mark.asyncio

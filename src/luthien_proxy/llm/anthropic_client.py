@@ -1,8 +1,8 @@
 """Anthropic SDK client wrapper for making API calls."""
 
 import logging
-from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from collections.abc import AsyncIterator, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 import anthropic
 from opentelemetry import trace
@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-def _deduplicate_tools(tools: list[dict]) -> list[dict]:
+_ToolT = Mapping[str, Any]
+
+
+def _deduplicate_tools(tools: Sequence[_ToolT]) -> list[_ToolT]:
     """Deduplicate tools by name, keeping the first occurrence.
 
     Anthropic API rejects requests with duplicate tool names, but clients like
@@ -24,7 +27,7 @@ def _deduplicate_tools(tools: list[dict]) -> list[dict]:
     duplicates so the request succeeds.
     """
     seen: set[str] = set()
-    result: list[dict] = []
+    result: list[_ToolT] = []
     for tool in tools:
         name = tool.get("name")
         if name and name in seen:
