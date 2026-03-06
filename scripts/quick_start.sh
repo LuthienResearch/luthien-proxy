@@ -5,13 +5,34 @@
 
 set -e
 
+usage() {
+    echo "Usage: $0 [--skip-build]"
+    echo ""
+    echo "Start the Luthien development environment."
+    echo "Rebuilds gateway and migrations images by default to pick up code changes."
+    echo ""
+    echo "Options:"
+    echo "  --skip-build  Skip Docker image rebuilds (faster when images are current)"
+    exit 0
+}
+
 BUILD_FLAG="--build"
-if [ "${1:-}" = "--skip-build" ]; then
-    BUILD_FLAG=""
-    echo "🚀 Starting Luthien Control quick setup (skipping image builds)..."
-else
-    echo "🚀 Starting Luthien Control quick setup..."
-fi
+case "${1:-}" in
+    --skip-build)
+        BUILD_FLAG=""
+        echo "🚀 Starting Luthien Control quick setup (skipping image builds)..."
+        ;;
+    --help|-h)
+        usage
+        ;;
+    "")
+        echo "🚀 Starting Luthien Control quick setup..."
+        ;;
+    *)
+        echo "Unknown option: $1"
+        usage
+        ;;
+esac
 
 # Check required dependencies
 echo "🔍 Checking dependencies..."
