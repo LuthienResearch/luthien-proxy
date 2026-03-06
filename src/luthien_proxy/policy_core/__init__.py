@@ -18,6 +18,7 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyEmission,
     AnthropicPolicyIOProtocol,
 )
+from luthien_proxy.policy_core.anthropic_hook_policy import AnthropicHookPolicy
 from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.policy_core.chunk_builders import (
     create_finish_chunk,
@@ -42,6 +43,7 @@ __all__ = [
     "AnthropicExecutionInterface",
     "AnthropicPolicyEmission",
     "AnthropicPolicyIOProtocol",
+    "AnthropicHookPolicy",
     # Legacy OpenAI protocol (still used by policy infrastructure)
     "PolicyProtocol",
     # Contexts
