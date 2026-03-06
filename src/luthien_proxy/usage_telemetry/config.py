@@ -47,9 +47,7 @@ async def resolve_telemetry_config(
     if db_pool is not None:
         try:
             pool = await db_pool.get_pool()
-            row = await pool.fetchrow(
-                "SELECT enabled, deployment_id, updated_by FROM telemetry_config WHERE id = 1"
-            )
+            row = await pool.fetchrow("SELECT enabled, deployment_id, updated_by FROM telemetry_config WHERE id = 1")
             if row:
                 db_enabled = bool(row["enabled"]) if row["enabled"] is not None else None
                 deployment_id = str(row["deployment_id"])
@@ -65,6 +63,4 @@ async def resolve_telemetry_config(
     else:
         enabled = True
 
-    return TelemetryConfig(
-        enabled=enabled, deployment_id=deployment_id, user_configured=user_configured
-    )
+    return TelemetryConfig(enabled=enabled, deployment_id=deployment_id, user_configured=user_configured)
