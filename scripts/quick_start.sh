@@ -197,7 +197,6 @@ else
     services_healthy=false
 fi
 
-
 # Telemetry opt-in/out prompt (only when no env var and no DB value)
 if [ "$services_healthy" = true ] && [ -z "${USAGE_TELEMETRY:-}" ]; then
     admin_key="${ADMIN_API_KEY:-}"
