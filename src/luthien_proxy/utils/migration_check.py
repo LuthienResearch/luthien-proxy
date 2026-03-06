@@ -21,11 +21,62 @@ def compute_file_hash(filepath: Path) -> str:
         return hashlib.md5(f.read()).hexdigest()
 
 
+async def _apply_sqlite_schema(db_pool: DatabasePool) -> None:
+    """Apply the SQLite schema if tables don't exist yet.
+
+    For SQLite, we use a single schema file that represents the final state
+    of all PostgreSQL migrations. This runs on every startup but uses
+    CREATE TABLE IF NOT EXISTS / INSERT OR IGNORE so it's idempotent.
+    """
+    schema_file = _find_sqlite_schema()
+    if schema_file is None:
+        logger.warning("SQLite schema file not found — skipping schema init")
+        return
+
+    schema_sql = schema_file.read_text()
+
+    async with db_pool.connection() as conn:
+        # SQLite doesn't support executing multiple statements in one call,
+        # so we split on semicolons and execute each statement individually.
+        for statement in schema_sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                await conn.execute(statement)
+
+    logger.info("SQLite schema applied (idempotent)")
+
+
+def _find_sqlite_schema() -> Path | None:
+    """Locate the sqlite_schema.sql file.
+
+    Checks:
+    1. Next to the migration files (migrations/sqlite_schema.sql)
+    2. Relative to the current working directory
+    """
+    candidates = [
+        Path(__file__).resolve().parents[3] / "migrations" / "sqlite_schema.sql",
+        Path("migrations/sqlite_schema.sql"),
+    ]
+
+    # Also check MIGRATIONS_DIR env var
+    migrations_dir = os.environ.get("MIGRATIONS_DIR")
+    if migrations_dir:
+        candidates.insert(0, Path(migrations_dir) / "sqlite_schema.sql")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 async def check_migrations(
     db_pool: DatabasePool,
     migrations_dir: str | None = None,
 ) -> None:
     """Check that all local migrations have been applied to the database.
+
+    For SQLite databases, auto-applies the schema instead of checking
+    migration state (SQLite has no Docker migration runner).
 
     Raises RuntimeError if:
     - Local migration files exist that aren't in the database (unapplied migrations)
@@ -36,6 +87,10 @@ async def check_migrations(
         db_pool: Database connection pool
         migrations_dir: Path to migrations directory. Defaults to /app/migrations.
     """
+    if getattr(db_pool, "is_sqlite", False) is True:
+        await _apply_sqlite_schema(db_pool)
+        return
+
     if migrations_dir is None:
         migrations_dir = os.environ.get("MIGRATIONS_DIR", DEFAULT_MIGRATIONS_DIR)
 

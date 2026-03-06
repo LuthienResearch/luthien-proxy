@@ -20,10 +20,10 @@ class TestSettingsDefaults:
     """
 
     def test_default_redis_url(self, monkeypatch):
-        """Test default Redis URL for local development."""
+        """Test default Redis URL is empty (Redis is optional for SQLite mode)."""
         monkeypatch.delenv("REDIS_URL", raising=False)
         settings = Settings(_env_file=None)
-        assert settings.redis_url == "redis://localhost:6379"
+        assert settings.redis_url == ""
 
     def test_default_policy_config(self, monkeypatch):
         """Test default policy config path is empty (load from DB)."""
