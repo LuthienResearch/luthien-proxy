@@ -133,13 +133,5 @@ class TestOpenAIPolicyInterface:
         expected_methods = {
             "on_openai_request",
             "on_openai_response",
-            "on_chunk_received",
-            "on_content_delta",
-            "on_content_complete",
-            "on_tool_call_delta",
-            "on_tool_call_complete",
-            "on_finish_reason",
-            "on_stream_complete",
-            "on_streaming_policy_complete",
         }
         assert OpenAIPolicyInterface.__abstractmethods__ == expected_methods
