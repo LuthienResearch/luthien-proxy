@@ -35,6 +35,7 @@ from luthien_proxy.policy_core.response_utils import (
 from luthien_proxy.policy_core.streaming_policy_context import (
     StreamingPolicyContext,
 )
+from luthien_proxy.policy_core.text_modifier_policy import TextModifierPolicy
 
 __all__ = [
     # ABC-based interfaces (preferred for new code)
@@ -56,4 +57,6 @@ __all__ = [
     "create_tool_call_chunk",
     # Response utilities
     "extract_tool_calls_from_response",
+    # Text modifier base class
+    "TextModifierPolicy",
 ]
