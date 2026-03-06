@@ -171,31 +171,64 @@ Supports both OpenAI and Anthropic formats. Trades streaming responsiveness for 
 
 ## Data Model
 
-### Conversation Events
+All tables live in the `luthien_control` Postgres database. Migrations are in `migrations/`.
 
-Each request/response cycle produces `ConversationEvent` records:
+### Conversation Tracking
 
 ```
-conversation_calls: one row per transaction
-  - call_id (PK), model_name, status, created_at, completed_at
+conversation_calls: one row per API call
+  - call_id (PK), model_name, provider, status, session_id, created_at, completed_at
 
 conversation_events: request and response events per call
-  - call_id (FK), event_type ("request" | "response"), payload (JSONB), created_at
+  - id (PK, UUID), call_id (FK → conversation_calls, CASCADE), event_type, payload (JSONB), session_id, created_at
+
+policy_events: policy decisions and modifications per call
+  - id (PK, UUID), call_id (FK → conversation_calls, CASCADE), policy_class, policy_config (JSONB),
+    event_type, original_event_id (FK → conversation_events), modified_event_id (FK → conversation_events),
+    metadata (JSONB), created_at
+
+conversation_judge_decisions: LLM judge traces (ToolCallJudgePolicy)
+  - id (PK, UUID), call_id (FK → conversation_calls, CASCADE), trace_id, tool_call_id,
+    probability, explanation, tool_call (JSONB), judge_prompt (JSONB), judge_response_text,
+    original_request (JSONB), original_response (JSONB), blocked_response (JSONB),
+    timing (JSONB), judge_config (JSONB), created_at
 ```
 
 Events store both original (pre-policy) and final (post-policy) data, enabling diff views.
 
-### Policy Persistence
-
-The active policy is stored in `current_policy`:
+### HTTP Request Logs
 
 ```
-current_policy: single-row table (id=1)
-  - policy_class_ref (e.g. "luthien_proxy.policies.noop_policy:NoOpPolicy")
-  - config (JSONB), enabled_at, enabled_by
+request_logs: raw HTTP-level logging (client↔proxy and proxy↔backend)
+  - id (PK, UUID), transaction_id, session_id, direction ("inbound" | "outbound"),
+    http_method, url, request_headers (JSONB), request_body (JSONB),
+    response_status, response_headers (JSONB), response_body (JSONB),
+    started_at, completed_at, duration_ms, model, is_streaming, endpoint, error, created_at
 ```
 
-Policy changes are protected by a Redis distributed lock.
+### Single-Row Config Tables
+
+These tables enforce exactly one row via `CHECK (id = 1)`:
+
+```
+current_policy: active policy configuration
+  - policy_class_ref, config (JSONB), enabled_at, enabled_by
+  - Protected by Redis distributed lock on changes
+
+auth_config: gateway authentication settings
+  - auth_mode ("proxy_key" | "passthrough" | "both"), validate_credentials,
+    valid_cache_ttl_seconds, invalid_cache_ttl_seconds, updated_at, updated_by
+
+telemetry_config: usage telemetry opt-out
+  - enabled (null = default on), deployment_id (UUID), updated_at, updated_by
+```
+
+### Debug Logs
+
+```
+debug_logs: general-purpose debug storage
+  - id (PK, UUID), time_created, debug_type_identifier, jsonblob (JSONB)
+```
 
 ## How to Add a New Policy
 

@@ -507,39 +507,131 @@ classDiagram
 <!-- Data Model -->
 <section>
   <h2>Data Model <span class="tag tag-store">Storage</span></h2>
+  <p style="font-size: 0.88rem; color: var(--text-dim); margin-bottom: 1rem;">All tables in <code>luthien_control</code> Postgres. Migrations in <code>migrations/</code>.</p>
+
+  <div class="group-label" style="background: var(--store-dim); color: var(--store);">Conversation Tracking</div>
+  <div class="mod-grid" style="margin-bottom: 1rem;">
+    <div class="table-card" style="margin-bottom: 0;">
+      <div class="table-title">conversation_calls</div>
+      <table class="schema-table">
+        <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>call_id</td><td>TEXT PK</td><td>Unique per transaction</td></tr>
+        <tr><td>model_name</td><td>TEXT</td><td></td></tr>
+        <tr><td>provider</td><td>TEXT</td><td>e.g. "anthropic"</td></tr>
+        <tr><td>status</td><td>TEXT</td><td></td></tr>
+        <tr><td>session_id</td><td>TEXT</td><td>Client session tracking</td></tr>
+        <tr><td>created_at</td><td>TIMESTAMPTZ</td><td></td></tr>
+        <tr><td>completed_at</td><td>TIMESTAMPTZ</td><td></td></tr>
+      </table>
+    </div>
+    <div class="table-card" style="margin-bottom: 0;">
+      <div class="table-title">conversation_events</div>
+      <table class="schema-table">
+        <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>id</td><td>UUID PK</td><td></td></tr>
+        <tr><td>call_id</td><td>TEXT FK</td><td>&rarr; conversation_calls (CASCADE)</td></tr>
+        <tr><td>event_type</td><td>TEXT</td><td>"request" | "response"</td></tr>
+        <tr><td>payload</td><td>JSONB</td><td>Pre/post-policy data</td></tr>
+        <tr><td>session_id</td><td>TEXT</td><td></td></tr>
+        <tr><td>created_at</td><td>TIMESTAMPTZ</td><td></td></tr>
+      </table>
+    </div>
+    <div class="table-card" style="margin-bottom: 0;">
+      <div class="table-title">policy_events</div>
+      <table class="schema-table">
+        <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>id</td><td>UUID PK</td><td></td></tr>
+        <tr><td>call_id</td><td>TEXT FK</td><td>&rarr; conversation_calls (CASCADE)</td></tr>
+        <tr><td>policy_class</td><td>TEXT</td><td>Policy that acted</td></tr>
+        <tr><td>event_type</td><td>TEXT</td><td>Type of policy decision</td></tr>
+        <tr><td>original_event_id</td><td>UUID FK</td><td>&rarr; conversation_events</td></tr>
+        <tr><td>modified_event_id</td><td>UUID FK</td><td>&rarr; conversation_events</td></tr>
+        <tr><td>metadata</td><td>JSONB</td><td></td></tr>
+        <tr><td>created_at</td><td>TIMESTAMPTZ</td><td></td></tr>
+      </table>
+    </div>
+    <div class="table-card" style="margin-bottom: 0;">
+      <div class="table-title">conversation_judge_decisions</div>
+      <table class="schema-table">
+        <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>id</td><td>UUID PK</td><td></td></tr>
+        <tr><td>call_id</td><td>TEXT FK</td><td>&rarr; conversation_calls (CASCADE)</td></tr>
+        <tr><td>probability</td><td>DOUBLE</td><td>Judge confidence score</td></tr>
+        <tr><td>explanation</td><td>TEXT</td><td>Judge reasoning</td></tr>
+        <tr><td>tool_call</td><td>JSONB</td><td>Tool call being judged</td></tr>
+        <tr><td>judge_prompt</td><td>JSONB</td><td>Prompt sent to judge</td></tr>
+        <tr><td>blocked_response</td><td>JSONB</td><td>Replacement if blocked</td></tr>
+        <tr><td>timing</td><td>JSONB</td><td>Latency breakdown</td></tr>
+        <tr><td>created_at</td><td>TIMESTAMPTZ</td><td></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="group-label" style="background: var(--accent-dim); color: var(--accent);">HTTP Request Logs</div>
   <div class="table-card">
-    <div class="table-title">conversation_calls</div>
+    <div class="table-title">request_logs</div>
     <table class="schema-table">
       <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
-      <tr><td>call_id</td><td>PK</td><td>Unique per transaction</td></tr>
-      <tr><td>model_name</td><td>text</td><td></td></tr>
-      <tr><td>status</td><td>text</td><td></td></tr>
-      <tr><td>created_at</td><td>timestamp</td><td></td></tr>
-      <tr><td>completed_at</td><td>timestamp</td><td></td></tr>
+      <tr><td>id</td><td>UUID PK</td><td></td></tr>
+      <tr><td>transaction_id</td><td>TEXT</td><td>Links inbound + outbound rows</td></tr>
+      <tr><td>direction</td><td>TEXT</td><td>"inbound" (client&rarr;proxy) | "outbound" (proxy&rarr;backend)</td></tr>
+      <tr><td>http_method</td><td>TEXT</td><td></td></tr>
+      <tr><td>url</td><td>TEXT</td><td></td></tr>
+      <tr><td>request_headers</td><td>JSONB</td><td></td></tr>
+      <tr><td>request_body</td><td>JSONB</td><td></td></tr>
+      <tr><td>response_status</td><td>INT</td><td></td></tr>
+      <tr><td>response_body</td><td>JSONB</td><td></td></tr>
+      <tr><td>duration_ms</td><td>DOUBLE</td><td></td></tr>
+      <tr><td>model</td><td>TEXT</td><td></td></tr>
+      <tr><td>is_streaming</td><td>BOOLEAN</td><td></td></tr>
+      <tr><td>endpoint</td><td>TEXT</td><td></td></tr>
+      <tr><td>started_at</td><td>TIMESTAMPTZ</td><td></td></tr>
     </table>
   </div>
-  <div class="table-card">
-    <div class="table-title">conversation_events</div>
-    <table class="schema-table">
-      <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
-      <tr><td>call_id</td><td>FK</td><td>References conversation_calls</td></tr>
-      <tr><td>event_type</td><td>text</td><td>"request" | "response"</td></tr>
-      <tr><td>payload</td><td>JSONB</td><td>Original + final (pre/post-policy)</td></tr>
-      <tr><td>created_at</td><td>timestamp</td><td></td></tr>
-    </table>
+
+  <div class="group-label" style="background: var(--policy-dim); color: var(--policy);">Single-Row Config Tables</div>
+  <p style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 0.6rem;">Each enforces exactly one row via <code>CHECK (id = 1)</code>.</p>
+  <div class="mod-grid">
+    <div class="table-card" style="margin-bottom: 0;">
+      <div class="table-title">current_policy</div>
+      <table class="schema-table">
+        <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>policy_class_ref</td><td>TEXT</td><td>Module path to policy class</td></tr>
+        <tr><td>config</td><td>JSONB</td><td>Policy configuration</td></tr>
+        <tr><td>enabled_at</td><td>TIMESTAMP</td><td></td></tr>
+        <tr><td>enabled_by</td><td>TEXT</td><td></td></tr>
+      </table>
+    </div>
+    <div class="table-card" style="margin-bottom: 0;">
+      <div class="table-title">auth_config</div>
+      <table class="schema-table">
+        <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>auth_mode</td><td>TEXT</td><td>"proxy_key" | "passthrough" | "both"</td></tr>
+        <tr><td>validate_credentials</td><td>BOOLEAN</td><td>Validate via Anthropic API</td></tr>
+        <tr><td>valid_cache_ttl_seconds</td><td>INT</td><td>Default 3600</td></tr>
+        <tr><td>invalid_cache_ttl_seconds</td><td>INT</td><td>Default 300</td></tr>
+      </table>
+    </div>
+    <div class="table-card" style="margin-bottom: 0;">
+      <div class="table-title">telemetry_config</div>
+      <table class="schema-table">
+        <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>enabled</td><td>BOOLEAN</td><td>null = default on</td></tr>
+        <tr><td>deployment_id</td><td>UUID</td><td>Unique deployment identity</td></tr>
+      </table>
+    </div>
+    <div class="table-card" style="margin-bottom: 0;">
+      <div class="table-title">debug_logs</div>
+      <table class="schema-table">
+        <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>id</td><td>UUID PK</td><td></td></tr>
+        <tr><td>debug_type_identifier</td><td>TEXT</td><td>Log type tag</td></tr>
+        <tr><td>jsonblob</td><td>JSONB</td><td>Debug data</td></tr>
+        <tr><td>time_created</td><td>TIMESTAMPTZ</td><td></td></tr>
+      </table>
+    </div>
   </div>
-  <div class="table-card">
-    <div class="table-title">current_policy</div>
-    <table class="schema-table">
-      <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
-      <tr><td>id</td><td>int</td><td>Always 1 (single-row table)</td></tr>
-      <tr><td>policy_class_ref</td><td>text</td><td>e.g. "luthien_proxy.policies.noop_policy:NoOpPolicy"</td></tr>
-      <tr><td>config</td><td>JSONB</td><td>Policy configuration</td></tr>
-      <tr><td>enabled_at</td><td>timestamp</td><td></td></tr>
-      <tr><td>enabled_by</td><td>text</td><td></td></tr>
-    </table>
-  </div>
-  <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.5rem;">Policy changes protected by Redis distributed lock.</p>
+  <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.6rem;">Policy changes protected by Redis distributed lock. All FK relationships use <code>ON DELETE CASCADE</code>.</p>
 </section>
 
 <!-- Singleton Rules -->
