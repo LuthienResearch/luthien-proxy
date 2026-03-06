@@ -260,9 +260,12 @@ class PolicyManager:
             )
             if row:
                 enabled_at_value = row["enabled_at"]
-                if not isinstance(enabled_at_value, datetime):
-                    raise TypeError(f"enabled_at must be datetime, got {type(enabled_at_value)}")
-                enabled_at = enabled_at_value.isoformat()
+                if isinstance(enabled_at_value, str):
+                    enabled_at = enabled_at_value
+                elif isinstance(enabled_at_value, datetime):
+                    enabled_at = enabled_at_value.isoformat()
+                else:
+                    raise TypeError(f"enabled_at must be datetime or str, got {type(enabled_at_value)}")
                 enabled_by_value = row["enabled_by"]
                 enabled_by = str(enabled_by_value) if enabled_by_value else None
         except Exception as e:

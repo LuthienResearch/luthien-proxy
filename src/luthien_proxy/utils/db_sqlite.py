@@ -37,6 +37,9 @@ def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[
     # to_timestamp(?) → datetime(?, 'unixepoch')
     translated = re.sub(r"to_timestamp\(\?\)", "datetime(?, 'unixepoch')", translated)
 
+    # NOW() → datetime('now')
+    translated = re.sub(r"\bNOW\(\)", "datetime('now')", translated, flags=re.IGNORECASE)
+
     # ILIKE → LIKE (SQLite LIKE is case-insensitive for ASCII by default)
     translated = translated.replace(" ILIKE ", " LIKE ")
 
