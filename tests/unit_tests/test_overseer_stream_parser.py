@@ -11,6 +11,8 @@ from scripts.overseer.stream_parser import (
     summarize_turn,
 )
 
+from conftest import DEFAULT_TEST_MODEL
+
 
 def _make_line(data: dict) -> str:
     return json.dumps(data)
@@ -24,7 +26,7 @@ INIT_EVENT = {
     "type": "system",
     "subtype": "init",
     "session_id": "sess-abc-123",
-    "model": "claude-sonnet-4-20250514",
+    "model": DEFAULT_TEST_MODEL,
     "tools": ["Read", "Bash"],
 }
 

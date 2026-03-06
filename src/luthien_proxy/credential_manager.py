@@ -29,9 +29,8 @@ ANTHROPIC_OAUTH_BETA = "token-counting-2024-11-01,oauth-2025-04-20"
 ANTHROPIC_API_KEY_PREFIX = "sk-ant-api"
 
 # Minimal payload for credential validation (free endpoint).
-# OAuth tokens have access to different models than API keys, so we use
-# a model available to both: claude-sonnet-4-20250514.
-VALIDATION_MODEL = "claude-sonnet-4-20250514"
+# OAuth tokens and API keys both have access to haiku.
+VALIDATION_MODEL = "claude-haiku-4-5-20251001"
 VALIDATION_PAYLOAD = {
     "model": VALIDATION_MODEL,
     "messages": [{"role": "user", "content": "hi"}],

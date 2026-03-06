@@ -35,6 +35,7 @@ from anthropic.types import (
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
@@ -43,8 +44,6 @@ from luthien_proxy.llm.types.anthropic import (
 from luthien_proxy.pipeline.anthropic_processor import process_anthropic_request
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_core.policy_context import PolicyContext
-
-TEST_MODEL = "claude-haiku-4-5-20251001"
 
 # =============================================================================
 # Shared Fixtures
@@ -209,7 +208,7 @@ class TestThinkingBlockPassthrough:
         when present in the request, so the upstream API receives it.
         """
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Think step by step."}],
             "max_tokens": 16000,
             "thinking": {"type": "enabled", "budget_tokens": 5000},
@@ -237,7 +236,7 @@ class TestThinkingBlockPassthrough:
                 {"type": "thinking", "thinking": "Let me think about this...", "signature": "sig123"},
                 {"type": "text", "text": "Here is my answer."},
             ],
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
             "stop_sequence": None,
             "usage": {"input_tokens": 50, "output_tokens": 100},
@@ -248,7 +247,7 @@ class TestThinkingBlockPassthrough:
         mock_emitter = MagicMock()
 
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Think about this."}],
             "max_tokens": 16000,
             "thinking": {"type": "enabled", "budget_tokens": 5000},
@@ -287,7 +286,7 @@ class TestThinkingBlockPassthrough:
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": TEST_MODEL,
+                    "model": DEFAULT_TEST_MODEL,
                     "stop_reason": None,
                     "usage": {"input_tokens": 50, "output_tokens": 0},
                 },
@@ -330,7 +329,7 @@ class TestThinkingBlockPassthrough:
         mock_client.stream = mock_stream
 
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Think about this."}],
             "max_tokens": 16000,
             "stream": True,
@@ -386,7 +385,7 @@ class TestCacheControlSanitization:
         requests for prompt caching. The proxy must forward them as-is.
         """
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Use the tool."}],
             "max_tokens": 1024,
             "tools": [
@@ -409,7 +408,7 @@ class TestCacheControlSanitization:
     async def test_cache_control_on_system_messages_passes_through(self, anthropic_client: AnthropicClient) -> None:
         """Regression test for #178: cache_control on system blocks must be preserved."""
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "system": [
@@ -438,7 +437,7 @@ class TestCacheControlSanitization:
         _handle_non_streaming and the response is returned without error.
         """
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -520,7 +519,7 @@ class TestEmptyTextBlockFiltering:
         content_chunk = ModelResponse(
             id="test",
             created=1234567890,
-            model=TEST_MODEL,
+            model=DEFAULT_TEST_MODEL,
             object="chat.completion.chunk",
             choices=[StreamingChoices(index=0, delta=Delta(content="Hello"), finish_reason=None)],
         )
@@ -528,7 +527,7 @@ class TestEmptyTextBlockFiltering:
         tool_call_chunk = ModelResponse(
             id="test",
             created=1234567890,
-            model=TEST_MODEL,
+            model=DEFAULT_TEST_MODEL,
             object="chat.completion.chunk",
             choices=[
                 StreamingChoices(
@@ -551,7 +550,7 @@ class TestEmptyTextBlockFiltering:
         empty_content_chunk = ModelResponse(
             id="test",
             created=1234567890,
-            model=TEST_MODEL,
+            model=DEFAULT_TEST_MODEL,
             object="chat.completion.chunk",
             choices=[
                 StreamingChoices(
@@ -568,7 +567,7 @@ class TestEmptyTextBlockFiltering:
         finish_chunk = ModelResponse(
             id="test",
             created=1234567890,
-            model=TEST_MODEL,
+            model=DEFAULT_TEST_MODEL,
             object="chat.completion.chunk",
             choices=[StreamingChoices(index=0, delta=Delta(), finish_reason="tool_calls")],
         )
@@ -605,7 +604,7 @@ class TestClientParameterStripping:
     async def test_unknown_params_not_forwarded_to_anthropic(self, anthropic_client: AnthropicClient) -> None:
         """Regression test for #151: client-only params must not reach upstream."""
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "context_management": {"enabled": True},  # type: ignore[typeddict-unknown-key]
@@ -615,14 +614,14 @@ class TestClientParameterStripping:
 
         assert "context_management" not in kwargs
         assert "custom_client_field" not in kwargs
-        assert kwargs["model"] == TEST_MODEL
+        assert kwargs["model"] == DEFAULT_TEST_MODEL
         assert kwargs["max_tokens"] == 1024
 
     @pytest.mark.asyncio
     async def test_all_valid_optional_params_forwarded(self, anthropic_client: AnthropicClient) -> None:
         """Regression test: all valid Anthropic params must still be forwarded."""
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 1024,
             "temperature": 0.7,
@@ -646,12 +645,12 @@ class TestClientParameterStripping:
         from luthien_proxy.llm.types.openai import Request
 
         req = Request(
-            model=TEST_MODEL,
+            model=DEFAULT_TEST_MODEL,
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=1024,
             context_management={"enabled": True},  # type: ignore[call-arg]
         )
-        assert req.model == TEST_MODEL
+        assert req.model == DEFAULT_TEST_MODEL
 
     def test_litellm_drop_params_is_enabled(self) -> None:
         """Regression test for #151: litellm.drop_params must be True."""
@@ -686,7 +685,7 @@ class TestOrphanedToolResults:
         tool_result blocks. The full pipeline must handle this without crashing.
         """
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [
                 {"role": "user", "content": "Read the file."},
                 {
@@ -750,7 +749,7 @@ class TestStreamingDeduplication:
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": TEST_MODEL,
+                    "model": DEFAULT_TEST_MODEL,
                     "stop_reason": None,
                     "usage": {"input_tokens": 10, "output_tokens": 0},
                 },
@@ -782,7 +781,7 @@ class TestStreamingDeduplication:
         mock_client.stream = mock_stream
 
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
             "stream": True,
@@ -812,7 +811,7 @@ class TestStreamingDeduplication:
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": TEST_MODEL,
+                    "model": DEFAULT_TEST_MODEL,
                     "stop_reason": None,
                     "usage": {"input_tokens": 10, "output_tokens": 0},
                 },
@@ -851,7 +850,7 @@ class TestStreamingDeduplication:
         mock_client.stream = mock_stream
 
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
             "stream": True,
@@ -892,7 +891,7 @@ class TestStreamingDeduplication:
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": TEST_MODEL,
+                    "model": DEFAULT_TEST_MODEL,
                     "stop_reason": None,
                     "stop_sequence": None,
                     "usage": {"input_tokens": 10, "output_tokens": 0},
@@ -925,7 +924,7 @@ class TestStreamingDeduplication:
         mock_client.stream = mock_stream
 
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 1024,
             "stream": True,
@@ -973,7 +972,7 @@ class TestImageContentPassthrough:
         """
         image_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -1018,7 +1017,7 @@ class TestImageContentPassthrough:
     async def test_url_image_survives_pipeline(self, noop_policy: NoOpPolicy, mock_policy_ctx: MagicMock) -> None:
         """Regression test for #103: URL images must pass through the pipeline."""
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -1059,7 +1058,7 @@ class TestImageContentPassthrough:
     async def test_multiple_images_survive_pipeline(self, noop_policy: NoOpPolicy, mock_policy_ctx: MagicMock) -> None:
         """Regression test for #94: multiple images in one message must all reach upstream."""
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -1126,7 +1125,7 @@ class TestToolDefinitionUniqueness:
             },
         ]
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Help me."}],
             "max_tokens": 1024,
             "tools": tools,
@@ -1154,7 +1153,7 @@ class TestToolDefinitionUniqueness:
         ]
 
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Do something."}],
             "max_tokens": 1024,
             "tools": tools,
@@ -1201,7 +1200,7 @@ class TestFullPipelineStreaming:
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": TEST_MODEL,
+                    "model": DEFAULT_TEST_MODEL,
                     "stop_reason": None,
                     "usage": {"input_tokens": 100, "output_tokens": 0},
                 },
@@ -1235,7 +1234,7 @@ class TestFullPipelineStreaming:
         mock_client.stream = mock_stream
 
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Read the file"}],
             "max_tokens": 1024,
             "stream": True,
@@ -1275,7 +1274,7 @@ class TestFullPipelineStreaming:
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": TEST_MODEL,
+                    "model": DEFAULT_TEST_MODEL,
                     "stop_reason": None,
                     "usage": {"input_tokens": 50, "output_tokens": 0},
                 },
@@ -1320,7 +1319,7 @@ class TestFullPipelineStreaming:
         mock_client.stream = mock_stream
 
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Read and explain"}],
             "max_tokens": 1024,
             "stream": True,
@@ -1371,7 +1370,7 @@ class TestRequestPassthroughIntegrity:
         _handle_non_streaming to verify nothing is dropped or corrupted.
         """
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -1438,7 +1437,7 @@ class TestRequestPassthroughIntegrity:
 
         assert isinstance(response, JSONResponse)
         forwarded = mock_client.complete.call_args[0][0]
-        assert forwarded["model"] == TEST_MODEL
+        assert forwarded["model"] == DEFAULT_TEST_MODEL
         assert forwarded["max_tokens"] == 8192
         assert forwarded["temperature"] == 0.3
         assert len(forwarded["messages"]) == 5
@@ -1464,7 +1463,7 @@ class TestRequestPassthroughIntegrity:
                 {"type": "text", "text": "Here is my analysis."},
                 {"type": "tool_use", "id": "toolu_xyz", "name": "search", "input": {"query": "test"}},
             ],
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "tool_use",
             "stop_sequence": None,
             "usage": {"input_tokens": 100, "output_tokens": 200},
@@ -1475,7 +1474,7 @@ class TestRequestPassthroughIntegrity:
         mock_emitter = MagicMock()
 
         request: AnthropicRequest = {
-            "model": TEST_MODEL,
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Analyze this."}],
             "max_tokens": 8192,
         }
