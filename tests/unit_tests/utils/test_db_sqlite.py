@@ -43,6 +43,28 @@ class TestTranslateParams:
         translated, _ = _translate_params(query, (123.0,))
         assert "datetime(?, 'unixepoch')" in translated
 
+    def test_now_to_datetime(self):
+        query = "INSERT INTO t (id, ts) VALUES ($1, NOW())"
+        translated, _ = _translate_params(query, (1,))
+        assert "datetime('now')" in translated
+        assert "NOW()" not in translated
+
+    def test_now_case_insensitive(self):
+        query = "VALUES (1, now())"
+        translated, _ = _translate_params(query, ())
+        assert "datetime('now')" in translated
+        assert "now()" not in translated
+
+    def test_now_in_on_conflict(self):
+        query = (
+            "INSERT INTO current_policy (id, policy_class_ref, config, enabled_at, enabled_by) "
+            "VALUES (1, $1, $2, NOW(), $3) "
+            "ON CONFLICT (id) DO UPDATE SET enabled_at = EXCLUDED.enabled_at"
+        )
+        translated, _ = _translate_params(query, ("ref", "{}", "admin"))
+        assert "datetime('now')" in translated
+        assert "NOW()" not in translated
+
     def test_ilike_to_like(self):
         query = "WHERE col ILIKE '%foo%'"
         translated, _ = _translate_params(query, ())
