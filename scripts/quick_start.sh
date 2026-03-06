@@ -138,7 +138,7 @@ fi
 
 # Start core services
 echo "🐳 Starting core services..."
-docker compose up -d db redis
+docker compose up -d --build db redis
 
 # Wait for database to be ready
 echo "⏳ Waiting for PostgreSQL to be ready..."
@@ -168,7 +168,7 @@ echo "✅ Redis is ready"
 
 # Start gateway (integrated FastAPI + LiteLLM)
 echo "🚀 Starting gateway (integrated proxy)..."
-docker compose up -d gateway
+docker compose up -d --build gateway
 
 # Wait for services to be healthy
 echo "⏳ Waiting for services to be healthy..."
