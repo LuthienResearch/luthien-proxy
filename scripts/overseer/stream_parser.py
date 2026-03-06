@@ -99,7 +99,7 @@ def summarize_turn(
     turn_number: int,
     start_time: float,
     end_time: float,
-    slow_threshold: float = 60.0,
+    slow_threshold: float = 180.0,
 ) -> TurnSummary:
     """Build a TurnSummary from raw stream-json output with anomaly detection.
 
