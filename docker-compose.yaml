@@ -1,6 +1,10 @@
 # Launch with ./scripts/quick_start.sh (auto-selects free ports).
 # Running `docker compose up` directly uses default ports without auto-selection.
 #
+# Images are pulled from GHCR by default. To build locally instead:
+#   docker compose build
+#   docker compose up
+#
 # For distributed tracing (Tempo), use:
 #   ./scripts/observability.sh up -d
 # Or:
@@ -38,6 +42,7 @@ services:
 
   # Database migrations (runs before gateway starts)
   migrations:
+    image: ghcr.io/luthienresearch/luthien-proxy/migrations:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.migrations
@@ -79,6 +84,7 @@ services:
 
   # Gateway (integrated FastAPI + LiteLLM architecture)
   gateway:
+    image: ghcr.io/luthienresearch/luthien-proxy/gateway:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.gateway
@@ -129,6 +135,7 @@ services:
 
   # Sandbox for overseer e2e tests (Claude Code sessions in isolation)
   sandbox:
+    image: ghcr.io/luthienresearch/luthien-proxy/sandbox:latest
     build:
       context: .
       dockerfile: docker/sandbox/Dockerfile
