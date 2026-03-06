@@ -1,7 +1,6 @@
 """Integration test — verify all commands are registered and --help works."""
 
 from click.testing import CliRunner
-
 from luthien_cli.main import cli
 
 

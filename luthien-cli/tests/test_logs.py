@@ -1,18 +1,15 @@
 """Tests for logs command."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
-
 from luthien_cli.main import cli
 
 
 def test_logs_runs_docker_compose_logs(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\n'
-    )
+    config_path.write_text(f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\n')
     with (
         patch("luthien_cli.commands.logs.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.logs.subprocess.run") as mock_run,
@@ -28,9 +25,7 @@ def test_logs_runs_docker_compose_logs(tmp_path):
 def test_logs_with_tail(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\n'
-    )
+    config_path.write_text(f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\n')
     with (
         patch("luthien_cli.commands.logs.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.logs.subprocess.run") as mock_run,
@@ -46,9 +41,7 @@ def test_logs_with_tail(tmp_path):
 def test_logs_with_follow(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\n'
-    )
+    config_path.write_text(f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\n')
     with (
         patch("luthien_cli.commands.logs.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.logs.subprocess.run") as mock_run,

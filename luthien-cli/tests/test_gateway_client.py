@@ -2,7 +2,6 @@
 
 import httpx
 import pytest
-
 from luthien_cli.gateway_client import GatewayClient, GatewayError
 
 
@@ -48,8 +47,12 @@ def test_get_current_policy(client, httpx_mock):
 def test_get_auth_config(client, httpx_mock):
     httpx_mock.add_response(
         url="http://localhost:8000/api/admin/auth/config",
-        json={"auth_mode": "both", "validate_credentials": True,
-              "valid_cache_ttl_seconds": 300, "invalid_cache_ttl_seconds": 60},
+        json={
+            "auth_mode": "both",
+            "validate_credentials": True,
+            "valid_cache_ttl_seconds": 300,
+            "invalid_cache_ttl_seconds": 60,
+        },
     )
     result = client.get_auth_config()
     assert result["auth_mode"] == "both"

@@ -1,9 +1,6 @@
 """Tests for config module."""
 
-from pathlib import Path
-
 import pytest
-
 from luthien_cli.config import LuthienConfig, load_config, save_config
 
 

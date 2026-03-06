@@ -3,7 +3,6 @@
 from unittest.mock import patch
 
 from click.testing import CliRunner
-
 from luthien_cli.main import cli
 
 

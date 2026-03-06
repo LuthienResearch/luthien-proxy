@@ -22,16 +22,12 @@ def claude(claude_args: tuple[str, ...]):
     config = load_config(DEFAULT_CONFIG_PATH)
 
     if not config.api_key:
-        console.print(
-            "[red]No API key configured. Run: luthien config set gateway.api_key <key>[/red]"
-        )
+        console.print("[red]No API key configured. Run: luthien config set gateway.api_key <key>[/red]")
         raise SystemExit(1)
 
     claude_path = shutil.which("claude")
     if not claude_path:
-        console.print(
-            "[red]Claude Code CLI not found. Install: npm install -g @anthropic-ai/claude-cli[/red]"
-        )
+        console.print("[red]Claude Code CLI not found. Install: npm install -g @anthropic-ai/claude-cli[/red]")
         raise SystemExit(1)
 
     gateway_url = config.gateway_url.rstrip("/") + "/"

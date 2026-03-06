@@ -19,9 +19,7 @@ def logs(tail: int | None, follow: bool):
     config = load_config(DEFAULT_CONFIG_PATH)
 
     if not config.repo_path:
-        console.print(
-            "[red]No repo_path configured. Set it with: luthien config set local.repo_path <path>[/red]"
-        )
+        console.print("[red]No repo_path configured. Set it with: luthien config set local.repo_path <path>[/red]")
         raise SystemExit(1)
 
     cmd = ["docker", "compose", "logs", "gateway"]
