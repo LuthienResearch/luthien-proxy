@@ -18,7 +18,7 @@ Example config:
 from __future__ import annotations
 
 import re
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
 from anthropic.lib.streaming import MessageStreamEvent
@@ -30,9 +30,7 @@ from litellm.types.utils import Choices, StreamingChoices
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policy_core import (
-    AnthropicExecutionInterface,
-    AnthropicPolicyEmission,
-    AnthropicPolicyIOProtocol,
+    AnthropicHookPolicy,
     BasePolicy,
     OpenAIPolicyInterface,
     PolicyContext,
@@ -45,7 +43,6 @@ if TYPE_CHECKING:
 
     from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
-        AnthropicRequest,
         AnthropicResponse,
     )
     from luthien_proxy.policy_core.streaming_policy_context import (
@@ -178,7 +175,7 @@ def apply_replacements(
     return result
 
 
-class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
+class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
     """Policy that replaces specified strings in response content.
 
     This policy supports:
@@ -322,62 +319,9 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecut
                 },
             )
 
-    async def on_content_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """Content deltas are buffered for batch replacement in on_content_complete."""
-        pass
-
-    async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """Tool call deltas pass through unchanged."""
-        pass
-
-    async def on_tool_call_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Tool calls are not modified by string replacement."""
-        pass
-
-    async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
-        """Finish reason is handled in on_chunk_received."""
-        pass
-
-    async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """No cleanup needed on stream complete."""
-        pass
-
-    async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """No cleanup needed after streaming policy processing."""
-        pass
-
     # -------------------------------------------------------------------------
-    # Anthropic execution interface
+    # Anthropic hooks (via AnthropicHookPolicy)
     # -------------------------------------------------------------------------
-
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Run Anthropic request lifecycle while applying replacements."""
-
-        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
-            final_request = await self.on_anthropic_request(io.request, context)
-            io.set_request(final_request)
-
-            if final_request.get("stream", False):
-                async for event in io.stream(final_request):
-                    emitted_events = await self.on_anthropic_stream_event(event, context)
-                    for emitted_event in emitted_events:
-                        yield emitted_event
-                return
-
-            response = await io.complete(final_request)
-            yield await self.on_anthropic_response(response, context)
-
-        return _run()
-
-    # -------------------------------------------------------------------------
-    # Anthropic helper methods
-    # -------------------------------------------------------------------------
-
-    async def on_anthropic_request(self, request: "AnthropicRequest", context: PolicyContext) -> "AnthropicRequest":
-        """Pass through request unchanged."""
-        return request
 
     async def on_anthropic_response(self, response: "AnthropicResponse", context: PolicyContext) -> "AnthropicResponse":
         """Transform text content blocks with string replacements.
