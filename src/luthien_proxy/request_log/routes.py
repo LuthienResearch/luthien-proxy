@@ -59,7 +59,7 @@ async def list_logs(
         )
     except Exception as exc:
         logger.error(f"Failed to list request logs: {exc}")
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/{transaction_id}", response_model=RequestLogDetailResponse)
@@ -78,7 +78,7 @@ async def get_transaction(
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         logger.error(f"Failed to get transaction logs for {transaction_id}: {exc}")
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 __all__ = ["router"]

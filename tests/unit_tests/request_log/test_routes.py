@@ -142,12 +142,12 @@ class TestListLogs:
         )
 
     @pytest.mark.asyncio
-    async def test_database_error_returns_500(self):
+    async def test_database_error_returns_500_without_leaking_details(self):
         mock_pool = MagicMock()
         with patch(
             "luthien_proxy.request_log.routes.list_request_logs",
             new_callable=AsyncMock,
-            side_effect=RuntimeError("connection lost"),
+            side_effect=RuntimeError("connection lost to 10.0.0.5:5432"),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await list_logs(
@@ -166,7 +166,8 @@ class TestListLogs:
                 )
 
         assert exc_info.value.status_code == 500
-        assert "Database error" in exc_info.value.detail
+        assert exc_info.value.detail == "Internal server error"
+        assert "connection" not in exc_info.value.detail.lower()
 
 
 class TestGetTransaction:
@@ -215,15 +216,16 @@ class TestGetTransaction:
         assert "txn-missing" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_database_error_returns_500(self):
+    async def test_database_error_returns_500_without_leaking_details(self):
         mock_pool = MagicMock()
         with patch(
             "luthien_proxy.request_log.routes.get_transaction_logs",
             new_callable=AsyncMock,
-            side_effect=RuntimeError("connection lost"),
+            side_effect=RuntimeError("connection lost to 10.0.0.5:5432"),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await get_transaction("txn-1", _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert exc_info.value.status_code == 500
-        assert "Database error" in exc_info.value.detail
+        assert exc_info.value.detail == "Internal server error"
+        assert "connection" not in exc_info.value.detail.lower()
