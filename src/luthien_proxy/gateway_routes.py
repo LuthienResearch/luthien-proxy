@@ -20,6 +20,7 @@ from luthien_proxy.dependencies import (
     get_emitter,
     get_usage_collector,
 )
+from luthien_proxy.llm import anthropic_client_cache
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline import process_anthropic_request
@@ -110,18 +111,17 @@ async def resolve_anthropic_client(
         if not explicit_key.strip():
             raise HTTPException(status_code=401, detail="x-anthropic-api-key header is empty")
         await _record_credential_type("client_api_key")
-        return AnthropicClient(api_key=explicit_key, base_url=base_url)
+        return await anthropic_client_cache.get_client(explicit_key, auth_type="api_key", base_url=base_url)
 
     # Passthrough: forward the request credential to Anthropic
     matches_proxy_key = secrets.compare_digest(token, api_key)
     use_passthrough = not matches_proxy_key or auth_mode == AuthMode.PASSTHROUGH
     if use_passthrough:
-        if is_anthropic_api_key(token):
-            await _record_credential_type("client_api_key")
-            return AnthropicClient(api_key=token, base_url=base_url)
-        # Non-API-key tokens are treated as OAuth credentials
-        await _record_credential_type("oauth")
-        return AnthropicClient(auth_token=token, base_url=base_url)
+        if is_bearer and not is_anthropic_api_key(token):
+            await _record_credential_type("oauth")
+            return await anthropic_client_cache.get_client(token, auth_type="auth_token", base_url=base_url)
+        await _record_credential_type("client_api_key")
+        return await anthropic_client_cache.get_client(token, auth_type="api_key", base_url=base_url)
 
     # Proxy key fallback: use the server's configured client
     if base_client is None:

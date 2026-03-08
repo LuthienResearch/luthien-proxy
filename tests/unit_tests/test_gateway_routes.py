@@ -221,9 +221,9 @@ class TestGatewayAuthAndClientResolution:
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
-            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+            patch("luthien_proxy.gateway_routes.anthropic_client_cache") as mock_cache,
         ):
-            MockClient.return_value = MagicMock()
+            mock_cache.get_client.return_value = MagicMock()
             mock_process.return_value = MagicMock()
             client = TestClient(app)
             client.post(
@@ -238,7 +238,7 @@ class TestGatewayAuthAndClientResolution:
                     "x-anthropic-api-key": "sk-ant-client-key-123",
                 },
             )
-            MockClient.assert_called_once_with(api_key="sk-ant-client-key-123", base_url=None)
+            mock_cache.get_client.assert_called_once_with("sk-ant-client-key-123", auth_type="api_key", base_url=None)
 
     def test_empty_x_anthropic_api_key_returns_401(self, mock_app):
         app, _, credential_manager, _ = mock_app
@@ -267,9 +267,9 @@ class TestGatewayAuthAndClientResolution:
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
-            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+            patch("luthien_proxy.gateway_routes.anthropic_client_cache") as mock_cache,
         ):
-            MockClient.return_value = MagicMock()
+            mock_cache.get_client.return_value = MagicMock()
             mock_process.return_value = MagicMock()
             client = TestClient(app, raise_server_exceptions=False)
             response = client.post(
@@ -283,7 +283,7 @@ class TestGatewayAuthAndClientResolution:
             )
             assert response.status_code == 200
             credential_manager.validate_credential.assert_not_called()
-            MockClient.assert_called_once_with(auth_token="some-anthropic-token", base_url=None)
+            mock_cache.get_client.assert_called_once_with("some-anthropic-token", auth_type="auth_token", base_url=None)
 
     def test_passthrough_bearer_creates_auth_token_client(self, mock_app):
         """In passthrough mode, a Bearer credential creates an auth_token client."""
@@ -292,9 +292,9 @@ class TestGatewayAuthAndClientResolution:
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
-            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+            patch("luthien_proxy.gateway_routes.anthropic_client_cache") as mock_cache,
         ):
-            MockClient.return_value = MagicMock()
+            mock_cache.get_client.return_value = MagicMock()
             mock_process.return_value = MagicMock()
             client = TestClient(app)
             client.post(
@@ -306,7 +306,7 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"Authorization": "Bearer my-anthropic-token"},
             )
-            MockClient.assert_called_once_with(auth_token="my-anthropic-token", base_url=None)
+            mock_cache.get_client.assert_called_once_with("my-anthropic-token", auth_type="auth_token", base_url=None)
 
     def test_passthrough_bearer_with_api_key_prefix_creates_api_key_client(self, mock_app):
         """In passthrough mode, API keys via Bearer header create api_key client.
@@ -316,9 +316,9 @@ class TestGatewayAuthAndClientResolution:
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
-            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+            patch("luthien_proxy.gateway_routes.anthropic_client_cache") as mock_cache,
         ):
-            MockClient.return_value = MagicMock()
+            mock_cache.get_client.return_value = MagicMock()
             mock_process.return_value = MagicMock()
             client = TestClient(app)
             client.post(
@@ -330,7 +330,7 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"Authorization": "Bearer sk-ant-api03-test-key"},
             )
-            MockClient.assert_called_once_with(api_key="sk-ant-api03-test-key", base_url=None)
+            mock_cache.get_client.assert_called_once_with("sk-ant-api03-test-key", auth_type="api_key", base_url=None)
 
     def test_passthrough_api_key_creates_api_key_client(self, mock_app):
         """In passthrough mode, an x-api-key credential creates an api_key client."""
@@ -339,9 +339,9 @@ class TestGatewayAuthAndClientResolution:
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
-            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+            patch("luthien_proxy.gateway_routes.anthropic_client_cache") as mock_cache,
         ):
-            MockClient.return_value = MagicMock()
+            mock_cache.get_client.return_value = MagicMock()
             mock_process.return_value = MagicMock()
             client = TestClient(app)
             client.post(
@@ -353,7 +353,7 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"x-api-key": "sk-ant-my-key"},
             )
-            MockClient.assert_called_once_with(api_key="sk-ant-my-key", base_url=None)
+            mock_cache.get_client.assert_called_once_with("sk-ant-my-key", auth_type="api_key", base_url=None)
 
     def test_no_anthropic_client_returns_500_for_proxy_key(self, mock_app):
         """Proxy key auth with no ANTHROPIC_API_KEY configured returns 500."""
