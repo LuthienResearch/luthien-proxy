@@ -28,6 +28,7 @@ from luthien_proxy.admin.routes import (
     _config_to_response,
     get_auth_config,
     get_available_models,
+    get_current_policy,
     get_telemetry_config,
     invalidate_all_credentials,
     invalidate_credential,
@@ -43,6 +44,24 @@ from luthien_proxy.dependencies import require_credential_manager
 from luthien_proxy.policy_manager import PolicyEnableResult
 
 AUTH_TOKEN = "test-admin-key"
+
+
+class TestGetCurrentPolicyRoute:
+    """Test get_current_policy route handler."""
+
+    @pytest.mark.asyncio
+    async def test_exception_does_not_leak_details(self):
+        """Test that unexpected exceptions return generic 500 without internal details."""
+        mock_manager = MagicMock()
+        mock_manager.get_current_policy = AsyncMock(side_effect=RuntimeError("connection to 10.0.0.5:5432 refused"))
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_policy(_=AUTH_TOKEN, manager=mock_manager)
+
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "Internal server error"
+        assert "connection" not in exc_info.value.detail.lower()
+        assert "10.0.0.5" not in exc_info.value.detail
 
 
 class TestSetPolicyRoute:
@@ -174,13 +193,13 @@ class TestSetPolicyRoute:
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.validate_policy_config")
     @patch("luthien_proxy.admin.routes._import_policy_class")
-    async def test_set_policy_unexpected_exception(self, mock_import, mock_validate):
-        """Test that unexpected exceptions become 500 errors."""
+    async def test_set_policy_unexpected_exception_does_not_leak_details(self, mock_import, mock_validate):
+        """Test that unexpected exceptions become 500 without leaking internal details."""
         mock_import.return_value = MagicMock()
         mock_validate.return_value = {}
 
         mock_manager = MagicMock()
-        mock_manager.enable_policy = AsyncMock(side_effect=RuntimeError("Unexpected database error"))
+        mock_manager.enable_policy = AsyncMock(side_effect=RuntimeError("connection to 10.0.0.5:5432 refused"))
 
         request = PolicySetRequest(
             policy_class_ref="luthien_proxy.policies.noop_policy:NoOpPolicy",
@@ -191,7 +210,9 @@ class TestSetPolicyRoute:
             await set_policy(body=request, _=AUTH_TOKEN, manager=mock_manager)
 
         assert exc_info.value.status_code == 500
-        assert "Unexpected database error" in exc_info.value.detail
+        assert exc_info.value.detail == "Internal server error"
+        assert "connection" not in exc_info.value.detail.lower()
+        assert "10.0.0.5" not in exc_info.value.detail
 
 
 class TestGetAvailableModels:
@@ -380,15 +401,15 @@ class TestSendChatRoute:
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_unexpected_exception(self, mock_client_class, mock_get_settings):
-        """Test send_chat handles unexpected exceptions."""
+    async def test_unexpected_exception_does_not_leak_details(self, mock_client_class, mock_get_settings):
+        """Test send_chat returns generic error without leaking internal details."""
         mock_settings = MagicMock()
         mock_settings.proxy_api_key = "test-proxy-key"
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=RuntimeError("Unexpected error"))
+        mock_client.post = AsyncMock(side_effect=RuntimeError("connection to 10.0.0.5:5432 refused"))
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client_class.return_value = mock_client
@@ -399,7 +420,9 @@ class TestSendChatRoute:
 
         assert isinstance(result, ChatResponse)
         assert result.success is False
-        assert "Unexpected error" in result.error
+        assert result.error == "An unexpected error occurred"
+        assert "connection" not in result.error.lower()
+        assert "10.0.0.5" not in result.error
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
