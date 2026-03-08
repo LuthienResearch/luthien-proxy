@@ -192,6 +192,7 @@ async def process_llm_request(
         # Phase 2 & 3 & 4: Send upstream, process response, send to client
         if is_streaming:
             return await _handle_streaming(
+                request=request,
                 final_request=final_request,
                 orchestrator=orchestrator,
                 policy_ctx=policy_ctx,
@@ -308,6 +309,7 @@ def _raise_backend_error(e: OpenAIAPIStatusError | OpenAIAPIConnectionError, cal
 
 
 async def _handle_streaming(
+    request: Request,
     final_request: RequestMessage,
     orchestrator: PolicyOrchestrator,
     policy_ctx: PolicyContext,
@@ -325,8 +327,6 @@ async def _handle_streaming(
     The span hierarchy for streaming is managed by capturing the parent
     context and creating sibling spans within the streaming generator.
     """
-    # Capture parent context before entering the generator
-    # This allows us to create sibling spans under transaction_processing
     parent_context = get_current()
 
     with tracer.start_as_current_span("send_upstream") as span:
@@ -338,22 +338,27 @@ async def _handle_streaming(
         except OpenAIAPIConnectionError as e:
             _raise_backend_error(e, call_id)
 
-    # Create a wrapper generator that manages span context
     async def streaming_with_spans() -> AsyncIterator[str]:
         """Wrapper that creates proper span hierarchy for streaming."""
-        # Attach parent context so spans are siblings under transaction_processing
         with restore_context(parent_context):
             chunk_count = 0
             error_status = None
-            # process_response span wraps the entire streaming pipeline
+            client_disconnected = False
             with tracer.start_as_current_span("process_response") as response_span:
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
 
                 stream_error: str | None = None
                 try:
-                    # send_to_client is interleaved - we track it as an event
                     async for sse_event in orchestrator.process_streaming_response(backend_stream, policy_ctx):
+                        if await request.is_disconnected():
+                            client_disconnected = True
+                            logger.warning(
+                                "[%s] Client disconnected during OpenAI streaming after %d chunks",
+                                call_id,
+                                chunk_count,
+                            )
+                            break
                         chunk_count += 1
                         yield sse_event
                 except Exception as exc:
@@ -361,12 +366,17 @@ async def _handle_streaming(
                     stream_error = f"{type(exc).__name__}: {exc}"
                     raise
                 finally:
-                    # Always record chunk count and summary, even on error
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
+                    if client_disconnected:
+                        response_span.set_attribute("luthien.client_disconnected", True)
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
-                    # Streaming bodies are not captured (too large to store efficiently)
-                    final_status = error_status if error_status is not None else 200
+                    if client_disconnected:
+                        final_status = 499
+                    elif error_status is not None:
+                        final_status = error_status
+                    else:
+                        final_status = 200
                     request_log_recorder.record_inbound_response(status=final_status, error=stream_error)
                     request_log_recorder.record_outbound_response(status=final_status, error=stream_error)
                     request_log_recorder.flush()
