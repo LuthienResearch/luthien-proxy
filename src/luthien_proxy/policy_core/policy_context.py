@@ -6,6 +6,7 @@ that persists across the entire request/response lifecycle.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Iterator, TypeVar, cast
@@ -202,6 +203,33 @@ class PolicyContext:
                 f"Policy state for {type(owner).__name__} expected {expected_type.__name__}, got {type(value).__name__}"
             )
         return cast(T, value)
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "PolicyContext":
+        """Create an independent copy for parallel policy execution.
+
+        Shares non-copyable infrastructure (emitter with db/redis pools) while
+        giving each copy its own mutable per-request state. This is semantically
+        correct: parallel sub-policies belong to the same request and should emit
+        events to the same sinks, but must not share mutable state (scratchpad,
+        request object, policy-specific state).
+        """
+        new_ctx = PolicyContext.__new__(PolicyContext)
+        memo[id(self)] = new_ctx
+
+        # Shared: non-copyable infrastructure and immutable request metadata
+        new_ctx.transaction_id = self.transaction_id
+        new_ctx.session_id = self.session_id
+        new_ctx.raw_http_request = self.raw_http_request  # read-only after creation
+        new_ctx._emitter = self._emitter  # holds db/redis pool — share, not copy
+
+        # Independently mutable: each sub-policy gets its own copy
+        new_ctx.request = self.request.model_copy(deep=True) if self.request is not None else None
+        new_ctx._scratchpad = copy.deepcopy(self._scratchpad, memo)
+        new_ctx._request_state = copy.deepcopy(self._request_state, memo)
+        new_ctx.request_summary = self.request_summary
+        new_ctx.response_summary = self.response_summary
+
+        return new_ctx
 
     @classmethod
     def for_testing(
