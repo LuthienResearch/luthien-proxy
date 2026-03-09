@@ -225,6 +225,10 @@ class PolicyContext:
         # Independently mutable: each sub-policy gets its own copy
         new_ctx.request = self.request.model_copy(deep=True) if self.request is not None else None
         new_ctx._scratchpad = copy.deepcopy(self._scratchpad, memo)
+        # _request_state keys are (id(owner), type). After deepcopy the keys still reference
+        # the original policy instance IDs, so each parallel sub-policy that calls
+        # get_request_state(self, ...) will see a fresh, empty slot — natural isolation
+        # without any extra bookkeeping.
         new_ctx._request_state = copy.deepcopy(self._request_state, memo)
         new_ctx.request_summary = self.request_summary
         new_ctx.response_summary = self.response_summary

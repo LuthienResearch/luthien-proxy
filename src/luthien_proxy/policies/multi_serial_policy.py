@@ -49,15 +49,17 @@ logger = logging.getLogger(__name__)
 class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
     """Run multiple policies sequentially, piping each output to the next.
 
-    For requests: request flows through policy1 -> policy2 -> ... -> policyN -> LLM
-    For responses (Anthropic): policyN processes first, then policyN-1, ... then policy1.
-        This is the "onion/wrapping" model: policy[i] calls policy[i+1] as its backend,
-        so the response hooks of later policies execute before earlier ones.
-        Example: [StringReplacement, AllCaps] applies AllCaps first on the response,
-        then StringReplacement — the reverse of list order.
-    For responses (OpenAI): policy1 -> policy2 -> ... -> policyN (list order).
+    Both requests and responses flow through policies in list order:
+        policy1 -> policy2 -> ... -> policyN
 
-    For Anthropic execution, each policy sees the next policy as its backend.
+    For Anthropic execution this is a two-phase model:
+      1. Request phase: on_anthropic_request hooks run in list order before the LLM call.
+      2. Response phase: on_anthropic_response / on_anthropic_stream_event hooks run
+         in list order after the LLM call.
+
+    Example: [StringReplacement, AllCaps] on a response applies StringReplacement first,
+    then AllCaps — both in list order.
+
     All sub-policies must implement the interface being called.
     """
 
