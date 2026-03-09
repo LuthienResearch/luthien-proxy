@@ -14,6 +14,8 @@ from contextlib import asynccontextmanager
 import httpx
 import pytest
 
+from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer  # type: ignore[import]
+
 # === Test Configuration ===
 
 GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
@@ -22,6 +24,22 @@ ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin
 
 
 # === Shared Fixtures ===
+
+
+@pytest.fixture(scope="session")
+def mock_anthropic():
+    """Session-scoped mock Anthropic server (runs in background thread).
+
+    Shared across all e2e test files. Use ``mock_anthropic.enqueue(response)``
+    before each test to control what the mock returns.
+
+    Requires gateway started with ANTHROPIC_BASE_URL=http://host.docker.internal:18888.
+    See docker-compose.mock.yaml.
+    """
+    server = MockAnthropicServer()
+    server.start()
+    yield server
+    server.stop()
 
 
 @pytest.fixture
