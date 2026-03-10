@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 import litellm
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
@@ -53,6 +54,43 @@ configure_logging()
 instrument_redis()
 
 logger = logging.getLogger(__name__)
+
+_HTTP_STATUS_TO_ANTHROPIC_ERROR_TYPE = {
+    400: "invalid_request_error",
+    401: "authentication_error",
+    403: "permission_error",
+    404: "not_found_error",
+    413: "invalid_request_error",
+    429: "rate_limit_error",
+    500: "api_error",
+    503: "overloaded_error",
+    529: "overloaded_error",
+}
+
+
+def http_status_to_anthropic_error_type(status_code: int) -> str:
+    """Map HTTP status code to Anthropic error type string."""
+    return _HTTP_STATUS_TO_ANTHROPIC_ERROR_TYPE.get(status_code, "api_error")
+
+
+async def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Format HTTPExceptions in Anthropic style for /v1/messages paths."""
+    http_exc = exc if isinstance(exc, FastAPIHTTPException) else FastAPIHTTPException(status_code=500)
+    if request.url.path.startswith("/v1/messages"):
+        error_type = http_status_to_anthropic_error_type(http_exc.status_code)
+        message = http_exc.detail if isinstance(http_exc.detail, str) else str(http_exc.detail)
+        content = {
+            "type": "error",
+            "error": {
+                "type": error_type,
+                "message": message,
+            },
+        }
+        return JSONResponse(status_code=http_exc.status_code, content=content)
+    return JSONResponse(
+        status_code=http_exc.status_code,
+        content={"detail": http_exc.detail},
+    )
 
 
 def create_app(
@@ -232,6 +270,9 @@ def create_app(
     async def health():
         """Health check endpoint."""
         return {"status": "healthy", "version": "2.0.0"}
+
+    # Format HTTPExceptions as Anthropic errors on /v1/messages paths
+    app.add_exception_handler(FastAPIHTTPException, http_exception_handler)
 
     # Exception handler for backend API errors
     @app.exception_handler(BackendAPIError)

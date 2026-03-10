@@ -1,12 +1,13 @@
-"""Tests for the BackendAPIError exception handler in main.py."""
+"""Tests for the BackendAPIError and HTTPException exception handlers in main.py."""
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from luthien_proxy.exceptions import BackendAPIError
+from luthien_proxy.main import http_status_to_anthropic_error_type
 from luthien_proxy.pipeline.client_format import ClientFormat
 
 
@@ -204,3 +205,103 @@ class TestBackend401InvalidatesCredential:
         response = client.get("/trigger-429")
         assert response.status_code == 429
         mock_cm.on_backend_401.assert_not_awaited()
+
+
+class TestHttpStatusToAnthropicErrorType:
+    @pytest.mark.parametrize(
+        "status_code,expected_type",
+        [
+            (400, "invalid_request_error"),
+            (401, "authentication_error"),
+            (403, "permission_error"),
+            (404, "not_found_error"),
+            (413, "invalid_request_error"),
+            (429, "rate_limit_error"),
+            (500, "api_error"),
+            (503, "overloaded_error"),
+            (529, "overloaded_error"),
+            (418, "api_error"),  # unmapped status code falls back to api_error
+        ],
+    )
+    def test_status_code_mapping(self, status_code, expected_type):
+        assert http_status_to_anthropic_error_type(status_code) == expected_type
+
+
+class TestHTTPExceptionAnthropicFormat:
+    @pytest.fixture
+    def app_with_handlers(self):
+
+        from luthien_proxy.main import http_exception_handler
+
+        app = FastAPI()
+        app.add_exception_handler(HTTPException, http_exception_handler)
+
+        @app.post("/v1/messages")
+        async def anthropic_endpoint():
+            raise HTTPException(status_code=401, detail="Missing API key")
+
+        @app.post("/v1/messages/count_tokens")
+        async def anthropic_count_tokens():
+            raise HTTPException(status_code=400, detail="Invalid request")
+
+        @app.post("/v1/chat/completions")
+        async def openai_endpoint():
+            raise HTTPException(status_code=401, detail="Missing API key")
+
+        @app.get("/health")
+        async def health():
+            raise HTTPException(status_code=500, detail="Unhealthy")
+
+        return app
+
+    @pytest.fixture
+    def client(self, app_with_handlers):
+        return TestClient(app_with_handlers)
+
+    def test_anthropic_path_returns_anthropic_format(self, client):
+        response = client.post("/v1/messages")
+        assert response.status_code == 401
+        data = response.json()
+        assert data["type"] == "error"
+        assert data["error"]["type"] == "authentication_error"
+        assert data["error"]["message"] == "Missing API key"
+
+    def test_anthropic_subpath_returns_anthropic_format(self, client):
+        response = client.post("/v1/messages/count_tokens")
+        assert response.status_code == 400
+        data = response.json()
+        assert data["type"] == "error"
+        assert data["error"]["type"] == "invalid_request_error"
+        assert data["error"]["message"] == "Invalid request"
+
+    def test_openai_path_returns_default_format(self, client):
+        response = client.post("/v1/chat/completions")
+        assert response.status_code == 401
+        data = response.json()
+        assert data == {"detail": "Missing API key"}
+        assert "type" not in data
+
+    def test_non_api_path_returns_default_format(self, client):
+        response = client.get("/health")
+        assert response.status_code == 500
+        data = response.json()
+        assert data == {"detail": "Unhealthy"}
+
+    def test_anthropic_413_maps_to_invalid_request(self, client):
+
+        from luthien_proxy.main import http_exception_handler
+
+        app = FastAPI()
+        app.add_exception_handler(HTTPException, http_exception_handler)
+
+        @app.post("/v1/messages")
+        async def trigger_413():
+            raise HTTPException(status_code=413, detail="Request payload too large")
+
+        test_client = TestClient(app)
+        response = test_client.post("/v1/messages")
+        assert response.status_code == 413
+        data = response.json()
+        assert data["type"] == "error"
+        assert data["error"]["type"] == "invalid_request_error"
+        assert data["error"]["message"] == "Request payload too large"
