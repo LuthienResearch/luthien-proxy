@@ -208,18 +208,21 @@ const FormRenderer = {
         <div class="form-field form-field-array">
           <label>${this.escapeHtml(this.pathToLabel(path))}</label>
           ${desc}
-          <template x-for="(item, index) in formData.${path}" :key="index">
-            <div class="array-item">
+          <template x-for="(pair, pairIndex) in formData.${path}" :key="pairIndex">
+            <div class="array-item array-item-pair">
               <input type="text"
-                placeholder="from, to"
-                :value="Array.isArray(formData.${path}[index]) ? formData.${path}[index].join(', ') : formData.${path}[index]"
-                @input="formData.${path}[index] = $event.target.value.replace(/^\\[|\\]$/g, '').split(',').map(s => s.trim())">
-              <!-- Note: values containing commas will be split — this is a known limitation -->
-              <!-- for list[list[str]] replacement pairs, which typically don't contain commas. -->
-              <button type="button" class="btn-remove" @click="formData.${path}.splice(index, 1)">&times;</button>
+                placeholder="find"
+                :value="Array.isArray(pair) ? (pair[0] ?? '') : ''"
+                @input="formData.${path}.splice(pairIndex, 1, [$event.target.value, Array.isArray(pair) ? (pair[1] ?? '') : ''])">
+              <span class="pair-arrow">→</span>
+              <input type="text"
+                placeholder="replace with"
+                :value="Array.isArray(pair) ? (pair[1] ?? '') : ''"
+                @input="formData.${path}.splice(pairIndex, 1, [Array.isArray(pair) ? (pair[0] ?? '') : '', $event.target.value])">
+              <button type="button" class="btn-remove" @click="formData.${path}.splice(pairIndex, 1)">&times;</button>
             </div>
           </template>
-          <button type="button" class="btn-add" @click="formData.${path}.push([])">+ Add</button>
+          <button type="button" class="btn-add" @click="formData.${path}.push(['', ''])">+ Add</button>
         </div>
       `;
     }
