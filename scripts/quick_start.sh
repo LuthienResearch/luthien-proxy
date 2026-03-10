@@ -41,6 +41,7 @@ wait_for_gateway() {
         local state
         state=$(docker compose ps gateway --format '{{.State}}' 2>/dev/null || echo "unknown")
         if [ "$state" = "exited" ] || [ "$state" = "dead" ]; then
+            echo ""
             echo "   Gateway container exited unexpectedly (state: ${state})"
             return 1
         fi
