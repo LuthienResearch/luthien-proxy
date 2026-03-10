@@ -210,7 +210,7 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 - Architecture docs (REQUEST_PROCESSING_ARCHITECTURE.md, observability.md)
 - Developer guides (VIEWING_TRACES_GUIDE.md, event_driven_policy_guide.md)
 - Context files (gotchas.md, decisions.md, codebase_learnings.md)
-- Active tracking (TODO.md, OBJECTIVE.md, NOTES.md)
+- Active tracking (OBJECTIVE.md, NOTES.md; TODOs tracked on [Trello](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO))
 - CHANGELOG.md
 
 **What goes in luthien-org (private)**:
