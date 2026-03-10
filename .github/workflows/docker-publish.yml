@@ -6,6 +6,11 @@ on:
     tags: ["v*"]
   pull_request:
     branches: [main]
+    paths:
+      - "docker/**"
+      - "docker-compose.yaml"
+      - "pyproject.toml"
+      - "uv.lock"
 
 env:
   REGISTRY: ghcr.io
