@@ -348,11 +348,6 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         raise ValueError("DATABASE_URL environment variable required")
 
     redis_url = settings.redis_url
-    # Redis is optional for SQLite mode (local dev without Docker)
-    from luthien_proxy.utils.db_sqlite import is_sqlite_url  # noqa: PLC0415
-
-    if is_sqlite_url(database_url) and not redis_url:
-        redis_url = ""
 
     return {
         "api_key": settings.proxy_api_key,
