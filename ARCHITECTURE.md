@@ -252,7 +252,7 @@ policy:
 
 Or at runtime:
 ```bash
-curl -X POST http://localhost:8000/api/admin/policy/enable \
+curl -X POST http://localhost:8000/api/admin/policy/set \
   -H "Authorization: Bearer $ADMIN_API_KEY" \
   -d '{"policy_class_ref": "luthien_proxy.policies.my_policy:MyPolicy", "config": {}}'
 ```
