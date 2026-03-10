@@ -29,13 +29,14 @@ import os
 
 import httpx
 import pytest
+from tests.conftest import DEFAULT_TEST_MODEL
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL
 from tests.e2e_tests.test_claude_code import (
     ClaudeCodeResult,
     parse_stream_json,
 )
 
-ANTHROPIC_MODEL = os.environ.get("E2E_ANTHROPIC_MODEL", "claude-haiku-4-5")
+ANTHROPIC_MODEL = os.environ.get("E2E_ANTHROPIC_MODEL", DEFAULT_TEST_MODEL)
 
 # === Fixtures ===
 
