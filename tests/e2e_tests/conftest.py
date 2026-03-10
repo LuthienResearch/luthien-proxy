@@ -13,7 +13,6 @@ from contextlib import asynccontextmanager
 
 import httpx
 import pytest
-
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer  # type: ignore[import]
 
 # === Test Configuration ===
@@ -40,6 +39,18 @@ def mock_anthropic():
     server.start()
     yield server
     server.stop()
+
+
+@pytest.fixture(autouse=True)
+def _reset_mock_server(mock_anthropic: MockAnthropicServer):
+    """Drain the mock queue and clear request history before each test.
+
+    Prevents queue contamination across tests caused by leftover enqueued items
+    or SDK retries consuming extra queue slots.
+    """
+    mock_anthropic.drain_queue()
+    mock_anthropic.clear_requests()
+    yield
 
 
 @pytest.fixture

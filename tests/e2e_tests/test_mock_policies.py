@@ -16,7 +16,6 @@ import json
 
 import httpx
 import pytest
-
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
 from tests.e2e_tests.mock_anthropic.responses import stream_response, text_response
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
@@ -102,7 +101,14 @@ async def test_policy_streaming_smoke(
                         current_event = line[7:].strip()
                         events_seen.add(current_event)
 
-    required = {"message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"}
+    required = {
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+    }
     missing = required - events_seen
     assert not missing, f"{policy_class_ref}: missing SSE events {missing}"
 
@@ -148,7 +154,7 @@ async def test_all_caps_streaming(mock_anthropic: MockAnthropicServer, gateway_h
                 async for line in response.aiter_lines():
                     if line.startswith("data:"):
                         try:
-                            event = json.loads(line[len("data:"):].strip())
+                            event = json.loads(line[len("data:") :].strip())
                         except json.JSONDecodeError:
                             continue
                         if event.get("type") == "content_block_delta":
@@ -237,7 +243,7 @@ async def test_string_replacement_streaming(mock_anthropic: MockAnthropicServer,
                 async for line in response.aiter_lines():
                     if line.startswith("data:"):
                         try:
-                            event = json.loads(line[len("data:"):].strip())
+                            event = json.loads(line[len("data:") :].strip())
                         except json.JSONDecodeError:
                             continue
                         if event.get("type") == "content_block_delta":
@@ -283,12 +289,19 @@ async def test_string_replacement_streaming_complete_sse_events(mock_anthropic: 
                         events_seen.add(current_event)
                     elif line.startswith("data:") and current_event == "message_delta":
                         try:
-                            data = json.loads(line[len("data:"):].strip())
+                            data = json.loads(line[len("data:") :].strip())
                             stop_reason = data.get("delta", {}).get("stop_reason")
                         except json.JSONDecodeError:
                             pass
 
-    required = {"message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"}
+    required = {
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+    }
     missing = required - events_seen
     assert not missing, f"Missing SSE events: {missing}"
     assert stop_reason is not None, "message_delta missing stop_reason — policy may have dropped finish_reason"

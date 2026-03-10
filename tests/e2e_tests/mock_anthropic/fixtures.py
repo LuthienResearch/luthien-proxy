@@ -1,7 +1,6 @@
 """Pytest fixtures for mock Anthropic server."""
 
 import pytest
-
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer  # type: ignore[import]
 
 

@@ -13,7 +13,6 @@ import json
 
 import httpx
 import pytest
-
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL
 from tests.e2e_tests.mock_anthropic.responses import stream_response, text_response
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
