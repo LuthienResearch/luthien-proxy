@@ -84,6 +84,7 @@ class SqliteConnection:
 
     def __init__(self, conn: aiosqlite.Connection) -> None:  # noqa: D107
         self._conn = conn
+        self._in_transaction = False
 
     async def close(self) -> None:
         """Close the underlying connection."""
@@ -123,12 +124,14 @@ class SqliteConnection:
         translated, targs = _translate_params(query, args)
         targs = _convert_args(targs)
         cursor = await self._conn.execute(translated, targs)
-        await self._conn.commit()
+        if not self._in_transaction:
+            await self._conn.commit()
         return f"OK {cursor.rowcount}"
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[None]:
         """Context manager for explicit transactions."""
+        self._in_transaction = True
         await self._conn.execute("BEGIN")
         try:
             yield
@@ -136,6 +139,8 @@ class SqliteConnection:
         except Exception:
             await self._conn.rollback()
             raise
+        finally:
+            self._in_transaction = False
 
 
 class SqlitePool:
@@ -225,7 +230,6 @@ def is_sqlite_url(url: str) -> bool:
     return url.startswith("sqlite://")
 
 
-# UUID generation helper for SQLite (PostgreSQL has gen_random_uuid())
 def generate_uuid() -> str:
     """Generate a UUID string for use as a primary key."""
     return str(uuid.uuid4())
