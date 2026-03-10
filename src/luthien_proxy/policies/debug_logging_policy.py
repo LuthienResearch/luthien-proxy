@@ -19,6 +19,7 @@ from luthien_proxy.policy_core import (
     BasePolicy,
     OpenAIPolicyInterface,
 )
+from luthien_proxy.request_log.sanitize import sanitize_headers
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types import Request
@@ -60,8 +61,9 @@ class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy)
         """Log raw HTTP request data."""
         if context.raw_http_request is not None:
             raw = context.raw_http_request
+            safe_headers = sanitize_headers(dict(raw.headers))
             logger.info(f"[RAW_HTTP_REQUEST] method={raw.method} path={raw.path}")
-            logger.info(f"[RAW_HTTP_REQUEST] headers={json.dumps(dict(raw.headers), indent=2)}")
+            logger.info(f"[RAW_HTTP_REQUEST] headers={json.dumps(safe_headers, indent=2)}")
             logger.info(f"[RAW_HTTP_REQUEST] body={json.dumps(raw.body, indent=2)}")
 
             context.record_event(
@@ -69,7 +71,7 @@ class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy)
                 {
                     "method": raw.method,
                     "path": raw.path,
-                    "headers": dict(raw.headers),
+                    "headers": safe_headers,
                     "body": raw.body,
                 },
             )
