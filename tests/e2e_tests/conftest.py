@@ -9,6 +9,7 @@ This module provides common infrastructure for E2E tests including:
 import asyncio
 import os
 import shutil
+import time
 from contextlib import asynccontextmanager
 
 import httpx
@@ -120,8 +121,15 @@ async def set_policy(
     data = response.json()
     assert data.get("success"), f"Policy set failed: {data}"
 
-    # Brief pause to ensure policy is active
-    await asyncio.sleep(0.3)
+    # Poll until the policy is actually active (avoids fixed sleep fragility).
+    deadline = time.monotonic() + 5.0
+    while True:
+        current = await get_current_policy(client)
+        if policy_class_ref in (current.get("class_ref") or ""):
+            break
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"Policy {policy_class_ref!r} did not become active within 5 s; current: {current}")
+        await asyncio.sleep(0.05)
 
 
 async def get_current_policy(client: httpx.AsyncClient) -> dict:

@@ -1,12 +1,15 @@
 """Mock e2e tests for error handling — verifies gateway handles backend errors gracefully.
 
-The gateway catches exceptions raised by the Anthropic SDK when the backend returns
-4xx/5xx responses. As a result, the gateway always returns its own HTTP response
-rather than propagating the raw backend status code. These tests verify:
-  - The gateway does not crash on backend errors
-  - The mock queue is FIFO (error consumes one slot, next request gets next slot)
-  - Error and normal responses are distinguishable in the response body
-  - Policies do not interfere with error handling
+The Anthropic SDK retries on 5xx and 429 responses (default: 2 retries, exponential backoff).
+To ensure the gateway actually receives and propagates an error we must enqueue enough error
+responses to exhaust all retry slots: 1 initial attempt + 2 retries = 3 queue items for 5xx/429.
+400 errors are NOT retried by the SDK, so a single enqueued error is sufficient.
+
+The gateway maps backend errors to BackendAPIError and returns a JSONResponse with:
+  - The original backend status code
+  - An Anthropic-format error body: {"type": "error", "error": {"type": ..., "message": ...}}
+
+Policies do not interfere with error handling — the gateway remains responsive after an error.
 
 Requires:
   - Gateway running with mock backend:
@@ -31,43 +34,62 @@ _BASE_REQUEST = {
 }
 _HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
+# The Anthropic SDK retries up to 2 times on 5xx/429, so we need 3 queue items
+# (1 initial + 2 retries) to ensure all attempts see an error and the gateway
+# receives the final error rather than a success on a retry slot.
+_SDK_MAX_ATTEMPTS = 3
+
 
 @pytest.mark.asyncio
-async def test_backend_500_does_not_crash_gateway(mock_anthropic: MockAnthropicServer, gateway_healthy):
-    """Gateway handles a backend 500 without crashing — returns any HTTP response."""
-    mock_anthropic.enqueue(error_response(500, "internal_server_error", "Backend exploded"))
+async def test_backend_500_propagates_error_response(mock_anthropic: MockAnthropicServer, gateway_healthy):
+    """Gateway propagates a backend 500 as an Anthropic-format error response.
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    Enqueues 3 errors to exhaust SDK retries so the gateway always sees a failure.
+    """
+    for _ in range(_SDK_MAX_ATTEMPTS):
+        mock_anthropic.enqueue(error_response(500, "internal_server_error", "Backend exploded"))
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
             headers=_HEADERS,
         )
 
-    # Gateway must respond (not hang or raise a connection error).
-    # The gateway wraps backend errors in its own response — status code depends on implementation.
-    assert response.status_code is not None
-    assert response.status_code != 0
+    assert response.status_code == 500, f"Expected 500, got {response.status_code}: {response.text}"
+    body = response.json()
+    assert body.get("type") == "error", f"Expected Anthropic error envelope, got: {body}"
+    assert body["error"]["type"] == "api_error"
 
 
 @pytest.mark.asyncio
-async def test_backend_429_does_not_crash_gateway(mock_anthropic: MockAnthropicServer, gateway_healthy):
-    """Gateway handles a backend 429 without crashing."""
-    mock_anthropic.enqueue(error_response(429, "rate_limit_error", "Rate limit exceeded"))
+async def test_backend_429_propagates_error_response(mock_anthropic: MockAnthropicServer, gateway_healthy):
+    """Gateway propagates a backend 429 as an Anthropic-format error response.
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    Enqueues 3 errors to exhaust SDK retries.
+    """
+    for _ in range(_SDK_MAX_ATTEMPTS):
+        mock_anthropic.enqueue(error_response(429, "rate_limit_error", "Rate limit exceeded"))
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
             headers=_HEADERS,
         )
 
-    assert response.status_code is not None
+    assert response.status_code == 429, f"Expected 429, got {response.status_code}: {response.text}"
+    body = response.json()
+    assert body.get("type") == "error"
+    assert body["error"]["type"] == "rate_limit_error"
 
 
 @pytest.mark.asyncio
-async def test_backend_400_does_not_crash_gateway(mock_anthropic: MockAnthropicServer, gateway_healthy):
-    """Gateway handles a backend 400 without crashing."""
+async def test_backend_400_propagates_error_response(mock_anthropic: MockAnthropicServer, gateway_healthy):
+    """Gateway propagates a backend 400 as an Anthropic-format error response.
+
+    400 errors are not retried by the SDK, so a single enqueued error suffices.
+    """
     mock_anthropic.enqueue(error_response(400, "invalid_request_error", "Missing required field"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -77,7 +99,10 @@ async def test_backend_400_does_not_crash_gateway(mock_anthropic: MockAnthropicS
             headers=_HEADERS,
         )
 
-    assert response.status_code is not None
+    assert response.status_code == 400, f"Expected 400, got {response.status_code}: {response.text}"
+    body = response.json()
+    assert body.get("type") == "error"
+    assert body["error"]["type"] == "invalid_request_error"
 
 
 @pytest.mark.asyncio
@@ -140,12 +165,15 @@ async def test_error_response_differs_from_success(mock_anthropic: MockAnthropic
             headers=_HEADERS,
         )
 
+    # The error response must be a 400 with Anthropic error envelope
+    assert error_resp.status_code == 400
+    error_body = error_resp.json()
+    assert error_body.get("type") == "error"
+    assert "error" in error_body
+
     # The success response must contain "normal reply"
     assert success_resp.status_code == 200
     assert any(block.get("text") == "normal reply" for block in success_resp.json().get("content", []))
-
-    # The error response must NOT contain "normal reply"
-    assert "normal reply" not in error_resp.text
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ from .responses import (
     tool_response,
 )
 from .server import DEFAULT_MOCK_PORT, MockAnthropicServer
+from .simulator import DEFAULT_TOOLS, ClaudeCodeSimulator, ToolCall, Turn
 
 __all__ = [
     "MockAnthropicServer",
@@ -21,4 +22,8 @@ __all__ = [
     "stream_response",
     "text_response",
     "tool_response",
+    "ClaudeCodeSimulator",
+    "DEFAULT_TOOLS",
+    "ToolCall",
+    "Turn",
 ]

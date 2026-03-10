@@ -2,11 +2,11 @@
 
 Verifies:
 - GET /request-logs returns a paginated list of logs
-- GET /request-logs requires admin authentication
 - GET /request-logs?limit=N respects the limit parameter
 - GET /request-logs?limit=1&offset=0 vs offset=1 return different entries
 - GET /request-logs/{transaction_id} returns detail for a specific transaction
-- GET /request-logs/{transaction_id} requires admin authentication
+
+Auth enforcement on these endpoints is covered by test_mock_auth.py.
 
 Requires:
   - Gateway running with mock backend:
@@ -28,6 +28,7 @@ pytestmark = pytest.mark.mock_e2e
 
 _ADMIN_HEADERS = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
 _REGULAR_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
+
 
 _BASE_REQUEST = {
     "model": "claude-haiku-4-5",
@@ -67,20 +68,6 @@ async def test_request_logs_list_returns_results(mock_anthropic: MockAnthropicSe
     assert "total" in data, f"Expected 'total' key in response, got: {data}"
     assert isinstance(data["logs"], list), f"Expected 'logs' to be a list, got: {type(data['logs'])}"
     assert isinstance(data["total"], int), f"Expected 'total' to be an int, got: {type(data['total'])}"
-
-
-@pytest.mark.asyncio
-async def test_request_logs_require_admin_auth(gateway_healthy):
-    """GET /request-logs with a regular API key returns 401 or 403."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.get(
-            f"{GATEWAY_URL}/request-logs",
-            headers=_REGULAR_HEADERS,
-        )
-
-    assert response.status_code in (401, 403), (
-        f"Expected 401 or 403 for non-admin key, got {response.status_code}: {response.text}"
-    )
 
 
 @pytest.mark.asyncio
@@ -174,18 +161,4 @@ async def test_request_log_transaction_detail(mock_anthropic: MockAnthropicServe
     assert "transaction_id" in detail, f"Expected 'transaction_id' in detail response, got: {detail}"
     assert detail["transaction_id"] == transaction_id, (
         f"Expected transaction_id={transaction_id!r}, got: {detail['transaction_id']!r}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_request_log_transaction_requires_admin_auth(gateway_healthy):
-    """GET /request-logs/{id} with a regular API key returns 401 or 403."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.get(
-            f"{GATEWAY_URL}/request-logs/some-nonexistent-id",
-            headers=_REGULAR_HEADERS,
-        )
-
-    assert response.status_code in (401, 403), (
-        f"Expected 401 or 403 for non-admin key, got {response.status_code}: {response.text}"
     )

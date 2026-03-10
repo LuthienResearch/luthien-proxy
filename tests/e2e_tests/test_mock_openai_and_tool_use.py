@@ -306,3 +306,48 @@ async def test_openai_streaming_chunk_structure(mock_anthropic: MockAnthropicSer
     last = chunks[-1]
     finish_reason = last["choices"][0].get("finish_reason")
     assert finish_reason is not None, "Last chunk before [DONE] must have a finish_reason"
+
+
+# =============================================================================
+# Section 3: MockToolResponse degradation on OpenAI endpoint
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_tool_response_via_openai_endpoint_returns_tool_calls(mock_anthropic: MockAnthropicServer, gateway_healthy):
+    """MockToolResponse sent to /v1/chat/completions is returned as proper OpenAI tool_calls.
+
+    The gateway routes /v1/chat/completions through LiteLLM's Anthropic adapter,
+    which calls the mock's /v1/messages endpoint (Anthropic format).  The mock
+    returns a tool_use block; LiteLLM converts that back to OpenAI tool_calls
+    format — content=null, tool_calls=[{type, function: {name, arguments}}].
+    """
+    mock_anthropic.enqueue(tool_response("get_weather", {"location": "London", "unit": "celsius"}))
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            f"{GATEWAY_URL}/v1/chat/completions",
+            json={
+                "model": "claude-haiku-4-5",
+                "messages": [{"role": "user", "content": "What's the weather in London?"}],
+                "max_tokens": 100,
+                "stream": False,
+            },
+            headers=_HEADERS,
+        )
+
+    if response.status_code != 200:
+        pytest.skip("OpenAI endpoint not using mock backend")
+
+    data = response.json()
+    assert data["object"] == "chat.completion"
+
+    message = data["choices"][0]["message"]
+    # OpenAI format: content is null for tool_calls responses
+    assert message.get("content") is None, f"Expected null content for tool_calls response, got: {message.get('content')!r}"
+    tool_calls = message.get("tool_calls", [])
+    assert len(tool_calls) == 1, f"Expected exactly 1 tool call, got: {tool_calls}"
+    assert tool_calls[0]["type"] == "function"
+    assert tool_calls[0]["function"]["name"] == "get_weather"
+    args = json.loads(tool_calls[0]["function"]["arguments"])
+    assert args == {"location": "London", "unit": "celsius"}, f"Unexpected tool arguments: {args}"
