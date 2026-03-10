@@ -314,7 +314,9 @@ async def test_openai_streaming_chunk_structure(mock_anthropic: MockAnthropicSer
 
 
 @pytest.mark.asyncio
-async def test_tool_response_via_openai_endpoint_returns_tool_calls(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_tool_response_via_openai_endpoint_returns_tool_calls(
+    mock_anthropic: MockAnthropicServer, gateway_healthy
+):
     """MockToolResponse sent to /v1/chat/completions is returned as proper OpenAI tool_calls.
 
     The gateway routes /v1/chat/completions through LiteLLM's Anthropic adapter,
@@ -344,7 +346,9 @@ async def test_tool_response_via_openai_endpoint_returns_tool_calls(mock_anthrop
 
     message = data["choices"][0]["message"]
     # OpenAI format: content is null for tool_calls responses
-    assert message.get("content") is None, f"Expected null content for tool_calls response, got: {message.get('content')!r}"
+    assert message.get("content") is None, (
+        f"Expected null content for tool_calls response, got: {message.get('content')!r}"
+    )
     tool_calls = message.get("tool_calls", [])
     assert len(tool_calls) == 1, f"Expected exactly 1 tool call, got: {tool_calls}"
     assert tool_calls[0]["type"] == "function"
