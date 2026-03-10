@@ -91,7 +91,7 @@ Research: Claude Code's `/resume` shows either the **initial prompt** (first mes
 
 **Recommendation:** Show `End_session_description` as the headline (unique value — Claude Code doesn't have this). Also display `Start_session_description` so users can cross-reference with Claude Code's `/resume` picker.
 
-**Future state**: Dedicated UI with permalink URLs for session sharing. See [TODO: Create visual database schema documentation](https://github.com/LuthienResearch/luthien-proxy/blob/main/dev/TODO.md) for related work.
+**Future state**: Dedicated UI with permalink URLs for session sharing. See the [Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO) for related work.
 
 **Open question**: Does GitHub already provide similar functionality via PR comments + linked artifacts? May not need custom UI if GitHub workflow is sufficient.
 

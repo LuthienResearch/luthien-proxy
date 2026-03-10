@@ -7,6 +7,7 @@ from typing import cast
 
 import pytest
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import AnthropicResponse
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
@@ -36,7 +37,7 @@ class _StubIO(AnthropicPolicyIOProtocol):
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "hello"}],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 1, "output_tokens": 1},
         }
@@ -78,7 +79,7 @@ class TestAnthropicExecutionInterface:
                 return _run()
 
         policy = cast(AnthropicExecutionInterface, TestPolicy())
-        io = _StubIO(request={"model": "claude-sonnet-4-20250514", "messages": [], "max_tokens": 1})
+        io = _StubIO(request={"model": DEFAULT_TEST_MODEL, "messages": [], "max_tokens": 1})
 
         emissions = [emission async for emission in policy.run_anthropic(io, context={})]
         assert len(emissions) == 1

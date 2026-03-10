@@ -11,6 +11,7 @@ OpenAI non-streaming, OpenAI streaming, Anthropic non-streaming, Anthropic strea
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
 from anthropic.lib.streaming import MessageStreamEvent
@@ -36,9 +37,16 @@ if TYPE_CHECKING:
     from litellm.types.utils import ModelResponse
 
     from luthien_proxy.llm.types import Request
-    from luthien_proxy.llm.types.anthropic import AnthropicResponse
+    from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
+
+
+@dataclass
+class _StreamState:
+    """Per-policy, per-request streaming state for TextModifierPolicy hook methods."""
+
+    max_index: int = field(default=-1)
 
 
 class TextModifierPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
@@ -188,6 +196,63 @@ class TextModifierPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionIn
             new_content = list(content)
             new_content.append({"type": "text", "text": suffix})
             response["content"] = new_content  # type: ignore[typeddict-item]
+
+    # -- Anthropic hook interface (for composition via MultiSerialPolicy) -------
+
+    async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+        """Pass through request unchanged."""
+        return request
+
+    async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+        """Apply modify_text and extra_text to the non-streaming response."""
+        self._modify_anthropic_response(response)
+        return response
+
+    async def on_anthropic_stream_event(
+        self, event: MessageStreamEvent, context: PolicyContext
+    ) -> list[MessageStreamEvent]:
+        """Modify text deltas in-stream; track the max content block index for extra_text."""
+        if isinstance(event, RawContentBlockStartEvent):
+            state = context.get_request_state(self, _StreamState, _StreamState)
+            state.max_index = max(state.max_index, event.index)
+            return [event]
+        if isinstance(event, RawContentBlockDeltaEvent) and isinstance(event.delta, TextDelta):
+            new_delta = event.delta.model_copy(update={"text": self.modify_text(event.delta.text)})
+            return [event.model_copy(update={"delta": new_delta})]
+        return [event]
+
+    async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+        """Emit extra_text as a new content block after the stream ends, if configured."""
+        suffix = self.extra_text()
+        if suffix is None:
+            return []
+        state = context.get_request_state(self, _StreamState, _StreamState)
+        new_index = state.max_index + 1
+        return [
+            cast(
+                MessageStreamEvent,
+                RawContentBlockStartEvent(
+                    type="content_block_start",
+                    index=new_index,
+                    content_block=TextBlock(type="text", text=""),
+                ),
+            ),
+            cast(
+                MessageStreamEvent,
+                RawContentBlockDeltaEvent(
+                    type="content_block_delta",
+                    index=new_index,
+                    delta=TextDelta(type="text_delta", text=suffix),
+                ),
+            ),
+            cast(
+                MessageStreamEvent,
+                RawContentBlockStopEvent(
+                    type="content_block_stop",
+                    index=new_index,
+                ),
+            ),
+        ]
 
 
 __all__ = ["TextModifierPolicy"]

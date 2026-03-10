@@ -202,8 +202,13 @@ def extract_config_schema(policy_class: type) -> tuple[dict[str, Any], dict[str,
         # Add default if present
         if param.default is not inspect.Parameter.empty:
             param_schema["default"] = param.default
-            # Use default as example value
-            example_config[param_name] = param.default
+            # For nullable object params (e.g. config: SomeConfig | None = None),
+            # generate a proper example from the schema properties so the UI form
+            # has usable defaults rather than null, which breaks Alpine bindings.
+            if param.default is None and param_schema.get("type") == "object":
+                example_config[param_name] = _get_example_value(param_schema)
+            else:
+                example_config[param_name] = param.default
         else:
             # No default - mark as required (by not having default)
             # Provide a placeholder example based on type
@@ -225,10 +230,13 @@ def _get_example_value(schema: dict[str, Any]) -> Any:
     elif schema_type == "number":
         return 0.0
     elif schema_type == "boolean":
-        return False
+        return schema.get("default", False)
     elif schema_type == "array":
         return []
     elif schema_type == "object":
+        properties = schema.get("properties", {})
+        if properties:
+            return {key: prop.get("default", _get_example_value(prop)) for key, prop in properties.items()}
         return {}
     return None
 

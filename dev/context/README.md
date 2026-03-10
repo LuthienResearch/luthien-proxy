@@ -27,7 +27,7 @@ These documents provided important feedback during the V2 design phase but are s
 For the current V2 implementation status and plans, see:
 - [`dev/v2_architecture_design.md`](../v2_architecture_design.md) - **Architecture design and implementation status**
 - [`dev/observability-v2.md`](../observability-v2.md) - **Observability features and status**
-- [`dev/TODO.md`](../TODO.md) - **Outstanding work items**
+- [Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO) - **Outstanding work items**
 
 ## Adding New Context
 

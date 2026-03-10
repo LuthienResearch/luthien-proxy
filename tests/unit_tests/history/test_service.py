@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.history.models import (
     ConversationMessage,
     ConversationTurn,
@@ -366,7 +367,7 @@ class TestParseResponseMessages:
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Hello from Claude!"}],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
         }
 
@@ -386,7 +387,7 @@ class TestParseResponseMessages:
                 {"type": "text", "text": "Let me read that file."},
                 {"type": "tool_use", "id": "toolu_123", "name": "read_file", "input": {"path": "/foo.py"}},
             ],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "tool_use",
         }
 
@@ -406,7 +407,7 @@ class TestParseResponseMessages:
             "type": "message",
             "role": "assistant",
             "content": [],
-            "model": "claude-sonnet-4-20250514",
+            "model": DEFAULT_TEST_MODEL,
             "stop_reason": "end_turn",
         }
 
@@ -524,14 +525,14 @@ class TestBuildTurn:
             {
                 "event_type": "transaction.request_recorded",
                 "payload": {
-                    "final_model": "claude-sonnet-4-20250514",
+                    "final_model": DEFAULT_TEST_MODEL,
                     "original_request": {
-                        "model": "claude-sonnet-4-20250514",
+                        "model": DEFAULT_TEST_MODEL,
                         "messages": [{"role": "user", "content": "Hello Claude"}],
                         "max_tokens": 1024,
                     },
                     "final_request": {
-                        "model": "claude-sonnet-4-20250514",
+                        "model": DEFAULT_TEST_MODEL,
                         "messages": [{"role": "user", "content": "Hello Claude"}],
                         "max_tokens": 1024,
                     },
@@ -546,7 +547,7 @@ class TestBuildTurn:
                         "type": "message",
                         "role": "assistant",
                         "content": [{"type": "text", "text": "Hello! How can I help?"}],
-                        "model": "claude-sonnet-4-20250514",
+                        "model": DEFAULT_TEST_MODEL,
                         "stop_reason": "end_turn",
                     },
                     "final_response": {
@@ -554,7 +555,7 @@ class TestBuildTurn:
                         "type": "message",
                         "role": "assistant",
                         "content": [{"type": "text", "text": "Hello! How can I help?"}],
-                        "model": "claude-sonnet-4-20250514",
+                        "model": DEFAULT_TEST_MODEL,
                         "stop_reason": "end_turn",
                     },
                 },
@@ -565,7 +566,7 @@ class TestBuildTurn:
         turn = _build_turn("call-456", events)
 
         assert turn.call_id == "call-456"
-        assert turn.model == "claude-sonnet-4-20250514"
+        assert turn.model == DEFAULT_TEST_MODEL
         assert len(turn.request_messages) == 1
         assert turn.request_messages[0].content == "Hello Claude"
         assert len(turn.response_messages) == 1
