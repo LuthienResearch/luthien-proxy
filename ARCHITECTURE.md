@@ -79,6 +79,7 @@ Client receives SSE events
 | `policy_core/base_policy.py` | `BasePolicy` — shared base with config helpers and singleton safety checks |
 | `policy_core/openai_interface.py` | `OpenAIPolicyInterface` — abstract hooks for OpenAI-format request/response |
 | `policy_core/anthropic_execution_interface.py` | `AnthropicExecutionInterface` — execution-oriented Anthropic policy contract |
+| `policy_core/anthropic_hook_policy.py` | `AnthropicHookPolicy` — hook-based base class with overridable lifecycle methods |
 | `policy_core/policy_context.py` | `PolicyContext` — per-request mutable state (transaction ID, emitter, typed state slots) |
 | `policy_core/streaming_policy_context.py` | `StreamingPolicyContext` — streaming-specific context (egress queue, stream state, keepalive) |
 | `policy_core/policy_protocol.py` | `PolicyProtocol` — structural typing protocol for policy infrastructure |

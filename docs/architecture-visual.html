@@ -549,6 +549,7 @@ classDiagram
         <tr><td>event_type</td><td>TEXT</td><td>Type of policy decision</td></tr>
         <tr><td>original_event_id</td><td>UUID FK</td><td>&rarr; conversation_events</td></tr>
         <tr><td>modified_event_id</td><td>UUID FK</td><td>&rarr; conversation_events</td></tr>
+        <tr><td>policy_config</td><td>JSONB</td><td>Policy configuration at time of event</td></tr>
         <tr><td>metadata</td><td>JSONB</td><td></td></tr>
         <tr><td>created_at</td><td>TIMESTAMPTZ</td><td></td></tr>
       </table>
