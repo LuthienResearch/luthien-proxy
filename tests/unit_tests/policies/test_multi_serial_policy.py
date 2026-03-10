@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import cast
 
 import pytest
-from anthropic.types import RawContentBlockDeltaEvent, RawMessageStartEvent, TextDelta
+from anthropic.types import (
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageStartEvent,
+    TextBlock,
+    TextDelta,
+)
 from multi_policy_helpers import (
     AnthropicOnlyPolicy,
     OpenAIOnlyPolicy,
@@ -20,6 +28,7 @@ from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
+    AnthropicResponse,
     AnthropicTextBlock,
 )
 from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
@@ -272,6 +281,133 @@ class TestMultiSerialAnthropicStreamEvent:
 
         assert len(result) == 1
         assert result[0] is event
+
+
+# =============================================================================
+# Anthropic run_anthropic — Response Ordering
+# =============================================================================
+
+
+class _StubAnthropicIO:
+    """Minimal Anthropic I/O stub for run_anthropic ordering tests."""
+
+    def __init__(self, text: str, stream: bool = False):
+        self._text = text
+        self._request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [],
+            "max_tokens": 10,
+            "stream": stream,
+        }
+
+    @property
+    def request(self) -> AnthropicRequest:
+        return self._request
+
+    def set_request(self, request: AnthropicRequest) -> None:
+        self._request = request
+
+    @property
+    def first_backend_response(self) -> AnthropicResponse | None:
+        return None
+
+    async def complete(self, request: AnthropicRequest | None = None) -> AnthropicResponse:
+        return {
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": self._text}],
+            "model": DEFAULT_TEST_MODEL,
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+
+    def stream(self, request: AnthropicRequest | None = None) -> AsyncIterator:
+        text = self._text
+        events: list = [
+            cast(
+                RawContentBlockDeltaEvent,
+                RawContentBlockStartEvent(
+                    type="content_block_start",
+                    index=0,
+                    content_block=TextBlock(type="text", text=""),
+                ),
+            ),
+            cast(
+                RawContentBlockDeltaEvent,
+                RawContentBlockDeltaEvent(
+                    type="content_block_delta",
+                    index=0,
+                    delta=TextDelta(type="text_delta", text=text),
+                ),
+            ),
+            cast(
+                RawContentBlockDeltaEvent,
+                RawContentBlockStopEvent(type="content_block_stop", index=0),
+            ),
+        ]
+
+        async def _gen() -> AsyncIterator:
+            for event in events:
+                yield event
+
+        return _gen()
+
+
+class TestMultiSerialAnthropicRunOrdering:
+    """Verify run_anthropic applies transforms in list order for both request and response."""
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_response_order_matches_list_order(self):
+        """[StringReplacement(hello->goodbye), AllCaps] must give GOODBYE WORLD.
+
+        Regression: the old onion model ran AllCaps first on the response (because
+        response hooks unwind in reverse), so StringReplacement's 'hello' pattern
+        never matched the already-uppercased 'HELLO'. The two-phase model fixes this.
+        """
+        policy = MultiSerialPolicy(
+            policies=[
+                replacement_config([["hello", "goodbye"]]),
+                allcaps_config(),
+            ]
+        )
+        ctx = PolicyContext.for_testing()
+        io = _StubAnthropicIO("hello world", stream=False)
+
+        emissions = [e async for e in policy.run_anthropic(io, ctx)]
+
+        text_block = cast(AnthropicTextBlock, emissions[0]["content"][0])
+        assert text_block["text"] == "GOODBYE WORLD"
+
+    @pytest.mark.asyncio
+    async def test_streaming_response_order_matches_list_order(self):
+        """Streaming: [StringReplacement(hello->goodbye), AllCaps] must give GOODBYE."""
+        policy = MultiSerialPolicy(
+            policies=[
+                replacement_config([["hello", "goodbye"]]),
+                allcaps_config(),
+            ]
+        )
+        ctx = PolicyContext.for_testing()
+        io = _StubAnthropicIO("hello", stream=True)
+
+        emissions = [e async for e in policy.run_anthropic(io, ctx)]
+
+        deltas = [e for e in emissions if isinstance(e, RawContentBlockDeltaEvent)]
+        assert len(deltas) == 1
+        assert deltas[0].delta.text == "GOODBYE"
+
+    @pytest.mark.asyncio
+    async def test_passthrough_with_empty_policy_list(self):
+        """Empty policy list passes response through unchanged via run_anthropic."""
+        policy = MultiSerialPolicy(policies=[])
+        ctx = PolicyContext.for_testing()
+        io = _StubAnthropicIO("hello world", stream=False)
+
+        emissions = [e async for e in policy.run_anthropic(io, ctx)]
+
+        text_block = cast(AnthropicTextBlock, emissions[0]["content"][0])
+        assert text_block["text"] == "hello world"
 
 
 # =============================================================================

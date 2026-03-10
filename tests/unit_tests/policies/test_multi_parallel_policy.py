@@ -686,3 +686,40 @@ class TestMultiParallelExecution:
 
         with pytest.raises(RuntimeError, match="anthropic exploded"):
             await policy.on_anthropic_response(response, ctx)
+
+
+class TestPolicyContextDeepCopy:
+    def test_deepcopy_succeeds_with_emitter(self):
+        """PolicyContext with a real EventEmitter (holding db/redis pools) must be deep-copyable.
+
+        Regression test for: MultiParallelPolicy crashed with 500 because
+        copy.deepcopy(context) failed on asyncpg objects inside the emitter.
+        """
+        import copy
+
+        from luthien_proxy.observability.emitter import EventEmitter
+
+        emitter = EventEmitter(db_pool=None, redis_publisher=None)
+        ctx = PolicyContext(transaction_id="test-txn", emitter=emitter)
+        ctx._scratchpad["key"] = "value"
+
+        ctx_copy = copy.deepcopy(ctx)
+
+        assert ctx_copy.transaction_id == ctx.transaction_id
+        assert ctx_copy._emitter is ctx._emitter  # shared, not copied
+        assert ctx_copy._scratchpad == ctx._scratchpad
+        assert ctx_copy._scratchpad is not ctx._scratchpad  # independent copy
+
+    def test_deepcopy_mutable_state_is_independent(self):
+        """Mutating a deepcopied context must not affect the original."""
+        import copy
+
+        ctx = PolicyContext.for_testing(transaction_id="original")
+        ctx._scratchpad["x"] = 1
+
+        ctx_copy = copy.deepcopy(ctx)
+        ctx_copy._scratchpad["x"] = 99
+        ctx_copy.request_summary = "modified"
+
+        assert ctx._scratchpad["x"] == 1
+        assert ctx.request_summary is None
