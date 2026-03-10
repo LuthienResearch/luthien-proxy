@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator, Mapping, Sequence
@@ -230,16 +229,10 @@ def is_sqlite_url(url: str) -> bool:
     return url.startswith("sqlite://")
 
 
-def generate_uuid() -> str:
-    """Generate a UUID string for use as a primary key."""
-    return str(uuid.uuid4())
-
-
 __all__ = [
     "SqliteConnection",
     "SqlitePool",
     "create_sqlite_pool",
     "is_sqlite_url",
     "parse_sqlite_url",
-    "generate_uuid",
 ]
