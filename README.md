@@ -110,6 +110,8 @@ Luthien can call a separate "judge" model (like Claude Haiku) to evaluate whethe
 
 Install [uv](https://docs.astral.sh/uv/) if you haven't: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
+Pre-built Docker images are published to GHCR, so `docker compose up` pulls them automatically (no local build needed). For local development with source changes, use `docker compose up --build` (or `./scripts/quick_start.sh`, which handles this) to build from your working tree.
+
 ### 1. Clone the repo
 
 ```bash

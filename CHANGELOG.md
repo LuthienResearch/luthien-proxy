@@ -2,6 +2,9 @@
 
 ## Unreleased | TBA
 
+- Add automated Docker image publishing to GHCR (gateway, migrations, sandbox)
+  - Multi-platform builds (linux/amd64, linux/arm64)
+  - PR builds validate Dockerfiles without pushing
 - **Policy authoring DX overhaul**: Simpler interfaces for writing policies
   - `OpenAIPolicyInterface` streaming hooks now have sensible defaults — policies only override hooks they use
   - `AnthropicHookPolicy` base class with `on_anthropic_stream_complete` lifecycle hook — eliminates copy-pasted `run_anthropic` boilerplate
