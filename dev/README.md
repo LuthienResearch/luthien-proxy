@@ -16,7 +16,7 @@ Then explore:
 
 ### Active Development
 
-- **[TODO.md](TODO.md)** - Current backlog and known issues (check here for work that needs doing)
+- **[Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO)** - Current backlog and known issues (check here for work that needs doing)
 - **[OBJECTIVE.md](OBJECTIVE.md)** - Current objective being worked on (empty when between objectives)
 - **[NOTES.md](NOTES.md)** - Implementation scratchpad for active objective
 

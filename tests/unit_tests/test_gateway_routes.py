@@ -321,7 +321,7 @@ class TestGatewayAuthAndClientResolution:
             client.post(
                 "/v1/messages",
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": DEFAULT_TEST_MODEL,
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },

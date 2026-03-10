@@ -5,6 +5,11 @@
 - Add automated Docker image publishing to GHCR (gateway, migrations, sandbox)
   - Multi-platform builds (linux/amd64, linux/arm64)
   - PR builds validate Dockerfiles without pushing
+- **Policy authoring DX overhaul**: Simpler interfaces for writing policies
+  - `OpenAIPolicyInterface` streaming hooks now have sensible defaults — policies only override hooks they use
+  - `AnthropicHookPolicy` base class with `on_anthropic_stream_complete` lifecycle hook — eliminates copy-pasted `run_anthropic` boilerplate
+  - `TextModifierPolicy` base class — implement `modify_text()` and/or `extra_text()`, get all 4 code paths (OpenAI/Anthropic × streaming/non-streaming) handled automatically
+  - Cleaned up all existing policies (~400 lines of duplicated boilerplate removed)
 
 - **SimpleLLMPolicy**: New policy that applies plain-English instructions to LLM response blocks using a configurable judge LLM. Supports pass-through, text/tool replacement, and cross-type replacement (tool_use → text, text → tool_use). Works with both OpenAI and Anthropic APIs in streaming and non-streaming modes. Configurable error handling (fail-open/fail-secure) and automatic stop_reason correction.
 

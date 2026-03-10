@@ -9,6 +9,7 @@ _SENSITIVE_HEADERS = frozenset(
     {
         "authorization",
         "x-api-key",
+        "x-anthropic-api-key",
         "proxy-authorization",
         "cookie",
         "set-cookie",

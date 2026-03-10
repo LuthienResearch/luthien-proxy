@@ -7,11 +7,11 @@ from typing import Any
 
 import httpx
 import litellm
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
-from luthien_proxy.auth import get_base_url, verify_admin_token
+from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.config import _import_policy_class
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.dependencies import get_db_pool, get_policy_manager, require_credential_manager
@@ -297,7 +297,6 @@ async def list_models(
 @router.post("/test/chat", response_model=ChatResponse)
 async def send_chat(
     body: ChatRequest,
-    request: Request,
     _: str = Depends(verify_admin_token),
 ):
     """Send a test message through the proxy with the active policy.
@@ -317,7 +316,9 @@ async def send_chat(
             model=body.model,
         )
 
-    base_url = get_base_url(request)
+    # Use the internal self-URL so this works both on the host and inside Docker,
+    # where the external port mapping (e.g. 8001) is not reachable from the container.
+    base_url = f"http://localhost:{settings.gateway_port}"
 
     # Build OpenAI-format request payload
     payload: dict[str, Any] = {

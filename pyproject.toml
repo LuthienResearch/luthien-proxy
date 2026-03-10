@@ -73,7 +73,7 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra -m 'not e2e and not integration' --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
+addopts = "-q -ra -m 'not e2e and not integration and not mock_e2e' --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
@@ -84,6 +84,7 @@ filterwarnings = [
 markers = [
     "e2e: marks end-to-end tests that require an assembled control plane",
     "integration: marks integration tests that require external services (OpenAI, Anthropic APIs)",
+    "mock_e2e: marks e2e tests that use the mock Anthropic server (no real API calls)",
 ]
 timeout_func_only = false
 

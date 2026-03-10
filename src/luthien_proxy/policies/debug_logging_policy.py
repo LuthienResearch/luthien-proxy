@@ -9,19 +9,17 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from anthropic.lib.streaming import MessageStreamEvent
 from litellm.types.utils import ModelResponse
 
 from luthien_proxy.policy_core import (
-    AnthropicExecutionInterface,
-    AnthropicPolicyEmission,
-    AnthropicPolicyIOProtocol,
+    AnthropicHookPolicy,
     BasePolicy,
     OpenAIPolicyInterface,
 )
+from luthien_proxy.request_log.sanitize import sanitize_headers
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types import Request
@@ -45,7 +43,7 @@ def _event_to_dict(event: MessageStreamEvent) -> dict[str, Any]:
     return event.model_dump()
 
 
-class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
+class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
     """Debug policy that logs request/response/streaming data for both API formats.
 
     All hooks log relevant data at INFO level, record events to context for
@@ -63,8 +61,9 @@ class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionIn
         """Log raw HTTP request data."""
         if context.raw_http_request is not None:
             raw = context.raw_http_request
+            safe_headers = sanitize_headers(dict(raw.headers))
             logger.info(f"[RAW_HTTP_REQUEST] method={raw.method} path={raw.path}")
-            logger.info(f"[RAW_HTTP_REQUEST] headers={json.dumps(dict(raw.headers), indent=2)}")
+            logger.info(f"[RAW_HTTP_REQUEST] headers={json.dumps(safe_headers, indent=2)}")
             logger.info(f"[RAW_HTTP_REQUEST] body={json.dumps(raw.body, indent=2)}")
 
             context.record_event(
@@ -72,7 +71,7 @@ class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionIn
                 {
                     "method": raw.method,
                     "path": raw.path,
-                    "headers": dict(raw.headers),
+                    "headers": safe_headers,
                     "body": raw.body,
                 },
             )
@@ -96,58 +95,7 @@ class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionIn
 
         ctx.egress_queue.put_nowait(chunk)
 
-    async def on_content_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """No-op."""
-        pass
-
-    async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """No-op."""
-        pass
-
-    async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """No-op."""
-        pass
-
-    async def on_tool_call_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """No-op."""
-        pass
-
-    async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
-        """No-op."""
-        pass
-
-    async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """No-op."""
-        pass
-
-    async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """No-op."""
-        pass
-
-    # -- Anthropic execution interface -----------------------------------------
-
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Log Anthropic request/response/stream events while passing through."""
-
-        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
-            final_request = await self.on_anthropic_request(io.request, context)
-            io.set_request(final_request)
-
-            if final_request.get("stream", False):
-                async for event in io.stream(final_request):
-                    emitted_events = await self.on_anthropic_stream_event(event, context)
-                    for emitted_event in emitted_events:
-                        yield emitted_event
-                return
-
-            response = await io.complete(final_request)
-            yield await self.on_anthropic_response(response, context)
-
-        return _run()
-
-    # -- Anthropic helpers -----------------------------------------------------
+    # -- Anthropic hooks (via AnthropicHookPolicy) -----------------------------
 
     async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
         """Log request summary."""

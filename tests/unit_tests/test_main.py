@@ -62,6 +62,7 @@ class TestLoadConfigFromEnv:
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6380")
         monkeypatch.setenv("POLICY_CONFIG", "custom/path.yaml")
+        monkeypatch.delenv("GATEWAY_PORT", raising=False)  # ensure default (8000) is used
 
         config = load_config_from_env(settings=Settings(_env_file=None))
 

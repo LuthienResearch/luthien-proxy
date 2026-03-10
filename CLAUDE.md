@@ -17,13 +17,15 @@
 ## Development Workflow
 
 1. You will be given an OBJECTIVE to complete (e.g. 'implement this feature', 'fix this bug', 'build this UX', 'refactor this module')
-2. Make sure we're on a feature branch (not `main`)
-3. Commit the changes, push to origin, and open a draft PR (to `main`)
-4. Implement the OBJECTIVE. Add any items that should be done but are out of scope for the current OBJECTIVE to `dev/TODO.md` (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
-5. Regularly run `scripts/dev_checks.sh`, then commit and push any formatting/lint fixes along with your changes to origin (on the feature branch).
-6. When the OBJECTIVE is complete, update `CHANGELOG.md`
-7. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
-8. Mark the PR as ready.
+2. Claim the corresponding ticket on the [Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO) (assign yourself, move to In Progress)
+3. Make sure we're on a feature branch (not `main`)
+4. Commit the changes, push to origin, and open a draft PR (to `main`)
+5. Implement the OBJECTIVE. Add any items that should be done but are out of scope for the current OBJECTIVE to the [Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO) (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
+6. Regularly run `scripts/dev_checks.sh`, then commit and push any formatting/lint fixes along with your changes to origin (on the feature branch).
+7. When the OBJECTIVE is complete, update `CHANGELOG.md`
+8. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
+9. Mark the PR as ready.
+10. Mark the Trello ticket as done.
 
 ### One PR = One Concern
 
@@ -92,7 +94,6 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 ## Project Structure & Module Organization
 
 - `dev/`: Tracking current development information
-  - `TODO.md`: TODO list. Add to this when we notice changes we should make that are out-of-scope for the current PR.
   - `OBJECTIVE.md`: Succinct statement of the active objective with acceptance check.
   - `NOTES.md`: Scratchpad for implementation details while the current objective is in progress.
   - `*plan.md`: Medium- and long-term development plans may be recorded here.
