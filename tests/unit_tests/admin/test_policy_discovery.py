@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from luthien_proxy.admin.policy_discovery import (
     SKIP_MODULES,
     SKIP_SUFFIXES,
+    _resolve_string_annotation,
     discover_policies,
     extract_config_schema,
     extract_description,
@@ -410,3 +411,96 @@ class TestSkipModules:
     def test_skip_suffixes(self) -> None:
         assert "_config" in SKIP_SUFFIXES
         assert "_utils" in SKIP_SUFFIXES
+
+
+class _DummyPolicyForAnnotation:
+    """Minimal class in a known module for _resolve_string_annotation tests."""
+
+    pass
+
+
+class TestResolveStringAnnotation:
+    """Tests for _resolve_string_annotation — the eval()-free type resolution."""
+
+    def test_basic_str(self) -> None:
+        result = _resolve_string_annotation("str", _DummyPolicyForAnnotation)
+        assert result is str
+
+    def test_basic_int(self) -> None:
+        result = _resolve_string_annotation("int", _DummyPolicyForAnnotation)
+        assert result is int
+
+    def test_basic_float(self) -> None:
+        result = _resolve_string_annotation("float", _DummyPolicyForAnnotation)
+        assert result is float
+
+    def test_basic_bool(self) -> None:
+        result = _resolve_string_annotation("bool", _DummyPolicyForAnnotation)
+        assert result is bool
+
+    def test_list_of_str(self) -> None:
+        result = _resolve_string_annotation("list[str]", _DummyPolicyForAnnotation)
+        assert result == list[str]
+
+    def test_dict_str_any(self) -> None:
+        result = _resolve_string_annotation("dict[str, Any]", _DummyPolicyForAnnotation)
+        assert result == dict[str, Any]
+
+    def test_nested_list_dict(self) -> None:
+        result = _resolve_string_annotation("list[dict[str, Any]]", _DummyPolicyForAnnotation)
+        assert result == list[dict[str, Any]]
+
+    def test_optional_str(self) -> None:
+        from typing import Optional
+
+        result = _resolve_string_annotation("Optional[str]", _DummyPolicyForAnnotation)
+        assert result == Optional[str]
+
+    def test_union_pipe_syntax(self) -> None:
+        result = _resolve_string_annotation("str | None", _DummyPolicyForAnnotation)
+        assert result == str | None
+
+    def test_union_pipe_two_types(self) -> None:
+        result = _resolve_string_annotation("str | int", _DummyPolicyForAnnotation)
+        assert result == str | int
+
+    def test_list_of_tuple(self) -> None:
+        result = _resolve_string_annotation("list[tuple[str, str]]", _DummyPolicyForAnnotation)
+        assert result == list[tuple[str, str]]
+
+    def test_unknown_name_returns_raw_string(self) -> None:
+        result = _resolve_string_annotation("CompletelyUnknownType", _DummyPolicyForAnnotation)
+        assert result == "CompletelyUnknownType"
+
+    def test_invalid_syntax_returns_raw_string(self) -> None:
+        result = _resolve_string_annotation("not a valid[type", _DummyPolicyForAnnotation)
+        assert result == "not a valid[type"
+
+    def test_empty_string_returns_raw_string(self) -> None:
+        result = _resolve_string_annotation("", _DummyPolicyForAnnotation)
+        assert result == ""
+
+    def test_does_not_execute_code(self) -> None:
+        """Verify that dangerous expressions are NOT executed."""
+        result = _resolve_string_annotation("__import__('os').system('echo pwned')", _DummyPolicyForAnnotation)
+        assert isinstance(result, str)
+
+    def test_does_not_execute_function_calls(self) -> None:
+        """Verify that function call expressions are not evaluated."""
+        result = _resolve_string_annotation("print('hello')", _DummyPolicyForAnnotation)
+        assert isinstance(result, str)
+
+    def test_does_not_execute_lambda(self) -> None:
+        """Verify that lambda expressions are not evaluated."""
+        result = _resolve_string_annotation("lambda: None", _DummyPolicyForAnnotation)
+        assert isinstance(result, str)
+
+    def test_annotated_type(self) -> None:
+        from typing import Annotated
+
+        result = _resolve_string_annotation("Annotated[str, 'description']", _DummyPolicyForAnnotation)
+        assert result == Annotated[str, "description"]
+
+    def test_none_literal(self) -> None:
+        result = _resolve_string_annotation("None", _DummyPolicyForAnnotation)
+        assert result is type(None) or result is None  # noqa: E721
