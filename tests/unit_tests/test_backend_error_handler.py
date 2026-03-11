@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.main import http_status_to_anthropic_error_type
@@ -286,7 +288,7 @@ class TestHTTPExceptionAnthropicFormat:
         data = response.json()
         assert data == {"detail": "Unhealthy"}
 
-    def test_anthropic_413_maps_to_invalid_request(self, client):
+    def test_anthropic_413_maps_to_invalid_request(self):
         from luthien_proxy.main import http_exception_handler
 
         app = FastAPI()
@@ -303,3 +305,99 @@ class TestHTTPExceptionAnthropicFormat:
         assert data["type"] == "error"
         assert data["error"]["type"] == "invalid_request_error"
         assert data["error"]["message"] == "Request payload too large"
+
+    def test_non_anthropic_path_preserves_exception_headers(self):
+        """Exception headers (e.g. WWW-Authenticate) are forwarded on non-Anthropic paths."""
+        from luthien_proxy.main import http_exception_handler
+
+        app = FastAPI()
+        app.add_exception_handler(HTTPException, http_exception_handler)
+
+        @app.get("/some/endpoint")
+        async def trigger():
+            raise HTTPException(
+                status_code=401,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        test_client = TestClient(app)
+        response = test_client.get("/some/endpoint")
+        assert response.status_code == 401
+        assert response.headers.get("WWW-Authenticate") == "Bearer"
+
+
+class TestRequestValidationErrorHandler:
+    """Tests for the RequestValidationError handler returning Anthropic format."""
+
+    @pytest.fixture
+    def app_with_validation_handler(self):
+        from luthien_proxy.main import http_exception_handler, request_validation_error_handler
+
+        app = FastAPI()
+        app.add_exception_handler(HTTPException, http_exception_handler)
+        app.add_exception_handler(RequestValidationError, request_validation_error_handler)
+
+        class MessageBody(BaseModel):
+            model: str
+            max_tokens: int
+            messages: list
+
+        @app.post("/v1/messages")
+        async def anthropic_endpoint(body: MessageBody):
+            return {"ok": True}
+
+        class CompletionBody(BaseModel):
+            model: str
+            messages: list
+
+        @app.post("/v1/chat/completions")
+        async def openai_endpoint(body: CompletionBody):
+            return {"ok": True}
+
+        return app
+
+    @pytest.fixture
+    def client(self, app_with_validation_handler):
+        return TestClient(app_with_validation_handler)
+
+    def test_anthropic_path_returns_anthropic_format_on_validation_error(self, client):
+        """Malformed body on /v1/messages returns Anthropic error format, not FastAPI default."""
+        response = client.post("/v1/messages", json={"bad": "data"})
+        assert response.status_code == 422
+        data = response.json()
+        assert data["type"] == "error"
+        assert data["error"]["type"] == "invalid_request_error"
+        assert isinstance(data["error"]["message"], str)
+        assert len(data["error"]["message"]) > 0
+
+    def test_openai_path_returns_default_format_on_validation_error(self, client):
+        """Malformed body on /v1/chat/completions returns FastAPI default 422 format."""
+        response = client.post("/v1/chat/completions", json={"bad": "data"})
+        assert response.status_code == 422
+        data = response.json()
+        # Default FastAPI format has "detail" as a list of validation errors
+        assert "detail" in data
+
+    def test_anthropic_subpath_returns_anthropic_format(self):
+        """Validation errors on /v1/messages/* subpaths also get Anthropic format."""
+        from luthien_proxy.main import http_exception_handler, request_validation_error_handler
+
+        app = FastAPI()
+        app.add_exception_handler(HTTPException, http_exception_handler)
+        app.add_exception_handler(RequestValidationError, request_validation_error_handler)
+
+        class TokenCountBody(BaseModel):
+            model: str
+            messages: list
+
+        @app.post("/v1/messages/count_tokens")
+        async def count_tokens(body: TokenCountBody):
+            return {"ok": True}
+
+        test_client = TestClient(app)
+        response = test_client.post("/v1/messages/count_tokens", json={})
+        assert response.status_code == 422
+        data = response.json()
+        assert data["type"] == "error"
+        assert data["error"]["type"] == "invalid_request_error"
