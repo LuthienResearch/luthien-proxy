@@ -223,7 +223,7 @@ class TestGatewayAuthAndClientResolution:
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
             patch("luthien_proxy.gateway_routes.anthropic_client_cache") as mock_cache,
         ):
-            mock_cache.get_client.return_value = MagicMock()
+            mock_cache.get_client = AsyncMock(return_value=MagicMock())
             mock_process.return_value = MagicMock()
             client = TestClient(app)
             client.post(
@@ -269,7 +269,7 @@ class TestGatewayAuthAndClientResolution:
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
             patch("luthien_proxy.gateway_routes.anthropic_client_cache") as mock_cache,
         ):
-            mock_cache.get_client.return_value = MagicMock()
+            mock_cache.get_client = AsyncMock(return_value=MagicMock())
             mock_process.return_value = MagicMock()
             client = TestClient(app, raise_server_exceptions=False)
             response = client.post(
@@ -294,7 +294,7 @@ class TestGatewayAuthAndClientResolution:
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
             patch("luthien_proxy.gateway_routes.anthropic_client_cache") as mock_cache,
         ):
-            mock_cache.get_client.return_value = MagicMock()
+            mock_cache.get_client = AsyncMock(return_value=MagicMock())
             mock_process.return_value = MagicMock()
             client = TestClient(app)
             client.post(
@@ -318,7 +318,7 @@ class TestGatewayAuthAndClientResolution:
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
             patch("luthien_proxy.gateway_routes.anthropic_client_cache") as mock_cache,
         ):
-            mock_cache.get_client.return_value = MagicMock()
+            mock_cache.get_client = AsyncMock(return_value=MagicMock())
             mock_process.return_value = MagicMock()
             client = TestClient(app)
             client.post(
@@ -341,7 +341,7 @@ class TestGatewayAuthAndClientResolution:
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
             patch("luthien_proxy.gateway_routes.anthropic_client_cache") as mock_cache,
         ):
-            mock_cache.get_client.return_value = MagicMock()
+            mock_cache.get_client = AsyncMock(return_value=MagicMock())
             mock_process.return_value = MagicMock()
             client = TestClient(app)
             client.post(
