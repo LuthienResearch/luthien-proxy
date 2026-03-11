@@ -558,4 +558,12 @@ class TestResolveStringAnnotation:
 
     def test_none_literal(self) -> None:
         result = _resolve_string_annotation("None", _DummyPolicyForAnnotation)
-        assert result is type(None) or result is None  # noqa: E721
+        assert result is None
+
+    def test_tuple_with_ellipsis(self) -> None:
+        result = _resolve_string_annotation("tuple[str, ...]", _DummyPolicyForAnnotation)
+        assert result == tuple[str, ...]
+
+    def test_multi_union(self) -> None:
+        result = _resolve_string_annotation("str | int | None", _DummyPolicyForAnnotation)
+        assert result == str | int | None
