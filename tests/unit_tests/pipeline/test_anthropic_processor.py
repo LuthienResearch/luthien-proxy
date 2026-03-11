@@ -1,5 +1,6 @@
 """Unit tests for the Anthropic-native pipeline processor module."""
 
+import logging
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1471,8 +1472,6 @@ class TestAnthropicClientDisconnectDetection:
 
         policy = _BackendStreamingPolicy()
 
-        import logging
-
         with caplog.at_level(logging.WARNING):
             response = await process_anthropic_request(
                 request=mock_request,
@@ -1484,6 +1483,183 @@ class TestAnthropicClientDisconnectDetection:
                 pass
 
         assert any("Client disconnected" in msg for msg in caplog.messages)
+
+    @pytest.mark.asyncio
+    async def test_streaming_disconnect_sets_span_attribute(self, mock_emitter):
+        """Client disconnect should set luthien.client_disconnected span attribute."""
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.method = "POST"
+        mock_request.url = MagicMock()
+        mock_request.url.path = "/v1/messages"
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        mock_request.is_disconnected = AsyncMock(return_value=True)
+
+        async def mock_stream(req, extra_headers=None):
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_span_test",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-sonnet-4-20250514",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
+
+        mock_client = MagicMock()
+        mock_client.stream = mock_stream
+
+        mock_response_span = MagicMock()
+
+        policy = _BackendStreamingPolicy()
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_response_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_request,
+                policy=policy,
+                anthropic_client=mock_client,
+                emitter=mock_emitter,
+            )
+            async for _ in response.body_iterator:
+                pass
+
+        mock_response_span.set_attribute.assert_any_call("luthien.client_disconnected", True)
+
+    @pytest.mark.asyncio
+    async def test_streaming_disconnect_records_status_499(self, mock_emitter):
+        """Client disconnect should record HTTP status 499."""
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.method = "POST"
+        mock_request.url = MagicMock()
+        mock_request.url.path = "/v1/messages"
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        mock_request.is_disconnected = AsyncMock(return_value=True)
+
+        async def mock_stream(req, extra_headers=None):
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_499_test",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-sonnet-4-20250514",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
+
+        mock_client = MagicMock()
+        mock_client.stream = mock_stream
+
+        mock_recorder = MagicMock()
+
+        policy = _BackendStreamingPolicy()
+        with (
+            patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer,
+            patch("luthien_proxy.pipeline.anthropic_processor.create_recorder", return_value=mock_recorder),
+        ):
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_request,
+                policy=policy,
+                anthropic_client=mock_client,
+                emitter=mock_emitter,
+            )
+            async for _ in response.body_iterator:
+                pass
+
+        mock_recorder.record_inbound_response.assert_called_once()
+        call_kwargs = mock_recorder.record_inbound_response.call_args
+        assert call_kwargs.kwargs.get("status") == 499
+
+    @pytest.mark.asyncio
+    async def test_streaming_disconnect_flags_stored_event(self, mock_emitter):
+        """Stored streaming event should include client_disconnected flag on disconnect."""
+        call_count = 0
+
+        async def is_disconnected():
+            nonlocal call_count
+            call_count += 1
+            return call_count > 2
+
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.method = "POST"
+        mock_request.url = MagicMock()
+        mock_request.url.path = "/v1/messages"
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        mock_request.is_disconnected = is_disconnected
+
+        async def mock_stream(req, extra_headers=None):
+            for _i in range(5):
+                yield RawMessageStartEvent(
+                    type="message_start",
+                    message={
+                        "id": "msg_flag_test",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [],
+                        "model": "claude-sonnet-4-20250514",
+                        "stop_reason": None,
+                        "stop_sequence": None,
+                        "usage": {"input_tokens": 0, "output_tokens": 0},
+                    },
+                )
+
+        mock_client = MagicMock()
+        mock_client.stream = mock_stream
+
+        policy = _BackendStreamingPolicy()
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_client,
+            emitter=mock_emitter,
+        )
+        async for _ in response.body_iterator:
+            pass
+
+        record_calls = [
+            call
+            for call in mock_emitter.record.call_args_list
+            if call.args[1] == "transaction.streaming_response_recorded"
+        ]
+        assert len(record_calls) == 1
+        event_payload = record_calls[0].args[2]
+        assert event_payload["client_disconnected"] is True
 
     @pytest.mark.asyncio
     async def test_normal_streaming_unaffected(self, mock_emitter):

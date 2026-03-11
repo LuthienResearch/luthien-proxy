@@ -599,16 +599,19 @@ async def _handle_execution_streaming(
                     reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
                     if reconstructed is not None:
                         raw_reconstructed = _reconstruct_response_from_stream_events(io._raw_backend_events)
+                        event_payload = {
+                            "original_response": dict(raw_reconstructed)
+                            if raw_reconstructed is not None
+                            else dict(reconstructed),
+                            "final_response": dict(reconstructed),
+                            "session_id": policy_ctx.session_id,
+                        }
+                        if client_disconnected:
+                            event_payload["client_disconnected"] = True
                         emitter.record(
                             call_id,
                             "transaction.streaming_response_recorded",
-                            {
-                                "original_response": dict(raw_reconstructed)
-                                if raw_reconstructed is not None
-                                else dict(reconstructed),
-                                "final_response": dict(reconstructed),
-                                "session_id": policy_ctx.session_id,
-                            },
+                            event_payload,
                         )
                     request_log_recorder.record_inbound_response(status=final_status)
                     request_log_recorder.record_outbound_response(status=final_status)

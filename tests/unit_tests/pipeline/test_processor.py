@@ -1,5 +1,6 @@
 """Unit tests for the pipeline processor module."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -411,8 +412,6 @@ class TestClientDisconnectDetection:
                 root_span=MagicMock(),
                 request_log_recorder=NoOpRequestLogRecorder(),
             )
-
-        import logging
 
         with caplog.at_level(logging.WARNING):
             async for _ in response.body_iterator:
