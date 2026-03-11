@@ -230,7 +230,6 @@ class TestHttpStatusToAnthropicErrorType:
 class TestHTTPExceptionAnthropicFormat:
     @pytest.fixture
     def app_with_handlers(self):
-
         from luthien_proxy.main import http_exception_handler
 
         app = FastAPI()
@@ -288,7 +287,6 @@ class TestHTTPExceptionAnthropicFormat:
         assert data == {"detail": "Unhealthy"}
 
     def test_anthropic_413_maps_to_invalid_request(self, client):
-
         from luthien_proxy.main import http_exception_handler
 
         app = FastAPI()
