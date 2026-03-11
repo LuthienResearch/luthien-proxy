@@ -280,15 +280,14 @@ async def test_streaming_backend_error_contains_error_signal(mock_anthropic: Moc
         found_error = False
         for data_line in data_lines:
             try:
-                payload = json.loads(data_line[len("data:"):].strip())
+                payload = json.loads(data_line[len("data:") :].strip())
                 if payload.get("type") == "error" and "error" in payload:
                     found_error = True
                     break
             except json.JSONDecodeError:
                 continue
         assert found_error, (
-            f"Expected SSE error event in stream (HTTP 200), but found none.\n"
-            f"Collected lines: {collected_lines}"
+            f"Expected SSE error event in stream (HTTP 200), but found none.\nCollected lines: {collected_lines}"
         )
 
 
@@ -319,9 +318,7 @@ async def test_invalid_api_key_returns_401(gateway_healthy):
             headers={"Authorization": "Bearer sk-this-is-not-a-valid-key"},
         )
 
-    assert response.status_code == 401, (
-        f"Expected 401 for invalid API key, got {response.status_code}: {response.text}"
-    )
+    assert response.status_code == 401, f"Expected 401 for invalid API key, got {response.status_code}: {response.text}"
 
 
 @pytest.mark.asyncio
@@ -336,9 +333,7 @@ async def test_missing_model_field_returns_400(gateway_healthy):
             headers=_HEADERS,
         )
 
-    assert response.status_code == 400, (
-        f"Expected 400 for missing 'model', got {response.status_code}: {response.text}"
-    )
+    assert response.status_code == 400, f"Expected 400 for missing 'model', got {response.status_code}: {response.text}"
 
 
 @pytest.mark.asyncio
