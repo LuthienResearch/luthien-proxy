@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
@@ -43,9 +42,7 @@ from litellm.types.utils import (
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policy_core import (
-    AnthropicExecutionInterface,
-    AnthropicPolicyEmission,
-    AnthropicPolicyIOProtocol,
+    AnthropicHookPolicy,
     BasePolicy,
     OpenAIPolicyInterface,
     create_finish_chunk,
@@ -61,7 +58,6 @@ if TYPE_CHECKING:
 
     from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
-        AnthropicRequest,
         AnthropicResponse,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -133,7 +129,7 @@ class DogfoodSafetyConfig(BaseModel):
     )
 
 
-class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
+class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
     """Fast pattern-matching policy that blocks self-destructive commands.
 
     Protects the proxy from being killed by the agent running through it.
@@ -258,10 +254,6 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
         current_chunk = ctx.original_streaming_response_state.raw_chunks[-1]
         ctx.egress_queue.put_nowait(current_chunk)
 
-    async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """No-op — content passes through without modification."""
-        pass
-
     async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
         """Buffer tool call deltas for later evaluation."""
         if not ctx.original_streaming_response_state.raw_chunks:
@@ -333,10 +325,6 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
         )
         await ctx.egress_queue.put(create_tool_call_chunk(tc_obj))
 
-    async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
-        """No-op — finish reason emitted in on_stream_complete."""
-        pass
-
     async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
         """Emit finish_reason for allowed tool call responses."""
         finish_reason = ctx.original_streaming_response_state.finish_reason
@@ -365,33 +353,8 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
         ctx.policy_ctx.pop_request_state(self, _DogfoodOpenAIState)
 
     # ========================================================================
-    # Anthropic execution interface
+    # Anthropic hooks (via AnthropicHookPolicy)
     # ========================================================================
-
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Run Anthropic request lifecycle for dogfood safety filtering."""
-
-        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
-            final_request = await self.on_anthropic_request(io.request, context)
-            io.set_request(final_request)
-
-            if final_request.get("stream", False):
-                async for event in io.stream(final_request):
-                    emitted_events = await self.on_anthropic_stream_event(event, context)
-                    for emitted_event in emitted_events:
-                        yield emitted_event
-                return
-
-            response = await io.complete(final_request)
-            yield await self.on_anthropic_response(response, context)
-
-        return _run()
-
-    async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
-        """Pass requests through unmodified."""
-        return request
 
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
@@ -510,10 +473,6 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
             ]
 
         return [event]
-
-    async def on_anthropic_stream_complete(self, context: "PolicyContext") -> None:
-        """No-op hook for parity with OpenAI lifecycle."""
-        pass
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up request-scoped Anthropic state."""

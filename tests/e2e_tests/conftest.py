@@ -9,10 +9,12 @@ This module provides common infrastructure for E2E tests including:
 import asyncio
 import os
 import shutil
+import time
 from contextlib import asynccontextmanager
 
 import httpx
 import pytest
+from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer  # type: ignore[import]
 
 # === Test Configuration ===
 
@@ -22,6 +24,34 @@ ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin
 
 
 # === Shared Fixtures ===
+
+
+@pytest.fixture(scope="session")
+def mock_anthropic():
+    """Session-scoped mock Anthropic server (runs in background thread).
+
+    Shared across all e2e test files. Use ``mock_anthropic.enqueue(response)``
+    before each test to control what the mock returns.
+
+    Requires gateway started with ANTHROPIC_BASE_URL=http://host.docker.internal:18888.
+    See docker-compose.mock.yaml.
+    """
+    server = MockAnthropicServer()
+    server.start()
+    yield server
+    server.stop()
+
+
+@pytest.fixture(autouse=True)
+def _reset_mock_server(mock_anthropic: MockAnthropicServer):
+    """Drain the mock queue and clear request history before each test.
+
+    Prevents queue contamination across tests caused by leftover enqueued items
+    or SDK retries consuming extra queue slots.
+    """
+    mock_anthropic.drain_queue()
+    mock_anthropic.clear_requests()
+    yield
 
 
 @pytest.fixture
@@ -91,8 +121,15 @@ async def set_policy(
     data = response.json()
     assert data.get("success"), f"Policy set failed: {data}"
 
-    # Brief pause to ensure policy is active
-    await asyncio.sleep(0.3)
+    # Poll until the policy is actually active (avoids fixed sleep fragility).
+    deadline = time.monotonic() + 5.0
+    while True:
+        current = await get_current_policy(client)
+        if policy_class_ref in (current.get("class_ref") or ""):
+            break
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"Policy {policy_class_ref!r} did not become active within 5 s; current: {current}")
+        await asyncio.sleep(0.05)
 
 
 async def get_current_policy(client: httpx.AsyncClient) -> dict:

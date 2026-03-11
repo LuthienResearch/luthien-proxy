@@ -13,6 +13,7 @@ import os
 
 import httpx
 import pytest
+from tests.conftest import DEFAULT_TEST_MODEL
 
 from luthien_proxy.policies.dogfood_safety_policy import DogfoodSafetyPolicy
 from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
@@ -245,7 +246,7 @@ async def test_dogfood_passes_safe_anthropic_request(http_client, proxy_headers,
         f"{GATEWAY_URL}/v1/messages",
         headers=proxy_headers,
         json={
-            "model": "claude-haiku-4-5",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello' and nothing else."}],
             "max_tokens": 10,
         },

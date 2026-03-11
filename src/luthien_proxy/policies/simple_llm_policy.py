@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
@@ -50,9 +49,7 @@ from luthien_proxy.policies.simple_llm_utils import (
     call_simple_llm_judge,
 )
 from luthien_proxy.policy_core import (
-    AnthropicExecutionInterface,
-    AnthropicPolicyEmission,
-    AnthropicPolicyIOProtocol,
+    AnthropicHookPolicy,
     BasePolicy,
     OpenAIPolicyInterface,
     create_finish_chunk,
@@ -71,7 +68,6 @@ if TYPE_CHECKING:
 
     from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
-        AnthropicRequest,
         AnthropicResponse,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -101,7 +97,7 @@ class _SimpleLLMOpenAIState:
     original_had_tool_use: bool = False
 
 
-class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
+class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
     """Policy that applies plain-English instructions to LLM response blocks.
 
     Each content block is evaluated by a judge LLM which can pass it through
@@ -312,18 +308,6 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
         """Suppress auto-forwarding; blocks are judged on completion."""
         pass
 
-    async def on_content_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """Suppress; content is buffered by StreamState."""
-        pass
-
-    async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """Suppress; tool calls are buffered by StreamState."""
-        pass
-
-    async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
-        """Suppress; handled by on_content_complete / on_stream_complete."""
-        pass
-
     async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
         """Judge completed content block and emit result."""
         block = ctx.original_streaming_response_state.just_completed
@@ -427,37 +411,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
                 await send_tool_call(ctx, tc)
 
     # ========================================================================
-    # Anthropic execution interface
+    # Anthropic hooks (via AnthropicHookPolicy)
     # ========================================================================
-
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Run Anthropic request lifecycle with block-level judging."""
-
-        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
-            final_request = await self.on_anthropic_request(io.request, context)
-            io.set_request(final_request)
-
-            if final_request.get("stream", False):
-                async for event in io.stream(final_request):
-                    emitted_events = await self.on_anthropic_stream_event(event, context)
-                    for emitted_event in emitted_events:
-                        yield emitted_event
-                return
-
-            response = await io.complete(final_request)
-            yield await self.on_anthropic_response(response, context)
-
-        return _run()
-
-    # ========================================================================
-    # Anthropic non-streaming
-    # ========================================================================
-
-    async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
-        """Pass through request unchanged."""
-        return request
 
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
@@ -668,10 +623,6 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInter
 
         events.append(cast(MessageStreamEvent, stop_event))
         return events
-
-    async def on_anthropic_stream_complete(self, context: "PolicyContext") -> None:
-        """No-op hook for parity with OpenAI lifecycle."""
-        pass
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up per-request Anthropic state."""

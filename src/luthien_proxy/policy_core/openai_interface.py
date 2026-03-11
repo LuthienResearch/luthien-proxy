@@ -72,83 +72,45 @@ class OpenAIPolicyInterface(ABC):
         """
         ...
 
-    @abstractmethod
     async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
         """Called on every chunk received from the LLM.
 
-        Args:
-            ctx: Streaming policy context with current chunk and accumulated state
+        Default: forwards the chunk to the client unchanged.
+        Override to filter, buffer, or transform individual chunks.
         """
-        ...
+        ctx.push_chunk(ctx.last_chunk_received)
 
-    @abstractmethod
     async def on_content_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """Called when a content delta is received.
+        """Called when a content delta is received. Default: no-op."""
+        pass
 
-        Args:
-            ctx: Streaming policy context with current chunk and accumulated state
-        """
-        ...
-
-    @abstractmethod
     async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Called when a content block completes.
+        """Called when a content block completes. Default: no-op."""
+        pass
 
-        Args:
-            ctx: Streaming policy context with completed content
-        """
-        ...
-
-    @abstractmethod
     async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """Called when a tool call delta is received.
+        """Called when a tool call delta is received. Default: no-op."""
+        pass
 
-        Args:
-            ctx: Streaming policy context with current chunk and accumulated state
-        """
-        ...
-
-    @abstractmethod
     async def on_tool_call_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Called when a tool call block completes.
+        """Called when a tool call block completes. Default: no-op."""
+        pass
 
-        Args:
-            ctx: Streaming policy context with completed tool call
-        """
-        ...
-
-    @abstractmethod
     async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
-        """Called when finish_reason is received.
+        """Called when finish_reason is received. Default: no-op."""
+        pass
 
-        Args:
-            ctx: Streaming policy context with finish reason
-        """
-        ...
-
-    @abstractmethod
     async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Called when stream completes.
+        """Called when stream completes. Default: no-op."""
+        pass
 
-        Args:
-            ctx: Streaming policy context with completed stream state
-        """
-        ...
-
-    @abstractmethod
     async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Called after all streaming policy processing completes for this request.
+        """Called after all streaming processing completes. Default: no-op.
 
-        This hook is guaranteed to run even if errors occurred during policy processing.
-        Common uses include cleaning up buffers, caches, or other per-request state.
-
-        IMPORTANT: This method should NOT emit any chunks or modify responses.
-        It is called after all response processing is complete.
-
-        Args:
-            ctx: The streaming policy context for this request.
+        Guaranteed to run even if errors occurred. Use for cleanup.
+        IMPORTANT: Should NOT emit chunks or modify responses.
         """
-        ...
+        pass
 
 
 __all__ = ["OpenAIPolicyInterface"]

@@ -36,6 +36,20 @@ class TestKnownSensitiveHeaders:
         assert result["Set-Cookie"] == "[REDACTED]"
 
 
+class TestAnthropicApiKeyHeader:
+    """Tests that x-anthropic-api-key is treated as sensitive."""
+
+    def test_x_anthropic_api_key_redacted(self):
+        headers = {"x-anthropic-api-key": "sk-ant-api03-realkey"}
+        result = sanitize_headers(headers)
+        assert result["x-anthropic-api-key"] == "[REDACTED]"
+
+    def test_x_anthropic_api_key_mixed_case_redacted(self):
+        headers = {"X-Anthropic-API-Key": "sk-ant-api03-realkey"}
+        result = sanitize_headers(headers)
+        assert result["X-Anthropic-API-Key"] == "[REDACTED]"
+
+
 class TestCaseInsensitivity:
     """Tests that header name matching is case-insensitive."""
 

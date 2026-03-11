@@ -529,6 +529,117 @@ class TestDebugLoggingPolicyAnthropicStreamEvent:
 
 
 # =============================================================================
+# Header Sanitization Tests
+# =============================================================================
+
+
+class TestDebugLoggingPolicyHeaderSanitization:
+    """Verify DebugLoggingPolicy redacts sensitive headers before logging and recording."""
+
+    @pytest.mark.asyncio
+    async def test_logged_headers_are_sanitized(self):
+        """Authorization header must not appear in log output."""
+        policy = DebugLoggingPolicy()
+
+        raw_request = RawHttpRequest(
+            method="POST",
+            path="/v1/chat/completions",
+            headers={
+                "Authorization": "Bearer sk-ant-api03-realkey",
+                "Content-Type": "application/json",
+            },
+            body={"model": "gpt-4", "messages": []},
+        )
+
+        request = Request(model="gpt-4", messages=[{"role": "user", "content": "Hello"}])
+        context = create_mock_policy_context(raw_http_request=raw_request)
+
+        with patch("luthien_proxy.policies.debug_logging_policy.logger") as mock_logger:
+            await policy.on_openai_request(request, context)
+
+        header_log_calls = [str(call) for call in mock_logger.info.call_args_list if "headers" in str(call).lower()]
+        for call in header_log_calls:
+            assert "sk-ant-api03-realkey" not in call
+            assert "[REDACTED]" in call
+
+    @pytest.mark.asyncio
+    async def test_recorded_event_headers_are_sanitized(self):
+        """Headers in recorded events must have sensitive values redacted."""
+        policy = DebugLoggingPolicy()
+
+        raw_request = RawHttpRequest(
+            method="POST",
+            path="/v1/chat/completions",
+            headers={
+                "Authorization": "Bearer sk-ant-api03-realkey",
+                "x-api-key": "sk-secret-key-12345678",
+                "Content-Type": "application/json",
+            },
+            body={"model": "gpt-4", "messages": []},
+        )
+
+        request = Request(model="gpt-4", messages=[{"role": "user", "content": "Hello"}])
+        context = create_mock_policy_context(raw_http_request=raw_request)
+
+        await policy.on_openai_request(request, context)
+
+        context.record_event.assert_called_once()
+        recorded_headers = context.record_event.call_args[0][1]["headers"]
+        assert recorded_headers["Authorization"] == "[REDACTED]"
+        assert recorded_headers["x-api-key"] == "[REDACTED]"
+        assert recorded_headers["Content-Type"] == "application/json"
+
+    @pytest.mark.asyncio
+    async def test_x_anthropic_api_key_redacted_in_event(self):
+        """x-anthropic-api-key must be redacted in recorded events."""
+        policy = DebugLoggingPolicy()
+
+        raw_request = RawHttpRequest(
+            method="POST",
+            path="/v1/messages",
+            headers={
+                "x-anthropic-api-key": "sk-ant-api03-mykey",
+                "Content-Type": "application/json",
+            },
+            body={"model": "claude-3", "messages": []},
+        )
+
+        request = Request(model="claude-3", messages=[{"role": "user", "content": "Hello"}])
+        context = create_mock_policy_context(raw_http_request=raw_request)
+
+        await policy.on_openai_request(request, context)
+
+        recorded_headers = context.record_event.call_args[0][1]["headers"]
+        assert recorded_headers["x-anthropic-api-key"] == "[REDACTED]"
+
+    @pytest.mark.asyncio
+    async def test_non_sensitive_headers_preserved(self):
+        """Non-sensitive headers must pass through unchanged."""
+        policy = DebugLoggingPolicy()
+
+        raw_request = RawHttpRequest(
+            method="POST",
+            path="/v1/chat/completions",
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Claude/1.0",
+                "Accept": "text/event-stream",
+            },
+            body={"model": "gpt-4", "messages": []},
+        )
+
+        request = Request(model="gpt-4", messages=[{"role": "user", "content": "Hello"}])
+        context = create_mock_policy_context(raw_http_request=raw_request)
+
+        await policy.on_openai_request(request, context)
+
+        recorded_headers = context.record_event.call_args[0][1]["headers"]
+        assert recorded_headers["Content-Type"] == "application/json"
+        assert recorded_headers["User-Agent"] == "Claude/1.0"
+        assert recorded_headers["Accept"] == "text/event-stream"
+
+
+# =============================================================================
 # Logging Output Tests
 # =============================================================================
 

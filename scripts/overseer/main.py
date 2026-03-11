@@ -15,6 +15,7 @@ import sys
 import time
 
 import anthropic
+from dotenv import load_dotenv
 from scripts.overseer.overseer_llm import analyze_turn
 from scripts.overseer.report_server import ReportServer
 from scripts.overseer.session_driver import SessionDriver
@@ -28,7 +29,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Overseer: monitor Claude Code through the proxy gateway")
     parser.add_argument("--task", required=True, help="Initial task prompt for Claude Code")
     parser.add_argument("--max-turns", type=int, default=20, help="Stop after N turns (default: 20)")
-    parser.add_argument("--timeout", type=int, default=600, help="Stop after N seconds total (default: 600)")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        help="Stop after N seconds total (default: max_turns * turn_timeout)",
+    )
     parser.add_argument("--port", type=int, default=8080, help="Report server port (default: 8080)")
     parser.add_argument("--model", default="claude-haiku-4-5-20251001", help="Overseer LLM model")
     parser.add_argument(
@@ -45,7 +51,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--compose-project", default=None, help="Docker Compose project name (default: from COMPOSE_PROJECT_NAME env)"
     )
-    return parser.parse_args(argv)
+    parsed = parser.parse_args(argv)
+    if parsed.timeout is None:
+        parsed.timeout = parsed.max_turns * parsed.turn_timeout
+    return parsed
 
 
 def ensure_sandbox_running(compose_project: str | None = None) -> None:
@@ -152,6 +161,7 @@ async def run_overseer(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    load_dotenv()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

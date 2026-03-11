@@ -282,6 +282,15 @@ if stream_state.finish_reason:
 - **Why not a content blocklist?**: The original fix (PR #133) used a blocklist of probe words. This required manual updates for each new probe. The structural `max_tokens` check catches all probes regardless of content.
 - **If this breaks again**: A probe with `max_tokens > 1` would bypass the filter. Check the actual `max_tokens` value in the DB for the offending request before changing the approach.
 
+## Docker Compose Stale Images Skip New Migrations (2026-03-06)
+
+**Gotcha**: `docker compose up -d` without `--build` reuses cached images. If migration files were added after the last image build, the migrations container won't have them and won't apply them. The gateway's Python-side migration check (`check_migrations`) won't catch this either — it compares `/app/migrations/` (baked into the equally stale gateway image) against the DB, so both sides are missing the same files and the check passes.
+
+- **Symptom**: 500 errors like `relation "request_logs" does not exist` after adding migration files
+- **Cause**: Migrations container built before new `.sql` files existed; `up` without `--build` reuses old image
+- **Fix**: `quick_start.sh` now uses `--build` on all `docker compose up` calls (PR #299)
+- **Manual fix**: `docker compose build migrations gateway` then `docker compose up -d`
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

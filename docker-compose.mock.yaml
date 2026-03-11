@@ -1,0 +1,18 @@
+# docker-compose override for mock-based e2e testing.
+#
+# Redirects the gateway's Anthropic backend to a mock server running on
+# the host machine at port 18888 (tests/e2e_tests/mock_anthropic/server.py).
+#
+# Usage:
+#   docker compose -f docker-compose.yaml -f docker-compose.mock.yaml up -d
+#   uv run pytest -m mock_e2e tests/e2e_tests/test_mock_*.py -v
+#
+# host.docker.internal resolves to the host machine from inside Docker
+# (works on Docker Desktop for Mac/Windows; on Linux add --add-host).
+
+services:
+  gateway:
+    environment:
+      - ANTHROPIC_BASE_URL=http://host.docker.internal:18888
+      # Use a dummy key — no real Anthropic calls are made
+      - ANTHROPIC_API_KEY=mock-key
