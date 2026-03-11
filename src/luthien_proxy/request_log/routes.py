@@ -58,7 +58,7 @@ async def list_logs(
             search=search,
         )
     except Exception as exc:
-        logger.error(f"Failed to list request logs: {exc}")
+        logger.error(f"Failed to list request logs: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -77,7 +77,7 @@ async def get_transaction(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Failed to get transaction logs for {transaction_id}: {exc}")
+        logger.error(f"Failed to get transaction logs for {transaction_id}: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
