@@ -26,7 +26,7 @@ def test_claude_sets_env_and_execs(tmp_path):
 def test_claude_fails_when_not_installed(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
-    config_path.write_text('[gateway]\nurl = "http://localhost:8000"\napi_key = "sk-test"\n')
+    config_path.write_text('[gateway]\nurl = "http://localhost:8000"\n')
     with (
         patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.claude.shutil.which", return_value=None),
