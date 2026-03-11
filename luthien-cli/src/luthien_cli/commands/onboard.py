@@ -14,7 +14,6 @@ from rich.panel import Panel
 from luthien_cli.commands.up import wait_for_healthy
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
 
-
 POLICY_TEMPLATE = """\
 policy:
   class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"

@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
-
 from luthien_cli.commands.onboard import (
     _ensure_env,
     _indent_instructions,
@@ -42,9 +41,7 @@ def test_ensure_env_creates_from_scratch(tmp_path):
 def test_ensure_env_updates_existing(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / ".env").write_text(
-        "PROXY_API_KEY=old-key\nADMIN_API_KEY=old-admin\nSOME_OTHER=value\n"
-    )
+    (repo / ".env").write_text("PROXY_API_KEY=old-key\nADMIN_API_KEY=old-admin\nSOME_OTHER=value\n")
     _ensure_env(str(repo), "sk-new-key", "admin-new-key")
     env_content = (repo / ".env").read_text()
     assert "PROXY_API_KEY=sk-new-key" in env_content
