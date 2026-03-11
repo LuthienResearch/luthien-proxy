@@ -171,7 +171,10 @@ def onboard():
                   luthien claude
 
                 [bold]Or manually:[/bold]
-                  ANTHROPIC_BASE_URL={gateway_url}/ ANTHROPIC_API_KEY={proxy_key} claude"""),
+                  ANTHROPIC_BASE_URL={gateway_url}/ ANTHROPIC_API_KEY={proxy_key} claude
+
+                [dim]Luthien sends anonymous usage data to help development.
+                To disable, set USAGE_TELEMETRY=false in .env and restart.[/dim]"""),
             title="Ready",
             border_style="green",
         )
