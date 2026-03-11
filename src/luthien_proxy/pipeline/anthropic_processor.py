@@ -757,8 +757,8 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
         logger.warning(f"[{call_id}] Mid-stream Anthropic connection error: {message}")
     else:
         error_type = "api_error"
-        message = str(e)
-        logger.warning(f"[{call_id}] Mid-stream error: {message}")
+        message = "An internal error occurred while processing the request."
+        logger.error(f"[{call_id}] Mid-stream error: {e}")
 
     return _StreamErrorEvent(
         type="error",

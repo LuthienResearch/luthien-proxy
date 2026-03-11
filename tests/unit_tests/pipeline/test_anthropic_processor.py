@@ -703,14 +703,15 @@ class TestBuildErrorEvent:
         assert event.get("error", {}).get("type") == "api_connection_error"
 
     def test_builds_generic_error_event(self):
-        """Test building error event from unknown exception type."""
+        """Generic exceptions produce a sanitized error event — internal details are not forwarded."""
         error = RuntimeError("Something went wrong")
 
         event = _build_error_event(error, "test-call-id")
 
         assert event.get("type") == "error"
         assert event.get("error", {}).get("type") == "api_error"
-        assert "Something went wrong" in event.get("error", {}).get("message", "")
+        # Raw exception message must not leak to clients
+        assert "Something went wrong" not in event.get("error", {}).get("message", "")
 
 
 class TestMidStreamErrorHandling:
@@ -1012,7 +1013,7 @@ class _GenericErrorPolicy(AnthropicExecutionInterface):
     def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
         async def _run() -> AsyncIterator[AnthropicResponse]:
             raise RuntimeError("policy logic failed unexpectedly")
-            if False:  # pragma: no cover - keeps generator typing explicit
+            if False:  # pragma: no cover - unreachable; keeps async generator typing explicit
                 yield {  # type: ignore[misc]
                     "id": "msg_unreachable",
                     "type": "message",
@@ -1335,6 +1336,45 @@ class TestExecutionPolicyRuntime:
         assert "policy logic failed" not in exc_info.value.message
 
     @pytest.mark.asyncio
+    async def test_streaming_generic_policy_exception_sanitizes_error_event(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Generic policy exceptions in streaming mode emit a sanitized SSE error event.
+
+        Raw exception messages must not be forwarded to the client — internal details
+        (stack traces, connection strings, etc.) should only appear in server logs.
+        """
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": DEFAULT_TEST_MODEL,
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        policy = _GenericErrorPolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        full_stream = "".join(chunks)
+
+        assert "event: error" in full_stream
+        # Internal exception message must not reach the client
+        assert "policy logic failed" not in full_stream
+
+    @pytest.mark.asyncio
     async def test_streaming_policy_emitting_full_response_yields_error_event(
         self,
         mock_request,
@@ -1365,7 +1405,8 @@ class TestExecutionPolicyRuntime:
             chunks.append(chunk)
         full_stream = "".join(chunks)
         assert "event: error" in full_stream
-        assert "must emit streaming events" in full_stream
+        # Internal error details must not leak to clients
+        assert "must emit streaming events" not in full_stream
 
     @pytest.mark.asyncio
     async def test_anthropic_beta_header_forwarded_to_upstream_client(
