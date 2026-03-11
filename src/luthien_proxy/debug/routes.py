@@ -60,7 +60,7 @@ async def get_call_events(
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Failed to fetch events for call {call_id}: {exc}")
+        logger.error(f"Failed to fetch events for call {call_id}: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -91,7 +91,7 @@ async def get_call_diff(
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Failed to compute diff for call {call_id}: {exc}")
+        logger.error(f"Failed to compute diff for call {call_id}: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -119,7 +119,7 @@ async def list_recent_calls(
     try:
         return await fetch_recent_calls(limit, db_pool)
     except Exception as exc:
-        logger.error(f"Failed to list recent calls: {exc}")
+        logger.error(f"Failed to list recent calls: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
