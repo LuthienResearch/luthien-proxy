@@ -21,6 +21,7 @@ from anthropic.types.raw_message_delta_event import Delta
 from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
+from luthien_proxy.utils.constants import ANTHROPIC_BACKEND_TIMEOUT_SECONDS
 
 
 @pytest.fixture
@@ -117,6 +118,19 @@ class TestAnthropicClientInit:
         """Constructing without api_key or auth_token raises ValueError."""
         with pytest.raises(ValueError, match="Either api_key or auth_token must be provided"):
             AnthropicClient()
+
+    def test_timeout_is_passed_to_sdk(self):
+        """AnthropicClient passes ANTHROPIC_BACKEND_TIMEOUT_SECONDS to the SDK.
+
+        Without this the SDK uses its own default (600s), but setting it
+        explicitly means we control the timeout and it raises APITimeoutError
+        (a subclass of APIConnectionError) which is handled as a 502.
+        """
+        with patch("anthropic.AsyncAnthropic") as MockAnthropic:
+            AnthropicClient(api_key="test-key")
+            call_kwargs = MockAnthropic.call_args.kwargs
+            assert "timeout" in call_kwargs, "timeout must be passed to AsyncAnthropic"
+            assert call_kwargs["timeout"] == ANTHROPIC_BACKEND_TIMEOUT_SECONDS
 
 
 class TestAnthropicClientComplete:

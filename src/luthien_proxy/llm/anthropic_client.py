@@ -7,6 +7,7 @@ import anthropic
 from opentelemetry import trace
 
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
+from luthien_proxy.utils.constants import ANTHROPIC_BACKEND_TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
     from anthropic.lib.streaming import MessageStreamEvent
@@ -49,7 +50,7 @@ class AnthropicClient:
             kwargs["default_headers"] = {"anthropic-beta": "oauth-2025-04-20"}
         if base_url:
             kwargs["base_url"] = base_url
-        self._client = anthropic.AsyncAnthropic(**kwargs)
+        self._client = anthropic.AsyncAnthropic(timeout=ANTHROPIC_BACKEND_TIMEOUT_SECONDS, **kwargs)
 
     def with_api_key(self, api_key: str) -> "AnthropicClient":
         """Create a new client with a different API key, preserving base_url."""

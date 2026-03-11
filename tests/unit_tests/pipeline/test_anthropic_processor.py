@@ -1006,6 +1006,27 @@ class _InvalidStreamingEmissionPolicy(AnthropicExecutionInterface):
         return _run()
 
 
+class _GenericErrorPolicy(AnthropicExecutionInterface):
+    """Execution policy that raises a generic (non-Anthropic) exception during emission."""
+
+    def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicResponse]:
+        async def _run() -> AsyncIterator[AnthropicResponse]:
+            raise RuntimeError("policy logic failed unexpectedly")
+            if False:  # pragma: no cover - keeps generator typing explicit
+                yield {  # type: ignore[misc]
+                    "id": "msg_unreachable",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-haiku-4-5",
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                }
+
+        return _run()
+
+
 class _FailingCompletePolicy(AnthropicExecutionInterface):
     """Execution policy that triggers an upstream complete() failure."""
 
@@ -1284,6 +1305,34 @@ class TestExecutionPolicyRuntime:
 
         assert exc_info.value.status_code == 500
         assert exc_info.value.error_type == "api_error"
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_generic_policy_exception_returns_500(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """Generic (non-Anthropic) policy exceptions in non-streaming mode raise BackendAPIError(500).
+
+        Previously, non-Anthropic exceptions propagated as raw exceptions, potentially
+        leaking internal details to the client. Now they are always caught and converted
+        to a safe 500 BackendAPIError.
+        """
+        policy = _GenericErrorPolicy()
+
+        with pytest.raises(BackendAPIError) as exc_info:
+            await process_anthropic_request(
+                request=mock_request,
+                policy=policy,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+            )
+
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.error_type == "api_error"
+        # Internal details must not be exposed
+        assert "policy logic failed" not in exc_info.value.message
 
     @pytest.mark.asyncio
     async def test_streaming_policy_emitting_full_response_yields_error_event(
