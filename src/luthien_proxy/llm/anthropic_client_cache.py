@@ -10,6 +10,7 @@ same credential reuse the existing client and its warm connection pool.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import OrderedDict
 from typing import Literal
@@ -22,13 +23,14 @@ logger = logging.getLogger(__name__)
 MAX_CACHE_SIZE = 64
 
 _cache: OrderedDict[str, AnthropicClient] = OrderedDict()
+_lock = asyncio.Lock()
 
 
 def _make_key(credential_hash: str, auth_type: str, base_url: str | None) -> str:
     return f"{credential_hash}:{auth_type}:{base_url or ''}"
 
 
-def get_client(
+async def get_client(
     credential: str,
     *,
     auth_type: Literal["api_key", "auth_token"],
@@ -41,20 +43,21 @@ def get_client(
     """
     key = _make_key(hash_credential(credential), auth_type, base_url)
 
-    if key in _cache:
-        _cache.move_to_end(key)
-        return _cache[key]
+    async with _lock:
+        if key in _cache:
+            _cache.move_to_end(key)
+            return _cache[key]
 
-    kwargs: dict[str, str | None] = {auth_type: credential, "base_url": base_url}
-    client = AnthropicClient(**kwargs)  # type: ignore[arg-type]
+        kwargs: dict[str, str | None] = {auth_type: credential, "base_url": base_url}
+        client = AnthropicClient(**kwargs)  # type: ignore[arg-type]
 
-    if len(_cache) >= MAX_CACHE_SIZE:
-        evicted_key, _ = _cache.popitem(last=False)
-        logger.debug(f"Evicted AnthropicClient from cache: {evicted_key[:32]}...")
+        if len(_cache) >= MAX_CACHE_SIZE:
+            evicted_key, _ = _cache.popitem(last=False)
+            logger.debug(f"Evicted AnthropicClient from cache: {evicted_key[:32]}...")
 
-    _cache[key] = client
-    logger.debug(f"Cached new AnthropicClient (cache_size={len(_cache)})")
-    return client
+        _cache[key] = client
+        logger.debug(f"Cached new AnthropicClient (cache_size={len(_cache)})")
+        return client
 
 
 def clear() -> int:
