@@ -120,14 +120,26 @@ def create_app(
         _llm_client = LiteLLMClient()
         logger.info("LLM client initialized")
 
-        # Create Anthropic client if API key is configured
+        # Create Anthropic client if API key is configured.
+        # When ANTHROPIC_API_KEY is blank, the proxy operates in OAuth passthrough mode:
+        # client credentials (Claude Pro/Max OAuth tokens) are forwarded directly to
+        # Anthropic so usage is billed against the client's subscription, not a server
+        # API key.  Both modes are fully functional; they differ only in billing.
         _anthropic_client: AnthropicClient | None = None
         anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
         if anthropic_api_key:
             _anthropic_client = AnthropicClient(api_key=anthropic_api_key)
-            logger.info("Anthropic client initialized")
+            logger.warning(
+                "Upstream auth mode: API key (direct billing) — "
+                "requests will be billed to the configured ANTHROPIC_API_KEY. "
+                "To use a Claude Pro/Max subscription instead, leave ANTHROPIC_API_KEY blank."
+            )
         else:
-            logger.info("ANTHROPIC_API_KEY not set - native Anthropic path disabled")
+            logger.info(
+                "Upstream auth mode: OAuth passthrough — "
+                "client credentials (Claude Pro/Max) will be forwarded to Anthropic. "
+                "No server-side API key billing."
+            )
 
         # Initialize CredentialManager for passthrough auth
         _credential_manager = CredentialManager(db_pool=db_pool, redis_client=redis_client)
@@ -229,9 +241,15 @@ def create_app(
 
     # Simple utility endpoints
     @app.get("/health")
-    async def health():
-        """Health check endpoint."""
-        return {"status": "healthy", "version": "2.0.0"}
+    async def health(request: Request):
+        """Health check endpoint.
+
+        Returns gateway status and upstream authentication mode so operators
+        can quickly verify whether API-key billing or OAuth passthrough is active.
+        """
+        deps = getattr(request.app.state, "dependencies", None)
+        upstream_auth = "api_key" if (deps and deps.anthropic_client is not None) else "oauth_passthrough"
+        return {"status": "healthy", "version": "2.0.0", "upstream_auth": upstream_auth}
 
     # Exception handler for backend API errors
     @app.exception_handler(BackendAPIError)

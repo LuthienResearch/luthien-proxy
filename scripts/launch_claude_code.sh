@@ -83,6 +83,25 @@ if [ "${USE_OAUTH}" = false ]; then
     echo -e "   • Proxy key:       ${PROXY_KEY:0:10}... (sent as x-api-key to the gateway)"
 fi
 echo ""
+
+# Warn loudly when in API key billing mode so users aren't surprised by charges.
+if [ "${USE_OAUTH}" = false ]; then
+    echo -e "${YELLOW}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║  ⚠  API KEY BILLING MODE                                ║${NC}"
+    echo -e "${YELLOW}║                                                          ║${NC}"
+    echo -e "${YELLOW}║  Every request will be billed to your Anthropic API      ║${NC}"
+    echo -e "${YELLOW}║  account (ANTHROPIC_API_KEY in .env).                    ║${NC}"
+    echo -e "${YELLOW}║                                                          ║${NC}"
+    echo -e "${YELLOW}║  To use Claude Pro/Max instead (no per-token charges):   ║${NC}"
+    echo -e "${YELLOW}║    1. Remove ANTHROPIC_API_KEY from .env                 ║${NC}"
+    echo -e "${YELLOW}║    2. Run: claude auth login                             ║${NC}"
+    echo -e "${YELLOW}║    3. Restart the gateway and relaunch                   ║${NC}"
+    echo -e "${YELLOW}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    read -r -p "Press Enter to continue with API billing, or Ctrl+C to abort: "
+    echo ""
+fi
+
 echo -e "${GREEN}🎯 Claude Code will now route through the gateway with policy enforcement${NC}"
 echo -e "${YELLOW}📊 Monitor requests at:${NC}"
 echo -e "   • Activity Monitor:  http://localhost:${GATEWAY_PORT_VAR}/activity/monitor"

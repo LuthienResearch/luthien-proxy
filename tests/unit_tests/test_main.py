@@ -224,6 +224,7 @@ class TestCreateApp:
             data = response.json()
             assert data["status"] == "healthy"
             assert data["version"] == "2.0.0"
+            assert data["upstream_auth"] in ("api_key", "oauth_passthrough")
 
     def test_create_app_root_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test root endpoint returns HTML landing page."""
