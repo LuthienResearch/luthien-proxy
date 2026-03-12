@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager
 import litellm
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.exceptions import HTTPException as FastAPIHTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
@@ -53,6 +55,67 @@ configure_logging()
 instrument_redis()
 
 logger = logging.getLogger(__name__)
+
+_HTTP_STATUS_TO_ANTHROPIC_ERROR_TYPE = {
+    400: "invalid_request_error",
+    401: "authentication_error",
+    403: "permission_error",
+    404: "not_found_error",
+    413: "invalid_request_error",
+    429: "rate_limit_error",
+    500: "api_error",
+    503: "overloaded_error",
+    529: "overloaded_error",
+}
+
+
+def http_status_to_anthropic_error_type(status_code: int) -> str:
+    """Map HTTP status code to Anthropic error type string."""
+    return _HTTP_STATUS_TO_ANTHROPIC_ERROR_TYPE.get(status_code, "api_error")
+
+
+async def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Format HTTPExceptions in Anthropic style for /v1/messages paths.
+
+    Note: exc is typed as Exception to satisfy Starlette's ExceptionHandler protocol,
+    but FastAPI guarantees it will be FastAPIHTTPException when registered for that type.
+    """
+    http_exc: FastAPIHTTPException = exc  # type: ignore[assignment]
+    if request.url.path.startswith("/v1/messages"):
+        error_type = http_status_to_anthropic_error_type(http_exc.status_code)
+        message = http_exc.detail if isinstance(http_exc.detail, str) else str(http_exc.detail)
+        content = {
+            "type": "error",
+            "error": {
+                "type": error_type,
+                "message": message,
+            },
+        }
+        return JSONResponse(status_code=http_exc.status_code, content=content)
+    return JSONResponse(
+        status_code=http_exc.status_code,
+        content={"detail": http_exc.detail},
+        headers=dict(http_exc.headers) if http_exc.headers else None,
+    )
+
+
+async def request_validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Format RequestValidationErrors in Anthropic style for /v1/messages paths.
+
+    Note: exc is typed as Exception to satisfy Starlette's ExceptionHandler protocol,
+    but FastAPI guarantees it will be RequestValidationError when registered for that type.
+    """
+    validation_exc: RequestValidationError = exc  # type: ignore[assignment]
+    if request.url.path.startswith("/v1/messages"):
+        content = {
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": str(validation_exc),
+            },
+        }
+        return JSONResponse(status_code=422, content=content)
+    return JSONResponse(status_code=422, content={"detail": validation_exc.errors()})
 
 
 def create_app(
@@ -232,6 +295,10 @@ def create_app(
     async def health():
         """Health check endpoint."""
         return {"status": "healthy", "version": "2.0.0"}
+
+    # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
+    app.add_exception_handler(FastAPIHTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, request_validation_error_handler)
 
     # Exception handler for backend API errors
     @app.exception_handler(BackendAPIError)
