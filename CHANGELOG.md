@@ -2,6 +2,13 @@
 
 ## Unreleased | TBA
 
+- **Billing mode visibility** (billing-mode-visibility): Surface upstream auth mode accurately in the UI and health endpoint
+  - `/health` now returns `auth_mode` (from credential manager) and `last_credential_type` / `last_credential_at` (Redis-tracked per-request)
+  - Activity monitor badge reflects actual credential used (OAuth vs API key) not just static config
+  - Launch script detects auth mode from gateway and warns only in `proxy_key` mode
+  - Fix OAuth passthrough: Anthropic SDK was sending server API key alongside bearer token; resolved by clearing `api_key` and using per-call `extra_headers` instead of `with_options`
+  - Fix OAuth credential pre-validation: `count_tokens` endpoint rejects claude.ai OAuth tokens; inconclusive results now pass through to let the real messages endpoint decide
+
 - Add automated Docker image publishing to GHCR (gateway, migrations, sandbox)
   - Multi-platform builds (linux/amd64, linux/arm64)
   - PR builds validate Dockerfiles without pushing

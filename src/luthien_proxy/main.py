@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -22,6 +23,7 @@ from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
+from luthien_proxy.gateway_routes import LAST_CRED_TYPE_KEY
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
 from luthien_proxy.llm.anthropic_client import AnthropicClient
@@ -183,19 +185,24 @@ def create_app(
         _llm_client = LiteLLMClient()
         logger.info("LLM client initialized")
 
-        # Create Anthropic client if API key is configured
+        # Create Anthropic client if API key is configured.
+        # Used as the server-side credential in proxy_key and both modes.
         _anthropic_client: AnthropicClient | None = None
         anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
         if anthropic_api_key:
             _anthropic_client = AnthropicClient(api_key=anthropic_api_key)
-            logger.info("Anthropic client initialized")
-        else:
-            logger.info("ANTHROPIC_API_KEY not set - native Anthropic path disabled")
 
         # Initialize CredentialManager for passthrough auth
         _credential_manager = CredentialManager(db_pool=db_pool, redis_client=redis_client)
         await _credential_manager.initialize(default_auth_mode=auth_mode)
-        logger.info(f"CredentialManager initialized: mode={_credential_manager.config.auth_mode.value}")
+
+        _resolved_mode = _credential_manager.config.auth_mode.value
+        if _resolved_mode == "proxy_key":
+            logger.warning("Upstream auth mode: proxy_key — all requests billed to server ANTHROPIC_API_KEY.")
+        elif _resolved_mode == "both":
+            logger.info("Upstream auth mode: both — uses client credentials when valid, falls back to server API key.")
+        else:
+            logger.info("Upstream auth mode: passthrough — client credentials forwarded directly to Anthropic.")
 
         # Check if request logging is enabled
         _enable_request_logging = get_settings().enable_request_logging
@@ -292,9 +299,36 @@ def create_app(
 
     # Simple utility endpoints
     @app.get("/health")
-    async def health():
-        """Health check endpoint."""
-        return {"status": "healthy", "version": "2.0.0"}
+    async def health(request: Request):
+        """Health check endpoint.
+
+        Returns gateway status, auth mode, and last observed credential type so
+        operators and the UI can surface billing mode warnings accurately.
+        """
+        deps = getattr(request.app.state, "dependencies", None)
+        auth_mode = None
+        if deps and deps.credential_manager:
+            auth_mode = deps.credential_manager.config.auth_mode.value
+
+        last_credential_type = None
+        last_credential_at = None
+        if deps and deps.redis_client:
+            try:
+                raw = await deps.redis_client.get(LAST_CRED_TYPE_KEY)
+                if raw:
+                    data = json.loads(raw)
+                    last_credential_type = data.get("type")
+                    last_credential_at = data.get("timestamp")
+            except Exception:
+                logger.debug("Failed to read last_credential_type from Redis", exc_info=True)
+
+        return {
+            "status": "healthy",
+            "version": "2.0.0",
+            "auth_mode": auth_mode,
+            "last_credential_type": last_credential_type,
+            "last_credential_at": last_credential_at,
+        }
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
     app.add_exception_handler(FastAPIHTTPException, http_exception_handler)

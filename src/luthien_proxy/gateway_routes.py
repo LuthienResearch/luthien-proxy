@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import secrets
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -33,6 +36,12 @@ from luthien_proxy.utils import db
 
 router = APIRouter(tags=["gateway"])
 security = HTTPBearer(auto_error=False)
+logger = logging.getLogger(__name__)
+
+# Redis key for tracking the most recently observed upstream credential type.
+# Read by /health to power the billing-mode badge in the UI.
+LAST_CRED_TYPE_KEY = "luthien:auth:last_credential_type"
+LAST_CRED_TYPE_TTL = 86400  # 24 hours
 
 
 # === AUTH ===
@@ -98,11 +107,25 @@ async def resolve_anthropic_client(
     auth_mode = credential_manager.config.auth_mode if credential_manager else AuthMode.PROXY_KEY
     base_url = base_client._base_url if base_client else None
 
+    async def _record_credential_type(cred_type: str) -> None:
+        """Best-effort write of observed credential type to Redis for /health visibility."""
+        if auth_mode == AuthMode.PROXY_KEY:
+            return  # proxy_key mode is surfaced statically via auth_mode; no need to record
+        redis = credential_manager._redis if credential_manager else None
+        if redis is None:
+            return
+        try:
+            payload = json.dumps({"type": cred_type, "timestamp": time.time()})
+            await redis.setex(LAST_CRED_TYPE_KEY, LAST_CRED_TYPE_TTL, payload)
+        except Exception:
+            logger.warning("Failed to record credential type to Redis", exc_info=True)
+
     # Explicit x-anthropic-api-key overrides upstream credential
     explicit_key = request.headers.get("x-anthropic-api-key")
     if explicit_key is not None:
         if not explicit_key.strip():
             raise HTTPException(status_code=401, detail="x-anthropic-api-key header is empty")
+        await _record_credential_type("client_api_key")
         return AnthropicClient(api_key=explicit_key, base_url=base_url)
 
     # Passthrough: forward the request credential to Anthropic
@@ -110,15 +133,18 @@ async def resolve_anthropic_client(
     use_passthrough = not matches_proxy_key or auth_mode == AuthMode.PASSTHROUGH
     if use_passthrough:
         if is_bearer and not is_anthropic_api_key(token):
+            await _record_credential_type("oauth")
             return AnthropicClient(auth_token=token, base_url=base_url)
+        await _record_credential_type("client_api_key")
         return AnthropicClient(api_key=token, base_url=base_url)
 
-    # Proxy key: use the server's configured client
+    # Proxy key fallback: use the server's configured client
     if base_client is None:
         raise HTTPException(
             status_code=500,
             detail="No Anthropic credentials available (set ANTHROPIC_API_KEY or use passthrough auth)",
         )
+    await _record_credential_type("proxy_key_fallback")
     return base_client
 
 
@@ -170,4 +196,4 @@ async def anthropic_messages(
     )
 
 
-__all__ = ["router"]
+__all__ = ["LAST_CRED_TYPE_KEY", "router"]

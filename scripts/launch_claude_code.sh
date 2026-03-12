@@ -22,6 +22,7 @@ fi
 
 # Source only the variables we need from .env
 if [ -f .env ]; then
+    export PROXY_API_KEY=$(grep -E '^PROXY_API_KEY=' .env | cut -d '=' -f2-)
     export GATEWAY_PORT=$(grep -E '^GATEWAY_PORT=' .env | cut -d '=' -f2-)
     export GATEWAY_HOST=$(grep -E '^GATEWAY_HOST=' .env | cut -d '=' -f2-)
 fi
@@ -54,12 +55,55 @@ echo -e "${GREEN}✅ gateway is running on port ${GATEWAY_PORT_VAR}${NC}"
 
 # Prepare gateway configuration for Claude Code
 # Note: Don't include /v1 in base URL - Anthropic SDK adds it automatically
+# Claude Code requires these to be set inline when launching to skip onboarding
+PROXY_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
 GATEWAY_URL="http://localhost:${GATEWAY_PORT_VAR}/"
+
+# Detect auth mode from /health endpoint:
+#   proxy_key — server always uses its own Anthropic API key; requests are billed to it.
+#   anything else — OAuth passthrough (Claude Pro/Max subscribers, no per-token charges).
+HEALTH_RESPONSE=$(curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health")
+AUTH_MODE=$(echo "$HEALTH_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('auth_mode',''))" 2>/dev/null)
+
+if [[ "${AUTH_MODE}" == "passthrough" ]]; then
+    AUTH_MODE_LABEL="Claude Max / OAuth passthrough"
+    USE_OAUTH=true
+elif [[ "${AUTH_MODE}" == "both" ]]; then
+    # In both mode, the gateway handles credential selection server-side.
+    # Default to OAuth; the gateway falls back to the proxy key if needed.
+    AUTH_MODE_LABEL="OAuth passthrough or API key fallback (both mode)"
+    USE_OAUTH=true
+else
+    # proxy_key: server always uses its API key.
+    AUTH_MODE_LABEL="API key (proxy_key mode)"
+    USE_OAUTH=false
+fi
 
 echo -e "${BLUE}📋 Gateway Configuration:${NC}"
 echo -e "   • Gateway URL:     ${GATEWAY_URL} (SDK will append /v1/messages)"
-echo -e "   • Auth mode:       passthrough (Claude Code's own credentials)"
+echo -e "   • Auth mode:       ${AUTH_MODE_LABEL}"
 echo ""
+
+# Warn loudly only in proxy_key mode where all requests are billed to the server key.
+if [[ "${AUTH_MODE}" == "proxy_key" ]]; then
+    echo -e "${YELLOW}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║  ⚠  API KEY BILLING MODE                                ║${NC}"
+    echo -e "${YELLOW}║                                                          ║${NC}"
+    echo -e "${YELLOW}║  Every request will be billed to your Anthropic API      ║${NC}"
+    echo -e "${YELLOW}║  account (ANTHROPIC_API_KEY in .env).                    ║${NC}"
+    echo -e "${YELLOW}║                                                          ║${NC}"
+    echo -e "${YELLOW}║  To use Claude Pro/Max instead (no per-token charges):   ║${NC}"
+    echo -e "${YELLOW}║    1. Remove ANTHROPIC_API_KEY from .env                 ║${NC}"
+    echo -e "${YELLOW}║    2. Run: claude auth login                             ║${NC}"
+    echo -e "${YELLOW}║    3. Restart the gateway and relaunch                   ║${NC}"
+    echo -e "${YELLOW}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    if [ "${LUTHIEN_SKIP_BILLING_CONFIRM:-}" != "1" ]; then
+        read -r -p "Press Enter to continue with API billing, or Ctrl+C to abort: "
+    fi
+    echo ""
+fi
+
 echo -e "${GREEN}🎯 Claude Code will now route through the gateway with policy enforcement${NC}"
 echo -e "${YELLOW}📊 Monitor requests at:${NC}"
 echo -e "   • Activity Monitor:  http://localhost:${GATEWAY_PORT_VAR}/activity/monitor"
@@ -77,9 +121,16 @@ if ! command -v claude &> /dev/null; then
     exit 1
 fi
 
-# Launch Claude Code with only ANTHROPIC_BASE_URL set.
-# Claude Code uses its own credentials (OAuth or API key); the gateway
-# passes them through to Anthropic upstream.
+# Launch Claude Code with proxy configuration.
+# Setting env vars inline ensures Claude Code picks them up at startup.
+#
+# API key mode: override ANTHROPIC_API_KEY with the proxy's own key so Claude Code
+#   authenticates to the proxy (not directly to Anthropic). The proxy uses the real
+#   ANTHROPIC_API_KEY from .env for the upstream call.
+#
+# OAuth mode: only set ANTHROPIC_BASE_URL. Claude Code uses its existing OAuth session
+#   and sends bearer tokens to the proxy, which forwards them to Anthropic.
+#   No server-side API key is needed.
 
 # You can add these env vars to change the default models used by Claude Code:
 # ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5"
@@ -87,6 +138,13 @@ fi
 # ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-3-5-haiku"
 # CLAUDE_CODE_SUBAGENT_MODEL="anthropic/claude-sonnet-4-5"
 # See https://docs.claude.com/en/docs/claude-code/settings#environment-variables
-env \
-  ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
-  claude "$@"
+if [ "${USE_OAUTH}" = false ]; then
+    env \
+      ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
+      ANTHROPIC_API_KEY="${PROXY_KEY}" \
+      claude "$@"
+else
+    env \
+      ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
+      claude "$@"
+fi

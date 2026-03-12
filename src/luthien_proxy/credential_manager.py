@@ -201,11 +201,13 @@ class CredentialManager:
             return cached.valid
 
         # Cache miss - validate against Anthropic API
+        is_oauth_bearer = is_bearer and not is_anthropic_api_key(credential)
         is_valid = await self._call_count_tokens(credential, is_bearer=is_bearer)
         if is_valid is None:
-            # Inconclusive (network error, unexpected status) -- don't cache,
-            # so the next request retries instead of locking out a valid key.
-            return False
+            # Inconclusive (network error, unexpected status, or OAuth bearer that
+            # count_tokens can't validate). For OAuth tokens, pass through and let
+            # Anthropic's messages endpoint decide. For API keys, block to be safe.
+            return is_oauth_bearer
         await self._cache_result(key_hash, is_valid)
         logger.info(f"Credential validated: hash={key_hash[:16]}... valid={is_valid}")
         return is_valid
@@ -352,6 +354,12 @@ class CredentialManager:
             if response.status_code == 200:
                 return True
             if response.status_code == 401:
+                if use_bearer_transport:
+                    # OAuth bearer tokens (e.g. from claude.ai) may be valid for the
+                    # messages endpoint but rejected by count_tokens. Treat as inconclusive
+                    # so the request is forwarded and Anthropic's real endpoint decides.
+                    logger.debug("count_tokens returned 401 for bearer token; treating as inconclusive")
+                    return None
                 return False
             logger.warning(f"Credential validation got unexpected status: {response.status_code}")
             return None

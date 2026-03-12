@@ -1,5 +1,6 @@
 """Unit tests for gateway routes - auth modes and client resolution."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -75,6 +76,8 @@ class TestGatewayAuthAndClientResolution:
             invalid_cache_ttl_seconds=300,
         )
         mock_credential_manager.validate_credential = AsyncMock(return_value=True)
+        mock_credential_manager._redis = AsyncMock()
+        mock_credential_manager._redis.setex = AsyncMock()
 
         mock_anthropic_policy = MagicMock(spec=AnthropicExecutionInterface)
 
@@ -369,3 +372,88 @@ class TestGatewayAuthAndClientResolution:
             headers={"Authorization": "Bearer test-proxy-key"},
         )
         assert response.status_code == 500
+
+    def test_passthrough_bearer_records_oauth_credential_type(self, mock_app):
+        """In passthrough mode with bearer token, redis.setex called with oauth type."""
+        app, _, credential_manager, _ = mock_app
+        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+
+        with (
+            patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
+            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+        ):
+            MockClient.return_value = MagicMock()
+            mock_process.return_value = MagicMock()
+            client = TestClient(app)
+            client.post(
+                "/v1/messages",
+                json={
+                    "model": DEFAULT_TEST_MODEL,
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 10,
+                },
+                headers={"Authorization": "Bearer my-oauth-token"},
+            )
+            credential_manager._redis.setex.assert_called_once()
+            call_args = credential_manager._redis.setex.call_args
+            key, ttl, payload = call_args[0]
+            assert key == "luthien:auth:last_credential_type"
+            payload_dict = json.loads(payload)
+            assert payload_dict["type"] == "oauth"
+            assert "timestamp" in payload_dict
+
+    def test_proxy_key_mode_does_not_record_credential_type(self, mock_app):
+        """In proxy_key mode, redis.setex is NOT called (recording skipped)."""
+        app, _, credential_manager, _ = mock_app
+        credential_manager.config.auth_mode = AuthMode.PROXY_KEY
+
+        with (
+            patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
+            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+        ):
+            MockClient.return_value = MagicMock()
+            mock_process.return_value = MagicMock()
+            client = TestClient(app)
+            client.post(
+                "/v1/messages",
+                json={
+                    "model": DEFAULT_TEST_MODEL,
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 10,
+                },
+                headers={"Authorization": "Bearer test-proxy-key"},
+            )
+            credential_manager._redis.setex.assert_not_called()
+
+    def test_x_anthropic_api_key_records_client_api_key_type(self, mock_app):
+        """When x-anthropic-api-key header provided, redis.setex called with client_api_key type."""
+        app, _, credential_manager, _ = mock_app
+        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+
+        with (
+            patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
+            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+        ):
+            MockClient.return_value = MagicMock()
+            mock_process.return_value = MagicMock()
+            client = TestClient(app)
+            response = client.post(
+                "/v1/messages",
+                json={
+                    "model": DEFAULT_TEST_MODEL,
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 10,
+                },
+                headers={
+                    "Authorization": "Bearer test-proxy-key",
+                    "x-anthropic-api-key": "sk-ant-client-key-123",
+                },
+            )
+            assert response.status_code == 200
+            credential_manager._redis.setex.assert_called_once()
+            call_args = credential_manager._redis.setex.call_args
+            key, ttl, payload = call_args[0]
+            assert key == "luthien:auth:last_credential_type"
+            payload_dict = json.loads(payload)
+            assert payload_dict["type"] == "client_api_key"
+            assert "timestamp" in payload_dict
