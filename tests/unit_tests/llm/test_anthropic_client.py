@@ -119,7 +119,6 @@ class TestAnthropicClientInit:
             AnthropicClient()
 
 
-
 class TestAnthropicClientComplete:
     """Test AnthropicClient.complete() method."""
 
