@@ -1,6 +1,7 @@
 """Tests for config module."""
 
 import pytest
+
 from luthien_cli.config import LuthienConfig, load_config, save_config
 
 

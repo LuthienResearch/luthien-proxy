@@ -2,6 +2,7 @@
 
 import httpx
 import pytest
+
 from luthien_cli.gateway_client import GatewayClient, GatewayError
 
 
