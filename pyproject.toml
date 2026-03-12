@@ -62,7 +62,7 @@ ignore = []
 extend-ignore = [
     "E501",  # line too long (handled by formatter)
 ]
-per-file-ignores = { "migrations/**" = ["ALL"], "scripts/**" = ["D"], "tests/**" = ["D", "PLC0415"], "tests/unit_tests/test_saas_infra/**" = ["D", "PLC0415", "E402"], "luthien-cli/**" = ["D", "E402", "PLC0415"] }
+per-file-ignores = { "migrations/**" = ["ALL"], "scripts/**" = ["D"], "tests/**" = ["D", "PLC0415"], "tests/unit_tests/test_saas_infra/**" = ["D", "PLC0415", "E402"], "src/luthien_cli/**" = ["D", "E402", "PLC0415"] }
 
 [tool.ruff.format]
 quote-style = "double"

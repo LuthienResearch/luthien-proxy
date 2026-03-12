@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
+
 from luthien_cli.commands.onboard import (
     _ensure_env,
     _indent_instructions,
