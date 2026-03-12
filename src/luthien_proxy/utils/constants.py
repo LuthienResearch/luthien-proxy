@@ -56,16 +56,6 @@ DEFAULT_LLM_MAX_TOKENS = 1024
 QUEUE_PUT_TIMEOUT_SECONDS = 30.0
 
 # ------------------------------------------------------------------------------
-# Backend Timeouts
-# ------------------------------------------------------------------------------
-
-# Maximum time (in seconds) to wait for a response from the Anthropic backend.
-# Without this, the gateway can hang indefinitely if the backend is unresponsive.
-# APITimeoutError (subclass of APIConnectionError) is raised when exceeded,
-# which is handled by _handle_anthropic_error() as a 502 api_connection_error.
-ANTHROPIC_BACKEND_TIMEOUT_SECONDS = 600.0
-
-# ------------------------------------------------------------------------------
 # Request Limits
 # ------------------------------------------------------------------------------
 
