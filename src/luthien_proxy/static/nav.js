@@ -51,7 +51,8 @@ document.addEventListener('alpine:init', () => {
                 }
             };
             await updateBadge();
-            setInterval(updateBadge, 30000);
+            const intervalId = setInterval(updateBadge, 30000);
+            this.$cleanup(() => clearInterval(intervalId));
         },
         isActive(href) {
             if (href === '/') return this.currentPath === '/';
