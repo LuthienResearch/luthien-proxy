@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import subprocess
 import textwrap
@@ -61,9 +62,6 @@ def _ensure_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
     }
 
     for key, value in overrides.items():
-        # Replace existing line (commented or not) or append
-        import re
-
         pattern = rf"^#?\s*{key}=.*$"
         replacement = f"{key}={value}"
         new_content, count = re.subn(pattern, replacement, env_content, flags=re.MULTILINE)
@@ -107,6 +105,13 @@ def onboard():
     # 1. Repo path
     if not config.repo_path:
         config.repo_path = click.prompt("Path to luthien-proxy repo", type=str)
+
+    if not os.path.isfile(os.path.join(config.repo_path, "docker-compose.yaml")):
+        console.print(
+            f"[red]No docker-compose.yaml found in {config.repo_path}.[/red]\n"
+            "[red]Is this a luthien-proxy checkout?[/red]"
+        )
+        raise SystemExit(1)
 
     # 2. Generate keys
     proxy_key = _generate_key("sk-luthien")

@@ -70,11 +70,31 @@ def test_ensure_env_falls_back_to_example(tmp_path):
     assert "AUTH_MODE=both" in env_content
 
 
+def _make_repo(tmp_path, name="repo"):
+    """Create a fake luthien-proxy repo directory with docker-compose.yaml."""
+    repo_path = tmp_path / name
+    repo_path.mkdir()
+    (repo_path / "docker-compose.yaml").touch()
+    return repo_path
+
+
+def test_onboard_rejects_invalid_repo(tmp_path):
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    bad_path = tmp_path / "not-a-repo"
+    bad_path.mkdir()
+
+    with patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path):
+        result = runner.invoke(cli, ["onboard"], input=f"{bad_path}\n")
+
+    assert result.exit_code != 0
+    assert "docker-compose.yaml" in result.output
+
+
 def test_onboard_full_flow(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
-    repo_path = tmp_path / "repo"
-    repo_path.mkdir()
+    repo_path = _make_repo(tmp_path)
     (repo_path / ".env.example").write_text("PROXY_API_KEY=placeholder\n")
 
     with (
@@ -105,8 +125,7 @@ def test_onboard_full_flow(tmp_path):
 def test_onboard_docker_failure(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
-    repo_path = tmp_path / "repo"
-    repo_path.mkdir()
+    repo_path = _make_repo(tmp_path)
 
     with (
         patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
@@ -126,8 +145,7 @@ def test_onboard_docker_failure(tmp_path):
 def test_onboard_gateway_unhealthy(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
-    repo_path = tmp_path / "repo"
-    repo_path.mkdir()
+    repo_path = _make_repo(tmp_path)
 
     with (
         patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
