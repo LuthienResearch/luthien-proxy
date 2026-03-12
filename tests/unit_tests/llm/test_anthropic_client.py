@@ -118,6 +118,17 @@ class TestAnthropicClientInit:
         with pytest.raises(ValueError, match="Either api_key or auth_token must be provided"):
             AnthropicClient()
 
+    def test_auth_token_clears_api_key(self):
+        """When using auth_token, _client.api_key must be None to prevent SDK env-read."""
+        client = AnthropicClient(auth_token="oauth-token")
+        assert client._client.api_key is None
+
+    def test_api_key_preserved_when_not_using_auth_token(self):
+        """When using api_key, _client.api_key should be preserved, not None."""
+        client = AnthropicClient(api_key="test-api-key")
+        assert client._client.api_key is not None
+        assert client._client.api_key == "test-api-key"
+
 
 class TestAnthropicClientComplete:
     """Test AnthropicClient.complete() method."""
