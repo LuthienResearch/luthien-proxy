@@ -262,6 +262,22 @@ class TestCreateApp:
             response = client.get("/health")
             assert response.json()["auth_mode"] == "both"
 
+    def test_create_app_health_endpoint_passthrough_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Health endpoint reports auth_mode=passthrough when configured."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+            auth_mode=AuthMode.PASSTHROUGH,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/health")
+            assert response.json()["auth_mode"] == "passthrough"
+
     def test_create_app_root_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test root endpoint returns HTML landing page."""
         app = create_app(

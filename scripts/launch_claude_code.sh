@@ -69,15 +69,10 @@ if [[ "${AUTH_MODE}" == "passthrough" ]]; then
     AUTH_MODE_LABEL="Claude Max / OAuth passthrough"
     USE_OAUTH=true
 elif [[ "${AUTH_MODE}" == "both" ]]; then
-    # In both mode, prefer OAuth if the user has an active Claude Code session.
-    # Fall back to proxy key path if not logged in.
-    if claude auth status 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('loggedIn') else 1)" 2>/dev/null; then
-        AUTH_MODE_LABEL="Claude Max / OAuth passthrough (both mode)"
-        USE_OAUTH=true
-    else
-        AUTH_MODE_LABEL="API key fallback (both mode, no OAuth session)"
-        USE_OAUTH=false
-    fi
+    # In both mode, the gateway handles credential selection server-side.
+    # Default to OAuth; the gateway falls back to the proxy key if needed.
+    AUTH_MODE_LABEL="OAuth passthrough or API key fallback (both mode)"
+    USE_OAUTH=true
 else
     # proxy_key: server always uses its API key.
     AUTH_MODE_LABEL="API key (proxy_key mode)"
@@ -103,7 +98,9 @@ if [[ "${AUTH_MODE}" == "proxy_key" ]]; then
     echo -e "${YELLOW}║    3. Restart the gateway and relaunch                   ║${NC}"
     echo -e "${YELLOW}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    read -r -p "Press Enter to continue with API billing, or Ctrl+C to abort: "
+    if [ "${LUTHIEN_SKIP_BILLING_CONFIRM:-}" != "1" ]; then
+        read -r -p "Press Enter to continue with API billing, or Ctrl+C to abort: "
+    fi
     echo ""
 fi
 
