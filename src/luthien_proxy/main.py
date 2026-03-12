@@ -23,7 +23,7 @@ from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
-from luthien_proxy.gateway_routes import _LAST_CRED_TYPE_KEY
+from luthien_proxy.gateway_routes import LAST_CRED_TYPE_KEY
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
 from luthien_proxy.llm.anthropic_client import AnthropicClient
@@ -314,13 +314,13 @@ def create_app(
         last_credential_at = None
         if deps and deps.redis_client:
             try:
-                raw = await deps.redis_client.get(_LAST_CRED_TYPE_KEY)
+                raw = await deps.redis_client.get(LAST_CRED_TYPE_KEY)
                 if raw:
                     data = json.loads(raw)
                     last_credential_type = data.get("type")
                     last_credential_at = data.get("timestamp")
             except Exception:
-                pass
+                logger.debug("Failed to read last_credential_type from Redis", exc_info=True)
 
         return {
             "status": "healthy",

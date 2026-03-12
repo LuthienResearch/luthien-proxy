@@ -40,8 +40,8 @@ logger = logging.getLogger(__name__)
 
 # Redis key for tracking the most recently observed upstream credential type.
 # Read by /health to power the billing-mode badge in the UI.
-_LAST_CRED_TYPE_KEY = "luthien:auth:last_credential_type"
-_LAST_CRED_TYPE_TTL = 86400  # 24 hours
+LAST_CRED_TYPE_KEY = "luthien:auth:last_credential_type"
+LAST_CRED_TYPE_TTL = 86400  # 24 hours
 
 
 # === AUTH ===
@@ -116,7 +116,7 @@ async def resolve_anthropic_client(
             return
         try:
             payload = json.dumps({"type": cred_type, "timestamp": time.time()})
-            await redis.setex(_LAST_CRED_TYPE_KEY, _LAST_CRED_TYPE_TTL, payload)
+            await redis.setex(LAST_CRED_TYPE_KEY, LAST_CRED_TYPE_TTL, payload)
         except Exception:
             logger.warning("Failed to record credential type to Redis", exc_info=True)
 
@@ -196,4 +196,4 @@ async def anthropic_messages(
     )
 
 
-__all__ = ["router"]
+__all__ = ["LAST_CRED_TYPE_KEY", "router"]
