@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
+from luthien_proxy.credential_manager import AuthMode
 from luthien_proxy.main import connect_db, connect_redis, create_app, load_config_from_env
 
 
@@ -209,7 +210,8 @@ class TestCreateApp:
         assert "/v1/messages" in routes or any("/v1/messages" in str(r) for r in routes if r)
 
     def test_create_app_health_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Test health endpoint returns correct response."""
+        """Test health endpoint returns correct response shape."""
+        mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",
             admin_key=None,
@@ -224,7 +226,41 @@ class TestCreateApp:
             data = response.json()
             assert data["status"] == "healthy"
             assert data["version"] == "2.0.0"
-            assert data["upstream_auth"] in ("api_key", "oauth_passthrough")
+            assert data["auth_mode"] in ("proxy_key", "both", "passthrough", None)
+            assert "last_credential_type" in data
+            assert "last_credential_at" in data
+
+    def test_create_app_health_endpoint_proxy_key_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Health endpoint reports auth_mode=proxy_key when configured."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+            auth_mode=AuthMode.PROXY_KEY,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/health")
+            assert response.json()["auth_mode"] == "proxy_key"
+
+    def test_create_app_health_endpoint_both_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Health endpoint reports auth_mode=both when configured."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+            auth_mode=AuthMode.BOTH,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/health")
+            assert response.json()["auth_mode"] == "both"
 
     def test_create_app_root_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test root endpoint returns HTML landing page."""

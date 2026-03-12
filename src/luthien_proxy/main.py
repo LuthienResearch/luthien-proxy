@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -20,6 +21,7 @@ from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
+from luthien_proxy.gateway_routes import _LAST_CRED_TYPE_KEY
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
 from luthien_proxy.llm.anthropic_client import AnthropicClient
@@ -121,30 +123,23 @@ def create_app(
         logger.info("LLM client initialized")
 
         # Create Anthropic client if API key is configured.
-        # When ANTHROPIC_API_KEY is blank, the proxy operates in OAuth passthrough mode:
-        # client credentials (Claude Pro/Max OAuth tokens) are forwarded directly to
-        # Anthropic so usage is billed against the client's subscription, not a server
-        # API key.  Both modes are fully functional; they differ only in billing.
+        # Used as the server-side credential in proxy_key and both modes.
         _anthropic_client: AnthropicClient | None = None
         anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
         if anthropic_api_key:
             _anthropic_client = AnthropicClient(api_key=anthropic_api_key)
-            logger.warning(
-                "Upstream auth mode: API key (direct billing) — "
-                "requests will be billed to the configured ANTHROPIC_API_KEY. "
-                "To use a Claude Pro/Max subscription instead, leave ANTHROPIC_API_KEY blank."
-            )
-        else:
-            logger.info(
-                "Upstream auth mode: OAuth passthrough — "
-                "client credentials (Claude Pro/Max) will be forwarded to Anthropic. "
-                "No server-side API key billing."
-            )
 
         # Initialize CredentialManager for passthrough auth
         _credential_manager = CredentialManager(db_pool=db_pool, redis_client=redis_client)
         await _credential_manager.initialize(default_auth_mode=auth_mode)
-        logger.info(f"CredentialManager initialized: mode={_credential_manager.config.auth_mode.value}")
+
+        _resolved_mode = _credential_manager.config.auth_mode.value
+        if _resolved_mode == "proxy_key":
+            logger.warning("Upstream auth mode: proxy_key — all requests billed to server ANTHROPIC_API_KEY.")
+        elif _resolved_mode == "both":
+            logger.info("Upstream auth mode: both — uses client credentials when valid, falls back to server API key.")
+        else:
+            logger.info("Upstream auth mode: passthrough — client credentials forwarded directly to Anthropic.")
 
         # Check if request logging is enabled
         _enable_request_logging = get_settings().enable_request_logging
@@ -244,12 +239,33 @@ def create_app(
     async def health(request: Request):
         """Health check endpoint.
 
-        Returns gateway status and upstream authentication mode so operators
-        can quickly verify whether API-key billing or OAuth passthrough is active.
+        Returns gateway status, auth mode, and last observed credential type so
+        operators and the UI can surface billing mode warnings accurately.
         """
         deps = getattr(request.app.state, "dependencies", None)
-        upstream_auth = "api_key" if (deps and deps.anthropic_client is not None) else "oauth_passthrough"
-        return {"status": "healthy", "version": "2.0.0", "upstream_auth": upstream_auth}
+        auth_mode = None
+        if deps and deps.credential_manager:
+            auth_mode = deps.credential_manager.config.auth_mode.value
+
+        last_credential_type = None
+        last_credential_at = None
+        if deps and deps.redis_client:
+            try:
+                raw = await deps.redis_client.get(_LAST_CRED_TYPE_KEY)
+                if raw:
+                    data = json.loads(raw)
+                    last_credential_type = data.get("type")
+                    last_credential_at = data.get("timestamp")
+            except Exception:
+                pass
+
+        return {
+            "status": "healthy",
+            "version": "2.0.0",
+            "auth_mode": auth_mode,
+            "last_credential_type": last_credential_type,
+            "last_credential_at": last_credential_at,
+        }
 
     # Exception handler for backend API errors
     @app.exception_handler(BackendAPIError)

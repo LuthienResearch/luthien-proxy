@@ -50,6 +50,10 @@ class AnthropicClient:
         if base_url:
             kwargs["base_url"] = base_url
         self._client = anthropic.AsyncAnthropic(**kwargs)
+        if auth_token is not None:
+            # The SDK reads ANTHROPIC_API_KEY from the environment and sends it as
+            # x-api-key alongside the bearer token. Clear it so only bearer auth is sent.
+            self._client.api_key = None
 
     def with_api_key(self, api_key: str) -> "AnthropicClient":
         """Create a new client with a different API key, preserving base_url."""
@@ -131,10 +135,9 @@ class AnthropicClient:
             span.set_attribute("llm.stream", False)
 
             kwargs = self._prepare_request_kwargs(request)
-            client: anthropic.AsyncAnthropic = (
-                self._client.with_options(default_headers=extra_headers) if extra_headers else self._client
-            )
-            message = await client.messages.create(**kwargs)
+            if extra_headers:
+                kwargs["extra_headers"] = extra_headers
+            message = await self._client.messages.create(**kwargs)
             return self._message_to_response(message)
 
     async def stream(
@@ -154,10 +157,9 @@ class AnthropicClient:
             span.set_attribute("llm.stream", True)
 
             kwargs = self._prepare_request_kwargs(request)
-            client: anthropic.AsyncAnthropic = (
-                self._client.with_options(default_headers=extra_headers) if extra_headers else self._client
-            )
-            async with client.messages.stream(**kwargs) as stream:
+            if extra_headers:
+                kwargs["extra_headers"] = extra_headers
+            async with self._client.messages.stream(**kwargs) as stream:
                 async for event in stream:
                     yield event  # type: ignore[misc]
 

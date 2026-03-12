@@ -75,6 +75,8 @@ class TestGatewayAuthAndClientResolution:
             invalid_cache_ttl_seconds=300,
         )
         mock_credential_manager.validate_credential = AsyncMock(return_value=True)
+        mock_credential_manager._redis = AsyncMock()
+        mock_credential_manager._redis.setex = AsyncMock()
 
         mock_anthropic_policy = MagicMock(spec=AnthropicExecutionInterface)
 

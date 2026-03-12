@@ -25,8 +25,6 @@ if [ -f .env ]; then
     export PROXY_API_KEY=$(grep -E '^PROXY_API_KEY=' .env | cut -d '=' -f2-)
     export GATEWAY_PORT=$(grep -E '^GATEWAY_PORT=' .env | cut -d '=' -f2-)
     export GATEWAY_HOST=$(grep -E '^GATEWAY_HOST=' .env | cut -d '=' -f2-)
-    # Read the upstream Anthropic key so we can detect Claude Max / OAuth mode below
-    ANTHROPIC_API_KEY_ENV=$(grep -E '^ANTHROPIC_API_KEY=' .env | cut -d '=' -f2-)
 fi
 
 # Check if gateway is running
@@ -61,19 +59,29 @@ echo -e "${GREEN}✅ gateway is running on port ${GATEWAY_PORT_VAR}${NC}"
 PROXY_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
 GATEWAY_URL="http://localhost:${GATEWAY_PORT_VAR}/"
 
-# Detect auth mode:
-#   API key mode  — ANTHROPIC_API_KEY in .env starts with "sk-ant-api" (real key present).
-#                   Claude Code authenticates to the proxy with PROXY_API_KEY; the proxy
-#                   uses its own server-side key to call Anthropic upstream.
-#   OAuth mode    — No real Anthropic API key in .env (Claude Pro/Max subscribers).
-#                   Claude Code uses its existing login session; the proxy forwards the
-#                   OAuth bearer token to Anthropic (AUTH_MODE=both, the default).
-if [[ "${ANTHROPIC_API_KEY_ENV}" == sk-ant-api* ]]; then
-    AUTH_MODE_LABEL="API key"
-    USE_OAUTH=false
-else
-    AUTH_MODE_LABEL="Claude Max/OAuth passthrough"
+# Detect auth mode from /health endpoint:
+#   proxy_key — server always uses its own Anthropic API key; requests are billed to it.
+#   anything else — OAuth passthrough (Claude Pro/Max subscribers, no per-token charges).
+HEALTH_RESPONSE=$(curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health")
+AUTH_MODE=$(echo "$HEALTH_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('auth_mode',''))" 2>/dev/null)
+
+if [[ "${AUTH_MODE}" == "passthrough" ]]; then
+    AUTH_MODE_LABEL="Claude Max / OAuth passthrough"
     USE_OAUTH=true
+elif [[ "${AUTH_MODE}" == "both" ]]; then
+    # In both mode, prefer OAuth if the user has an active Claude Code session.
+    # Fall back to proxy key path if not logged in.
+    if claude auth status 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('loggedIn') else 1)" 2>/dev/null; then
+        AUTH_MODE_LABEL="Claude Max / OAuth passthrough (both mode)"
+        USE_OAUTH=true
+    else
+        AUTH_MODE_LABEL="API key fallback (both mode, no OAuth session)"
+        USE_OAUTH=false
+    fi
+else
+    # proxy_key: server always uses its API key.
+    AUTH_MODE_LABEL="API key (proxy_key mode)"
+    USE_OAUTH=false
 fi
 
 echo -e "${BLUE}📋 Gateway Configuration:${NC}"
@@ -84,8 +92,8 @@ if [ "${USE_OAUTH}" = false ]; then
 fi
 echo ""
 
-# Warn loudly when in API key billing mode so users aren't surprised by charges.
-if [ "${USE_OAUTH}" = false ]; then
+# Warn loudly only in proxy_key mode where all requests are billed to the server key.
+if [[ "${AUTH_MODE}" == "proxy_key" ]]; then
     echo -e "${YELLOW}╔══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${YELLOW}║  ⚠  API KEY BILLING MODE                                ║${NC}"
     echo -e "${YELLOW}║                                                          ║${NC}"
