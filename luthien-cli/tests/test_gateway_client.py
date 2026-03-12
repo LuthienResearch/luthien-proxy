@@ -9,7 +9,6 @@ from luthien_cli.gateway_client import GatewayClient, GatewayError
 def client():
     return GatewayClient(
         base_url="http://localhost:8000",
-        api_key="sk-test",
         admin_key="admin-test",
     )
 

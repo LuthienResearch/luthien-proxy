@@ -31,6 +31,10 @@ def claude(claude_args: tuple[str, ...]):
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = gateway_url
 
-    console.print(f"[blue]Routing Claude Code through {config.gateway_url}[/blue]")
+    if config.api_key:
+        env["ANTHROPIC_API_KEY"] = config.api_key
+        console.print(f"[blue]Routing Claude Code through {config.gateway_url} (proxy API key)[/blue]")
+    else:
+        console.print(f"[blue]Routing Claude Code through {config.gateway_url} (passthrough auth)[/blue]")
 
     os.execvpe("claude", ["claude", *claude_args], env)

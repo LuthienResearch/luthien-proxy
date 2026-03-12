@@ -14,9 +14,8 @@ class GatewayError(Exception):
 class GatewayClient:
     """Thin HTTP client for gateway admin/health APIs."""
 
-    def __init__(self, base_url: str, api_key: str | None = None, admin_key: str | None = None):
+    def __init__(self, base_url: str, admin_key: str | None = None):
         self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
         self.admin_key = admin_key
 
     def _admin_headers(self) -> dict[str, str]:
