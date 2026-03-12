@@ -1,13 +1,11 @@
-# Luthien <!-- README v10 -->
+# Luthien <!-- README v10.7 -->
 
-### Let Claude Code code. Stay in control.
+### Claude Code builds. You stay in control.
 
 [What does it look like?](#what-does-it-look-like) | [What can it do?](#what-can-it-do) | [How does it work?](#how-does-it-work) | [Quick start](#quick-start)
 
 Open-source proxy that sits between Claude Code and the Anthropic API.
 Logs every request. Enforces your rules.
-
-Catches context rot, ignored instructions, and suspicious behavior without changing your dev setup.
 
 ---
 
@@ -89,16 +87,15 @@ This means you can answer questions like: what did Claude actually send to the A
 ```
 You <-> Claude Code <-> Luthien <-> Anthropic API
                           |
-                   logs every request and response.   ~5-15ms overhead
-                   you can configure rules/policies to
-                   modify or block certain responses or requests:
+                   logs every request and response
+                   enforces the rules you define
                           |
                           |-- did it do what I asked?
                           |-- did it follow CLAUDE.md?
                           +-- did it do something suspicious?
 ```
 
-Luthien can call a separate "judge" model (like Claude Haiku) to evaluate whether each response follows your rules. This happens in parallel to reduce latency. You decide which model to use for each policy.
+Luthien sits in line as a transparent proxy. Every request and response flows through it, adding roughly 5-15ms of overhead. You define rules in YAML or Python, and Luthien enforces them on every request. It can call a separate "judge" model (like Claude Haiku) to evaluate responses in parallel, so enforcement does not block your workflow.
 
 ---
 
