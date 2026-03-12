@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Requires: bash 3.2+
 # ABOUTME: Quick-start script for Luthien standalone single-container development
 # ABOUTME: Builds and runs the all-in-one Docker container with auto-port selection
 
