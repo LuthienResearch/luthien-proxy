@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
+
 from luthien_cli.main import cli
 
 

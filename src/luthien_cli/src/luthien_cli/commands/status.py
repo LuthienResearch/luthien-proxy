@@ -12,7 +12,6 @@ def make_client() -> GatewayClient:
     config = load_config()
     return GatewayClient(
         base_url=config.gateway_url,
-        api_key=config.api_key,
         admin_key=config.admin_key,
     )
 

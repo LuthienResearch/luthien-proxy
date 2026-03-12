@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Requires: bash 3.2+
 # ABOUTME: Script to launch Claude Code using the gateway with policy enforcement
 # ABOUTME: Configures environment to route Claude API calls through gateway
 
@@ -87,9 +87,6 @@ fi
 echo -e "${BLUE}📋 Gateway Configuration:${NC}"
 echo -e "   • Gateway URL:     ${GATEWAY_URL} (SDK will append /v1/messages)"
 echo -e "   • Auth mode:       ${AUTH_MODE_LABEL}"
-if [ "${USE_OAUTH}" = false ]; then
-    echo -e "   • Proxy key:       ${PROXY_KEY:0:10}... (sent as x-api-key to the gateway)"
-fi
 echo ""
 
 # Warn loudly only in proxy_key mode where all requests are billed to the server key.

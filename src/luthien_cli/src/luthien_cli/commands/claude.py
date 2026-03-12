@@ -21,10 +21,6 @@ def claude(claude_args: tuple[str, ...]):
     console = Console()
     config = load_config(DEFAULT_CONFIG_PATH)
 
-    if not config.api_key:
-        console.print("[red]No API key configured. Run: luthien config set gateway.api_key <key>[/red]")
-        raise SystemExit(1)
-
     claude_path = shutil.which("claude")
     if not claude_path:
         console.print("[red]Claude Code CLI not found. Install: npm install -g @anthropic-ai/claude-cli[/red]")
@@ -34,8 +30,11 @@ def claude(claude_args: tuple[str, ...]):
 
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = gateway_url
-    env["ANTHROPIC_API_KEY"] = config.api_key
 
-    console.print(f"[blue]Routing Claude Code through {config.gateway_url}[/blue]")
+    if config.api_key:
+        env["ANTHROPIC_API_KEY"] = config.api_key
+        console.print(f"[blue]Routing Claude Code through {config.gateway_url} (proxy API key)[/blue]")
+    else:
+        console.print(f"[blue]Routing Claude Code through {config.gateway_url} (passthrough auth)[/blue]")
 
     os.execvpe("claude", ["claude", *claude_args], env)
