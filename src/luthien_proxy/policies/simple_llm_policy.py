@@ -509,7 +509,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             return self._handle_block_delta(event, context)
 
         if isinstance(event, RawContentBlockStopEvent):
-            return await self._handle_block_stop(event, context)
+            result = await self._handle_block_stop(event, context)
+            return result
 
         if isinstance(event, RawMessageStopEvent):
             state = self._anthropic_state(context)

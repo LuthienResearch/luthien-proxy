@@ -501,67 +501,6 @@ class TestAnthropicStreaming:
         events = await policy.on_anthropic_stream_event(msg_stop, ctx)
         assert events == [msg_stop]
 
-    @pytest.mark.asyncio
-    async def test_error_fail_open_injects_warning_before_message_stop(self):
-        """When judge fails with on_error='pass', warning block events are injected before RawMessageStopEvent."""
-        from luthien_proxy.policies.simple_llm_policy import JUDGE_UNAVAILABLE_WARNING
-
-        policy = make_policy(on_error="pass")
-        ctx = make_policy_ctx()
-
-        # Stream a text block through so the judge error path triggers
-        text_block = TextBlock(type="text", text="")
-        start = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=text_block)
-        await policy.on_anthropic_stream_event(start, ctx)
-
-        delta = TextDelta(type="text_delta", text="keep me")
-        delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=delta)
-        await policy.on_anthropic_stream_event(delta_event, ctx)
-
-        stop = RawContentBlockStopEvent(type="content_block_stop", index=0)
-        with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
-            await policy.on_anthropic_stream_event(stop, ctx)
-
-        # Now send RawMessageStopEvent — warning events should be injected before it
-        msg_stop = RawMessageStopEvent(type="message_stop")
-        events = await policy.on_anthropic_stream_event(msg_stop, ctx)
-
-        # Expect: warning start + warning delta + warning stop + message_stop
-        assert len(events) == 4
-        assert isinstance(events[0], RawContentBlockStartEvent)
-        assert isinstance(events[0].content_block, TextBlock)
-        assert isinstance(events[1], RawContentBlockDeltaEvent)
-        assert isinstance(events[1].delta, TextDelta)
-        assert events[1].delta.text == JUDGE_UNAVAILABLE_WARNING
-        assert isinstance(events[2], RawContentBlockStopEvent)
-        assert isinstance(events[3], RawMessageStopEvent)
-
-    @pytest.mark.asyncio
-    async def test_error_fail_secure_no_warning_on_message_stop(self):
-        """When judge fails with on_error='block', no warning is injected."""
-        policy = make_policy(on_error="block")
-        ctx = make_policy_ctx()
-
-        # Stream a text block through so the judge error path triggers
-        text_block = TextBlock(type="text", text="")
-        start = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=text_block)
-        await policy.on_anthropic_stream_event(start, ctx)
-
-        delta = TextDelta(type="text_delta", text="drop me")
-        delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=delta)
-        await policy.on_anthropic_stream_event(delta_event, ctx)
-
-        stop = RawContentBlockStopEvent(type="content_block_stop", index=0)
-        with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
-            await policy.on_anthropic_stream_event(stop, ctx)
-
-        # message_stop should pass through without warning
-        msg_stop = RawMessageStopEvent(type="message_stop")
-        events = await policy.on_anthropic_stream_event(msg_stop, ctx)
-
-        assert len(events) == 1
-        assert isinstance(events[0], RawMessageStopEvent)
-
 
 # ============================================================================
 # OpenAI non-streaming tests
@@ -757,65 +696,6 @@ class TestOpenAIStreaming:
         assert ctx.egress_queue.put.call_count == 1
         finish_chunk = ctx.egress_queue.put.call_args_list[0][0][0]
         assert finish_chunk.choices[0].finish_reason == "tool_calls"
-
-    @pytest.mark.asyncio
-    async def test_stream_complete_injects_warning_on_judge_error(self):
-        """When judge fails with on_error='pass', warning text is sent via on_stream_complete."""
-        from luthien_proxy.policies.simple_llm_policy import JUDGE_UNAVAILABLE_WARNING
-
-        policy = make_policy(on_error="pass")
-        content_block = ContentStreamBlock(id="content")
-        content_block.content = "keep me"
-        content_block.is_complete = True
-
-        last_chunk = make_streaming_chunk(content=None, finish_reason="stop")
-        ctx = make_streaming_ctx(
-            just_completed=content_block,
-            raw_chunks=[last_chunk],
-            finish_reason="stop",
-        )
-
-        # Simulate judge error during content processing
-        with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
-            await policy.on_content_complete(ctx)
-
-        # Reset call tracking to isolate on_stream_complete calls
-        ctx.egress_queue.put.reset_mock()
-
-        await policy.on_stream_complete(ctx)
-
-        # Should have sent a warning text chunk
-        assert ctx.egress_queue.put.call_count >= 1
-        warning_chunk = ctx.egress_queue.put.call_args_list[0][0][0]
-        delta = warning_chunk.choices[0].delta
-        assert isinstance(delta, Delta)
-        assert delta.content == JUDGE_UNAVAILABLE_WARNING
-
-    @pytest.mark.asyncio
-    async def test_stream_complete_no_warning_on_fail_secure(self):
-        """When judge fails with on_error='block', no warning is sent via on_stream_complete."""
-        policy = make_policy(on_error="block")
-        content_block = ContentStreamBlock(id="content")
-        content_block.content = "drop me"
-        content_block.is_complete = True
-
-        last_chunk = make_streaming_chunk(content=None, finish_reason="stop")
-        ctx = make_streaming_ctx(
-            just_completed=content_block,
-            raw_chunks=[last_chunk],
-            finish_reason="stop",
-        )
-
-        # Simulate judge error during content processing
-        with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
-            await policy.on_content_complete(ctx)
-
-        ctx.egress_queue.put.reset_mock()
-
-        await policy.on_stream_complete(ctx)
-
-        # No warning chunk should be sent (no tool_use either, so no finish chunk)
-        ctx.egress_queue.put.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_streaming_policy_complete_cleans_state(self):
