@@ -72,29 +72,29 @@ test_endpoint() {
 }
 
 # Helper functions below are invoked indirectly via eval in test_endpoint()
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 extract_content() {
     jq -r '.choices[0].message.content // empty'
 }
 
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 validate_greeting() {
     grep -iq "hello\|hi\|hey\|greetings"
 }
 
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 validate_streaming() {
     local content
     content="$(cat)"
     echo "$content" | grep -q "^data: {" && echo "$content" | grep -q "delta"
 }
 
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 validate_anthropic() {
     jq -e '.content[0].text | length > 0' > /dev/null
 }
 
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 validate_anthropic_streaming() {
     local content
     content="$(cat)"
