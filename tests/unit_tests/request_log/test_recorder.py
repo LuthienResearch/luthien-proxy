@@ -18,6 +18,7 @@ import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 
 from luthien_proxy.request_log.recorder import (
@@ -503,10 +504,10 @@ class TestRequestLogRecorder:
         assert body_arg is None
 
     @pytest.mark.asyncio
-    async def test_write_logs_catches_and_logs_exceptions(self) -> None:
-        """_write_logs() catches DB exceptions and logs them without raising."""
+    async def test_write_logs_catches_and_logs_db_exceptions(self) -> None:
+        """_write_logs() catches DB-specific exceptions and logs them without raising."""
         mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(side_effect=Exception("Database error"))
+        mock_conn.execute = AsyncMock(side_effect=asyncpg.PostgresError("connection lost"))
 
         db_pool = MagicMock(spec=DatabasePool)
         db_pool.connection = MagicMock()
@@ -516,15 +517,51 @@ class TestRequestLogRecorder:
         recorder = RequestLogRecorder(db_pool, "txn-123")
         recorder.record_inbound_request(method="POST", url="http://example.com", headers={}, body={})
 
+        before = RequestLogRecorder.dropped_writes
         with patch("luthien_proxy.request_log.recorder.logger") as mock_logger:
-            # Should not raise
             await recorder._write_logs()
 
-            # Verify exception was logged
-            mock_logger.exception.assert_called_once()
-            call_args = mock_logger.exception.call_args[0]
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args[0]
             assert "Failed to write request logs" in call_args[0]
             assert "txn-123" in call_args[1]
+
+        assert RequestLogRecorder.dropped_writes == before + 1
+
+    @pytest.mark.asyncio
+    async def test_write_logs_does_not_catch_unrelated_exceptions(self) -> None:
+        """_write_logs() propagates non-DB exceptions."""
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(side_effect=ValueError("unexpected"))
+
+        db_pool = MagicMock(spec=DatabasePool)
+        db_pool.connection = MagicMock()
+        db_pool.connection.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        db_pool.connection.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+        recorder.record_inbound_request(method="POST", url="http://example.com", headers={}, body={})
+
+        with pytest.raises(ValueError, match="unexpected"):
+            await recorder._write_logs()
+
+    @pytest.mark.asyncio
+    async def test_write_logs_catches_os_errors(self) -> None:
+        """_write_logs() catches OSError (network-level failures)."""
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(side_effect=OSError("connection refused"))
+
+        db_pool = MagicMock(spec=DatabasePool)
+        db_pool.connection = MagicMock()
+        db_pool.connection.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        db_pool.connection.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+        recorder.record_inbound_request(method="POST", url="http://example.com", headers={}, body={})
+
+        before = RequestLogRecorder.dropped_writes
+        await recorder._write_logs()
+        assert RequestLogRecorder.dropped_writes == before + 1
 
     @pytest.mark.asyncio
     async def test_write_logs_context_manager_cleanup(self) -> None:

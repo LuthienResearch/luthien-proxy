@@ -17,6 +17,7 @@ import sys
 from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
+import asyncpg
 from opentelemetry import trace
 
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
@@ -119,6 +120,8 @@ class NullEventEmitter:
 
 class EventEmitter:
     """Emits events to multiple sinks: stdout, database, and redis."""
+
+    dropped_db_writes: int = 0
 
     def __init__(
         self,
@@ -271,8 +274,12 @@ class EventEmitter:
                 )
 
             logger.debug(f"Wrote event to db: {event_type} (transaction_id={transaction_id})")
-        except Exception as e:
-            logger.warning(f"Failed to write event to database: {e}", exc_info=True)
+        except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError) as e:
+            EventEmitter.dropped_db_writes += 1
+            logger.warning(
+                f"Failed to write event to database ({EventEmitter.dropped_db_writes} total dropped): {e}",
+                exc_info=True,
+            )
 
     async def _write_redis(
         self,
