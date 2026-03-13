@@ -2,6 +2,8 @@
 
 ## Unreleased | TBA
 
+- **Auth mode nudge** (auth-mode-nudge): Interactive 60s countdown dialogue in `quick_start.sh` and `launch_claude_code.sh` nudging `proxy_key` users toward `both`/`passthrough` mode; updates `.env` and admin API on change
+
 - **Billing mode visibility** (billing-mode-visibility): Surface upstream auth mode accurately in the UI and health endpoint
   - `/health` now returns `auth_mode` (from credential manager) and `last_credential_type` / `last_credential_at` (Redis-tracked per-request)
   - Activity monitor badge reflects actual credential used (OAuth vs API key) not just static config

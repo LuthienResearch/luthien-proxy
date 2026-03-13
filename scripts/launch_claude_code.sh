@@ -12,6 +12,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/auth_mode_check.sh"
+
 echo -e "${BLUE}🚀 Launching Claude Code with Gateway${NC}"
 
 # Check if .env exists
@@ -84,23 +87,27 @@ echo -e "   • Gateway URL:     ${GATEWAY_URL} (SDK will append /v1/messages)"
 echo -e "   • Auth mode:       ${AUTH_MODE_LABEL}"
 echo ""
 
-# Warn loudly only in proxy_key mode where all requests are billed to the server key.
-if [[ "${AUTH_MODE}" == "proxy_key" ]]; then
-    echo -e "${YELLOW}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║  ⚠  API KEY BILLING MODE                                ║${NC}"
-    echo -e "${YELLOW}║                                                          ║${NC}"
-    echo -e "${YELLOW}║  Every request will be billed to your Anthropic API      ║${NC}"
-    echo -e "${YELLOW}║  account (ANTHROPIC_API_KEY in .env).                    ║${NC}"
-    echo -e "${YELLOW}║                                                          ║${NC}"
-    echo -e "${YELLOW}║  To use Claude Pro/Max instead (no per-token charges):   ║${NC}"
-    echo -e "${YELLOW}║    1. Remove ANTHROPIC_API_KEY from .env                 ║${NC}"
-    echo -e "${YELLOW}║    2. Run: claude auth login                             ║${NC}"
-    echo -e "${YELLOW}║    3. Restart the gateway and relaunch                   ║${NC}"
-    echo -e "${YELLOW}╚══════════════════════════════════════════════════════════╝${NC}"
+# Interactive auth mode nudge — offer to switch away from proxy_key
+if new_mode=$(check_auth_mode_interactive "$AUTH_MODE"); then
+    update_auth_mode_env "$new_mode"
+
+    admin_key=$(grep -E '^ADMIN_API_KEY=' .env 2>/dev/null | cut -d '=' -f2-)
+    update_auth_mode_api "$new_mode" "http://localhost:${GATEWAY_PORT_VAR}" "$admin_key"
+
+    AUTH_MODE="$new_mode"
     echo ""
-    if [ "${LUTHIEN_SKIP_BILLING_CONFIRM:-}" != "1" ]; then
-        read -r -p "Press Enter to continue with API billing, or Ctrl+C to abort: "
+
+    # Re-resolve OAuth preference after mode change
+    if [[ "${AUTH_MODE}" == "passthrough" ]]; then
+        AUTH_MODE_LABEL="Claude Max / OAuth passthrough"
+        USE_OAUTH=true
+    elif [[ "${AUTH_MODE}" == "both" ]]; then
+        AUTH_MODE_LABEL="OAuth passthrough or API key fallback (both mode)"
+        USE_OAUTH=true
     fi
+
+    echo -e "${BLUE}📋 Updated configuration:${NC}"
+    echo -e "   • Auth mode:       ${AUTH_MODE_LABEL}"
     echo ""
 fi
 
