@@ -12,7 +12,14 @@
 
 services:
   gateway:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - ANTHROPIC_BASE_URL=http://host.docker.internal:18888
       # Use a dummy key — no real Anthropic calls are made
       - ANTHROPIC_API_KEY=mock-key
+      # Override DB/Redis URLs to use localhost since we need host networking
+      # for the mock server connection on Linux
+      - DATABASE_URL=postgresql://luthien:luthien_dev_password@127.0.0.1:5433/luthien_control
+      - REDIS_URL=redis://127.0.0.1:6379
+    network_mode: host

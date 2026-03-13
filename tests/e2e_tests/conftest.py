@@ -11,12 +11,28 @@ import os
 import shutil
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 import pytest
+from dotenv import load_dotenv
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer  # type: ignore[import]
 
 # === Test Configuration ===
+
+# Load .env so test keys match the running gateway.
+# Check worktree root first, then fall back to main repo root (worktrees
+# share gitignored files like .env with the main checkout).
+_repo_root = Path(__file__).resolve().parents[2]
+_env_path = _repo_root / ".env"
+if not _env_path.exists():
+    _main_repo = Path(_repo_root / ".git").resolve()
+    if _main_repo.is_file():
+        # Worktree: .git is a file pointing to the main repo's .git/worktrees/<name>
+        _main_repo = Path(_main_repo.read_text().split("gitdir: ", 1)[1].strip())
+        _main_repo = _main_repo.parents[2]  # .git/worktrees/<name> -> repo root
+        _env_path = _main_repo / ".env"
+load_dotenv(_env_path, override=False)
 
 GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
 API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
