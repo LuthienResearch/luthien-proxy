@@ -152,7 +152,13 @@ class PolicyManager:
         """Load policy from database.
 
         Returns:
-            Policy instance or None if not found
+            Policy instance or None if no policy row exists in DB.
+
+        Raises:
+            ImportError: If the stored policy class cannot be imported.
+            AttributeError: If the stored policy class doesn't exist in its module.
+            ValueError: If the stored policy class reference is malformed.
+            TypeError: If the stored reference is not a valid policy class.
         """
         try:
             pool = await self.db.get_pool()
@@ -163,19 +169,22 @@ class PolicyManager:
                 WHERE id = 1
             """
             )
-
-            if not row:
-                return None
-
-            policy_class_ref = str(row["policy_class_ref"])
-            policy_class = _import_policy_class(policy_class_ref)
-            config_value = row["config"]
-            config = config_value if isinstance(config_value, dict) else json.loads(str(config_value))
-            return _instantiate_policy(policy_class, config)
-
         except Exception as e:
-            logger.warning(f"Could not load from database: {e}")
+            logger.error(
+                f"DATABASE ERROR loading policy — falling back to file config. "
+                f"If a policy was set via admin API, it may not be active! Error: {e}",
+                exc_info=True,
+            )
             return None
+
+        if not row:
+            return None
+
+        policy_class_ref = str(row["policy_class_ref"])
+        policy_class = _import_policy_class(policy_class_ref)
+        config_value = row["config"]
+        config = config_value if isinstance(config_value, dict) else json.loads(str(config_value))
+        return _instantiate_policy(policy_class, config)
 
     async def enable_policy(
         self, policy_class_ref: str, config: dict[str, Any], enabled_by: str = "unknown"
