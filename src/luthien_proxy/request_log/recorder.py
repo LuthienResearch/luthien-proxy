@@ -19,6 +19,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+import asyncpg
+
 from luthien_proxy.request_log.sanitize import sanitize_headers
 from luthien_proxy.utils.db import DatabasePool
 
@@ -67,6 +69,8 @@ class RequestLogRecorder:
     When ``ENABLE_REQUEST_LOGGING`` is False, the ``create()`` classmethod
     returns a ``NoOpRequestLogRecorder`` instead.
     """
+
+    dropped_writes: int = 0
 
     def __init__(self, db_pool: DatabasePool, transaction_id: str) -> None:  # noqa: D107
         self._db_pool = db_pool
@@ -214,8 +218,14 @@ class RequestLogRecorder:
                         pending.endpoint,
                         pending.error,
                     )
-        except Exception:
-            logger.exception("Failed to write request logs for %s", self._transaction_id)
+        except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError):
+            RequestLogRecorder.dropped_writes += 1
+            logger.warning(
+                "Failed to write request logs for %s (%d total dropped)",
+                self._transaction_id,
+                RequestLogRecorder.dropped_writes,
+                exc_info=True,
+            )
 
 
 class NoOpRequestLogRecorder(RequestLogRecorder):

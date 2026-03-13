@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import asyncpg
 import pytest
 from pydantic import BaseModel
 
@@ -242,3 +243,64 @@ class TestEventEmitter:
             event_type="test.event",
             data={"key": "value"},
         )
+
+    @pytest.mark.asyncio
+    async def test_write_db_increments_dropped_counter_on_db_error(self) -> None:
+        """_write_db() increments dropped_db_writes on asyncpg errors."""
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(side_effect=asyncpg.PostgresError("connection lost"))
+
+        @asynccontextmanager
+        async def fake_connection():
+            yield mock_conn
+
+        mock_pool = AsyncMock()
+        mock_pool.connection = fake_connection
+
+        emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
+
+        before = EventEmitter.dropped_db_writes
+        await emitter.emit("tx-123", "test.event", {"key": "value"})
+        assert EventEmitter.dropped_db_writes == before + 1
+
+    @pytest.mark.asyncio
+    async def test_write_db_increments_dropped_counter_on_os_error(self) -> None:
+        """_write_db() increments dropped_db_writes on OSError."""
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(side_effect=OSError("connection refused"))
+
+        @asynccontextmanager
+        async def fake_connection():
+            yield mock_conn
+
+        mock_pool = AsyncMock()
+        mock_pool.connection = fake_connection
+
+        emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
+
+        before = EventEmitter.dropped_db_writes
+        await emitter.emit("tx-123", "test.event", {"key": "value"})
+        assert EventEmitter.dropped_db_writes == before + 1
+
+    @pytest.mark.asyncio
+    async def test_write_db_does_not_catch_unrelated_exceptions(self) -> None:
+        """_write_db() propagates non-DB exceptions."""
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(side_effect=ValueError("unexpected"))
+
+        @asynccontextmanager
+        async def fake_connection():
+            yield mock_conn
+
+        mock_pool = AsyncMock()
+        mock_pool.connection = fake_connection
+
+        emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
+
+        # asyncio.gather with return_exceptions=True wraps exceptions,
+        # so we check that the ValueError is returned (not swallowed)
+        results = await asyncio.gather(
+            emitter._write_db("tx-123", "test.event", {"key": "value"}, datetime.now(UTC)),
+            return_exceptions=True,
+        )
+        assert any(isinstance(r, ValueError) for r in results)
