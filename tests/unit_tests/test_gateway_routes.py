@@ -1,6 +1,5 @@
 """Unit tests for gateway routes - auth modes and client resolution."""
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -76,8 +75,7 @@ class TestGatewayAuthAndClientResolution:
             invalid_cache_ttl_seconds=300,
         )
         mock_credential_manager.validate_credential = AsyncMock(return_value=True)
-        mock_credential_manager._redis = AsyncMock()
-        mock_credential_manager._redis.setex = AsyncMock()
+        mock_credential_manager.record_credential_type = AsyncMock()
 
         mock_anthropic_policy = MagicMock(spec=AnthropicExecutionInterface)
 
@@ -374,7 +372,7 @@ class TestGatewayAuthAndClientResolution:
         assert response.status_code == 500
 
     def test_passthrough_bearer_records_oauth_credential_type(self, mock_app):
-        """In passthrough mode with bearer token, redis.setex called with oauth type."""
+        """In passthrough mode with bearer token, record_credential_type called with 'oauth'."""
         app, _, credential_manager, _ = mock_app
         credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
 
@@ -394,16 +392,14 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"Authorization": "Bearer my-oauth-token"},
             )
-            credential_manager._redis.setex.assert_called_once()
-            call_args = credential_manager._redis.setex.call_args
-            key, ttl, payload = call_args[0]
-            assert key == "luthien:auth:last_credential_type"
-            payload_dict = json.loads(payload)
-            assert payload_dict["type"] == "oauth"
-            assert "timestamp" in payload_dict
+            credential_manager.record_credential_type.assert_called_once_with("oauth")
 
-    def test_proxy_key_mode_does_not_record_credential_type(self, mock_app):
-        """In proxy_key mode, redis.setex is NOT called (recording skipped)."""
+    def test_proxy_key_mode_records_proxy_key_fallback(self, mock_app):
+        """In proxy_key mode, record_credential_type is called with 'proxy_key_fallback'.
+
+        The CredentialManager internally skips the Redis write for proxy_key mode,
+        but the gateway still calls the method (tested in TestRecordCredentialType).
+        """
         app, _, credential_manager, _ = mock_app
         credential_manager.config.auth_mode = AuthMode.PROXY_KEY
 
@@ -423,10 +419,10 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"Authorization": "Bearer test-proxy-key"},
             )
-            credential_manager._redis.setex.assert_not_called()
+            credential_manager.record_credential_type.assert_called_once_with("proxy_key_fallback")
 
     def test_x_anthropic_api_key_records_client_api_key_type(self, mock_app):
-        """When x-anthropic-api-key header provided, redis.setex called with client_api_key type."""
+        """When x-anthropic-api-key header provided, record_credential_type called with 'client_api_key'."""
         app, _, credential_manager, _ = mock_app
         credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
 
@@ -450,10 +446,4 @@ class TestGatewayAuthAndClientResolution:
                 },
             )
             assert response.status_code == 200
-            credential_manager._redis.setex.assert_called_once()
-            call_args = credential_manager._redis.setex.call_args
-            key, ttl, payload = call_args[0]
-            assert key == "luthien:auth:last_credential_type"
-            payload_dict = json.loads(payload)
-            assert payload_dict["type"] == "client_api_key"
-            assert "timestamp" in payload_dict
+            credential_manager.record_credential_type.assert_called_once_with("client_api_key")
