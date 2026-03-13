@@ -645,7 +645,16 @@ async def _handle_execution_non_streaming(
                     response_count += 1
         except Exception as e:
             _handle_anthropic_error(e, call_id)
-            raise
+            # _handle_anthropic_error only raises for Anthropic SDK errors; for
+            # anything else (policy logic errors, etc.) convert to a safe 500
+            # so internal details are not exposed to the client.
+            logger.error("[%s] Unexpected error in non-streaming policy execution: %s", call_id, e)
+            raise BackendAPIError(
+                status_code=500,
+                message="An internal error occurred while processing the request.",
+                error_type="api_error",
+                client_format=ClientFormat.ANTHROPIC,
+            ) from e
 
     io.ensure_request_recorded()
 
@@ -748,8 +757,8 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
         logger.warning(f"[{call_id}] Mid-stream Anthropic connection error: {message}")
     else:
         error_type = "api_error"
-        message = str(e)
-        logger.warning(f"[{call_id}] Mid-stream error: {message}")
+        message = "An internal error occurred while processing the request."
+        logger.error(f"[{call_id}] Mid-stream error: {e}")
 
     return _StreamErrorEvent(
         type="error",

@@ -11,6 +11,10 @@ The gateway maps backend errors to BackendAPIError and returns a JSONResponse wi
 
 Policies do not interfere with error handling — the gateway remains responsive after an error.
 
+Streaming errors that occur after HTTP headers are sent cannot change the HTTP status code.
+Instead, the gateway emits an SSE error event: `event: error\\ndata: {...}\\n\\n`. Clients
+must parse SSE content to detect mid-stream failures (HTTP status will be 200).
+
 Requires:
   - Gateway running with mock backend:
       docker compose -f docker-compose.yaml -f docker-compose.mock.yaml up -d
@@ -18,6 +22,8 @@ Requires:
 Run:
     uv run pytest -m mock_e2e tests/e2e_tests/test_mock_error_handling.py -v
 """
+
+import json
 
 import httpx
 import pytest
@@ -214,7 +220,8 @@ async def test_policy_active_during_backend_error(mock_anthropic: MockAnthropicS
 @pytest.mark.asyncio
 async def test_streaming_backend_error_gateway_responds(mock_anthropic: MockAnthropicServer, gateway_healthy):
     """Gateway responds without hanging when the backend errors during a streaming request."""
-    mock_anthropic.enqueue(error_response(500, "internal_server_error", "stream error"))
+    for _ in range(_SDK_MAX_ATTEMPTS):
+        mock_anthropic.enqueue(error_response(500, "internal_server_error", "stream error"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         async with client.stream(
@@ -228,5 +235,183 @@ async def test_streaming_backend_error_gateway_responds(mock_anthropic: MockAnth
             async for line in response.aiter_lines():
                 lines.append(line)
 
-    # Gateway must have responded with something (not hung)
+    # Gateway must have responded — either as a pre-stream JSON error or via SSE error event
     assert response.status_code is not None
+    # Response body must be non-empty (gateway communicated the error somehow)
+    assert any(line.strip() for line in lines) or response.status_code != 200, (
+        "Expected either a non-200 status or non-empty SSE body when backend errors"
+    )
+
+
+@pytest.mark.asyncio
+async def test_streaming_backend_error_contains_error_signal(mock_anthropic: MockAnthropicServer, gateway_healthy):
+    """Backend errors during streaming are communicated to the client — not silently swallowed.
+
+    When backend errors occur, the gateway either:
+    - Returns a non-200 HTTP status with a JSON error body (error before streaming starts), or
+    - Returns 200 with an SSE error event in the stream body (mid-stream error, headers already sent).
+    In both cases the client can detect the failure.
+    """
+    for _ in range(_SDK_MAX_ATTEMPTS):
+        mock_anthropic.enqueue(error_response(500, "internal_server_error", "Backend failed"))
+
+    collected_lines: list[str] = []
+    response_status: int | None = None
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        async with client.stream(
+            "POST",
+            f"{GATEWAY_URL}/v1/messages",
+            json={**_BASE_REQUEST, "stream": True},
+            headers=_HEADERS,
+        ) as response:
+            response_status = response.status_code
+            async for line in response.aiter_lines():
+                collected_lines.append(line)
+
+    assert response_status is not None
+
+    if response_status != 200:
+        # Pre-stream error: gateway returned a proper HTTP error code
+        assert response_status == 500, f"Expected 500 for backend failure, got {response_status}"
+    else:
+        # Mid-stream error: look for an SSE error event in the stream body
+        data_lines = [line for line in collected_lines if line.startswith("data:")]
+        found_error = False
+        for data_line in data_lines:
+            try:
+                payload = json.loads(data_line[len("data:") :].strip())
+                if payload.get("type") == "error" and "error" in payload:
+                    found_error = True
+                    break
+            except json.JSONDecodeError:
+                continue
+        assert found_error, (
+            f"Expected SSE error event in stream (HTTP 200), but found none.\nCollected lines: {collected_lines}"
+        )
+
+
+# === Request Validation Tests ===
+# These verify the gateway rejects malformed requests before touching the backend.
+
+
+@pytest.mark.asyncio
+async def test_missing_auth_header_returns_401(gateway_healthy):
+    """Gateway rejects requests with no Authorization header with 401."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            f"{GATEWAY_URL}/v1/messages",
+            json={**_BASE_REQUEST, "stream": False},
+            # No Authorization header
+        )
+
+    assert response.status_code == 401, f"Expected 401 for missing auth, got {response.status_code}: {response.text}"
+
+
+@pytest.mark.asyncio
+async def test_invalid_api_key_returns_401(gateway_healthy):
+    """Gateway rejects requests with a wrong API key with 401."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            f"{GATEWAY_URL}/v1/messages",
+            json={**_BASE_REQUEST, "stream": False},
+            headers={"Authorization": "Bearer sk-this-is-not-a-valid-key"},
+        )
+
+    assert response.status_code == 401, f"Expected 401 for invalid API key, got {response.status_code}: {response.text}"
+
+
+@pytest.mark.asyncio
+async def test_missing_model_field_returns_400(gateway_healthy):
+    """Gateway rejects Anthropic requests missing the required 'model' field with 400."""
+    request_without_model = {k: v for k, v in _BASE_REQUEST.items() if k != "model"}
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            f"{GATEWAY_URL}/v1/messages",
+            json={**request_without_model, "stream": False},
+            headers=_HEADERS,
+        )
+
+    assert response.status_code == 400, f"Expected 400 for missing 'model', got {response.status_code}: {response.text}"
+
+
+@pytest.mark.asyncio
+async def test_missing_messages_field_returns_400(gateway_healthy):
+    """Gateway rejects Anthropic requests missing the required 'messages' field with 400."""
+    request_without_messages = {k: v for k, v in _BASE_REQUEST.items() if k != "messages"}
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            f"{GATEWAY_URL}/v1/messages",
+            json={**request_without_messages, "stream": False},
+            headers=_HEADERS,
+        )
+
+    assert response.status_code == 400, (
+        f"Expected 400 for missing 'messages', got {response.status_code}: {response.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_missing_max_tokens_field_returns_400(gateway_healthy):
+    """Gateway rejects Anthropic requests missing the required 'max_tokens' field with 400."""
+    request_without_max_tokens = {k: v for k, v in _BASE_REQUEST.items() if k != "max_tokens"}
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            f"{GATEWAY_URL}/v1/messages",
+            json={**request_without_max_tokens, "stream": False},
+            headers=_HEADERS,
+        )
+
+    assert response.status_code == 400, (
+        f"Expected 400 for missing 'max_tokens', got {response.status_code}: {response.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gateway_responsive_after_malformed_requests(mock_anthropic: MockAnthropicServer, gateway_healthy):
+    """Gateway remains responsive after receiving several malformed requests.
+
+    Verifies that invalid requests don't corrupt gateway state — a valid request
+    immediately after a malformed one should succeed normally.
+    """
+    mock_anthropic.enqueue(text_response("all good"))
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        # Send a batch of malformed requests
+        bad_requests = [
+            # No auth
+            client.post(f"{GATEWAY_URL}/v1/messages", json={**_BASE_REQUEST}),
+            # Wrong key
+            client.post(
+                f"{GATEWAY_URL}/v1/messages",
+                json={**_BASE_REQUEST},
+                headers={"Authorization": "Bearer wrong-key"},
+            ),
+            # Missing required field
+            client.post(
+                f"{GATEWAY_URL}/v1/messages",
+                json={"messages": _BASE_REQUEST["messages"], "max_tokens": 100},
+                headers=_HEADERS,
+            ),
+        ]
+        for coro in bad_requests:
+            bad_resp = await coro
+            assert bad_resp.status_code in (400, 401, 422), (
+                f"Malformed request should be rejected with 4xx, got {bad_resp.status_code}"
+            )
+
+        # A valid request must still work
+        good_response = await client.post(
+            f"{GATEWAY_URL}/v1/messages",
+            json={**_BASE_REQUEST, "stream": False},
+            headers=_HEADERS,
+        )
+
+    assert good_response.status_code == 200, (
+        f"Gateway should remain responsive after malformed requests, got {good_response.status_code}: {good_response.text}"
+    )
+    body = good_response.json()
+    assert body.get("type") == "message", f"Expected message response, got: {body}"
