@@ -103,6 +103,15 @@ fi
 # Auto-select free ports for any port variables not pinned in .env
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/find-available-ports.sh"
+source "${SCRIPT_DIR}/auth_mode_check.sh"
+
+# Nudge users on proxy_key mode toward passthrough/both
+current_auth_mode="${AUTH_MODE:-both}"
+if new_mode=$(check_auth_mode_interactive "$current_auth_mode"); then
+    update_auth_mode_env "$new_mode"
+    export AUTH_MODE="$new_mode"
+    echo ""
+fi
 
 # Derive project name from worktree directory to avoid collisions between worktrees
 if [ -z "$COMPOSE_PROJECT_NAME" ]; then
@@ -223,6 +232,14 @@ else
     echo "   • Check if another service is using port ${gateway_port}: lsof -i :${gateway_port}"
     echo "   • Full gateway logs: docker compose logs gateway"
     services_healthy=false
+fi
+
+# Sync auth mode change to DB if we switched earlier
+if [ "$services_healthy" = true ] && [ "${AUTH_MODE:-}" != "$current_auth_mode" ]; then
+    admin_key="${ADMIN_API_KEY:-}"
+    if update_auth_mode_api "$AUTH_MODE" "$gateway_url" "$admin_key"; then
+        echo "✅ Auth mode synced to database"
+    fi
 fi
 
 # Telemetry opt-in/out prompt (only when no env var and no DB value)
