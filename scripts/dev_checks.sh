@@ -26,9 +26,21 @@ uv run radon cc -s -a src || true
 
 echo "All checks completed."
 
-# Remind about uncommitted formatting/lint changes
+# Remind about uncommitted/unpushed changes
 if ! git diff --quiet 2>/dev/null; then
   echo ""
-  echo "⚠ Working tree has uncommitted changes (likely from formatting/lint fixes)."
+  echo "⚠ Unstaged changes detected (likely from formatting/lint fixes)."
   echo "  Remember to commit and push before continuing."
+elif ! git diff --cached --quiet 2>/dev/null; then
+  echo ""
+  echo "⚠ Staged but uncommitted changes detected."
+  echo "  Remember to commit and push before continuing."
+fi
+
+if branch=$(git symbolic-ref --short HEAD 2>/dev/null) && upstream=$(git rev-parse --abbrev-ref "@{upstream}" 2>/dev/null); then
+  if [ "$(git rev-list "$upstream"..HEAD --count 2>/dev/null)" -gt 0 ]; then
+    echo ""
+    echo "⚠ Local commits not yet pushed to $upstream."
+    echo "  Remember to push before continuing."
+  fi
 fi
