@@ -14,7 +14,7 @@ Example config:
         config:
           model: "claude-haiku-4-5"
           instructions: "Remove any PII from responses"
-          on_error: "pass"
+          on_error: "block"
 """
 
 from __future__ import annotations
@@ -107,7 +107,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
     Config:
         model: Judge LLM model identifier (default: "claude-haiku-4-5")
         instructions: Plain-English instructions for the judge (required)
-        on_error: Error handling - "pass" allows content, "block" drops it
+        on_error: Action on judge failure - "block" (default, fail-secure) rejects
+            content, "pass" (fail-open, INSECURE) allows it through
         temperature: Sampling temperature for judge (default: 0.0)
         max_tokens: Max output tokens for judge (default: 4096)
     """
@@ -133,6 +134,13 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             max_tokens=parsed.max_tokens,
             on_error=parsed.on_error,
         )
+
+        if self._config.on_error == "pass":
+            logger.warning(
+                "SimpleLLMPolicy on_error='pass' is FAIL-OPEN: judge failures "
+                "will silently allow all content through. Use on_error='block' "
+                "for safety-critical deployments."
+            )
 
     # ========================================================================
     # Request-scoped state accessors

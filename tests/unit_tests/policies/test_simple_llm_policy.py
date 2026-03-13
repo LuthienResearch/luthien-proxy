@@ -8,6 +8,7 @@ Plus config/init and freeze_configured_state.
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -73,7 +74,7 @@ def tool_replacement(name: str, input_data: dict | None = None) -> ReplacementBl
 
 
 def make_policy(**overrides) -> SimpleLLMPolicy:
-    defaults = {"instructions": "test instructions", "on_error": "pass"}
+    defaults = {"instructions": "test instructions", "on_error": "block"}
     defaults.update(overrides)
     return SimpleLLMPolicy(config=defaults)
 
@@ -160,7 +161,7 @@ class TestConfigAndFreeze:
     def test_from_dict_config(self):
         policy = SimpleLLMPolicy(config={"instructions": "be nice"})
         assert policy._config.instructions == "be nice"
-        assert policy._config.on_error == "pass"
+        assert policy._config.on_error == "block"
 
     def test_from_pydantic_config(self):
         cfg = SimpleLLMJudgeConfig(instructions="test", temperature=0.5)
@@ -178,6 +179,16 @@ class TestConfigAndFreeze:
 
         with pytest.raises(ValidationError):
             SimpleLLMPolicy(config={"instructions": "x", "on_error": "maybe"})
+
+    def test_fail_open_logs_warning(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            make_policy(on_error="pass")
+        assert "FAIL-OPEN" in caplog.text
+
+    def test_fail_secure_no_warning(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            make_policy(on_error="block")
+        assert "FAIL-OPEN" not in caplog.text
 
     def test_freeze_configured_state(self):
         policy = make_policy()

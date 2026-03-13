@@ -33,7 +33,7 @@ class TestSimpleLLMJudgeConfig:
         assert config.api_key is None
         assert config.temperature == 0.0
         assert config.max_tokens == 4096
-        assert config.on_error == "pass"
+        assert config.on_error == "block"
 
     def test_frozen(self):
         config = SimpleLLMJudgeConfig(instructions="Be safe")
