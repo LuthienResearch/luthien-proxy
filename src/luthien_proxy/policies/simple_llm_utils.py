@@ -34,13 +34,13 @@ class SimpleLLMJudgeConfig(BaseModel):
     temperature: float = Field(default=0.0, description="Sampling temperature")
     max_tokens: int = Field(default=4096, description="Maximum output tokens")
     on_error: str = Field(
-        default="block",
+        default="pass",
         pattern=r"^(pass|block)$",
         description=(
-            "Action when the judge call fails. 'block' (default) is fail-secure: "
-            "content is rejected when the judge cannot evaluate it. 'pass' is "
-            "fail-open and INSECURE for safety-critical deployments — a judge "
-            "outage silently permits all content."
+            "Action when the judge call fails. 'pass' (default) allows content "
+            "through with an injected warning that the safety judge was unavailable. "
+            "'block' is fail-secure: content is rejected when the judge cannot "
+            "evaluate it."
         ),
     )
 
@@ -71,6 +71,7 @@ class JudgeAction:
 
     action: str
     blocks: tuple[ReplacementBlock, ...] | None = None
+    judge_failed: bool = False
 
 
 _JUDGE_SYSTEM_TEMPLATE = """\

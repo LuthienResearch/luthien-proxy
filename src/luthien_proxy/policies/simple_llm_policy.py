@@ -14,7 +14,7 @@ Example config:
         config:
           model: "claude-haiku-4-5"
           instructions: "Remove any PII from responses"
-          on_error: "block"
+          on_error: "pass"
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
+    RawMessageStopEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
@@ -83,18 +84,25 @@ class _BufferedToolUse:
     input_json: str = ""
 
 
+JUDGE_UNAVAILABLE_WARNING = (
+    "\u26a0\ufe0f Safety judge unavailable \u2014 this response was not evaluated by the safety policy."
+)
+
+
 @dataclass
 class _SimpleLLMAnthropicState:
     text_buffer: dict[int, str] = field(default_factory=dict)
     tool_buffer: dict[int, _BufferedToolUse] = field(default_factory=dict)
     emitted_blocks: list[BlockDescriptor] = field(default_factory=list)
     original_had_tool_use: bool = False
+    judge_error_occurred: bool = False
 
 
 @dataclass
 class _SimpleLLMOpenAIState:
     emitted_blocks: list[BlockDescriptor] = field(default_factory=list)
     original_had_tool_use: bool = False
+    judge_error_occurred: bool = False
 
 
 class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
@@ -107,8 +115,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
     Config:
         model: Judge LLM model identifier (default: "claude-haiku-4-5")
         instructions: Plain-English instructions for the judge (required)
-        on_error: Action on judge failure - "block" (default, fail-secure) rejects
-            content, "pass" (fail-open, INSECURE) allows it through
+        on_error: Action on judge failure - "pass" (default) allows content through
+            with an injected warning, "block" rejects content entirely
         temperature: Sampling temperature for judge (default: 0.0)
         max_tokens: Max output tokens for judge (default: 4096)
     """
@@ -137,9 +145,9 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
 
         if self._config.on_error == "pass":
             logger.warning(
-                "SimpleLLMPolicy on_error='pass' is FAIL-OPEN: judge failures "
-                "will silently allow all content through. Use on_error='block' "
-                "for safety-critical deployments."
+                "SimpleLLMPolicy on_error='pass': judge failures will allow "
+                "content through with an injected warning notification. "
+                "Use on_error='block' to reject content on judge failure."
             )
 
     # ========================================================================
@@ -215,7 +223,7 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
                     "on_error": self._config.on_error,
                 },
             )
-            return JudgeAction(action=self._config.on_error)
+            return JudgeAction(action=self._config.on_error, judge_failed=True)
 
     def _correct_anthropic_stop_reason(self, response: dict[str, Any], content: list[dict[str, Any]]) -> dict[str, Any]:
         has_tool_use = any(b.get("type") == "tool_use" for b in content)
@@ -273,11 +281,14 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             emitted_blocks: list[BlockDescriptor] = []
             content_parts: list[str] = []
             new_tool_calls: list[ChatCompletionMessageToolCall] = []
+            judge_error_occurred = False
 
             # Process text content
             if isinstance(choice.message.content, str) and choice.message.content:
                 descriptor = self._block_descriptor_from_text(choice.message.content)
                 action = await self._judge_block(descriptor, emitted_blocks, context)
+                if action.judge_failed:
+                    judge_error_occurred = True
 
                 if action.action == "pass":
                     content_parts.append(choice.message.content)
@@ -293,12 +304,17 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
                         tc.function.arguments,
                     )
                     action = await self._judge_block(descriptor, emitted_blocks, context)
+                    if action.judge_failed:
+                        judge_error_occurred = True
 
                     if action.action == "pass":
                         new_tool_calls.append(tc)
                         emitted_blocks.append(descriptor)
                     elif action.action == "replace":
                         self._apply_openai_replacements(action, emitted_blocks, content_parts, new_tool_calls)
+
+            if judge_error_occurred and self._config.on_error == "pass":
+                content_parts.append(JUDGE_UNAVAILABLE_WARNING)
 
             choice.message.content = "".join(content_parts) if content_parts else None
             choice.message.tool_calls = new_tool_calls if new_tool_calls else None
@@ -325,6 +341,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
         state = self._openai_state(ctx)
         descriptor = self._block_descriptor_from_text(block.content)
         action = await self._judge_block(descriptor, state.emitted_blocks, ctx.policy_ctx)
+        if action.judge_failed:
+            state.judge_error_occurred = True
 
         if action.action == "pass":
             await send_text(ctx, block.content)
@@ -345,6 +363,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
         state.original_had_tool_use = True
         descriptor = self._block_descriptor_from_tool(block.name, block.arguments)
         action = await self._judge_block(descriptor, state.emitted_blocks, ctx.policy_ctx)
+        if action.judge_failed:
+            state.judge_error_occurred = True
 
         if action.action == "pass":
             await send_tool_call(ctx, block.tool_call)
@@ -353,12 +373,15 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             await self._emit_openai_replacements(ctx, action, state)
 
     async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Emit corrected finish_reason for tool call responses."""
+        """Emit judge-unavailable warning and corrected finish_reason."""
+        state = self._openai_state(ctx)
+
+        if state.judge_error_occurred and self._config.on_error == "pass":
+            await send_text(ctx, JUDGE_UNAVAILABLE_WARNING)
+
         finish_reason = ctx.original_streaming_response_state.finish_reason
         if not finish_reason:
             return
-
-        state = self._openai_state(ctx)
 
         # Correct finish_reason if block types changed
         has_emitted_tool = any(b.type == "tool_use" for b in state.emitted_blocks)
@@ -432,6 +455,7 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
 
         emitted_blocks: list[BlockDescriptor] = []
         new_content: list[Any] = []
+        judge_error_occurred = False
 
         for block in content:
             if not isinstance(block, dict):
@@ -452,6 +476,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
                 continue
 
             action = await self._judge_block(descriptor, emitted_blocks, context)
+            if action.judge_failed:
+                judge_error_occurred = True
 
             if action.action == "pass":
                 new_content.append(block)
@@ -460,6 +486,9 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
                 for rblock in action.blocks or ():
                     emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
                     new_content.append(self._replacement_to_anthropic_block(rblock))
+
+        if judge_error_occurred and self._config.on_error == "pass":
+            new_content.append({"type": "text", "text": JUDGE_UNAVAILABLE_WARNING})
 
         modified_response = dict(response)
         modified_response["content"] = new_content
@@ -480,7 +509,15 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             return self._handle_block_delta(event, context)
 
         if isinstance(event, RawContentBlockStopEvent):
-            return await self._handle_block_stop(event, context)
+            result = await self._handle_block_stop(event, context)
+            return result
+
+        if isinstance(event, RawMessageStopEvent):
+            state = self._anthropic_state(context)
+            if state.judge_error_occurred and self._config.on_error == "pass":
+                warning_index = len(state.emitted_blocks)
+                warning_events = self._make_anthropic_warning_events(warning_index)
+                return warning_events + [event]
 
         return [event]
 
@@ -530,6 +567,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             text = state.text_buffer.pop(index)
             descriptor = self._block_descriptor_from_text(text)
             action = await self._judge_block(descriptor, state.emitted_blocks, context)
+            if action.judge_failed:
+                state.judge_error_occurred = True
 
             if action.action == "pass":
                 state.emitted_blocks.append(descriptor)
@@ -548,6 +587,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
                 input_data = {"_raw": buffered.input_json}
             descriptor = self._block_descriptor_from_tool(buffered.name, input_data)
             action = await self._judge_block(descriptor, state.emitted_blocks, context)
+            if action.judge_failed:
+                state.judge_error_occurred = True
 
             if action.action == "pass":
                 state.emitted_blocks.append(descriptor)
@@ -586,6 +627,19 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             cast(MessageStreamEvent, start_event),
             cast(MessageStreamEvent, delta_event),
             cast(MessageStreamEvent, stop_event),
+        ]
+
+    def _make_anthropic_warning_events(self, index: int) -> list[MessageStreamEvent]:
+        """Emit a warning text block for judge-unavailable notification."""
+        text_block = TextBlock(type="text", text="")
+        start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=text_block)
+        text_delta = TextDelta.model_construct(type="text_delta", text=JUDGE_UNAVAILABLE_WARNING)
+        delta = RawContentBlockDeltaEvent.model_construct(type="content_block_delta", index=index, delta=text_delta)
+        stop = RawContentBlockStopEvent(type="content_block_stop", index=index)
+        return [
+            cast(MessageStreamEvent, start),
+            cast(MessageStreamEvent, delta),
+            cast(MessageStreamEvent, stop),
         ]
 
     def _emit_anthropic_replacement_events(

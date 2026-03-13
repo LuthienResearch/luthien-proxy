@@ -74,7 +74,7 @@ def tool_replacement(name: str, input_data: dict | None = None) -> ReplacementBl
 
 
 def make_policy(**overrides) -> SimpleLLMPolicy:
-    defaults = {"instructions": "test instructions", "on_error": "block"}
+    defaults = {"instructions": "test instructions", "on_error": "pass"}
     defaults.update(overrides)
     return SimpleLLMPolicy(config=defaults)
 
@@ -161,7 +161,7 @@ class TestConfigAndFreeze:
     def test_from_dict_config(self):
         policy = SimpleLLMPolicy(config={"instructions": "be nice"})
         assert policy._config.instructions == "be nice"
-        assert policy._config.on_error == "block"
+        assert policy._config.on_error == "pass"
 
     def test_from_pydantic_config(self):
         cfg = SimpleLLMJudgeConfig(instructions="test", temperature=0.5)
@@ -183,12 +183,12 @@ class TestConfigAndFreeze:
     def test_fail_open_logs_warning(self, caplog):
         with caplog.at_level(logging.WARNING):
             make_policy(on_error="pass")
-        assert "FAIL-OPEN" in caplog.text
+        assert "on_error='pass'" in caplog.text
 
     def test_fail_secure_no_warning(self, caplog):
         with caplog.at_level(logging.WARNING):
             make_policy(on_error="block")
-        assert "FAIL-OPEN" not in caplog.text
+        assert "on_error='pass'" not in caplog.text
 
     def test_freeze_configured_state(self):
         policy = make_policy()
@@ -304,7 +304,9 @@ class TestAnthropicNonStreaming:
         assert result["stop_reason"] == "tool_use"
 
     @pytest.mark.asyncio
-    async def test_error_fail_open(self):
+    async def test_error_fail_open_injects_warning(self):
+        from luthien_proxy.policies.simple_llm_policy import JUDGE_UNAVAILABLE_WARNING
+
         policy = make_policy(on_error="pass")
         ctx = make_policy_ctx()
         response = make_anthropic_response([{"type": "text", "text": "keep me"}])
@@ -312,7 +314,9 @@ class TestAnthropicNonStreaming:
         with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
             result = await policy.on_anthropic_response(response, ctx)
 
-        assert result["content"] == [{"type": "text", "text": "keep me"}]
+        assert len(result["content"]) == 2
+        assert result["content"][0] == {"type": "text", "text": "keep me"}
+        assert result["content"][1] == {"type": "text", "text": JUDGE_UNAVAILABLE_WARNING}
 
     @pytest.mark.asyncio
     async def test_error_fail_secure(self):
@@ -547,7 +551,9 @@ class TestOpenAINonStreaming:
         assert choice.finish_reason == "stop"
 
     @pytest.mark.asyncio
-    async def test_error_fail_open(self):
+    async def test_error_fail_open_injects_warning(self):
+        from luthien_proxy.policies.simple_llm_policy import JUDGE_UNAVAILABLE_WARNING
+
         policy = make_policy(on_error="pass")
         ctx = make_policy_ctx()
         response = make_openai_response(content="keep me")
@@ -556,7 +562,7 @@ class TestOpenAINonStreaming:
             result = await policy.on_openai_response(response, ctx)
 
         choice = cast(Choices, result.choices[0])
-        assert choice.message.content == "keep me"
+        assert choice.message.content == f"keep me{JUDGE_UNAVAILABLE_WARNING}"
 
     @pytest.mark.asyncio
     async def test_pass_through_tool_call(self):
