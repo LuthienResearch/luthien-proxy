@@ -346,7 +346,7 @@ async def send_chat(
             try:
                 error_json = response.json()
                 error_detail = error_json.get("detail", error_detail)
-            except Exception:
+            except ValueError:
                 pass
             return ChatResponse(
                 success=False,
