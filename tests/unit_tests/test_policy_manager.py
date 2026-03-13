@@ -330,6 +330,77 @@ class TestPolicySourceFileFallbackDb:
         with pytest.raises(RuntimeError, match="No policy configured"):
             await manager.initialize()
 
+    @pytest.mark.asyncio
+    async def test_propagates_yaml_error_instead_of_falling_back(self):
+        """YAML syntax errors indicate a real config problem and must not be swallowed."""
+        mock_pool, _ = _make_db_mocks(fetchrow_return=_db_row_noop())
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write("policy:\n  class: !!invalid\n")
+            yaml_path = f.name
+
+        try:
+            manager = PolicyManager(
+                db_pool=mock_pool,
+                redis_client=MagicMock(),
+                startup_policy_path=yaml_path,
+                policy_source="file-fallback-db",
+            )
+            with pytest.raises(Exception):
+                await manager.initialize()
+        finally:
+            os.unlink(yaml_path)
+
+    @pytest.mark.asyncio
+    async def test_propagates_import_error_instead_of_falling_back(self):
+        """Import errors in the policy class must not be silently caught."""
+        mock_pool, _ = _make_db_mocks(fetchrow_return=_db_row_noop())
+
+        bad_yaml = """\
+policy:
+  class: "nonexistent.module:FakePolicy"
+  config: {}
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(bad_yaml)
+            yaml_path = f.name
+
+        try:
+            manager = PolicyManager(
+                db_pool=mock_pool,
+                redis_client=MagicMock(),
+                startup_policy_path=yaml_path,
+                policy_source="file-fallback-db",
+            )
+            with pytest.raises(ModuleNotFoundError):
+                await manager.initialize()
+        finally:
+            os.unlink(yaml_path)
+
+    @pytest.mark.asyncio
+    async def test_propagates_value_error_instead_of_falling_back(self):
+        """ValueError from invalid YAML structure must not be silently caught."""
+        mock_pool, _ = _make_db_mocks(fetchrow_return=_db_row_noop())
+
+        bad_yaml = """\
+policy: "not a dict"
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(bad_yaml)
+            yaml_path = f.name
+
+        try:
+            manager = PolicyManager(
+                db_pool=mock_pool,
+                redis_client=MagicMock(),
+                startup_policy_path=yaml_path,
+                policy_source="file-fallback-db",
+            )
+            with pytest.raises(ValueError):
+                await manager.initialize()
+        finally:
+            os.unlink(yaml_path)
+
 
 # -- _load_from_db internals ---------------------------------------------------
 
