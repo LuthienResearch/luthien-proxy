@@ -1,3 +1,5 @@
+const NOOP_CLASS_REF = 'luthien_proxy.policies.noop_policy:NoOpPolicy';
+
 // State
 const state = {
     currentPolicy: null,
@@ -321,8 +323,13 @@ function renderConfigPanel() {
         </div>`;
     }
 
+    const isNoOpActive = isMatchingActive && policy.class_ref === NOOP_CLASS_REF;
     let buttonHtml;
-    if (isMatchingActive) {
+    if (isNoOpActive) {
+        buttonHtml = `<button class="primary" id="activate-btn" disabled>
+                Currently pass-through
+            </button>`;
+    } else if (isMatchingActive) {
         buttonHtml = `<button class="secondary danger" id="deactivate-btn" ${state.isActivating ? 'disabled' : ''}>
                 ${state.isActivating ? 'Deactivating...' : 'Deactivate Policy'}
             </button>`;
@@ -351,7 +358,9 @@ function renderConfigPanel() {
     panel.innerHTML = html;
 
     renderConfigForm(policy);
-    if (isMatchingActive) {
+    if (isNoOpActive) {
+        // NoOp is already active — no action needed
+    } else if (isMatchingActive) {
         document.getElementById('deactivate-btn').addEventListener('click', handleDeactivate);
     } else {
         document.getElementById('activate-btn').addEventListener('click', handleActivate);
@@ -618,110 +627,80 @@ function updateConfigStatus() {
     updateActivateButton();
 }
 
-async function handleActivate() {
-    if (!state.selectedPolicy || state.isActivating) return;
+async function activatePolicy(classRef, config, {btnId, progressLabel, successMessage, retryLabel}) {
+    if (state.isActivating) return;
 
-    // Block activation if there are invalid fields
+    const btn = document.getElementById(btnId);
+    const statusContainer = document.getElementById('status-container');
+
+    state.isActivating = true;
+    btn.disabled = true;
+    btn.textContent = `${progressLabel}...`;
+    statusContainer.innerHTML = `<div class="status-message info">${progressLabel}...</div>`;
+
+    try {
+        const result = await apiCall('/api/admin/policy/set', {
+            method: 'POST',
+            body: JSON.stringify({
+                policy_class_ref: classRef,
+                config: config,
+                enabled_by: 'ui'
+            })
+        });
+
+        if (result.success) {
+            state.isActivating = false;
+            await loadCurrentPolicy();
+            renderPolicyList();
+            renderConfigPanel();
+
+            const newStatusContainer = document.getElementById('status-container');
+            if (newStatusContainer) {
+                newStatusContainer.innerHTML = `<div class="status-message success">✓ ${successMessage}</div>`;
+            }
+        } else {
+            if (result.validation_errors && result.validation_errors.length > 0) {
+                highlightValidationErrors(result.validation_errors);
+                statusContainer.innerHTML = '<div class="status-message error">Validation errors - check highlighted fields</div>';
+            } else {
+                statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(result.error || retryLabel)}</div>`;
+            }
+            btn.textContent = retryLabel;
+        }
+    } catch (err) {
+        statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(err.message)}</div>`;
+        btn.textContent = retryLabel;
+    } finally {
+        state.isActivating = false;
+    }
+}
+
+async function handleActivate() {
+    if (!state.selectedPolicy) return;
+
     if (state.invalidFields.size > 0) {
         const statusContainer = document.getElementById('status-container');
         statusContainer.innerHTML = '<div class="status-message error">Please fix JSON errors before activating</div>';
         return;
     }
 
-    const btn = document.getElementById('activate-btn');
-    const statusContainer = document.getElementById('status-container');
-
-    // Clear previous validation errors
     clearValidationErrors();
-
-    state.isActivating = true;
-    btn.disabled = true;
-    btn.textContent = 'Activating...';
-    statusContainer.innerHTML = '<div class="status-message info">Activating policy...</div>';
-
-    try {
-        const result = await apiCall('/api/admin/policy/set', {
-            method: 'POST',
-            body: JSON.stringify({
-                policy_class_ref: state.selectedPolicy.class_ref,
-                config: state.configValues,
-                enabled_by: 'ui'
-            })
-        });
-
-        if (result.success) {
-            // Reset state before re-render so button gets correct text
-            state.isActivating = false;
-            const policyName = state.selectedPolicy.name;
-            await loadCurrentPolicy();
-            renderPolicyList();
-            renderConfigPanel();
-
-            const newStatusContainer = document.getElementById('status-container');
-            if (newStatusContainer) {
-                newStatusContainer.innerHTML = `<div class="status-message success">✓ ${escapeHtml(policyName)} activated successfully</div>`;
-            }
-        } else {
-            // Handle validation errors
-            if (result.validation_errors && result.validation_errors.length > 0) {
-                highlightValidationErrors(result.validation_errors);
-                statusContainer.innerHTML = '<div class="status-message error">Validation errors - check highlighted fields</div>';
-            } else {
-                statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(result.error || 'Failed to activate policy')}</div>`;
-            }
-            btn.textContent = 'Retry Activation';
-        }
-    } catch (err) {
-        statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(err.message)}</div>`;
-        btn.textContent = 'Retry Activation';
-    } finally {
-        state.isActivating = false;
-    }
+    const policyName = escapeHtml(state.selectedPolicy.name);
+    await activatePolicy(state.selectedPolicy.class_ref, state.configValues, {
+        btnId: 'activate-btn',
+        progressLabel: 'Activating',
+        successMessage: `${policyName} activated successfully`,
+        retryLabel: 'Retry Activation',
+    });
 }
 
-const NOOP_CLASS_REF = 'luthien_proxy.policies.noop_policy:NoOpPolicy';
-
 async function handleDeactivate() {
-    if (state.isActivating) return;
-
-    const btn = document.getElementById('deactivate-btn');
-    const statusContainer = document.getElementById('status-container');
-
-    state.isActivating = true;
-    btn.disabled = true;
-    btn.textContent = 'Deactivating...';
-    statusContainer.innerHTML = '<div class="status-message info">Switching to NoOpPolicy (pass-through)...</div>';
-
-    try {
-        const result = await apiCall('/api/admin/policy/set', {
-            method: 'POST',
-            body: JSON.stringify({
-                policy_class_ref: NOOP_CLASS_REF,
-                config: {},
-                enabled_by: 'ui'
-            })
-        });
-
-        if (result.success) {
-            state.isActivating = false;
-            await loadCurrentPolicy();
-            renderPolicyList();
-            renderConfigPanel();
-
-            const newStatusContainer = document.getElementById('status-container');
-            if (newStatusContainer) {
-                newStatusContainer.innerHTML = '<div class="status-message success">✓ Policy deactivated (switched to NoOpPolicy)</div>';
-            }
-        } else {
-            statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(result.error || 'Failed to deactivate policy')}</div>`;
-            btn.textContent = 'Retry Deactivation';
-        }
-    } catch (err) {
-        statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(err.message)}</div>`;
-        btn.textContent = 'Retry Deactivation';
-    } finally {
-        state.isActivating = false;
-    }
+    await activatePolicy(NOOP_CLASS_REF, {}, {
+        btnId: 'deactivate-btn',
+        progressLabel: 'Deactivating',
+        successMessage: 'Policy deactivated (switched to NoOpPolicy)',
+        retryLabel: 'Retry Deactivation',
+    });
 }
 
 function clearValidationErrors() {
