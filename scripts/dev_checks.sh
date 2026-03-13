@@ -2,6 +2,31 @@
 # Requires: bash 3.2+
 set -euo pipefail
 
+echo "== Shellcheck (shell scripts) =="
+if command -v shellcheck &>/dev/null; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    shellcheck_failed=0
+    # Run from the scripts directory so relative source= directives resolve correctly
+    pushd "$SCRIPT_DIR" > /dev/null
+    for script in *.sh; do
+        if [[ -f "$script" ]]; then
+            echo "  Checking $script..."
+            if ! shellcheck --shell=bash -x "$script"; then
+                shellcheck_failed=1
+            fi
+        fi
+    done
+    popd > /dev/null
+    if [[ "$shellcheck_failed" -ne 0 ]]; then
+        echo "Shellcheck found issues. Please fix them before proceeding."
+        exit 1
+    fi
+    echo "  All shell scripts passed."
+else
+    echo "  WARNING: shellcheck not installed, skipping shell script checks."
+    echo "  Install with: brew install shellcheck (macOS) or apt-get install shellcheck (Linux)"
+fi
+
 echo "== Ruff format (apply) =="
 uv run ruff format
 

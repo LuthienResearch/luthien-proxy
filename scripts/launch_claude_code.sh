@@ -13,6 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=auth_mode_check.sh
 source "${SCRIPT_DIR}/auth_mode_check.sh"
 
 echo -e "${BLUE}🚀 Launching Claude Code with Gateway${NC}"
@@ -25,9 +26,12 @@ fi
 
 # Source only the variables we need from .env
 if [ -f .env ]; then
-    export PROXY_API_KEY=$(grep -E '^PROXY_API_KEY=' .env | cut -d '=' -f2-)
-    export GATEWAY_PORT=$(grep -E '^GATEWAY_PORT=' .env | cut -d '=' -f2-)
-    export GATEWAY_HOST=$(grep -E '^GATEWAY_HOST=' .env | cut -d '=' -f2-)
+    PROXY_API_KEY="$(grep -E '^PROXY_API_KEY=' .env | cut -d '=' -f2-)"
+    export PROXY_API_KEY
+    GATEWAY_PORT="$(grep -E '^GATEWAY_PORT=' .env | cut -d '=' -f2-)"
+    export GATEWAY_PORT
+    GATEWAY_HOST="$(grep -E '^GATEWAY_HOST=' .env | cut -d '=' -f2-)"
+    export GATEWAY_HOST
 fi
 
 # Check if gateway is running
@@ -41,7 +45,7 @@ if ! curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health" > /dev/null 2>&1; th
 
     # Wait for gateway to be healthy
     echo -e "${YELLOW}⏳ Waiting for gateway to be ready...${NC}"
-    for i in {1..30}; do
+    for _i in {1..30}; do
         if curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health" > /dev/null 2>&1; then
             break
         fi
