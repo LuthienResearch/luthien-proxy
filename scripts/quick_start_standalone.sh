@@ -36,12 +36,14 @@ fi
 # Source environment variables
 if [ -f .env ]; then
     set -a
+    # shellcheck source=/dev/null
     source .env
     set +a
 fi
 
 # Auto-select free ports for any port variables not pinned in .env
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=find-available-ports.sh
 source "${SCRIPT_DIR}/find-available-ports.sh"
 
 # Check for insecure default credentials
@@ -68,11 +70,11 @@ if [ -f .env ] && [ -f .env.example ]; then
     fi
 
     # Check if real API keys are missing (empty or placeholder)
-    if [ -z "$OPENAI_API_KEY" ] || [ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]; then
+    if [[ -z "${OPENAI_API_KEY:-}" ]] || [[ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]]; then
         echo "ℹ️  INFO: OPENAI_API_KEY not set (only local models will work)"
     fi
 
-    if [ -z "$ANTHROPIC_API_KEY" ] || [ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]; then
+    if [[ -z "${ANTHROPIC_API_KEY:-}" ]] || [[ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]]; then
         echo "ℹ️  INFO: ANTHROPIC_API_KEY not set (only local models will work)"
     fi
 fi
@@ -114,14 +116,14 @@ echo "⏳ Waiting for gateway to be ready..."
 timeout=60
 gateway_port="${GATEWAY_PORT:-8000}"
 
-while [ $timeout -gt 0 ]; do
+while [[ "$timeout" -gt 0 ]]; do
     if curl -f "http://localhost:${gateway_port}/health" > /dev/null 2>&1; then
         echo "✅ Gateway is healthy"
         break
     fi
     sleep 2
     timeout=$((timeout - 2))
-    if [ $timeout -le 0 ]; then
+    if [[ "$timeout" -le 0 ]]; then
         echo "❌ Gateway failed to start within 60 seconds"
         echo "📋 Check logs with: docker logs luthien-standalone-dev"
         exit 1

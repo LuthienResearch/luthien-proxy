@@ -96,13 +96,16 @@ fi
 # Source environment variables
 if [ -f .env ]; then
     set -a
+    # shellcheck source=/dev/null
     source .env
     set +a
 fi
 
 # Auto-select free ports for any port variables not pinned in .env
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=find-available-ports.sh
 source "${SCRIPT_DIR}/find-available-ports.sh"
+# shellcheck source=auth_mode_check.sh
 source "${SCRIPT_DIR}/auth_mode_check.sh"
 
 # Nudge users on proxy_key mode toward passthrough/both
@@ -144,11 +147,11 @@ if [ -f .env ] && [ -f .env.example ]; then
     fi
 
     # Check if real API keys are missing (empty or placeholder)
-    if [ -z "$OPENAI_API_KEY" ] || [ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]; then
+    if [[ -z "${OPENAI_API_KEY:-}" ]] || [[ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]]; then
         echo "ℹ️  INFO: OPENAI_API_KEY not set (only local models will work)"
     fi
 
-    if [ -z "$ANTHROPIC_API_KEY" ] || [ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]; then
+    if [[ -z "${ANTHROPIC_API_KEY:-}" ]] || [[ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]]; then
         echo "ℹ️  INFO: ANTHROPIC_API_KEY not set (only local models will work)"
     fi
 fi

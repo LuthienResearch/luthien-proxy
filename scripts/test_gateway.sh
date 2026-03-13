@@ -39,11 +39,13 @@ for i in $(seq 1 $GATEWAY_RETRY_COUNT); do
     dots="${dots}."                                                              # Accumulate dots for visual progress
     printf "\r%s Attempt %d/%d" "$dots" "$i" "$GATEWAY_RETRY_COUNT"              # \r returns cursor to line start, overwrites previous
     if curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; then                     # -s silent, -f fail on HTTP errors
+        # shellcheck disable=SC2059 # Color vars contain escape sequences that must be in the format string
         printf "\n${GREEN}Gateway ready!${NC}\n"
         break
     fi
     if [ "$i" -eq "$GATEWAY_RETRY_COUNT" ]; then                                 # On final attempt, fail instead of sleeping again
         total_wait=$((GATEWAY_RETRY_COUNT * GATEWAY_RETRY_INTERVAL))
+        # shellcheck disable=SC2059
         printf "\n${RED}Gateway not ready after ${total_wait}s${NC}\n"
         exit 1
     fi
@@ -69,30 +71,33 @@ test_endpoint() {
     fi
 }
 
-# Helper function to extract content from response
+# Helper functions below are invoked indirectly via eval in test_endpoint()
+# shellcheck disable=SC2317,SC2329
 extract_content() {
     jq -r '.choices[0].message.content // empty'
 }
 
-# Helper function to validate content contains greeting
+# shellcheck disable=SC2317,SC2329
 validate_greeting() {
     grep -iq "hello\|hi\|hey\|greetings"
 }
 
-# Helper function to validate streaming response
+# shellcheck disable=SC2317,SC2329
 validate_streaming() {
-    local content=$(cat)
+    local content
+    content="$(cat)"
     echo "$content" | grep -q "^data: {" && echo "$content" | grep -q "delta"
 }
 
-# Helper function to validate Anthropic response
+# shellcheck disable=SC2317,SC2329
 validate_anthropic() {
     jq -e '.content[0].text | length > 0' > /dev/null
 }
 
-# Helper function to validate Anthropic streaming
+# shellcheck disable=SC2317,SC2329
 validate_anthropic_streaming() {
-    local content=$(cat)
+    local content
+    content="$(cat)"
     echo "$content" | grep -q "^data: {" && echo "$content" | grep -q "content_block_delta"
 }
 

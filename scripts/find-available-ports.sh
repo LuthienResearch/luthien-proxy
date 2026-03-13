@@ -52,7 +52,9 @@ find_free_port() {
 auto_selected=""
 
 # Iterate over vars and defaults in parallel using positional indexing
+# shellcheck disable=SC2086 # Intentional word splitting for bash 3 compat (no arrays)
 set -- $PORT_DEFAULTS
+# shellcheck disable=SC2086
 for var in $PORT_VARS; do
     default="$1"
     shift
