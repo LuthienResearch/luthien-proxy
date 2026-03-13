@@ -1,5 +1,6 @@
 """Unit tests for the pipeline processor module."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -290,7 +291,11 @@ class TestHandleStreaming:
 
             mock_root_span = MagicMock()
 
+            mock_http_request = MagicMock()
+            mock_http_request.is_disconnected = AsyncMock(return_value=False)
+
             response = await _handle_streaming(
+                request=mock_http_request,
                 final_request=request,
                 orchestrator=mock_orchestrator,
                 policy_ctx=mock_policy_ctx,
@@ -304,6 +309,229 @@ class TestHandleStreaming:
         assert response.media_type == "text/event-stream"
         assert response.headers.get("cache-control") == "no-cache"
         assert response.headers.get("x-call-id") == "test-call-id"
+
+
+class TestClientDisconnectDetection:
+    """Tests for client disconnect detection during OpenAI streaming."""
+
+    @pytest.fixture
+    def mock_policy_ctx(self):
+        """Create a mock PolicyContext."""
+        ctx = MagicMock()
+        ctx.response_summary = None
+        return ctx
+
+    @pytest.fixture
+    def mock_llm_client(self):
+        """Create a mock LLM client."""
+        client = MagicMock()
+
+        async def mock_stream(*args):
+            yield MagicMock()
+
+        client.stream = AsyncMock(return_value=mock_stream())
+        return client
+
+    @pytest.mark.asyncio
+    async def test_streaming_stops_on_client_disconnect(self, mock_policy_ctx, mock_llm_client):
+        """Streaming should stop yielding when client disconnects mid-stream."""
+        # Mock request with is_disconnected returning True after 2 chunks
+        call_count = 0
+
+        async def is_disconnected():
+            nonlocal call_count
+            call_count += 1
+            return call_count > 2
+
+        mock_request = MagicMock()
+        mock_request.is_disconnected = is_disconnected
+
+        # Mock orchestrator that yields 5 chunks
+        orchestrator = MagicMock()
+
+        async def mock_streaming(*args):
+            for i in range(5):
+                yield f"data: chunk{i}\n\n"
+
+        orchestrator.process_streaming_response = mock_streaming
+
+        request = RequestMessage(model="gpt-4", messages=[{"role": "user", "content": "Hi"}], stream=True)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await _handle_streaming(
+                request=mock_request,
+                final_request=request,
+                orchestrator=orchestrator,
+                policy_ctx=mock_policy_ctx,
+                llm_client=mock_llm_client,
+                call_id="test-disconnect",
+                root_span=MagicMock(),
+                request_log_recorder=NoOpRequestLogRecorder(),
+            )
+
+        # Consume the body iterator to run the generator
+        events = []
+        async for chunk in response.body_iterator:
+            events.append(chunk)
+
+        # Should have gotten only 2 chunks (disconnect detected before 3rd yield)
+        assert len(events) == 2
+
+    @pytest.mark.asyncio
+    async def test_streaming_disconnect_logs_warning(self, mock_policy_ctx, mock_llm_client, caplog):
+        """Client disconnect should be logged as a warning."""
+        # Disconnect immediately
+        mock_request = MagicMock()
+        mock_request.is_disconnected = AsyncMock(return_value=True)
+
+        orchestrator = MagicMock()
+
+        async def mock_streaming(*args):
+            yield "data: chunk0\n\n"
+
+        orchestrator.process_streaming_response = mock_streaming
+
+        request = RequestMessage(model="gpt-4", messages=[{"role": "user", "content": "Hi"}], stream=True)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await _handle_streaming(
+                request=mock_request,
+                final_request=request,
+                orchestrator=orchestrator,
+                policy_ctx=mock_policy_ctx,
+                llm_client=mock_llm_client,
+                call_id="test-disconnect-log",
+                root_span=MagicMock(),
+                request_log_recorder=NoOpRequestLogRecorder(),
+            )
+
+        with caplog.at_level(logging.WARNING):
+            async for _ in response.body_iterator:
+                pass
+
+        assert any("Client disconnected" in msg for msg in caplog.messages)
+
+    @pytest.mark.asyncio
+    async def test_streaming_disconnect_sets_span_attribute(self, mock_policy_ctx, mock_llm_client):
+        """Client disconnect should set luthien.client_disconnected span attribute."""
+        mock_request = MagicMock()
+        mock_request.is_disconnected = AsyncMock(return_value=True)
+
+        orchestrator = MagicMock()
+
+        async def mock_streaming(*args):
+            yield "data: chunk0\n\n"
+
+        orchestrator.process_streaming_response = mock_streaming
+
+        request = RequestMessage(model="gpt-4", messages=[{"role": "user", "content": "Hi"}], stream=True)
+
+        mock_response_span = MagicMock()
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_response_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await _handle_streaming(
+                request=mock_request,
+                final_request=request,
+                orchestrator=orchestrator,
+                policy_ctx=mock_policy_ctx,
+                llm_client=mock_llm_client,
+                call_id="test-disconnect-span",
+                root_span=MagicMock(),
+                request_log_recorder=NoOpRequestLogRecorder(),
+            )
+
+            async for _ in response.body_iterator:
+                pass
+
+        mock_response_span.set_attribute.assert_any_call("luthien.client_disconnected", True)
+
+    @pytest.mark.asyncio
+    async def test_streaming_disconnect_records_status_499(self, mock_policy_ctx, mock_llm_client):
+        """Client disconnect should record HTTP status 499."""
+        mock_request = MagicMock()
+        mock_request.is_disconnected = AsyncMock(return_value=True)
+
+        orchestrator = MagicMock()
+
+        async def mock_streaming(*args):
+            yield "data: chunk0\n\n"
+
+        orchestrator.process_streaming_response = mock_streaming
+
+        request = RequestMessage(model="gpt-4", messages=[{"role": "user", "content": "Hi"}], stream=True)
+        mock_recorder = MagicMock()
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await _handle_streaming(
+                request=mock_request,
+                final_request=request,
+                orchestrator=orchestrator,
+                policy_ctx=mock_policy_ctx,
+                llm_client=mock_llm_client,
+                call_id="test-disconnect-499",
+                root_span=MagicMock(),
+                request_log_recorder=mock_recorder,
+            )
+
+        async for _ in response.body_iterator:
+            pass
+
+        mock_recorder.record_inbound_response.assert_called_once()
+        call_kwargs = mock_recorder.record_inbound_response.call_args
+        assert call_kwargs.kwargs.get("status") == 499
+
+    @pytest.mark.asyncio
+    async def test_normal_streaming_unaffected(self, mock_policy_ctx, mock_llm_client):
+        """Normal streaming (no disconnect) should yield all chunks."""
+        mock_request = MagicMock()
+        mock_request.is_disconnected = AsyncMock(return_value=False)
+
+        orchestrator = MagicMock()
+
+        async def mock_streaming(*args):
+            for i in range(3):
+                yield f"data: chunk{i}\n\n"
+
+        orchestrator.process_streaming_response = mock_streaming
+
+        request = RequestMessage(model="gpt-4", messages=[{"role": "user", "content": "Hi"}], stream=True)
+
+        with patch("luthien_proxy.pipeline.processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await _handle_streaming(
+                request=mock_request,
+                final_request=request,
+                orchestrator=orchestrator,
+                policy_ctx=mock_policy_ctx,
+                llm_client=mock_llm_client,
+                call_id="test-no-disconnect",
+                root_span=MagicMock(),
+                request_log_recorder=NoOpRequestLogRecorder(),
+            )
+
+        events = []
+        async for chunk in response.body_iterator:
+            events.append(chunk)
+
+        assert len(events) == 3
 
 
 class TestProcessLlmRequest:

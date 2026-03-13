@@ -379,6 +379,7 @@ async def process_anthropic_request(
         root_span.set_attribute("luthien.policy.name", policy.__class__.__name__)
 
         response = await _execute_anthropic_policy(
+            request=request,
             execution_policy=policy,
             initial_request=anthropic_request,
             policy_ctx=policy_ctx,
@@ -468,6 +469,7 @@ async def _process_request(
 
 
 async def _execute_anthropic_policy(
+    request: Request,
     execution_policy: AnthropicExecutionInterface,
     initial_request: AnthropicRequest,
     policy_ctx: PolicyContext,
@@ -495,6 +497,7 @@ async def _execute_anthropic_policy(
 
     if is_streaming:
         return await _handle_execution_streaming(
+            request=request,
             emissions=emissions,
             io=io,
             call_id=call_id,
@@ -517,6 +520,7 @@ async def _execute_anthropic_policy(
 
 
 async def _handle_execution_streaming(
+    request: Request,
     emissions: AsyncIterator[AnthropicPolicyEmission],
     io: _AnthropicPolicyIO,
     call_id: str,
@@ -535,6 +539,7 @@ async def _handle_execution_streaming(
             chunk_count = 0
             emitted_any = False
             final_status = 200
+            client_disconnected = False
             accumulated_events: list[MessageStreamEvent] = []
             with tracer.start_as_current_span("process_response") as response_span:
                 response_span.set_attribute("luthien.phase", "process_response")
@@ -548,13 +553,20 @@ async def _handle_execution_streaming(
                                     "Streaming Anthropic execution policies must emit streaming events, "
                                     "not full response objects."
                                 )
+                            if await request.is_disconnected():
+                                client_disconnected = True
+                                logger.warning(
+                                    "[%s] Client disconnected during Anthropic streaming after %d chunks",
+                                    call_id,
+                                    chunk_count,
+                                )
+                                break
                             io.ensure_request_recorded()
                             emitted_any = True
                             chunk_count += 1
                             accumulated_events.append(cast(MessageStreamEvent, emitted))
                             yield _format_sse_event(cast(MessageStreamEvent, emitted))
                 except Exception as e:
-                    # Headers may already be sent, so emit an in-stream error event.
                     policy_ctx.record_event(
                         "policy.execution.streaming_error",
                         {"summary": "Execution policy raised during streaming", "error": str(e)},
@@ -568,7 +580,10 @@ async def _handle_execution_streaming(
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
-                    if not emitted_any:
+                    if client_disconnected:
+                        response_span.set_attribute("luthien.client_disconnected", True)
+                        final_status = 499
+                    if not emitted_any and not client_disconnected:
                         io.ensure_request_recorded()
                         logger.warning(
                             "[%s] Execution policy emitted zero streaming events; returning empty stream",
@@ -584,16 +599,19 @@ async def _handle_execution_streaming(
                     reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
                     if reconstructed is not None:
                         raw_reconstructed = _reconstruct_response_from_stream_events(io._raw_backend_events)
+                        event_payload = {
+                            "original_response": dict(raw_reconstructed)
+                            if raw_reconstructed is not None
+                            else dict(reconstructed),
+                            "final_response": dict(reconstructed),
+                            "session_id": policy_ctx.session_id,
+                        }
+                        if client_disconnected:
+                            event_payload["client_disconnected"] = True
                         emitter.record(
                             call_id,
                             "transaction.streaming_response_recorded",
-                            {
-                                "original_response": dict(raw_reconstructed)
-                                if raw_reconstructed is not None
-                                else dict(reconstructed),
-                                "final_response": dict(reconstructed),
-                                "session_id": policy_ctx.session_id,
-                            },
+                            event_payload,
                         )
                     request_log_recorder.record_inbound_response(status=final_status)
                     request_log_recorder.record_outbound_response(status=final_status)

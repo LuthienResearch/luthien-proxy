@@ -106,6 +106,7 @@ def _make_mock_fastapi_request(body: AnthropicRequest) -> MagicMock:
     request.method = "POST"
     request.url = MagicMock()
     request.url.path = "/v1/messages"
+    request.is_disconnected = AsyncMock(return_value=False)
     request.json = AsyncMock(return_value=body)
     return request
 
