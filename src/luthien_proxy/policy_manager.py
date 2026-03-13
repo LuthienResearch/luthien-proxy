@@ -137,12 +137,12 @@ class PolicyManager:
         await self._initialize_from_file()
 
     async def _initialize_file_fallback_db(self) -> None:
-        """Try YAML file first, fall back to database if file is missing/invalid."""
+        """Try YAML file first, fall back to database if file is missing."""
         try:
             await self._initialize_from_file()
             return
-        except Exception as e:
-            logger.info(f"Could not load from file ({e}), falling back to database")
+        except FileNotFoundError as e:
+            logger.info(f"Config file not found ({e}), falling back to database")
         policy = await self._load_from_db()
         if policy:
             self._current_policy = policy
