@@ -22,6 +22,8 @@ from luthien_proxy.utils.db import DatabasePool
 logger = logging.getLogger(__name__)
 
 REDIS_KEY_PREFIX = "luthien:auth:cred:"
+LAST_CRED_TYPE_KEY = "luthien:auth:last_credential_type"
+LAST_CRED_TYPE_TTL = 86400  # 24 hours
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages/count_tokens"
 ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_BETA = "token-counting-2024-11-01"
@@ -217,6 +219,37 @@ class CredentialManager:
         key_hash = hash_credential(api_key)
         await self._invalidate_key(key_hash)
         logger.info(f"Credential invalidated (backend 401): hash={key_hash[:16]}...")
+
+    async def record_credential_type(self, cred_type: str) -> None:
+        """Best-effort write of observed credential type to Redis for /health visibility.
+
+        Skips recording in proxy_key mode (surfaced statically via auth_mode).
+        """
+        if self._config.auth_mode == AuthMode.PROXY_KEY:
+            return
+        if self._redis is None:
+            return
+        try:
+            payload = json.dumps({"type": cred_type, "timestamp": time.time()})
+            await self._redis.setex(LAST_CRED_TYPE_KEY, LAST_CRED_TYPE_TTL, payload)
+        except Exception:
+            logger.warning("Failed to record credential type to Redis", exc_info=True)
+
+    async def get_last_credential_type(self) -> dict | None:
+        """Read the most recently observed credential type from Redis.
+
+        Returns dict with "type" and "timestamp" keys, or None.
+        """
+        if self._redis is None:
+            return None
+        try:
+            raw = await self._redis.get(LAST_CRED_TYPE_KEY)
+            if raw is None:
+                return None
+            return json.loads(raw)
+        except Exception:
+            logger.debug("Failed to read last_credential_type from Redis", exc_info=True)
+            return None
 
     async def invalidate_credential(self, key_hash: str) -> bool:
         """Remove a cached credential by its hash. Returns True if found."""

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -23,7 +22,6 @@ from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
-from luthien_proxy.gateway_routes import LAST_CRED_TYPE_KEY
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
 from luthien_proxy.llm.anthropic_client import AnthropicClient
@@ -306,28 +304,17 @@ def create_app(
         operators and the UI can surface billing mode warnings accurately.
         """
         deps = getattr(request.app.state, "dependencies", None)
-        auth_mode = None
-        if deps and deps.credential_manager:
-            auth_mode = deps.credential_manager.config.auth_mode.value
+        cm = deps.credential_manager if deps else None
 
-        last_credential_type = None
-        last_credential_at = None
-        if deps and deps.redis_client:
-            try:
-                raw = await deps.redis_client.get(LAST_CRED_TYPE_KEY)
-                if raw:
-                    data = json.loads(raw)
-                    last_credential_type = data.get("type")
-                    last_credential_at = data.get("timestamp")
-            except Exception:
-                logger.debug("Failed to read last_credential_type from Redis", exc_info=True)
+        auth_mode = cm.config.auth_mode.value if cm else None
+        cred_info = await cm.get_last_credential_type() if cm else None
 
         return {
             "status": "healthy",
             "version": "2.0.0",
             "auth_mode": auth_mode,
-            "last_credential_type": last_credential_type,
-            "last_credential_at": last_credential_at,
+            "last_credential_type": cred_info.get("type") if cred_info else None,
+            "last_credential_at": cred_info.get("timestamp") if cred_info else None,
         }
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths

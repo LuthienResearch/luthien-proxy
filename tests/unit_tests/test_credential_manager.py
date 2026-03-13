@@ -426,3 +426,83 @@ class TestUpdateConfig:
         config = await manager.update_config(validate_credentials=False)
         assert config.validate_credentials is False
         assert config.auth_mode == AuthMode.BOTH  # unchanged from default
+
+
+class TestRecordCredentialType:
+    @pytest.mark.asyncio
+    async def test_writes_to_redis(self):
+        mock_redis = AsyncMock()
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager._config.auth_mode = AuthMode.PASSTHROUGH
+
+        await manager.record_credential_type("oauth")
+
+        mock_redis.setex.assert_called_once()
+        key, ttl, payload = mock_redis.setex.call_args[0]
+        assert key == "luthien:auth:last_credential_type"
+        assert ttl == 86400
+        data = json.loads(payload)
+        assert data["type"] == "oauth"
+        assert "timestamp" in data
+
+    @pytest.mark.asyncio
+    async def test_skips_in_proxy_key_mode(self):
+        mock_redis = AsyncMock()
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager._config.auth_mode = AuthMode.PROXY_KEY
+
+        await manager.record_credential_type("oauth")
+
+        mock_redis.setex.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_without_redis(self):
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager._config.auth_mode = AuthMode.PASSTHROUGH
+        # Should not raise
+        await manager.record_credential_type("oauth")
+
+    @pytest.mark.asyncio
+    async def test_swallows_redis_errors(self):
+        mock_redis = AsyncMock()
+        mock_redis.setex.side_effect = Exception("Redis down")
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager._config.auth_mode = AuthMode.PASSTHROUGH
+        # Should not raise
+        await manager.record_credential_type("oauth")
+
+
+class TestGetLastCredentialType:
+    @pytest.mark.asyncio
+    async def test_returns_stored_value(self):
+        stored = json.dumps({"type": "oauth", "timestamp": 1234567890.0})
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = stored.encode()
+
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        result = await manager.get_last_credential_type()
+
+        assert result == {"type": "oauth", "timestamp": 1234567890.0}
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_empty(self):
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = None
+
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        result = await manager.get_last_credential_type()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_without_redis(self):
+        manager = CredentialManager(db_pool=None, redis_client=None)
+        result = await manager.get_last_credential_type()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_swallows_redis_errors(self):
+        mock_redis = AsyncMock()
+        mock_redis.get.side_effect = Exception("Redis down")
+        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        result = await manager.get_last_credential_type()
+        assert result is None
