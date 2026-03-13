@@ -142,24 +142,17 @@ class SessionDriver:
 
         if timed_out:
             await self._kill_stale_claude_processes()
-            end_time = time.monotonic()
-            stdout = stdout_bytes.decode(errors="replace")
-            summary = summarize_turn(stdout, turn_number, start_time, end_time)
-            idle_s = self.idle_timeout_seconds
-            summary.anomalies.append(f"Turn idle-timed out after {idle_s}s of no output")
-            logger.warning("Turn %d idle-timed out after %ds of silence", turn_number, idle_s)
-            if self.session_id is None and summary.session_id:
-                self.session_id = summary.session_id
-            self.turn_count += 1
-            return summary
 
         end_time = time.monotonic()
         stdout = stdout_bytes.decode(errors="replace")
         stderr = stderr_bytes.decode(errors="replace")
-
         summary = summarize_turn(stdout, turn_number, start_time, end_time)
 
-        if proc.returncode != 0:
+        if timed_out:
+            idle_s = self.idle_timeout_seconds
+            summary.anomalies.append(f"Turn idle-timed out after {idle_s}s of no output")
+            logger.warning("Turn %d idle-timed out after %ds of silence", turn_number, idle_s)
+        elif proc.returncode != 0:
             msg = f"claude exited with code {proc.returncode}"
             if stderr.strip():
                 msg += f": {stderr.strip()[:500]}"
