@@ -3,6 +3,10 @@
 Each call to run_turn() executes one `claude -p` invocation, parsing the
 stream-json output into a TurnSummary. The driver tracks session_id across
 turns so subsequent calls use --resume for conversation continuity.
+
+Timeout is inactivity-based: the turn is killed only after idle_timeout_seconds
+of silence on stdout (no new output from the subprocess). This lets long
+productive turns run indefinitely while catching stuck sessions.
 """
 
 import asyncio
@@ -21,7 +25,7 @@ class SessionDriver:
         gateway_url: str,
         api_key: str | None = None,
         auth_token: str | None = None,
-        timeout_seconds: int = 600,
+        idle_timeout_seconds: int = 300,
         compose_project: str | None = None,
         model: str | None = None,
     ):
@@ -31,7 +35,7 @@ class SessionDriver:
         self.gateway_url = gateway_url
         self.api_key = api_key
         self.auth_token = auth_token
-        self.timeout_seconds = timeout_seconds
+        self.idle_timeout_seconds = idle_timeout_seconds
         self.compose_project = compose_project
         self.model = model
         self.session_id: str | None = None
@@ -53,6 +57,54 @@ class SessionDriver:
             cmd.extend(["--resume", session_id])
         cmd.append(prompt)
         return cmd
+
+    async def _read_with_idle_timeout(
+        self,
+        proc: asyncio.subprocess.Process,
+    ) -> tuple[bytes, bytes, bool]:
+        """Read stdout/stderr incrementally, killing proc if stdout goes idle.
+
+        Returns (stdout_bytes, stderr_bytes, timed_out).
+        """
+        assert proc.stdout is not None
+        assert proc.stderr is not None
+
+        stdout_chunks: list[bytes] = []
+        last_activity = time.monotonic()
+        timed_out = False
+
+        async def drain_stderr() -> bytes:
+            assert proc.stderr is not None
+            return await proc.stderr.read()
+
+        stderr_task = asyncio.create_task(drain_stderr())
+
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    proc.stdout.read(8192),
+                    timeout=self.idle_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                idle_duration = time.monotonic() - last_activity
+                logger.warning(
+                    "No output for %.0fs (idle_timeout=%ds), killing turn",
+                    idle_duration,
+                    self.idle_timeout_seconds,
+                )
+                timed_out = True
+                proc.kill()
+                break
+
+            if not chunk:
+                break
+
+            stdout_chunks.append(chunk)
+            last_activity = time.monotonic()
+
+        stderr_bytes = await stderr_task
+        await proc.wait()
+        return b"".join(stdout_chunks), stderr_bytes, timed_out
 
     async def run_turn(self, prompt: str) -> TurnSummary:
         """Execute one turn via docker compose exec -T and parse output."""
@@ -85,26 +137,23 @@ class SessionDriver:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=self.timeout_seconds,
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            stdout_bytes, _ = await proc.communicate()
+
+        stdout_bytes, stderr_bytes, timed_out = await self._read_with_idle_timeout(proc)
+
+        if timed_out:
             await self._kill_stale_claude_processes()
             end_time = time.monotonic()
             stdout = stdout_bytes.decode(errors="replace")
             summary = summarize_turn(stdout, turn_number, start_time, end_time)
-            summary.anomalies.append(f"Turn timed out after {self.timeout_seconds}s")
-            logger.warning("Turn %d timed out after %ds", turn_number, self.timeout_seconds)
+            idle_s = self.idle_timeout_seconds
+            summary.anomalies.append(f"Turn idle-timed out after {idle_s}s of no output")
+            logger.warning("Turn %d idle-timed out after %ds of silence", turn_number, idle_s)
             if self.session_id is None and summary.session_id:
                 self.session_id = summary.session_id
             self.turn_count += 1
             return summary
-        end_time = time.monotonic()
 
+        end_time = time.monotonic()
         stdout = stdout_bytes.decode(errors="replace")
         stderr = stderr_bytes.decode(errors="replace")
 

@@ -12,12 +12,12 @@ class TestParseArgs:
     def test_defaults(self):
         args = parse_args(["--task", "test"])
         assert args.max_turns == 20
-        assert args.timeout == 20 * 600  # max_turns * turn_timeout
+        assert args.idle_timeout == 300
+        assert args.timeout == 20 * 300 * 10  # max_turns * idle_timeout * 10
         assert args.port == 8080
         assert args.model == "claude-haiku-4-5-20251001"
         assert args.sandbox_model == "claude-haiku-4-5-20251001"
         assert args.gateway_url == "http://gateway:8000"
-        assert args.turn_timeout == 600
         assert args.api_key is None
         assert args.auth_token is None
         assert args.compose_project is None
@@ -37,7 +37,7 @@ class TestParseArgs:
                 "claude-sonnet-4-6",
                 "--sandbox-model",
                 "claude-sonnet-4-6",
-                "--turn-timeout",
+                "--idle-timeout",
                 "120",
                 "--auth-token",
                 "my-token",
@@ -53,7 +53,7 @@ class TestParseArgs:
         assert args.port == 9090
         assert args.model == "claude-sonnet-4-6"
         assert args.sandbox_model == "claude-sonnet-4-6"
-        assert args.turn_timeout == 120
+        assert args.idle_timeout == 120
         assert args.auth_token == "my-token"
         assert args.api_key == "my-key"
         assert args.compose_project == "test-project"
