@@ -321,15 +321,24 @@ function renderConfigPanel() {
         </div>`;
     }
 
+    let buttonHtml;
+    if (isMatchingActive) {
+        buttonHtml = `<button class="secondary danger" id="deactivate-btn" ${state.isActivating ? 'disabled' : ''}>
+                ${state.isActivating ? 'Deactivating...' : 'Deactivate Policy'}
+            </button>`;
+    } else {
+        buttonHtml = `<button class="primary" id="activate-btn" ${state.isActivating ? 'disabled' : ''}>
+                ${state.isActivating ? 'Activating...' : 'Activate Policy'}
+            </button>`;
+    }
+
     let html = `
         <div class="selected-policy-name">${escapeHtml(policy.name)}</div>
         ${statusHtml}
         <div class="selected-policy-description">${escapeHtml(policy.description)}</div>
         <div class="config-form" id="config-form"></div>
         <div class="button-group">
-            <button class="primary" id="activate-btn" ${state.isActivating ? 'disabled' : ''}>
-                ${state.isActivating ? 'Activating...' : (isMatchingActive ? 'Reactivate Policy' : 'Activate Policy')}
-            </button>
+            ${buttonHtml}
         </div>
         <div id="status-container"></div>
         <div class="quick-links">
@@ -342,7 +351,11 @@ function renderConfigPanel() {
     panel.innerHTML = html;
 
     renderConfigForm(policy);
-    document.getElementById('activate-btn').addEventListener('click', handleActivate);
+    if (isMatchingActive) {
+        document.getElementById('deactivate-btn').addEventListener('click', handleDeactivate);
+    } else {
+        document.getElementById('activate-btn').addEventListener('click', handleActivate);
+    }
 }
 
 function renderConfigForm(policy) {
@@ -555,6 +568,14 @@ window.onUnionTypeChange = function(path, newType) {
 };
 
 function updateActivateButton() {
+    // Deactivate button doesn't need validation updates
+    const deactivateBtn = document.getElementById('deactivate-btn');
+    if (deactivateBtn) {
+        deactivateBtn.disabled = state.isActivating;
+        deactivateBtn.textContent = state.isActivating ? 'Deactivating...' : 'Deactivate Policy';
+        return;
+    }
+
     const btn = document.getElementById('activate-btn');
     if (!btn) return;
 
@@ -566,8 +587,7 @@ function updateActivateButton() {
         btn.classList.add('disabled-error');
     } else {
         btn.classList.remove('disabled-error');
-        const isMatchingActive = isConfigMatchingActive();
-        btn.textContent = state.isActivating ? 'Activating...' : (isMatchingActive ? 'Reactivate Policy' : 'Activate Policy');
+        btn.textContent = state.isActivating ? 'Activating...' : 'Activate Policy';
     }
 }
 
@@ -630,12 +650,17 @@ async function handleActivate() {
         });
 
         if (result.success) {
-            // Refresh current policy
+            // Reset state before re-render so button gets correct text
+            state.isActivating = false;
+            const policyName = state.selectedPolicy.name;
             await loadCurrentPolicy();
             renderPolicyList();
+            renderConfigPanel();
 
-            statusContainer.innerHTML = `<div class="status-message success">✓ ${state.selectedPolicy.name} activated successfully</div>`;
-            btn.textContent = 'Reactivate Policy';
+            const newStatusContainer = document.getElementById('status-container');
+            if (newStatusContainer) {
+                newStatusContainer.innerHTML = `<div class="status-message success">✓ ${escapeHtml(policyName)} activated successfully</div>`;
+            }
         } else {
             // Handle validation errors
             if (result.validation_errors && result.validation_errors.length > 0) {
@@ -651,7 +676,51 @@ async function handleActivate() {
         btn.textContent = 'Retry Activation';
     } finally {
         state.isActivating = false;
-        btn.disabled = false;
+    }
+}
+
+const NOOP_CLASS_REF = 'luthien_proxy.policies.noop_policy:NoOpPolicy';
+
+async function handleDeactivate() {
+    if (state.isActivating) return;
+
+    const btn = document.getElementById('deactivate-btn');
+    const statusContainer = document.getElementById('status-container');
+
+    state.isActivating = true;
+    btn.disabled = true;
+    btn.textContent = 'Deactivating...';
+    statusContainer.innerHTML = '<div class="status-message info">Switching to NoOpPolicy (pass-through)...</div>';
+
+    try {
+        const result = await apiCall('/api/admin/policy/set', {
+            method: 'POST',
+            body: JSON.stringify({
+                policy_class_ref: NOOP_CLASS_REF,
+                config: {},
+                enabled_by: 'ui'
+            })
+        });
+
+        if (result.success) {
+            state.isActivating = false;
+            await loadCurrentPolicy();
+            renderPolicyList();
+            renderConfigPanel();
+
+            const newStatusContainer = document.getElementById('status-container');
+            if (newStatusContainer) {
+                newStatusContainer.innerHTML = '<div class="status-message success">✓ Policy deactivated (switched to NoOpPolicy)</div>';
+            }
+        } else {
+            statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(result.error || 'Failed to deactivate policy')}</div>`;
+            btn.textContent = 'Retry Deactivation';
+        }
+    } catch (err) {
+        statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(err.message)}</div>`;
+        btn.textContent = 'Retry Deactivation';
+    } finally {
+        state.isActivating = false;
     }
 }
 
