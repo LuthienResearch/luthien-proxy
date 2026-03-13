@@ -349,13 +349,76 @@ class TestPolicyManagerLoadFromDb:
         assert policy is not None
 
     @pytest.mark.asyncio
-    async def test_load_from_db_returns_none_on_exception(self):
-        mock_pool = MagicMock()
-        mock_pool.get_pool = AsyncMock(side_effect=Exception("DB error"))
+    async def test_load_from_db_returns_none_when_no_rows(self):
+        mock_pool, _ = _make_db_mocks(fetchrow_return=None)
 
         manager = PolicyManager(db_pool=mock_pool, redis_client=MagicMock())
         policy = await manager._load_from_db()
         assert policy is None
+
+    @pytest.mark.asyncio
+    async def test_load_from_db_returns_none_on_db_connection_error(self):
+        """DB connectivity errors return None but log at ERROR level."""
+        mock_pool = MagicMock()
+        mock_pool.get_pool = AsyncMock(side_effect=Exception("connection refused"))
+
+        manager = PolicyManager(db_pool=mock_pool, redis_client=MagicMock())
+        policy = await manager._load_from_db()
+        assert policy is None
+
+    @pytest.mark.asyncio
+    async def test_load_from_db_returns_none_on_query_error(self):
+        """DB query errors (e.g. missing table) return None but log at ERROR."""
+        mock_pool = MagicMock()
+        mock_conn = AsyncMock()
+        mock_pool.get_pool = AsyncMock(return_value=mock_conn)
+        mock_conn.fetchrow = AsyncMock(side_effect=Exception("relation 'current_policy' does not exist"))
+
+        manager = PolicyManager(db_pool=mock_pool, redis_client=MagicMock())
+        policy = await manager._load_from_db()
+        assert policy is None
+
+    @pytest.mark.asyncio
+    async def test_load_from_db_raises_on_import_error(self):
+        """If DB has a policy row but the class can't be imported, the error propagates."""
+        mock_pool, _ = _make_db_mocks(
+            fetchrow_return={
+                "policy_class_ref": "nonexistent.module:FakePolicy",
+                "config": "{}",
+            }
+        )
+
+        manager = PolicyManager(db_pool=mock_pool, redis_client=MagicMock())
+        with pytest.raises((ImportError, ModuleNotFoundError)):
+            await manager._load_from_db()
+
+    @pytest.mark.asyncio
+    async def test_load_from_db_raises_on_attribute_error(self):
+        """If DB has a policy row but the class doesn't exist in the module, the error propagates."""
+        mock_pool, _ = _make_db_mocks(
+            fetchrow_return={
+                "policy_class_ref": "luthien_proxy.policies.noop_policy:NonexistentClass",
+                "config": "{}",
+            }
+        )
+
+        manager = PolicyManager(db_pool=mock_pool, redis_client=MagicMock())
+        with pytest.raises(AttributeError):
+            await manager._load_from_db()
+
+    @pytest.mark.asyncio
+    async def test_load_from_db_raises_on_malformed_class_ref(self):
+        """If DB has a malformed class reference, ValueError propagates."""
+        mock_pool, _ = _make_db_mocks(
+            fetchrow_return={
+                "policy_class_ref": "no-colon-separator",
+                "config": "{}",
+            }
+        )
+
+        manager = PolicyManager(db_pool=mock_pool, redis_client=MagicMock())
+        with pytest.raises(ValueError):
+            await manager._load_from_db()
 
 
 # -- enable_policy -------------------------------------------------------------
