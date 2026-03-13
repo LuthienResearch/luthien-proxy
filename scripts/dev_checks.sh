@@ -25,3 +25,10 @@ echo "== Radon complexity (report-only) =="
 uv run radon cc -s -a src || true
 
 echo "All checks completed."
+
+# Remind about uncommitted formatting/lint changes
+if ! git diff --quiet 2>/dev/null; then
+  echo ""
+  echo "⚠ Working tree has uncommitted changes (likely from formatting/lint fixes)."
+  echo "  Remember to commit and push before continuing."
+fi
