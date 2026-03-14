@@ -14,11 +14,15 @@ Run:
     uv run pytest -m mock_e2e tests/e2e_tests/test_mock_claude_code_flows.py -v
 """
 
+import os
+
 import pytest
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
 from tests.e2e_tests.mock_anthropic.responses import text_response, tool_response
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from tests.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
+
+AUTH_MODE = os.getenv("AUTH_MODE", "both")
 
 pytestmark = pytest.mark.mock_e2e
 
@@ -48,17 +52,22 @@ async def test_realistic_request_reaches_backend(mock_anthropic: MockAnthropicSe
 
 @pytest.mark.asyncio
 async def test_bad_auth_rejected_before_backend(mock_anthropic: MockAnthropicServer, gateway_healthy):
-    """Gateway auth middleware is in the path: bad key gets 401, backend never sees the request."""
-    mock_anthropic.enqueue(text_response("should not be seen"))
+    """Gateway auth: bad key gets 401 (proxy_key mode) or passes through (both mode)."""
+    mock_anthropic.enqueue(text_response("passthrough or blocked"))
     session = ClaudeCodeSimulator(GATEWAY_URL, api_key="sk-bad-key")
 
-    import httpx
+    if AUTH_MODE == "both":
+        turn = await session.send("hello")
+        assert turn.text == "passthrough or blocked"
+        assert mock_anthropic.last_request() is not None, "Backend should receive passthrough request"
+    else:
+        import httpx
 
-    with pytest.raises(httpx.HTTPStatusError) as exc:
-        await session.send("hello")
+        with pytest.raises(httpx.HTTPStatusError) as exc:
+            await session.send("hello")
 
-    assert exc.value.response.status_code == 401
-    assert mock_anthropic.last_request() is None, "Backend should not receive request with bad auth"
+        assert exc.value.response.status_code == 401
+        assert mock_anthropic.last_request() is None, "Backend should not receive request with bad auth"
 
 
 @pytest.mark.asyncio

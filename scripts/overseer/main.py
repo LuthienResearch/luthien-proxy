@@ -33,7 +33,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--timeout",
         type=int,
         default=None,
-        help="Stop after N seconds total (default: max_turns * turn_timeout)",
+        help="Stop after N seconds total (default: max_turns * idle_timeout * 10)",
     )
     parser.add_argument("--port", type=int, default=8080, help="Report server port (default: 8080)")
     parser.add_argument("--model", default="claude-haiku-4-5-20251001", help="Overseer LLM model")
@@ -47,13 +47,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--auth-token", default=None, help="OAuth token for sandbox auth (default: ANTHROPIC_AUTH_TOKEN env)"
     )
     parser.add_argument("--api-key", default=None, help="API key for sandbox auth (fallback if no auth token)")
-    parser.add_argument("--turn-timeout", type=int, default=600, help="Timeout per turn in seconds (default: 600)")
+    parser.add_argument(
+        "--idle-timeout",
+        type=int,
+        default=300,
+        help="Kill turn after N seconds of no stdout output (default: 300)",
+    )
     parser.add_argument(
         "--compose-project", default=None, help="Docker Compose project name (default: from COMPOSE_PROJECT_NAME env)"
     )
     parsed = parser.parse_args(argv)
     if parsed.timeout is None:
-        parsed.timeout = parsed.max_turns * parsed.turn_timeout
+        # 10x buffer: each turn can idle up to idle_timeout, plus processing time
+        parsed.timeout = parsed.max_turns * parsed.idle_timeout * 10
     return parsed
 
 
@@ -74,7 +80,10 @@ def ensure_sandbox_running(compose_project: str | None = None) -> None:
 async def run_overseer(args: argparse.Namespace) -> None:
     """Main overseer loop: drive turns, analyze, and report."""
     auth_token = args.auth_token or os.environ.get("ANTHROPIC_AUTH_TOKEN")
-    api_key = args.api_key or os.environ.get("PROXY_API_KEY", DEFAULT_API_KEY) if not auth_token else None
+    if auth_token:
+        api_key = None
+    else:
+        api_key = args.api_key or os.environ.get("PROXY_API_KEY", DEFAULT_API_KEY)
     compose_project = args.compose_project or os.environ.get("COMPOSE_PROJECT_NAME")
 
     auth_desc = "OAuth token" if auth_token else "API key (set)"
@@ -92,7 +101,7 @@ async def run_overseer(args: argparse.Namespace) -> None:
         gateway_url=args.gateway_url,
         api_key=api_key,
         auth_token=auth_token,
-        timeout_seconds=args.turn_timeout,
+        idle_timeout_seconds=args.idle_timeout,
         compose_project=compose_project,
         model=args.sandbox_model,
     )
