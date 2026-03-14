@@ -440,8 +440,8 @@ async def _process_request(
         try:
             body = await request.json()
         except json.JSONDecodeError as e:
-            logger.error(f"[{call_id}] Malformed JSON in Anthropic request: {e}")
-            raise HTTPException(status_code=400, detail=f"Invalid JSON in request body: {e}")
+            logger.error(f"[{call_id}] Malformed JSON in Anthropic request: {repr(e)}")
+            raise HTTPException(status_code=400, detail="Invalid JSON in request body")
         headers = {k.lower(): v for k, v in request.headers.items()}
 
         # Capture raw HTTP request before any processing
