@@ -36,7 +36,12 @@ class SimpleLLMJudgeConfig(BaseModel):
     on_error: str = Field(
         default="pass",
         pattern=r"^(pass|block)$",
-        description="Error handling: 'pass' allows content through, 'block' rejects it",
+        description=(
+            "Action when the judge call fails. 'pass' (default) allows content "
+            "through with an injected warning that the safety judge was unavailable. "
+            "'block' is fail-secure: content is rejected when the judge cannot "
+            "evaluate it."
+        ),
     )
 
     model_config = {"frozen": True}
@@ -66,6 +71,7 @@ class JudgeAction:
 
     action: str
     blocks: tuple[ReplacementBlock, ...] | None = None
+    judge_failed: bool = False
 
 
 _JUDGE_SYSTEM_TEMPLATE = """\

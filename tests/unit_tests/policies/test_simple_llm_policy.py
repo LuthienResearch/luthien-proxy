@@ -8,6 +8,7 @@ Plus config/init and freeze_configured_state.
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -179,6 +180,16 @@ class TestConfigAndFreeze:
         with pytest.raises(ValidationError):
             SimpleLLMPolicy(config={"instructions": "x", "on_error": "maybe"})
 
+    def test_fail_open_logs_warning(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            make_policy(on_error="pass")
+        assert "on_error='pass'" in caplog.text
+
+    def test_fail_secure_no_warning(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            make_policy(on_error="block")
+        assert "on_error='pass'" not in caplog.text
+
     def test_freeze_configured_state(self):
         policy = make_policy()
         policy.freeze_configured_state()  # should not raise
@@ -293,7 +304,9 @@ class TestAnthropicNonStreaming:
         assert result["stop_reason"] == "tool_use"
 
     @pytest.mark.asyncio
-    async def test_error_fail_open(self):
+    async def test_error_fail_open_injects_warning(self):
+        from luthien_proxy.policies.simple_llm_policy import JUDGE_UNAVAILABLE_WARNING
+
         policy = make_policy(on_error="pass")
         ctx = make_policy_ctx()
         response = make_anthropic_response([{"type": "text", "text": "keep me"}])
@@ -301,7 +314,9 @@ class TestAnthropicNonStreaming:
         with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
             result = await policy.on_anthropic_response(response, ctx)
 
-        assert result["content"] == [{"type": "text", "text": "keep me"}]
+        assert len(result["content"]) == 2
+        assert result["content"][0] == {"type": "text", "text": "keep me"}
+        assert result["content"][1] == {"type": "text", "text": JUDGE_UNAVAILABLE_WARNING}
 
     @pytest.mark.asyncio
     async def test_error_fail_secure(self):
@@ -482,9 +497,69 @@ class TestAnthropicStreaming:
         events = await policy.on_anthropic_stream_event(msg_start, ctx)
         assert events == [msg_start]
 
-        msg_stop = Mock(spec=RawMessageStopEvent)
+        msg_stop = RawMessageStopEvent(type="message_stop")
         events = await policy.on_anthropic_stream_event(msg_stop, ctx)
         assert events == [msg_stop]
+
+    @pytest.mark.asyncio
+    async def test_streaming_judge_error_injects_warning(self):
+        """When judge fails on a text block and on_error='pass', the warning
+        block is emitted before the final message_stop event."""
+        from luthien_proxy.policies.simple_llm_policy import JUDGE_UNAVAILABLE_WARNING
+
+        policy = make_policy(on_error="pass")
+        ctx = make_policy_ctx()
+
+        # Send a text block through that triggers a judge error
+        text_block = TextBlock(type="text", text="")
+        start = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=text_block)
+        await policy.on_anthropic_stream_event(start, ctx)
+
+        delta = TextDelta(type="text_delta", text="content")
+        delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=delta)
+        await policy.on_anthropic_stream_event(delta_event, ctx)
+
+        stop = RawContentBlockStopEvent(type="content_block_stop", index=0)
+        with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
+            await policy.on_anthropic_stream_event(stop, ctx)
+
+        # Now send message_stop — should get warning events + message_stop
+        msg_stop = RawMessageStopEvent(type="message_stop")
+        events = await policy.on_anthropic_stream_event(msg_stop, ctx)
+
+        # Warning: start + delta + stop, then the original message_stop
+        assert len(events) == 4
+        assert isinstance(events[0], RawContentBlockStartEvent)
+        assert isinstance(events[1], RawContentBlockDeltaEvent)
+        assert isinstance(events[1].delta, TextDelta)
+        assert events[1].delta.text == JUDGE_UNAVAILABLE_WARNING
+        assert isinstance(events[2], RawContentBlockStopEvent)
+        assert isinstance(events[3], RawMessageStopEvent)
+
+    @pytest.mark.asyncio
+    async def test_streaming_judge_error_block_no_warning(self):
+        """When judge fails and on_error='block', no warning is injected."""
+        policy = make_policy(on_error="block")
+        ctx = make_policy_ctx()
+
+        # Text block with judge failure
+        text_block = TextBlock(type="text", text="")
+        start = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=text_block)
+        await policy.on_anthropic_stream_event(start, ctx)
+
+        delta = TextDelta(type="text_delta", text="content")
+        delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=delta)
+        await policy.on_anthropic_stream_event(delta_event, ctx)
+
+        stop = RawContentBlockStopEvent(type="content_block_stop", index=0)
+        with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
+            await policy.on_anthropic_stream_event(stop, ctx)
+
+        # message_stop should pass through without warning
+        msg_stop = RawMessageStopEvent(type="message_stop")
+        events = await policy.on_anthropic_stream_event(msg_stop, ctx)
+        assert len(events) == 1
+        assert isinstance(events[0], RawMessageStopEvent)
 
 
 # ============================================================================
@@ -536,7 +611,9 @@ class TestOpenAINonStreaming:
         assert choice.finish_reason == "stop"
 
     @pytest.mark.asyncio
-    async def test_error_fail_open(self):
+    async def test_error_fail_open_injects_warning(self):
+        from luthien_proxy.policies.simple_llm_policy import JUDGE_UNAVAILABLE_WARNING
+
         policy = make_policy(on_error="pass")
         ctx = make_policy_ctx()
         response = make_openai_response(content="keep me")
@@ -545,7 +622,7 @@ class TestOpenAINonStreaming:
             result = await policy.on_openai_response(response, ctx)
 
         choice = cast(Choices, result.choices[0])
-        assert choice.message.content == "keep me"
+        assert choice.message.content == f"keep me{JUDGE_UNAVAILABLE_WARNING}"
 
     @pytest.mark.asyncio
     async def test_pass_through_tool_call(self):
@@ -679,6 +756,55 @@ class TestOpenAIStreaming:
         assert ctx.egress_queue.put.call_count == 1
         finish_chunk = ctx.egress_queue.put.call_args_list[0][0][0]
         assert finish_chunk.choices[0].finish_reason == "tool_calls"
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_judge_error_injects_warning(self):
+        """When judge fails during streaming and on_error='pass', the warning is emitted."""
+        from luthien_proxy.policies.simple_llm_policy import JUDGE_UNAVAILABLE_WARNING
+
+        policy = make_policy(on_error="pass")
+        content_block = ContentStreamBlock(id="content")
+        content_block.content = "hello"
+        content_block.is_complete = True
+
+        last_chunk = make_streaming_chunk(content=None, finish_reason="stop")
+        ctx = make_streaming_ctx(
+            finish_reason="stop",
+            raw_chunks=[last_chunk],
+        )
+
+        # Simulate judge error state
+        state = policy._openai_state(ctx)
+        state.judge_error_occurred = True
+
+        await policy.on_stream_complete(ctx)
+
+        # Should have emitted a text chunk with the warning
+        assert ctx.egress_queue.put.call_count >= 1
+        warning_chunk = ctx.egress_queue.put.call_args_list[0][0][0]
+        delta = warning_chunk.choices[0].delta
+        assert isinstance(delta, Delta)
+        assert JUDGE_UNAVAILABLE_WARNING in (delta.content or "")
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_judge_error_block_no_warning(self):
+        """When judge fails during streaming and on_error='block', no warning is emitted."""
+        policy = make_policy(on_error="block")
+
+        last_chunk = make_streaming_chunk(content=None, finish_reason="stop")
+        ctx = make_streaming_ctx(
+            finish_reason="stop",
+            raw_chunks=[last_chunk],
+        )
+
+        # Simulate judge error state with on_error='block'
+        state = policy._openai_state(ctx)
+        state.judge_error_occurred = True
+
+        await policy.on_stream_complete(ctx)
+
+        # No warning should be emitted
+        ctx.egress_queue.put.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_streaming_policy_complete_cleans_state(self):
