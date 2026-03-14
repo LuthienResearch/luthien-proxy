@@ -32,6 +32,11 @@ def pytest_sessionstart(session):
     # (OTel tries to export to tempo:4317 which doesn't exist in test environment)
     os.environ.setdefault("OTEL_ENABLED", "false")
 
+    # Disable Sentry during tests to avoid sending expected test errors
+    # (startup validation, policy load failures) to the real Sentry project.
+    # Tests that need Sentry use monkeypatch with a fake DSN.
+    os.environ.setdefault("SENTRY_ENABLED", "false")
+
     os.environ.setdefault("ENVIRONMENT", "test")
 
 
