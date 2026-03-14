@@ -10,6 +10,8 @@ def pytest_sessionstart(session):
     os.environ.setdefault("POLICY_CONFIG", str(REPO_ROOT / "config" / "policy_config.yaml"))
     os.environ.setdefault("OTEL_ENABLED", "false")
 
+    os.environ.setdefault("ENVIRONMENT", "test")
+
 
 def pytest_configure(config):
     """Disable timeout for e2e test runs."""
