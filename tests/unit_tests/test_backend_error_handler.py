@@ -308,6 +308,24 @@ class TestHTTPExceptionAnthropicFormat:
         assert data["error"]["type"] == "invalid_request_error"
         assert data["error"]["message"] == "Request payload too large"
 
+    def test_non_string_detail_is_converted(self):
+        from luthien_proxy.main import http_exception_handler
+
+        app = FastAPI()
+        app.add_exception_handler(HTTPException, http_exception_handler)
+
+        @app.post("/v1/messages")
+        async def trigger():
+            raise HTTPException(status_code=400, detail=["error1", "error2"])
+
+        test_client = TestClient(app)
+        response = test_client.post("/v1/messages")
+        assert response.status_code == 400
+        data = response.json()
+        assert data["type"] == "error"
+        assert isinstance(data["error"]["message"], str)
+        assert "error1" in data["error"]["message"]
+
     def test_non_anthropic_path_preserves_exception_headers(self):
         """Exception headers (e.g. WWW-Authenticate) are forwarded on non-Anthropic paths."""
         from luthien_proxy.main import http_exception_handler
