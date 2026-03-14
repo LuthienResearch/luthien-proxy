@@ -168,7 +168,7 @@ class TestProcessRequest:
                 )
 
         assert exc_info.value.status_code == 400
-        assert "Invalid JSON" in exc_info.value.detail
+        assert exc_info.value.detail == "Invalid JSON in request body"
 
     @pytest.mark.asyncio
     async def test_request_within_size_limit(self, mock_request, mock_emitter, mock_span):
