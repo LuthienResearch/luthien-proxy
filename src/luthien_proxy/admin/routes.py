@@ -180,7 +180,7 @@ async def get_current_policy(
         )
     except Exception as e:
         logger.error(f"Failed to get current policy: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get current policy: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/policy/set", response_model=PolicyEnableResponse)
@@ -248,7 +248,7 @@ async def set_policy(
         raise
     except Exception as e:
         logger.error(f"Failed to set policy: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/policy/list", response_model=PolicyListResponse)
@@ -382,7 +382,7 @@ async def send_chat(
         logger.error(f"Test chat failed: {e}", exc_info=True)
         return ChatResponse(
             success=False,
-            error=str(e),
+            error="An unexpected error occurred",
             model=body.model,
         )
 

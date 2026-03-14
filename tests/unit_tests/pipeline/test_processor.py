@@ -531,4 +531,7 @@ class TestProcessRequestErrorHandling:
                 )
 
         assert exc_info.value.status_code == 400
-        assert "Invalid OpenAI request format" in exc_info.value.detail
+        assert exc_info.value.detail == "Invalid request format"
+        # Must not leak Pydantic validation details
+        assert "validation error" not in exc_info.value.detail.lower()
+        assert "field required" not in exc_info.value.detail.lower()

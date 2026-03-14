@@ -60,8 +60,8 @@ async def get_call_events(
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Failed to fetch events for call {call_id}: {exc}")
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
+        logger.error(f"Failed to fetch events for call {call_id}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/calls/{call_id}/diff", response_model=CallDiffResponse)
@@ -91,8 +91,8 @@ async def get_call_diff(
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Failed to compute diff for call {call_id}: {exc}")
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
+        logger.error(f"Failed to compute diff for call {call_id}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/calls", response_model=CallListResponse)
@@ -119,8 +119,8 @@ async def list_recent_calls(
     try:
         return await fetch_recent_calls(limit, db_pool)
     except Exception as exc:
-        logger.error(f"Failed to list recent calls: {exc}")
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
+        logger.error(f"Failed to list recent calls: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 __all__ = ["router"]
