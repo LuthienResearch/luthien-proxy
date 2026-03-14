@@ -32,6 +32,8 @@ def pytest_sessionstart(session):
     # (OTel tries to export to tempo:4317 which doesn't exist in test environment)
     os.environ.setdefault("OTEL_ENABLED", "false")
 
+    os.environ.setdefault("ENVIRONMENT", "test")
+
 
 @pytest.fixture(autouse=True)
 def clear_settings_cache():
