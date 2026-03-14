@@ -112,6 +112,8 @@ if _sentry_settings.sentry_enabled and _sentry_settings.sentry_dsn:
             return value
         if isinstance(value, str):
             return f"<str len={len(value)}>"
+        if isinstance(value, bytes):
+            return f"<bytes len={len(value)}>"
         if isinstance(value, list):
             return f"<list len={len(value)}>"
         if isinstance(value, dict):
