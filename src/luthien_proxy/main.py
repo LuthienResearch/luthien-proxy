@@ -73,7 +73,7 @@ _HTTP_STATUS_TO_ANTHROPIC_ERROR_TYPE = {
 
 _HTTP_STATUS_TO_OPENAI_ERROR_TYPE = {
     400: "invalid_request_error",
-    401: "invalid_api_key",
+    401: "invalid_request_error",
     403: "permission_denied",
     404: "not_found_error",
     413: "invalid_request_error",
@@ -95,16 +95,13 @@ def _http_status_to_openai_error_type(status_code: int) -> str:
     return _HTTP_STATUS_TO_OPENAI_ERROR_TYPE.get(status_code, "server_error")
 
 
-def _client_format_for_path(path: str) -> str:
-    """Determine error response format from request path.
-
-    Returns 'anthropic', 'openai', or 'default'.
-    """
+def _client_format_for_path(path: str) -> ClientFormat | None:
+    """Determine error response format from request path."""
     if path.startswith("/v1/messages"):
-        return "anthropic"
+        return ClientFormat.ANTHROPIC
     if path.startswith("/v1/chat/completions"):
-        return "openai"
-    return "default"
+        return ClientFormat.OPENAI
+    return None
 
 
 def _build_anthropic_error(status_code: int, message: str) -> dict:
@@ -137,11 +134,11 @@ async def http_exception_handler(request: Request, exc: Exception) -> JSONRespon
     http_exc: FastAPIHTTPException = exc  # type: ignore[assignment]
     message = http_exc.detail if isinstance(http_exc.detail, str) else str(http_exc.detail)
     fmt = _client_format_for_path(request.url.path)
-    if fmt == "anthropic":
+    if fmt == ClientFormat.ANTHROPIC:
         return JSONResponse(
             status_code=http_exc.status_code, content=_build_anthropic_error(http_exc.status_code, message)
         )
-    if fmt == "openai":
+    if fmt == ClientFormat.OPENAI:
         return JSONResponse(
             status_code=http_exc.status_code, content=_build_openai_error(http_exc.status_code, message)
         )
@@ -160,9 +157,9 @@ async def request_validation_error_handler(request: Request, exc: Exception) -> 
     """
     validation_exc: RequestValidationError = exc  # type: ignore[assignment]
     fmt = _client_format_for_path(request.url.path)
-    if fmt == "anthropic":
+    if fmt == ClientFormat.ANTHROPIC:
         return JSONResponse(status_code=422, content=_build_anthropic_error(422, str(validation_exc)))
-    if fmt == "openai":
+    if fmt == ClientFormat.OPENAI:
         return JSONResponse(status_code=422, content=_build_openai_error(422, str(validation_exc)))
     return JSONResponse(status_code=422, content={"detail": validation_exc.errors()})
 
@@ -175,9 +172,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     """
     logger.error(f"Unhandled exception on {request.method} {request.url.path}: {repr(exc)}")
     fmt = _client_format_for_path(request.url.path)
-    if fmt == "anthropic":
+    if fmt == ClientFormat.ANTHROPIC:
         return JSONResponse(status_code=500, content=_build_anthropic_error(500, "Internal server error"))
-    if fmt == "openai":
+    if fmt == ClientFormat.OPENAI:
         return JSONResponse(status_code=500, content=_build_openai_error(500, "Internal server error"))
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 

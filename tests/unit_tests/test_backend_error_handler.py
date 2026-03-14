@@ -280,7 +280,7 @@ class TestHTTPExceptionAnthropicFormat:
         assert response.status_code == 401
         data = response.json()
         assert data["error"]["message"] == "Missing API key"
-        assert data["error"]["type"] == "invalid_api_key"
+        assert data["error"]["type"] == "invalid_request_error"
         assert data["error"]["param"] is None
         assert data["error"]["code"] is None
 
