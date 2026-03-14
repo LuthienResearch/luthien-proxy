@@ -15,7 +15,6 @@ Run:
     uv run pytest -m mock_e2e tests/e2e_tests/test_mock_simple_llm_policy.py -v
 """
 
-
 import httpx
 import pytest
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
