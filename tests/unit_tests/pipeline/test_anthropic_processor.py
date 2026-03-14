@@ -1,5 +1,6 @@
 """Unit tests for the Anthropic-native pipeline processor module."""
 
+import json
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -214,6 +215,25 @@ class TestProcessRequest:
 
         assert exc_info.value.status_code == 413
         assert "payload too large" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_returns_400(self, mock_request, mock_emitter, mock_span):
+        """Test that malformed JSON in request body returns 400 error."""
+        mock_request.json = AsyncMock(side_effect=json.JSONDecodeError("Expecting value", "", 0))
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _process_request(
+                    request=mock_request,
+                    call_id="test-call-id",
+                    emitter=mock_emitter,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert "Invalid JSON" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_missing_model_returns_400(self, mock_request, mock_emitter, mock_span):
