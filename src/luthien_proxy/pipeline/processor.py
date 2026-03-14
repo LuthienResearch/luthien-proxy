@@ -25,6 +25,7 @@ and send_to_client covers the SSE event generation to the client.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import AsyncIterator
@@ -246,7 +247,11 @@ async def _process_request(
         if content_length and int(content_length) > MAX_REQUEST_PAYLOAD_BYTES:
             raise HTTPException(status_code=413, detail="Request payload too large")
 
-        body = await request.json()
+        try:
+            body = await request.json()
+        except json.JSONDecodeError as e:
+            logger.error(f"[{call_id}] Malformed JSON in OpenAI request: {repr(e)}")
+            raise HTTPException(status_code=400, detail="Invalid JSON in request body")
         headers = {k.lower(): v for k, v in request.headers.items()}
 
         # Capture raw HTTP request before any processing
