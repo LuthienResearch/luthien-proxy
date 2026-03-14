@@ -6,6 +6,7 @@ their metadata including config schemas from constructor signatures.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import inspect
 import logging
@@ -32,6 +33,10 @@ SKIP_MODULES = frozenset(
 
 # Suffixes to skip
 SKIP_SUFFIXES = ("_config", "_utils")
+
+_ANNOTATION_BUILTINS: dict[str, type] = {
+    t.__name__: t for t in (str, int, float, bool, bytes, list, dict, tuple, set, frozenset, type, object)
+}
 
 
 def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
@@ -116,22 +121,51 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
     return {"type": "string", "description": f"Python type: {python_type}"}
 
 
+def _resolve_ast_node(node: ast.expr, ns: dict[str, Any]) -> Any:
+    """Resolve an AST expression node to a Python type using a restricted namespace."""
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        if node.id not in ns:
+            raise NameError(node.id)
+        return ns[node.id]
+    if isinstance(node, ast.Attribute):
+        value = _resolve_ast_node(node.value, ns)
+        return getattr(value, node.attr)
+    if isinstance(node, ast.Subscript):
+        origin = _resolve_ast_node(node.value, ns)
+        if isinstance(node.slice, ast.Tuple):
+            args = tuple(_resolve_ast_node(elt, ns) for elt in node.slice.elts)
+            return origin[args]
+        arg = _resolve_ast_node(node.slice, ns)
+        return origin[arg]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        left = _resolve_ast_node(node.left, ns)
+        right = _resolve_ast_node(node.right, ns)
+        return left | right
+    raise ValueError(type(node).__name__)
+
+
 def _resolve_string_annotation(annotation_str: str, policy_class: type) -> Any:
-    """Resolve a string annotation to a real type using typing + module globals.
+    """Resolve a string annotation to a real type using AST parsing (no eval).
 
     When `from __future__ import annotations` is used and `get_type_hints()` fails
     (e.g. because `Any` is only imported under TYPE_CHECKING), param.annotation is
-    a raw string like "list[dict[str, Any]]". This function evals it with a namespace
-    containing typing exports so the string becomes a real type object.
+    a raw string like "list[dict[str, Any]]". This parses the string as an AST
+    expression and resolves names from typing exports + module globals. Unlike eval(),
+    this cannot execute arbitrary code — only type expressions are supported.
     """
     ns: dict[str, Any] = {name: getattr(typing, name) for name in dir(typing) if not name.startswith("_")}
+    ns.update(_ANNOTATION_BUILTINS)
+    ns["None"] = None
 
     module = inspect.getmodule(policy_class)
     if module:
         ns.update(vars(module))
 
     try:
-        return eval(annotation_str, ns)  # noqa: S307
+        tree = ast.parse(annotation_str, mode="eval")
+        return _resolve_ast_node(tree.body, ns)
     except Exception:
         return annotation_str
 
