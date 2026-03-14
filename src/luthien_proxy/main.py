@@ -64,10 +64,24 @@ _HTTP_STATUS_TO_ANTHROPIC_ERROR_TYPE = {
     403: "permission_error",
     404: "not_found_error",
     413: "invalid_request_error",
+    422: "invalid_request_error",
     429: "rate_limit_error",
     500: "api_error",
     503: "overloaded_error",
     529: "overloaded_error",
+}
+
+_HTTP_STATUS_TO_OPENAI_ERROR_TYPE = {
+    400: "invalid_request_error",
+    401: "invalid_request_error",
+    403: "permission_denied",
+    404: "not_found_error",
+    413: "invalid_request_error",
+    422: "invalid_request_error",
+    429: "rate_limit_exceeded_error",
+    500: "server_error",
+    503: "server_error",
+    529: "server_error",
 }
 
 
@@ -76,24 +90,58 @@ def http_status_to_anthropic_error_type(status_code: int) -> str:
     return _HTTP_STATUS_TO_ANTHROPIC_ERROR_TYPE.get(status_code, "api_error")
 
 
+def _http_status_to_openai_error_type(status_code: int) -> str:
+    """Map HTTP status code to OpenAI error type string."""
+    return _HTTP_STATUS_TO_OPENAI_ERROR_TYPE.get(status_code, "server_error")
+
+
+def _client_format_for_path(path: str) -> ClientFormat | None:
+    """Determine error response format from request path."""
+    if path.startswith("/v1/messages"):
+        return ClientFormat.ANTHROPIC
+    if path.startswith("/v1/chat/completions"):
+        return ClientFormat.OPENAI
+    return None
+
+
+def _build_anthropic_error(status_code: int, message: str) -> dict:
+    return {
+        "type": "error",
+        "error": {
+            "type": http_status_to_anthropic_error_type(status_code),
+            "message": message,
+        },
+    }
+
+
+def _build_openai_error(status_code: int, message: str) -> dict:
+    return {
+        "error": {
+            "message": message,
+            "type": _http_status_to_openai_error_type(status_code),
+            "param": None,
+            "code": None,
+        },
+    }
+
+
 async def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Format HTTPExceptions in Anthropic style for /v1/messages paths.
+    """Format HTTPExceptions in provider-native style for API paths.
 
     Note: exc is typed as Exception to satisfy Starlette's ExceptionHandler protocol,
     but FastAPI guarantees it will be FastAPIHTTPException when registered for that type.
     """
     http_exc: FastAPIHTTPException = exc  # type: ignore[assignment]
-    if request.url.path.startswith("/v1/messages"):
-        error_type = http_status_to_anthropic_error_type(http_exc.status_code)
-        message = http_exc.detail if isinstance(http_exc.detail, str) else str(http_exc.detail)
-        content = {
-            "type": "error",
-            "error": {
-                "type": error_type,
-                "message": message,
-            },
-        }
-        return JSONResponse(status_code=http_exc.status_code, content=content)
+    message = http_exc.detail if isinstance(http_exc.detail, str) else str(http_exc.detail)
+    fmt = _client_format_for_path(request.url.path)
+    if fmt == ClientFormat.ANTHROPIC:
+        return JSONResponse(
+            status_code=http_exc.status_code, content=_build_anthropic_error(http_exc.status_code, message)
+        )
+    if fmt == ClientFormat.OPENAI:
+        return JSONResponse(
+            status_code=http_exc.status_code, content=_build_openai_error(http_exc.status_code, message)
+        )
     return JSONResponse(
         status_code=http_exc.status_code,
         content={"detail": http_exc.detail},
@@ -102,22 +150,33 @@ async def http_exception_handler(request: Request, exc: Exception) -> JSONRespon
 
 
 async def request_validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Format RequestValidationErrors in Anthropic style for /v1/messages paths.
+    """Format RequestValidationErrors in provider-native style for API paths.
 
     Note: exc is typed as Exception to satisfy Starlette's ExceptionHandler protocol,
     but FastAPI guarantees it will be RequestValidationError when registered for that type.
     """
     validation_exc: RequestValidationError = exc  # type: ignore[assignment]
-    if request.url.path.startswith("/v1/messages"):
-        content = {
-            "type": "error",
-            "error": {
-                "type": "invalid_request_error",
-                "message": str(validation_exc),
-            },
-        }
-        return JSONResponse(status_code=422, content=content)
+    fmt = _client_format_for_path(request.url.path)
+    if fmt == ClientFormat.ANTHROPIC:
+        return JSONResponse(status_code=422, content=_build_anthropic_error(422, str(validation_exc)))
+    if fmt == ClientFormat.OPENAI:
+        return JSONResponse(status_code=422, content=_build_openai_error(422, str(validation_exc)))
     return JSONResponse(status_code=422, content={"detail": validation_exc.errors()})
+
+
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all for unhandled exceptions. Returns a generic 500 in provider-native format.
+
+    Sentry captures the exception before this handler runs, so full debugging
+    context is preserved. The client gets a clean, format-appropriate error.
+    """
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {repr(exc)}")
+    fmt = _client_format_for_path(request.url.path)
+    if fmt == ClientFormat.ANTHROPIC:
+        return JSONResponse(status_code=500, content=_build_anthropic_error(500, "Internal server error"))
+    if fmt == ClientFormat.OPENAI:
+        return JSONResponse(status_code=500, content=_build_openai_error(500, "Internal server error"))
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 def create_app(
@@ -330,9 +389,10 @@ def create_app(
             "last_credential_at": last_credential_at,
         }
 
-    # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
+    # Format errors in provider-native style based on request path
     app.add_exception_handler(FastAPIHTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
 
     # Exception handler for backend API errors
     @app.exception_handler(BackendAPIError)
