@@ -298,4 +298,23 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Sentry Error Tracking: Opt-Out with Two-Layer Scrubbing (2026-03-14)
+
+**Decision**: Integrate Sentry with hardcoded DSN (enabled by default, opt-out via `SENTRY_ENABLED=false`). Use two-layer data scrubbing: Sentry's built-in EventScrubber for credential key-name matching + custom `before_send` for selective LLM content redaction.
+
+**Rationale**:
+- Opt-out matches the existing `USAGE_TELEMETRY` pattern and maximizes error visibility from alpha/beta users
+- DSN is a write-only ingest key, safe to hardcode (confirmed by Sentry team — can only submit reports, not read data)
+- Nuclear scrubbing (strip everything) was rejected: makes errors undebuggable. Selective scrubbing keeps `call_id`, `model`, `chunk_count`, request body keys while redacting LLM content values and credentials
+- EventScrubber handles `api_key`/`token`/`auth` by key name. `before_send` handles LLM-specific vars (`body`, `messages`, `final_response`) that have generic names the scrubber can't match
+
+**Alternatives rejected**:
+- Opt-in (empty DSN by default): would yield zero reports from most deployments
+- Server-side scrubbing only: credentials transit the network before scrubbing
+- Strip all local variables: loses debugging context (`call_id`, `is_streaming`, `chunk_count`)
+
+**Full details**: See `dev/context/sentry.md`
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)
