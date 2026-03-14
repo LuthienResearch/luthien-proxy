@@ -58,6 +58,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parsed = parser.parse_args(argv)
     if parsed.timeout is None:
+        # 10x buffer: each turn can idle up to idle_timeout, plus processing time
         parsed.timeout = parsed.max_turns * parsed.idle_timeout * 10
     return parsed
 

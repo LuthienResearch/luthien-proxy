@@ -30,7 +30,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from tests.e2e_tests.conftest import ADMIN_API_KEY, API_KEY, GATEWAY_URL
+from tests.e2e_tests.conftest import ADMIN_API_KEY, API_KEY, GATEWAY_URL, find_repo_roots
 from tests.e2e_tests.mock_anthropic.responses import text_response
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -49,20 +49,14 @@ _BASE_REQUEST = {
 
 
 def _find_roots() -> tuple[Path, Path]:
-    """Return (main_repo_root, worktree_root).
+    """Return (main_repo_root, worktree_root) via shared worktree resolver.
 
     main_repo_root is where .env and the primary docker-compose.yaml live.
     worktree_root is the current checkout (may be the same as main_repo_root).
     Docker compose must run from main_repo_root so it can find .env.
     """
-    worktree_root = Path(__file__).resolve().parents[2]
-    git_file = worktree_root / ".git"
-    if git_file.is_file():
-        gitdir = git_file.read_text().split("gitdir: ", 1)[1].strip()
-        main_root = Path(gitdir).resolve().parents[2]
-    else:
-        main_root = worktree_root
-    return main_root, worktree_root
+    checkout = Path(__file__).resolve().parents[2]
+    return find_repo_roots(checkout)
 
 
 def _wait_for_gateway(timeout: float = 30.0) -> None:
@@ -193,8 +187,17 @@ async def test_request_logs_offset_param(mock_anthropic: MockAnthropicServer, _e
         await _make_gateway_request(client)
         await _make_gateway_request(client)
 
-        # Let the recorder flush both entries before querying
-        await asyncio.sleep(0.5)
+        # Poll until the recorder has flushed at least 2 entries
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            resp = await client.get(
+                f"{GATEWAY_URL}/request-logs",
+                params={"limit": 10},
+                headers=_ADMIN_HEADERS,
+            )
+            if resp.status_code == 200 and resp.json().get("total", 0) >= 2:
+                break
+            await asyncio.sleep(0.1)
 
         # Fetch enough rows to span two distinct transactions. Each transaction
         # may produce multiple rows (inbound + outbound), so limit=1 per page
@@ -226,8 +229,17 @@ async def test_request_log_transaction_detail(
     async with httpx.AsyncClient(timeout=15.0) as client:
         await _make_gateway_request(client)
 
-        # Brief pause to let the recorder flush
-        await asyncio.sleep(0.5)
+        # Poll until the recorder has flushed the entry
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            resp = await client.get(
+                f"{GATEWAY_URL}/request-logs",
+                params={"limit": 1},
+                headers=_ADMIN_HEADERS,
+            )
+            if resp.status_code == 200 and resp.json().get("logs"):
+                break
+            await asyncio.sleep(0.1)
 
         list_response = await client.get(
             f"{GATEWAY_URL}/request-logs",

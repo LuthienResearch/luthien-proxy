@@ -18,20 +18,38 @@ import pytest
 from dotenv import load_dotenv
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer  # type: ignore[import]
 
+# === Repository Root Finding ===
+
+
+def find_repo_roots(checkout_root: Path) -> tuple[Path, Path]:
+    """Return (main_repo_root, checkout_root) resolving through git worktrees.
+
+    In a git worktree, the .git path is a file containing a gitdir pointer
+    back to the main repo's .git/worktrees/<name>. We follow that pointer
+    to find the actual repo root where .env and docker-compose.yaml live.
+
+    Args:
+        checkout_root: Path to the current checkout (may be worktree or main repo)
+
+    Returns:
+        (main_repo_root, checkout_root) - main_repo_root is where .env lives
+    """
+    git_path = checkout_root / ".git"
+    if git_path.is_file():
+        gitdir = git_path.read_text().split("gitdir: ", 1)[1].strip()
+        main_root = Path(gitdir).resolve().parents[2]
+        return main_root, checkout_root
+    return checkout_root, checkout_root
+
+
 # === Test Configuration ===
 
 # Load .env so test keys match the running gateway.
 # Check worktree root first, then fall back to main repo root (worktrees
 # share gitignored files like .env with the main checkout).
-_repo_root = Path(__file__).resolve().parents[2]
-_env_path = _repo_root / ".env"
-if not _env_path.exists():
-    _main_repo = Path(_repo_root / ".git").resolve()
-    if _main_repo.is_file():
-        # Worktree: .git is a file pointing to the main repo's .git/worktrees/<name>
-        _main_repo = Path(_main_repo.read_text().split("gitdir: ", 1)[1].strip())
-        _main_repo = _main_repo.parents[2]  # .git/worktrees/<name> -> repo root
-        _env_path = _main_repo / ".env"
+_checkout_root = Path(__file__).resolve().parents[2]
+_main_root, _ = find_repo_roots(_checkout_root)
+_env_path = _main_root / ".env"
 load_dotenv(_env_path, override=False)
 
 GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")

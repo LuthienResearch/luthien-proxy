@@ -79,31 +79,33 @@ class SessionDriver:
 
         stderr_task = asyncio.create_task(drain_stderr())
 
-        while True:
-            try:
-                chunk = await asyncio.wait_for(
-                    proc.stdout.read(8192),
-                    timeout=self.idle_timeout_seconds,
-                )
-            except asyncio.TimeoutError:
-                idle_duration = time.monotonic() - last_activity
-                logger.warning(
-                    "No output for %.0fs (idle_timeout=%ds), killing turn",
-                    idle_duration,
-                    self.idle_timeout_seconds,
-                )
-                timed_out = True
-                proc.kill()
-                break
+        try:
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(
+                        proc.stdout.read(8192),
+                        timeout=self.idle_timeout_seconds,
+                    )
+                except asyncio.TimeoutError:
+                    idle_duration = time.monotonic() - last_activity
+                    logger.warning(
+                        "No output for %.0fs (idle_timeout=%ds), killing turn",
+                        idle_duration,
+                        self.idle_timeout_seconds,
+                    )
+                    timed_out = True
+                    proc.kill()
+                    break
 
-            if not chunk:
-                break
+                if not chunk:
+                    break
 
-            stdout_chunks.append(chunk)
-            last_activity = time.monotonic()
+                stdout_chunks.append(chunk)
+                last_activity = time.monotonic()
+        finally:
+            stderr_bytes = await stderr_task
+            await proc.wait()
 
-        stderr_bytes = await stderr_task
-        await proc.wait()
         return b"".join(stdout_chunks), stderr_bytes, timed_out
 
     async def run_turn(self, prompt: str) -> TurnSummary:
