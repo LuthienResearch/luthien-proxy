@@ -48,8 +48,8 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
         try:
             if issubclass(python_type, BaseModel):
                 return python_type.model_json_schema()
-        except TypeError:
-            pass
+        except TypeError as e:
+            logger.debug(f"issubclass check failed for {python_type!r}: {repr(e)}")
 
     # Handle Annotated types (may contain discriminated unions)
     origin = get_origin(python_type)
@@ -132,7 +132,8 @@ def _resolve_string_annotation(annotation_str: str, policy_class: type) -> Any:
 
     try:
         return eval(annotation_str, ns)  # noqa: S307
-    except Exception:
+    except (NameError, SyntaxError, TypeError, AttributeError, KeyError) as e:
+        logger.debug(f"Could not resolve annotation {annotation_str!r} for {policy_class.__name__}: {repr(e)}")
         return annotation_str
 
 
@@ -167,13 +168,15 @@ def extract_config_schema(policy_class: type) -> tuple[dict[str, Any], dict[str,
 
     try:
         sig = inspect.signature(policy_class.__init__)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.debug(f"Could not inspect signature for {policy_class.__name__}: {repr(e)}")
         return config_schema, example_config
 
     # Use get_type_hints to resolve string annotations (from __future__ annotations)
     try:
         type_hints = get_type_hints(policy_class.__init__)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"get_type_hints failed for {policy_class.__name__}.__init__: {repr(e)}")
         # Fall back to empty hints if resolution fails
         type_hints = {}
 
@@ -260,12 +263,16 @@ def validate_policy_config(policy_class: type, config: dict[str, Any]) -> dict[s
     """
     try:
         sig = inspect.signature(policy_class.__init__)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(
+            f"Could not inspect {policy_class.__name__}.__init__ for validation, returning config as-is: {repr(e)}"
+        )
         return config
 
     try:
         type_hints = get_type_hints(policy_class.__init__)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"get_type_hints failed for {policy_class.__name__}.__init__: {repr(e)}")
         type_hints = {}
 
     validated_config: dict[str, Any] = {}
