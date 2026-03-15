@@ -11,6 +11,7 @@ These documents are actively maintained and reflect current architecture:
 - **[`gotchas.md`](gotchas.md)** - Non-obvious behaviors, edge cases, common mistakes
 - **[`observability-guide.md`](observability-guide.md)** - General observability patterns and OpenTelemetry setup
 - **[`otel-conventions.md`](otel-conventions.md)** - OpenTelemetry naming conventions and attribute schemas
+- **[`sentry.md`](sentry.md)** - Sentry error tracking: integration design, data scrubbing, per-environment setup
 
 ## Historical Documents (Archived)
 
