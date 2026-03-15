@@ -114,8 +114,8 @@ SENTRY_SERVER_NAME=local-dev
 **Tests** (`conftest.py`):
 ```bash
 ENVIRONMENT=test
-# Sentry stays active — test errors go to Sentry tagged environment=test
-# Filter in Sentry dashboard: environment:test to see/hide them
+SENTRY_ENABLED=false  # disabled to avoid burning Sentry quota on expected test errors
+# Tests that verify scrubbing logic import the functions directly with a fake DSN
 ```
 
 **Docker self-hosted** (`.env` → `env_file: .env` in docker-compose):
@@ -229,7 +229,7 @@ Configure Advanced Data Scrubbing in Sentry project settings as a backup:
 
 ### "I see test errors flooding Sentry"
 
-Filter them out: `!environment:test`. Tests set `ENVIRONMENT=test` via `conftest.py`. Expected test errors (invalid configs, mock DB failures) are tagged accordingly. Use the test environment view to spot unexpected test failures.
+Sentry is disabled in tests (`SENTRY_ENABLED=false` in `conftest.py`). If test errors still appear, check that `conftest.py` is being loaded (it's in `tests/`, the root test directory). The scrubbing functions are tested independently using direct imports and fake DSN.
 
 ### "I want to disable Sentry entirely for local dev"
 

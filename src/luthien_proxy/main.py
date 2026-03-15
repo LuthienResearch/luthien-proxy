@@ -116,8 +116,11 @@ def _sentry_before_send(event, hint):  # noqa: ANN001, ANN202
         request["headers"] = {
             k: v if k.lower() in _SAFE_HEADERS else "[REDACTED]" for k, v in request["headers"].items()
         }
-    if "data" in request and isinstance(request["data"], dict):
-        request["data"] = {k: v if k in _SAFE_REQUEST_KEYS else _summarize(v) for k, v in request["data"].items()}
+    if "data" in request:
+        if isinstance(request["data"], dict):
+            request["data"] = {k: v if k in _SAFE_REQUEST_KEYS else _summarize(v) for k, v in request["data"].items()}
+        elif isinstance(request["data"], str):
+            request["data"] = _summarize(request["data"])
 
     for exc_entry in event.get("exception", {}).get("values", []):
         for frame in exc_entry.get("stacktrace", {}).get("frames", []):
