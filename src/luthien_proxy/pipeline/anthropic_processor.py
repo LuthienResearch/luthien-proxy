@@ -762,7 +762,7 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
     else:
         error_type = "api_error"
         message = "An internal error occurred while processing the request."
-        logger.error(f"[{call_id}] Mid-stream error: {e}")
+        logger.error(f"[{call_id}] Mid-stream error: {repr(e)}")
 
     return _StreamErrorEvent(
         type="error",
@@ -814,7 +814,7 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
             provider="anthropic",
         ) from e
     elif isinstance(e, AnthropicConnectionError):
-        logger.warning(f"[{call_id}] Anthropic connection error: {e}")
+        logger.warning(f"[{call_id}] Anthropic connection error: {repr(e)}")
         raise BackendAPIError(
             status_code=502,
             message=str(e),
