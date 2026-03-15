@@ -50,7 +50,6 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
                 return python_type.model_json_schema()
         except TypeError as e:
             logger.debug(f"issubclass check failed for {python_type!r}: {repr(e)}")
-            pass
 
     # Handle Annotated types (may contain discriminated unions)
     origin = get_origin(python_type)
@@ -133,7 +132,7 @@ def _resolve_string_annotation(annotation_str: str, policy_class: type) -> Any:
 
     try:
         return eval(annotation_str, ns)  # noqa: S307
-    except (NameError, SyntaxError, TypeError, AttributeError) as e:
+    except (NameError, SyntaxError, TypeError, AttributeError, KeyError) as e:
         logger.debug(f"Could not resolve annotation {annotation_str!r} for {policy_class.__name__}: {repr(e)}")
         return annotation_str
 

@@ -286,7 +286,6 @@ def _extract_preview_message(payload: Any) -> str | None:
                 return None
         except (TypeError, ValueError) as e:
             logger.debug(f"max_tokens conversion failed: {repr(e)}")
-            pass
 
     messages = request.get("messages", [])
 

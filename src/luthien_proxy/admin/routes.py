@@ -348,7 +348,6 @@ async def send_chat(
                 error_detail = error_json.get("detail", error_detail)
             except ValueError as e:
                 logger.debug(f"Could not parse error response as JSON: {repr(e)}")
-                pass
             return ChatResponse(
                 success=False,
                 error=f"Proxy returned {response.status_code}: {error_detail}",

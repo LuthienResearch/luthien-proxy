@@ -246,7 +246,6 @@ def _reconstruct_response_from_stream_events(
                     blocks_by_index[idx]["input"] = json.loads(json_bufs[idx])
                 except (json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"Failed to parse tool input JSON for block {idx}: {repr(e)}")
-                    pass
                 del json_bufs[idx]
 
         elif t == "message_delta":
