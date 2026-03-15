@@ -230,6 +230,14 @@ class TestBeforeSend:
         assert data["messages"] == "<list len=1>"
         assert data["system"] == "<str len=15>"
 
+    def test_summarizes_string_request_body(self):
+        _, before_send = _get_sentry_functions()
+        event = self._make_event()
+        event["request"]["data"] = '{"model": "claude", "messages": [{"role": "user", "content": "secret prompt"}]}'
+        hint = {}
+        result = before_send(event, hint)
+        assert result["request"]["data"] == "<str len=79>"
+
     def test_keeps_safe_frame_vars(self):
         _, before_send = _get_sentry_functions()
         event = self._make_event()
