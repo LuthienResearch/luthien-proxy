@@ -179,7 +179,7 @@ async def get_current_policy(
             config=policy_info.config,
         )
     except Exception as e:
-        logger.error(f"Failed to get current policy: {e}", exc_info=True)
+        logger.error(f"Failed to get current policy: {repr(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get current policy: {e}")
 
 
@@ -247,7 +247,7 @@ async def set_policy(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to set policy: {e}", exc_info=True)
+        logger.error(f"Failed to set policy: {repr(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -379,7 +379,7 @@ async def send_chat(
             model=body.model,
         )
     except Exception as e:
-        logger.error(f"Test chat failed: {e}", exc_info=True)
+        logger.error(f"Test chat failed: {repr(e)}", exc_info=True)
         return ChatResponse(
             success=False,
             error=str(e),

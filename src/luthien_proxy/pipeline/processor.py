@@ -265,7 +265,7 @@ async def _process_request(
         try:
             request_message = RequestMessage(**body)
         except ValidationError as e:
-            logger.error(f"[{call_id}] Failed to parse OpenAI request: {e}")
+            logger.error(f"[{call_id}] Failed to parse OpenAI request: {repr(e)}")
             raise HTTPException(status_code=400, detail=f"Invalid OpenAI request format: {e}")
         logger.info(f"[{call_id}] /v1/chat/completions: model={request_message.model}, stream={request_message.stream}")
 

@@ -359,7 +359,7 @@ def discover_policies() -> list[dict[str, Any]]:
     try:
         package_path = policies_package.__path__
     except AttributeError as e:
-        logger.error(f"Failed to get policies package path: {e}")
+        logger.error(f"Failed to get policies package path: {repr(e)}")
         return policies
 
     for module_info in pkgutil.iter_modules(package_path):
@@ -374,7 +374,7 @@ def discover_policies() -> list[dict[str, Any]]:
         try:
             module = importlib.import_module(f"luthien_proxy.policies.{module_name}")
         except ImportError as e:
-            logger.warning(f"Failed to import module {module_name}: {e}")
+            logger.warning(f"Failed to import module {module_name}: {repr(e)}")
             continue
 
         # Find policy classes in this module
