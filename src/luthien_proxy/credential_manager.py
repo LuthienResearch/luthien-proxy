@@ -364,7 +364,7 @@ class CredentialManager:
             logger.warning(f"Credential validation got unexpected status: {response.status_code}")
             return None
         except httpx.RequestError as e:
-            logger.warning(f"Credential validation network error: {e}")
+            logger.warning(f"Credential validation network error: {repr(e)}")
             return None
 
     async def close(self) -> None:
