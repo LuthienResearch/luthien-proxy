@@ -94,6 +94,8 @@ class Provisioner:
                     "PROXY_API_KEY": proxy_api_key,
                     "ADMIN_API_KEY": admin_api_key,
                     "PYTHONUNBUFFERED": "1",
+                    "ENVIRONMENT": "railway",
+                    "SENTRY_SERVER_NAME": f"railway-{name}",
                 },
             )
 

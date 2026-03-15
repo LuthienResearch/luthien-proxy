@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     # from killing the proxy they communicate through
     dogfood_mode: bool = False
 
+    # Sentry error tracking (opt-out: set SENTRY_ENABLED=false to disable)
+    sentry_enabled: bool = True
+    sentry_dsn: str = "https://dd3948f1c69368a412e603159b9cd073@o4511039310528512.ingest.us.sentry.io/4511039324356608"
+    sentry_traces_sample_rate: float = 0.0
+    sentry_server_name: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
