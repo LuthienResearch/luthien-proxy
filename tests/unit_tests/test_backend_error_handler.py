@@ -275,12 +275,14 @@ class TestHTTPExceptionAnthropicFormat:
         assert data["error"]["type"] == "invalid_request_error"
         assert data["error"]["message"] == "Invalid request"
 
-    def test_openai_path_returns_default_format(self, client):
+    def test_openai_path_returns_openai_format(self, client):
         response = client.post("/v1/chat/completions")
         assert response.status_code == 401
         data = response.json()
-        assert data == {"detail": "Missing API key"}
-        assert "type" not in data
+        assert data["error"]["message"] == "Missing API key"
+        assert data["error"]["type"] == "invalid_request_error"
+        assert data["error"]["param"] is None
+        assert data["error"]["code"] is None
 
     def test_non_api_path_returns_default_format(self, client):
         response = client.get("/health")
@@ -305,6 +307,24 @@ class TestHTTPExceptionAnthropicFormat:
         assert data["type"] == "error"
         assert data["error"]["type"] == "invalid_request_error"
         assert data["error"]["message"] == "Request payload too large"
+
+    def test_non_string_detail_is_converted(self):
+        from luthien_proxy.main import http_exception_handler
+
+        app = FastAPI()
+        app.add_exception_handler(HTTPException, http_exception_handler)
+
+        @app.post("/v1/messages")
+        async def trigger():
+            raise HTTPException(status_code=400, detail=["error1", "error2"])
+
+        test_client = TestClient(app)
+        response = test_client.post("/v1/messages")
+        assert response.status_code == 400
+        data = response.json()
+        assert data["type"] == "error"
+        assert isinstance(data["error"]["message"], str)
+        assert "error1" in data["error"]["message"]
 
     def test_non_anthropic_path_preserves_exception_headers(self):
         """Exception headers (e.g. WWW-Authenticate) are forwarded on non-Anthropic paths."""
@@ -371,13 +391,15 @@ class TestRequestValidationErrorHandler:
         assert isinstance(data["error"]["message"], str)
         assert len(data["error"]["message"]) > 0
 
-    def test_openai_path_returns_default_format_on_validation_error(self, client):
-        """Malformed body on /v1/chat/completions returns FastAPI default 422 format."""
+    def test_openai_path_returns_openai_format_on_validation_error(self, client):
+        """Malformed body on /v1/chat/completions returns OpenAI error format."""
         response = client.post("/v1/chat/completions", json={"bad": "data"})
         assert response.status_code == 422
         data = response.json()
-        # Default FastAPI format has "detail" as a list of validation errors
-        assert "detail" in data
+        assert data["error"]["type"] == "invalid_request_error"
+        assert isinstance(data["error"]["message"], str)
+        assert data["error"]["param"] is None
+        assert data["error"]["code"] is None
 
     def test_anthropic_subpath_returns_anthropic_format(self):
         """Validation errors on /v1/messages/* subpaths also get Anthropic format."""
@@ -401,3 +423,62 @@ class TestRequestValidationErrorHandler:
         data = response.json()
         assert data["type"] == "error"
         assert data["error"]["type"] == "invalid_request_error"
+
+
+class TestUnhandledExceptionHandler:
+    @pytest.fixture
+    def app_with_catch_all(self):
+        from luthien_proxy.main import unhandled_exception_handler
+
+        app = FastAPI()
+        app.add_exception_handler(Exception, unhandled_exception_handler)
+
+        @app.post("/v1/messages")
+        async def anthropic_crash():
+            raise RuntimeError("something broke")
+
+        @app.post("/v1/chat/completions")
+        async def openai_crash():
+            raise TypeError("unexpected type")
+
+        @app.get("/health")
+        async def health_crash():
+            raise ValueError("bad value")
+
+        return app
+
+    @pytest.fixture
+    def client(self, app_with_catch_all):
+        return TestClient(app_with_catch_all, raise_server_exceptions=False)
+
+    def test_anthropic_path_returns_anthropic_500(self, client):
+        response = client.post("/v1/messages")
+        assert response.status_code == 500
+        data = response.json()
+        assert data["type"] == "error"
+        assert data["error"]["type"] == "api_error"
+        assert data["error"]["message"] == "Internal server error"
+
+    def test_openai_path_returns_openai_500(self, client):
+        response = client.post("/v1/chat/completions")
+        assert response.status_code == 500
+        data = response.json()
+        assert data["error"]["message"] == "Internal server error"
+        assert data["error"]["type"] == "server_error"
+        assert data["error"]["param"] is None
+        assert data["error"]["code"] is None
+
+    def test_other_path_returns_default_500(self, client):
+        response = client.get("/health")
+        assert response.status_code == 500
+        data = response.json()
+        assert data == {"detail": "Internal server error"}
+
+    def test_does_not_leak_exception_details(self, client):
+        response = client.post("/v1/messages")
+        data = response.json()
+        assert "something broke" not in str(data)
+
+        response = client.post("/v1/chat/completions")
+        data = response.json()
+        assert "unexpected type" not in str(data)
