@@ -217,7 +217,7 @@ class EventEmitter:
             }
             print(json.dumps(log_entry), file=sys.stdout, flush=True)
         except Exception as e:
-            logger.warning(f"Failed to write event to stdout: {e}", exc_info=True)
+            logger.warning(f"Failed to write event to stdout: {repr(e)}", exc_info=True)
 
     async def _write_db(
         self,
@@ -271,7 +271,7 @@ class EventEmitter:
         except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError) as e:
             EventEmitter.dropped_db_writes += 1
             logger.warning(
-                f"Failed to write event to database ({EventEmitter.dropped_db_writes} total dropped): {e}",
+                f"Failed to write event to database ({EventEmitter.dropped_db_writes} total dropped): {repr(e)}",
                 exc_info=True,
             )
 
@@ -291,7 +291,7 @@ class EventEmitter:
                 data=data,
             )
         except Exception as e:
-            logger.warning(f"Failed to publish event: {e}", exc_info=True)
+            logger.warning(f"Failed to write event to redis: {repr(e)}", exc_info=True)
 
 
 __all__ = [
