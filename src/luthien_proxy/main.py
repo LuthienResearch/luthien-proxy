@@ -143,7 +143,12 @@ def _sentry_before_send(event, hint):  # noqa: ANN001, ANN202
 # ---------------------------------------------------------------------------
 _sentry_settings = get_settings()
 if _sentry_settings.sentry_enabled and _sentry_settings.sentry_dsn:
+    from sentry_sdk.integrations.logging import ignore_logger
     from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
+
+    # OTel exporter logs at ERROR when Tempo is unreachable — expected in
+    # local dev without Docker. Don't let these burn Sentry quota.
+    ignore_logger("opentelemetry.sdk.trace.export")
 
     _EXTRA_DENYLIST = [
         "anthropic_api_key",
