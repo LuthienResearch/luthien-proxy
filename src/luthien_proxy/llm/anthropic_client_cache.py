@@ -48,11 +48,14 @@ async def get_client(
             _cache.move_to_end(key)
             return _cache[key]
 
-        kwargs: dict[str, str | None] = {auth_type: credential, "base_url": base_url}
-        client = AnthropicClient(**kwargs)  # type: ignore[arg-type]
+        if auth_type == "api_key":
+            client = AnthropicClient(api_key=credential, base_url=base_url)
+        else:
+            client = AnthropicClient(auth_token=credential, base_url=base_url)
 
         if len(_cache) >= MAX_CACHE_SIZE:
-            evicted_key, _ = _cache.popitem(last=False)
+            evicted_key, evicted_client = _cache.popitem(last=False)
+            asyncio.create_task(evicted_client.close())
             logger.debug(f"Evicted AnthropicClient from cache: {evicted_key[:32]}...")
 
         _cache[key] = client
