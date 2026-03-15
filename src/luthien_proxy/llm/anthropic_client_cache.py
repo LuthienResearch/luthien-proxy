@@ -30,6 +30,13 @@ def _make_key(credential_hash: str, auth_type: str, base_url: str | None) -> str
     return f"{credential_hash}:{auth_type}:{base_url or ''}"
 
 
+async def _safe_close(client: AnthropicClient, key: str) -> None:
+    try:
+        await client.close()
+    except Exception as e:
+        logger.warning(f"Error closing evicted client {key[:32]}...: {repr(e)}")
+
+
 async def get_client(
     credential: str,
     *,
@@ -55,7 +62,7 @@ async def get_client(
 
         if len(_cache) >= MAX_CACHE_SIZE:
             evicted_key, evicted_client = _cache.popitem(last=False)
-            asyncio.create_task(evicted_client.close())
+            asyncio.create_task(_safe_close(evicted_client, evicted_key))
             logger.debug(f"Evicted AnthropicClient from cache: {evicted_key[:32]}...")
 
         _cache[key] = client
@@ -63,8 +70,17 @@ async def get_client(
         return client
 
 
+async def close_all() -> int:
+    """Close all cached clients and clear the cache. Returns count closed."""
+    count = len(_cache)
+    for client in _cache.values():
+        asyncio.create_task(_safe_close(client, "shutdown"))
+    _cache.clear()
+    return count
+
+
 def clear() -> int:
-    """Remove all cached clients. Returns count cleared."""
+    """Remove all cached clients without closing them (for tests only)."""
     count = len(_cache)
     _cache.clear()
     return count
