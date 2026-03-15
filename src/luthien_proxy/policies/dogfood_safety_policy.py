@@ -206,7 +206,8 @@ class DogfoodSafetyPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy
                 parsed = json.loads(tool_input)
                 if isinstance(parsed, dict):
                     return str(parsed.get("command", ""))
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.debug(f"Could not parse tool_input as JSON in _extract_command: {repr(e)}")
                 return tool_input
         elif isinstance(tool_input, dict):
             return str(tool_input.get("command", ""))

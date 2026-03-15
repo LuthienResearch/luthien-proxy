@@ -144,7 +144,8 @@ def _safe_parse_json(s: str) -> dict[str, Any] | None:
     try:
         result = json.loads(s)
         return result if isinstance(result, dict) else None
-    except (json.JSONDecodeError, TypeError):
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.debug(f"JSON parse failed in _safe_parse_json: {repr(e)}")
         return None
 
 
@@ -283,8 +284,8 @@ def _extract_preview_message(payload: Any) -> str | None:
         try:
             if int(max_tokens) <= 1:
                 return None
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as e:
+            logger.debug(f"max_tokens conversion failed: {repr(e)}")
 
     messages = request.get("messages", [])
 

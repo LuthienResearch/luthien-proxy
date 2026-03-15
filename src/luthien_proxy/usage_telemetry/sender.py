@@ -26,7 +26,8 @@ SEND_TIMEOUT_SECONDS = 10
 def _get_proxy_version() -> str:
     try:
         return pkg_version("luthien-proxy")
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Could not determine proxy version: {repr(e)}")
         return "unknown"
 
 
