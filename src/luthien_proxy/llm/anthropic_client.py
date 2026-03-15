@@ -55,6 +55,10 @@ class AnthropicClient:
             # x-api-key alongside the bearer token. Clear it so only bearer auth is sent.
             self._client.api_key = None
 
+    async def close(self) -> None:
+        """Close the underlying HTTP connection pool."""
+        await self._client.close()
+
     def with_api_key(self, api_key: str) -> "AnthropicClient":
         """Create a new client with a different API key, preserving base_url."""
         return AnthropicClient(api_key=api_key, base_url=self._base_url)
