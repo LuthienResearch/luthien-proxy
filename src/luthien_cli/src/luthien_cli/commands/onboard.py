@@ -47,7 +47,11 @@ def _is_port_free(port: int) -> bool:
 
 
 def _find_free_port(start: int) -> int:
-    """Find the next free port starting from the given default."""
+    """Find the next free port starting from the given default.
+
+    Note: inherent TOCTOU race between checking and Docker binding.
+    Acceptable for dev tooling — collisions are rare and resolved by retry.
+    """
     for offset in range(100):
         port = start + offset
         if _is_port_free(port):
@@ -174,14 +178,13 @@ def onboard():
     _write_policy(config.repo_path, instructions)
     _ensure_env(config.repo_path, proxy_key, admin_key)
 
-    # 5. Save CLI config
+    # 5. Save CLI config (gateway_url updated after port selection below)
     config.api_key = proxy_key
     config.admin_key = admin_key
-    save_config(config, DEFAULT_CONFIG_PATH)
-    console.print("[green]CLI config saved to ~/.luthien/config.toml[/green]")
 
     # 6. Start the stack (stop existing containers first to avoid port conflicts)
     console.print("\n[blue]Starting gateway...[/blue]")
+    # Ignore exit code — nothing to stop on a fresh machine is fine
     subprocess.run(
         ["docker", "compose", "down", "--remove-orphans"],
         cwd=config.repo_path,
@@ -191,6 +194,8 @@ def onboard():
 
     # Auto-select free ports (same logic as quick_start.sh)
     port_env = _find_free_ports()
+    if port_env:
+        console.print(f"[dim]Auto-selected ports: {', '.join(f'{k}={v}' for k, v in port_env.items())}[/dim]")
 
     result = subprocess.run(
         ["docker", "compose", "up", "-d", "--build"],
@@ -206,6 +211,11 @@ def onboard():
     # Use the actual gateway port (may differ from default if auto-selected)
     gateway_port = port_env.get("GATEWAY_PORT", os.environ.get("GATEWAY_PORT", "8000"))
     actual_gateway_url = f"http://localhost:{gateway_port}"
+
+    # Save CLI config with the actual gateway URL so subsequent commands use the right port
+    config.gateway_url = actual_gateway_url
+    save_config(config, DEFAULT_CONFIG_PATH)
+    console.print("[green]CLI config saved to ~/.luthien/config.toml[/green]")
 
     console.print("[yellow]Waiting for gateway to be healthy...[/yellow]")
     if not wait_for_healthy(actual_gateway_url):
