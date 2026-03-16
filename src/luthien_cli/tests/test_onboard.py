@@ -260,4 +260,4 @@ def test_onboard_shows_api_key_warning(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "Yes" in result.output
-    assert "bypass the proxy" in result.output.lower() or "route through" in result.output.lower()
+    assert "proxy key" in result.output.lower()

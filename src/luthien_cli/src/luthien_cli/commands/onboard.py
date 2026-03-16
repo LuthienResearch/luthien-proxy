@@ -244,9 +244,9 @@ def onboard():
                 [bold]Or manually:[/bold]
                   ANTHROPIC_BASE_URL={gateway_url}/ ANTHROPIC_API_KEY={proxy_key} claude
 
-                [bold red]Note:[/bold red] Claude Code may ask about a detected API key.
-                Select [bold]"Yes"[/bold] to route through the Luthien proxy.
-                (The default "No" would bypass the proxy.)
+                [bold]Tip:[/bold] Claude Code may ask about a detected API key.
+                Select [bold]"Yes"[/bold] to use the proxy key for authentication.
+                Either option routes through the proxy.
 
                 [dim]Luthien sends anonymous usage data to help development.
                 To disable, set USAGE_TELEMETRY=false in .env and restart.[/dim]"""),
