@@ -22,7 +22,13 @@ from luthien_proxy.admin import router as admin_router
 from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
-from luthien_proxy.exceptions import BackendAPIError
+from luthien_proxy.exceptions import (
+    BackendAPIError,
+    enrich_billing_message,
+    enrich_rate_limit_message,
+    is_billing_error,
+    is_rate_limit_error,
+)
 from luthien_proxy.gateway_routes import LAST_CRED_TYPE_KEY
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
@@ -61,6 +67,7 @@ logger = logging.getLogger(__name__)
 _HTTP_STATUS_TO_ANTHROPIC_ERROR_TYPE = {
     400: "invalid_request_error",
     401: "authentication_error",
+    402: "billing_error",
     403: "permission_error",
     404: "not_found_error",
     413: "invalid_request_error",
@@ -350,20 +357,29 @@ def create_app(
             if cm is not None:
                 await cm.on_backend_401(request.state.passthrough_credential)
 
+        # Enrich billing/quota and rate limit errors with actionable guidance
+        message = exc.message
+        error_type = exc.error_type
+        if is_billing_error(exc.status_code, exc.error_type, exc.message):
+            message = enrich_billing_message(exc.message)
+            error_type = "billing_error"
+        elif is_rate_limit_error(exc.status_code, exc.error_type):
+            message = enrich_rate_limit_message(exc.message)
+
         if exc.client_format == ClientFormat.ANTHROPIC:
             content = {
                 "type": "error",
                 "error": {
-                    "type": exc.error_type,
-                    "message": exc.message,
+                    "type": error_type,
+                    "message": message,
                 },
             }
         else:
             # OpenAI format
             content = {
                 "error": {
-                    "message": exc.message,
-                    "type": exc.error_type,
+                    "message": message,
+                    "type": error_type,
                     "param": None,
                     "code": None,
                 },

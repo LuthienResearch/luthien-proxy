@@ -36,7 +36,13 @@ from opentelemetry import trace
 from opentelemetry.context import get_current
 from opentelemetry.trace import Span
 
-from luthien_proxy.exceptions import BackendAPIError
+from luthien_proxy.exceptions import (
+    BackendAPIError,
+    enrich_billing_message,
+    enrich_rate_limit_message,
+    is_billing_error,
+    is_rate_limit_error,
+)
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (
     AnthropicContentBlock,
@@ -751,6 +757,11 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
         error_type = _ANTHROPIC_STATUS_ERROR_TYPE_MAP.get(e.status_code or 500, "api_error")
         message = str(e.message)
         logger.warning(f"[{call_id}] Mid-stream Anthropic API error: {e.status_code} {message}")
+        if is_billing_error(e.status_code or 500, error_type, message):
+            error_type = "billing_error"
+            message = enrich_billing_message(message)
+        elif is_rate_limit_error(e.status_code or 500, error_type):
+            message = enrich_rate_limit_message(message)
     elif isinstance(e, AnthropicConnectionError):
         error_type = "api_connection_error"
         message = str(e)
@@ -774,6 +785,7 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
 _ANTHROPIC_STATUS_ERROR_TYPE_MAP: dict[int, str] = {
     400: "invalid_request_error",
     401: "authentication_error",
+    402: "billing_error",
     403: "permission_error",
     404: "not_found_error",
     409: "conflict_error",

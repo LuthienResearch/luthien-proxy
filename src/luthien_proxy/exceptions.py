@@ -65,7 +65,67 @@ _LITELLM_ERROR_TYPE_MAP = {
     "InternalServerError": "api_error",
     "ContextWindowExceededError": "invalid_request_error",
     "ContentPolicyViolationError": "invalid_request_error",
+    "BillingHardLimitReachedError": "billing_error",
 }
+
+
+# Keywords in upstream error messages that indicate billing/quota issues,
+# even when the HTTP status or exception class is generic (e.g. 403 or
+# PermissionDeniedError).  Used by ``is_billing_error`` to detect quota
+# exhaustion regardless of provider-specific status codes.
+_BILLING_KEYWORDS = (
+    "billing",
+    "quota",
+    "insufficient_quota",
+    "exceeded your current quota",
+    "suspended",
+    "deactivated",
+    "credit",
+    "plan limit",
+    "usage limit",
+    "spending limit",
+)
+
+
+def is_billing_error(status_code: int, error_type: str, message: str) -> bool:
+    """Return True if the error represents a billing/quota issue.
+
+    Detects billing problems via:
+    - HTTP 402 (Payment Required)
+    - error_type already classified as ``billing_error``
+    - Known billing keywords in the upstream message
+    """
+    if status_code == 402:
+        return True
+    if error_type == "billing_error":
+        return True
+    msg_lower = message.lower()
+    return any(kw in msg_lower for kw in _BILLING_KEYWORDS)
+
+
+def is_rate_limit_error(status_code: int, error_type: str) -> bool:
+    """Return True if the error is a rate limit (not billing/quota)."""
+    return status_code == 429 or error_type == "rate_limit_error"
+
+
+def enrich_billing_message(original_message: str) -> str:
+    """Wrap an upstream billing/quota error with actionable guidance."""
+    return (
+        f"Your API account has hit a billing or usage limit. "
+        f"Upstream provider message: {original_message}. "
+        f"Please check your account's billing settings, credit balance, "
+        f"and usage limits with your API provider."
+    )
+
+
+def enrich_rate_limit_message(original_message: str) -> str:
+    """Wrap an upstream rate limit error with actionable guidance."""
+    return (
+        f"The upstream API provider is rate limiting your requests. "
+        f"Upstream provider message: {original_message}. "
+        f"Please wait a moment before retrying. If this persists, "
+        f"check your API plan's rate limits."
+    )
 
 
 def map_litellm_error_type(exception: Exception) -> str:
@@ -81,4 +141,11 @@ def map_litellm_error_type(exception: Exception) -> str:
     return _LITELLM_ERROR_TYPE_MAP.get(class_name, "api_error")
 
 
-__all__ = ["BackendAPIError", "map_litellm_error_type"]
+__all__ = [
+    "BackendAPIError",
+    "enrich_billing_message",
+    "enrich_rate_limit_message",
+    "is_billing_error",
+    "is_rate_limit_error",
+    "map_litellm_error_type",
+]
