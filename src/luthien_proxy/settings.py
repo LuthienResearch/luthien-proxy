@@ -79,7 +79,7 @@ class Settings(BaseSettings):
 
     # Sentry error tracking (opt-out: set SENTRY_ENABLED=false to disable)
     sentry_enabled: bool = True
-    sentry_dsn: str = "https://dd3948f1c69368a412e603159b9cd073@o4511039310528512.ingest.us.sentry.io/4511039324356608"
+    sentry_dsn: str = "https://178c87f543acaf02b3f154ee329679fa@o4511061292089344.ingest.us.sentry.io/4511061302575104"
     sentry_traces_sample_rate: float = 0.0
     sentry_server_name: str = ""
 
