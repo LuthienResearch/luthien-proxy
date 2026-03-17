@@ -63,6 +63,27 @@ Only two files from `https://raw.githubusercontent.com/LuthienResearch/luthien-p
 
 ### docker-compose.yaml post-processing
 
-Remove the `./src:/app/src:ro` line from the gateway service's volumes. This mount is for local development (hot-reload source into container). The GHCR image already contains the source code. The `./config:/app/config:ro` mount stays so the CLI-generated policy config is picked up.
+Remove the `./src:/app/src:ro` volume mount line from the gateway service. This mount is for local development (hot-reload source into container). The GHCR image already has source baked in. The `./config:/app/config:ro` mount stays so the CLI-generated policy config is picked up.
 
-Approach: simple string filtering — remove lines matching `./src:/app/src` from the downloaded content. Robust because the mount path is stable and distinctive.
+Also remove `build:` blocks (context + dockerfile lines) from all services. The managed install uses pre-built GHCR images exclusively — build sections reference local Dockerfiles that don't exist in the managed directory. Docker Compose uses the `image:` field when no build context is present, but removing the blocks avoids confusing errors if a user runs `docker compose build` by accident.
+
+Approach: simple string filtering. Both the volume mount and build blocks have stable, distinctive patterns in our docker-compose.yaml.
+
+### Error handling
+
+- **Fresh install, network down:** Fail with a clear error ("Could not download proxy files from GitHub. Check your internet connection."). Cannot proceed without the files.
+- **Version check, network down:** Non-fatal. Warn and proceed with existing files.
+- **Download of individual file fails (non-network):** Fail with error showing the URL and HTTP status.
+- **GitHub rate limit (403):** Same as network error — clear message suggesting retry later.
+
+### Testing
+
+Unit tests for `repo.py`:
+- Fresh download (mock httpx, verify files written and `.version` created)
+- Version match (no prompt, no download)
+- Version mismatch + user accepts update (re-downloads)
+- Version mismatch + user declines (keeps current)
+- Network error on SHA check with existing install (warns, proceeds)
+- Network error on fresh install (fails with clear message)
+
+Update `test_onboard.py` to mock `ensure_repo()` instead of prompting for repo path.
