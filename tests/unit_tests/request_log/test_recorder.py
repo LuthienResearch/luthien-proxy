@@ -529,8 +529,8 @@ class TestRequestLogRecorder:
         assert RequestLogRecorder.dropped_writes == before + 1
 
     @pytest.mark.asyncio
-    async def test_write_logs_does_not_catch_unrelated_exceptions(self) -> None:
-        """_write_logs() propagates non-DB exceptions."""
+    async def test_write_logs_wraps_any_exception_as_write_failure(self) -> None:
+        """Any exception from the DB call is treated as a write failure and caught."""
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock(side_effect=ValueError("unexpected"))
 
@@ -542,8 +542,9 @@ class TestRequestLogRecorder:
         recorder = RequestLogRecorder(db_pool, "txn-123")
         recorder.record_inbound_request(method="POST", url="http://example.com", headers={}, body={})
 
-        with pytest.raises(ValueError, match="unexpected"):
-            await recorder._write_logs()
+        before = RequestLogRecorder.dropped_writes
+        await recorder._write_logs()
+        assert RequestLogRecorder.dropped_writes == before + 1
 
     @pytest.mark.asyncio
     async def test_write_logs_catches_os_errors(self) -> None:

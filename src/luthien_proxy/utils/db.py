@@ -152,8 +152,25 @@ class DatabasePool:
                 await pool.close()
 
 
+class DatabaseWriteError(Exception):
+    """A database write failed.
+
+    Wraps the underlying driver exception (asyncpg, aiosqlite, etc.) so
+    callers don't need to know which DB backend is in use.
+
+    Attributes:
+        cause: The original driver exception.
+    """
+
+    def __init__(self, message: str, *, cause: BaseException) -> None:
+        """Wrap a driver exception with a human-readable message."""
+        super().__init__(message)
+        self.cause = cause
+
+
 __all__ = [
     "ConnectFn",
+    "DatabaseWriteError",
     "PoolFactory",
     "get_connector",
     "get_pool_factory",
