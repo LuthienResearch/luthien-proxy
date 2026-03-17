@@ -6,8 +6,8 @@ pytestmark = pytest.mark.timeout(10)
 
 
 def _get_sentry_functions():
-    """Import Sentry functions from main.py (function-level import OK in tests)."""
-    from luthien_proxy.main import _sentry_before_send, _summarize
+    """Import Sentry scrubbing functions."""
+    from luthien_proxy.observability.sentry import _sentry_before_send, _summarize
 
     return _summarize, _sentry_before_send
 
