@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from luthien_proxy.request_log.models import (
     RequestLogDetailResponse,
@@ -21,6 +21,19 @@ if TYPE_CHECKING:
     from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_ts(raw: object) -> str | None:
+    """Convert a timestamp column to ISO-8601 string.
+
+    asyncpg returns Python datetime objects; aiosqlite returns strings.
+    Both map to the same ISO-8601 output so callers stay DB-agnostic.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw.isoformat()
+    return str(raw)
 
 
 def _parse_jsonb(raw: object) -> dict[str, Any] | None:
@@ -48,8 +61,8 @@ def _row_to_entry(row: Any) -> RequestLogEntry:
         response_status=int(row["response_status"]) if row["response_status"] is not None else None,
         response_headers=_parse_jsonb(row["response_headers"]),
         response_body=_parse_jsonb(row["response_body"]),
-        started_at=cast(datetime, row["started_at"]).isoformat(),
-        completed_at=cast(datetime, row["completed_at"]).isoformat() if row["completed_at"] else None,
+        started_at=_parse_ts(row["started_at"]) or "",
+        completed_at=_parse_ts(row["completed_at"]),
         duration_ms=float(row["duration_ms"]) if row["duration_ms"] is not None else None,
         model=str(row["model"]) if row["model"] else None,
         is_streaming=bool(row["is_streaming"]),
