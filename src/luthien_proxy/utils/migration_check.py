@@ -3,6 +3,7 @@
 import hashlib
 import logging
 import os
+import uuid
 from pathlib import Path
 
 import asyncpg
@@ -42,6 +43,13 @@ async def _apply_sqlite_schema(db_pool: DatabasePool) -> None:
             statement = statement.strip()
             if statement:
                 await conn.execute(statement)
+
+        # Postgres uses gen_random_uuid() as a column default — SQLite can't,
+        # so we generate the deployment_id in Python on first schema apply.
+        await conn.execute(
+            "UPDATE telemetry_config SET deployment_id = ? WHERE id = 1 AND deployment_id = 'pending'",
+            str(uuid.uuid4()),
+        )
 
     logger.info("SQLite schema applied (idempotent)")
 
