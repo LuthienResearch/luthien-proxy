@@ -8,9 +8,13 @@ automatic get_config() for Pydantic-based configs.
 from __future__ import annotations
 
 from collections.abc import MutableMapping, MutableSequence, MutableSet
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from luthien_proxy.policy_core.policy_context import PolicyContext
+    from luthien_proxy.types import RawHttpRequest
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -108,6 +112,65 @@ class BasePolicy:
         if isinstance(config, dict):
             return config_class.model_validate(config)
         return config
+
+    @staticmethod
+    def _extract_passthrough_key(raw_http_request: "RawHttpRequest | None") -> str | None:
+        """Extract the upstream API key from the incoming request headers.
+
+        Checks Authorization (Bearer) then x-api-key. Returns None if absent.
+        Used to forward the client's own key to judge LLM calls.
+        """
+        if raw_http_request is None:
+            return None
+        headers = raw_http_request.headers
+        auth = headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            return auth[7:] or None
+        return headers.get("x-api-key") or None
+
+    def _resolve_judge_api_key(
+        self,
+        context: "PolicyContext",
+        explicit_key: str | None,
+        fallback_key: str | None,
+    ) -> str | None:
+        """Resolve the API key for judge LLM calls.
+
+        Priority: explicit per-policy key → passthrough (client's key) → server fallback.
+        """
+        if explicit_key:
+            return explicit_key
+        passthrough = self._extract_passthrough_key(context.raw_http_request)
+        return passthrough or fallback_key
+
+    @staticmethod
+    def _judge_oauth_headers(
+        context: "PolicyContext",
+        explicit_key: str | None,
+    ) -> dict[str, str] | None:
+        """Return OAuth extra headers if the passthrough credential is an OAuth bearer token.
+
+        Returns None when the explicit per-policy key is set (not passthrough), when the
+        credential is a regular Anthropic API key, or when no Bearer token is present.
+        The caller should pass the result as extra_headers= to LiteLLM acompletion.
+        """
+        if explicit_key:
+            # Using an explicit key, not passthrough — no OAuth header needed.
+            return None
+        raw = context.raw_http_request
+        if raw is None:
+            return None
+        auth = raw.headers.get("authorization", "")
+        if not auth.lower().startswith("bearer "):
+            return None
+        token = auth[7:] or None
+        if not token:
+            return None
+        from luthien_proxy.credential_manager import is_anthropic_api_key  # noqa: PLC0415
+
+        if not is_anthropic_api_key(token):
+            return {"anthropic-beta": "oauth-2025-04-20"}
+        return None
 
 
 __all__ = ["BasePolicy"]

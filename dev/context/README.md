@@ -6,6 +6,7 @@ This directory contains persistent knowledge accumulated across development sess
 
 These documents are actively maintained and reflect current architecture:
 
+- **[`authentication.md`](authentication.md)** - Auth modes, passthrough auth flow, OAuth, judge key resolution
 - **[`codebase_learnings.md`](codebase_learnings.md)** - Architectural patterns, module relationships, how subsystems work together
 - **[`decisions.md`](decisions.md)** - Technical decisions made and their rationale
 - **[`gotchas.md`](gotchas.md)** - Non-obvious behaviors, edge cases, common mistakes

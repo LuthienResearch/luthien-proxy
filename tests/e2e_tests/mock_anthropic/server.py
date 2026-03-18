@@ -71,6 +71,7 @@ class MockAnthropicServer:
         self._ready = threading.Event()
         self._stop_event: asyncio.Event | None = None
         self._received_requests: list[dict] = []
+        self._received_headers: list[dict[str, str]] = []
         self._requests_lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -103,10 +104,21 @@ class MockAnthropicServer:
         with self._requests_lock:
             return list(self._received_requests)
 
+    def last_request_headers(self) -> dict[str, str] | None:
+        """Return headers of the most recently received request, or None."""
+        with self._requests_lock:
+            return self._received_headers[-1] if self._received_headers else None
+
+    def received_request_headers(self) -> list[dict[str, str]]:
+        """Return headers of all received requests in order."""
+        with self._requests_lock:
+            return list(self._received_headers)
+
     def clear_requests(self) -> None:
         """Clear the recorded request history."""
         with self._requests_lock:
             self._received_requests.clear()
+            self._received_headers.clear()
 
     def drain_queue(self) -> None:
         """Drain all pending items from the response queue (for test isolation)."""
@@ -160,10 +172,11 @@ class MockAnthropicServer:
         await self._stop_event.wait()
         await self._runner.cleanup()
 
-    def _record_request(self, body: dict) -> None:
-        """Thread-safely append a parsed request body to the history."""
+    def _record_request(self, body: dict, headers: dict[str, str] | None = None) -> None:
+        """Thread-safely append a parsed request body and headers to the history."""
         with self._requests_lock:
             self._received_requests.append(body)
+            self._received_headers.append(headers or {})
 
     def _next_mock(self) -> AnyMockResponse:
         """Dequeue the next mock response, falling back to the default."""
@@ -178,7 +191,7 @@ class MockAnthropicServer:
 
     async def _handle_messages(self, request: web.Request) -> web.StreamResponse | web.Response:
         body = await request.json()
-        self._record_request(body)
+        self._record_request(body, dict(request.headers))
 
         mock = self._next_mock()
 
@@ -391,7 +404,7 @@ class MockAnthropicServer:
 
     async def _handle_chat_completions(self, request: web.Request) -> web.StreamResponse | web.Response:
         body = await request.json()
-        self._record_request(body)
+        self._record_request(body, dict(request.headers))
 
         mock = self._next_mock()
 

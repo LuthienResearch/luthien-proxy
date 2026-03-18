@@ -126,22 +126,22 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
         """Short human-readable name for the policy."""
         return "SimpleLLM"
 
-    def __init__(self, config: SimpleLLMJudgeConfig | dict[str, Any] | None = None):
-        """Initialize with judge config. Resolves API key from settings."""
+    def __init__(self, config: SimpleLLMJudgeConfig | None = None):
+        """Initialize with judge config."""
         parsed = self._init_config(config, SimpleLLMJudgeConfig)
 
         settings = get_settings()
-        resolved_api_key = parsed.api_key or settings.llm_judge_api_key or settings.litellm_master_key or None
-
         self._config = SimpleLLMJudgeConfig(
             model=settings.llm_judge_model or parsed.model,
             api_base=settings.llm_judge_api_base or parsed.api_base,
-            api_key=resolved_api_key,
+            api_key=parsed.api_key,  # explicit per-policy override only
             instructions=parsed.instructions,
             temperature=parsed.temperature,
             max_tokens=parsed.max_tokens,
             on_error=parsed.on_error,
         )
+        # Server-level key fallback, used when no per-policy key and no passthrough key.
+        self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
 
         if self._config.on_error == "pass":
             logger.warning(
@@ -203,6 +203,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
                 self._config,
                 descriptor,
                 tuple(emitted_blocks),
+                api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
+                extra_headers=self._judge_oauth_headers(context, self._config.api_key),
             )
             context.record_event(
                 "policy.simple_llm.judge_result",

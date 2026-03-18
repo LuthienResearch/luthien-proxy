@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from luthien_proxy.admin.policy_discovery import (
     SKIP_MODULES,
     SKIP_SUFFIXES,
+    _pydantic_model_defaults,
     discover_policies,
     extract_config_schema,
     extract_description,
@@ -124,6 +125,23 @@ class TestPythonTypeToJsonSchema:
         # Should have discriminator metadata
         assert "discriminator" in schema
         assert schema["discriminator"]["propertyName"] == "type"
+
+    def test_pydantic_model_union_with_dict_and_none(self) -> None:
+        """Pydantic model in union with dict and None should return the model schema.
+
+        Regression test for SimpleLLMPolicy config showing as plain string input.
+        """
+
+        class JudgeConfig(BaseModel):
+            instructions: str
+            model: str = "claude-haiku-4-5"
+
+        schema = python_type_to_json_schema(JudgeConfig | dict[str, Any] | None)
+
+        assert schema["type"] == "object"
+        assert "properties" in schema
+        assert "instructions" in schema["properties"]
+        assert schema.get("nullable") is True
 
 
 class TestExtractDescription:
@@ -397,6 +415,43 @@ class TestSubPolicyListMarker:
         schema, _ = extract_config_schema(TestPolicy)
         assert "rules" in schema
         assert "x-sub-policy-list" not in schema["rules"]
+
+
+class TestPydanticModelDefaults:
+    """Tests for _pydantic_model_defaults function."""
+
+    def test_simple_defaults(self) -> None:
+        class Config(BaseModel):
+            name: str = "default"
+            count: int = 42
+
+        schema = Config.model_json_schema()
+        result = _pydantic_model_defaults(Config, schema)
+        assert result == {"name": "default", "count": 42}
+
+    def test_default_factory(self) -> None:
+        class Config(BaseModel):
+            tags: list[str] = Field(default_factory=list)
+
+        schema = Config.model_json_schema()
+        result = _pydantic_model_defaults(Config, schema)
+        assert result == {"tags": []}
+
+    def test_required_field_uses_example(self) -> None:
+        class Config(BaseModel):
+            name: str
+
+        schema = Config.model_json_schema()
+        result = _pydantic_model_defaults(Config, schema)
+        assert result == {"name": ""}
+
+    def test_none_default(self) -> None:
+        class Config(BaseModel):
+            api_key: str | None = None
+
+        schema = Config.model_json_schema()
+        result = _pydantic_model_defaults(Config, schema)
+        assert result == {"api_key": None}
 
 
 class TestSkipModules:

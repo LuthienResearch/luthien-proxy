@@ -204,3 +204,41 @@ async def policy_context(policy_class_ref: str, config: dict):
                 "luthien_proxy.policies.noop_policy:NoOpPolicy",
                 {},
             )
+
+
+@asynccontextmanager
+async def auth_config_context(auth_mode: str, validate_credentials: bool = False):
+    """Context manager that temporarily changes auth config and restores it after the test.
+
+    Args:
+        auth_mode: Auth mode to set ("proxy_key", "passthrough", "both")
+        validate_credentials: Whether to validate passthrough credentials against Anthropic
+    """
+    gateway_base = GATEWAY_URL.rstrip("/")
+    admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # Save current config
+        resp = await client.get(f"{gateway_base}/api/admin/auth/config", headers=admin_headers)
+        assert resp.status_code == 200, f"Failed to get auth config: {resp.text}"
+        original = resp.json()
+
+        # Apply test config
+        resp = await client.post(
+            f"{gateway_base}/api/admin/auth/config",
+            headers=admin_headers,
+            json={"auth_mode": auth_mode, "validate_credentials": validate_credentials},
+        )
+        assert resp.status_code == 200, f"Failed to set auth config: {resp.text}"
+        try:
+            yield
+        finally:
+            # Restore original config
+            await client.post(
+                f"{gateway_base}/api/admin/auth/config",
+                headers=admin_headers,
+                json={
+                    "auth_mode": original["auth_mode"],
+                    "validate_credentials": original["validate_credentials"],
+                },
+            )

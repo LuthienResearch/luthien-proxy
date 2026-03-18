@@ -27,5 +27,8 @@ dev = [
     "pytest-httpx>=0.35.0",
 ]
 
+[tool.ruff]
+extend = "../../pyproject.toml"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

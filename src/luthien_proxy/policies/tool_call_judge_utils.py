@@ -27,8 +27,13 @@ logger = logging.getLogger(__name__)
 class JudgeConfig(BaseModel):
     """Configuration for LLM judge."""
 
-    model: str = Field(description="LLM model identifier for the judge")
-    api_base: str | None = Field(default=None, description="API base URL")
+    model: str = Field(
+        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'gpt-4o', 'ollama/llama3'",
+    )
+    api_base: str | None = Field(
+        default=None,
+        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
+    )
     api_key: str | None = Field(
         default=None,
         description="API key for authentication",
@@ -65,14 +70,22 @@ async def call_judge(
     arguments: str,
     config: JudgeConfig,
     judge_instructions: str,
+    api_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> JudgeResult:
     """Call LLM judge to evaluate a tool call.
+
+    api_key overrides config.api_key (used for passthrough auth). extra_headers
+    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
+    falls back to its own env-var resolution.
 
     Args:
         name: Tool call name
         arguments: Tool call arguments (JSON string)
         config: Judge configuration
         judge_instructions: System prompt for judge
+        api_key: API key override (e.g. from request passthrough)
+        extra_headers: Extra HTTP headers (e.g. OAuth beta header)
 
     Returns:
         JudgeResult with probability and explanation
@@ -81,6 +94,7 @@ async def call_judge(
         Exception: If judge LLM call fails or response cannot be parsed
     """
     prompt = build_judge_prompt(name, arguments, judge_instructions)
+    resolved_key = api_key or config.api_key
 
     try:
         kwargs: dict[str, Any] = {
@@ -99,8 +113,10 @@ async def call_judge(
 
         if config.api_base:
             kwargs["api_base"] = config.api_base
-        if config.api_key:
-            kwargs["api_key"] = config.api_key
+        if resolved_key:
+            kwargs["api_key"] = resolved_key
+        if extra_headers:
+            kwargs["extra_headers"] = extra_headers
 
         response = await acompletion(**kwargs)
         response = cast(ModelResponse, response)

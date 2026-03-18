@@ -300,7 +300,7 @@ class TestToolCallJudgePolicyOpenAIBlockedMessageChunks:
         ctx.original_streaming_response_state.just_completed = block
 
         # Mock the judge to always return high probability (block)
-        async def mock_call_judge(name, arguments, config, judge_instructions):
+        async def mock_call_judge(name, arguments, config, judge_instructions, api_key=None, extra_headers=None):
             return make_judge_result(probability=1.0, explanation="dangerous action")
 
         with patch("luthien_proxy.policies.tool_call_judge_policy.call_judge", side_effect=mock_call_judge):
@@ -496,7 +496,7 @@ class TestToolCallJudgePolicyOpenAINonStreaming:
         )
 
         # Mock judge to block
-        async def mock_call_judge(name, arguments, config, judge_instructions):
+        async def mock_call_judge(name, arguments, config, judge_instructions, api_key=None, extra_headers=None):
             return make_judge_result(probability=0.9, explanation="dangerous operation")
 
         with patch("luthien_proxy.policies.tool_call_judge_policy.call_judge", side_effect=mock_call_judge):
@@ -544,7 +544,7 @@ class TestToolCallJudgePolicyOpenAINonStreaming:
         )
 
         # Mock judge to allow
-        async def mock_call_judge(name, arguments, config, judge_instructions):
+        async def mock_call_judge(name, arguments, config, judge_instructions, api_key=None, extra_headers=None):
             return make_judge_result(probability=0.2, explanation="safe operation")
 
         with patch("luthien_proxy.policies.tool_call_judge_policy.call_judge", side_effect=mock_call_judge):
