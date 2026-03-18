@@ -12,9 +12,9 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Mapping, Sequence, TypedDict
+from typing import Any, TypedDict
 
-from luthien_proxy.utils.db import parse_db_ts
+from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 
 from .models import (
     ConversationMessage,
@@ -25,9 +25,6 @@ from .models import (
     SessionListResponse,
     SessionSummary,
 )
-
-if TYPE_CHECKING:
-    from luthien_proxy.utils.db import DatabasePool
 
 
 class StoredEvent(TypedDict):
@@ -425,7 +422,12 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
 
 
 async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
-    """SQLite version using standard SQL (no FILTER, DISTINCT ON, array_agg)."""
+    """SQLite version: 3 queries total (vs PostgreSQL's 2).
+
+    Avoids N+1 by batching models and previews for the whole page in one
+    query each, then merging in Python. PostgreSQL uses array_agg/DISTINCT ON
+    in a single CTE; SQLite lacks those, so we use IN (session_ids) instead.
+    """
     async with db_pool.connection() as conn:
         total_count = await conn.fetchval(
             """
@@ -452,77 +454,79 @@ async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: 
             WHERE session_id IS NOT NULL
             GROUP BY session_id
             ORDER BY last_ts DESC
-            LIMIT ? OFFSET ?
+            LIMIT $1 OFFSET $2
             """,
             limit,
             offset,
         )
 
-    sessions = []
-    for row in rows:
-        sid = str(row["session_id"])
+        total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
 
-        # Fetch models for this session (replaces array_agg + JSON operator)
-        model_rows = await _fetch_session_models_sqlite(db_pool, sid)
-        models = [str(r["model"]) for r in model_rows if r["model"]]
+        if not rows:
+            return SessionListResponse(sessions=[], total=total, offset=offset, has_more=False)
 
-        # Fetch first message for preview (replaces DISTINCT ON)
-        preview = await _fetch_session_preview_sqlite(db_pool, sid)
+        session_ids = [str(row["session_id"]) for row in rows]
+        placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
 
-        sessions.append(
-            SessionSummary(
-                session_id=sid,
-                first_timestamp=str(row["first_ts"]),
-                last_timestamp=str(row["last_ts"]),
-                turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
-                total_events=int(row["total_events"]),  # type: ignore[arg-type]
-                policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
-                models_used=models,
-                preview_message=preview,
-            )
-        )
-
-    total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
-    has_more = offset + len(sessions) < total
-    return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
-
-
-async def _fetch_session_models_sqlite(db_pool: DatabasePool, session_id: str) -> Sequence[Mapping[str, Any]]:
-    """Fetch distinct models used in a session (SQLite-compatible)."""
-    async with db_pool.connection() as conn:
-        return await conn.fetch(
-            """
-            SELECT DISTINCT json_extract(payload, '$.final_model') as model
+        # One query for all models on this page
+        model_rows = await conn.fetch(
+            f"""
+            SELECT session_id, json_extract(payload, '$.final_model') as model
             FROM conversation_events
-            WHERE session_id = ?
+            WHERE session_id IN ({placeholders})
             AND event_type = 'transaction.request_recorded'
             AND json_extract(payload, '$.final_model') IS NOT NULL
             """,
-            session_id,
+            *session_ids,
         )
 
-
-async def _fetch_session_preview_sqlite(db_pool: DatabasePool, session_id: str) -> str | None:
-    """Fetch the first non-probe request payload for preview (SQLite-compatible)."""
-    async with db_pool.connection() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT payload as request_payload
+        # One query for first qualifying preview per session on this page
+        preview_rows = await conn.fetch(
+            f"""
+            SELECT session_id, payload as request_payload
             FROM conversation_events
-            WHERE session_id = ?
+            WHERE session_id IN ({placeholders})
             AND event_type = 'transaction.request_recorded'
             AND COALESCE(
                 CAST(json_extract(payload, '$.final_request.max_tokens') AS INTEGER),
                 2
             ) > 1
-            ORDER BY created_at ASC
-            LIMIT 1
+            ORDER BY session_id, created_at ASC
             """,
-            session_id,
+            *session_ids,
         )
-    if row is None:
-        return None
-    return _extract_preview_message(row["request_payload"])
+
+    # Build per-session lookup maps from the bulk results
+    models_by_session: dict[str, list[str]] = {}
+    for r in model_rows:
+        sid = str(r["session_id"])
+        model = str(r["model"])
+        session_models = models_by_session.setdefault(sid, [])
+        if model not in session_models:
+            session_models.append(model)
+
+    preview_by_session: dict[str, str | None] = {}
+    for r in preview_rows:
+        sid = str(r["session_id"])
+        if sid not in preview_by_session:
+            preview_by_session[sid] = _extract_preview_message(r["request_payload"])
+
+    sessions = [
+        SessionSummary(
+            session_id=str(row["session_id"]),
+            first_timestamp=parse_db_ts(row["first_ts"]).isoformat(),
+            last_timestamp=parse_db_ts(row["last_ts"]).isoformat(),
+            turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
+            total_events=int(row["total_events"]),  # type: ignore[arg-type]
+            policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
+            models_used=models_by_session.get(str(row["session_id"]), []),
+            preview_message=preview_by_session.get(str(row["session_id"])),
+        )
+        for row in rows
+    ]
+
+    has_more = offset + len(sessions) < total
+    return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
 
 
 async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> SessionDetail:
