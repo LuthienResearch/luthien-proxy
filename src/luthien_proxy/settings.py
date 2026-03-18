@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     # Skip auth for UI routes when accessed from localhost (127.0.0.1, ::1)
     localhost_auth_bypass: bool = True
 
+    # Inject a system-level note telling the LLM which policies are active,
+    # so the model doesn't get confused when policies modify its output.
+    inject_policy_context: bool = True
+
     # Dogfood mode — auto-compose DogfoodSafetyPolicy to prevent agents
     # from killing the proxy they communicate through
     dogfood_mode: bool = False
