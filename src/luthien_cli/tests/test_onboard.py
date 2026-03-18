@@ -233,11 +233,7 @@ def test_find_free_ports_respects_env_vars():
 
 def test_find_free_ports_auto_selects():
     """All ports are auto-selected when none are set in env."""
-    clean_env = {
-        k: v
-        for k, v in os.environ.items()
-        if k not in ("POSTGRES_PORT", "REDIS_PORT", "GATEWAY_PORT")
-    }
+    clean_env = {k: v for k, v in os.environ.items() if k not in ("POSTGRES_PORT", "REDIS_PORT", "GATEWAY_PORT")}
     with patch.dict("os.environ", clean_env, clear=True):
         with patch("luthien_cli.commands.onboard._find_free_port", side_effect=[5433, 6379, 8000]):
             result = _find_free_ports()
