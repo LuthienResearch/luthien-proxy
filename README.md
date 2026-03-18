@@ -392,14 +392,13 @@ curl http://localhost:8000/api/admin/policy/current \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
-**Create a named policy instance:**
+**Set the active policy:**
 
 ```bash
-curl -X POST http://localhost:8000/api/admin/policy/create \
+curl -X POST http://localhost:8000/api/admin/policy/set \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{
-    "name": "my-policy",
     "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
     "config": {
       "model": "openai/gpt-4o-mini",
@@ -410,26 +409,10 @@ curl -X POST http://localhost:8000/api/admin/policy/create \
   }'
 ```
 
-**Activate a policy:**
-
-```bash
-curl -X POST http://localhost:8000/api/admin/policy/activate \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer admin-dev-key" \
-  -d '{"name": "my-policy"}'
-```
-
 **List available policy classes:**
 
 ```bash
 curl http://localhost:8000/api/admin/policy/list \
-  -H "Authorization: Bearer admin-dev-key"
-```
-
-**List saved policy instances:**
-
-```bash
-curl http://localhost:8000/api/admin/policy/instances \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
@@ -498,7 +481,7 @@ docker compose ps db
 docker compose restart db
 
 # Re-run migrations
-docker compose run --rm db-migrations
+docker compose run --rm migrations
 ```
 
 ## License

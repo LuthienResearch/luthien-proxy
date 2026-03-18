@@ -100,7 +100,7 @@ Client receives SSE events
 
 | Module | Responsibility |
 |--------|---------------|
-| `storage/persistence.py` | `ConversationEvent` model, DB writes, Redis pub/sub |
+| `storage/events.py` | Conversation event reconstruction utilities |
 | `observability/emitter.py` | `EventEmitter` — fire-and-forget event recording (DB + Redis + stdout) |
 | `observability/transaction_recorder.py` | Records request/response pairs for conversation history |
 

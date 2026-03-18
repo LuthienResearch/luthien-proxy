@@ -291,7 +291,7 @@ Back to the **Activity Monitor**, filter to show only **Policy Events**:
 
 **Policy not transforming text?**
 - Check gateway logs for policy initialization
-- Verify AllCapsPolicy is configured in main.py
+- Verify AllCapsPolicy is configured in `config/policy_config.yaml`
 - Test with non-streaming first (easier to debug)
 
 ## Shutting Down
@@ -306,7 +306,6 @@ This stops all services (gateway, databases, observability stack).
 
 ## Next Steps
 
-- Try changing `n` to a different value in [main.py:78](../src/luthien_proxy/main.py#L78) (e.g., n=2 for every other word, n=1 for all words)
-- Create your own policy by copying [AllCapsPolicy](../src/luthien_proxy/policies/uppercase_nth_word.py)
+- Create your own policy by copying [AllCapsPolicy](../src/luthien_proxy/policies/all_caps_policy.py)
 - Add more complex transformations (e.g., word filtering, content moderation)
 - Export interesting traces and diffs for documentation
