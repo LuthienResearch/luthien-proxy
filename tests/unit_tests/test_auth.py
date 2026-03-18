@@ -371,7 +371,6 @@ class TestLocalhostBypassVerifyAdminToken:
         deps = Dependencies(
             db_pool=None,
             redis_client=None,
-            llm_client=MockLLMClient(),
             policy_manager=mock_policy_manager,
             emitter=NullEventEmitter(),
             api_key="test-api-key",
