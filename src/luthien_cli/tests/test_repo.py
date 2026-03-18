@@ -10,6 +10,7 @@ from luthien_cli.repo import (
     GITHUB_SHA_URL,
     _download_files,
     _get_remote_sha,
+    _remove_build_blocks,
     _strip_dev_only_lines,
     ensure_repo,
 )
@@ -80,6 +81,43 @@ def test_strip_dev_only_lines_no_match():
     """Content without dev-only lines passes through unchanged."""
     content = "services:\n  db:\n    image: postgres:16\n"
     assert _strip_dev_only_lines(content) == content
+
+
+def test_remove_build_blocks_empty_block():
+    """A build: key with no nested lines is removed."""
+    content = "services:\n  gw:\n    image: x\n    build:\n    env_file: .env\n"
+    result = _remove_build_blocks(content)
+    assert "build:" not in result
+    assert "env_file: .env" in result
+
+
+def test_remove_build_blocks_different_indent():
+    """Build blocks at varying indent levels are all removed."""
+    content = (
+        "services:\n"
+        "  a:\n"
+        "    build:\n"
+        "      context: .\n"
+        "  b:\n"
+        "    image: x\n"
+        "    build:\n"
+        "      context: .\n"
+        "      dockerfile: Dockerfile\n"
+        "    ports:\n"
+        "      - '80:80'\n"
+    )
+    result = _remove_build_blocks(content)
+    assert "build:" not in result
+    assert "context:" not in result
+    assert "dockerfile:" not in result
+    assert "image: x" in result
+    assert "ports:" in result
+
+
+def test_remove_build_blocks_preserves_non_build_nesting():
+    """Nested content under non-build keys is preserved."""
+    content = "services:\n  gw:\n    environment:\n      FOO: bar\n      BAZ: qux\n"
+    assert _remove_build_blocks(content) == content
 
 
 def test_download_files(tmp_path, httpx_mock):

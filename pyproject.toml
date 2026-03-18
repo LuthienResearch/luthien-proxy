@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
+    "aiosqlite>=0.20.0",
     "asyncpg>=0.30.0",
     "beartype>=0.21.0",
     "click>=8.1.0",
@@ -73,7 +74,7 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra -m 'not e2e and not integration and not mock_e2e' --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
+addopts = "-q -ra -m 'not e2e and not integration and not mock_e2e and not sqlite_e2e' --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
@@ -85,6 +86,7 @@ markers = [
     "e2e: marks end-to-end tests that require an assembled control plane",
     "integration: marks integration tests that require external services (OpenAI, Anthropic APIs)",
     "mock_e2e: marks e2e tests that use the mock Anthropic server (no real API calls)",
+    "sqlite_e2e: marks e2e tests running the gateway in-process with SQLite (no Docker)",
 ]
 timeout_func_only = false
 
@@ -107,4 +109,5 @@ dev = [
     "ruff>=0.12.10",
     "pyright",
     "radon>=6.0.1",
+    "asgi-lifespan>=2.1.0",
 ]

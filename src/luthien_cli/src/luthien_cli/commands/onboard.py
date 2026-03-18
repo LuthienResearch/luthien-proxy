@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import socket
 import subprocess
 import textwrap
 
@@ -27,6 +28,53 @@ policy:
     max_tokens: 4096
     on_error: "pass"
 """
+
+
+_PORT_DEFAULTS = {
+    "POSTGRES_PORT": 5433,
+    "REDIS_PORT": 6379,
+    "GATEWAY_PORT": 8000,
+}
+
+
+def _is_port_free(port: int) -> bool:
+    """Check if a TCP port is available on localhost."""
+    if not 1024 <= port <= 65535:
+        return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
+def _find_free_port(start: int) -> int:
+    """Find the next free port starting from the given default.
+
+    Note: inherent TOCTOU race between checking and Docker binding.
+    Acceptable for dev tooling — collisions are rare and resolved by retry.
+    """
+    for offset in range(100):
+        port = start + offset
+        if _is_port_free(port):
+            return port
+    raise RuntimeError(f"Could not find a free port starting from {start}")
+
+
+def _find_free_ports() -> dict[str, str]:
+    """Auto-select free ports for docker compose services.
+
+    Respects ports already set in the environment. Returns a dict
+    of env vars to pass to docker compose.
+    """
+    port_env: dict[str, str] = {}
+    for var, default in _PORT_DEFAULTS.items():
+        if os.environ.get(var):
+            continue
+        port = _find_free_port(default)
+        port_env[var] = str(port)
+    return port_env
 
 
 def _generate_key(prefix: str) -> str:
@@ -126,13 +174,11 @@ def onboard():
     _write_policy(config.repo_path, instructions)
     _ensure_env(config.repo_path, proxy_key, admin_key)
 
-    # 5. Save CLI config
+    # 5. Save CLI config (gateway_url updated after port selection below)
     config.api_key = proxy_key
     config.admin_key = admin_key
-    save_config(config, DEFAULT_CONFIG_PATH)
-    console.print("[green]CLI config saved to ~/.luthien/config.toml[/green]")
 
-    # 6. Start the stack
+    # 6. Start the stack (stop existing containers first to avoid port conflicts)
     console.print("\n[blue]Starting gateway...[/blue]")
     # Pull latest images
     pull_result = subprocess.run(
@@ -144,24 +190,50 @@ def onboard():
     if pull_result.returncode != 0:
         console.print(f"[red]docker compose pull failed:[/red]\n{pull_result.stderr}")
         raise SystemExit(1)
+
+    down_result = subprocess.run(
+        ["docker", "compose", "down", "--remove-orphans"],
+        cwd=config.repo_path,
+        capture_output=True,
+        text=True,
+    )
+    if down_result.returncode == 0 and "Removed" in (down_result.stderr or ""):
+        console.print("[dim]Stopped existing luthien containers.[/dim]")
+
+    # Auto-select free ports (same logic as quick_start.sh)
+    port_env = _find_free_ports()
+    if port_env:
+        selected = ", ".join(f"{k}={v}" for k, v in port_env.items())
+        console.print(f"[dim]Auto-selected ports: {selected}[/dim]")
+
     result = subprocess.run(
         ["docker", "compose", "up", "-d"],
         cwd=config.repo_path,
         capture_output=True,
         text=True,
+        env={**os.environ, **port_env},
     )
     if result.returncode != 0:
         console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
         raise SystemExit(1)
 
+    # Use the actual gateway port (may differ from default if auto-selected)
+    gateway_port = port_env.get("GATEWAY_PORT", os.environ.get("GATEWAY_PORT", "8000"))
+    actual_gateway_url = f"http://localhost:{gateway_port}"
+
+    # Save CLI config with the actual gateway URL so subsequent commands use the right port
+    config.gateway_url = actual_gateway_url
+    save_config(config, DEFAULT_CONFIG_PATH)
+    console.print("[green]CLI config saved to ~/.luthien/config.toml[/green]")
+
     console.print("[yellow]Waiting for gateway to be healthy...[/yellow]")
-    if not wait_for_healthy(config.gateway_url):
+    if not wait_for_healthy(actual_gateway_url):
         console.print("[red]Gateway did not become healthy within 60s[/red]")
         console.print(f"[dim]Check logs: docker compose -f {config.repo_path}/docker-compose.yaml logs gateway[/dim]")
         raise SystemExit(1)
 
     # 7. Show results
-    gateway_url = config.gateway_url.rstrip("/")
+    gateway_url = actual_gateway_url.rstrip("/")
     console.print()
     console.print(
         Panel(
@@ -180,6 +252,9 @@ def onboard():
 
                 [bold]Or manually:[/bold]
                   ANTHROPIC_BASE_URL={gateway_url}/ ANTHROPIC_API_KEY={proxy_key} claude
+
+                [bold red]Important:[/bold red] If Claude Code asks about a detected API key,
+                select [bold]"Yes"[/bold]. Selecting "No" bypasses the proxy.
 
                 [dim]Luthien sends anonymous usage data to help development.
                 To disable, set USAGE_TELEMETRY=false in .env and restart.[/dim]"""),

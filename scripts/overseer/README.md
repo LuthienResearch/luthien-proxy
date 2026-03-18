@@ -36,8 +36,8 @@ Open `http://localhost:8080` to see the live dashboard.
 |------|---------|-------------|
 | `--task` | *(required)* | Initial prompt for Claude Code |
 | `--max-turns` | 20 | Stop after N turns |
-| `--timeout` | max_turns * turn_timeout | Global session timeout (seconds) |
-| `--turn-timeout` | 600 | Per-turn timeout (seconds) |
+| `--timeout` | max_turns * idle_timeout * 10 | Global session timeout (seconds) |
+| `--idle-timeout` | 300 | Kill turn after N seconds of no stdout output |
 | `--port` | 8080 | Report dashboard port |
 | `--model` | claude-haiku-4-5-20251001 | Overseer analysis model |
 | `--sandbox-model` | claude-haiku-4-5-20251001 | Model for Claude Code in sandbox |

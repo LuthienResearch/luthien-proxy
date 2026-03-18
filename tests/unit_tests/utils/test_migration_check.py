@@ -60,6 +60,7 @@ class TestCheckMigrations:
         pool = MagicMock()
         mock_pool_instance = AsyncMock()
         pool.get_pool = AsyncMock(return_value=mock_pool_instance)
+        pool.is_sqlite = False
         return pool
 
     @pytest.mark.asyncio

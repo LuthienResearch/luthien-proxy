@@ -1,12 +1,18 @@
 """Tests for onboard command."""
 
+import os
+import socket
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from luthien_cli.commands.onboard import (
     _ensure_env,
+    _find_free_port,
+    _find_free_ports,
     _indent_instructions,
+    _is_port_free,
     _write_policy,
 )
 from luthien_cli.main import cli
@@ -84,6 +90,7 @@ def test_onboard_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.ensure_repo", return_value=str(repo_path)),
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard._find_free_ports", return_value={"GATEWAY_PORT": "9123"}),
     ):
         mock_run.return_value = MagicMock(returncode=0)
         result = runner.invoke(
@@ -96,9 +103,24 @@ def test_onboard_full_flow(tmp_path):
     assert "Gateway is running" in result.output
     assert "luthien claude" in result.output
 
+    # Verify all three docker compose steps ran (pull, down, up)
+    assert mock_run.call_count == 3
+    commands = [c.args[0] for c in mock_run.call_args_list]
+    assert any("pull" in cmd for cmd in commands)
+    assert any("down" in cmd for cmd in commands)
+    assert any("up" in cmd for cmd in commands)
+
+    # Verify port overrides were passed to docker compose up
+    up_call = [c for c in mock_run.call_args_list if "up" in c.args[0]][0]
+    assert up_call.kwargs["env"]["GATEWAY_PORT"] == "9123"
+
+    # Verify CLI config saves the actual gateway URL with the non-default port
+    config_content = config_path.read_text()
+    assert "9123" in config_content
+
+    # Verify policy was written
     policy = (repo_path / "config" / "policy_config.yaml").read_text()
     assert "Block PII from all responses" in policy
-    assert config_path.exists()
 
 
 def test_onboard_docker_failure(tmp_path):
@@ -138,3 +160,95 @@ def test_onboard_gateway_unhealthy(tmp_path):
 
     assert result.exit_code != 0
     assert "healthy" in result.output.lower()
+
+
+# === Port selection tests ===
+
+
+def test_is_port_free_on_unbound_port():
+    """An unused port should be detected as free."""
+    # Use port 0 to let OS pick a free port, then check a nearby one
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        _, free_port = s.getsockname()
+    # Port is now unbound, should be free
+    assert _is_port_free(free_port) is True
+
+
+def test_is_port_free_on_bound_port():
+    """A port in use should be detected as not free."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        _, bound_port = s.getsockname()
+        s.listen(1)
+        assert _is_port_free(bound_port) is False
+
+
+def test_find_free_port_returns_start_when_available():
+    """Returns the starting port if it's free."""
+    with patch("luthien_cli.commands.onboard._is_port_free", return_value=True):
+        assert _find_free_port(5433) == 5433
+
+
+def test_find_free_port_skips_occupied():
+    """Skips occupied ports and returns the next free one."""
+    # First two ports busy, third is free
+    with patch(
+        "luthien_cli.commands.onboard._is_port_free",
+        side_effect=[False, False, True],
+    ):
+        assert _find_free_port(5433) == 5435
+
+
+def test_find_free_port_raises_after_exhaustion():
+    """Raises RuntimeError if no free port found within range."""
+    with patch("luthien_cli.commands.onboard._is_port_free", return_value=False):
+        with pytest.raises(RuntimeError, match="Could not find a free port"):
+            _find_free_port(5433)
+
+
+def test_find_free_ports_respects_env_vars():
+    """Ports already set in environment are not overridden."""
+    with patch.dict("os.environ", {"GATEWAY_PORT": "9999"}):
+        with patch("luthien_cli.commands.onboard._find_free_port", return_value=5433):
+            result = _find_free_ports()
+            assert "GATEWAY_PORT" not in result
+            # Should still auto-select for POSTGRES_PORT and REDIS_PORT
+            assert "POSTGRES_PORT" in result or "REDIS_PORT" in result
+
+
+def test_find_free_ports_auto_selects():
+    """All ports are auto-selected when none are set in env."""
+    clean_env = {k: v for k, v in os.environ.items() if k not in ("POSTGRES_PORT", "REDIS_PORT", "GATEWAY_PORT")}
+    with patch.dict("os.environ", clean_env, clear=True):
+        with patch("luthien_cli.commands.onboard._find_free_port", side_effect=[5433, 6379, 8000]):
+            result = _find_free_ports()
+            assert result == {"POSTGRES_PORT": "5433", "REDIS_PORT": "6379", "GATEWAY_PORT": "8000"}
+
+
+def test_onboard_shows_api_key_warning(tmp_path):
+    """Success panel includes the API key prompt warning."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "docker-compose.yaml").touch()
+    (repo_path / ".env.example").write_text("PROXY_API_KEY=placeholder\n")
+
+    with (
+        patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_repo", return_value=str(repo_path)),
+        patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
+        patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard._find_free_ports", return_value={}),
+    ):
+        mock_run.return_value = MagicMock(returncode=0)
+        result = runner.invoke(
+            cli,
+            ["onboard"],
+            input="Block PII\n",
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Yes" in result.output
+    assert "bypass" in result.output.lower()

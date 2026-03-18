@@ -124,7 +124,7 @@ def create_app(
     api_key: str,
     admin_key: str | None,
     db_pool: db.DatabasePool,
-    redis_client: Redis,
+    redis_client: Redis | None,
     startup_policy_path: str | None = None,
     policy_source: str = "db-fallback-file",
     auth_mode: AuthMode = AuthMode.BOTH,
@@ -135,7 +135,7 @@ def create_app(
         api_key: API key for client authentication (PROXY_API_KEY)
         admin_key: API key for admin operations (ADMIN_API_KEY)
         db_pool: Database connection pool (already initialized)
-        redis_client: Redis client (already initialized)
+        redis_client: Redis client (None for SQLite/local mode)
         startup_policy_path: Optional path to YAML policy config to load at startup
         policy_source: Strategy for loading policy at startup (db, file, db-fallback-file, file-fallback-db)
         auth_mode: Authentication mode ("proxy_key", "passthrough", or "both")
@@ -159,7 +159,7 @@ def create_app(
         logger.info("Configured litellm: drop_params=True")
 
         # Create event emitter (will be injected via Dependencies)
-        _redis_publisher = RedisEventPublisher(redis_client)
+        _redis_publisher = RedisEventPublisher(redis_client) if redis_client else None
         _emitter = EventEmitter(
             db_pool=db_pool,
             redis_publisher=_redis_publisher,
@@ -444,14 +444,17 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     if settings.admin_api_key is None:
         raise ValueError("ADMIN_API_KEY environment variable required")
 
-    if not settings.database_url:
+    database_url = settings.database_url
+    if not database_url:
         raise ValueError("DATABASE_URL environment variable required")
+
+    redis_url = settings.redis_url
 
     return {
         "api_key": settings.proxy_api_key,
         "admin_key": settings.admin_api_key,
-        "database_url": settings.database_url,
-        "redis_url": settings.redis_url,
+        "database_url": database_url,
+        "redis_url": redis_url,
         "startup_policy_path": settings.policy_config if settings.policy_config else None,
         "policy_source": settings.policy_source,
         "gateway_port": settings.gateway_port,
@@ -478,7 +481,11 @@ if __name__ == "__main__":
         redis_client = None
         try:
             db_pool = await connect_db(config["database_url"])
-            redis_client = await connect_redis(config["redis_url"])
+            redis_url = config["redis_url"]
+            if redis_url:
+                redis_client = await connect_redis(redis_url)
+            else:
+                logger.info("Redis disabled (no REDIS_URL) — running without real-time UI events")
 
             app = create_app(
                 api_key=config["api_key"],

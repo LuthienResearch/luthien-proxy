@@ -24,12 +24,15 @@ Run:
 """
 
 import json
+import os
 
 import httpx
 import pytest
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
 from tests.e2e_tests.mock_anthropic.responses import error_response, text_response
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
+
+AUTH_MODE = os.getenv("AUTH_MODE", "both")
 
 pytestmark = pytest.mark.mock_e2e
 
@@ -309,8 +312,11 @@ async def test_missing_auth_header_returns_401(gateway_healthy):
 
 
 @pytest.mark.asyncio
-async def test_invalid_api_key_returns_401(gateway_healthy):
-    """Gateway rejects requests with a wrong API key with 401."""
+async def test_invalid_api_key_returns_401(mock_anthropic: MockAnthropicServer, gateway_healthy):
+    """Gateway rejects wrong API key (proxy_key) or forwards as passthrough (both)."""
+    if AUTH_MODE == "both":
+        mock_anthropic.enqueue(text_response("passthrough response"))
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
@@ -318,7 +324,14 @@ async def test_invalid_api_key_returns_401(gateway_healthy):
             headers={"Authorization": "Bearer sk-this-is-not-a-valid-key"},
         )
 
-    assert response.status_code == 401, f"Expected 401 for invalid API key, got {response.status_code}: {response.text}"
+    if AUTH_MODE == "both":
+        assert response.status_code == 200, (
+            f"AUTH_MODE=both should forward unknown keys as passthrough, got {response.status_code}"
+        )
+    else:
+        assert response.status_code == 401, (
+            f"Expected 401 for invalid API key, got {response.status_code}: {response.text}"
+        )
 
 
 @pytest.mark.asyncio
@@ -377,31 +390,43 @@ async def test_gateway_responsive_after_malformed_requests(mock_anthropic: MockA
     Verifies that invalid requests don't corrupt gateway state — a valid request
     immediately after a malformed one should succeed normally.
     """
+    # In AUTH_MODE=both, the "wrong key" request passes through as passthrough,
+    # so we need mock responses for it and for the final valid request.
+    if AUTH_MODE == "both":
+        mock_anthropic.enqueue(text_response("passthrough"))  # consumed by wrong-key request
     mock_anthropic.enqueue(text_response("all good"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        # Send a batch of malformed requests
-        bad_requests = [
-            # No auth
-            client.post(f"{GATEWAY_URL}/v1/messages", json={**_BASE_REQUEST}),
-            # Wrong key
-            client.post(
-                f"{GATEWAY_URL}/v1/messages",
-                json={**_BASE_REQUEST},
-                headers={"Authorization": "Bearer wrong-key"},
-            ),
-            # Missing required field
-            client.post(
-                f"{GATEWAY_URL}/v1/messages",
-                json={"messages": _BASE_REQUEST["messages"], "max_tokens": 100},
-                headers=_HEADERS,
-            ),
-        ]
-        for coro in bad_requests:
-            bad_resp = await coro
-            assert bad_resp.status_code in (400, 401, 422), (
-                f"Malformed request should be rejected with 4xx, got {bad_resp.status_code}"
+        # No auth — always rejected
+        no_auth_resp = await client.post(f"{GATEWAY_URL}/v1/messages", json={**_BASE_REQUEST})
+        assert no_auth_resp.status_code in (400, 401, 403, 422), (
+            f"No-auth request should be rejected, got {no_auth_resp.status_code}"
+        )
+
+        # Wrong key — rejected in proxy_key mode, passthrough in both mode
+        wrong_key_resp = await client.post(
+            f"{GATEWAY_URL}/v1/messages",
+            json={**_BASE_REQUEST},
+            headers={"Authorization": "Bearer wrong-key"},
+        )
+        if AUTH_MODE == "both":
+            assert wrong_key_resp.status_code == 200, (
+                f"AUTH_MODE=both should forward unknown keys, got {wrong_key_resp.status_code}"
             )
+        else:
+            assert wrong_key_resp.status_code in (400, 401, 422), (
+                f"Wrong key should be rejected, got {wrong_key_resp.status_code}"
+            )
+
+        # Missing required field — always rejected
+        missing_field_resp = await client.post(
+            f"{GATEWAY_URL}/v1/messages",
+            json={"messages": _BASE_REQUEST["messages"], "max_tokens": 100},
+            headers=_HEADERS,
+        )
+        assert missing_field_resp.status_code in (400, 401, 422), (
+            f"Missing-field request should be rejected, got {missing_field_resp.status_code}"
+        )
 
         # A valid request must still work
         good_response = await client.post(
