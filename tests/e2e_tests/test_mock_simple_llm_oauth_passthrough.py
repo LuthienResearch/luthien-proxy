@@ -127,7 +127,9 @@ async def test_bearer_token_only_no_server_key(
         f"Judge should use bearer token even with no server key configured, "
         f"got x-api-key: {judge_headers.get('x-api-key')!r}"
     )
-    assert "oauth-2025-04-20" not in judge_headers.get("anthropic-beta", ""), "Judge call should NOT have OAuth beta header"
+    assert "oauth-2025-04-20" not in judge_headers.get("anthropic-beta", ""), (
+        "Judge call should NOT have OAuth beta header"
+    )
 
 
 @pytest.mark.asyncio

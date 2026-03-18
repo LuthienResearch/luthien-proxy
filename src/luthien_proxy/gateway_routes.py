@@ -102,7 +102,6 @@ async def resolve_anthropic_client(
     token = bearer_token or api_key_header
     if not token:
         raise HTTPException(status_code=401, detail="Missing API key")
-    is_bearer = bearer_token is not None
 
     auth_mode = credential_manager.config.auth_mode if credential_manager else AuthMode.PROXY_KEY
     base_url = base_client._base_url if base_client else None
