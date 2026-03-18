@@ -17,8 +17,7 @@ Run:
 
 import httpx
 import pytest
-from tests.e2e_tests.conftest import auth_config_context, policy_context
-from tests.e2e_tests.conftest import GATEWAY_URL
+from tests.e2e_tests.conftest import GATEWAY_URL, auth_config_context, policy_context
 from tests.e2e_tests.mock_anthropic.responses import text_response
 from tests.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
 
@@ -72,8 +71,7 @@ async def test_judge_adds_oauth_header_for_oauth_bearer_token(
 
     all_headers = mock_anthropic.received_request_headers()
     assert len(all_headers) == 2, (
-        f"Expected 2 requests (main + judge), got {len(all_headers)}. "
-        f"Requests: {mock_anthropic.received_requests()}"
+        f"Expected 2 requests (main + judge), got {len(all_headers)}. Requests: {mock_anthropic.received_requests()}"
     )
 
     # Main call: gateway uses AnthropicClient(auth_token=token), which sends
@@ -130,9 +128,7 @@ async def test_oauth_only_no_server_key(
         f"Judge should use OAuth token even with no server key configured, "
         f"got x-api-key: {judge_headers.get('x-api-key')!r}"
     )
-    assert "oauth-2025-04-20" in judge_headers.get("anthropic-beta", ""), (
-        "Judge call should have OAuth beta header"
-    )
+    assert "oauth-2025-04-20" in judge_headers.get("anthropic-beta", ""), "Judge call should have OAuth beta header"
 
 
 @pytest.mark.asyncio
@@ -166,8 +162,7 @@ async def test_oauth_takes_precedence_over_server_env_key(
     judge_headers = all_headers[1]
     # OAuth token wins over ANTHROPIC_API_KEY=mock-key
     assert judge_headers.get("x-api-key") == _OAUTH_TOKEN, (
-        f"OAuth passthrough should beat server env key (mock-key), "
-        f"got x-api-key: {judge_headers.get('x-api-key')!r}"
+        f"OAuth passthrough should beat server env key (mock-key), got x-api-key: {judge_headers.get('x-api-key')!r}"
     )
     assert judge_headers.get("x-api-key") != "mock-key", (
         "Server ANTHROPIC_API_KEY should NOT be used when OAuth passthrough is available"

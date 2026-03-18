@@ -74,8 +74,7 @@ async def test_judge_uses_passthrough_key_non_streaming(
 
     all_headers = mock_anthropic.received_request_headers()
     assert len(all_headers) == 2, (
-        f"Expected 2 requests (main + judge), got {len(all_headers)}. "
-        f"Requests: {mock_anthropic.received_requests()}"
+        f"Expected 2 requests (main + judge), got {len(all_headers)}. Requests: {mock_anthropic.received_requests()}"
     )
 
     # Main call uses gateway's configured ANTHROPIC_API_KEY (not client's key)
@@ -111,9 +110,7 @@ async def test_judge_uses_passthrough_key_streaming(
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
 
     all_headers = mock_anthropic.received_request_headers()
-    assert len(all_headers) == 2, (
-        f"Expected 2 requests (main + judge), got {len(all_headers)}"
-    )
+    assert len(all_headers) == 2, f"Expected 2 requests (main + judge), got {len(all_headers)}"
 
     judge_call_key = all_headers[1].get("x-api-key", "")
     assert judge_call_key == API_KEY, (
@@ -153,6 +150,4 @@ async def test_explicit_policy_key_overrides_passthrough(
     assert judge_call_key == explicit_key, (
         f"Judge should use explicit policy key ({explicit_key!r}), got: {judge_call_key!r}"
     )
-    assert judge_call_key != API_KEY, (
-        f"Judge should NOT use passthrough key when explicit key is set"
-    )
+    assert judge_call_key != API_KEY, "Judge should NOT use passthrough key when explicit key is set"
