@@ -287,11 +287,13 @@ policy:
 
 Available policies in `src/luthien_proxy/policies/`:
 
-- `noop_policy.py` - Pass-through (no filtering)
+- `noop_policy.py` - Pass-through (no filtering, default)
+- `simple_policy.py` - Base class for custom request/response policies
+- `simple_llm_policy.py` - Base class for policies using an LLM judge
+- `tool_call_judge_policy.py` - AI-based tool call safety evaluation
+- `string_replacement_policy.py` - Fast string find-and-replace on responses
 - `all_caps_policy.py` - Simple transformation example
 - `debug_logging_policy.py` - Logs requests/responses for debugging
-- `tool_call_judge_policy.py` - AI-based tool call safety evaluation
-- `simple_policy.py` - Base class for custom policies
 
 ## Dev Tooling
 
