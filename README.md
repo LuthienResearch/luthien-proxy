@@ -7,6 +7,16 @@
 Open-source proxy that sits between Claude Code and the Anthropic API.
 Logs every request. Enforces your rules.
 
+### Get started
+
+Requires [Docker](https://www.docker.com/products/docker-desktop/):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LuthienResearch/luthien-proxy/main/scripts/install.sh | bash
+```
+
+This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, downloads the proxy, walks you through configuration, starts the stack, and launches Claude Code through Luthien.
+
 ---
 
 ## What does it look like?
