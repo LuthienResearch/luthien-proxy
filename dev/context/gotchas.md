@@ -271,7 +271,7 @@ if stream_state.finish_reason:
 - **Symptom**: Passthrough tests skip with "Gateway not in passthrough/both auth mode" while env shows `AUTH_MODE=both`
 - **Fix**: Set mode explicitly via admin API: `POST /admin/auth/config {"auth_mode":"both"}`
 
-**Related gotcha**: Anthropic API keys (`sk-ant-api...`) passed in `Authorization: Bearer ...` are not valid bearer/OAuth tokens at Anthropic. Gateway now detects this format and validates/forwards them via `x-api-key` transport.
+**Related gotcha**: The transport header is authoritative for credential type — `Authorization: Bearer` = OAuth, `x-api-key` = API key. The gateway does not inspect token prefixes (`sk-ant-api...`). In practice, clients always use the correct transport for their credential type (verified with real Claude Code traffic, PR #347).
 
 ## Claude Code Internal Probe Requests Use max_tokens=1 (2026-03-05)
 
