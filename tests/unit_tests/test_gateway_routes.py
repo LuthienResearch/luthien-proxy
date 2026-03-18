@@ -309,7 +309,7 @@ class TestGatewayAuthAndClientResolution:
             )
             MockClient.assert_called_once_with(auth_token="my-anthropic-token", base_url=None)
 
-    def test_passthrough_bearer_creates_auth_token_client(self, mock_app):
+    def test_passthrough_bearer_with_api_key_prefix_creates_auth_token_client(self, mock_app):
         """In passthrough mode, all Bearer credentials create auth_token client.
         Transport (header) is the authority, not token prefix."""
         app, _, credential_manager, _ = mock_app
