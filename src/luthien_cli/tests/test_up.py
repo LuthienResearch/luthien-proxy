@@ -22,13 +22,19 @@ def test_up_runs_docker_compose(tmp_path):
         mock_run.assert_called()
 
 
-def test_up_prompts_for_repo_path_when_missing(tmp_path):
+def test_up_calls_ensure_repo_when_missing(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
     config_path.write_text('[gateway]\nurl = "http://localhost:8000"\n')
-    with patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path):
-        result = runner.invoke(cli, ["up"], input="\n")
-        assert "repo" in result.output.lower()
+    with (
+        patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.up.ensure_repo", return_value=str(tmp_path)),
+        patch("luthien_cli.commands.up.subprocess.run") as mock_run,
+        patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
+    ):
+        mock_run.return_value = MagicMock(returncode=0)
+        result = runner.invoke(cli, ["up"])
+        assert result.exit_code == 0
 
 
 def test_down_runs_docker_compose_down(tmp_path):
