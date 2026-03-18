@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from litellm.types.utils import ChatCompletionMessageToolCall, Function
 
 from luthien_proxy.policies.dogfood_safety_policy import (
     DogfoodSafetyConfig,
     DogfoodSafetyPolicy,
     _BufferedAnthropicToolUse,
-    _BufferedOpenAIToolCall,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
@@ -158,66 +155,6 @@ class TestExtractCommand:
 
 
 # ============================================================================
-# OpenAI non-streaming (on_openai_response)
-# ============================================================================
-
-
-class TestOpenAINonStreaming:
-    """Non-streaming OpenAI response handling."""
-
-    @pytest.mark.asyncio
-    async def test_blocks_dangerous_tool_call(self, make_model_response):
-        policy = _make_policy()
-        ctx = _make_context()
-
-        response = make_model_response("", model="gpt-4")
-        response.choices[0].message.tool_calls = [
-            ChatCompletionMessageToolCall(
-                id="call_1",
-                type="function",
-                function=Function(name="Bash", arguments=json.dumps({"command": "docker compose down"})),
-            )
-        ]
-        response.choices[0].finish_reason = "tool_calls"
-
-        result = await policy.on_openai_response(response, ctx)
-
-        assert result is not response
-        content = result.choices[0].message.content
-        assert content is not None
-        assert "BLOCKED" in content
-
-    @pytest.mark.asyncio
-    async def test_allows_safe_tool_call(self, make_model_response):
-        policy = _make_policy()
-        ctx = _make_context()
-
-        response = make_model_response("", model="gpt-4")
-        response.choices[0].message.tool_calls = [
-            ChatCompletionMessageToolCall(
-                id="call_1",
-                type="function",
-                function=Function(name="Bash", arguments=json.dumps({"command": "echo hello"})),
-            )
-        ]
-        response.choices[0].finish_reason = "tool_calls"
-
-        result = await policy.on_openai_response(response, ctx)
-
-        assert result is response
-
-    @pytest.mark.asyncio
-    async def test_passes_through_text_response(self, make_model_response):
-        policy = _make_policy()
-        ctx = _make_context()
-        response = make_model_response("Hello world")
-
-        result = await policy.on_openai_response(response, ctx)
-
-        assert result is response
-
-
-# ============================================================================
 # Anthropic non-streaming (on_anthropic_response)
 # ============================================================================
 
@@ -354,22 +291,6 @@ class TestConfig:
 
 class TestStateCleanup:
     """Per-request state cleanup prevents unbounded growth."""
-
-    @pytest.mark.asyncio
-    async def test_openai_cleanup_removes_buffered_state(self):
-        policy = _make_policy()
-        policy_ctx = _make_context("txn-123")
-        streaming_ctx = SimpleNamespace(policy_ctx=policy_ctx)
-
-        policy._openai_buffered_tool_calls(streaming_ctx)[0] = _BufferedOpenAIToolCall(name="test")
-        policy._openai_buffered_tool_calls(streaming_ctx)[1] = _BufferedOpenAIToolCall(name="test2")
-        policy._openai_mark_blocked(streaming_ctx)
-
-        await policy.on_streaming_policy_complete(streaming_ctx)
-
-        # State should be recreated empty after cleanup.
-        assert policy._openai_buffered_tool_calls(streaming_ctx) == {}
-        assert not policy._openai_is_blocked(streaming_ctx)
 
     @pytest.mark.asyncio
     async def test_anthropic_cleanup_removes_buffered_state(self):

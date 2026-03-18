@@ -30,9 +30,8 @@ class BasePolicy:
     - short_policy_name property for human-readable identification
     - get_config() method for serializing policy configuration
 
-    Policies should inherit from this class and one or more policy contracts
-    (OpenAIPolicyInterface, AnthropicExecutionInterface) to define which
-    API formats they support.
+    Policies should inherit from this class and implement AnthropicExecutionInterface
+    to define the policy execution behavior.
     """
 
     def freeze_configured_state(self) -> None:

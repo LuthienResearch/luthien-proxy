@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from luthien_proxy.policy_core import PolicyProtocol
+    from luthien_proxy.policy_core import BasePolicy
 
 
-def load_sub_policy(policy_config: dict[str, Any]) -> PolicyProtocol:
+def load_sub_policy(policy_config: dict[str, Any]) -> BasePolicy:
     """Load a single sub-policy from its config dict.
 
     Reuses the existing config loading machinery so nested policies
@@ -29,7 +29,7 @@ def load_sub_policy(policy_config: dict[str, Any]) -> PolicyProtocol:
 
 
 def validate_sub_policies_interface(
-    sub_policies: tuple[PolicyProtocol, ...],
+    sub_policies: tuple[BasePolicy, ...],
     interface: type,
     interface_name: str,
     caller_name: str,

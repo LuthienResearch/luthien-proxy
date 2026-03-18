@@ -19,22 +19,9 @@ from fastapi.testclient import TestClient
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import Dependencies
-from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import NullEventEmitter
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_manager import PolicyManager
-
-
-class MockLLMClient(LLMClient):
-    """Mock LLM client for testing."""
-
-    async def stream(self, request):
-        """Mock stream."""
-        yield MagicMock()
-
-    async def complete(self, request):
-        """Mock complete."""
-        return MagicMock()
 
 
 @pytest.fixture
@@ -48,7 +35,6 @@ def app_with_admin_key():
     deps = Dependencies(
         db_pool=None,
         redis_client=None,
-        llm_client=MockLLMClient(),
         policy_manager=mock_policy_manager,
         emitter=NullEventEmitter(),
         api_key="test-api-key",
@@ -75,7 +61,6 @@ def app_without_admin_key():
     deps = Dependencies(
         db_pool=None,
         redis_client=None,
-        llm_client=MockLLMClient(),
         policy_manager=mock_policy_manager,
         emitter=NullEventEmitter(),
         api_key="test-api-key",

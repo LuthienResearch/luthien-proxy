@@ -3,8 +3,6 @@
 This policy replaces specified strings in response content with replacement values.
 It supports case-insensitive matching with intelligent capitalization preservation.
 
-Supports both OpenAI-format (via LiteLLM) and native Anthropic APIs.
-
 Example config:
     policy:
       class: "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
@@ -19,34 +17,24 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     RawContentBlockDeltaEvent,
     TextDelta,
 )
-from litellm.types.utils import Choices, StreamingChoices
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
-    OpenAIPolicyInterface,
     PolicyContext,
 )
-from luthien_proxy.policy_core.chunk_builders import create_finish_chunk, create_text_chunk
-from luthien_proxy.streaming.stream_blocks import ContentStreamBlock
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ModelResponse
-
-    from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
         AnthropicResponse,
-    )
-    from luthien_proxy.policy_core.streaming_policy_context import (
-        StreamingPolicyContext,
     )
 
 
@@ -175,14 +163,13 @@ def apply_replacements(
     return result
 
 
-class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
+class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
     """Policy that replaces specified strings in response content.
 
     This policy supports:
     - Multiple string replacements applied in order
     - Case-insensitive matching with capitalization preservation
-    - Both streaming and non-streaming responses
-    - Both OpenAI-format (via LiteLLM) and native Anthropic APIs
+    - Native Anthropic API responses
 
     Capitalization preservation (when match_capitalization=True):
     - ALL CAPS source -> ALL CAPS replacement
@@ -208,120 +195,6 @@ class StringReplacementPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPo
     def _apply_replacements(self, text: str) -> str:
         """Apply all configured replacements to the given text."""
         return apply_replacements(text, self._replacements, self._match_capitalization)
-
-    # -------------------------------------------------------------------------
-    # OpenAI Interface Methods
-    # -------------------------------------------------------------------------
-
-    async def on_openai_request(self, request: "Request", context: PolicyContext) -> "Request":
-        """Pass through request unchanged."""
-        return request
-
-    async def on_openai_response(self, response: "ModelResponse", context: PolicyContext) -> "ModelResponse":
-        """Apply string replacements to non-streaming response content.
-
-        Args:
-            response: Complete ModelResponse from LLM
-            context: Policy context
-
-        Returns:
-            Response with string replacements applied
-        """
-        if not response.choices:
-            return response
-
-        for choice in response.choices:
-            if not (isinstance(choice, Choices) and isinstance(choice.message.content, str)):
-                context.record_event(
-                    "policy.string_replacement.response_content_warning",
-                    {"summary": "Response choice content is not a string, skipping"},
-                )
-                continue
-
-            original = choice.message.content
-            transformed = self._apply_replacements(original)
-            choice.message.content = transformed
-
-            if original != transformed:
-                context.record_event(
-                    "policy.string_replacement.response_content_transformed",
-                    {
-                        "original_length": len(original),
-                        "transformed_length": len(transformed),
-                        "replacements_count": len(self._replacements),
-                    },
-                )
-        return response
-
-    async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
-        """Push non-content chunks immediately; content is handled in on_content_complete."""
-        last_chunk: "ModelResponse" = ctx.last_chunk_received
-
-        # Content deltas are buffered and emitted in on_content_complete
-        if last_chunk.choices:
-            delta = cast(StreamingChoices, last_chunk.choices[0]).delta
-            if delta is not None and delta.content is not None:
-                return
-
-        ctx.push_chunk(last_chunk)
-
-    async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Apply string replacements to the complete content block.
-
-        Waits for the full content block to be accumulated, then applies
-        replacements and emits a single chunk with the transformed content.
-        This ensures replacements work correctly even if patterns would
-        otherwise be split across chunk boundaries.
-        """
-        stream_state = ctx.original_streaming_response_state
-        current_block = stream_state.current_block
-
-        if not isinstance(current_block, ContentStreamBlock):
-            return
-
-        original = current_block.content
-        if not original:
-            return
-
-        transformed = self._apply_replacements(original)
-
-        # Get metadata from a previous chunk for the new chunk
-        last_chunk = ctx.last_chunk_received
-        stream_state = ctx.original_streaming_response_state
-
-        # Emit content chunk WITHOUT finish_reason (SSE assembler returns early
-        # on content chunks, so combining content+finish_reason loses the finish)
-        content_chunk = create_text_chunk(
-            text=transformed,
-            model=last_chunk.model or "unknown",
-            response_id=last_chunk.id,
-            finish_reason=None,  # Don't include finish_reason with content
-        )
-        ctx.push_chunk(content_chunk)
-
-        # Emit separate finish chunk if stream has ended - this ensures proper
-        # SSE event generation (content_block_stop, message_delta with stop_reason)
-        if stream_state.finish_reason:
-            finish_chunk = create_finish_chunk(
-                finish_reason=stream_state.finish_reason,
-                model=last_chunk.model,
-                chunk_id=last_chunk.id,
-            )
-            ctx.push_chunk(finish_chunk)
-
-        if original != transformed:
-            ctx.policy_ctx.record_event(
-                "policy.string_replacement.content_transformed",
-                {
-                    "original_length": len(original),
-                    "transformed_length": len(transformed),
-                    "replacements_count": len(self._replacements),
-                },
-            )
-
-    # -------------------------------------------------------------------------
-    # Anthropic hooks (via AnthropicHookPolicy)
-    # -------------------------------------------------------------------------
 
     async def on_anthropic_response(self, response: "AnthropicResponse", context: PolicyContext) -> "AnthropicResponse":
         """Transform text content blocks with string replacements.

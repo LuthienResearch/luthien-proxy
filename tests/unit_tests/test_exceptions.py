@@ -39,7 +39,7 @@ class TestBackendAPIError:
             status_code=500,
             message="server error",
             error_type="api_error",
-            client_format=ClientFormat.OPENAI,
+            client_format=ClientFormat.ANTHROPIC,
         )
 
         assert exc.provider is None
@@ -50,7 +50,7 @@ class TestBackendAPIError:
             status_code=400,
             message="bad request",
             error_type="invalid_request_error",
-            client_format=ClientFormat.OPENAI,
+            client_format=ClientFormat.ANTHROPIC,
         )
 
         assert isinstance(exc, Exception)

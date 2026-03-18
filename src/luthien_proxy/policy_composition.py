@@ -9,14 +9,14 @@ from __future__ import annotations
 import logging
 
 from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
-from luthien_proxy.policy_core import PolicyProtocol
+from luthien_proxy.policy_core import BasePolicy
 
 logger = logging.getLogger(__name__)
 
 
 def compose_policy(
-    current: PolicyProtocol,
-    additional: PolicyProtocol,
+    current: BasePolicy,
+    additional: BasePolicy,
     position: int | None = None,
 ) -> MultiSerialPolicy:
     """Insert a policy into the current policy chain.

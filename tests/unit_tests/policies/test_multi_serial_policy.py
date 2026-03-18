@@ -19,13 +19,11 @@ from multi_policy_helpers import (
     OpenAIOnlyPolicy,
     allcaps_config,
     make_anthropic_response,
-    make_response,
     noop_config,
     replacement_config,
 )
 
 from conftest import DEFAULT_TEST_MODEL
-from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
     AnthropicResponse,
@@ -35,7 +33,6 @@ from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
 from luthien_proxy.policy_core import (
     AnthropicExecutionInterface,
     BasePolicy,
-    OpenAIPolicyInterface,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
@@ -48,10 +45,6 @@ class TestMultiSerialPolicyProtocol:
     def test_inherits_from_base_policy(self):
         policy = MultiSerialPolicy(policies=[noop_config()])
         assert isinstance(policy, BasePolicy)
-
-    def test_implements_openai_interface(self):
-        policy = MultiSerialPolicy(policies=[noop_config()])
-        assert isinstance(policy, OpenAIPolicyInterface)
 
     def test_implements_anthropic_execution_interface(self):
         policy = MultiSerialPolicy(policies=[noop_config()])
@@ -81,95 +74,6 @@ class TestMultiSerialPolicyInit:
     def test_invalid_class_ref_raises(self):
         with pytest.raises((ImportError, ValueError)):
             MultiSerialPolicy(policies=[{"class": "nonexistent.module:Foo", "config": {}}])
-
-
-# =============================================================================
-# OpenAI Request Chaining
-# =============================================================================
-
-
-class TestMultiSerialOpenAIRequest:
-    @pytest.mark.asyncio
-    async def test_single_noop_passes_through(self):
-        policy = MultiSerialPolicy(policies=[noop_config()])
-        ctx = PolicyContext.for_testing()
-        request = Request(model="test", messages=[{"role": "user", "content": "hello"}])
-
-        result = await policy.on_openai_request(request, ctx)
-
-        assert result.messages[0]["content"] == "hello"
-
-    @pytest.mark.asyncio
-    async def test_multiple_noops_pass_through(self):
-        policy = MultiSerialPolicy(policies=[noop_config(), noop_config()])
-        ctx = PolicyContext.for_testing()
-        request = Request(model="test", messages=[{"role": "user", "content": "hello"}])
-
-        result = await policy.on_openai_request(request, ctx)
-
-        assert result.messages[0]["content"] == "hello"
-
-
-# =============================================================================
-# OpenAI Response Chaining
-# =============================================================================
-
-
-class TestMultiSerialOpenAIResponse:
-    @pytest.mark.asyncio
-    async def test_single_allcaps_transforms(self):
-        policy = MultiSerialPolicy(policies=[allcaps_config()])
-        ctx = PolicyContext.for_testing()
-        response = make_response("hello world")
-
-        result = await policy.on_openai_response(response, ctx)
-
-        assert result.choices[0].message.content == "HELLO WORLD"
-
-    @pytest.mark.asyncio
-    async def test_chaining_order_matters(self):
-        """StringReplacement first (hello->goodbye), then AllCaps -> 'GOODBYE WORLD'."""
-        policy = MultiSerialPolicy(
-            policies=[
-                replacement_config([["hello", "goodbye"]]),
-                allcaps_config(),
-            ]
-        )
-        ctx = PolicyContext.for_testing()
-        response = make_response("hello world")
-
-        result = await policy.on_openai_response(response, ctx)
-
-        assert result.choices[0].message.content == "GOODBYE WORLD"
-
-    @pytest.mark.asyncio
-    async def test_reverse_order_gives_different_result(self):
-        """AllCaps first (hello->HELLO), then StringReplacement (hello->goodbye, case-sensitive)
-        Since AllCaps already ran, 'hello' is now 'HELLO' and case-sensitive replacement
-        for 'hello' won't match -> 'HELLO WORLD'."""
-        policy = MultiSerialPolicy(
-            policies=[
-                allcaps_config(),
-                replacement_config([["hello", "goodbye"]]),
-            ]
-        )
-        ctx = PolicyContext.for_testing()
-        response = make_response("hello world")
-
-        result = await policy.on_openai_response(response, ctx)
-
-        # AllCaps made it "HELLO WORLD", then case-sensitive replace of "hello" doesn't match
-        assert result.choices[0].message.content == "HELLO WORLD"
-
-    @pytest.mark.asyncio
-    async def test_empty_policy_list_passes_through(self):
-        policy = MultiSerialPolicy(policies=[])
-        ctx = PolicyContext.for_testing()
-        response = make_response("hello world")
-
-        result = await policy.on_openai_response(response, ctx)
-
-        assert result.choices[0].message.content == "hello world"
 
 
 # =============================================================================
@@ -458,51 +362,12 @@ class TestMultiSerialAnthropicStreamLifecycle:
 # =============================================================================
 
 
-class TestMultiSerialComposability:
-    @pytest.mark.asyncio
-    async def test_nested_serial_policies(self):
-        """A MultiSerialPolicy containing another MultiSerialPolicy."""
-        inner_config = {
-            "class": "luthien_proxy.policies.multi_serial_policy:MultiSerialPolicy",
-            "config": {"policies": [replacement_config([["hello", "goodbye"]])]},
-        }
-        policy = MultiSerialPolicy(policies=[inner_config, allcaps_config()])
-        ctx = PolicyContext.for_testing()
-        response = make_response("hello world")
-
-        result = await policy.on_openai_response(response, ctx)
-
-        assert result.choices[0].message.content == "GOODBYE WORLD"
-
-
 # =============================================================================
 # Interface Validation
 # =============================================================================
 
 
 class TestMultiSerialInterfaceValidation:
-    @pytest.mark.asyncio
-    async def test_openai_request_raises_for_incompatible_policy(self):
-        """OpenAI call raises TypeError when a sub-policy lacks OpenAIPolicyInterface."""
-        policy = MultiSerialPolicy(policies=[noop_config()])
-        policy._sub_policies = (*policy._sub_policies, AnthropicOnlyPolicy())
-        ctx = PolicyContext.for_testing()
-        request = Request(model="test", messages=[{"role": "user", "content": "hi"}])
-
-        with pytest.raises(TypeError, match="AnthropicOnly.*does not implement OpenAIPolicyInterface"):
-            await policy.on_openai_request(request, ctx)
-
-    @pytest.mark.asyncio
-    async def test_openai_response_raises_for_incompatible_policy(self):
-        """OpenAI response call raises TypeError for incompatible sub-policy."""
-        policy = MultiSerialPolicy(policies=[noop_config()])
-        policy._sub_policies = (*policy._sub_policies, AnthropicOnlyPolicy())
-        ctx = PolicyContext.for_testing()
-        response = make_response("hello")
-
-        with pytest.raises(TypeError, match="AnthropicOnly.*does not implement OpenAIPolicyInterface"):
-            await policy.on_openai_response(response, ctx)
-
     @pytest.mark.asyncio
     async def test_anthropic_request_raises_for_incompatible_policy(self):
         """Anthropic call raises TypeError when a sub-policy lacks AnthropicExecutionInterface."""
@@ -546,19 +411,9 @@ class TestMultiSerialInterfaceValidation:
         """No error when all sub-policies implement the required interface."""
         policy = MultiSerialPolicy(policies=[noop_config(), allcaps_config()])
         ctx = PolicyContext.for_testing()
-        response = make_response("hello")
+        response = make_anthropic_response("hello")
 
-        result = await policy.on_openai_response(response, ctx)
+        result = await policy.on_anthropic_response(response, ctx)
 
-        assert result.choices[0].message.content == "HELLO"
-
-    @pytest.mark.asyncio
-    async def test_empty_policy_list_passes_validation(self):
-        """Empty policy list doesn't raise -- nothing to validate."""
-        policy = MultiSerialPolicy(policies=[])
-        ctx = PolicyContext.for_testing()
-        request = Request(model="test", messages=[{"role": "user", "content": "hi"}])
-
-        result = await policy.on_openai_request(request, ctx)
-
-        assert result.messages[0]["content"] == "hi"
+        text_block = cast(AnthropicTextBlock, result["content"][0])
+        assert text_block["text"] == "HELLO"

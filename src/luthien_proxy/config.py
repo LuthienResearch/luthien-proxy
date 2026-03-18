@@ -27,13 +27,12 @@ from typing import Any, cast
 import yaml
 
 from luthien_proxy.policy_core.base_policy import BasePolicy
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
 from luthien_proxy.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-def load_policy_from_yaml(config_path: str | None = None) -> PolicyProtocol:
+def load_policy_from_yaml(config_path: str | None = None) -> BasePolicy:
     """Load a policy from YAML configuration file.
 
     Args:
@@ -90,7 +89,7 @@ def load_policy_from_yaml(config_path: str | None = None) -> PolicyProtocol:
         raise exc
 
 
-def _import_policy_class(class_ref: str) -> type[PolicyProtocol]:
+def _import_policy_class(class_ref: str) -> type[BasePolicy]:
     """Import a policy class from a module:class reference.
 
     Args:
@@ -123,10 +122,10 @@ def _import_policy_class(class_ref: str) -> type[PolicyProtocol]:
     if not issubclass(cls, BasePolicy):
         raise TypeError(f"{class_name} does not inherit from BasePolicy")
 
-    return cast(type[PolicyProtocol], cls)
+    return cast(type[BasePolicy], cls)
 
 
-def _instantiate_policy(policy_class: type[PolicyProtocol], config: dict[str, Any]) -> PolicyProtocol:
+def _instantiate_policy(policy_class: type[BasePolicy], config: dict[str, Any]) -> BasePolicy:
     """Instantiate a policy with the given config.
 
     Handles two constructor patterns:

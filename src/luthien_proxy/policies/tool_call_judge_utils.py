@@ -18,7 +18,6 @@ from litellm import acompletion
 from litellm.types.utils import Choices, Message, ModelResponse
 from pydantic import BaseModel, Field
 
-from luthien_proxy.policy_core import create_text_response
 from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
@@ -198,44 +197,10 @@ def build_judge_prompt(name: str, arguments: str, judge_instructions: str) -> li
     ]
 
 
-def create_blocked_response(
-    tool_call: dict[str, Any],
-    judge_result: JudgeResult,
-    blocked_message_template: str,
-    model: str,
-) -> ModelResponse:
-    """Create a blocked response message using template.
-
-    Args:
-        tool_call: Tool call that was blocked
-        judge_result: Judge evaluation result
-        blocked_message_template: Template string with variables:
-            {tool_name}, {tool_arguments}, {probability}, {explanation}
-        model: Model identifier for the response
-
-    Returns:
-        ModelResponse with blocked message
-    """
-    # Format message using template with available variables
-    tool_arguments = tool_call.get("arguments", "")
-    if not isinstance(tool_arguments, str):
-        tool_arguments = json.dumps(tool_arguments)
-
-    message = blocked_message_template.format(
-        tool_name=tool_call.get("name", "unknown"),
-        tool_arguments=tool_arguments,
-        probability=judge_result.probability,
-        explanation=judge_result.explanation or "No explanation provided",
-    )
-
-    return create_text_response(message, model=model)
-
-
 __all__ = [
     "JudgeConfig",
     "JudgeResult",
     "call_judge",
     "parse_judge_response",
     "build_judge_prompt",
-    "create_blocked_response",
 ]

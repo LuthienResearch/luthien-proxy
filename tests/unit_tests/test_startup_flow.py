@@ -108,7 +108,6 @@ class TestLifespanErrorHandling:
             assert deps.policy_manager is not None
             assert deps.db_pool is not None
             assert deps.redis_client is not None
-            assert deps.llm_client is not None
             assert deps.emitter is not None
 
     def test_lifespan_does_not_close_db_pool_on_shutdown(self, policy_config_file, mock_db_pool, mock_redis_client):

@@ -27,10 +27,8 @@ from luthien_proxy.gateway_routes import LAST_CRED_TYPE_KEY
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
 from luthien_proxy.llm.anthropic_client import AnthropicClient
-from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
-from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.request_log import router as request_log_router
 from luthien_proxy.session import login_page_router
@@ -181,10 +179,6 @@ def create_app(
             logger.error(f"Failed to initialize PolicyManager: {exc}", exc_info=True)
             raise RuntimeError(f"Failed to initialize PolicyManager: {exc}") from exc
 
-        # Create LLM client (singleton for the app lifetime)
-        _llm_client = LiteLLMClient()
-        logger.info("LLM client initialized")
-
         # Create Anthropic client if API key is configured.
         # Used as the server-side credential in proxy_key and both modes.
         _anthropic_client: AnthropicClient | None = None
@@ -232,7 +226,6 @@ def create_app(
         _dependencies = Dependencies(
             db_pool=db_pool,
             redis_client=redis_client,
-            llm_client=_llm_client,
             policy_manager=_policy_manager,
             emitter=_emitter,
             api_key=api_key,
@@ -287,7 +280,7 @@ def create_app(
     app.add_middleware(StaticCacheMiddleware)
 
     # Include routers
-    app.include_router(gateway_router)  # /v1/chat/completions, /v1/messages (PolicyOrchestrator)
+    app.include_router(gateway_router)  # /v1/messages (PolicyOrchestrator)
     app.include_router(debug_router)  # /api/debug/*
     app.include_router(ui_router)  # /activity/*, /policy-config, /diffs
     app.include_router(admin_router)  # /api/admin/* (policy management)
@@ -339,8 +332,7 @@ def create_app(
     async def backend_api_error_handler(request: Request, exc: BackendAPIError) -> JSONResponse:
         """Handle errors from backend LLM providers.
 
-        Formats the error response according to the client's API format
-        (Anthropic or OpenAI) so clients receive properly structured errors.
+        Formats error responses in Anthropic format.
         Also invalidates cached credentials on 401 so stale "valid" entries
         don't let rejected keys keep passing auth.
         """
@@ -350,24 +342,13 @@ def create_app(
             if cm is not None:
                 await cm.on_backend_401(request.state.passthrough_credential)
 
-        if exc.client_format == ClientFormat.ANTHROPIC:
-            content = {
-                "type": "error",
-                "error": {
-                    "type": exc.error_type,
-                    "message": exc.message,
-                },
-            }
-        else:
-            # OpenAI format
-            content = {
-                "error": {
-                    "message": exc.message,
-                    "type": exc.error_type,
-                    "param": None,
-                    "code": None,
-                },
-            }
+        content = {
+            "type": "error",
+            "error": {
+                "type": exc.error_type,
+                "message": exc.message,
+            },
+        }
         return JSONResponse(status_code=exc.status_code, content=content)
 
     # Instrument FastAPI AFTER routes are registered

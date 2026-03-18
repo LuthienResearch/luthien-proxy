@@ -199,15 +199,7 @@ class TestGetAvailableModels:
 
     @patch("luthien_proxy.admin.routes.litellm")
     def test_returns_models_from_litellm(self, mock_litellm):
-        """Test that get_available_models returns filtered models from litellm."""
-        mock_litellm.open_ai_chat_completion_models = [
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-3.5-turbo",
-            "ft:gpt-4o-mini-custom",  # Should be filtered out (fine-tuned)
-            "gpt-4o-audio-preview",  # Should be filtered out (audio)
-            "gpt-4o-realtime-preview",  # Should be filtered out (realtime)
-        ]
+        """Test that get_available_models returns filtered Anthropic models from litellm."""
         mock_litellm.anthropic_models = [
             "claude-3-5-sonnet-20241022",
             "claude-3-haiku-20240307",
@@ -216,15 +208,7 @@ class TestGetAvailableModels:
 
         models = get_available_models()
 
-        # Check that OpenAI models are filtered correctly
-        assert "gpt-4o" in models
-        assert "gpt-4o-mini" in models
-        assert "gpt-3.5-turbo" in models
-        assert "ft:gpt-4o-mini-custom" not in models
-        assert "gpt-4o-audio-preview" not in models
-        assert "gpt-4o-realtime-preview" not in models
-
-        # Check that Anthropic models are filtered correctly
+        # Check that only Anthropic models are returned
         assert "claude-3-5-sonnet-20241022" in models
         assert "claude-3-haiku-20240307" in models
         assert "some-other-model" not in models
@@ -261,8 +245,9 @@ class TestSendChatRoute:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Hello from the LLM!"}}],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            "id": "msg_123",
+            "content": [{"type": "text", "text": "Hello from the LLM!"}],
+            "usage": {"input_tokens": 10, "output_tokens": 5},
         }
 
         mock_client = AsyncMock()
@@ -271,23 +256,23 @@ class TestSendChatRoute:
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client_class.return_value = mock_client
 
-        request = ChatRequest(model="gpt-4o", message="Hello!")
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!")
 
         result = await send_chat(body=request, _=AUTH_TOKEN)
 
         assert isinstance(result, ChatResponse)
         assert result.success is True
         assert result.content == "Hello from the LLM!"
-        assert result.model == "gpt-4o"
+        assert result.model == "claude-3-haiku-20240307"
         assert result.usage is not None
-        assert result.usage["prompt_tokens"] == 10
+        assert result.usage["input_tokens"] == 10
 
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
-        assert call_args[0][0] == "http://localhost:8000/v1/chat/completions"
-        assert call_args[1]["json"]["model"] == "gpt-4o"
+        assert call_args[0][0] == "http://localhost:8000/v1/messages"
+        assert call_args[1]["json"]["model"] == "claude-3-haiku-20240307"
         assert call_args[1]["json"]["messages"][0]["content"] == "Hello!"
-        assert call_args[1]["headers"]["Authorization"] == "Bearer test-proxy-key"
+        assert call_args[1]["headers"]["x-api-key"] == "test-proxy-key"
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
@@ -401,7 +386,7 @@ class TestSendChatRoute:
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"choices": [{"message": {"content": "OK"}}]}
+        mock_response.json.return_value = {"id": "msg_123", "content": [{"type": "text", "text": "OK"}]}
 
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=mock_response)
@@ -409,13 +394,13 @@ class TestSendChatRoute:
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client_class.return_value = mock_client
 
-        request = ChatRequest(model="gpt-4o", message="Test")
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Test")
 
         await send_chat(body=request, _=AUTH_TOKEN)
 
         call_args = mock_client.post.call_args
         url = call_args[0][0]
-        assert url == "http://localhost:9999/v1/chat/completions"
+        assert url == "http://localhost:9999/v1/messages"
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
@@ -429,7 +414,7 @@ class TestSendChatRoute:
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"choices": [{"message": {"content": "real"}}]}
+        mock_response.json.return_value = {"id": "msg_123", "content": [{"type": "text", "text": "real"}]}
 
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=mock_response)
@@ -437,7 +422,7 @@ class TestSendChatRoute:
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client_class.return_value = mock_client
 
-        request = ChatRequest(model="gpt-4o", message="Hello!")  # use_mock defaults to False
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!")  # use_mock defaults to False
 
         await send_chat(body=request, _=AUTH_TOKEN)
 
@@ -446,30 +431,20 @@ class TestSendChatRoute:
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_mock_response_sent_when_use_mock_true(self, mock_client_class, mock_get_settings):
-        """When use_mock=True, mock_response is included so no API key is needed."""
+    async def test_mock_response_sent_when_use_mock_true(self, mock_get_settings):
+        """When use_mock=True, function returns directly without calling gateway."""
         mock_settings = MagicMock()
         mock_settings.proxy_api_key = "test-proxy-key"
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"choices": [{"message": {"content": "mock"}}]}
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", use_mock=True)
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
+        result = await send_chat(body=request, _=AUTH_TOKEN)
 
-        request = ChatRequest(model="gpt-4o", message="Hello!", use_mock=True)
-
-        await send_chat(body=request, _=AUTH_TOKEN)
-
-        call_args = mock_client.post.call_args
-        assert "mock_response" in call_args[1]["json"]
+        assert isinstance(result, ChatResponse)
+        assert result.success is True
+        assert "Mock response" in result.content
 
 
 class TestAuthConfigUpdateRequestValidation:

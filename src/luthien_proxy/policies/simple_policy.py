@@ -3,11 +3,10 @@
 SimplePolicy sacrifices streaming responsiveness for simpler policy authoring
 by buffering streaming content and applying transformations when blocks complete.
 
-This unified class supports both OpenAI and Anthropic API formats. Subclasses
-override three simple methods:
+Subclasses override simple methods to transform requests and responses:
 - simple_on_request: transform request text
 - simple_on_response_content: transform complete text content
-- simple_on_response_tool_call: transform complete tool calls
+- simple_on_anthropic_tool_call: transform complete Anthropic tool calls
 """
 
 from __future__ import annotations
@@ -26,7 +25,6 @@ from anthropic.types import (
     TextDelta,
     ToolUseBlock,
 )
-from litellm.types.utils import Choices
 
 from luthien_proxy.llm.types.anthropic import (
     AnthropicToolUseBlock,
@@ -34,29 +32,14 @@ from luthien_proxy.llm.types.anthropic import (
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
-    OpenAIPolicyInterface,
-    create_finish_chunk,
 )
-from luthien_proxy.policy_core.streaming_utils import (
-    get_last_ingress_chunk,
-    send_chunk,
-    send_text,
-    send_tool_call,
-)
-from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ChatCompletionMessageToolCall, ModelResponse
-
-    from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
         AnthropicRequest,
         AnthropicResponse,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
-    from luthien_proxy.policy_core.streaming_policy_context import (
-        StreamingPolicyContext,
-    )
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +57,7 @@ class _SimplePolicyAnthropicState:
     tool_buffer: dict[int, _BufferedAnthropicToolUse] = field(default_factory=dict)
 
 
-class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
+class SimplePolicy(BasePolicy, AnthropicHookPolicy):
     """Convenience base class for content-level transformations.
 
     This class simplifies policy authoring by buffering streaming content, effectively trading
@@ -82,14 +65,11 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
     only need to implement three simple methods:
     - simple_on_request (request str->str)
     - simple_on_response_content (complete content str->str)
-    - simple_on_response_tool_call (complete tool call -> tool call)
+    - simple_on_anthropic_tool_call (complete Anthropic tool call -> tool call)
 
     You still have access to PolicyContext for observability, request state, etc, enabling you to
     do everything a full PolicyProtocol implementation can do, just with less complexity (and no
     streaming responsiveness).
-
-    This unified class supports both OpenAI and Anthropic API formats. The same simple_*
-    methods are called for both formats, with appropriate type conversions handled internally.
     """
 
     def _anthropic_state(self, context: "PolicyContext") -> _SimplePolicyAnthropicState:
@@ -117,17 +97,6 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
         """
         return content
 
-    async def simple_on_response_tool_call(
-        self, tool_call: ChatCompletionMessageToolCall, context: PolicyContext
-    ) -> ChatCompletionMessageToolCall:
-        """Transform/validate a complete tool call. Override to implement tool call transformations.
-
-        Args:
-            tool_call (ChatCompletionMessageToolCall): The complete tool call
-            context (PolicyContext): Policy context (includes request, response metadata, observability, request state)
-        """
-        return tool_call
-
     async def simple_on_anthropic_tool_call(
         self, tool_call: AnthropicToolUseBlock, context: PolicyContext
     ) -> AnthropicToolUseBlock:
@@ -144,129 +113,6 @@ class SimplePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             Transformed tool_use block
         """
         return tool_call
-
-    # ===== OpenAI non-streaming hooks =====
-
-    async def on_openai_request(self, request: Request, context: PolicyContext) -> Request:
-        """Essentially a wrapper for simple_on_request (extract string, call, re-insert).
-
-        Args:
-            request (Request): The original request
-            context (PolicyContext): Policy context (includes observability, request state)
-        """
-        response_str: str = await self.simple_on_request(request.last_message, context)
-        request.messages[-1]["content"] = response_str
-        return request
-
-    async def on_openai_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
-        """Process non-streaming response through simple_on_response_content and simple_on_response_tool_call.
-
-        Args:
-            response: Complete ModelResponse from LLM
-            context: Policy context
-        Returns:
-            Response with transformed content and tool calls
-        """
-        if not response.choices:
-            return response
-
-        for choice in response.choices:
-            if not isinstance(choice, Choices):
-                raise TypeError(
-                    f"Expected choice to be Choices, got {type(choice).__name__}. "
-                    "This indicates an unexpected response format from the LLM."
-                )
-
-            # Transform text content
-            if isinstance(choice.message.content, str):
-                choice.message.content = await self.simple_on_response_content(choice.message.content, context)
-
-            # Transform tool calls
-            if choice.message.tool_calls:
-                transformed_tool_calls = []
-                for tool_call in choice.message.tool_calls:
-                    transformed = await self.simple_on_response_tool_call(tool_call, context)
-                    transformed_tool_calls.append(transformed)
-                choice.message.tool_calls = transformed_tool_calls
-
-        return response
-
-    # ===== OpenAI streaming hooks =====
-
-    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
-        """Buffer all chunks, don't emit yet."""
-        pass
-
-    async def on_content_complete(self, ctx: StreamingPolicyContext) -> None:
-        """Pass the content block to on_response_content and push the result to the client."""
-        # Get the completed content block
-        if ctx.original_streaming_response_state.just_completed is None:
-            ctx.policy_ctx.record_event(
-                "policy.simple_policy.content_complete_warning",
-                {"summary": "ingress_state.just_completed is None in on_content_complete"},
-            )
-            return
-
-        block = ctx.original_streaming_response_state.just_completed
-        if not isinstance(block, ContentStreamBlock):
-            ctx.policy_ctx.record_event(
-                "policy.simple_policy.content_complete_warning",
-                {"summary": "ingress_state.just_completed is not ContentStreamBlock in on_content_complete"},
-            )
-            return
-
-        content = block.content
-        transformed = await self.simple_on_response_content(content, ctx.policy_ctx)
-        await send_text(ctx, transformed)
-
-        # After sending content, send finish_reason chunk
-        # This ensures the finish_reason comes after all content, before message_stop
-        last_chunk = get_last_ingress_chunk(ctx)
-        if last_chunk and last_chunk.choices and last_chunk.choices[0].finish_reason:
-            finish_chunk = create_finish_chunk(
-                finish_reason=last_chunk.choices[0].finish_reason,
-                model=last_chunk.model,
-                chunk_id=last_chunk.id,
-            )
-            await send_chunk(ctx, finish_chunk)
-
-    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
-        """Transform tool call and emit."""
-        block = ctx.original_streaming_response_state.just_completed
-        if not isinstance(block, ToolCallStreamBlock):
-            ctx.policy_ctx.record_event(
-                "policy.simple_policy.tool_call_complete_warning",
-                {"summary": "ingress_state.just_completed is not ToolCallStreamBlock in on_tool_call_complete"},
-            )
-            return
-
-        tool_call = block.tool_call
-        transformed = await self.simple_on_response_tool_call(tool_call, ctx.policy_ctx)
-        await send_tool_call(ctx, transformed)
-
-    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
-        """Stream complete hook - emit final finish_reason chunk."""
-        # Get the finish_reason from the original stream
-        finish_reason = ctx.original_streaming_response_state.finish_reason
-        if not finish_reason:
-            return
-
-        # Content blocks already emit their own finish_reason in on_content_complete
-        # Only emit here for tool call responses
-        blocks = ctx.original_streaming_response_state.blocks
-        has_tool_calls = any(isinstance(b, ToolCallStreamBlock) for b in blocks)
-
-        if has_tool_calls:
-            last_chunk = get_last_ingress_chunk(ctx)
-            chunk_id = last_chunk.id if last_chunk else None
-            model = last_chunk.model if last_chunk else "luthien-policy"
-
-            finish_chunk = create_finish_chunk(
-                finish_reason=finish_reason,
-                model=model,
-                chunk_id=chunk_id,
-            )
-            await send_chunk(ctx, finish_chunk)
 
     async def on_anthropic_streaming_policy_complete(self, context: PolicyContext) -> None:
         """Clear request-scoped Anthropic buffers."""
