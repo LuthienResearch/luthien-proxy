@@ -10,6 +10,7 @@ import httpx
 from rich.console import Console
 
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
+from luthien_cli.repo import ensure_repo
 
 
 def wait_for_healthy(url: str, timeout: int = 60) -> bool:
@@ -34,8 +35,7 @@ def up(follow: bool):
     config = load_config(DEFAULT_CONFIG_PATH)
 
     if not config.repo_path:
-        repo = click.prompt("Path to luthien-proxy repo", type=str)
-        config.repo_path = repo
+        config.repo_path = ensure_repo()
         save_config(config, DEFAULT_CONFIG_PATH)
 
     console.print(f"[blue]Starting stack in {config.repo_path}[/blue]")
