@@ -25,7 +25,7 @@ from luthien_proxy.settings import get_settings
 
 security = HTTPBearer(auto_error=False)
 
-_LOCALHOST_IPS = ("127.0.0.1", "::1")
+_LOCALHOST_IPS = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 _ADMIN_API_PREFIX = "/api/admin/"
 
 

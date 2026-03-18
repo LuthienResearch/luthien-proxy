@@ -316,6 +316,10 @@ class TestIsLocalhostRequest:
         request = _make_localhost_request(host="::1")
         assert is_localhost_request(request) is True
 
+    def test_ipv4_mapped_ipv6(self):
+        request = _make_localhost_request(host="::ffff:127.0.0.1")
+        assert is_localhost_request(request) is True
+
     def test_remote_ip(self):
         request = _make_localhost_request(host="192.168.1.50")
         assert is_localhost_request(request) is False
