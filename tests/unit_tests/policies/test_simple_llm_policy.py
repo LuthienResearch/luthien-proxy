@@ -18,6 +18,7 @@ from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
     RawMessageStartEvent,
     RawMessageStopEvent,
     TextBlock,
@@ -54,6 +55,7 @@ from luthien_proxy.streaming.stream_state import StreamState
 JUDGE_PATCH = "luthien_proxy.policies.simple_llm_policy.call_simple_llm_judge"
 
 PASS_ACTION = JudgeAction(action="pass")
+BLOCK_ACTION = JudgeAction(action="block")
 
 
 def replace_action(*blocks: ReplacementBlock) -> JudgeAction:
@@ -570,7 +572,11 @@ class TestAnthropicStreaming:
     @pytest.mark.asyncio
     async def test_streaming_judge_error_injects_warning(self):
         """When judge fails on a text block and on_error='pass', the warning
-        block is emitted before the final message_stop event."""
+        block is emitted before message_delta (not message_stop) to maintain
+        valid Anthropic streaming event ordering."""
+        from anthropic.types import MessageDeltaUsage
+        from anthropic.types.raw_message_delta_event import Delta
+
         from luthien_proxy.policies.simple_llm_policy import JUDGE_UNAVAILABLE_WARNING
 
         policy = make_policy(on_error="pass")
@@ -589,22 +595,29 @@ class TestAnthropicStreaming:
         with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
             await policy.on_anthropic_stream_event(stop, ctx)
 
-        # Now send message_stop — should get warning events + message_stop
-        msg_stop = RawMessageStopEvent(type="message_stop")
-        events = await policy.on_anthropic_stream_event(msg_stop, ctx)
+        # Send message_delta — warning events should be injected BEFORE it
+        msg_delta = RawMessageDeltaEvent(
+            type="message_delta",
+            delta=Delta(stop_reason="end_turn", stop_sequence=None),
+            usage=MessageDeltaUsage(output_tokens=10),
+        )
+        events = await policy.on_anthropic_stream_event(msg_delta, ctx)
 
-        # Warning: start + delta + stop, then the original message_stop
+        # Warning: start + delta + stop, then the original message_delta
         assert len(events) == 4
         assert isinstance(events[0], RawContentBlockStartEvent)
         assert isinstance(events[1], RawContentBlockDeltaEvent)
         assert isinstance(events[1].delta, TextDelta)
         assert events[1].delta.text == JUDGE_UNAVAILABLE_WARNING
         assert isinstance(events[2], RawContentBlockStopEvent)
-        assert isinstance(events[3], RawMessageStopEvent)
+        assert isinstance(events[3], RawMessageDeltaEvent)
 
     @pytest.mark.asyncio
     async def test_streaming_judge_error_block_no_warning(self):
         """When judge fails and on_error='block', no warning is injected."""
+        from anthropic.types import MessageDeltaUsage
+        from anthropic.types.raw_message_delta_event import Delta
+
         policy = make_policy(on_error="block")
         ctx = make_policy_ctx()
 
@@ -621,11 +634,122 @@ class TestAnthropicStreaming:
         with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
             await policy.on_anthropic_stream_event(stop, ctx)
 
-        # message_stop should pass through without warning
-        msg_stop = RawMessageStopEvent(type="message_stop")
-        events = await policy.on_anthropic_stream_event(msg_stop, ctx)
+        # message_delta should pass through without warning
+        msg_delta = RawMessageDeltaEvent(
+            type="message_delta",
+            delta=Delta(stop_reason="end_turn", stop_sequence=None),
+            usage=MessageDeltaUsage(output_tokens=10),
+        )
+        events = await policy.on_anthropic_stream_event(msg_delta, ctx)
         assert len(events) == 1
-        assert isinstance(events[0], RawMessageStopEvent)
+        assert isinstance(events[0], RawMessageDeltaEvent)
+
+    @pytest.mark.asyncio
+    async def test_streaming_parallel_tool_use_with_judge_failure(self):
+        """Parallel tool_use blocks with judge failure should produce valid
+        event ordering: all content blocks before message_delta, warning
+        before message_delta, and corrected stop_reason."""
+        from anthropic.types import MessageDeltaUsage
+        from anthropic.types.raw_message_delta_event import Delta
+
+        from luthien_proxy.policies.simple_llm_policy import JUDGE_UNAVAILABLE_WARNING
+
+        policy = make_policy(on_error="pass")
+        ctx = make_policy_ctx()
+
+        all_events: list = []
+
+        # Simulate 2 parallel tool_use blocks from backend
+        for i in range(2):
+            tool_block = ToolUseBlock(type="tool_use", id=f"toolu_{i}", name=f"tool_{i}", input={})
+            start = RawContentBlockStartEvent(type="content_block_start", index=i, content_block=tool_block)
+            all_events.extend(await policy.on_anthropic_stream_event(start, ctx))
+
+        for i in range(2):
+            json_delta = InputJSONDelta(type="input_json_delta", partial_json='{"key": "val"}')
+            delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=i, delta=json_delta)
+            all_events.extend(await policy.on_anthropic_stream_event(delta_event, ctx))
+
+        # First tool_use: judge passes. Second: judge fails.
+        stop0 = RawContentBlockStopEvent(type="content_block_stop", index=0)
+        with patch(JUDGE_PATCH, return_value=PASS_ACTION):
+            all_events.extend(await policy.on_anthropic_stream_event(stop0, ctx))
+
+        stop1 = RawContentBlockStopEvent(type="content_block_stop", index=1)
+        with patch(JUDGE_PATCH, side_effect=RuntimeError("judge down")):
+            all_events.extend(await policy.on_anthropic_stream_event(stop1, ctx))
+
+        # message_delta — warning should be injected BEFORE this event
+        msg_delta = RawMessageDeltaEvent(
+            type="message_delta",
+            delta=Delta(stop_reason="tool_use", stop_sequence=None),
+            usage=MessageDeltaUsage(output_tokens=50),
+        )
+        all_events.extend(await policy.on_anthropic_stream_event(msg_delta, ctx))
+
+        # Verify all content blocks come before message_delta
+        msg_delta_idx = None
+        last_content_block_idx = None
+        for idx, evt in enumerate(all_events):
+            if isinstance(evt, (RawContentBlockStartEvent, RawContentBlockDeltaEvent, RawContentBlockStopEvent)):
+                last_content_block_idx = idx
+            if isinstance(evt, RawMessageDeltaEvent):
+                msg_delta_idx = idx
+
+        assert msg_delta_idx is not None, "Expected message_delta event"
+        assert last_content_block_idx is not None, "Expected content block events"
+        assert last_content_block_idx < msg_delta_idx, (
+            "Content blocks must come before message_delta for valid Anthropic streaming"
+        )
+
+        # Verify the warning was emitted
+        warning_texts = [
+            evt.delta.text
+            for evt in all_events
+            if isinstance(evt, RawContentBlockDeltaEvent) and isinstance(evt.delta, TextDelta)
+        ]
+        assert JUDGE_UNAVAILABLE_WARNING in warning_texts
+
+        # Verify stop_reason is still "tool_use" (since tool_use blocks were emitted)
+        final_delta = all_events[msg_delta_idx]
+        assert isinstance(final_delta, RawMessageDeltaEvent)
+        assert final_delta.delta.stop_reason == "tool_use"
+
+    @pytest.mark.asyncio
+    async def test_streaming_stop_reason_corrected_when_tools_blocked(self):
+        """When all tool_use blocks are blocked, stop_reason should change
+        from 'tool_use' to 'end_turn'."""
+        from anthropic.types import MessageDeltaUsage
+        from anthropic.types.raw_message_delta_event import Delta
+
+        policy = make_policy(on_error="block")
+        ctx = make_policy_ctx()
+
+        # Single tool_use block that gets blocked by the judge
+        tool_block = ToolUseBlock(type="tool_use", id="toolu_0", name="dangerous_tool", input={})
+        start = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=tool_block)
+        await policy.on_anthropic_stream_event(start, ctx)
+
+        json_delta = InputJSONDelta(type="input_json_delta", partial_json="{}")
+        delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=json_delta)
+        await policy.on_anthropic_stream_event(delta_event, ctx)
+
+        stop = RawContentBlockStopEvent(type="content_block_stop", index=0)
+        with patch(JUDGE_PATCH, return_value=BLOCK_ACTION):
+            await policy.on_anthropic_stream_event(stop, ctx)
+
+        # message_delta has stop_reason="tool_use" from backend, but should
+        # be corrected to "end_turn" since no tool_use blocks were emitted
+        msg_delta = RawMessageDeltaEvent(
+            type="message_delta",
+            delta=Delta(stop_reason="tool_use", stop_sequence=None),
+            usage=MessageDeltaUsage(output_tokens=10),
+        )
+        events = await policy.on_anthropic_stream_event(msg_delta, ctx)
+
+        assert len(events) == 1
+        assert isinstance(events[0], RawMessageDeltaEvent)
+        assert events[0].delta.stop_reason == "end_turn"
 
 
 # ============================================================================

@@ -31,7 +31,7 @@ from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
-    RawMessageStopEvent,
+    RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
@@ -513,12 +513,8 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
         if isinstance(event, RawContentBlockStopEvent):
             return await self._handle_block_stop(event, context)
 
-        if isinstance(event, RawMessageStopEvent):
-            state = self._anthropic_state(context)
-            if state.judge_error_occurred and self._config.on_error == "pass":
-                warning_index = len(state.emitted_blocks)
-                warning_events = self._make_anthropic_warning_events(warning_index)
-                return warning_events + [event]
+        if isinstance(event, RawMessageDeltaEvent):
+            return self._handle_message_delta(event, context)
 
         return [event]
 
@@ -599,6 +595,36 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             return [cast(MessageStreamEvent, event)]
 
         return [cast(MessageStreamEvent, event)]
+
+    def _handle_message_delta(self, event: RawMessageDeltaEvent, context: "PolicyContext") -> list[MessageStreamEvent]:
+        """Handle message_delta event: inject warning and correct stop_reason.
+
+        The message_delta event carries stop_reason and usage, and comes after
+        all content blocks but before message_stop. Warning text blocks must be
+        inserted BEFORE this event to maintain valid Anthropic streaming order
+        (content blocks after message_delta violate the protocol and can corrupt
+        the client's conversation history).
+        """
+        state = self._anthropic_state(context)
+        events: list[MessageStreamEvent] = []
+
+        # Inject judge-unavailable warning as a content block before message_delta
+        if state.judge_error_occurred and self._config.on_error == "pass":
+            warning_index = len(state.emitted_blocks)
+            events.extend(self._make_anthropic_warning_events(warning_index))
+
+        # Correct stop_reason if the emitted block types differ from the original
+        has_emitted_tool = any(b.type == "tool_use" for b in state.emitted_blocks)
+        expected_stop = "tool_use" if has_emitted_tool else "end_turn"
+        if event.delta.stop_reason != expected_stop:
+            event = RawMessageDeltaEvent.model_construct(
+                type="message_delta",
+                delta=event.delta.model_copy(update={"stop_reason": expected_stop}),
+                usage=event.usage,
+            )
+
+        events.append(cast(MessageStreamEvent, event))
+        return events
 
     def _emit_anthropic_text_events(
         self,
