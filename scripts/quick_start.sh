@@ -93,12 +93,23 @@ if [ ! -f .env ]; then
     echo "✅ Created .env file. Edit it with your API keys if needed."
 fi
 
+# Capture shell-level COMPOSE_PROJECT_NAME before .env can overwrite it.
+# This lets us distinguish "user explicitly set it" from ".env set it".
+_pre_env_compose_name="${COMPOSE_PROJECT_NAME:-}"
+
 # Source environment variables
 if [ -f .env ]; then
     set -a
     # shellcheck source=/dev/null
     source .env
     set +a
+fi
+
+# Comment out COMPOSE_PROJECT_NAME in .env if present — it defeats
+# worktree isolation (every worktree would share the same project name).
+# The name is auto-derived from the directory below instead.
+if [ -f .env ] && grep -q "^COMPOSE_PROJECT_NAME=" .env 2>/dev/null; then
+    sed -i.bak 's/^COMPOSE_PROJECT_NAME=/# COMPOSE_PROJECT_NAME=/' .env && rm -f .env.bak
 fi
 
 # Auto-select free ports for any port variables not pinned in .env
@@ -116,8 +127,10 @@ if new_mode=$(check_auth_mode_interactive "$current_auth_mode"); then
     echo ""
 fi
 
-# Derive project name from worktree directory to avoid collisions between worktrees
-if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+# Derive project name from worktree directory to avoid collisions between worktrees.
+# Always auto-derive unless the user explicitly set COMPOSE_PROJECT_NAME in their
+# shell environment (not in .env — .env values are for container-internal config).
+if [ -z "$_pre_env_compose_name" ]; then
     worktree_dir="$(basename "$(pwd)")"
     export COMPOSE_PROJECT_NAME="luthien-${worktree_dir}"
 fi

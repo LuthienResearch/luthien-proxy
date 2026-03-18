@@ -49,6 +49,9 @@ EOF
 # Ensure we're in project root
 cd "$PROJECT_ROOT"
 
+# Capture shell-level COMPOSE_PROJECT_NAME before .env can overwrite it
+_pre_env_compose_name="${COMPOSE_PROJECT_NAME:-}"
+
 # Load .env for port variables
 if [[ -f .env ]]; then
     set -a
@@ -57,12 +60,18 @@ if [[ -f .env ]]; then
     set +a
 fi
 
+# Comment out COMPOSE_PROJECT_NAME in .env if present — defeats worktree isolation.
+if [[ -f .env ]] && grep -q "^COMPOSE_PROJECT_NAME=" .env 2>/dev/null; then
+    sed -i.bak 's/^COMPOSE_PROJECT_NAME=/# COMPOSE_PROJECT_NAME=/' .env && rm -f .env.bak
+fi
+
 # Auto-select free ports for any not pinned in .env
 # shellcheck source=find-available-ports.sh
 source "${SCRIPT_DIR}/find-available-ports.sh"
 
-# Derive project name from worktree directory to avoid collisions between worktrees
-if [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
+# Derive project name from worktree directory to avoid collisions between worktrees.
+# Always auto-derive unless explicitly set in shell environment (not .env).
+if [[ -z "$_pre_env_compose_name" ]]; then
     worktree_dir="$(basename "$(pwd)")"
     export COMPOSE_PROJECT_NAME="luthien-${worktree_dir}"
 fi

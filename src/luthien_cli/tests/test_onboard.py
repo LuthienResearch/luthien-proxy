@@ -67,6 +67,26 @@ def test_ensure_env_uncomments_auth_mode(tmp_path):
     assert "# AUTH_MODE" not in env_content
 
 
+def test_ensure_env_comments_out_compose_project_name(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".env").write_text("COMPOSE_PROJECT_NAME=luthien-proxy\nOTHER=val\n")
+    _ensure_env(str(repo), "sk-key", "admin-key")
+    env_content = (repo / ".env").read_text()
+    assert "\nCOMPOSE_PROJECT_NAME=" not in env_content
+    assert "# COMPOSE_PROJECT_NAME=luthien-proxy" in env_content
+    assert "OTHER=val" in env_content
+
+
+def test_ensure_env_leaves_already_commented_compose_project_name(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".env").write_text("# COMPOSE_PROJECT_NAME=luthien-proxy\n")
+    _ensure_env(str(repo), "sk-key", "admin-key")
+    env_content = (repo / ".env").read_text()
+    assert env_content.count("COMPOSE_PROJECT_NAME") == 1
+
+
 def test_ensure_env_falls_back_to_example(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
