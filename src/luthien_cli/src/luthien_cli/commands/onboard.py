@@ -38,6 +38,8 @@ _PORT_DEFAULTS = {
 
 def _is_port_free(port: int) -> bool:
     """Check if a TCP port is available on localhost."""
+    if not 1024 <= port <= 65535:
+        return False
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
             s.bind(("127.0.0.1", port))
@@ -195,7 +197,8 @@ def onboard():
     # Auto-select free ports (same logic as quick_start.sh)
     port_env = _find_free_ports()
     if port_env:
-        console.print(f"[dim]Auto-selected ports: {', '.join(f'{k}={v}' for k, v in port_env.items())}[/dim]")
+        selected = ", ".join(f"{k}={v}" for k, v in port_env.items())
+        console.print(f"[dim]Auto-selected ports: {selected}[/dim]")
 
     result = subprocess.run(
         ["docker", "compose", "up", "-d", "--build"],

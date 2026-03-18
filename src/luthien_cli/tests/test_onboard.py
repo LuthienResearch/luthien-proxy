@@ -1,5 +1,6 @@
 """Tests for onboard command."""
 
+import os
 import socket
 from unittest.mock import MagicMock, patch
 
@@ -107,6 +108,7 @@ def test_onboard_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard._find_free_ports", return_value={"GATEWAY_PORT": "9123"}),
     ):
         mock_run.return_value = MagicMock(returncode=0)
         result = runner.invoke(
@@ -120,12 +122,17 @@ def test_onboard_full_flow(tmp_path):
     assert "luthien claude" in result.output
     assert "Block PII" in result.output
 
+    # Verify port overrides were passed to docker compose up
+    up_call = [c for c in mock_run.call_args_list if "up" in c.args[0]][0]
+    assert up_call.kwargs["env"]["GATEWAY_PORT"] == "9123"
+
+    # Verify CLI config saves the actual gateway URL with the non-default port
+    config_content = config_path.read_text()
+    assert "9123" in config_content
+
     # Verify policy was written
     policy = (repo_path / "config" / "policy_config.yaml").read_text()
     assert "Block PII from all responses" in policy
-
-    # Verify CLI config was saved
-    assert config_path.exists()
 
 
 def test_onboard_docker_failure(tmp_path):
@@ -226,17 +233,15 @@ def test_find_free_ports_respects_env_vars():
 
 def test_find_free_ports_auto_selects():
     """All ports are auto-selected when none are set in env."""
-    with patch.dict("os.environ", {}, clear=False):
-        # Remove any port vars that might be set
-        env = {
-            k: v
-            for k, v in __import__("os").environ.items()
-            if k not in ("POSTGRES_PORT", "REDIS_PORT", "GATEWAY_PORT")
-        }
-        with patch.dict("os.environ", env, clear=True):
-            with patch("luthien_cli.commands.onboard._find_free_port", side_effect=[5433, 6379, 8000]):
-                result = _find_free_ports()
-                assert result == {"POSTGRES_PORT": "5433", "REDIS_PORT": "6379", "GATEWAY_PORT": "8000"}
+    clean_env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("POSTGRES_PORT", "REDIS_PORT", "GATEWAY_PORT")
+    }
+    with patch.dict("os.environ", clean_env, clear=True):
+        with patch("luthien_cli.commands.onboard._find_free_port", side_effect=[5433, 6379, 8000]):
+            result = _find_free_ports()
+            assert result == {"POSTGRES_PORT": "5433", "REDIS_PORT": "6379", "GATEWAY_PORT": "8000"}
 
 
 def test_onboard_shows_api_key_warning(tmp_path):
