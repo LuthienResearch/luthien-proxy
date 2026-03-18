@@ -96,13 +96,6 @@ def claude_available():
 
 
 @pytest.fixture
-def codex_available():
-    """Check if codex CLI is available."""
-    if not shutil.which("codex"):
-        pytest.skip("Codex CLI not installed - see https://developers.openai.com/codex/quickstart/")
-
-
-@pytest.fixture
 async def gateway_healthy():
     """Check if gateway is running and healthy."""
     gateway_base = GATEWAY_URL.rstrip("/")

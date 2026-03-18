@@ -236,7 +236,7 @@
 
 - Improve conversation history list UI (#133)
   - Add first user message preview for at-a-glance session recognition
-  - Add quick filters: Today, This week, Last week, Last 30 days, Claude Code, Codex
+  - Add quick filters: Today, This week, Last week, Last 30 days, Claude Code
   - Add "More filters" dropdown with sort options (newest, oldest, longest, shortest) and policy activity filters
   - Sticky search/filter bar with magnifying glass icon
   - Date grouping (Today, Yesterday, day names, full dates)
@@ -487,7 +487,7 @@
 - Simplified service architecture: gateway, local-llm, db, redis
 - Observability stack: `./scripts/observability.sh up -d`
 - Live development with hot reload
-- Launch scripts for Claude Code and Codex routing through gateway
+- Launch scripts for Claude Code routing through gateway
 - Comprehensive documentation:
   - `dev/event_driven_policy_guide.md` - Policy development guide
   - `dev/observability.md` - Observability features
