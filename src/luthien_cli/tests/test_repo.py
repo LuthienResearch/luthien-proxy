@@ -205,3 +205,12 @@ def test_ensure_repo_sha_check_fails_existing_install(tmp_path, httpx_mock):
         result = ensure_repo()
 
     assert result == str(managed)
+
+
+def test_ensure_repo_fresh_install_network_error(tmp_path, httpx_mock):
+    """Network error on fresh install should fail with SystemExit."""
+    managed = tmp_path / "luthien-proxy"
+    httpx_mock.add_exception(httpx.ConnectError("offline"))
+    with patch("luthien_cli.repo.MANAGED_REPO_DIR", managed):
+        with pytest.raises(SystemExit):
+            ensure_repo()
