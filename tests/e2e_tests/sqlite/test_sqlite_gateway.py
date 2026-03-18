@@ -9,10 +9,14 @@ Run:  uv run pytest tests/e2e_tests/sqlite/ -v --timeout=30
 
 import pytest
 
+# --- Admin API ---
+from tests.e2e_tests.test_mock_admin_api import (
+    test_policy_list_includes_known_policies,
+)
+
 # The conftest patches GATEWAY_URL/API_KEY at the module level in
 # tests.e2e_tests.conftest AND in each test module, so these imported
 # tests use the SQLite gateway.
-
 # --- Basic passthrough ---
 from tests.e2e_tests.test_mock_basic import (
     test_default_response_when_queue_empty,
@@ -29,17 +33,12 @@ from tests.e2e_tests.test_mock_error_handling import (
     test_missing_messages_field_returns_400,
 )
 
-# --- Admin API ---
-from tests.e2e_tests.test_mock_admin_api import (
-    test_policy_list_includes_known_policies,
-)
-
-# --- Policy management ---
-from tests.e2e_tests.test_mock_policy_management import (
-    test_get_current_policy_returns_policy_info,
-    test_policy_takes_effect_on_next_request,
-    test_set_invalid_policy_returns_error,
-    test_set_policy_changes_active_policy,
+# --- OpenAI + tool use ---
+from tests.e2e_tests.test_mock_openai_and_tool_use import (
+    test_openai_non_streaming_response_structure,
+    test_openai_streaming_response_structure,
+    test_tool_use_non_streaming_response_structure,
+    test_tool_use_streaming_event_sequence,
 )
 
 # --- Policies ---
@@ -50,6 +49,14 @@ from tests.e2e_tests.test_mock_policies import (
     test_policy_streaming_smoke,
     test_string_replacement_non_streaming,
     test_string_replacement_streaming,
+)
+
+# --- Policy management ---
+from tests.e2e_tests.test_mock_policy_management import (
+    test_get_current_policy_returns_policy_info,
+    test_policy_takes_effect_on_next_request,
+    test_set_invalid_policy_returns_error,
+    test_set_policy_changes_active_policy,
 )
 
 # --- Request forwarding ---
@@ -66,24 +73,16 @@ from tests.e2e_tests.test_mock_session_history import (
     test_session_stored_after_request,
 )
 
-# --- Streaming structure ---
-from tests.e2e_tests.test_mock_streaming_structure import (
-    test_anthropic_streaming_event_lifecycle,
-    test_anthropic_streaming_message_start_structure,
-)
-
-# --- OpenAI + tool use ---
-from tests.e2e_tests.test_mock_openai_and_tool_use import (
-    test_openai_non_streaming_response_structure,
-    test_openai_streaming_response_structure,
-    test_tool_use_non_streaming_response_structure,
-    test_tool_use_streaming_event_sequence,
-)
-
 # --- Special characters ---
 from tests.e2e_tests.test_mock_special_chars import (
     test_allcaps_passes_through_emoji,
     test_noop_policy_preserves_unicode,
+)
+
+# --- Streaming structure ---
+from tests.e2e_tests.test_mock_streaming_structure import (
+    test_anthropic_streaming_event_lifecycle,
+    test_anthropic_streaming_message_start_structure,
 )
 
 # Marker so these don't run with default `uv run pytest`
