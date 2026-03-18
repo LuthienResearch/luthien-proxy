@@ -118,6 +118,15 @@ def _ensure_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
         else:
             env_content = env_content.rstrip() + f"\n{replacement}\n"
 
+    # Comment out COMPOSE_PROJECT_NAME — it defeats worktree isolation.
+    # The name is auto-derived from the directory by quick_start.sh instead.
+    env_content = re.sub(
+        r"^COMPOSE_PROJECT_NAME=",
+        "# COMPOSE_PROJECT_NAME=",
+        env_content,
+        flags=re.MULTILINE,
+    )
+
     with open(env_path, "w") as f:
         f.write(env_content)
 
