@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -23,14 +27,13 @@ jobs:
         id: changelog
         run: |
           # Extract the section between the version header and the next header
-          # Handles both "## vX.Y.Z" and "## X.Y.Z" formats, plus "## Unreleased" for pre-1.0
           VERSION="${{ steps.version.outputs.version }}"
 
-          # Try exact version match first, fall back to Unreleased section
+          # Extract notes for this specific version (matches both "## vX.Y.Z" and "## X.Y.Z")
           NOTES=$(awk -v ver="$VERSION" '
             /^## / {
               if (found) exit
-              if ($0 ~ ver || $0 ~ "Unreleased") found=1
+              if ($0 ~ "v?"ver) found=1
               next
             }
             found { print }

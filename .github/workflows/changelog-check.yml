@@ -12,6 +12,7 @@ jobs:
       !contains(github.event.pull_request.labels.*.name, 'skip-changelog') &&
       !contains(github.event.pull_request.labels.*.name, 'chore')
     permissions:
+      contents: read
       pull-requests: write
     steps:
       - name: Check for CHANGELOG update
@@ -29,11 +30,11 @@ jobs:
 
             if [ "$EXISTING" -eq 0 ]; then
               gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(cat <<'COMMENT'
-          **CHANGELOG reminder** — This PR does not update `CHANGELOG.md`.
+**CHANGELOG reminder** — This PR does not update `CHANGELOG.md`.
 
-          If this PR includes user-facing changes, please add an entry under `## Unreleased`.
-          If this is a chore/infra-only change, add the `skip-changelog` or `chore` label to suppress this reminder.
-          COMMENT
+If this PR includes user-facing changes, please add an entry under `## Unreleased`.
+If this is a chore/infra-only change, add the `skip-changelog` or `chore` label to suppress this reminder.
+COMMENT
               )"
             fi
 
