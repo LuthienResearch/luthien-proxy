@@ -71,11 +71,13 @@ async def call_judge(
     config: JudgeConfig,
     judge_instructions: str,
     api_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> JudgeResult:
     """Call LLM judge to evaluate a tool call.
 
-    api_key overrides config.api_key (used for passthrough auth). If neither
-    is set, LiteLLM falls back to its own env-var resolution.
+    api_key overrides config.api_key (used for passthrough auth). extra_headers
+    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
+    falls back to its own env-var resolution.
 
     Args:
         name: Tool call name
@@ -83,6 +85,7 @@ async def call_judge(
         config: Judge configuration
         judge_instructions: System prompt for judge
         api_key: API key override (e.g. from request passthrough)
+        extra_headers: Extra HTTP headers (e.g. OAuth beta header)
 
     Returns:
         JudgeResult with probability and explanation
@@ -112,6 +115,8 @@ async def call_judge(
             kwargs["api_base"] = config.api_base
         if resolved_key:
             kwargs["api_key"] = resolved_key
+        if extra_headers:
+            kwargs["extra_headers"] = extra_headers
 
         response = await acompletion(**kwargs)
         response = cast(ModelResponse, response)

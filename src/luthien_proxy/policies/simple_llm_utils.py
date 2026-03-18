@@ -178,11 +178,13 @@ async def call_simple_llm_judge(
     current_block: BlockDescriptor,
     previous_blocks: tuple[BlockDescriptor, ...],
     api_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> JudgeAction:
     """Call the judge LLM and return its decision.
 
-    api_key overrides config.api_key (used for passthrough auth). If neither
-    is set, LiteLLM falls back to its own env-var resolution.
+    api_key overrides config.api_key (used for passthrough auth). extra_headers
+    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
+    falls back to its own env-var resolution.
     Exceptions propagate to the caller, which applies the on_error policy.
     """
     prompt = build_judge_prompt(config.instructions, current_block, previous_blocks)
@@ -199,6 +201,8 @@ async def call_simple_llm_judge(
         kwargs["api_base"] = config.api_base
     if resolved_key:
         kwargs["api_key"] = resolved_key
+    if extra_headers:
+        kwargs["extra_headers"] = extra_headers
 
     response = await acompletion(**kwargs)
     response = cast(ModelResponse, response)

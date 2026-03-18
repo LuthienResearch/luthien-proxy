@@ -86,6 +86,13 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
         # Multiple non-None types - prefer first Pydantic model found.
         # Unions with multiple models (e.g. ModelA | ModelB | None) are unusual
         # in policy configs; use an Annotated discriminated union if needed.
+        pydantic_types = [t for t in non_none_types if isinstance(t, type) and issubclass(t, BaseModel)]
+        if len(pydantic_types) > 1:
+            logger.warning(
+                f"Union type {python_type!r} contains multiple Pydantic models "
+                f"({[t.__name__ for t in pydantic_types]}); using first ({pydantic_types[0].__name__}). "
+                "Use an Annotated discriminated union for explicit control."
+            )
         for t in non_none_types:
             if isinstance(t, type) and issubclass(t, BaseModel):
                 schema = t.model_json_schema()

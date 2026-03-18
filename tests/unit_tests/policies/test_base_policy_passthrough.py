@@ -1,4 +1,4 @@
-"""Unit tests for BasePolicy._extract_passthrough_key."""
+"""Unit tests for BasePolicy passthrough auth helpers: _extract_passthrough_key and _judge_oauth_headers."""
 
 from __future__ import annotations
 
@@ -50,3 +50,38 @@ class TestExtractPassthroughKey:
     def test_non_bearer_authorization_ignored(self) -> None:
         req = make_request({"authorization": "Basic dXNlcjpwYXNz"})
         assert BasePolicy._extract_passthrough_key(req) is None
+
+
+class TestJudgeOAuthHeaders:
+    OAUTH_TOKEN = "claude-oauth-token-not-an-api-key"
+    API_KEY = "sk-ant-api03-abc123"
+    OAUTH_HEADER = {"anthropic-beta": "oauth-2025-04-20"}
+
+    def _ctx(self, headers: dict[str, str]) -> "PolicyContext":
+        from luthien_proxy.policies import PolicyContext
+
+        return PolicyContext.for_testing(raw_http_request=RawHttpRequest(body={}, headers=headers))
+
+    def test_oauth_bearer_returns_header(self) -> None:
+        ctx = self._ctx({"authorization": f"Bearer {self.OAUTH_TOKEN}"})
+        assert BasePolicy._judge_oauth_headers(ctx, None) == self.OAUTH_HEADER
+
+    def test_anthropic_api_key_returns_none(self) -> None:
+        ctx = self._ctx({"authorization": f"Bearer {self.API_KEY}"})
+        assert BasePolicy._judge_oauth_headers(ctx, None) is None
+
+    def test_explicit_key_skips_oauth_check(self) -> None:
+        # Even with an OAuth bearer, an explicit override key suppresses the header
+        ctx = self._ctx({"authorization": f"Bearer {self.OAUTH_TOKEN}"})
+        assert BasePolicy._judge_oauth_headers(ctx, "explicit-key") is None
+
+    def test_no_request_returns_none(self) -> None:
+        from luthien_proxy.policies import PolicyContext
+
+        ctx = PolicyContext.for_testing(raw_http_request=None)
+        assert BasePolicy._judge_oauth_headers(ctx, None) is None
+
+    def test_x_api_key_header_not_treated_as_oauth(self) -> None:
+        # x-api-key is never OAuth — only Bearer tokens can be OAuth
+        ctx = self._ctx({"x-api-key": self.OAUTH_TOKEN})
+        assert BasePolicy._judge_oauth_headers(ctx, None) is None

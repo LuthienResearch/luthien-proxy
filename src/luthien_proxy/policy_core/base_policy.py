@@ -143,5 +143,34 @@ class BasePolicy:
         passthrough = self._extract_passthrough_key(context.raw_http_request)
         return passthrough or fallback_key
 
+    @staticmethod
+    def _judge_oauth_headers(
+        context: "PolicyContext",
+        explicit_key: str | None,
+    ) -> dict[str, str] | None:
+        """Return OAuth extra headers if the passthrough credential is an OAuth bearer token.
+
+        Returns None when the explicit per-policy key is set (not passthrough), when the
+        credential is a regular Anthropic API key, or when no Bearer token is present.
+        The caller should pass the result as extra_headers= to LiteLLM acompletion.
+        """
+        if explicit_key:
+            # Using an explicit key, not passthrough — no OAuth header needed.
+            return None
+        raw = context.raw_http_request
+        if raw is None:
+            return None
+        auth = raw.headers.get("authorization", "")
+        if not auth.lower().startswith("bearer "):
+            return None
+        token = auth[7:] or None
+        if not token:
+            return None
+        from luthien_proxy.credential_manager import is_anthropic_api_key  # noqa: PLC0415
+
+        if not is_anthropic_api_key(token):
+            return {"anthropic-beta": "oauth-2025-04-20"}
+        return None
+
 
 __all__ = ["BasePolicy"]
