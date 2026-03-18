@@ -14,6 +14,22 @@ from luthien_proxy import telemetry
 from luthien_proxy.telemetry import restore_context
 
 
+class TestSilenceOtelLoggers:
+    """Test that noisy OTel/gRPC loggers are silenced."""
+
+    def test_silences_known_noisy_loggers(self):
+        """Loggers that spam errors on connection failure should be set to DEBUG."""
+        telemetry._silence_otel_loggers()
+
+        for name in (
+            "opentelemetry.exporter.otlp.proto.grpc.exporter",
+            "opentelemetry.sdk.trace.export",
+            "grpc._channel",
+            "grpc._plugin_wrapping",
+        ):
+            assert logging.getLogger(name).level == logging.DEBUG
+
+
 class TestConfigureTracing:
     """Test tracing configuration."""
 
@@ -22,6 +38,31 @@ class TestConfigureTracing:
         result = telemetry.configure_tracing()
         assert result is not None
         assert isinstance(result, trace.Tracer)
+
+    @patch("luthien_proxy.telemetry._get_otel_config")
+    @patch("luthien_proxy.telemetry._silence_otel_loggers")
+    def test_disabled_silences_loggers(self, mock_silence, mock_config):
+        """When OTel is disabled, noisy loggers are silenced."""
+        mock_config.return_value = (False, "", "svc", "1.0", "dev")
+        telemetry.configure_tracing()
+        mock_silence.assert_called_once()
+
+    @patch("luthien_proxy.telemetry._get_otel_config")
+    @patch("luthien_proxy.telemetry._silence_otel_loggers")
+    def test_enabled_also_silences_loggers(self, mock_silence, mock_config):
+        """Even when OTel is enabled, noisy loggers are silenced to avoid connection error spam."""
+        mock_config.return_value = (True, "http://localhost:4317", "svc", "1.0", "dev")
+        telemetry.configure_tracing()
+        mock_silence.assert_called_once()
+
+    @patch("luthien_proxy.telemetry._get_otel_config")
+    def test_disabled_logs_at_debug_not_info(self, mock_config):
+        """When OTel is disabled, the message should be DEBUG, not INFO."""
+        mock_config.return_value = (False, "", "svc", "1.0", "dev")
+        with patch.object(telemetry.logger, "debug") as mock_debug, patch.object(telemetry.logger, "info") as mock_info:
+            telemetry.configure_tracing()
+            mock_debug.assert_called_once()
+            mock_info.assert_not_called()
 
 
 class TestInstrumentApp:

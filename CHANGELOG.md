@@ -4,6 +4,12 @@
 
 ### Features
 
+- **Silence OTel errors** (silence-otel): Gracefully handle missing OTel/Tempo infrastructure
+  - Default `OTEL_ENABLED` to `false` (opt-in instead of opt-out)
+  - Silence gRPC and OTel exporter loggers that spam ERROR on connection failure
+  - Docker Compose explicitly enables OTel when running the full stack
+  - Log "OTel disabled" at DEBUG instead of INFO
+
 - **SQLite support** for Docker-free installs (#344)
 - **`luthien onboard`** interactive setup command — prompts for policy description, generates keys, starts stack (#317)
 - **Auto-fetch proxy artifacts on onboard** — `luthien onboard` downloads Docker artifacts from GitHub, no repo checkout needed (#345)
