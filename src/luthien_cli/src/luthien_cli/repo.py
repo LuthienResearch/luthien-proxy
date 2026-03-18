@@ -71,13 +71,13 @@ def _download_files(dest: Path) -> None:
         try:
             r = httpx.get(url, timeout=15.0, follow_redirects=True)
             r.raise_for_status()
-        except (httpx.ConnectError, httpx.TimeoutException) as e:
+        except httpx.HTTPStatusError as e:
+            console.print(f"[red]Failed to download {url}: HTTP {e.response.status_code}[/red]")
+            raise SystemExit(1)
+        except httpx.HTTPError as e:
             console.print(
                 f"[red]Could not download {url} from GitHub. Check your internet connection.[/red]\n[dim]{e}[/dim]"
             )
-            raise SystemExit(1)
-        except httpx.HTTPStatusError as e:
-            console.print(f"[red]Failed to download {url}: HTTP {e.response.status_code}[/red]")
             raise SystemExit(1)
 
         content = r.text

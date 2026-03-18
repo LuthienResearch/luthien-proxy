@@ -104,7 +104,8 @@ def onboard():
     )
 
     # 1. Ensure proxy files are available
-    config.repo_path = ensure_repo()
+    if not config.repo_path:
+        config.repo_path = ensure_repo()
 
     # 2. Generate keys
     proxy_key = _generate_key("sk-luthien")

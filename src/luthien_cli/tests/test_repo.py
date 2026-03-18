@@ -1,5 +1,7 @@
 """Tests for repo module -- managed proxy artifact directory."""
 
+from unittest.mock import patch
+
 import httpx
 import pytest
 
@@ -111,8 +113,6 @@ def test_download_files_network_error(tmp_path, httpx_mock):
     with pytest.raises(SystemExit):
         _download_files(tmp_path)
 
-
-from unittest.mock import patch
 
 
 def test_ensure_repo_fresh_install(tmp_path, httpx_mock):
