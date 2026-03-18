@@ -231,8 +231,9 @@ class TestCallCountTokens:
         assert "x-api-key" not in headers
 
     @pytest.mark.asyncio
-    async def test_bearer_api_key_uses_x_api_key_header(self):
-        """Anthropic API keys sent as Bearer should still use x-api-key upstream."""
+    async def test_bearer_credential_uses_authorization_header(self):
+        """All Bearer credentials (regardless of format) are sent via Authorization: Bearer.
+        Transport (header) is the authority, not token prefix."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_client = AsyncMock()
@@ -243,8 +244,8 @@ class TestCallCountTokens:
         await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=True)
 
         headers = mock_client.post.call_args.kwargs["headers"]
-        assert headers["x-api-key"] == "sk-ant-api03-abc123"
-        assert "authorization" not in headers
+        assert headers["authorization"] == "Bearer sk-ant-api03-abc123"
+        assert "x-api-key" not in headers
 
     @pytest.mark.asyncio
     async def test_bearer_token_includes_oauth_beta_header(self):
@@ -277,8 +278,9 @@ class TestCallCountTokens:
         assert "oauth-2025-04-20" not in headers["anthropic-beta"]
 
     @pytest.mark.asyncio
-    async def test_bearer_api_key_excludes_oauth_beta_header(self):
-        """Anthropic API keys in Bearer form should not use OAuth beta header."""
+    async def test_bearer_credential_includes_oauth_beta_header(self):
+        """All Bearer credentials include OAuth beta header.
+        Transport (header) is the authority, not token prefix."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_client = AsyncMock()
@@ -289,7 +291,7 @@ class TestCallCountTokens:
         await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=True)
 
         headers = mock_client.post.call_args.kwargs["headers"]
-        assert "oauth-2025-04-20" not in headers["anthropic-beta"]
+        assert "oauth-2025-04-20" in headers["anthropic-beta"]
 
     @pytest.mark.asyncio
     async def test_401_bearer_token_returns_none(self):
