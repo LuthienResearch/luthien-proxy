@@ -14,7 +14,7 @@ restoring it afterward.
 
 Requires:
   - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock.yaml up -d
+      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
   - Mock server auto-started by the mock_anthropic fixture (port 18888).
 
 Run:
@@ -67,7 +67,7 @@ def _wait_for_gateway(timeout: float = 30.0) -> None:
             resp = httpx.get(f"{GATEWAY_URL}/health", timeout=3.0)
             if resp.status_code == 200:
                 return
-        except httpx.ConnectError:
+        except (httpx.ConnectError, httpx.RemoteProtocolError):
             pass
         time.sleep(1.0)
     raise TimeoutError(f"Gateway not healthy after {timeout}s")
@@ -80,7 +80,7 @@ def _compose_up_gateway(extra_env: dict[str, str] | None = None) -> None:
     variables, then removes it after the container starts.
     """
     main_root, worktree_root = _find_roots()
-    mock_yaml = worktree_root / "docker-compose.mock.yaml"
+    mock_yaml = main_root / "docker-compose.mock-bridge.yaml"
 
     compose_cmd = ["docker", "compose", "-f", str(main_root / "docker-compose.yaml")]
     if mock_yaml.exists():

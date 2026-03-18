@@ -68,7 +68,7 @@ def mock_anthropic():
     before each test to control what the mock returns.
 
     Requires gateway started with ANTHROPIC_BASE_URL=http://host.docker.internal:18888.
-    See docker-compose.mock.yaml.
+    See docker-compose.mock-bridge.yaml.
     """
     server = MockAnthropicServer()
     server.start()

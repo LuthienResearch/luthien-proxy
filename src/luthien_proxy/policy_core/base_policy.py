@@ -143,27 +143,5 @@ class BasePolicy:
         passthrough = self._extract_passthrough_key(context.raw_http_request)
         return passthrough or fallback_key
 
-    @staticmethod
-    def _judge_oauth_headers(
-        context: "PolicyContext",
-        explicit_key: str | None,
-    ) -> dict[str, str] | None:
-        """Return OAuth extra headers if the passthrough credential is an OAuth bearer token.
-
-        OAuth tokens arrive via Authorization: Bearer; API keys via x-api-key.
-        The transport header is the differentiator — no prefix inspection needed.
-        """
-        if explicit_key:
-            return None
-        raw = context.raw_http_request
-        if raw is None:
-            return None
-        auth = raw.headers.get("authorization", "")
-        if not auth.lower().startswith("bearer "):
-            return None
-        if not auth[7:]:
-            return None
-        return {"anthropic-beta": "oauth-2025-04-20"}
-
 
 __all__ = ["BasePolicy"]

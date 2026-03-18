@@ -132,11 +132,14 @@ async def resolve_anthropic_client(
     matches_proxy_key = secrets.compare_digest(token, api_key)
     use_passthrough = not matches_proxy_key or auth_mode == AuthMode.PASSTHROUGH
     if use_passthrough:
-        if is_bearer:
-            await _record_credential_type("oauth")
-            return AnthropicClient(auth_token=token, base_url=base_url)
-        await _record_credential_type("client_api_key")
-        return AnthropicClient(api_key=token, base_url=base_url)
+        # API keys are always sent via api_key parameter, regardless of transport header
+        is_api_key = token.startswith("sk-ant-")
+        if is_api_key:
+            await _record_credential_type("client_api_key")
+            return AnthropicClient(api_key=token, base_url=base_url)
+        # All non-API-key Bearer tokens are treated as OAuth credentials
+        await _record_credential_type("oauth")
+        return AnthropicClient(auth_token=token, base_url=base_url)
 
     # Proxy key fallback: use the server's configured client
     if base_client is None:
