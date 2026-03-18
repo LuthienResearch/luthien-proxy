@@ -195,6 +195,29 @@ Policy instances are **singletons created once at startup** and shared across al
 - **`AnthropicPolicyIOProtocol`** is the request-scoped I/O surface for Anthropic execution policies — it holds the mutable request, backend response, and streaming methods.
 - **`freeze_configured_state()`** runs at policy load time and rejects mutable container attributes on the policy instance. Config-time collections should be immutable (tuple, frozenset).
 
+## Design Methodology References
+
+Frameworks used for requirements analysis, UI design, and scope simplification. Reference these when questioning scope or designing UIs.
+
+**Musk's 5-Step Design Process:**
+- [ModelThinkers summary](https://modelthinkers.com/mental-model/musks-5-step-design-process) — concise overview of all 5 steps
+- [Everyday Astronaut / OODA Loop deep dive](https://oodaloop.com/analysis/ooda-original/the-everyday-astronaut-elon-musk-and-his-five-step-engineering-process/) — Musk explaining it in his own words
+- Key rule: steps must happen IN ORDER. Most common error: optimizing something that shouldn't exist (Step 3 before Step 2).
+
+**Nielsen's 10 Usability Heuristics:**
+- [Official NN/g article](https://www.nngroup.com/articles/ten-usability-heuristics/) — the canonical source
+- [Progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/) — the specific pattern we use for policy config
+
+**UX Requirements & 5 Whys:**
+- [5 Whys in UX Design (UX Planet)](https://uxplanet.org/the-5-whys-how-to-make-the-most-of-this-method-10c07885d9e) — practical guide
+- [5 Whys in Design Thinking (Make Iterate)](https://makeiterate.com/the-5-whys-in-design-thinking-and-how-to-use-them/) — when and how to apply
+- [Design Requirements (IxDF)](https://www.interaction-design.org/literature/topics/design-requirements) — requirements are problems, not solutions
+
+**When to use which:**
+- Musk's process: when simplifying an existing system or questioning scope
+- Nielsen heuristics: when evaluating a UI design or identifying usability problems
+- 5 Whys: when writing requirements — strip solutions, find root problems
+
 ## Policy Selection
 
 - Policies are loaded from the YAML file pointed to by `POLICY_CONFIG` (default `config/policy_config.yaml`).
