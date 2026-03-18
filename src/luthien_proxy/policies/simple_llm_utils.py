@@ -233,7 +233,10 @@ async def call_simple_llm_judge(
                 raise ValueError("Judge response content is None")
 
             return parse_judge_action(message.content)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
+            # Retry all errors, not just network/API errors. Parse failures
+            # (malformed JSON, missing fields) can also succeed on a fresh
+            # LLM call since the model may produce valid output next time.
             last_exc = exc
             is_last_attempt = attempt == max_attempts - 1
             if is_last_attempt:
@@ -248,7 +251,8 @@ async def call_simple_llm_judge(
             if config.retry_delay > 0:
                 await asyncio.sleep(config.retry_delay)
 
-    raise last_exc  # type: ignore[misc]
+    assert last_exc is not None  # loop always runs at least once
+    raise last_exc
 
 
 __all__ = [
