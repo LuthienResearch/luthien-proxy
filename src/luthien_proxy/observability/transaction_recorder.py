@@ -6,11 +6,11 @@ reconstructing streaming/non-streaming transactions.
 
 import logging
 from abc import ABC, abstractmethod
+from typing import Any
 
 from litellm.types.utils import ModelResponse
 from opentelemetry import metrics, trace
 
-from luthien_proxy.llm.types import Request
 from luthien_proxy.observability.emitter import EventEmitterProtocol, NullEventEmitter
 from luthien_proxy.storage.events import reconstruct_full_response_from_chunks
 from luthien_proxy.utils.constants import DEFAULT_MAX_CHUNKS_QUEUED
@@ -37,7 +37,7 @@ class TransactionRecorder(ABC):
         """
 
     @abstractmethod
-    async def record_request(self, original: Request, final: Request) -> None:
+    async def record_request(self, original: Any, final: Any) -> None:
         """Record original and final request."""
 
     @abstractmethod
@@ -68,7 +68,7 @@ class NoOpTransactionRecorder(TransactionRecorder):
     ):
         pass
 
-    async def record_request(self, original: Request, final: Request) -> None:  # noqa: D102, ARG002
+    async def record_request(self, original: Any, final: Any) -> None:  # noqa: D102, ARG002
         pass
 
     def add_ingress_chunk(self, chunk: ModelResponse) -> None:  # noqa: D102, ARG002
@@ -113,7 +113,7 @@ class DefaultTransactionRecorder(TransactionRecorder):
         self._ingress_counter = meter.create_counter("response.chunks.ingress")
         self._egress_counter = meter.create_counter("response.chunks.egress")
 
-    async def record_request(self, original: Request, final: Request) -> None:
+    async def record_request(self, original: Any, final: Any) -> None:
         """Record request via injected emitter."""
         self._emitter.record(
             self._transaction_id,

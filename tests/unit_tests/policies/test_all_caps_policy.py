@@ -3,7 +3,7 @@
 Since AllCapsPolicy is a thin TextModifierPolicy subclass, these tests focus on:
 - Protocol compliance (correct base classes)
 - modify_text correctness
-- Integration through OpenAI and Anthropic non-streaming paths
+- Integration through Anthropic non-streaming paths
 
 Streaming plumbing is tested by TextModifierPolicy's own tests.
 """
@@ -11,10 +11,8 @@ Streaming plumbing is tested by TextModifierPolicy's own tests.
 from typing import cast
 
 import pytest
-from litellm.types.utils import Choices, Message, ModelResponse
 
 from conftest import DEFAULT_TEST_MODEL
-from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import (
     AnthropicResponse,
     AnthropicTextBlock,
@@ -23,29 +21,15 @@ from luthien_proxy.llm.types.anthropic import (
 from luthien_proxy.policies.all_caps_policy import AllCapsPolicy
 from luthien_proxy.policy_core import (
     AnthropicExecutionInterface,
-    OpenAIPolicyInterface,
     TextModifierPolicy,
 )
 from luthien_proxy.policy_core.base_policy import BasePolicy
-from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
 @pytest.fixture
 def policy():
     """Create an AllCapsPolicy instance."""
     return AllCapsPolicy()
-
-
-@pytest.fixture
-def policy_context():
-    """Create a basic policy context."""
-    return PolicyContext(
-        transaction_id="test-txn-123",
-        request=Request(
-            model="test-model",
-            messages=[{"role": "user", "content": "test"}],
-        ),
-    )
 
 
 # =============================================================================
@@ -61,9 +45,6 @@ class TestAllCapsPolicyProtocol:
 
     def test_inherits_from_base_policy(self, policy):
         assert isinstance(policy, BasePolicy)
-
-    def test_implements_openai_interface(self, policy):
-        assert isinstance(policy, OpenAIPolicyInterface)
 
     def test_implements_anthropic_interface(self, policy):
         assert isinstance(policy, AnthropicExecutionInterface)
@@ -100,81 +81,6 @@ class TestModifyText:
 
     def test_camel_case(self, policy):
         assert policy.modify_text("CamelCaseText") == "CAMELCASETEXT"
-
-
-# =============================================================================
-# OpenAI Non-Streaming Tests
-# =============================================================================
-
-
-class TestAllCapsPolicyOpenAINonStreaming:
-    """Test OpenAI non-streaming response handling."""
-
-    async def test_uppercase_text_response(self, policy, policy_context):
-        response = ModelResponse(
-            id="test-id",
-            choices=[
-                Choices(
-                    finish_reason="stop",
-                    index=0,
-                    message=Message(content="hello world", role="assistant"),
-                )
-            ],
-            created=1234567890,
-            model="test-model",
-            object="chat.completion",
-        )
-
-        result = await policy.on_openai_response(response, policy_context)
-        assert result.choices[0].message.content == "HELLO WORLD"
-
-    async def test_uppercase_multiple_choices(self, policy, policy_context):
-        response = ModelResponse(
-            id="test-id",
-            choices=[
-                Choices(finish_reason="stop", index=0, message=Message(content="hello world", role="assistant")),
-                Choices(finish_reason="stop", index=1, message=Message(content="goodbye world", role="assistant")),
-            ],
-            created=1234567890,
-            model="test-model",
-            object="chat.completion",
-        )
-
-        result = await policy.on_openai_response(response, policy_context)
-        assert result.choices[0].message.content == "HELLO WORLD"
-        assert result.choices[1].message.content == "GOODBYE WORLD"
-
-    async def test_empty_content(self, policy, policy_context):
-        response = ModelResponse(
-            id="test-id",
-            choices=[Choices(finish_reason="stop", index=0, message=Message(content=None, role="assistant"))],
-            created=1234567890,
-            model="test-model",
-            object="chat.completion",
-        )
-
-        result = await policy.on_openai_response(response, policy_context)
-        assert result.choices[0].message.content is None
-
-    async def test_no_choices(self, policy, policy_context):
-        response = ModelResponse(
-            id="test-id", choices=[], created=1234567890, model="test-model", object="chat.completion"
-        )
-
-        result = await policy.on_openai_response(response, policy_context)
-        assert len(result.choices) == 0
-
-    async def test_request_unchanged(self, policy, policy_context):
-        request = Request(
-            model="test-model",
-            messages=[
-                {"role": "user", "content": "hello world"},
-                {"role": "assistant", "content": "goodbye world"},
-            ],
-        )
-
-        result = await policy.on_openai_request(request, policy_context)
-        assert result == request
 
 
 # =============================================================================
@@ -286,6 +192,5 @@ class TestAllCapsPolicyAnthropicResponse:
 __all__ = [
     "TestAllCapsPolicyProtocol",
     "TestModifyText",
-    "TestAllCapsPolicyOpenAINonStreaming",
     "TestAllCapsPolicyAnthropicResponse",
 ]

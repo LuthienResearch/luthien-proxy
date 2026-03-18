@@ -133,12 +133,15 @@ def compute_request_diff(original: dict[str, Any], final: dict[str, Any]) -> Req
 
 
 def _extract_response_content(response: dict[str, Any]) -> str:
-    """Extract text content from either OpenAI or Anthropic format response.
+    """Extract text content from response, supporting historical stored data.
+
+    Supports reading both OpenAI and Anthropic format responses for backwards
+    compatibility with stored historical data.
 
     OpenAI format: choices[0].message.content
     Anthropic format: content[].text (joined from text blocks)
     """
-    # OpenAI format
+    # OpenAI format (for backwards compat with stored data)
     choices = response.get("choices", [])
     if choices:
         msg = choices[0].get("message", {})
@@ -154,7 +157,10 @@ def _extract_response_content(response: dict[str, Any]) -> str:
 
 
 def _extract_finish_reason(response: dict[str, Any]) -> str | None:
-    """Extract finish reason from either OpenAI or Anthropic format response.
+    """Extract finish reason from response, supporting historical stored data.
+
+    Supports reading both OpenAI and Anthropic format responses for backwards
+    compatibility with stored historical data.
 
     OpenAI format: choices[0].finish_reason
     Anthropic format: stop_reason

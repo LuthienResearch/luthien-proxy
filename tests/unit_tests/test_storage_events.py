@@ -1,9 +1,11 @@
 """Unit tests for V2 event emission helpers."""
 
-from conftest import DEFAULT_TEST_MODEL
+
 from luthien_proxy.storage.events import (
     reconstruct_full_response_from_chunks,
 )
+
+DEFAULT_TEST_MODEL = "gpt-4o"
 
 
 class StreamingResponseWrapper:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# Header name for OpenAI-format clients to provide session ID
+# Header name for clients to provide session ID (used by Claude Code and other integrations)
 OPENAI_SESSION_HEADER = "x-session-id"
 
 # Pattern to extract session UUID from Anthropic metadata.user_id
@@ -47,7 +47,8 @@ def extract_session_id_from_anthropic_body(body: dict[str, Any]) -> str | None:
 def extract_session_id_from_headers(headers: dict[str, str]) -> str | None:
     """Extract session ID from request headers.
 
-    OpenAI-format clients can provide session ID via x-session-id header.
+    Clients can provide session ID via x-session-id header (used by Claude Code
+    and other integrations).
 
     Args:
         headers: Request headers (keys should be lowercase)

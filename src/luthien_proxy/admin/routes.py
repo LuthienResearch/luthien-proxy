@@ -136,25 +136,12 @@ class CachedCredentialsListResponse(BaseModel):
 
 
 def get_available_models() -> list[str]:
-    """Get available models from litellm.
+    """Get available Anthropic models for testing.
 
-    Returns a curated list of chat completion models from OpenAI and Anthropic.
+    Returns a list of Claude models available via litellm.
     """
-    openai_models = [
-        m
-        for m in litellm.open_ai_chat_completion_models
-        if m.startswith(("gpt-", "o1", "o3", "chatgpt-"))
-        and not m.startswith("ft:")
-        and "audio" not in m
-        and "realtime" not in m
-    ]
     anthropic_models = [m for m in litellm.anthropic_models if "claude" in m.lower()]
-
-    models: list[str] = []
-    models.extend(sorted(openai_models, reverse=True))
-    models.extend(sorted(anthropic_models, reverse=True))
-
-    return models
+    return sorted(anthropic_models, reverse=True)
 
 
 @router.get("/policy/current", response_model=PolicyCurrentResponse)
@@ -288,7 +275,7 @@ async def list_models(
 ):
     """List available models for testing.
 
-    Returns a list of models available via litellm (OpenAI and Anthropic).
+    Returns a list of Anthropic Claude models available via litellm.
     Requires admin authentication.
     """
     return {"models": get_available_models()}
@@ -302,7 +289,7 @@ async def send_chat(
     """Send a test message through the proxy with the active policy.
 
     This endpoint acts as an injection point, forwarding the request to
-    /v1/chat/completions with the server's PROXY_API_KEY. This ensures
+    /v1/messages with the server's PROXY_API_KEY. This ensures
     the test goes through the full policy pipeline (on_request, LLM call,
     on_response) exactly as real client requests do.
 
@@ -316,29 +303,32 @@ async def send_chat(
             model=body.model,
         )
 
+    # When mock mode is enabled, return a synthetic response without calling the gateway
+    if body.use_mock:
+        return ChatResponse(
+            success=True,
+            content="[Mock response] Hello! I am a simulated response for policy testing.",
+            model=body.model,
+        )
+
     # Use the internal self-URL so this works both on the host and inside Docker,
     # where the external port mapping (e.g. 8001) is not reachable from the container.
     base_url = f"http://localhost:{settings.gateway_port}"
 
-    # Build OpenAI-format request payload
+    # Build Anthropic-format request payload
     payload: dict[str, Any] = {
         "model": body.model,
         "messages": [{"role": "user", "content": body.message}],
+        "max_tokens": 1024,
         "stream": False,
     }
-    # When mock mode is enabled (the default), LiteLLM returns a synthetic
-    # response without calling any upstream API. The full policy pipeline still
-    # runs on both the request and the mock response, so policies can be
-    # verified without any LLM credentials.
-    if body.use_mock:
-        payload["mock_response"] = "[Mock LLM response] Hello! I am a simulated response for policy testing."
 
     try:
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
             response = await client.post(
-                f"{base_url}/v1/chat/completions",
+                f"{base_url}/v1/messages",
                 json=payload,
-                headers={"Authorization": f"Bearer {settings.proxy_api_key}"},
+                headers={"x-api-key": settings.proxy_api_key},
             )
 
         if response.status_code != 200:
@@ -356,12 +346,11 @@ async def send_chat(
 
         data = response.json()
 
-        # Extract content from response
+        # Extract content from Anthropic response format
         content = None
-        choices = data.get("choices", [])
-        if choices:
-            message = choices[0].get("message", {})
-            content = message.get("content")
+        for block in data.get("content", []):
+            if isinstance(block, dict) and block.get("type") == "text":
+                content = (content or "") + block.get("text", "")
 
         # Extract usage
         usage = data.get("usage")

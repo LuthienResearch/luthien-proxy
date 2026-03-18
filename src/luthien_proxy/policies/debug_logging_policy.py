@@ -1,8 +1,7 @@
 """Debug policy for logging requests, responses, and streaming events.
 
 This policy logs data at INFO level for debugging purposes while passing
-through all data unchanged. Supports both OpenAI (via LiteLLM) and Anthropic
-native formats.
+through all data unchanged for native Anthropic formats.
 """
 
 from __future__ import annotations
@@ -12,23 +11,18 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from anthropic.lib.streaming import MessageStreamEvent
-from litellm.types.utils import ModelResponse
 
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
-    OpenAIPolicyInterface,
 )
-from luthien_proxy.request_log.sanitize import sanitize_headers
 
 if TYPE_CHECKING:
-    from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
         AnthropicRequest,
         AnthropicResponse,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
-    from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +37,8 @@ def _event_to_dict(event: MessageStreamEvent) -> dict[str, Any]:
     return event.model_dump()
 
 
-class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
-    """Debug policy that logs request/response/streaming data for both API formats.
+class DebugLoggingPolicy(BasePolicy, AnthropicHookPolicy):
+    """Debug policy that logs request/response/streaming data for Anthropic API.
 
     All hooks log relevant data at INFO level, record events to context for
     DB persistence, and pass data through unchanged.
@@ -54,48 +48,6 @@ class DebugLoggingPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy)
     def short_policy_name(self) -> str:
         """Return 'DebugLogging'."""
         return "DebugLogging"
-
-    # -- OpenAI Interface ------------------------------------------------------
-
-    async def on_openai_request(self, request: "Request", context: "PolicyContext") -> "Request":
-        """Log raw HTTP request data."""
-        if context.raw_http_request is not None:
-            raw = context.raw_http_request
-            safe_headers = sanitize_headers(dict(raw.headers))
-            logger.info(f"[RAW_HTTP_REQUEST] method={raw.method} path={raw.path}")
-            logger.info(f"[RAW_HTTP_REQUEST] headers={json.dumps(safe_headers, indent=2)}")
-            logger.info(f"[RAW_HTTP_REQUEST] body={json.dumps(raw.body, indent=2)}")
-
-            context.record_event(
-                "debug.raw_http_request",
-                {
-                    "method": raw.method,
-                    "path": raw.path,
-                    "headers": safe_headers,
-                    "body": raw.body,
-                },
-            )
-        else:
-            logger.warning("[RAW_HTTP_REQUEST] No raw HTTP request available in context")
-
-        return request
-
-    async def on_openai_response(self, response: ModelResponse, context: "PolicyContext") -> ModelResponse:
-        """Pass through unchanged."""
-        return response
-
-    async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
-        """Log each chunk and pass through."""
-        chunk = ctx.original_streaming_response_state.raw_chunks[-1]
-
-        logger.info(f"[CHUNK] {json.dumps(chunk.model_dump(), indent=2)}")
-
-        if hasattr(chunk, "_hidden_params"):
-            logger.info(f"[HIDDEN_PARAMS] {chunk._hidden_params}")
-
-        ctx.egress_queue.put_nowait(chunk)
-
-    # -- Anthropic hooks (via AnthropicHookPolicy) -----------------------------
 
     async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
         """Log request summary."""

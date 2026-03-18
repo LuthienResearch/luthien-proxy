@@ -1,15 +1,12 @@
 """Unit tests for NoOpPolicy.
 
 Tests verify that NoOpPolicy:
-1. Inherits from BasePolicy and implements both OpenAI and Anthropic interfaces
-2. Passes through OpenAI requests and responses unchanged
-3. Passes through Anthropic requests and responses unchanged
-4. Passes through all streaming events unchanged
+1. Inherits from BasePolicy and implements Anthropic interface
+2. Passes through Anthropic requests and responses unchanged
+3. Passes through all streaming events unchanged
 """
 
 from __future__ import annotations
-
-from unittest.mock import Mock
 
 import pytest
 from anthropic.types import (
@@ -23,18 +20,14 @@ from anthropic.types import (
     TextBlock,
     TextDelta,
 )
-from litellm.types.utils import ModelResponse
 
 from conftest import DEFAULT_TEST_MODEL
-from luthien_proxy.llm.types import Request
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_core import (
     AnthropicExecutionInterface,
     BasePolicy,
-    OpenAIPolicyInterface,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
-from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
 # =============================================================================
 # Protocol and inheritance tests
@@ -48,10 +41,6 @@ class TestNoOpPolicyInheritance:
         """NoOpPolicy inherits from BasePolicy."""
         assert issubclass(NoOpPolicy, BasePolicy)
 
-    def test_inherits_from_openai_interface(self):
-        """NoOpPolicy inherits from OpenAIPolicyInterface."""
-        assert issubclass(NoOpPolicy, OpenAIPolicyInterface)
-
     def test_inherits_from_anthropic_interface(self):
         """NoOpPolicy inherits from AnthropicExecutionInterface."""
         assert issubclass(NoOpPolicy, AnthropicExecutionInterface)
@@ -61,185 +50,12 @@ class TestNoOpPolicyInheritance:
         policy = NoOpPolicy()
         assert policy is not None
         assert isinstance(policy, BasePolicy)
-        assert isinstance(policy, OpenAIPolicyInterface)
         assert isinstance(policy, AnthropicExecutionInterface)
 
     def test_short_policy_name(self):
         """NoOpPolicy has correct short_policy_name."""
         policy = NoOpPolicy()
         assert policy.short_policy_name == "NoOp"
-
-
-# =============================================================================
-# OpenAI interface tests
-# =============================================================================
-
-
-class TestNoOpPolicyOpenAIRequest:
-    """Tests for OpenAI on_openai_request passthrough behavior."""
-
-    @pytest.mark.asyncio
-    async def test_on_openai_request_returns_same_request(self):
-        """on_openai_request returns the exact same request object."""
-        policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
-
-        request = Request(
-            model="gpt-4",
-            messages=[{"role": "user", "content": "Hello"}],
-        )
-
-        result = await policy.on_openai_request(request, ctx)
-
-        assert result is request
-
-    @pytest.mark.asyncio
-    async def test_on_openai_request_preserves_all_fields(self):
-        """on_openai_request preserves all fields in a complex request."""
-        policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
-
-        request = Request(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are helpful."},
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": "Hi there!"},
-                {"role": "user", "content": "How are you?"},
-            ],
-            temperature=0.7,
-            max_tokens=500,
-        )
-
-        result = await policy.on_openai_request(request, ctx)
-
-        assert result.model == "gpt-4"
-        assert len(result.messages) == 4
-        assert result.temperature == 0.7
-        assert result.max_tokens == 500
-
-
-class TestNoOpPolicyOpenAIResponse:
-    """Tests for OpenAI on_openai_response passthrough behavior."""
-
-    @pytest.mark.asyncio
-    async def test_on_openai_response_returns_same_response(self, make_model_response):
-        """on_openai_response returns the exact same response object."""
-        policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
-
-        response = make_model_response(content="Hello!")
-
-        result = await policy.on_openai_response(response, ctx)
-
-        assert result is response
-
-    @pytest.mark.asyncio
-    async def test_on_openai_response_preserves_content(self, make_model_response):
-        """on_openai_response preserves response content."""
-        policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
-
-        response = make_model_response(content="Complex response text")
-
-        result = await policy.on_openai_response(response, ctx)
-
-        assert result.choices[0].message.content == "Complex response text"
-
-
-class TestNoOpPolicyOpenAIStreaming:
-    """Tests for OpenAI streaming hooks."""
-
-    @pytest.mark.asyncio
-    async def test_on_chunk_received_pushes_chunk(self):
-        """on_chunk_received pushes the chunk to output."""
-        policy = NoOpPolicy()
-
-        chunk = ModelResponse(
-            id="test",
-            object="chat.completion.chunk",
-            created=123,
-            model="gpt-4",
-            choices=[{"index": 0, "delta": {"content": "hello"}, "finish_reason": None}],
-        )
-
-        ctx = Mock(spec=StreamingPolicyContext)
-        ctx.last_chunk_received = chunk
-
-        await policy.on_chunk_received(ctx)
-
-        ctx.push_chunk.assert_called_once_with(chunk)
-
-    @pytest.mark.asyncio
-    async def test_on_content_delta_is_noop(self):
-        """on_content_delta does nothing."""
-        policy = NoOpPolicy()
-        ctx = Mock(spec=StreamingPolicyContext)
-
-        await policy.on_content_delta(ctx)
-
-        # Should not call any methods on the context
-        ctx.push_chunk.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_on_content_complete_is_noop(self):
-        """on_content_complete does nothing."""
-        policy = NoOpPolicy()
-        ctx = Mock(spec=StreamingPolicyContext)
-
-        await policy.on_content_complete(ctx)
-
-        ctx.push_chunk.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_on_tool_call_delta_is_noop(self):
-        """on_tool_call_delta does nothing."""
-        policy = NoOpPolicy()
-        ctx = Mock(spec=StreamingPolicyContext)
-
-        await policy.on_tool_call_delta(ctx)
-
-        ctx.push_chunk.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_on_tool_call_complete_is_noop(self):
-        """on_tool_call_complete does nothing."""
-        policy = NoOpPolicy()
-        ctx = Mock(spec=StreamingPolicyContext)
-
-        await policy.on_tool_call_complete(ctx)
-
-        ctx.push_chunk.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_on_finish_reason_is_noop(self):
-        """on_finish_reason does nothing."""
-        policy = NoOpPolicy()
-        ctx = Mock(spec=StreamingPolicyContext)
-
-        await policy.on_finish_reason(ctx)
-
-        ctx.push_chunk.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_on_stream_complete_is_noop(self):
-        """on_stream_complete does nothing."""
-        policy = NoOpPolicy()
-        ctx = Mock(spec=StreamingPolicyContext)
-
-        await policy.on_stream_complete(ctx)
-
-        ctx.push_chunk.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_on_streaming_policy_complete_is_noop(self):
-        """on_streaming_policy_complete does nothing."""
-        policy = NoOpPolicy()
-        ctx = Mock(spec=StreamingPolicyContext)
-
-        await policy.on_streaming_policy_complete(ctx)
-
-        ctx.push_chunk.assert_not_called()
 
 
 # =============================================================================

@@ -53,16 +53,6 @@ def app_with_error_handler():
             provider="anthropic",
         )
 
-    @app.get("/trigger-openai-error")
-    async def trigger_openai_error():
-        raise BackendAPIError(
-            status_code=429,
-            message="Rate limit exceeded",
-            error_type="rate_limit_error",
-            client_format=ClientFormat.OPENAI,
-            provider="openai",
-        )
-
     @app.get("/trigger-500-error")
     async def trigger_500_error():
         raise BackendAPIError(
@@ -94,18 +84,6 @@ class TestBackendAPIErrorHandler:
         assert data["error"]["type"] == "authentication_error"
         assert data["error"]["message"] == "invalid x-api-key"
 
-    def test_openai_format_error_response(self, client):
-        """OpenAI format errors return correct structure."""
-        response = client.get("/trigger-openai-error")
-
-        assert response.status_code == 429
-        data = response.json()
-        assert "error" in data
-        assert data["error"]["message"] == "Rate limit exceeded"
-        assert data["error"]["type"] == "rate_limit_error"
-        assert data["error"]["param"] is None
-        assert data["error"]["code"] is None
-
     def test_500_error_returns_correct_status(self, client):
         """500 errors propagate the correct status code."""
         response = client.get("/trigger-500-error")
@@ -123,14 +101,6 @@ class TestBackendAPIErrorHandler:
         # Anthropic format should NOT have these OpenAI fields
         assert "param" not in data.get("error", {})
         assert "code" not in data.get("error", {})
-
-    def test_openai_format_has_no_anthropic_fields(self, client):
-        """OpenAI format doesn't include Anthropic-specific fields."""
-        response = client.get("/trigger-openai-error")
-        data = response.json()
-
-        # OpenAI format should NOT have "type": "error" at root level
-        assert data.get("type") != "error"
 
 
 class TestBackend401InvalidatesCredential:
@@ -200,7 +170,7 @@ class TestBackend401InvalidatesCredential:
                 status_code=429,
                 message="rate limit",
                 error_type="rate_limit_error",
-                client_format=ClientFormat.OPENAI,
+                client_format=ClientFormat.ANTHROPIC,
             )
 
         client = TestClient(app)
