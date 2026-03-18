@@ -20,7 +20,7 @@ from typing import Any, Protocol, cast
 import asyncpg
 from opentelemetry import trace
 
-from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
+from luthien_proxy.observability.event_publisher import EventPublisherProtocol
 from luthien_proxy.utils.constants import OTEL_SPAN_ID_HEX_LENGTH, OTEL_TRACE_ID_HEX_LENGTH
 from luthien_proxy.utils.db import DatabasePool
 
@@ -126,18 +126,12 @@ class EventEmitter:
     def __init__(
         self,
         db_pool: "DatabasePool | None" = None,
-        redis_publisher: "RedisEventPublisher | None" = None,
+        event_publisher: "EventPublisherProtocol | None" = None,
         stdout_enabled: bool = True,
     ):
-        """Initialize the event emitter with optional sinks.
-
-        Args:
-            db_pool: Database pool for persisting events
-            redis_publisher: Redis publisher for real-time event streaming
-            stdout_enabled: Whether to log events to stdout
-        """
+        """Initialize the event emitter with optional sinks."""
         self._db_pool = db_pool
-        self._redis_publisher = redis_publisher
+        self._event_publisher = event_publisher
         self._stdout_enabled = stdout_enabled
 
     async def emit(
@@ -169,8 +163,8 @@ class EventEmitter:
             tasks.append(self._write_stdout(transaction_id, event_type, safe_data, timestamp))
         if self._db_pool:
             tasks.append(self._write_db(transaction_id, event_type, safe_data, timestamp))
-        if self._redis_publisher:
-            tasks.append(self._write_redis(transaction_id, event_type, safe_data, timestamp))
+        if self._event_publisher:
+            tasks.append(self._write_events(transaction_id, event_type, safe_data, timestamp))
 
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -281,23 +275,23 @@ class EventEmitter:
                 exc_info=True,
             )
 
-    async def _write_redis(
+    async def _write_events(
         self,
         transaction_id: str,
         event_type: str,
         data: dict[str, Any],
         timestamp: datetime,  # noqa: ARG002
     ) -> None:
-        """Write event to Redis pub/sub."""
-        redis_publisher = cast(RedisEventPublisher, self._redis_publisher)
+        """Write event to the event publisher (Redis or in-process)."""
+        publisher = cast("EventPublisherProtocol", self._event_publisher)
         try:
-            await redis_publisher.publish_event(
+            await publisher.publish_event(
                 call_id=transaction_id,
                 event_type=event_type,
                 data=data,
             )
         except Exception as e:
-            logger.warning(f"Failed to write event to redis: {e}", exc_info=True)
+            logger.warning(f"Failed to publish event: {e}", exc_info=True)
 
 
 __all__ = [

@@ -42,14 +42,17 @@ def build_activity_event(
 
 
 def format_sse_payload(payload: str) -> str:
+    """Wrap a JSON string in SSE data frame format."""
     return f"data: {payload}\n\n"
 
 
 def heartbeat_event() -> str:
+    """Build an SSE heartbeat event with current timestamp."""
     return f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
 
 
 def should_send_heartbeat(last_heartbeat: float, heartbeat_seconds: float) -> bool:
+    """Check whether enough time has elapsed to send a heartbeat."""
     return time.monotonic() - last_heartbeat >= heartbeat_seconds
 
 
@@ -65,7 +68,9 @@ class EventPublisherProtocol(Protocol):
         call_id: str,
         event_type: str,
         data: dict[str, Any] | None = None,
-    ) -> None: ...
+    ) -> None:
+        """Publish an event to all subscribers."""
+        ...
 
     def stream_events(
         self,
@@ -86,6 +91,7 @@ class InProcessEventPublisher:
     """
 
     def __init__(self) -> None:
+        """Initialize with empty subscriber set."""
         self._subscribers: set[asyncio.Queue[str]] = set()
 
     async def publish_event(
@@ -94,6 +100,7 @@ class InProcessEventPublisher:
         event_type: str,
         data: dict[str, Any] | None = None,
     ) -> None:
+        """Publish an event to all subscriber queues."""
         event = build_activity_event(call_id, event_type, data)
         payload = format_sse_payload(json.dumps(event))
 
@@ -112,6 +119,7 @@ class InProcessEventPublisher:
         self,
         heartbeat_seconds: float = 15.0,
     ) -> AsyncGenerator[str, None]:
+        """Stream SSE events, yielding heartbeats when idle."""
         queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1000)
         self._subscribers.add(queue)
         last_heartbeat = time.monotonic()

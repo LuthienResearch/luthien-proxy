@@ -12,11 +12,10 @@ from html import escape as html_escape
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
-from redis.asyncio import Redis
 
 from luthien_proxy.auth import check_auth_or_redirect, get_base_url, verify_admin_token
-from luthien_proxy.dependencies import get_admin_key, get_redis_client
-from luthien_proxy.observability import stream_activity_events
+from luthien_proxy.dependencies import get_admin_key, get_event_publisher
+from luthien_proxy.observability.event_publisher import EventPublisherProtocol
 
 router = APIRouter(prefix="", tags=["ui"])
 
@@ -27,7 +26,7 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 @router.get("/api/activity/stream")
 async def activity_stream(
     _: str = Depends(verify_admin_token),
-    redis_client: Redis | None = Depends(get_redis_client),
+    publisher: EventPublisherProtocol | None = Depends(get_event_publisher),
 ):
     """Server-Sent Events stream of activity events.
 
@@ -37,19 +36,19 @@ async def activity_stream(
     Returns:
         StreamingResponse with Server-Sent Events (text/event-stream)
     """
-    if not redis_client:
+    if not publisher:
         raise HTTPException(
             status_code=503,
-            detail="Activity stream unavailable (Redis not connected)",
+            detail="Activity stream unavailable (no event publisher configured)",
         )
 
     return FastAPIStreamingResponse(
-        stream_activity_events(redis_client),
+        publisher.stream_events(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "X-Accel-Buffering": "no",
         },
     )
 

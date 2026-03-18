@@ -1,7 +1,6 @@
 """Unit tests for in-process credential cache."""
 
 import asyncio
-import time
 
 import pytest
 

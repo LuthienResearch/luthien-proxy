@@ -217,7 +217,7 @@ class CredentialManager:
         if self._cache is None:
             return 0
 
-        keys: list[bytes | str] = []
+        keys: list[str] = []
         async for key in self._cache.scan_iter(match=f"{REDIS_KEY_PREFIX}*"):
             keys.append(key)
 

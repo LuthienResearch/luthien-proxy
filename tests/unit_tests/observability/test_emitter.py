@@ -226,19 +226,14 @@ class TestEventEmitter:
         assert mock_conn.execute.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_emit_writes_to_redis_sink(self) -> None:
-        """emit() should publish events to Redis when redis_publisher is provided.
+    async def test_emit_writes_to_event_publisher_sink(self) -> None:
+        """emit() should publish events when event_publisher is provided."""
+        mock_publisher = AsyncMock()
 
-        Regression test: TYPE_CHECKING imports previously caused NameError in
-        _write_redis because cast(RedisEventPublisher, ...) evaluated
-        RedisEventPublisher at runtime, but it was only imported under TYPE_CHECKING.
-        """
-        mock_redis = AsyncMock()
-
-        emitter = EventEmitter(redis_publisher=mock_redis, stdout_enabled=False)
+        emitter = EventEmitter(event_publisher=mock_publisher, stdout_enabled=False)
         await emitter.emit("tx-123", "test.event", {"key": "value"})
 
-        mock_redis.publish_event.assert_called_once_with(
+        mock_publisher.publish_event.assert_called_once_with(
             call_id="tx-123",
             event_type="test.event",
             data={"key": "value"},
