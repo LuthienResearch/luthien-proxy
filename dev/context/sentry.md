@@ -3,7 +3,7 @@
 How and why Sentry is integrated, what data it collects, and how to use it across environments.
 
 **Added**: 2026-03-14
-**Files**: `main.py:56-152`, `settings.py:73-77`, `tests/conftest.py:35`, `saas_infra/provisioner.py:97-98`
+**Files**: `observability/sentry.py`, `settings.py:73-77`, `tests/conftest.py:35`, `saas_infra/provisioner.py:97-98`
 
 ---
 
@@ -16,16 +16,11 @@ The proxy had zero error tracking (flagged as HIGH in the March 2026 audit). Err
 - Environment/release tagging to distinguish dev, test, Railway, and self-hosted instances
 - Error collection from alpha/beta users (opt-out, not opt-in) to catch issues we can't reproduce locally
 
-## Consent Model: Opt-Out
+## Consent Model: Opt-In
 
-Follows the same pattern as usage telemetry: **enabled by default**, users set `SENTRY_ENABLED=false` to opt out.
+**Disabled by default** — set `SENTRY_ENABLED=true` to enable. The `luthien onboard` CLI prompts for this during setup.
 
-Why opt-out (not opt-in):
-- The proxy is an infrastructure tool, not a consumer app — operators expect telemetry
-- Matching the existing `USAGE_TELEMETRY` pattern (also opt-out) keeps behavior consistent
-- Opt-in would mean zero error reports from most deployments, defeating the purpose
-
-The DSN is hardcoded in `settings.py` as a default. This is safe — a Sentry DSN is a write-only ingest key, not a secret. Anyone who extracts it can only submit error reports, not read data. Sentry's spike protection and inbound filters mitigate abuse.
+The DSN has a default in `settings.py` but can be overridden via `SENTRY_DSN` env var. A Sentry DSN is a write-only ingest key, not a secret. Anyone who extracts it can only submit error reports, not read data.
 
 ## Two-Layer Data Scrubbing
 
@@ -64,7 +59,7 @@ What it does:
 | Stack frame vars: `api_key`, `token`, etc. | **`[Filtered]`** (by EventScrubber) | Credentials |
 | `KeyboardInterrupt`, `SystemExit` | **Dropped entirely** | Not real errors |
 
-The `_LLM_CONTENT_VARS` set in `main.py` lists every variable name that carries LLM content at crash sites. This was determined by auditing every exception raise and crash-prone call in `pipeline/`, `gateway_routes.py`, and `streaming/`.
+The `_LLM_CONTENT_VARS` set in `observability/sentry.py` lists every variable name that carries LLM content at crash sites. This was determined by auditing every exception raise and crash-prone call in `pipeline/`, `gateway_routes.py`, and `streaming/`.
 
 ### What a Sentry error looks like after scrubbing
 
@@ -89,7 +84,7 @@ final_response = <dict keys=['id', 'content']>  # shape only
 
 | Setting | Env Var | Default | Purpose |
 |---------|---------|---------|---------|
-| `sentry_enabled` | `SENTRY_ENABLED` | `True` | Master toggle — set `false` to opt out |
+| `sentry_enabled` | `SENTRY_ENABLED` | `False` | Master toggle — set `true` to opt in |
 | `sentry_dsn` | `SENTRY_DSN` | (hardcoded project DSN) | Override to send to a different Sentry project |
 | `sentry_traces_sample_rate` | `SENTRY_TRACES_SAMPLE_RATE` | `0.0` | Performance tracing (disabled — we use OTel) |
 | `sentry_server_name` | `SENTRY_SERVER_NAME` | `""` | Instance identifier in Sentry dashboard |
@@ -173,7 +168,7 @@ Every error event has `call_id` preserved in stack frame variables. Use it to fi
 
 ### Initialization Timing
 
-Sentry initializes at **module level** in `main.py` (lines 56-152), before `create_app()` runs. This matches the OTel initialization pattern (lines 50-54). Module-level is necessary because:
+Sentry initializes at **module level** in `main.py` via `init_sentry()` (from `observability/sentry.py`), before `create_app()` runs. This matches the OTel initialization pattern. Module-level is necessary because:
 - Errors during app startup (lifespan, dependency initialization) must be captured
 - The FastAPI integration hooks into the app automatically once `sentry_sdk.init()` is called
 - `get_settings()` is available at module level (no async, no DB needed)
@@ -199,7 +194,7 @@ Set to `False`. This means Sentry will NOT collect:
 
 ### Adding a new sensitive variable name
 
-If you add code with a new local variable that holds LLM content (e.g., `transformed_messages`), add it to `_LLM_CONTENT_VARS` in `main.py`:
+If you add code with a new local variable that holds LLM content (e.g., `transformed_messages`), add it to `_LLM_CONTENT_VARS` in `observability/sentry.py`:
 
 ```python
 _LLM_CONTENT_VARS = {
@@ -210,7 +205,7 @@ _LLM_CONTENT_VARS = {
 
 ### Adding a new credential variable name
 
-If you add code with a new local variable that holds API keys or tokens, add it to `_EXTRA_DENYLIST` in `main.py`:
+If you add code with a new local variable that holds API keys or tokens, add it to `_EXTRA_DENYLIST` in `observability/sentry.py`:
 
 ```python
 _EXTRA_DENYLIST = [
