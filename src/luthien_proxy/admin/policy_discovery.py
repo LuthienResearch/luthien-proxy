@@ -369,13 +369,19 @@ def discover_policies() -> list[dict[str, Any]]:
         logger.error(f"Failed to get policies package path: {e}")
         return policies
 
-    for module_info in pkgutil.iter_modules(package_path):
+    for module_info in pkgutil.walk_packages(package_path, prefix=""):
         module_name = module_info.name
 
-        # Skip non-policy modules
-        if module_name in SKIP_MODULES:
+        # Skip subpackage __init__ modules (we only want leaf modules)
+        if module_info.ispkg:
             continue
-        if any(module_name.endswith(suffix) for suffix in SKIP_SUFFIXES):
+
+        # Extract leaf name for skip checks (handles dotted subpackage names)
+        leaf_name = module_name.rsplit(".", 1)[-1]
+
+        if leaf_name in SKIP_MODULES:
+            continue
+        if any(leaf_name.endswith(suffix) for suffix in SKIP_SUFFIXES):
             continue
 
         try:
