@@ -429,6 +429,18 @@ Editor setup (VS Code)
 - Tests: `uv run pytest -q` with coverage for `src/luthien_proxy/**` configured in `[tool.pytest.ini_options]`.
 - Config consolidation: Ruff, Pytest, and Pyright live in `pyproject.toml` to avoid extra files.
 
+## Releasing
+
+Releases are automated via GitHub Actions. The workflow:
+
+1. **During development**: Add entries under `## Unreleased` in `CHANGELOG.md` as features land. A CI check posts a one-time reminder on PRs that don't update the changelog (skip with the `skip-changelog` or `chore` label).
+2. **To release**: Rename `## Unreleased` to `## vX.Y.Z` in `CHANGELOG.md`, commit, then push a tag:
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+3. **Automated**: The release workflow builds the package with `uv build` and creates a GitHub Release with the changelog notes and dist artifacts.
+
 ## architecture
 
 The gateway integrates everything into a single FastAPI application:
