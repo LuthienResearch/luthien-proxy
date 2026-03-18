@@ -1,7 +1,7 @@
 """Credential validation and caching for passthrough authentication.
 
 Manages configurable auth modes (proxy_key, passthrough, both) and validates
-Anthropic credentials via the free count_tokens endpoint, caching results in Redis.
+Anthropic credentials via the free count_tokens endpoint, caching results.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from enum import Enum
 from typing import Any
 
 import httpx
-from redis.asyncio import Redis
 
+from luthien_proxy.utils.credential_cache import CredentialCacheProtocol
 from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
@@ -75,13 +75,13 @@ class CredentialManager:
     """Manages auth configuration and credential validation caching.
 
     Auth config is stored in the `auth_config` DB table (single-row, id=1).
-    Credential validation results are cached in Redis with configurable TTLs.
+    Credential validation results are cached with configurable TTLs.
     """
 
-    def __init__(self, db_pool: DatabasePool | None, redis_client: Redis | None):
-        """Initialize with DB pool for config and Redis for credential cache."""
+    def __init__(self, db_pool: DatabasePool | None, cache: CredentialCacheProtocol | None):
+        """Initialize with DB pool for config and credential cache."""
         self._db_pool = db_pool
-        self._redis = redis_client
+        self._cache = cache
         self._config = AuthConfig(
             auth_mode=AuthMode.BOTH,
             validate_credentials=True,
@@ -173,7 +173,7 @@ class CredentialManager:
     async def validate_credential(self, credential: str, *, is_bearer: bool) -> bool:
         """Check if an Anthropic API key/token is valid.
 
-        Checks Redis cache first. On miss, calls the free count_tokens
+        Checks cache first. On miss, calls the free count_tokens
         endpoint and caches the result.
 
         Args:
@@ -214,27 +214,27 @@ class CredentialManager:
 
     async def invalidate_all(self) -> int:
         """Remove all cached credentials. Returns count deleted."""
-        if self._redis is None:
+        if self._cache is None:
             return 0
 
         keys: list[bytes | str] = []
-        async for key in self._redis.scan_iter(match=f"{REDIS_KEY_PREFIX}*"):
+        async for key in self._cache.scan_iter(match=f"{REDIS_KEY_PREFIX}*"):
             keys.append(key)
 
         if not keys:
             return 0
 
         # Single UNLINK is non-blocking and handles the batch atomically
-        return int(await self._redis.unlink(*keys))
+        return int(await self._cache.unlink(*keys))
 
     async def list_cached(self) -> list[CachedCredential]:
         """List all cached credentials (hashes and metadata only)."""
-        if self._redis is None:
+        if self._cache is None:
             return []
 
         results = []
-        async for key in self._redis.scan_iter(match=f"{REDIS_KEY_PREFIX}*"):
-            raw = await self._redis.get(key)
+        async for key in self._cache.scan_iter(match=f"{REDIS_KEY_PREFIX}*"):
+            raw = await self._cache.get(key)
             if raw is None:
                 continue
             key_str = key if isinstance(key, str) else key.decode()
@@ -261,9 +261,9 @@ class CredentialManager:
             return None
 
     async def _get_cached(self, key_hash: str) -> CachedCredential | None:
-        if self._redis is None:
+        if self._cache is None:
             return None
-        raw = await self._redis.get(f"{REDIS_KEY_PREFIX}{key_hash}")
+        raw = await self._cache.get(f"{REDIS_KEY_PREFIX}{key_hash}")
         if raw is None:
             return None
         data = self._parse_cached_data(raw, f"{key_hash[:16]}...")
@@ -277,12 +277,12 @@ class CredentialManager:
         )
 
     async def _cache_result(self, key_hash: str, valid: bool) -> None:
-        if self._redis is None:
+        if self._cache is None:
             return
         now = time.time()
         ttl = self._config.valid_cache_ttl_seconds if valid else self._config.invalid_cache_ttl_seconds
         data = json.dumps({"valid": valid, "validated_at": now, "last_used_at": now})
-        await self._redis.setex(f"{REDIS_KEY_PREFIX}{key_hash}", ttl, data)
+        await self._cache.setex(f"{REDIS_KEY_PREFIX}{key_hash}", ttl, data)
 
     async def _touch_last_used(self, key_hash: str) -> None:
         """Update last_used_at without resetting TTL.
@@ -291,24 +291,24 @@ class CredentialManager:
         This only affects the last_used_at metadata, not auth decisions,
         so a missed update is harmless.
         """
-        if self._redis is None:
+        if self._cache is None:
             return
         redis_key = f"{REDIS_KEY_PREFIX}{key_hash}"
-        raw = await self._redis.get(redis_key)
+        raw = await self._cache.get(redis_key)
         if raw is None:
             return
         data = self._parse_cached_data(raw, f"{key_hash[:16]}...")
         if data is None:
             return
         data["last_used_at"] = time.time()
-        ttl = await self._redis.ttl(redis_key)
+        ttl = await self._cache.ttl(redis_key)
         if ttl > 0:
-            await self._redis.setex(redis_key, ttl, json.dumps(data))
+            await self._cache.setex(redis_key, ttl, json.dumps(data))
 
     async def _invalidate_key(self, key_hash: str) -> bool:
-        if self._redis is None:
+        if self._cache is None:
             return False
-        result = await self._redis.delete(f"{REDIS_KEY_PREFIX}{key_hash}")
+        result = await self._cache.delete(f"{REDIS_KEY_PREFIX}{key_hash}")
         return result > 0
 
     async def _call_count_tokens(self, credential: str, *, is_bearer: bool) -> bool | None:
