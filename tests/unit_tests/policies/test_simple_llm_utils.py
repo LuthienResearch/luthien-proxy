@@ -557,6 +557,61 @@ class TestCallSimpleLLMJudge:
         assert result.action == "pass"
         mock_sleep.assert_called_once_with(0.5)
 
+    @pytest.mark.asyncio
+    async def test_retry_on_parse_failure(self):
+        """Parse failure on first attempt, valid response on retry."""
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=1,
+            retry_delay=0,
+        )
+
+        bad_response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "not valid json",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+        good_response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"action": "pass"}',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+
+        with patch(
+            "luthien_proxy.policies.simple_llm_utils.acompletion",
+            side_effect=[bad_response, good_response],
+        ):
+            result = await call_simple_llm_judge(
+                config=config,
+                current_block=BlockDescriptor(type="text", content="hello"),
+                previous_blocks=(),
+            )
+
+        assert result.action == "pass"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

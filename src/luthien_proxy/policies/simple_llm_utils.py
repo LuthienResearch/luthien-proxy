@@ -242,7 +242,7 @@ async def call_simple_llm_judge(
             if is_last_attempt:
                 break
             logger.warning(
-                "SimpleLLM judge attempt %d/%d failed: %s — retrying in %.1fs",
+                "SimpleLLM judge attempt %d/%d failed: %r — retrying in %.1fs",
                 attempt + 1,
                 max_attempts,
                 exc,
