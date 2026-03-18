@@ -1,6 +1,5 @@
 """Unit tests for V2 event emission helpers."""
 
-
 from luthien_proxy.storage.events import (
     reconstruct_full_response_from_chunks,
 )

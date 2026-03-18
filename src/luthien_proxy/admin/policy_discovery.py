@@ -389,7 +389,7 @@ def discover_policies() -> list[dict[str, Any]]:
         try:
             module = importlib.import_module(full_module_name)
         except ImportError as e:
-            logger.warning(f"Failed to import module {module_name}: {e}")
+            logger.warning(f"Failed to import module {full_module_name}: {e}")
             continue
 
         # Find policy classes in this module
