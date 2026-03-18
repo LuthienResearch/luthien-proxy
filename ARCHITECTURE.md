@@ -43,7 +43,7 @@ The (possibly modified) request is forwarded to the backend LLM. For OpenAI form
 
 **Non-streaming:** The complete response passes through the policy's response hook, then is returned as JSON.
 
-**Streaming (OpenAI path):** A three-stage async pipeline connected by `asyncio.Queue`s:
+**Streaming (OpenAI path):** A two-stage async pipeline connected by `asyncio.Queue`s:
 
 ```
 Backend stream (ModelResponse chunks)

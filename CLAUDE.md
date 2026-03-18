@@ -154,7 +154,6 @@ Common commands:
 - Formatting via Ruff: double quotes, spaces for indent (see `pyproject.toml`).
 - Naming: modules `snake_case`, classes `PascalCase`, functions and vars `snake_case`.
 - Docstrings: Google style for public modules/classes/functions; focus on WHY and non-trivial behavior.
-- Optional runtime type checking (`beartype`) for critical sections
 - String formatting: prefer f-strings over `.format()` or `%` formatting for readability and performance
 
 ## Testing Guidelines
