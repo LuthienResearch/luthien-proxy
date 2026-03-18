@@ -344,7 +344,6 @@
             <span class="quick-filter" data-filter="lastweek" onclick="applyQuickFilter('lastweek')">Last week <span class="count" id="count-lastweek"></span></span>
             <span class="quick-filter" data-filter="30days" onclick="applyQuickFilter('30days')">Last 30 days <span class="count" id="count-30days"></span></span>
             <span class="quick-filter" data-filter="claude" onclick="applyQuickFilter('claude')">Claude Code <span class="count" id="count-claude"></span></span>
-            <span class="quick-filter" data-filter="codex" onclick="applyQuickFilter('codex')">Codex <span class="count" id="count-codex"></span></span>
             <div class="filter-dropdown">
                 <span class="filter-dropdown-btn" onclick="toggleDropdown()">More filters ▾</span>
                 <div class="filter-dropdown-menu" id="filter-dropdown">
@@ -405,7 +404,7 @@
                     case 'lastweek': return sessionDate >= lastWeekStart && sessionDate < lastWeekEnd;
                     case '30days': return sessionDate >= thirtyDaysAgo;
                     case 'claude': return models.includes('claude');
-                    case 'codex': return models.includes('codex') || models.includes('gpt');
+
                     case 'interventions': return s.policy_interventions > 0;
                     case 'no-interventions': return s.policy_interventions === 0;
                     default: return true;
@@ -414,7 +413,7 @@
         }
 
         function updateFilterCounts() {
-            const filters = ['all', 'today', 'week', 'lastweek', '30days', 'claude', 'codex'];
+            const filters = ['all', 'today', 'week', 'lastweek', '30days', 'claude'];
             filters.forEach(filter => {
                 const count = getFilteredSessions(filter).length;
                 const el = document.getElementById(`count-${filter}`);

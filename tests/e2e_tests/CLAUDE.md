@@ -25,7 +25,7 @@ uv run pytest tests/e2e_tests/test_anthropic_passthrough_auth.py -m e2e -x -v
 
 All shared fixtures and helpers are in `tests/e2e_tests/conftest.py`:
 
-- **Fixtures**: `claude_available`, `codex_available`, `gateway_healthy`, `http_client`
+- **Fixtures**: `claude_available`, `gateway_healthy`, `http_client`
 - **Configuration**: `GATEWAY_URL`, `API_KEY`, `ADMIN_API_KEY`
 - **Helpers**: `set_policy()`, `get_current_policy()`, `policy_context()`
 
@@ -77,7 +77,7 @@ response = await client.post(
 ## Test Structure
 
 - Tests are marked with `@pytest.mark.e2e` to be excluded from fast unit test runs
-- Use fixtures like `gateway_healthy`, `claude_available`, `codex_available` for prerequisite checks
+- Use fixtures like `gateway_healthy`, `claude_available` for prerequisite checks
 - Tests that fail prerequisites are skipped, not failed
 
 ## CLI Testing
@@ -93,13 +93,3 @@ async def run_claude_code(prompt: str, timeout_seconds: int = 60):
     # ...
 ```
 
-### Codex
-
-```python
-async def run_codex(prompt: str, timeout_seconds: int = 60):
-    cmd = ["codex", "exec", "--json", "-s", "read-only", "--skip-git-repo-check", prompt]
-    env = os.environ.copy()
-    env["OPENAI_BASE_URL"] = f"{GATEWAY_URL}/v1"
-    env["OPENAI_API_KEY"] = API_KEY
-    # ...
-```
