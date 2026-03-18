@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from luthien_proxy.policies import PolicyContext
 from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.types import RawHttpRequest
 
@@ -57,9 +58,7 @@ class TestJudgeOAuthHeaders:
     API_KEY = "sk-ant-api03-abc123"
     OAUTH_HEADER = {"anthropic-beta": "oauth-2025-04-20"}
 
-    def _ctx(self, headers: dict[str, str]) -> "PolicyContext":
-        from luthien_proxy.policies import PolicyContext
-
+    def _ctx(self, headers: dict[str, str]) -> PolicyContext:
         return PolicyContext.for_testing(raw_http_request=RawHttpRequest(body={}, headers=headers))
 
     def test_oauth_bearer_returns_header(self) -> None:
