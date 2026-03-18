@@ -12,7 +12,9 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import Any, TypedDict
+
+from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 
 from .models import (
     ConversationMessage,
@@ -23,9 +25,6 @@ from .models import (
     SessionListResponse,
     SessionSummary,
 )
-
-if TYPE_CHECKING:
-    from luthien_proxy.utils.db import DatabasePool
 
 
 class StoredEvent(TypedDict):
@@ -323,8 +322,14 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
     Returns:
         List of session summaries ordered by most recent activity
     """
+    if db_pool.is_sqlite:
+        return await _fetch_session_list_sqlite(limit, db_pool, offset)
+    return await _fetch_session_list_pg(limit, db_pool, offset)
+
+
+async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+    """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg)."""
     async with db_pool.connection() as conn:
-        # Get total count of sessions
         total_count = await conn.fetchval(
             """
             SELECT COUNT(DISTINCT session_id)
@@ -333,7 +338,6 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
             """
         )
 
-        # Get session summaries with aggregated stats
         rows = await conn.fetch(
             """
             WITH session_stats AS (
@@ -400,8 +404,8 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
-            first_timestamp=cast(datetime, row["first_ts"]).isoformat(),
-            last_timestamp=cast(datetime, row["last_ts"]).isoformat(),
+            first_timestamp=parse_db_ts(row["first_ts"]).isoformat(),
+            last_timestamp=parse_db_ts(row["last_ts"]).isoformat(),
             turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
@@ -414,6 +418,114 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
     total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
     has_more = offset + len(sessions) < total
 
+    return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
+
+
+async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+    """SQLite version: 3 queries total (vs PostgreSQL's 2).
+
+    Avoids N+1 by batching models and previews for the whole page in one
+    query each, then merging in Python. PostgreSQL uses array_agg/DISTINCT ON
+    in a single CTE; SQLite lacks those, so we use IN (session_ids) instead.
+    """
+    async with db_pool.connection() as conn:
+        total_count = await conn.fetchval(
+            """
+            SELECT COUNT(DISTINCT session_id)
+            FROM conversation_events
+            WHERE session_id IS NOT NULL
+            """
+        )
+
+        rows = await conn.fetch(
+            """
+            SELECT
+                session_id,
+                MIN(created_at) as first_ts,
+                MAX(created_at) as last_ts,
+                COUNT(*) as total_events,
+                COUNT(DISTINCT call_id) as turn_count,
+                SUM(CASE
+                    WHEN event_type LIKE 'policy.%'
+                    AND event_type NOT LIKE 'policy.judge.evaluation%'
+                    THEN 1 ELSE 0
+                END) as policy_interventions
+            FROM conversation_events
+            WHERE session_id IS NOT NULL
+            GROUP BY session_id
+            ORDER BY last_ts DESC
+            LIMIT $1 OFFSET $2
+            """,
+            limit,
+            offset,
+        )
+
+        total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
+
+        if not rows:
+            return SessionListResponse(sessions=[], total=total, offset=offset, has_more=False)
+
+        session_ids = [str(row["session_id"]) for row in rows]
+        placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
+
+        # One query for all models on this page
+        model_rows = await conn.fetch(
+            f"""
+            SELECT session_id, json_extract(payload, '$.final_model') as model
+            FROM conversation_events
+            WHERE session_id IN ({placeholders})
+            AND event_type = 'transaction.request_recorded'
+            AND json_extract(payload, '$.final_model') IS NOT NULL
+            """,
+            *session_ids,
+        )
+
+        # One query for first qualifying preview per session on this page
+        preview_rows = await conn.fetch(
+            f"""
+            SELECT session_id, payload as request_payload
+            FROM conversation_events
+            WHERE session_id IN ({placeholders})
+            AND event_type = 'transaction.request_recorded'
+            AND COALESCE(
+                CAST(json_extract(payload, '$.final_request.max_tokens') AS INTEGER),
+                2
+            ) > 1
+            ORDER BY session_id, created_at ASC
+            """,
+            *session_ids,
+        )
+
+    # Build per-session lookup maps from the bulk results
+    models_by_session: dict[str, list[str]] = {}
+    for r in model_rows:
+        sid = str(r["session_id"])
+        model = str(r["model"])
+        session_models = models_by_session.setdefault(sid, [])
+        if model not in session_models:
+            session_models.append(model)
+
+    preview_by_session: dict[str, str | None] = {}
+    for r in preview_rows:
+        sid = str(r["session_id"])
+        if sid not in preview_by_session:
+            preview_by_session[sid] = _extract_preview_message(r["request_payload"])
+
+    sessions = [
+        SessionSummary(
+            session_id=str(row["session_id"]),
+            first_timestamp=parse_db_ts(row["first_ts"]).isoformat(),
+            last_timestamp=parse_db_ts(row["last_ts"]).isoformat(),
+            turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
+            total_events=int(row["total_events"]),  # type: ignore[arg-type]
+            policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
+            models_used=models_by_session.get(str(row["session_id"]), []),
+            preview_message=preview_by_session.get(str(row["session_id"])),
+        )
+        for row in rows
+    ]
+
+    has_more = offset + len(sessions) < total
     return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
 
 
@@ -459,9 +571,7 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         else:
             raise TypeError(f"Unexpected payload type: {type(raw_payload).__name__}")
 
-        raw_created_at = row["created_at"]
-        if not isinstance(raw_created_at, datetime):
-            raise TypeError(f"created_at must be datetime, got {type(raw_created_at).__name__}")
+        raw_created_at = parse_db_ts(row["created_at"])
 
         calls[call_id].append(
             StoredEvent(
@@ -486,14 +596,13 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         if turn.had_policy_intervention:
             total_interventions += len(turn.annotations)
 
-    # Get timestamps
-    first_ts = rows[0]["created_at"]
-    last_ts = rows[-1]["created_at"]
+    first_ts_str = parse_db_ts(rows[0]["created_at"]).isoformat()
+    last_ts_str = parse_db_ts(rows[-1]["created_at"]).isoformat()
 
     return SessionDetail(
         session_id=session_id,
-        first_timestamp=cast(datetime, first_ts).isoformat(),
-        last_timestamp=cast(datetime, last_ts).isoformat(),
+        first_timestamp=first_ts_str,
+        last_timestamp=last_ts_str,
         turns=turns,
         total_policy_interventions=total_interventions,
         models_used=sorted(all_models),

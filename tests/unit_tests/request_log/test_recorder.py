@@ -18,16 +18,18 @@ import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiosqlite
 import asyncpg
 import pytest
 
 from luthien_proxy.request_log.recorder import (
     NoOpRequestLogRecorder,
     RequestLogRecorder,
+    _insert_log_row,
     _PendingLog,
     create_recorder,
 )
-from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.db import DatabasePool, DatabaseWriteError
 
 
 class Test_PendingLog:
@@ -529,8 +531,8 @@ class TestRequestLogRecorder:
         assert RequestLogRecorder.dropped_writes == before + 1
 
     @pytest.mark.asyncio
-    async def test_write_logs_does_not_catch_unrelated_exceptions(self) -> None:
-        """_write_logs() propagates non-DB exceptions."""
+    async def test_write_logs_wraps_any_exception_as_write_failure(self) -> None:
+        """Any exception from the DB call is treated as a write failure and caught."""
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock(side_effect=ValueError("unexpected"))
 
@@ -542,8 +544,9 @@ class TestRequestLogRecorder:
         recorder = RequestLogRecorder(db_pool, "txn-123")
         recorder.record_inbound_request(method="POST", url="http://example.com", headers={}, body={})
 
-        with pytest.raises(ValueError, match="unexpected"):
-            await recorder._write_logs()
+        before = RequestLogRecorder.dropped_writes
+        await recorder._write_logs()
+        assert RequestLogRecorder.dropped_writes == before + 1
 
     @pytest.mark.asyncio
     async def test_write_logs_catches_os_errors(self) -> None:
@@ -789,3 +792,72 @@ class TestBodyTruncation:
 
         result = RequestLogRecorder._serialize_body(body)
         assert result == serialized
+
+
+class TestInsertLogRow:
+    """Tests for _insert_log_row — the DB-agnostic insert helper.
+
+    Verifies that any driver exception (asyncpg, aiosqlite, or generic) is
+    wrapped in DatabaseWriteError with the original exception as .cause.
+    """
+
+    def _make_pending(self) -> _PendingLog:
+        return _PendingLog(direction="inbound", transaction_id="txn-test")
+
+    @pytest.mark.asyncio
+    async def test_asyncpg_error_raises_database_write_error(self) -> None:
+        """asyncpg.PostgresError is wrapped in DatabaseWriteError."""
+        cause = asyncpg.PostgresError("deadlock detected")
+        conn = AsyncMock()
+        conn.execute = AsyncMock(side_effect=cause)
+
+        with pytest.raises(DatabaseWriteError) as exc_info:
+            await _insert_log_row(conn, self._make_pending(), lambda b: None)
+
+        assert exc_info.value.cause is cause
+
+    @pytest.mark.asyncio
+    async def test_aiosqlite_error_raises_database_write_error(self) -> None:
+        """aiosqlite.Error is wrapped in DatabaseWriteError."""
+        cause = aiosqlite.Error("database is locked")
+        conn = AsyncMock()
+        conn.execute = AsyncMock(side_effect=cause)
+
+        with pytest.raises(DatabaseWriteError) as exc_info:
+            await _insert_log_row(conn, self._make_pending(), lambda b: None)
+
+        assert exc_info.value.cause is cause
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_raises_database_write_error(self) -> None:
+        """Any exception from the connection is wrapped in DatabaseWriteError."""
+        cause = RuntimeError("unexpected failure")
+        conn = AsyncMock()
+        conn.execute = AsyncMock(side_effect=cause)
+
+        with pytest.raises(DatabaseWriteError) as exc_info:
+            await _insert_log_row(conn, self._make_pending(), lambda b: None)
+
+        assert exc_info.value.cause is cause
+
+    @pytest.mark.asyncio
+    async def test_database_write_error_message_includes_context(self) -> None:
+        """DatabaseWriteError message includes direction and transaction_id."""
+        conn = AsyncMock()
+        conn.execute = AsyncMock(side_effect=OSError("disk full"))
+
+        with pytest.raises(DatabaseWriteError) as exc_info:
+            await _insert_log_row(conn, self._make_pending(), lambda b: None)
+
+        msg = str(exc_info.value)
+        assert "inbound" in msg
+        assert "txn-test" in msg
+
+    @pytest.mark.asyncio
+    async def test_success_does_not_raise(self) -> None:
+        """No exception is raised when the insert succeeds."""
+        conn = AsyncMock()
+        conn.execute = AsyncMock()
+
+        await _insert_log_row(conn, self._make_pending(), lambda b: None)
+        conn.execute.assert_called_once()

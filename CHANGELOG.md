@@ -2,6 +2,16 @@
 
 ## Unreleased | TBA
 
+- **SQLite support** (sqlite-support): Run the gateway without Docker using a local SQLite file
+  - `DatabasePool` auto-detects SQLite vs PostgreSQL from `DATABASE_URL` prefix (`sqlite:///`)
+  - SQLite adapter translates asyncpg-style SQL: `$N` → `?`, strips `::type` casts, rewrites `to_timestamp()`, `NOW()`, `ILIKE`, `LEAST()`
+  - `check_migrations` applies a single `migrations/sqlite_schema.sql` snapshot instead of running Docker migration scripts; generates a real UUID `deployment_id` on first apply
+  - `DatabaseWriteError` in `utils/db.py`: DB-agnostic exception wrapping any driver error (asyncpg, aiosqlite) with the original `cause` preserved — callers no longer import driver-specific error types
+  - Request log recorder refactored: `_insert_log_row()` raises `DatabaseWriteError` on any failure; fixed duplicate-parameter SQL bug (`CASE WHEN $12 ... to_timestamp($12)`) that broke SQLite's positional `?` placeholders
+  - Request log service: `_parse_ts()` handles both `datetime` objects (asyncpg) and strings (aiosqlite) for timestamp columns
+  - SQLite e2e test suite (`tests/e2e_tests/sqlite/`): 39 tests imported from the mock e2e suite and re-run against an in-process SQLite gateway; no Docker required (`uv run pytest tests/e2e_tests/sqlite/ -m sqlite_e2e`)
+  - Unit tests: 14 SQLite-specific history service tests + 5 `_insert_log_row` exception-path tests covering asyncpg, aiosqlite, and generic errors
+
 - **Auth mode nudge** (auth-mode-nudge): Interactive 60s countdown dialogue in `quick_start.sh` and `launch_claude_code.sh` nudging `proxy_key` users toward `both`/`passthrough` mode; updates `.env` and admin API on change
 
 - **Billing mode visibility** (billing-mode-visibility): Surface upstream auth mode accurately in the UI and health endpoint

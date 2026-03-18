@@ -599,6 +599,7 @@ class TestFetchSessionList:
         mock_conn.fetch.return_value = mock_rows
 
         mock_pool = MagicMock()
+        mock_pool.is_sqlite = False
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         result = await fetch_session_list(limit=10, db_pool=mock_pool)
@@ -634,6 +635,7 @@ class TestFetchSessionList:
         mock_conn.fetch.return_value = mock_rows
 
         mock_pool = MagicMock()
+        mock_pool.is_sqlite = False
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         result = await fetch_session_list(limit=10, db_pool=mock_pool, offset=50)
@@ -736,14 +738,14 @@ class TestFetchSessionDetail:
             await fetch_session_detail("session-1", mock_pool)
 
     @pytest.mark.asyncio
-    async def test_unexpected_created_at_type_raises_error(self):
-        """Test that unexpected created_at type raises TypeError."""
+    async def test_string_created_at_is_parsed(self):
+        """Test that string created_at (from SQLite) is parsed into datetime."""
         mock_rows = [
             {
                 "call_id": "call-1",
                 "event_type": "transaction.request_recorded",
                 "payload": {"final_model": "gpt-4", "final_request": {"messages": []}},
-                "created_at": "2025-01-15T10:00:00",  # String instead of datetime
+                "created_at": "2025-01-15T10:00:00",
             },
         ]
 
@@ -753,7 +755,28 @@ class TestFetchSessionDetail:
         mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
-        with pytest.raises(TypeError, match="created_at must be datetime, got str"):
+        result = await fetch_session_detail("session-1", mock_pool)
+        assert result.first_timestamp == "2025-01-15T10:00:00"
+
+    @pytest.mark.asyncio
+    async def test_unexpected_created_at_type_raises_error(self):
+        """Test that unexpected created_at type raises TypeError."""
+        mock_rows = [
+            {
+                "call_id": "call-1",
+                "event_type": "transaction.request_recorded",
+                "payload": {"final_model": "gpt-4", "final_request": {"messages": []}},
+                "created_at": 12345,  # Unexpected type (not datetime or str)
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        with pytest.raises(TypeError, match="got int"):
             await fetch_session_detail("session-1", mock_pool)
 
 

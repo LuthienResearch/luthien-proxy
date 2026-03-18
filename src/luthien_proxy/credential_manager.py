@@ -113,7 +113,7 @@ class CredentialManager:
             row: dict[str, Any] = dict(raw_row)
             self._config = AuthConfig(
                 auth_mode=AuthMode(row["auth_mode"]),
-                validate_credentials=row["validate_credentials"],
+                validate_credentials=bool(row["validate_credentials"]),
                 valid_cache_ttl_seconds=row["valid_cache_ttl_seconds"],
                 invalid_cache_ttl_seconds=row["invalid_cache_ttl_seconds"],
                 updated_at=str(row["updated_at"]) if row["updated_at"] else None,

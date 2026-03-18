@@ -17,12 +17,10 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
-
-import asyncpg
+from typing import Any, Callable
 
 from luthien_proxy.request_log.sanitize import sanitize_headers
-from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.db import DatabasePool, DatabaseWriteError
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +57,65 @@ class _PendingLog:
     error: str | None = None
 
 
+async def _insert_log_row(
+    conn: object,
+    pending: _PendingLog,
+    serialize_body: Callable[[dict[str, Any] | None], str | None],
+) -> None:
+    """Insert one request_logs row via the DB-agnostic connection interface.
+
+    Raises DatabaseWriteError on any failure so callers don't need to know
+    which driver (asyncpg, aiosqlite, etc.) is in use.
+
+    The SQL avoids the CASE WHEN $N ... $N pattern (duplicate positional
+    parameters) that breaks SQLite's ? placeholders. A None completed_at
+    becomes NULL via to_timestamp(NULL) on both Postgres and SQLite.
+    """
+    try:
+        await conn.execute(  # type: ignore[union-attr]
+            """
+            INSERT INTO request_logs (
+                transaction_id, session_id, direction,
+                http_method, url, request_headers, request_body,
+                response_status, response_headers, response_body,
+                started_at, completed_at, duration_ms,
+                model, is_streaming, endpoint, error
+            ) VALUES (
+                $1, $2, $3,
+                $4, $5, $6::jsonb, $7::jsonb,
+                $8, $9::jsonb, $10::jsonb,
+                to_timestamp($11), to_timestamp($12), $13,
+                $14, $15, $16, $17
+            )
+            """,
+            pending.transaction_id,
+            pending.session_id,
+            pending.direction,
+            pending.http_method,
+            pending.url,
+            json.dumps(pending.request_headers) if pending.request_headers else None,
+            serialize_body(pending.request_body),
+            pending.response_status,
+            json.dumps(pending.response_headers) if pending.response_headers else None,
+            serialize_body(pending.response_body),
+            pending.started_at,
+            pending.completed_at,
+            pending.duration_ms,
+            pending.model,
+            pending.is_streaming,
+            pending.endpoint,
+            pending.error,
+        )
+    except Exception as exc:
+        raise DatabaseWriteError(
+            f"Failed to insert request_log row (direction={pending.direction!r}, "
+            f"transaction_id={pending.transaction_id!r}): {exc}",
+            cause=exc,
+        ) from exc
+
+
 class RequestLogRecorder:
-    """Captures HTTP-level request/response data and writes it to Postgres.
+    """Captures HTTP-level request/response data and writes it to the database.
 
     Create one instance per proxy call (per transaction_id). Call methods
     at pipeline boundaries to accumulate data, then call ``flush()`` to
@@ -184,47 +239,14 @@ class RequestLogRecorder:
         try:
             async with self._db_pool.connection() as conn:
                 for pending in (self._inbound, self._outbound):
-                    await conn.execute(
-                        """
-                        INSERT INTO request_logs (
-                            transaction_id, session_id, direction,
-                            http_method, url, request_headers, request_body,
-                            response_status, response_headers, response_body,
-                            started_at, completed_at, duration_ms,
-                            model, is_streaming, endpoint, error
-                        ) VALUES (
-                            $1, $2, $3,
-                            $4, $5, $6::jsonb, $7::jsonb,
-                            $8, $9::jsonb, $10::jsonb,
-                            to_timestamp($11), CASE WHEN $12::float IS NOT NULL THEN to_timestamp($12) END, $13,
-                            $14, $15, $16, $17
-                        )
-                        """,
-                        pending.transaction_id,
-                        pending.session_id,
-                        pending.direction,
-                        pending.http_method,
-                        pending.url,
-                        json.dumps(pending.request_headers) if pending.request_headers else None,
-                        self._serialize_body(pending.request_body),
-                        pending.response_status,
-                        json.dumps(pending.response_headers) if pending.response_headers else None,
-                        self._serialize_body(pending.response_body),
-                        pending.started_at,
-                        pending.completed_at,
-                        pending.duration_ms,
-                        pending.model,
-                        pending.is_streaming,
-                        pending.endpoint,
-                        pending.error,
-                    )
-        except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError):
+                    await _insert_log_row(conn, pending, self._serialize_body)
+        except DatabaseWriteError as exc:
             RequestLogRecorder.dropped_writes += 1
             logger.warning(
-                "Failed to write request logs for %s (%d total dropped)",
+                "Failed to write request logs for %s (%d total dropped): %s",
                 self._transaction_id,
                 RequestLogRecorder.dropped_writes,
-                exc_info=True,
+                exc.cause,
             )
 
 
