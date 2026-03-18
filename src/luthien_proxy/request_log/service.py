@@ -9,31 +9,23 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from luthien_proxy.request_log.models import (
     RequestLogDetailResponse,
     RequestLogEntry,
     RequestLogListResponse,
 )
-
-if TYPE_CHECKING:
-    from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 
 logger = logging.getLogger(__name__)
 
 
 def _parse_ts(raw: object) -> str | None:
-    """Convert a timestamp column to ISO-8601 string.
-
-    asyncpg returns Python datetime objects; aiosqlite returns strings.
-    Both map to the same ISO-8601 output so callers stay DB-agnostic.
-    """
+    """Convert a timestamp column to ISO-8601 string, handling both backends."""
     if raw is None:
         return None
-    if isinstance(raw, datetime):
-        return raw.isoformat()
-    return str(raw)
+    return parse_db_ts(raw).isoformat()
 
 
 def _parse_jsonb(raw: object) -> dict[str, Any] | None:

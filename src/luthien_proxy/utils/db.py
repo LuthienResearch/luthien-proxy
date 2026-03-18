@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import AsyncContextManager, AsyncIterator, Awaitable, Callable, Mapping, Protocol, Sequence, cast
 
 import asyncpg
@@ -152,6 +153,22 @@ class DatabasePool:
                 await pool.close()
 
 
+def parse_db_ts(value: object) -> datetime:
+    """Normalize a DB timestamp column to a Python datetime.
+
+    asyncpg returns datetime objects; aiosqlite returns ISO-8601 strings.
+    Both are handled transparently so callers stay DB-agnostic.
+
+    Raises:
+        TypeError: If value is neither datetime nor str.
+    """
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    raise TypeError(f"Expected datetime or str for timestamp column, got {type(value).__name__}")
+
+
 class DatabaseWriteError(Exception):
     """A database write failed.
 
@@ -171,9 +188,10 @@ class DatabaseWriteError(Exception):
 __all__ = [
     "ConnectFn",
     "DatabaseWriteError",
+    "DatabasePool",
     "PoolFactory",
+    "create_pool",
     "get_connector",
     "get_pool_factory",
-    "create_pool",
-    "DatabasePool",
+    "parse_db_ts",
 ]

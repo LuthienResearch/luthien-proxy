@@ -115,7 +115,7 @@ async def _insert_log_row(
 
 
 class RequestLogRecorder:
-    """Captures HTTP-level request/response data and writes it to Postgres.
+    """Captures HTTP-level request/response data and writes it to the database.
 
     Create one instance per proxy call (per transaction_id). Call methods
     at pipeline boundaries to accumulate data, then call ``flush()`` to

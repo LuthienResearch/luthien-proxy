@@ -12,7 +12,9 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Mapping, Sequence, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Mapping, Sequence, TypedDict
+
+from luthien_proxy.utils.db import parse_db_ts
 
 from .models import (
     ConversationMessage,
@@ -323,7 +325,7 @@ async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0)
     Returns:
         List of session summaries ordered by most recent activity
     """
-    if getattr(db_pool, "is_sqlite", False) is True:
+    if db_pool.is_sqlite:
         return await _fetch_session_list_sqlite(limit, db_pool, offset)
     return await _fetch_session_list_pg(limit, db_pool, offset)
 
@@ -405,8 +407,8 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
-            first_timestamp=cast(datetime, row["first_ts"]).isoformat(),
-            last_timestamp=cast(datetime, row["last_ts"]).isoformat(),
+            first_timestamp=parse_db_ts(row["first_ts"]).isoformat(),
+            last_timestamp=parse_db_ts(row["last_ts"]).isoformat(),
             turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
@@ -565,11 +567,7 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         else:
             raise TypeError(f"Unexpected payload type: {type(raw_payload).__name__}")
 
-        raw_created_at = row["created_at"]
-        if isinstance(raw_created_at, str):
-            raw_created_at = datetime.fromisoformat(raw_created_at)
-        if not isinstance(raw_created_at, datetime):
-            raise TypeError(f"created_at must be datetime, got {type(raw_created_at).__name__}")
+        raw_created_at = parse_db_ts(row["created_at"])
 
         calls[call_id].append(
             StoredEvent(
@@ -594,11 +592,8 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         if turn.had_policy_intervention:
             total_interventions += len(turn.annotations)
 
-    # Get timestamps (SQLite returns strings, PostgreSQL returns datetime)
-    first_ts = rows[0]["created_at"]
-    last_ts = rows[-1]["created_at"]
-    first_ts_str = first_ts if isinstance(first_ts, str) else cast(datetime, first_ts).isoformat()
-    last_ts_str = last_ts if isinstance(last_ts, str) else cast(datetime, last_ts).isoformat()
+    first_ts_str = parse_db_ts(rows[0]["created_at"]).isoformat()
+    last_ts_str = parse_db_ts(rows[-1]["created_at"]).isoformat()
 
     return SessionDetail(
         session_id=session_id,

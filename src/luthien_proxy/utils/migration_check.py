@@ -95,7 +95,7 @@ async def check_migrations(
         db_pool: Database connection pool
         migrations_dir: Path to migrations directory. Defaults to /app/migrations.
     """
-    if getattr(db_pool, "is_sqlite", False) is True:
+    if db_pool.is_sqlite:
         await _apply_sqlite_schema(db_pool)
         return
 

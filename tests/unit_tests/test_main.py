@@ -128,6 +128,7 @@ def mock_db_pool():
     mock_pool.fetchrow = AsyncMock(return_value=None)
     mock.get_pool = AsyncMock(return_value=mock_pool)
     mock.close = AsyncMock()
+    mock.is_sqlite = False
     return mock
 
 

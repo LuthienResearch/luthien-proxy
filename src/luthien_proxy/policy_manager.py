@@ -321,8 +321,14 @@ class PolicyManager:
             Exception: If lock cannot be acquired
         """
         if self.redis is None:
-            async with self._local_lock:
+            try:
+                await asyncio.wait_for(self._local_lock.acquire(), timeout=float(timeout))
+            except asyncio.TimeoutError:
+                raise HTTPException(status_code=503, detail="Another policy change in progress, please try again")
+            try:
                 yield
+            finally:
+                self._local_lock.release()
             return
 
         lock = self.redis.lock(self.lock_key, timeout=timeout)

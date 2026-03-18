@@ -599,6 +599,7 @@ class TestFetchSessionList:
         mock_conn.fetch.return_value = mock_rows
 
         mock_pool = MagicMock()
+        mock_pool.is_sqlite = False
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         result = await fetch_session_list(limit=10, db_pool=mock_pool)
@@ -634,6 +635,7 @@ class TestFetchSessionList:
         mock_conn.fetch.return_value = mock_rows
 
         mock_pool = MagicMock()
+        mock_pool.is_sqlite = False
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         result = await fetch_session_list(limit=10, db_pool=mock_pool, offset=50)
@@ -774,7 +776,7 @@ class TestFetchSessionDetail:
         mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
-        with pytest.raises(TypeError, match="created_at must be datetime, got int"):
+        with pytest.raises(TypeError, match="got int"):
             await fetch_session_detail("session-1", mock_pool)
 
 
