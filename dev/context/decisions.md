@@ -7,6 +7,24 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
+## Release Automation and CHANGELOG Enforcement (2026-03-18)
+
+**Decision**: Add two GitHub Actions workflows — a CHANGELOG reminder on PRs and a tag-based release workflow.
+
+**How releasing works**:
+1. Maintain a `## Unreleased` section in `CHANGELOG.md` as features land
+2. When ready to release: rename `## Unreleased` to `## vX.Y.Z`, push a `vX.Y.Z` tag
+3. The release workflow automatically: checks out the repo, extracts the changelog section for that version via AWK, builds the package with `uv build`, and creates a GitHub Release with the changelog notes and dist artifacts
+
+**CHANGELOG enforcement**: A non-blocking workflow posts a one-time reminder comment on PRs that don't modify `CHANGELOG.md`. PRs labeled `skip-changelog` or `chore` skip the check entirely. This is intentionally a reminder, not a gate — some PRs legitimately don't need changelog entries.
+
+**Rationale**:
+- **Why non-blocking**: A hard gate would slow down chore/infra PRs and train people to add meaningless entries. A reminder is enough to catch accidental omissions.
+- **Why tag-based releases**: Simple, standard flow. No release branches or manual artifact uploads. Push a tag → get a release.
+- **Why AWK for changelog extraction**: No external dependencies, runs in any CI environment. Matches `## vX.Y.Z` or `## X.Y.Z` headers in CHANGELOG.md.
+
+---
+
 ## V2 Architecture: Integrated Gateway (2025-10-24)
 
 **Decision**: Replace separate litellm-proxy + control-plane services with single integrated V2 gateway.
