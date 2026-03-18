@@ -8,9 +8,12 @@ automatic get_config() for Pydantic-based configs.
 from __future__ import annotations
 
 from collections.abc import MutableMapping, MutableSequence, MutableSet
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from luthien_proxy.types import RawHttpRequest
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -108,6 +111,21 @@ class BasePolicy:
         if isinstance(config, dict):
             return config_class.model_validate(config)
         return config
+
+    @staticmethod
+    def _extract_passthrough_key(raw_http_request: "RawHttpRequest | None") -> str | None:
+        """Extract the upstream API key from the incoming request headers.
+
+        Checks Authorization (Bearer) then x-api-key. Returns None if absent.
+        Used to forward the client's own key to judge LLM calls.
+        """
+        if raw_http_request is None:
+            return None
+        headers = raw_http_request.headers
+        auth = headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            return auth[7:] or None
+        return headers.get("x-api-key") or None
 
 
 __all__ = ["BasePolicy"]

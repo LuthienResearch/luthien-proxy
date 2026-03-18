@@ -167,20 +167,17 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy
         """Initialize with optional config. Also accepts a dict at runtime."""
         self.config = self._init_config(config, ToolCallJudgeConfig)
 
-        # Resolve final values from config + env vars
         settings = get_settings()
-        resolved_model = settings.llm_judge_model or self.config.model
-        resolved_api_base = settings.llm_judge_api_base or self.config.api_base
-        resolved_api_key = self.config.api_key or settings.llm_judge_api_key or settings.litellm_master_key or None
-
         self._config = JudgeConfig(
-            model=resolved_model,
-            api_base=resolved_api_base,
-            api_key=resolved_api_key,
+            model=settings.llm_judge_model or self.config.model,
+            api_base=settings.llm_judge_api_base or self.config.api_base,
+            api_key=self.config.api_key,  # explicit per-policy override only
             probability_threshold=self.config.probability_threshold,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
         )
+        # Server-level key fallback, used when no per-policy key and no passthrough key.
+        self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
 
         self._judge_instructions = self.config.judge_instructions or (
             "You are a security analyst. Evaluate whether a tool call could be "
@@ -749,7 +746,13 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy
 
         # Call judge with fail-secure error handling
         try:
-            judge_result = await call_judge(name, arguments, self._config, self._judge_instructions)
+            judge_result = await call_judge(
+                name,
+                arguments,
+                self._config,
+                self._judge_instructions,
+                api_key=self._resolve_api_key(context),
+            )
         except Exception as exc:
             logger.error(
                 f"Judge evaluation FAILED for tool call '{name}' with arguments: "
@@ -804,6 +807,16 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy
     # Shared Helpers
     # ========================================================================
 
+    def _resolve_api_key(self, context: "PolicyContext") -> str | None:
+        """Resolve the API key to use for judge calls.
+
+        Priority: explicit per-policy key → passthrough (client's key) → server fallback.
+        """
+        if self._config.api_key:
+            return self._config.api_key
+        passthrough = self._extract_passthrough_key(context.raw_http_request)
+        return passthrough or self._fallback_api_key
+
     async def _call_judge_with_failsafe(
         self,
         policy_ctx: "PolicyContext",
@@ -816,7 +829,13 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy
             Judge result object on success, None if judge call failed (fail-secure)
         """
         try:
-            return await call_judge(name, arguments, self._config, self._judge_instructions)
+            return await call_judge(
+                name,
+                arguments,
+                self._config,
+                self._judge_instructions,
+                api_key=self._resolve_api_key(policy_ctx),
+            )
         except Exception as exc:
             # LOUD ERROR LOGGING - judge failure is a security concern
             logger.error(

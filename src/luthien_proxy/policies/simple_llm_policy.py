@@ -126,22 +126,22 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
         """Short human-readable name for the policy."""
         return "SimpleLLM"
 
-    def __init__(self, config: SimpleLLMJudgeConfig | dict[str, Any] | None = None):
-        """Initialize with judge config. Resolves API key from settings."""
+    def __init__(self, config: SimpleLLMJudgeConfig | None = None):
+        """Initialize with judge config."""
         parsed = self._init_config(config, SimpleLLMJudgeConfig)
 
         settings = get_settings()
-        resolved_api_key = parsed.api_key or settings.llm_judge_api_key or settings.litellm_master_key or None
-
         self._config = SimpleLLMJudgeConfig(
             model=settings.llm_judge_model or parsed.model,
             api_base=settings.llm_judge_api_base or parsed.api_base,
-            api_key=resolved_api_key,
+            api_key=parsed.api_key,  # explicit per-policy override only
             instructions=parsed.instructions,
             temperature=parsed.temperature,
             max_tokens=parsed.max_tokens,
             on_error=parsed.on_error,
         )
+        # Server-level key fallback, used when no per-policy key and no passthrough key.
+        self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
 
         if self._config.on_error == "pass":
             logger.warning(
@@ -187,6 +187,16 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             }
         return {"type": "text", "text": block.text or ""}
 
+    def _resolve_api_key(self, context: "PolicyContext") -> str | None:
+        """Resolve the API key to use for judge calls.
+
+        Priority: explicit per-policy key → passthrough (client's key) → server fallback.
+        """
+        if self._config.api_key:
+            return self._config.api_key
+        passthrough = self._extract_passthrough_key(context.raw_http_request)
+        return passthrough or self._fallback_api_key
+
     async def _judge_block(
         self,
         descriptor: BlockDescriptor,
@@ -203,6 +213,7 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
                 self._config,
                 descriptor,
                 tuple(emitted_blocks),
+                api_key=self._resolve_api_key(context),
             )
             context.record_event(
                 "policy.simple_llm.judge_result",

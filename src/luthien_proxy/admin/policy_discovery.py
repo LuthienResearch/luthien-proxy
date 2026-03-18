@@ -77,11 +77,20 @@ def python_type_to_json_schema(python_type: Any) -> dict[str, Any]:
     # Python 3.10+ uses types.UnionType for | syntax, older uses typing.Union
     if origin is Union or origin is types.UnionType:
         non_none_types = [a for a in args if a is not type(None)]
+        has_none = len(non_none_types) < len(args)
         if len(non_none_types) == 1:
             schema = python_type_to_json_schema(non_none_types[0])
-            schema["nullable"] = True
+            if has_none:
+                schema["nullable"] = True
             return schema
-        # Multiple non-None types - fall back to any
+        # Multiple non-None types - prefer a Pydantic model if present
+        for t in non_none_types:
+            if isinstance(t, type) and issubclass(t, BaseModel):
+                schema = t.model_json_schema()
+                if has_none:
+                    schema["nullable"] = True
+                return schema
+        # Fall back to string
         return {"type": "string", "description": f"Union type: {python_type}"}
 
     # Handle basic types
@@ -203,13 +212,17 @@ def extract_config_schema(policy_class: type) -> tuple[dict[str, Any], dict[str,
             param_schema["x-sub-policy-list"] = True
 
         # Add default if present
+        model_class = _extract_pydantic_model(annotation)
         if param.default is not inspect.Parameter.empty:
             param_schema["default"] = param.default
-            # For nullable object params (e.g. config: SomeConfig | None = None),
-            # generate a proper example from the schema properties so the UI form
-            # has usable defaults rather than null, which breaks Alpine bindings.
+            # For nullable Pydantic object params (e.g. config: SomeConfig | None = None),
+            # build the example from the model's actual field defaults so the UI form
+            # has usable values rather than null, which breaks Alpine bindings.
             if param.default is None and param_schema.get("type") == "object":
-                example_config[param_name] = _get_example_value(param_schema)
+                if model_class:
+                    example_config[param_name] = _pydantic_model_defaults(model_class, param_schema)
+                else:
+                    example_config[param_name] = _get_example_value(param_schema)
             else:
                 example_config[param_name] = param.default
         else:
@@ -220,6 +233,32 @@ def extract_config_schema(policy_class: type) -> tuple[dict[str, Any], dict[str,
         config_schema[param_name] = param_schema
 
     return config_schema, example_config
+
+
+def _pydantic_model_defaults(model_class: type[BaseModel], param_schema: dict[str, Any]) -> dict[str, Any]:
+    """Build example config from a Pydantic model's actual field defaults.
+
+    More reliable than parsing JSON schema properties: handles default_factory,
+    validators, and complex defaults correctly.
+    """
+    from pydantic_core import PydanticUndefined  # noqa: PLC0415
+
+    properties = param_schema.get("properties", {})
+    example: dict[str, Any] = {}
+
+    for field_name, field_info in model_class.model_fields.items():
+        if field_info.default is not PydanticUndefined:
+            example[field_name] = field_info.default
+        elif field_info.default_factory is not None:
+            try:
+                factory = field_info.default_factory
+                example[field_name] = factory()  # type: ignore[call-arg]
+            except Exception:
+                example[field_name] = _get_example_value(properties.get(field_name, {}))
+        else:
+            example[field_name] = _get_example_value(properties.get(field_name, {}))
+
+    return example
 
 
 def _get_example_value(schema: dict[str, Any]) -> Any:

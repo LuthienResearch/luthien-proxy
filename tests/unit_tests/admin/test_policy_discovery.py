@@ -125,6 +125,23 @@ class TestPythonTypeToJsonSchema:
         assert "discriminator" in schema
         assert schema["discriminator"]["propertyName"] == "type"
 
+    def test_pydantic_model_union_with_dict_and_none(self) -> None:
+        """Pydantic model in union with dict and None should return the model schema.
+
+        Regression test for SimpleLLMPolicy config showing as plain string input.
+        """
+
+        class JudgeConfig(BaseModel):
+            instructions: str
+            model: str = "claude-haiku-4-5"
+
+        schema = python_type_to_json_schema(JudgeConfig | dict[str, Any] | None)
+
+        assert schema["type"] == "object"
+        assert "properties" in schema
+        assert "instructions" in schema["properties"]
+        assert schema.get("nullable") is True
+
 
 class TestExtractDescription:
     """Tests for extract_description function."""

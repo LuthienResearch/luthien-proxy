@@ -23,8 +23,14 @@ logger = logging.getLogger(__name__)
 class SimpleLLMJudgeConfig(BaseModel):
     """Configuration for SimpleLLMPolicy judge."""
 
-    model: str = Field(default="claude-haiku-4-5", description="Judge model identifier")
-    api_base: str | None = Field(default=None, description="API base URL")
+    model: str = Field(
+        default="claude-haiku-4-5",
+        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'gpt-4o', 'ollama/llama3'",
+    )
+    api_base: str | None = Field(
+        default=None,
+        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
+    )
     api_key: str | None = Field(
         default=None,
         description="API key for authentication",
@@ -171,15 +177,17 @@ async def call_simple_llm_judge(
     config: SimpleLLMJudgeConfig,
     current_block: BlockDescriptor,
     previous_blocks: tuple[BlockDescriptor, ...],
+    api_key: str | None = None,
 ) -> JudgeAction:
     """Call the judge LLM and return its decision.
 
-    The caller (SimpleLLMPolicy) resolves API keys at init time and passes
-    them via config. This function uses config values directly.
+    api_key overrides config.api_key (used for passthrough auth). If neither
+    is set, LiteLLM falls back to its own env-var resolution.
     Exceptions propagate to the caller, which applies the on_error policy.
     """
     prompt = build_judge_prompt(config.instructions, current_block, previous_blocks)
 
+    resolved_key = api_key or config.api_key
     kwargs: dict[str, Any] = {
         "model": config.model,
         "messages": prompt,
@@ -189,8 +197,8 @@ async def call_simple_llm_judge(
     }
     if config.api_base:
         kwargs["api_base"] = config.api_base
-    if config.api_key:
-        kwargs["api_key"] = config.api_key
+    if resolved_key:
+        kwargs["api_key"] = resolved_key
 
     response = await acompletion(**kwargs)
     response = cast(ModelResponse, response)

@@ -343,7 +343,7 @@ class TestAnthropicNonStreaming:
 
         call_count = 0
 
-        async def judge_side_effect(config, current_block, previous_blocks):
+        async def judge_side_effect(config, current_block, previous_blocks, api_key=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
