@@ -2,32 +2,32 @@
 
 When active policies modify the LLM's output (e.g. uppercasing, replacing text),
 the model can get confused because it doesn't know its responses are being
-transformed. This module injects a brief system-level note informing the model
-about active policies so it doesn't fight the transformations.
+transformed. This module injects a one-time note into the first user message
+informing the model about active policies. Because clients echo back conversation
+history, the injected context persists across the session without re-injection.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from luthien_proxy.llm.types import Request, SystemMessage
+    from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
         AnthropicRequest,
-        AnthropicSystemBlock,
     )
 
 logger = logging.getLogger(__name__)
 
-POLICY_AWARENESS_PREFIX = "[Luthien Proxy]"
+_CONTEXT_TAG = "policy-context"
+_CONTEXT_OPEN = f"<{_CONTEXT_TAG}>"
+_CONTEXT_CLOSE = f"</{_CONTEXT_TAG}>"
 
 _AWARENESS_TEMPLATE = (
-    f"{POLICY_AWARENESS_PREFIX} Your responses may be modified by the following "
-    "active policies before reaching the user: {policy_names}. "
-    "This is expected behavior — do not try to compensate for or reverse "
-    "these modifications."
+    f"{_CONTEXT_OPEN}Your responses may be modified by the following active "
+    "policies before reaching the user: {policy_names}. This is expected "
+    f"behavior — do not try to compensate for or reverse these modifications.{_CONTEXT_CLOSE}"
 )
 
 
@@ -36,73 +36,90 @@ def build_awareness_message(policy_names: list[str]) -> str:
     return _AWARENESS_TEMPLATE.format(policy_names=", ".join(policy_names))
 
 
+def _already_injected(messages: list[Any]) -> bool:
+    """Check if any message already contains the policy context tag."""
+    for msg in messages:
+        content = msg.get("content", "") if isinstance(msg, dict) else ""
+        if isinstance(content, str) and _CONTEXT_OPEN in content:
+            return True
+        if isinstance(content, list):
+            for block in content:
+                text = block.get("text", "") if isinstance(block, dict) else ""
+                if _CONTEXT_OPEN in text:
+                    return True
+    return False
+
+
+def _find_first_user_message_index(messages: list[Any]) -> int | None:
+    """Find the index of the first user message."""
+    for i, msg in enumerate(messages):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            return i
+    return None
+
+
 def inject_policy_awareness_openai(request: Request, policy_names: list[str]) -> Request:
-    """Inject a policy awareness system message into an OpenAI-format request.
+    """Inject policy awareness into the first user message of an OpenAI-format request.
 
-    Appends a brief note to the existing system message (or adds a new one)
-    informing the model about active policies.
-
-    Returns the request unchanged if policy_names is empty.
+    Skips injection if policy_names is empty or the context tag is already present
+    in any message (meaning it was injected on a previous turn).
     """
     if not policy_names:
+        return request
+
+    messages = list(request.messages)
+    if _already_injected(messages):
+        return request
+
+    user_idx = _find_first_user_message_index(messages)
+    if user_idx is None:
         return request
 
     awareness_text = build_awareness_message(policy_names)
     logger.debug(f"Injecting policy awareness for policies: {policy_names}")
 
-    messages = list(request.messages)
-
-    existing_system_idx = _find_system_message_index(messages)
-    if existing_system_idx is not None:
-        existing = messages[existing_system_idx]
-        current_content = existing.get("content", "")
-        if isinstance(current_content, list):
-            new_content: str | list[Any] = current_content + [{"type": "text", "text": awareness_text}]
-        else:
-            text = current_content if isinstance(current_content, str) else ""
-            new_content = text + "\n\n" + awareness_text
-        updated: SystemMessage = {**existing, "content": new_content}  # type: ignore[typeddict-item]
-        messages[existing_system_idx] = updated
+    user_msg = messages[user_idx]
+    content = user_msg.get("content", "")
+    if isinstance(content, list):
+        injected: str | list[Any] = [{"type": "text", "text": awareness_text}] + content
     else:
-        new_system: SystemMessage = {"role": "system", "content": awareness_text}
-        messages.insert(0, new_system)
+        text = content if isinstance(content, str) else ""
+        injected = awareness_text + "\n\n" + text
+    messages[user_idx] = {**user_msg, "content": injected}  # type: ignore[typeddict-item]
 
     return request.model_copy(update={"messages": messages})
 
 
 def inject_policy_awareness_anthropic(request: AnthropicRequest, policy_names: list[str]) -> AnthropicRequest:
-    """Inject a policy awareness system message into an Anthropic-format request.
+    """Inject policy awareness into the first user message of an Anthropic-format request.
 
-    Appends a text block to the existing system content (or adds a new one)
-    informing the model about active policies.
-
-    Returns the request unchanged if policy_names is empty.
+    Skips injection if policy_names is empty or the context tag is already present
+    in any message (meaning it was injected on a previous turn).
     """
     if not policy_names:
+        return request
+
+    messages = list(request["messages"])
+    if _already_injected(messages):
+        return request
+
+    user_idx = _find_first_user_message_index(messages)
+    if user_idx is None:
         return request
 
     awareness_text = build_awareness_message(policy_names)
     logger.debug(f"Injecting policy awareness for policies: {policy_names}")
 
-    existing_system = request.get("system")
-
-    if existing_system is None:
-        request = {**request, "system": awareness_text}
-    elif isinstance(existing_system, str):
-        request = {**request, "system": existing_system + "\n\n" + awareness_text}
+    user_msg = messages[user_idx]
+    content = user_msg.get("content", "")
+    if isinstance(content, list):
+        injected_content: str | list[Any] = [{"type": "text", "text": awareness_text}] + content
     else:
-        awareness_block: AnthropicSystemBlock = {"type": "text", "text": awareness_text}
-        request = {**request, "system": list(existing_system) + [awareness_block]}
+        text = content if isinstance(content, str) else ""
+        injected_content = awareness_text + "\n\n" + text
+    messages[user_idx] = {**user_msg, "content": injected_content}  # type: ignore[typeddict-item]
 
-    return request
-
-
-def _find_system_message_index(messages: Sequence[Any]) -> int | None:
-    """Find the index of the first system message, if any."""
-    for i, msg in enumerate(messages):
-        if isinstance(msg, dict) and msg.get("role") == "system":
-            return i
-    return None
+    return {**request, "messages": messages}
 
 
 __all__ = [

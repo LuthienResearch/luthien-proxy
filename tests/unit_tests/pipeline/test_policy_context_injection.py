@@ -5,7 +5,7 @@ from __future__ import annotations
 from luthien_proxy.llm.types import Request
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 from luthien_proxy.pipeline.policy_context_injection import (
-    POLICY_AWARENESS_PREFIX,
+    _CONTEXT_OPEN,
     build_awareness_message,
     inject_policy_awareness_anthropic,
     inject_policy_awareness_openai,
@@ -99,9 +99,9 @@ class TestActivePolicyNames:
 
 
 class TestBuildAwarenessMessage:
-    def test_includes_prefix(self) -> None:
+    def test_includes_context_tag(self) -> None:
         msg = build_awareness_message(["AllCaps"])
-        assert msg.startswith(POLICY_AWARENESS_PREFIX)
+        assert _CONTEXT_OPEN in msg
 
     def test_includes_policy_names(self) -> None:
         msg = build_awareness_message(["AllCaps", "StringReplace"])
@@ -120,13 +120,14 @@ class TestInjectOpenAI:
         result = inject_policy_awareness_openai(request, [])
         assert result.messages == request.messages
 
-    def test_injects_new_system_message(self) -> None:
+    def test_injects_into_first_user_message(self) -> None:
         request = _make_openai_request()
         result = inject_policy_awareness_openai(request, ["AllCaps"])
-        assert result.messages[0]["role"] == "system"
+        assert result.messages[0]["role"] == "user"
         assert "AllCaps" in result.messages[0]["content"]
+        assert _CONTEXT_OPEN in result.messages[0]["content"]
 
-    def test_appends_to_existing_system_message(self) -> None:
+    def test_injects_into_user_message_after_system(self) -> None:
         request = _make_openai_request(
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -134,22 +135,42 @@ class TestInjectOpenAI:
             ]
         )
         result = inject_policy_awareness_openai(request, ["AllCaps"])
-        system_content = result.messages[0]["content"]
-        assert "You are a helpful assistant." in system_content
-        assert "AllCaps" in system_content
+        # System message unchanged
+        assert result.messages[0]["content"] == "You are a helpful assistant."
+        # User message has injection
+        assert "AllCaps" in result.messages[1]["content"]
 
-    def test_appends_to_list_system_content(self) -> None:
+    def test_prepends_to_list_user_content(self) -> None:
         request = _make_openai_request(
             messages=[
-                {"role": "system", "content": [{"type": "text", "text": "Be helpful."}]},
-                {"role": "user", "content": "Hello"},
+                {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
             ]
         )
         result = inject_policy_awareness_openai(request, ["AllCaps"])
-        system_content = result.messages[0]["content"]
-        assert isinstance(system_content, list)
-        assert len(system_content) == 2
-        assert "AllCaps" in system_content[1]["text"]
+        user_content = result.messages[0]["content"]
+        assert isinstance(user_content, list)
+        assert len(user_content) == 2
+        assert "AllCaps" in user_content[0]["text"]
+        assert user_content[1]["text"] == "Hello"
+
+    def test_skips_if_already_injected(self) -> None:
+        request = _make_openai_request()
+        first = inject_policy_awareness_openai(request, ["AllCaps"])
+        second = inject_policy_awareness_openai(first, ["AllCaps"])
+        # Should be identical — no double injection
+        assert first.messages == second.messages
+
+    def test_skips_if_context_tag_in_later_message(self) -> None:
+        """Context tag in any message position prevents re-injection."""
+        request = _make_openai_request(
+            messages=[
+                {"role": "user", "content": f"First message {_CONTEXT_OPEN}already here</policy-context>"},
+                {"role": "assistant", "content": "OK"},
+                {"role": "user", "content": "Second message"},
+            ]
+        )
+        result = inject_policy_awareness_openai(request, ["AllCaps"])
+        assert result.messages == request.messages
 
     def test_does_not_mutate_original_request(self) -> None:
         request = _make_openai_request()
@@ -174,30 +195,37 @@ class TestInjectAnthropic:
     def test_empty_names_no_injection(self) -> None:
         request = _make_anthropic_request()
         result = inject_policy_awareness_anthropic(request, [])
-        assert "system" not in result
+        assert result["messages"] == request["messages"]
 
-    def test_injects_system_string(self) -> None:
+    def test_injects_into_first_user_message(self) -> None:
         request = _make_anthropic_request()
         result = inject_policy_awareness_anthropic(request, ["AllCaps"])
-        assert isinstance(result["system"], str)
-        assert "AllCaps" in result["system"]
+        assert "AllCaps" in result["messages"][0]["content"]
+        assert _CONTEXT_OPEN in result["messages"][0]["content"]
 
-    def test_appends_to_existing_system_string(self) -> None:
-        request = _make_anthropic_request(system="Be helpful.")
+    def test_prepends_to_list_user_content(self) -> None:
+        request = _make_anthropic_request(messages=[{"role": "user", "content": [{"type": "text", "text": "Hello"}]}])
         result = inject_policy_awareness_anthropic(request, ["AllCaps"])
-        assert "Be helpful." in result["system"]
-        assert "AllCaps" in result["system"]
+        content = result["messages"][0]["content"]
+        assert isinstance(content, list)
+        assert len(content) == 2
+        assert "AllCaps" in content[0]["text"]
 
-    def test_appends_to_existing_system_blocks(self) -> None:
-        request = _make_anthropic_request(system=[{"type": "text", "text": "Be helpful."}])
-        result = inject_policy_awareness_anthropic(request, ["AllCaps"])
-        system = result["system"]
-        assert isinstance(system, list)
-        assert len(system) == 2
-        assert "AllCaps" in system[1]["text"]
+    def test_skips_if_already_injected(self) -> None:
+        request = _make_anthropic_request()
+        first = inject_policy_awareness_anthropic(request, ["AllCaps"])
+        second = inject_policy_awareness_anthropic(first, ["AllCaps"])
+        assert first["messages"] == second["messages"]
 
     def test_does_not_mutate_original_request(self) -> None:
-        request = _make_anthropic_request(system=[{"type": "text", "text": "Be helpful."}])
-        original_system = list(request["system"])
+        request = _make_anthropic_request()
+        original_messages = list(request["messages"])
         inject_policy_awareness_anthropic(request, ["AllCaps"])
-        assert request["system"] == original_system
+        assert request["messages"] == original_messages
+
+    def test_system_field_unchanged(self) -> None:
+        """Injection goes into messages, not the system field."""
+        request = _make_anthropic_request(system="Be helpful.")
+        result = inject_policy_awareness_anthropic(request, ["AllCaps"])
+        assert result["system"] == "Be helpful."
+        assert "AllCaps" in result["messages"][0]["content"]
