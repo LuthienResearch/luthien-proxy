@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
+    from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.types import RawHttpRequest
 
 T = TypeVar("T", bound=BaseModel)
@@ -126,6 +127,21 @@ class BasePolicy:
         if auth.lower().startswith("bearer "):
             return auth[7:] or None
         return headers.get("x-api-key") or None
+
+    def _resolve_judge_api_key(
+        self,
+        context: "PolicyContext",
+        explicit_key: str | None,
+        fallback_key: str | None,
+    ) -> str | None:
+        """Resolve the API key for judge LLM calls.
+
+        Priority: explicit per-policy key → passthrough (client's key) → server fallback.
+        """
+        if explicit_key:
+            return explicit_key
+        passthrough = self._extract_passthrough_key(context.raw_http_request)
+        return passthrough or fallback_key
 
 
 __all__ = ["BasePolicy"]

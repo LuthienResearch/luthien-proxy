@@ -100,8 +100,14 @@ class _ToolCallJudgeAnthropicState:
 class ToolCallJudgeConfig(BaseModel):
     """Configuration for ToolCallJudgePolicy."""
 
-    model: str = Field(default="claude-haiku-4-5", description="Judge LLM model identifier")
-    api_base: str | None = Field(default=None, description="API base URL for judge model")
+    model: str = Field(
+        default="claude-haiku-4-5",
+        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'gpt-4o', 'ollama/llama3'",
+    )
+    api_base: str | None = Field(
+        default=None,
+        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
+    )
     api_key: str | None = Field(
         default=None,
         description="API key for judge model (falls back to env vars)",
@@ -751,7 +757,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy
                 arguments,
                 self._config,
                 self._judge_instructions,
-                api_key=self._resolve_api_key(context),
+                api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
             )
         except Exception as exc:
             logger.error(
@@ -807,16 +813,6 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy
     # Shared Helpers
     # ========================================================================
 
-    def _resolve_api_key(self, context: "PolicyContext") -> str | None:
-        """Resolve the API key to use for judge calls.
-
-        Priority: explicit per-policy key → passthrough (client's key) → server fallback.
-        """
-        if self._config.api_key:
-            return self._config.api_key
-        passthrough = self._extract_passthrough_key(context.raw_http_request)
-        return passthrough or self._fallback_api_key
-
     async def _call_judge_with_failsafe(
         self,
         policy_ctx: "PolicyContext",
@@ -834,7 +830,7 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy
                 arguments,
                 self._config,
                 self._judge_instructions,
-                api_key=self._resolve_api_key(policy_ctx),
+                api_key=self._resolve_judge_api_key(policy_ctx, self._config.api_key, self._fallback_api_key),
             )
         except Exception as exc:
             # LOUD ERROR LOGGING - judge failure is a security concern

@@ -255,7 +255,8 @@ def _pydantic_model_defaults(model_class: type[BaseModel], param_schema: dict[st
             try:
                 factory = field_info.default_factory
                 example[field_name] = factory()  # type: ignore[call-arg]
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as e:
+                logger.debug(f"default_factory for {model_class.__name__}.{field_name} failed: {e!r}")
                 example[field_name] = _get_example_value(properties.get(field_name, {}))
         else:
             example[field_name] = _get_example_value(properties.get(field_name, {}))

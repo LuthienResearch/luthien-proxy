@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from luthien_proxy.admin.policy_discovery import (
     SKIP_MODULES,
     SKIP_SUFFIXES,
+    _pydantic_model_defaults,
     discover_policies,
     extract_config_schema,
     extract_description,
@@ -414,6 +415,43 @@ class TestSubPolicyListMarker:
         schema, _ = extract_config_schema(TestPolicy)
         assert "rules" in schema
         assert "x-sub-policy-list" not in schema["rules"]
+
+
+class TestPydanticModelDefaults:
+    """Tests for _pydantic_model_defaults function."""
+
+    def test_simple_defaults(self) -> None:
+        class Config(BaseModel):
+            name: str = "default"
+            count: int = 42
+
+        schema = Config.model_json_schema()
+        result = _pydantic_model_defaults(Config, schema)
+        assert result == {"name": "default", "count": 42}
+
+    def test_default_factory(self) -> None:
+        class Config(BaseModel):
+            tags: list[str] = Field(default_factory=list)
+
+        schema = Config.model_json_schema()
+        result = _pydantic_model_defaults(Config, schema)
+        assert result == {"tags": []}
+
+    def test_required_field_uses_example(self) -> None:
+        class Config(BaseModel):
+            name: str
+
+        schema = Config.model_json_schema()
+        result = _pydantic_model_defaults(Config, schema)
+        assert result == {"name": ""}
+
+    def test_none_default(self) -> None:
+        class Config(BaseModel):
+            api_key: str | None = None
+
+        schema = Config.model_json_schema()
+        result = _pydantic_model_defaults(Config, schema)
+        assert result == {"api_key": None}
 
 
 class TestSkipModules:
