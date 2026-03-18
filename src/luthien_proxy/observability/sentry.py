@@ -8,8 +8,11 @@ strips cookies/server_name, redacts non-safe headers.
 from __future__ import annotations
 
 import logging
+from itertools import islice
 
 import sentry_sdk
+from sentry_sdk.integrations.logging import ignore_logger
+from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
 
 from luthien_proxy.settings import Settings, get_settings
 
@@ -38,6 +41,17 @@ _LLM_CONTENT_VARS = {
 _SAFE_REQUEST_KEYS = {"model", "stream", "max_tokens", "temperature", "top_p", "top_k"}
 _SAFE_HEADERS = {"content-type", "accept", "user-agent", "x-request-id"}
 
+_EXTRA_DENYLIST = [
+    "anthropic_api_key",
+    "openai_api_key",
+    "proxy_api_key",
+    "admin_api_key",
+    "resolved_api_key",
+    "explicit_key",
+    "bearer_token",
+    "api_key_header",
+]
+
 
 def _summarize(value):  # noqa: ANN001, ANN202
     """Replace a value with its type and size, preserving debuggability."""
@@ -54,7 +68,7 @@ def _summarize(value):  # noqa: ANN001, ANN202
     if isinstance(value, list):
         return f"<list len={len(value)}>"
     if isinstance(value, dict):
-        return f"<dict keys={list(value.keys())[:8]}>"
+        return f"<dict keys={list(islice(value.keys(), 8))}>"
     return f"<{type(value).__name__}>"
 
 
@@ -104,23 +118,9 @@ def init_sentry(settings: Settings | None = None) -> None:
     if not settings.sentry_enabled or not settings.sentry_dsn:
         return
 
-    from sentry_sdk.integrations.logging import ignore_logger
-    from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
-
     # OTel exporter logs at ERROR when Tempo is unreachable — expected in
     # local dev without Docker. Don't let these burn Sentry quota.
     ignore_logger("opentelemetry.sdk.trace.export")
-
-    _EXTRA_DENYLIST = [
-        "anthropic_api_key",
-        "openai_api_key",
-        "proxy_api_key",
-        "admin_api_key",
-        "resolved_api_key",
-        "explicit_key",
-        "bearer_token",
-        "api_key_header",
-    ]
 
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
