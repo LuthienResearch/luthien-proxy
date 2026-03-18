@@ -102,8 +102,8 @@ class SimplePolicy(BasePolicy, AnthropicHookPolicy):
     ) -> AnthropicToolUseBlock:
         """Transform/validate a complete Anthropic tool call. Override for Anthropic-specific handling.
 
-        By default, this delegates to simple_on_response_tool_call with format conversion.
-        Override this method if you need Anthropic-specific tool call handling.
+        By default, passes through unchanged.
+        Override this method to implement tool call transformations.
 
         Args:
             tool_call: The complete Anthropic tool_use block
