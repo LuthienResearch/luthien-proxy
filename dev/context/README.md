@@ -10,25 +10,21 @@ These documents are actively maintained and reflect current architecture:
 - **[`codebase_learnings.md`](codebase_learnings.md)** - Architectural patterns, module relationships, how subsystems work together
 - **[`decisions.md`](decisions.md)** - Technical decisions made and their rationale
 - **[`gotchas.md`](gotchas.md)** - Non-obvious behaviors, edge cases, common mistakes
-- **[`observability-guide.md`](observability-guide.md)** - General observability patterns and OpenTelemetry setup
+- **[`observability_records.md`](observability_records.md)** - Event recording patterns and observability architecture
 - **[`otel-conventions.md`](otel-conventions.md)** - OpenTelemetry naming conventions and attribute schemas
+- **[`streaming_response_structures.md`](streaming_response_structures.md)** - Streaming chunk structures and SSE format
 
 ## Historical Documents (Archived)
 
 These documents provided important feedback during the V2 design phase but are superseded by current implementation docs:
 
-- **[`observability_review_summary.md`](observability_review_summary.md)** - Summarized architectural decisions during observability v2 planning
-- **[`observability-architecture-proposal.md`](observability-architecture-proposal.md)** - Original four-layer architecture proposal
 - **[`redis-otel-analysis.md`](redis-otel-analysis.md)** - Analysis of Redis vs OpenTelemetry for real-time monitoring
 
 **Do not update these documents.** They serve as historical reference only.
 
 ## Current Implementation
 
-For the current V2 implementation status and plans, see:
-- [`dev/v2_architecture_design.md`](../v2_architecture_design.md) - **Architecture design and implementation status**
-- [`dev/observability-v2.md`](../observability-v2.md) - **Observability features and status**
-- [Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO) - **Outstanding work items**
+For outstanding work items, see the [Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO).
 
 ## Adding New Context
 
