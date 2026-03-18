@@ -369,15 +369,17 @@ def discover_policies() -> list[dict[str, Any]]:
         logger.error(f"Failed to get policies package path: {e}")
         return policies
 
-    for module_info in pkgutil.walk_packages(package_path, prefix=""):
-        module_name = module_info.name
+    policies_prefix = "luthien_proxy.policies."
+
+    for module_info in pkgutil.walk_packages(package_path, prefix=policies_prefix):
+        full_module_name = module_info.name
 
         # Skip subpackage __init__ modules (we only want leaf modules)
         if module_info.ispkg:
             continue
 
-        # Extract leaf name for skip checks (handles dotted subpackage names)
-        leaf_name = module_name.rsplit(".", 1)[-1]
+        # Extract leaf name for skip checks (handles dotted subpackage names like presets.prefer_uv)
+        leaf_name = full_module_name.rsplit(".", 1)[-1]
 
         if leaf_name in SKIP_MODULES:
             continue
@@ -385,7 +387,7 @@ def discover_policies() -> list[dict[str, Any]]:
             continue
 
         try:
-            module = importlib.import_module(f"luthien_proxy.policies.{module_name}")
+            module = importlib.import_module(full_module_name)
         except ImportError as e:
             logger.warning(f"Failed to import module {module_name}: {e}")
             continue
@@ -400,7 +402,7 @@ def discover_policies() -> list[dict[str, Any]]:
             # Check if it's a class defined in this module
             if not isinstance(attr, type):
                 continue
-            if attr.__module__ != f"luthien_proxy.policies.{module_name}":
+            if attr.__module__ != full_module_name:
                 continue
 
             # Check if it's a subclass of BasePolicy (but not BasePolicy itself)
@@ -412,7 +414,7 @@ def discover_policies() -> list[dict[str, Any]]:
                 continue
 
             # Extract metadata
-            class_ref = f"luthien_proxy.policies.{module_name}:{attr_name}"
+            class_ref = f"{full_module_name}:{attr_name}"
             description = extract_description(attr)
             config_schema, example_config = extract_config_schema(attr)
 
