@@ -14,6 +14,7 @@ from rich.panel import Panel
 
 from luthien_cli.commands.up import wait_for_healthy
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
+from luthien_cli.repo import ensure_repo
 
 POLICY_TEMPLATE = """\
 policy:
@@ -102,16 +103,8 @@ def onboard():
         )
     )
 
-    # 1. Repo path
-    if not config.repo_path:
-        config.repo_path = click.prompt("Path to luthien-proxy repo", type=str)
-
-    if not os.path.isfile(os.path.join(config.repo_path, "docker-compose.yaml")):
-        console.print(
-            f"[red]No docker-compose.yaml found in {config.repo_path}.[/red]\n"
-            "[red]Is this a luthien-proxy checkout?[/red]"
-        )
-        raise SystemExit(1)
+    # 1. Ensure proxy files are available
+    config.repo_path = ensure_repo()
 
     # 2. Generate keys
     proxy_key = _generate_key("sk-luthien")
@@ -140,8 +133,18 @@ def onboard():
 
     # 6. Start the stack
     console.print("\n[blue]Starting gateway...[/blue]")
+    # Pull latest images
+    pull_result = subprocess.run(
+        ["docker", "compose", "pull"],
+        cwd=config.repo_path,
+        capture_output=True,
+        text=True,
+    )
+    if pull_result.returncode != 0:
+        console.print(f"[red]docker compose pull failed:[/red]\n{pull_result.stderr}")
+        raise SystemExit(1)
     result = subprocess.run(
-        ["docker", "compose", "up", "-d", "--build"],
+        ["docker", "compose", "up", "-d"],
         cwd=config.repo_path,
         capture_output=True,
         text=True,

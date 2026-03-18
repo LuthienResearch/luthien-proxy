@@ -1,14 +1,13 @@
 """Tests for repo module -- managed proxy artifact directory."""
 
-import pytest
 import httpx
+import pytest
 
 from luthien_cli.repo import (
     GITHUB_RAW_BASE,
     GITHUB_SHA_URL,
-    MANAGED_REPO_DIR,
-    _get_remote_sha,
     _download_files,
+    _get_remote_sha,
     _strip_dev_only_lines,
     ensure_repo,
 )
@@ -171,7 +170,7 @@ def test_ensure_repo_update_available_accepted(tmp_path, httpx_mock):
 
     with patch("luthien_cli.repo.MANAGED_REPO_DIR", managed):
         with patch("click.confirm", return_value=True):
-            result = ensure_repo()
+            ensure_repo()
 
     assert (managed / ".version").read_text() == "sha-new"
 

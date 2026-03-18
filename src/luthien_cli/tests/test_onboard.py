@@ -71,35 +71,17 @@ def test_ensure_env_falls_back_to_example(tmp_path):
     assert "AUTH_MODE=both" in env_content
 
 
-def _make_repo(tmp_path, name="repo"):
-    """Create a fake luthien-proxy repo directory with docker-compose.yaml."""
-    repo_path = tmp_path / name
-    repo_path.mkdir()
-    (repo_path / "docker-compose.yaml").touch()
-    return repo_path
-
-
-def test_onboard_rejects_invalid_repo(tmp_path):
-    runner = CliRunner()
-    config_path = tmp_path / "config.toml"
-    bad_path = tmp_path / "not-a-repo"
-    bad_path.mkdir()
-
-    with patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path):
-        result = runner.invoke(cli, ["onboard"], input=f"{bad_path}\n")
-
-    assert result.exit_code != 0
-    assert "docker-compose.yaml" in result.output
-
-
 def test_onboard_full_flow(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
-    repo_path = _make_repo(tmp_path)
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "docker-compose.yaml").touch()
     (repo_path / ".env.example").write_text("PROXY_API_KEY=placeholder\n")
 
     with (
         patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_repo", return_value=str(repo_path)),
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
     ):
@@ -107,37 +89,32 @@ def test_onboard_full_flow(tmp_path):
         result = runner.invoke(
             cli,
             ["onboard"],
-            input=f"{repo_path}\nBlock PII from all responses\n",
+            input="Block PII from all responses\n",
         )
 
     assert result.exit_code == 0, result.output
     assert "Gateway is running" in result.output
     assert "luthien claude" in result.output
-    assert "Block PII" in result.output
 
-    # Verify policy was written
     policy = (repo_path / "config" / "policy_config.yaml").read_text()
     assert "Block PII from all responses" in policy
-
-    # Verify CLI config was saved
     assert config_path.exists()
 
 
 def test_onboard_docker_failure(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
-    repo_path = _make_repo(tmp_path)
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "docker-compose.yaml").touch()
 
     with (
         patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_repo", return_value=str(repo_path)),
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
     ):
         mock_run.return_value = MagicMock(returncode=1, stderr="compose error")
-        result = runner.invoke(
-            cli,
-            ["onboard"],
-            input=f"{repo_path}\nBlock PII\n",
-        )
+        result = runner.invoke(cli, ["onboard"], input="Block PII\n")
 
     assert result.exit_code != 0
     assert "failed" in result.output.lower()
@@ -146,19 +123,18 @@ def test_onboard_docker_failure(tmp_path):
 def test_onboard_gateway_unhealthy(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
-    repo_path = _make_repo(tmp_path)
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "docker-compose.yaml").touch()
 
     with (
         patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_repo", return_value=str(repo_path)),
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=False),
     ):
         mock_run.return_value = MagicMock(returncode=0)
-        result = runner.invoke(
-            cli,
-            ["onboard"],
-            input=f"{repo_path}\nBlock PII\n",
-        )
+        result = runner.invoke(cli, ["onboard"], input="Block PII\n")
 
     assert result.exit_code != 0
     assert "healthy" in result.output.lower()
