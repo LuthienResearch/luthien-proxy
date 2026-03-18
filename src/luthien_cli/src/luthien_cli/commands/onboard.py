@@ -186,13 +186,14 @@ def onboard():
 
     # 6. Start the stack (stop existing containers first to avoid port conflicts)
     console.print("\n[blue]Starting gateway...[/blue]")
-    # Ignore exit code — nothing to stop on a fresh machine is fine
-    subprocess.run(
+    down_result = subprocess.run(
         ["docker", "compose", "down", "--remove-orphans"],
         cwd=config.repo_path,
         capture_output=True,
         text=True,
     )
+    if down_result.returncode == 0 and "Removed" in (down_result.stderr or ""):
+        console.print("[dim]Stopped existing luthien containers.[/dim]")
 
     # Auto-select free ports (same logic as quick_start.sh)
     port_env = _find_free_ports()
