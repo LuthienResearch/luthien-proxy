@@ -73,8 +73,7 @@ def _download_files(dest: Path) -> None:
             r.raise_for_status()
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             console.print(
-                f"[red]Could not download {url} from GitHub. "
-                f"Check your internet connection.[/red]\n[dim]{e}[/dim]"
+                f"[red]Could not download {url} from GitHub. Check your internet connection.[/red]\n[dim]{e}[/dim]"
             )
             raise SystemExit(1)
         except httpx.HTTPStatusError as e:
