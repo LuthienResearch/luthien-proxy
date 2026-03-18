@@ -309,8 +309,9 @@ class TestGatewayAuthAndClientResolution:
             )
             MockClient.assert_called_once_with(auth_token="my-anthropic-token", base_url=None)
 
-    def test_passthrough_bearer_api_key_creates_api_key_client(self, mock_app):
-        """In passthrough mode, Bearer Anthropic API keys are forwarded as api_key."""
+    def test_passthrough_bearer_creates_auth_token_client(self, mock_app):
+        """In passthrough mode, all Bearer credentials create auth_token client.
+        Transport (header) is the authority, not token prefix."""
         app, _, credential_manager, _ = mock_app
         credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
 
@@ -330,7 +331,7 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"Authorization": "Bearer sk-ant-api03-test-key"},
             )
-            MockClient.assert_called_once_with(api_key="sk-ant-api03-test-key", base_url=None)
+            MockClient.assert_called_once_with(auth_token="sk-ant-api03-test-key", base_url=None)
 
     def test_passthrough_api_key_creates_api_key_client(self, mock_app):
         """In passthrough mode, an x-api-key credential creates an api_key client."""

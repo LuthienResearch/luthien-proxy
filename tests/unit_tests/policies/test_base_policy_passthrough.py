@@ -65,9 +65,11 @@ class TestJudgeOAuthHeaders:
         ctx = self._ctx({"authorization": f"Bearer {self.OAUTH_TOKEN}"})
         assert BasePolicy._judge_oauth_headers(ctx, None) == self.OAUTH_HEADER
 
-    def test_anthropic_api_key_returns_none(self) -> None:
+    def test_api_key_in_bearer_header_treated_as_oauth(self) -> None:
+        # Bearer header = OAuth treatment, regardless of token format/prefix.
+        # Transport (header) is the differentiator, not token prefix inspection.
         ctx = self._ctx({"authorization": f"Bearer {self.API_KEY}"})
-        assert BasePolicy._judge_oauth_headers(ctx, None) is None
+        assert BasePolicy._judge_oauth_headers(ctx, None) == self.OAUTH_HEADER
 
     def test_explicit_key_skips_oauth_check(self) -> None:
         # Even with an OAuth bearer, an explicit override key suppresses the header

@@ -26,7 +26,6 @@ ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages/count_tokens"
 ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_BETA = "token-counting-2024-11-01"
 ANTHROPIC_OAUTH_BETA = "token-counting-2024-11-01,oauth-2025-04-20"
-ANTHROPIC_API_KEY_PREFIX = "sk-ant-api"
 
 # Minimal payload for credential validation (free endpoint).
 # OAuth tokens and API keys both have access to haiku.
@@ -70,15 +69,6 @@ class CachedCredential:
 def hash_credential(api_key: str) -> str:
     """SHA-256 hash of a credential for cache lookup and display."""
     return hashlib.sha256(api_key.encode()).hexdigest()
-
-
-def is_anthropic_api_key(credential: str) -> bool:
-    """Best-effort format check for Anthropic API keys.
-
-    Uses the current public key prefix format. If Anthropic changes key formats,
-    this heuristic should be updated.
-    """
-    return credential.startswith(ANTHROPIC_API_KEY_PREFIX)
 
 
 class CredentialManager:
@@ -201,7 +191,7 @@ class CredentialManager:
             return cached.valid
 
         # Cache miss - validate against Anthropic API
-        is_oauth_bearer = is_bearer and not is_anthropic_api_key(credential)
+        is_oauth_bearer = is_bearer
         is_valid = await self._call_count_tokens(credential, is_bearer=is_bearer)
         if is_valid is None:
             # Inconclusive (network error, unexpected status, or OAuth bearer that
@@ -331,9 +321,8 @@ class CredentialManager:
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(timeout=10.0)
 
-        # Clients sometimes pass Anthropic API keys in Authorization headers.
-        # Anthropic expects API keys in x-api-key, not bearer auth.
-        use_bearer_transport = is_bearer and not is_anthropic_api_key(credential)
+        # OAuth tokens arrive via Authorization: Bearer; API keys via x-api-key.
+        use_bearer_transport = is_bearer
         beta = ANTHROPIC_OAUTH_BETA if use_bearer_transport else ANTHROPIC_BETA
         headers: dict[str, str] = {
             "anthropic-version": ANTHROPIC_API_VERSION,
@@ -377,7 +366,6 @@ class CredentialManager:
 __all__ = [
     "AuthConfig",
     "AuthMode",
-    "is_anthropic_api_key",
     "CachedCredential",
     "CredentialManager",
     "hash_credential",
