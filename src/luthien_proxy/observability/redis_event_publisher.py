@@ -14,12 +14,17 @@ import asyncio
 import json
 import logging
 import time
-from datetime import UTC, datetime
 from typing import Any, AsyncGenerator, cast
 
 import redis.asyncio as redis
 from redis.asyncio.client import PubSub
 
+from luthien_proxy.observability.event_publisher import (
+    build_activity_event,
+    format_sse_payload,
+    heartbeat_event,
+    should_send_heartbeat,
+)
 from luthien_proxy.utils.constants import (
     HEARTBEAT_INTERVAL_SECONDS,
     REDIS_POLL_TIMEOUT_BUFFER_SECONDS,
@@ -30,36 +35,6 @@ logger = logging.getLogger(__name__)
 
 # Redis channel for activity events (used by both publisher and streamer)
 ACTIVITY_CHANNEL = "luthien:activity"
-
-
-def build_activity_event(
-    call_id: str,
-    event_type: str,
-    data: dict[str, Any] | None = None,
-    timestamp: datetime | None = None,
-) -> dict[str, Any]:
-    """Build activity event dict for Redis publication.
-
-    This is a pure function that constructs event dictionaries without side effects,
-    making it easily unit testable without requiring Redis infrastructure.
-
-    Args:
-        call_id: Unique request identifier
-        event_type: Event type (e.g., "policy.content_filtered")
-        data: Optional event-specific data
-        timestamp: Optional timestamp (defaults to now)
-
-    Returns:
-        Event dict ready for JSON serialization
-    """
-    event: dict[str, Any] = {
-        "call_id": call_id,
-        "event_type": event_type,
-        "timestamp": (timestamp or datetime.now(UTC)).isoformat(),
-    }
-    if data:
-        event["data"] = data
-    return event
 
 
 class RedisEventPublisher:
@@ -109,6 +84,17 @@ class RedisEventPublisher:
             logger.error(f"Failed to publish event to Redis: {e}")
             # Don't raise - event publishing failures shouldn't break requests
 
+    async def stream_events(
+        self,
+        heartbeat_seconds: float = HEARTBEAT_INTERVAL_SECONDS,
+    ) -> AsyncGenerator[str, None]:
+        """Stream activity events as SSE. Satisfies EventPublisherProtocol."""
+        async for event in stream_activity_events(
+            self.redis,
+            heartbeat_seconds=heartbeat_seconds,
+        ):
+            yield event
+
 
 async def create_event_publisher(redis_url: str) -> RedisEventPublisher:
     """Create and return a RedisEventPublisher instance.
@@ -121,18 +107,6 @@ async def create_event_publisher(redis_url: str) -> RedisEventPublisher:
     """
     redis_client = await redis.from_url(redis_url)
     return RedisEventPublisher(redis_client)
-
-
-def _should_send_heartbeat(last_heartbeat: float, heartbeat_seconds: float) -> bool:
-    return time.monotonic() - last_heartbeat >= heartbeat_seconds
-
-
-def _heartbeat_event() -> str:
-    return f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
-
-
-def _format_sse_payload(payload: str) -> str:
-    return f"data: {payload}\n\n"
 
 
 def _decode_payload(message: dict[str, Any]) -> str:
@@ -173,9 +147,9 @@ async def stream_activity_events(
 
         try:
             while True:
-                if _should_send_heartbeat(last_heartbeat, heartbeat_seconds):
+                if should_send_heartbeat(last_heartbeat, heartbeat_seconds):
                     last_heartbeat = time.monotonic()
-                    yield _heartbeat_event()
+                    yield heartbeat_event()
                     continue
 
                 message = await _poll_pubsub_message(pubsub, timeout_seconds)
@@ -185,7 +159,7 @@ async def stream_activity_events(
 
                 payload = _decode_payload(message)
 
-                yield _format_sse_payload(payload)
+                yield format_sse_payload(payload)
 
         except asyncio.CancelledError:
             logger.info("Activity stream cancelled by client")

@@ -15,10 +15,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from luthien_proxy.observability.event_publisher import build_activity_event
 from luthien_proxy.observability.redis_event_publisher import (
     ACTIVITY_CHANNEL,
     RedisEventPublisher,
-    build_activity_event,
     create_event_publisher,
     stream_activity_events,
 )
@@ -360,7 +360,10 @@ class TestStreamActivityEvents:
 
         chunks = []
 
-        with patch("luthien_proxy.observability.redis_event_publisher.time.monotonic", fake_monotonic):
+        with (
+            patch("luthien_proxy.observability.event_publisher.time.monotonic", fake_monotonic),
+            patch("luthien_proxy.observability.redis_event_publisher.time.monotonic", fake_monotonic),
+        ):
 
             async def collect_heartbeats() -> None:
                 async for chunk in stream_activity_events(
