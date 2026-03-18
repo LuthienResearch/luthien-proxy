@@ -101,146 +101,21 @@ Luthien sits in line as a transparent proxy. Every request and response flows th
 
 ## Quick Start
 
-**Prerequisites:**
-
-[Docker](https://www.docker.com/products/docker-desktop/) must be running (or `brew install --cask docker`).
-
-Install [uv](https://docs.astral.sh/uv/) if you haven't: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-
-Pre-built Docker images are published to GHCR, so `docker compose up` pulls them automatically (no local build needed). For local development with source changes, use `docker compose up --build` (or `./scripts/quick_start.sh`, which handles this) to build from your working tree.
-
-### 1. Clone the repo
+Requires [Docker](https://www.docker.com/products/docker-desktop/):
 
 ```bash
-git clone https://github.com/LuthienResearch/luthien-proxy && cd luthien-proxy
+curl -fsSL https://raw.githubusercontent.com/LuthienResearch/luthien-proxy/main/scripts/install.sh | bash
 ```
 
-### 2. Configure authentication
+This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, downloads the proxy, walks you through configuration, starts the stack, and launches Claude Code through Luthien. Works with both API keys and Claude Pro/Max subscriptions.
 
-Copy the example env file:
+After setup, use the CLI to manage the proxy:
 
 ```bash
-cp .env.example .env
+luthien claude          # launch Claude Code through the proxy
+luthien status          # check gateway health
+luthien up / luthien down  # start/stop the stack
 ```
-
-**Option A — Anthropic API key** (pay-per-use):
-
-```bash
-echo "ANTHROPIC_API_KEY=your-key-here" >> .env
-```
-
-Replace `your-key-here` with your key from [console.anthropic.com](https://console.anthropic.com/settings/keys).
-
-**Option B — Claude Pro/Max subscription** (no API key needed):
-
-Make sure you're already logged in to Claude Code:
-
-```bash
-claude auth login
-```
-
-That's it — leave `ANTHROPIC_API_KEY` blank in `.env`. The proxy will forward your login session to Anthropic automatically.
-
-### 3. Run quick start script
-
-```bash
-./scripts/quick_start.sh
-```
-
-The default policy (**No Silent Failures**) is already active -no configuration needed. It catches when Claude silently drops your instructions.
-
-### 4. Launch Claude Code through the proxy
-
-```bash
-./scripts/launch_claude_code.sh
-```
-
-🚀🎉 All requests and responses are now logged through the proxy.
-
-
-### 5. See conversation history and raw logs
-
-See your conversation history: <http://localhost:8000/history>
-
-Or see full JSONLs in the activity monitor: <http://localhost:8000/activity/monitor>
-
-### 6. Set up a DeSlop policy (string replacement)
-
-| Find | Replace with |
-|------|-------------|
-| `—` (em dash) | `-` (hyphen) |
-
-Runs on every LLM response. Switch policies at [localhost:8000/policy-config](http://localhost:8000/policy-config).
-
-<details>
-<summary><b>See the code (click to expand)</b></summary>
-
-```python
-from luthien_proxy.policies.simple_policy import SimplePolicy
-
-class DeSlop(SimplePolicy):
-    async def simple_on_response_content(self, content, ctx):  # runs on every LLM response before it reaches Claude Code
-        return content.replace("\u2014", "-").replace("\u2013", "-")  # em dash → hyphen, en dash → hyphen
-```
-
-</details>
-
-### 7. Set up an LLM-as-judge policy
-
-Luthien can call a separate "judge" model (like Claude Haiku) to evaluate your rules on every request and response. This happens in parallel to reduce latency. You decide which model to use for each policy.
-
-<details>
-<summary><b>Did it follow CLAUDE.md? (YAML config)</b></summary>
-
-```yaml
-# Write your rules in plain English -the judge LLM interprets them
-policy:
-  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
-  config:
-    model: "openai/gpt-4o-mini"
-    probability_threshold: 0.6
-    judge_instructions: >
-      Block any 'pip install' commands. Suggest 'uv add' instead.
-      Flag if agent removed comments or log lines without being asked.
-      Flag if agent ignored rules that were explicitly stated in CLAUDE.md.
-```
-
-</details>
-
-<details>
-<summary><b>Did it do something suspicious? (YAML config)</b></summary>
-
-```yaml
-# The judge evaluates every tool call before it executes
-policy:
-  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
-  config:
-    model: "openai/gpt-4o-mini"
-    probability_threshold: 0.5
-    judge_instructions: >
-      Block 'rm -rf' or any recursive delete on project directories.
-      Block 'git push --force' to main or master.
-      Flag if agent wraps code in try/except that swallows all errors.
-      Flag if agent pip-installs packages not in requirements.
-```
-
-</details>
-
-<details>
-<summary><b>Clean up AI writing tics (string replacement)</b></summary>
-
-```yaml
-# No LLM needed -runs as a fast string replacement on every response
-policy:
-  class: "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
-  config:
-    replacements:
-      - ["\u2014", "-"]   # em dash → hyphen
-      - ["\u2013", "-"]   # en dash → hyphen
-    match_capitalization: true
-```
-
-</details>
 
 ---
 
