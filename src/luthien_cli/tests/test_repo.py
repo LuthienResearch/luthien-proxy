@@ -114,7 +114,6 @@ def test_download_files_network_error(tmp_path, httpx_mock):
         _download_files(tmp_path)
 
 
-
 def test_ensure_repo_fresh_install(tmp_path, httpx_mock):
     managed = tmp_path / "luthien-proxy"
     compose_content = "services:\n  gateway:\n    image: ghcr.io/x:latest\n"
