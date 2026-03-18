@@ -7,6 +7,7 @@ response blocks.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any, cast
@@ -48,6 +49,18 @@ class SimpleLLMJudgeConfig(BaseModel):
             "'block' is fail-secure: content is rejected when the judge cannot "
             "evaluate it."
         ),
+    )
+    max_retries: int = Field(
+        default=2,
+        ge=0,
+        le=10,
+        description="Max retry attempts on transient judge failures (0 = no retries).",
+    )
+    retry_delay: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=30.0,
+        description="Seconds to wait between retries.",
     )
 
     model_config = {"frozen": True}
@@ -185,7 +198,9 @@ async def call_simple_llm_judge(
     api_key overrides config.api_key (used for passthrough auth). extra_headers
     is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
     falls back to its own env-var resolution.
-    Exceptions propagate to the caller, which applies the on_error policy.
+
+    Retries up to config.max_retries times with config.retry_delay between
+    attempts. Exceptions propagate to the caller on final failure.
     """
     prompt = build_judge_prompt(config.instructions, current_block, previous_blocks)
 
@@ -204,15 +219,36 @@ async def call_simple_llm_judge(
     if extra_headers:
         kwargs["extra_headers"] = extra_headers
 
-    response = await acompletion(**kwargs)
-    response = cast(ModelResponse, response)
+    max_attempts = 1 + config.max_retries
+    last_exc: Exception | None = None
 
-    first_choice: Choices = cast(Choices, response.choices[0])
-    message: Message = first_choice.message
-    if message.content is None:
-        raise ValueError("Judge response content is None")
+    for attempt in range(max_attempts):
+        try:
+            response = await acompletion(**kwargs)
+            response = cast(ModelResponse, response)
 
-    return parse_judge_action(message.content)
+            first_choice: Choices = cast(Choices, response.choices[0])
+            message: Message = first_choice.message
+            if message.content is None:
+                raise ValueError("Judge response content is None")
+
+            return parse_judge_action(message.content)
+        except Exception as exc:
+            last_exc = exc
+            is_last_attempt = attempt == max_attempts - 1
+            if is_last_attempt:
+                break
+            logger.warning(
+                "SimpleLLM judge attempt %d/%d failed: %s — retrying in %.1fs",
+                attempt + 1,
+                max_attempts,
+                exc,
+                config.retry_delay,
+            )
+            if config.retry_delay > 0:
+                await asyncio.sleep(config.retry_delay)
+
+    raise last_exc  # type: ignore[misc]
 
 
 __all__ = [
