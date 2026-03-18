@@ -8,7 +8,7 @@
   - `luthien onboard`: spinners during image pull, container stop/start, and health check
   - `luthien up` / `luthien down`: spinners during container start/stop and health check
   - `repo.py`: spinners during artifact download and update checks
-
+- **Policy context injection** — injects a system message informing the LLM about active policies, preventing model confusion when policies modify output; configurable via `INJECT_POLICY_CONTEXT` env var (#355)
 - **SQLite support** for Docker-free installs (#344)
 - **`luthien onboard`** interactive setup command — prompts for policy description, generates keys, starts stack (#317)
 - **Auto-fetch proxy artifacts on onboard** — `luthien onboard` downloads Docker artifacts from GitHub, no repo checkout needed (#345)

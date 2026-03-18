@@ -26,9 +26,10 @@ logger = logging.getLogger(__name__)
 POLICY_AWARENESS_PREFIX = "[Luthien Proxy]"
 
 _AWARENESS_TEMPLATE = (
-    "{prefix} Your responses may be modified by the following active policies "
-    "before reaching the user: {policy_names}. This is expected behavior — "
-    "do not try to compensate for or reverse these modifications."
+    f"{POLICY_AWARENESS_PREFIX} Your responses may be modified by the following "
+    "active policies before reaching the user: {policy_names}. "
+    "This is expected behavior — do not try to compensate for or reverse "
+    "these modifications."
 )
 
 
@@ -54,10 +55,7 @@ def get_policy_names(policy: Any) -> list[str]:
 
 def build_awareness_message(policy_names: list[str]) -> str:
     """Build the awareness message text from a list of policy names."""
-    return _AWARENESS_TEMPLATE.format(
-        prefix=POLICY_AWARENESS_PREFIX,
-        policy_names=", ".join(policy_names),
-    )
+    return _AWARENESS_TEMPLATE.format(policy_names=", ".join(policy_names))
 
 
 def inject_policy_awareness_openai(request: Request, policy: Any) -> Request:
