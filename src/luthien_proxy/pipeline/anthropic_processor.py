@@ -52,6 +52,7 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyEmission,
     AnthropicPolicyIOProtocol,
 )
+from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.request_log.recorder import RequestLogRecorder, create_recorder
 from luthien_proxy.settings import get_settings
@@ -342,8 +343,8 @@ async def process_anthropic_request(
             emitter=emitter,
         )
 
-        if get_settings().inject_policy_context:
-            anthropic_request = inject_policy_awareness_anthropic(anthropic_request, policy)
+        if get_settings().inject_policy_context and isinstance(policy, BasePolicy):
+            anthropic_request = inject_policy_awareness_anthropic(anthropic_request, policy.active_policy_names())
 
         is_streaming = anthropic_request.get("stream", False)
         model = anthropic_request["model"]

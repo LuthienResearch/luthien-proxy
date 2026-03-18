@@ -12,8 +12,6 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from luthien_proxy.policies.noop_policy import NoOpPolicy
-
 if TYPE_CHECKING:
     from luthien_proxy.llm.types import Request, SystemMessage
     from luthien_proxy.llm.types.anthropic import (
@@ -33,40 +31,19 @@ _AWARENESS_TEMPLATE = (
 )
 
 
-def get_policy_names(policy: Any) -> list[str]:
-    """Extract leaf policy names, skipping NoOp policies.
-
-    For multi-policies (serial/parallel), recurses into sub-policies to get
-    the actual leaf names. Filters out NoOpPolicy since it doesn't modify anything.
-    """
-    if isinstance(policy, NoOpPolicy):
-        return []
-
-    sub_policies = getattr(policy, "_sub_policies", None)
-    if sub_policies is not None:
-        names: list[str] = []
-        for sub in sub_policies:
-            names.extend(get_policy_names(sub))
-        return names
-
-    name = getattr(policy, "short_policy_name", None) or type(policy).__name__
-    return [name]
-
-
 def build_awareness_message(policy_names: list[str]) -> str:
     """Build the awareness message text from a list of policy names."""
     return _AWARENESS_TEMPLATE.format(policy_names=", ".join(policy_names))
 
 
-def inject_policy_awareness_openai(request: Request, policy: Any) -> Request:
+def inject_policy_awareness_openai(request: Request, policy_names: list[str]) -> Request:
     """Inject a policy awareness system message into an OpenAI-format request.
 
     Appends a brief note to the existing system message (or adds a new one)
     informing the model about active policies.
 
-    Returns the request unchanged if there are no meaningful active policies.
+    Returns the request unchanged if policy_names is empty.
     """
-    policy_names = get_policy_names(policy)
     if not policy_names:
         return request
 
@@ -93,15 +70,14 @@ def inject_policy_awareness_openai(request: Request, policy: Any) -> Request:
     return request.model_copy(update={"messages": messages})
 
 
-def inject_policy_awareness_anthropic(request: AnthropicRequest, policy: Any) -> AnthropicRequest:
+def inject_policy_awareness_anthropic(request: AnthropicRequest, policy_names: list[str]) -> AnthropicRequest:
     """Inject a policy awareness system message into an Anthropic-format request.
 
     Appends a text block to the existing system content (or adds a new one)
     informing the model about active policies.
 
-    Returns the request unchanged if there are no meaningful active policies.
+    Returns the request unchanged if policy_names is empty.
     """
-    policy_names = get_policy_names(policy)
     if not policy_names:
         return request
 
@@ -132,6 +108,5 @@ def _find_system_message_index(messages: Sequence[Any]) -> int | None:
 __all__ = [
     "inject_policy_awareness_openai",
     "inject_policy_awareness_anthropic",
-    "get_policy_names",
     "build_awareness_message",
 ]

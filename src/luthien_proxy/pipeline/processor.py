@@ -51,6 +51,7 @@ from luthien_proxy.orchestration.policy_orchestrator import PolicyOrchestrator
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.policy_context_injection import inject_policy_awareness_openai
 from luthien_proxy.pipeline.session import extract_session_id_from_headers
+from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.request_log.recorder import RequestLogRecorder, create_recorder
@@ -124,8 +125,8 @@ async def process_llm_request(
             emitter=emitter,
         )
 
-        if get_settings().inject_policy_context:
-            request_message = inject_policy_awareness_openai(request_message, policy)
+        if get_settings().inject_policy_context and isinstance(policy, BasePolicy):
+            request_message = inject_policy_awareness_openai(request_message, policy.active_policy_names())
 
         is_streaming = request_message.stream
         root_span.set_attribute("luthien.model", request_message.model)
