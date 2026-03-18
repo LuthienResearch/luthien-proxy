@@ -14,6 +14,11 @@ if ! command_exists docker; then
     exit 1
 fi
 
+if ! docker info >/dev/null 2>&1; then
+    echo "Error: Docker is not running. Please start Docker and try again."
+    exit 1
+fi
+
 # --- uv ---------------------------------------------------------------
 if ! command_exists uv; then
     echo "Installing uv..."
