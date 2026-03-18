@@ -26,11 +26,12 @@ pytestmark = pytest.mark.mock_e2e
 _SIMPLE_LLM_POLICY = "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
 
 # Judge pointed at the mock server, no explicit api_key → passthrough is used.
-# In mock_e2e setup (network_mode: host), 127.0.0.1:18888 reaches the mock server.
+# host.docker.internal resolves to the host machine from inside the gateway container,
+# which is where the mock Anthropic server runs.
 _PASSTHROUGH_JUDGE_CONFIG = {
     "instructions": "Pass all content through",
     "model": "claude-haiku-4-5",
-    "api_base": f"http://127.0.0.1:{DEFAULT_MOCK_PORT}",
+    "api_base": f"http://host.docker.internal:{DEFAULT_MOCK_PORT}",
     # Deliberately no api_key — should use client's passthrough key
     "on_error": "pass",
 }
