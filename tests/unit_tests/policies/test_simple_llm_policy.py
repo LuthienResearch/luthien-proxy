@@ -204,6 +204,49 @@ class TestConfigAndFreeze:
 
 
 # ============================================================================
+# _resolve_api_key priority tests
+# ============================================================================
+
+
+class TestResolveApiKey:
+    """Verify the key resolution priority: policy config > passthrough > fallback."""
+
+    def _make_ctx_with_header(self, header: str, value: str) -> PolicyContext:
+        from luthien_proxy.types import RawHttpRequest
+
+        return PolicyContext.for_testing(
+            raw_http_request=RawHttpRequest(body={}, headers={header: value}),
+        )
+
+    def test_policy_config_key_takes_priority(self) -> None:
+        policy = SimpleLLMPolicy(config={"instructions": "x", "api_key": "policy-key"})
+        ctx = self._make_ctx_with_header("authorization", "Bearer passthrough-key")
+        assert policy._resolve_api_key(ctx) == "policy-key"
+
+    def test_passthrough_key_used_when_no_policy_key(self) -> None:
+        policy = make_policy()
+        ctx = self._make_ctx_with_header("authorization", "Bearer passthrough-key")
+        assert policy._resolve_api_key(ctx) == "passthrough-key"
+
+    def test_x_api_key_header_used_as_passthrough(self) -> None:
+        policy = make_policy()
+        ctx = self._make_ctx_with_header("x-api-key", "x-key-value")
+        assert policy._resolve_api_key(ctx) == "x-key-value"
+
+    def test_fallback_key_used_when_no_passthrough(self) -> None:
+        policy = make_policy()
+        policy._fallback_api_key = "fallback-key"
+        ctx = PolicyContext.for_testing()
+        assert policy._resolve_api_key(ctx) == "fallback-key"
+
+    def test_returns_none_when_no_keys(self) -> None:
+        policy = make_policy()
+        policy._fallback_api_key = None
+        ctx = PolicyContext.for_testing()
+        assert policy._resolve_api_key(ctx) is None
+
+
+# ============================================================================
 # Anthropic non-streaming tests
 # ============================================================================
 
