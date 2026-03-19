@@ -189,23 +189,24 @@ def onboard():
 
     # 6. Start the stack (stop existing containers first to avoid port conflicts)
     console.print("\n[blue]Starting gateway...[/blue]")
-    # Pull latest images
-    pull_result = subprocess.run(
-        ["docker", "compose", "pull"],
-        cwd=config.repo_path,
-        capture_output=True,
-        text=True,
-    )
+    with console.status("Pulling latest images..."):
+        pull_result = subprocess.run(
+            ["docker", "compose", "pull"],
+            cwd=config.repo_path,
+            capture_output=True,
+            text=True,
+        )
     if pull_result.returncode != 0:
         console.print(f"[red]docker compose pull failed:[/red]\n{pull_result.stderr}")
         raise SystemExit(1)
 
-    down_result = subprocess.run(
-        ["docker", "compose", "down", "--remove-orphans"],
-        cwd=config.repo_path,
-        capture_output=True,
-        text=True,
-    )
+    with console.status("Stopping existing containers..."):
+        down_result = subprocess.run(
+            ["docker", "compose", "down", "--remove-orphans"],
+            cwd=config.repo_path,
+            capture_output=True,
+            text=True,
+        )
     if down_result.returncode == 0 and "Removed" in (down_result.stderr or ""):
         console.print("[dim]Stopped existing luthien containers.[/dim]")
 
@@ -215,13 +216,14 @@ def onboard():
         selected = ", ".join(f"{k}={v}" for k, v in port_env.items())
         console.print(f"[dim]Auto-selected ports: {selected}[/dim]")
 
-    result = subprocess.run(
-        ["docker", "compose", "up", "-d"],
-        cwd=config.repo_path,
-        capture_output=True,
-        text=True,
-        env={**os.environ, **port_env},
-    )
+    with console.status("Starting containers..."):
+        result = subprocess.run(
+            ["docker", "compose", "up", "-d"],
+            cwd=config.repo_path,
+            capture_output=True,
+            text=True,
+            env={**os.environ, **port_env},
+        )
     if result.returncode != 0:
         console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
         raise SystemExit(1)
@@ -235,8 +237,7 @@ def onboard():
     save_config(config, DEFAULT_CONFIG_PATH)
     console.print("[green]CLI config saved to ~/.luthien/config.toml[/green]")
 
-    console.print("[yellow]Waiting for gateway to be healthy...[/yellow]")
-    if not wait_for_healthy(actual_gateway_url):
+    if not wait_for_healthy(actual_gateway_url, console=console):
         console.print("[red]Gateway did not become healthy within 60s[/red]")
         console.print(f"[dim]Check logs: docker compose -f {config.repo_path}/docker-compose.yaml logs gateway[/dim]")
         raise SystemExit(1)

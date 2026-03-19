@@ -386,7 +386,6 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
                 self._config,
                 self._judge_instructions,
                 api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
-                extra_headers=self._judge_oauth_headers(context, self._config.api_key),
             )
         except Exception as exc:
             logger.error(
@@ -441,7 +440,6 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
     # ========================================================================
     # Shared Helpers
     # ========================================================================
-
     def _emit_evaluation_started(
         self,
         policy_ctx: "PolicyContext",
