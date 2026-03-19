@@ -758,7 +758,6 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy
                 self._config,
                 self._judge_instructions,
                 api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
-                extra_headers=self._judge_oauth_headers(context, self._config.api_key),
             )
         except Exception as exc:
             logger.error(
@@ -832,7 +831,6 @@ class ToolCallJudgePolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy
                 self._config,
                 self._judge_instructions,
                 api_key=self._resolve_judge_api_key(policy_ctx, self._config.api_key, self._fallback_api_key),
-                extra_headers=self._judge_oauth_headers(policy_ctx, self._config.api_key),
             )
         except Exception as exc:
             # LOUD ERROR LOGGING - judge failure is a security concern

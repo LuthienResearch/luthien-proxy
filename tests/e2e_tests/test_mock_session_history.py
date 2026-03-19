@@ -12,7 +12,7 @@ The stored session ID (used to query the history API) is just the UUID part.
 
 Requires:
   - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock.yaml up -d
+      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
 
 Run:
     uv run pytest -m mock_e2e tests/e2e_tests/test_mock_session_history.py -v
