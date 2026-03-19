@@ -45,10 +45,11 @@ class TestConfigureLocalMode:
         configure_local_mode()
         assert os.environ["ADMIN_API_KEY"] == os.environ["PROXY_API_KEY"]
 
-    def test_does_not_override_existing_database_url(self, monkeypatch):
+    def test_force_overrides_existing_database_url(self, monkeypatch):
+        """Infrastructure vars are force-set because litellm's dotenv pollutes os.environ."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://custom:5432/db")
         configure_local_mode()
-        assert os.environ["DATABASE_URL"] == "postgresql://custom:5432/db"
+        assert os.environ["DATABASE_URL"] == "sqlite:///luthien_local.db"
 
     def test_does_not_override_existing_proxy_api_key(self, monkeypatch):
         monkeypatch.setenv("PROXY_API_KEY", "my-custom-key")

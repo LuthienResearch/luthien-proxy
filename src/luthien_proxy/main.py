@@ -462,18 +462,20 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
 
 
 def configure_local_mode() -> dict[str, str]:
-    """Set env var defaults for dockerless local mode.
+    """Force-set env vars for dockerless local mode.
 
-    Uses setdefault so existing env vars are never overwritten.
-    Generates ephemeral API keys if not already set.
+    Infrastructure vars (DATABASE_URL, REDIS_URL, etc.) are force-set because
+    litellm calls dotenv.load_dotenv() at import time, polluting os.environ
+    with Docker-internal values from .env. API keys use setdefault so users
+    can pre-set them intentionally.
 
     Returns:
         Dict with proxy_api_key and admin_api_key (whether generated or existing).
     """
-    os.environ.setdefault("DATABASE_URL", "sqlite:///luthien_local.db")
-    os.environ.setdefault("REDIS_URL", "")
-    os.environ.setdefault("POLICY_CONFIG", "config/policy_config.yaml")
-    os.environ.setdefault("POLICY_SOURCE", "file")
+    os.environ["DATABASE_URL"] = "sqlite:///luthien_local.db"
+    os.environ["REDIS_URL"] = ""
+    os.environ["POLICY_CONFIG"] = "config/policy_config.yaml"
+    os.environ["POLICY_SOURCE"] = "file"
 
     if not os.environ.get("PROXY_API_KEY"):
         key = f"sk-local-{secrets.token_urlsafe(16)}"
