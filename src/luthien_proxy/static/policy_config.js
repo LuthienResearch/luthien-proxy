@@ -263,10 +263,28 @@ function initFilterInput() {
 }
 
 function initModeToggle() {
-    // Chain mode is disabled until the backend CompositePolicy API is implemented.
-    // The toggle is hidden via CSS; this handler is kept for when it's re-enabled.
-    const toggle = document.getElementById('mode-toggle');
-    if (toggle) toggle.style.display = 'none';
+    document.getElementById('mode-toggle').addEventListener('click', e => {
+        if (!e.target.classList.contains('mode-btn')) return;
+        const newMode = e.target.dataset.mode;
+        if (newMode === state.mode) return;
+        state.mode = newMode;
+        document.querySelectorAll('#mode-toggle .mode-btn').forEach(b =>
+            b.classList.toggle('active', b.dataset.mode === newMode)
+        );
+        if (newMode === 'single') {
+            if (state.chain.length > 0) {
+                state.selectedClassRef = state.chain[0].classRef;
+                state.configValues = state.chain[0].config;
+            }
+        } else {
+            if (state.selectedClassRef) {
+                state.chain = [{ classRef: state.selectedClassRef, config: { ...state.configValues } }];
+                state.selectedClassRef = null;
+            }
+        }
+        testState.proposed = {};
+        renderAll();
+    });
 }
 
 // ============================================================
@@ -442,7 +460,7 @@ function renderProposed() {
         html += '</ul>';
         html += `<div id="proposed-status"></div>`;
         const chainLabel = state.chain.length > 1
-            ? `Activate First (${state.chain[0] ? esc(getPolicy(state.chain[0].classRef)?.name || '?') : '?'}) — chain requires CompositePolicy`
+            ? `Activate Chain (${state.chain.length} policies)`
             : 'Activate';
         html += `<button class="btn-activate" id="btn-activate" onclick="handleActivateChain()">${chainLabel}</button>`;
         html += renderTestSection('proposed');
@@ -943,9 +961,57 @@ async function handleActivate() {
     }
 }
 
+const MULTI_SERIAL_CLASS_REF = 'luthien_proxy.policies.multi_serial_policy:MultiSerialPolicy';
+
 async function handleActivateChain() {
-    // Chain mode is disabled until the backend CompositePolicy API is implemented.
-    showStatus('proposed-status', 'error', 'Chain activation is not yet supported — use single policy mode');
+    if (state.chain.length === 0) return;
+
+    // Single-item chain — activate directly as a single policy
+    if (state.chain.length === 1) {
+        state.selectedClassRef = state.chain[0].classRef;
+        state.configValues = state.chain[0].config;
+        state.mode = 'single';
+        await handleActivate();
+        return;
+    }
+
+    // Multi-item chain — wrap in MultiSerialPolicy
+    if (state.isActivating) return;
+    state.isActivating = true;
+    updateActivateButton();
+    showStatus('proposed-status', 'info', 'Activating chain...');
+
+    try {
+        const subPolicies = state.chain.map(item => ({
+            class: item.classRef,
+            config: item.config,
+        }));
+
+        const result = await apiCall('/api/admin/policy/set', {
+            method: 'POST',
+            body: JSON.stringify({
+                policy_class_ref: MULTI_SERIAL_CLASS_REF,
+                config: { policies: subPolicies },
+                enabled_by: 'ui'
+            })
+        });
+
+        if (result.success) {
+            await loadCurrentPolicy();
+            state.chain = [];
+            state.mode = 'single';
+            testState.proposed = {};
+            testState.active = {};
+            renderAll();
+        } else {
+            showStatus('proposed-status', 'error', result.error || 'Chain activation failed');
+        }
+    } catch (err) {
+        showStatus('proposed-status', 'error', err.message);
+    } finally {
+        state.isActivating = false;
+        updateActivateButton();
+    }
 }
 
 async function handleDeactivate() {
