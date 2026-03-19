@@ -2,6 +2,9 @@
 # Requires: bash 3.2+
 set -euo pipefail
 
+echo "== Dependency sync (locked) =="
+uv sync --all-groups --locked
+
 echo "== Shellcheck (shell scripts) =="
 if command -v shellcheck &>/dev/null; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,8 +26,9 @@ if command -v shellcheck &>/dev/null; then
     fi
     echo "  All shell scripts passed."
 else
-    echo "  WARNING: shellcheck not installed, skipping shell script checks."
+    echo "  ERROR: shellcheck not installed."
     echo "  Install with: brew install shellcheck (macOS) or apt-get install shellcheck (Linux)"
+    exit 1
 fi
 
 echo "== Ruff format (apply) =="
@@ -49,15 +53,18 @@ uv run -m pytest -q
 echo "== Radon complexity (report-only) =="
 uv run radon cc -s -a src || true
 
-echo "All checks completed."
-
-# Remind about uncommitted/unpushed changes
+echo "== Clean tree check =="
 if ! git diff --quiet 2>/dev/null; then
-  echo ""
-  echo "⚠ Unstaged changes detected (likely from formatting/lint fixes)."
-  echo "  Remember to commit and push before continuing."
+    echo ""
+    echo "ERROR: Formatting/lint produced uncommitted changes."
+    echo "Stage and commit these changes before pushing."
+    git diff --stat
+    exit 1
 fi
 
+echo "All checks completed."
+
+# Remind about staged/unpushed changes
 if ! git diff --cached --quiet 2>/dev/null; then
   echo ""
   echo "⚠ Staged but uncommitted changes detected."
