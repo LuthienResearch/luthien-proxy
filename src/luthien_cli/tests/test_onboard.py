@@ -9,13 +9,13 @@ from click.testing import CliRunner
 
 from luthien_cli.commands.onboard import (
     _ensure_docker_env,
-    _find_docker_ports,
-    _find_free_port,
     _indent_instructions,
-    _is_port_free,
     _write_local_env,
     _write_policy,
 )
+from luthien_cli.local_process import find_docker_ports as _find_docker_ports
+from luthien_cli.local_process import find_free_port as _find_free_port
+from luthien_cli.local_process import is_port_free as _is_port_free
 from luthien_cli.main import cli
 
 
@@ -125,7 +125,7 @@ def test_onboard_local_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.stop_gateway"),
         patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
-        patch("luthien_cli.commands.onboard._find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
     ):
         result = runner.invoke(
             cli,
@@ -164,7 +164,7 @@ def test_onboard_docker_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.ensure_repo", return_value=str(repo_path)),
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
-        patch("luthien_cli.commands.onboard._find_docker_ports", return_value={"GATEWAY_PORT": "9123"}),
+        patch("luthien_cli.commands.onboard.find_docker_ports", return_value={"GATEWAY_PORT": "9123"}),
     ):
         mock_run.return_value = MagicMock(returncode=0)
         result = runner.invoke(
@@ -230,7 +230,7 @@ def test_onboard_local_gateway_unhealthy(tmp_path):
         patch("luthien_cli.commands.onboard.stop_gateway"),
         patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=False),
-        patch("luthien_cli.commands.onboard._find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
     ):
         result = runner.invoke(cli, ["onboard"], input="Block PII\n")
 
@@ -257,27 +257,27 @@ def test_is_port_free_on_bound_port():
 
 
 def test_find_free_port_returns_start_when_available():
-    with patch("luthien_cli.commands.onboard._is_port_free", return_value=True):
+    with patch("luthien_cli.local_process.is_port_free", return_value=True):
         assert _find_free_port(5433) == 5433
 
 
 def test_find_free_port_skips_occupied():
     with patch(
-        "luthien_cli.commands.onboard._is_port_free",
+        "luthien_cli.local_process.is_port_free",
         side_effect=[False, False, True],
     ):
         assert _find_free_port(5433) == 5435
 
 
 def test_find_free_port_raises_after_exhaustion():
-    with patch("luthien_cli.commands.onboard._is_port_free", return_value=False):
+    with patch("luthien_cli.local_process.is_port_free", return_value=False):
         with pytest.raises(RuntimeError, match="Could not find a free port"):
             _find_free_port(5433)
 
 
 def test_find_docker_ports_respects_env_vars():
     with patch.dict("os.environ", {"GATEWAY_PORT": "9999"}):
-        with patch("luthien_cli.commands.onboard._find_free_port", return_value=5433):
+        with patch("luthien_cli.local_process.find_free_port", return_value=5433):
             result = _find_docker_ports()
             assert "GATEWAY_PORT" not in result
             assert "POSTGRES_PORT" in result or "REDIS_PORT" in result
@@ -286,7 +286,7 @@ def test_find_docker_ports_respects_env_vars():
 def test_find_docker_ports_auto_selects():
     clean_env = {k: v for k, v in os.environ.items() if k not in ("POSTGRES_PORT", "REDIS_PORT", "GATEWAY_PORT")}
     with patch.dict("os.environ", clean_env, clear=True):
-        with patch("luthien_cli.commands.onboard._find_free_port", side_effect=[5433, 6379, 8000]):
+        with patch("luthien_cli.local_process.find_free_port", side_effect=[5433, 6379, 8000]):
             result = _find_docker_ports()
             assert result == {"POSTGRES_PORT": "5433", "REDIS_PORT": "6379", "GATEWAY_PORT": "8000"}
 
@@ -304,7 +304,7 @@ def test_onboard_shows_api_key_warning(tmp_path):
         patch("luthien_cli.commands.onboard.stop_gateway"),
         patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
-        patch("luthien_cli.commands.onboard._find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
     ):
         result = runner.invoke(
             cli,

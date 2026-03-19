@@ -34,6 +34,7 @@ def test_up_docker_mode(tmp_path):
     )
     with (
         patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.up.find_docker_ports", return_value={"GATEWAY_PORT": "8001"}),
         patch("luthien_cli.commands.up.subprocess.run") as mock_run,
         patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
     ):
@@ -41,6 +42,8 @@ def test_up_docker_mode(tmp_path):
         result = runner.invoke(cli, ["up"])
         assert result.exit_code == 0
         mock_run.assert_called()
+        call_kwargs = mock_run.call_args
+        assert "GATEWAY_PORT" in call_kwargs.kwargs.get("env", {})
 
 
 def test_up_local_calls_ensure_venv_when_missing(tmp_path):
