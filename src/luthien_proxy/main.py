@@ -302,7 +302,7 @@ def create_app(
     app.add_middleware(StaticCacheMiddleware)
 
     # Include routers
-    app.include_router(gateway_router)  # /v1/messages (PolicyOrchestrator)
+    app.include_router(gateway_router)  # /v1/messages
     app.include_router(debug_router)  # /api/debug/*
     app.include_router(ui_router)  # /activity/*, /policy-config, /diffs
     app.include_router(admin_router)  # /api/admin/* (policy management)
