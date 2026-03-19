@@ -239,13 +239,14 @@
 <body>
     <nav x-data="luthienNav" class="luthien-nav">
         <a href="/" class="nav-brand">Luthien</a>
+            <div class="nav-right">
         <template x-for="link in links" :key="link.href">
             <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
         </template>
-        <div class="nav-spacer"></div>
         <template x-if="isAuthenticated()">
             <a href="/auth/logout" class="nav-signout">Sign Out</a>
         </template>
+        </div>
     </nav>
     <div class="container">
         <div class="header">
