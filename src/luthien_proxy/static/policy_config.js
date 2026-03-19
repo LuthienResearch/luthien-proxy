@@ -764,7 +764,7 @@ function renderTestSection(side) {
         html += `<div class="test-cred-custom">
             <input type="password" class="credential-input" id="cred-input-${side}"
                 placeholder="sk-ant-... or OAuth token" value="${esc(state.apiKey)}"
-                onchange="state.apiKey = this.value.trim()">
+                oninput="state.apiKey = this.value.trim()">
         </div>`;
     }
 
