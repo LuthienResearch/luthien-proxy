@@ -480,7 +480,6 @@ def configure_local_mode() -> dict[str, str]:
     if not os.environ.get("PROXY_API_KEY"):
         key = f"sk-local-{secrets.token_urlsafe(16)}"
         os.environ["PROXY_API_KEY"] = key
-        os.environ.setdefault("ADMIN_API_KEY", key)
 
     os.environ.setdefault("ADMIN_API_KEY", os.environ["PROXY_API_KEY"])
 
@@ -502,7 +501,7 @@ if __name__ == "__main__":
         parser.add_argument(
             "--local",
             action="store_true",
-            help="Run with SQLite + in-process Redis, no Docker needed",
+            help="Run with SQLite (no Redis required), no Docker needed",
         )
         args = parser.parse_args()
 
