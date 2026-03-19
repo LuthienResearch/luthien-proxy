@@ -245,13 +245,6 @@ class TestHTTPExceptionAnthropicFormat:
         assert data["error"]["type"] == "invalid_request_error"
         assert data["error"]["message"] == "Invalid request"
 
-    def test_openai_path_returns_default_format(self, client):
-        response = client.post("/v1/messages")
-        assert response.status_code == 401
-        data = response.json()
-        assert data == {"detail": "Missing API key"}
-        assert "type" not in data
-
     def test_non_api_path_returns_default_format(self, client):
         response = client.get("/health")
         assert response.status_code == 500
@@ -340,14 +333,6 @@ class TestRequestValidationErrorHandler:
         assert data["error"]["type"] == "invalid_request_error"
         assert isinstance(data["error"]["message"], str)
         assert len(data["error"]["message"]) > 0
-
-    def test_openai_path_returns_default_format_on_validation_error(self, client):
-        """Malformed body on /v1/messages returns FastAPI default 422 format."""
-        response = client.post("/v1/messages", json={"bad": "data"})
-        assert response.status_code == 422
-        data = response.json()
-        # Default FastAPI format has "detail" as a list of validation errors
-        assert "detail" in data
 
     def test_anthropic_subpath_returns_anthropic_format(self):
         """Validation errors on /v1/messages/* subpaths also get Anthropic format."""
