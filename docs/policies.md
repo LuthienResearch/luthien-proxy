@@ -163,12 +163,11 @@ The engine behind all presets. Evaluates each response content block (text or to
 policy:
   class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
   config:
-    config:
-      model: "claude-haiku-4-5"
-      instructions: "Remove any PII (names, emails, phone numbers, addresses) from responses. Replace with [REDACTED]."
-      on_error: "pass"
-      temperature: 0.0
-      max_tokens: 4096
+    model: "claude-haiku-4-5"
+    instructions: "Remove any PII (names, emails, phone numbers, addresses) from responses. Replace with [REDACTED]."
+    on_error: "pass"
+    temperature: 0.0
+    max_tokens: 4096
 ```
 
 **Config options:**
@@ -197,10 +196,9 @@ Evaluates tool calls with a judge LLM and blocks ones rated as risky. Uses a pro
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    config:
-      model: "claude-haiku-4-5"
-      probability_threshold: 0.6
-      temperature: 0.0
+    model: "claude-haiku-4-5"
+    probability_threshold: 0.6
+    temperature: 0.0
       max_tokens: 256
 ```
 
@@ -340,14 +338,12 @@ policy:
     policies:
       - class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
         config:
-          config:
-            model: "claude-haiku-4-5"
-            probability_threshold: 0.6
+          model: "claude-haiku-4-5"
+          probability_threshold: 0.6
       - class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
         config:
-          config:
-            model: "claude-haiku-4-5"
-            instructions: "Block any tool call that accesses the filesystem"
+          model: "claude-haiku-4-5"
+          instructions: "Block any tool call that accesses the filesystem"
 ```
 
 **Consolidation strategies:**
