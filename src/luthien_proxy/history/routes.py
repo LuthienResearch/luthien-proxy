@@ -12,8 +12,6 @@ from __future__ import annotations
 import logging
 import os
 
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
@@ -27,6 +25,8 @@ from luthien_proxy.utils.db import DatabasePool
 
 from .models import SessionDetail, SessionListResponse
 from .service import export_session_markdown, fetch_session_detail, fetch_session_list
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/history", tags=["history"])
 api_router = APIRouter(prefix="/api/history", tags=["history-api"])
