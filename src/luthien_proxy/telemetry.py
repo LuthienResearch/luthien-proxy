@@ -76,6 +76,22 @@ def _get_otel_config() -> tuple[bool, str, str, str, str]:
     )
 
 
+def _silence_otel_loggers() -> None:
+    """Suppress noisy gRPC and OTel exporter logs.
+
+    When the OTel collector/Tempo is unreachable, the gRPC transport and
+    OTel SDK emit repeated ERROR-level messages. Push them to DEBUG so
+    they only appear when someone explicitly enables debug logging.
+    """
+    for name in (
+        "opentelemetry.exporter.otlp.proto.grpc.exporter",
+        "opentelemetry.sdk.trace.export",
+        "grpc._channel",
+        "grpc._plugin_wrapping",
+    ):
+        logging.getLogger(name).setLevel(logging.DEBUG)
+
+
 def configure_tracing() -> trace.Tracer:
     """Configure OpenTelemetry tracing.
 
@@ -90,7 +106,8 @@ def configure_tracing() -> trace.Tracer:
     otel_enabled, otel_endpoint, service_name, service_version, environment = _get_otel_config()
 
     if not otel_enabled:
-        logger.info("OpenTelemetry disabled (OTEL_ENABLED=false)")
+        logger.debug("OpenTelemetry disabled (OTEL_ENABLED=false)")
+        _silence_otel_loggers()
         return trace.get_tracer(__name__)
 
     # Define resource attributes

@@ -4,6 +4,11 @@
 
 ### Features
 
+- **Silence OTel errors** (silence-otel): Gracefully handle missing OTel/Tempo infrastructure
+  - Default `OTEL_ENABLED` to `false` (opt-in instead of opt-out)
+  - Silence gRPC and OTel exporter loggers that spam ERROR on connection failure
+  - Docker Compose explicitly enables OTel when running the full stack
+  - Log "OTel disabled" at DEBUG instead of INFO
 - **CLI progress indicators** (cli-progress): Add spinners to long-running CLI operations so users know the tool isn't hung
   - `luthien onboard`: spinners during image pull, container stop/start, and health check
   - `luthien up` / `luthien down`: spinners during container start/stop and health check
