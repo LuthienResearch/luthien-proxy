@@ -308,8 +308,7 @@ class CredentialManager:
     async def _invalidate_key(self, key_hash: str) -> bool:
         if self._cache is None:
             return False
-        result = await self._cache.delete(f"{REDIS_KEY_PREFIX}{key_hash}")
-        return result > 0
+        return await self._cache.delete(f"{REDIS_KEY_PREFIX}{key_hash}")
 
     async def _call_count_tokens(self, credential: str, *, is_bearer: bool) -> bool | None:
         """Validate a credential by calling the free count_tokens endpoint.

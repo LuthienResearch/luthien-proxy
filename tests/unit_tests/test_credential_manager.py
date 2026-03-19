@@ -310,17 +310,17 @@ class TestCallCountTokens:
 class TestInvalidation:
     @pytest.mark.asyncio
     async def test_invalidate_credential(self):
-        mock_redis = AsyncMock()
-        mock_redis.delete.return_value = 1
-        manager = CredentialManager(db_pool=None, cache=mock_redis)
+        mock_cache = AsyncMock()
+        mock_cache.delete.return_value = True
+        manager = CredentialManager(db_pool=None, cache=mock_cache)
         result = await manager.invalidate_credential("somehash")
         assert result is True
 
     @pytest.mark.asyncio
     async def test_invalidate_missing_credential(self):
-        mock_redis = AsyncMock()
-        mock_redis.delete.return_value = 0
-        manager = CredentialManager(db_pool=None, cache=mock_redis)
+        mock_cache = AsyncMock()
+        mock_cache.delete.return_value = False
+        manager = CredentialManager(db_pool=None, cache=mock_cache)
         result = await manager.invalidate_credential("nothash")
         assert result is False
 

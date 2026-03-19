@@ -105,7 +105,7 @@ class InProcessEventPublisher:
         payload = format_sse_payload(json.dumps(event))
 
         dead_queues: list[asyncio.Queue[str]] = []
-        for queue in self._subscribers:
+        for queue in list(self._subscribers):
             try:
                 queue.put_nowait(payload)
             except asyncio.QueueFull:
