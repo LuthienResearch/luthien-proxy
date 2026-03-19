@@ -165,16 +165,17 @@ def ensure_gateway_venv() -> str:
         with console.status("Setting up Python environment..."):
             _run_uv("venv", str(venv_dir), "--python", "3.13", console=console)
 
-    with console.status("Installing luthien-proxy..."):
-        _run_uv(
-            "pip",
-            "install",
-            "--python",
-            str(venv_python),
-            "luthien-proxy",
-            "--upgrade",
-            console=console,
-        )
+    install_args = [
+        "pip", "install", "--python", str(venv_python), "luthien-proxy",
+    ]
+    if needs_install:
+        label = "Installing luthien-proxy..."
+    else:
+        label = "Checking luthien-proxy..."
+        install_args.append("--upgrade")
+
+    with console.status(label):
+        _run_uv(*install_args, console=console)
 
     console.print("[green]Gateway package installed.[/green]")
     return str(repo_dir)

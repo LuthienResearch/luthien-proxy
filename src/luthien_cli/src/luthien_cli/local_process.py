@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 from rich.console import Console
@@ -24,6 +26,17 @@ def _log_file(repo_path: str) -> Path:
 def _venv_python() -> str:
     """Path to the Python interpreter in the managed venv."""
     return str(Path.home() / ".luthien" / "venv" / "bin" / "python")
+
+
+def _parse_env_value(value: str) -> str:
+    """Strip surrounding quotes from a .env value."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        return value[1:-1]
+    return value
+
+
+def _is_unix() -> bool:
+    return sys.platform != "win32"
 
 
 def is_gateway_running(repo_path: str) -> int | None:
@@ -54,6 +67,9 @@ def start_gateway(
 
     Returns the PID of the started process.
     """
+    if not _is_unix():
+        raise RuntimeError("Local mode requires Unix (Linux/macOS). Use 'luthien onboard --docker' on Windows.")
+
     existing_pid = is_gateway_running(repo_path)
     if existing_pid is not None:
         if console:
@@ -75,7 +91,7 @@ def start_gateway(
                 continue
             if "=" in line:
                 key, _, value = line.partition("=")
-                env[key.strip()] = value.strip()
+                env[key.strip()] = _parse_env_value(value.strip())
 
     env["GATEWAY_PORT"] = str(port)
 
@@ -114,6 +130,14 @@ def stop_gateway(repo_path: str, console: Console | None = None) -> bool:
         os.kill(pid, signal.SIGTERM)
     except OSError:
         pass
+
+    # Wait briefly for the process to exit
+    for _ in range(10):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            break
+        time.sleep(0.3)
 
     _pid_file(repo_path).unlink(missing_ok=True)
 
