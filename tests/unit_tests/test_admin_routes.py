@@ -446,7 +446,6 @@ class TestSendChatRoute:
         assert result.success is True
         assert "Mock response" in result.content
 
-
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
