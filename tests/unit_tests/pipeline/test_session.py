@@ -1,7 +1,7 @@
 """Unit tests for session ID extraction functions."""
 
 from luthien_proxy.pipeline.session import (
-    OPENAI_SESSION_HEADER,
+    SESSION_ID_HEADER,
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
 )
@@ -91,7 +91,7 @@ class TestExtractSessionIdFromHeaders:
         """Test extraction from x-session-id header."""
         headers = {
             "content-type": "application/json",
-            OPENAI_SESSION_HEADER: "my-session-123",
+            SESSION_ID_HEADER: "my-session-123",
         }
         session_id = extract_session_id_from_headers(headers)
         assert session_id == "my-session-123"
@@ -107,17 +107,17 @@ class TestExtractSessionIdFromHeaders:
 
     def test_returns_none_if_header_empty(self):
         """Test returns None if header value is empty (normalized for consistent handling)."""
-        headers = {OPENAI_SESSION_HEADER: ""}
+        headers = {SESSION_ID_HEADER: ""}
         session_id = extract_session_id_from_headers(headers)
         assert session_id is None
 
     def test_preserves_uuid_format(self):
         """Test UUID session IDs are preserved correctly."""
         uuid_session = "550e8400-e29b-41d4-a716-446655440000"
-        headers = {OPENAI_SESSION_HEADER: uuid_session}
+        headers = {SESSION_ID_HEADER: uuid_session}
         session_id = extract_session_id_from_headers(headers)
         assert session_id == uuid_session
 
     def test_header_name_constant(self):
         """Test the header name constant is correct."""
-        assert OPENAI_SESSION_HEADER == "x-session-id"
+        assert SESSION_ID_HEADER == "x-session-id"
