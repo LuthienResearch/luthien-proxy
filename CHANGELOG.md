@@ -4,6 +4,7 @@
 
 ### Features
 
+- **In-process Redis replacement** — activity monitor, credential cache, and all Redis features work without Redis in local single-process mode via `EventPublisherProtocol` and `CredentialCacheProtocol` abstractions
 - **Silence OTel errors** (silence-otel): Gracefully handle missing OTel/Tempo infrastructure
   - Default `OTEL_ENABLED` to `false` (opt-in instead of opt-out)
   - Silence gRPC and OTel exporter loggers that spam ERROR on connection failure

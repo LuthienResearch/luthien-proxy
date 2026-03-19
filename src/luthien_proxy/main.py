@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -23,12 +22,15 @@ from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
-from luthien_proxy.gateway_routes import LAST_CRED_TYPE_KEY
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.litellm_client import LiteLLMClient
 from luthien_proxy.observability.emitter import EventEmitter
+from luthien_proxy.observability.event_publisher import (
+    EventPublisherProtocol,
+    InProcessEventPublisher,
+)
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.policy_manager import PolicyManager
@@ -48,6 +50,11 @@ from luthien_proxy.usage_telemetry.config import resolve_telemetry_config
 from luthien_proxy.usage_telemetry.sender import TelemetrySender
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import DB_URL_PREVIEW_LENGTH
+from luthien_proxy.utils.credential_cache import (
+    CredentialCacheProtocol,
+    InProcessCredentialCache,
+    RedisCredentialCache,
+)
 from luthien_proxy.utils.migration_check import check_migrations
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
@@ -158,11 +165,17 @@ def create_app(
         litellm.drop_params = True
         logger.info("Configured litellm: drop_params=True")
 
-        # Create event emitter (will be injected via Dependencies)
-        _redis_publisher = RedisEventPublisher(redis_client) if redis_client else None
+        # Create event publisher (Redis or in-process)
+        _event_publisher: EventPublisherProtocol
+        if redis_client:
+            _event_publisher = RedisEventPublisher(redis_client)
+        else:
+            _event_publisher = InProcessEventPublisher()
+            logger.info("Using in-process event publisher (no Redis)")
+
         _emitter = EventEmitter(
             db_pool=db_pool,
-            redis_publisher=_redis_publisher,
+            event_publisher=_event_publisher,
             stdout_enabled=True,
         )
         logger.info("Event emitter created")
@@ -192,8 +205,16 @@ def create_app(
         if anthropic_api_key:
             _anthropic_client = AnthropicClient(api_key=anthropic_api_key)
 
+        # Create credential cache (Redis or in-process)
+        _credential_cache: CredentialCacheProtocol | None
+        if redis_client:
+            _credential_cache = RedisCredentialCache(redis_client)
+        else:
+            _credential_cache = InProcessCredentialCache()
+            logger.info("Using in-process credential cache (no Redis)")
+
         # Initialize CredentialManager for passthrough auth
-        _credential_manager = CredentialManager(db_pool=db_pool, redis_client=redis_client)
+        _credential_manager = CredentialManager(db_pool=db_pool, cache=_credential_cache)
         await _credential_manager.initialize(default_auth_mode=auth_mode)
 
         _resolved_mode = _credential_manager.config.auth_mode.value
@@ -238,6 +259,7 @@ def create_app(
             api_key=api_key,
             admin_key=admin_key,
             anthropic_client=_anthropic_client,
+            event_publisher=_event_publisher,
             credential_manager=_credential_manager,
             enable_request_logging=_enable_request_logging,
             usage_collector=_usage_collector,
@@ -312,15 +334,9 @@ def create_app(
 
         last_credential_type = None
         last_credential_at = None
-        if deps and deps.redis_client:
-            try:
-                raw = await deps.redis_client.get(LAST_CRED_TYPE_KEY)
-                if raw:
-                    data = json.loads(raw)
-                    last_credential_type = data.get("type")
-                    last_credential_at = data.get("timestamp")
-            except Exception:
-                logger.debug("Failed to read last_credential_type from Redis", exc_info=True)
+        if deps and deps.last_credential_info:
+            last_credential_type = deps.last_credential_info.get("type")
+            last_credential_at = deps.last_credential_info.get("timestamp")
 
         return {
             "status": "healthy",
