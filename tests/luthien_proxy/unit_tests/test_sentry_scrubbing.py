@@ -81,6 +81,12 @@ class TestSummarize:
         result = summarize(large_dict)
         assert "key_7" in result
         assert "key_8" not in result
+        assert "..." in result
+
+    def test_dict_no_truncation_indicator_when_8_or_fewer(self):
+        summarize, _ = _get_sentry_functions()
+        result = summarize({f"key_{i}": i for i in range(8)})
+        assert "..." not in result
 
     def test_unknown_type_object(self):
         summarize, _ = _get_sentry_functions()
@@ -290,3 +296,34 @@ class TestBeforeSend:
         result = before_send(event, hint)
         frame = result["exception"]["values"][0]["stacktrace"]["frames"][0]
         assert "vars" not in frame
+
+    def test_handles_non_dict_headers(self):
+        _, before_send = _get_sentry_functions()
+        event = self._make_event()
+        event["request"]["headers"] = "raw-header-string"
+        hint = {}
+        result = before_send(event, hint)
+        assert result["request"]["headers"] == "raw-header-string"
+
+
+class TestSentryDisabledInTests:
+    def test_sentry_disabled_by_default_in_tests(self, monkeypatch):
+        monkeypatch.delenv("SENTRY_ENABLED", raising=False)
+        monkeypatch.delenv("SENTRY_DSN", raising=False)
+        from luthien_proxy.settings import Settings
+
+        settings = Settings(_env_file=None)
+        assert settings.sentry_enabled is False
+
+    def test_init_sentry_is_noop_when_disabled(self, monkeypatch):
+        monkeypatch.delenv("SENTRY_ENABLED", raising=False)
+        monkeypatch.delenv("SENTRY_DSN", raising=False)
+        import sentry_sdk
+
+        from luthien_proxy.observability.sentry import init_sentry
+        from luthien_proxy.settings import Settings, clear_settings_cache
+
+        clear_settings_cache()
+        settings = Settings(_env_file=None)
+        init_sentry(settings)
+        assert not sentry_sdk.is_initialized()

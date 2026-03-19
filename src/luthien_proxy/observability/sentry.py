@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from itertools import islice
+from typing import Any
 
 import sentry_sdk
 from sentry_sdk.integrations.logging import ignore_logger
@@ -21,6 +22,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Scrubbing constants and helpers (always importable for tests)
 # ---------------------------------------------------------------------------
+
+# IMPORTANT: When adding new local variables that carry LLM content (prompts,
+# messages, responses) to pipeline code, add their names here so Sentry
+# summarizes them instead of capturing the raw content.
+# See dev/context/sentry.md for the full scrubbing design.
 _LLM_CONTENT_VARS = {
     "body",
     "messages",
@@ -41,7 +47,7 @@ _LLM_CONTENT_VARS = {
 _SAFE_REQUEST_KEYS = {"model", "stream", "max_tokens", "temperature", "top_p", "top_k"}
 _SAFE_HEADERS = {"content-type", "accept", "user-agent", "x-request-id"}
 
-_EXTRA_DENYLIST = [
+_EXTRA_DENYLIST: tuple[str, ...] = (
     "anthropic_api_key",
     "openai_api_key",
     "proxy_api_key",
@@ -50,10 +56,10 @@ _EXTRA_DENYLIST = [
     "explicit_key",
     "bearer_token",
     "api_key_header",
-]
+)
 
 
-def _summarize(value):  # noqa: ANN001, ANN202
+def _summarize(value: Any) -> Any:
     """Replace a value with its type and size, preserving debuggability."""
     if value is None:
         return None
@@ -68,11 +74,13 @@ def _summarize(value):  # noqa: ANN001, ANN202
     if isinstance(value, list):
         return f"<list len={len(value)}>"
     if isinstance(value, dict):
-        return f"<dict keys={list(islice(value.keys(), 8))}>"
+        keys = list(islice(value.keys(), 8))
+        suffix = ", ..." if len(value) > 8 else ""
+        return f"<dict keys={keys}{suffix}>"
     return f"<{type(value).__name__}>"
 
 
-def _sentry_before_send(event, hint):  # noqa: ANN001, ANN202
+def _sentry_before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
     """Selectively redact sensitive data while preserving debugging context.
 
     Keeps variable names, types, and safe values (call_id, model, chunk_count).
@@ -131,6 +139,6 @@ def init_sentry(settings: Settings | None = None) -> None:
         server_name=settings.sentry_server_name or None,
         before_send=_sentry_before_send,
         in_app_include=["luthien_proxy"],
-        event_scrubber=EventScrubber(denylist=DEFAULT_DENYLIST + _EXTRA_DENYLIST),
+        event_scrubber=EventScrubber(denylist=DEFAULT_DENYLIST + list(_EXTRA_DENYLIST)),
     )
     logger.info("Sentry initialized (env=%s)", settings.environment)
