@@ -217,15 +217,28 @@ policy:
 
 ### Core Policies
 
-Base classes and building blocks in `src/luthien_proxy/policies/`:
+Base classes and building blocks in `src/luthien_proxy/policies/` — see **[docs/policies.md](docs/policies.md)** for full reference with examples:
 
-- `noop_policy.py` - Pass-through (no filtering, default)
-- `simple_policy.py` - Base class for custom request/response policies
-- `simple_llm_policy.py` - Base class for policies using an LLM judge
-- `tool_call_judge_policy.py` - AI-based tool call safety evaluation
-- `string_replacement_policy.py` - Fast string find-and-replace on responses
-- `all_caps_policy.py` - Simple transformation example
-- `debug_logging_policy.py` - Logs requests/responses for debugging
+**Quick Start Presets** (zero config):
+- `NoYappingPolicy` - Remove filler and hedging
+- `NoApologiesPolicy` - Strip apologetic language
+- `PlainDashesPolicy` - Replace Unicode dashes with hyphens
+- `PreferUvPolicy` - Replace pip commands with uv equivalents
+- `BlockDangerousCommandsPolicy` - Block rm -rf, chmod 777, etc.
+- `BlockWebRequestsPolicy` - Block curl, wget, network requests
+- `BlockSensitiveFileWritesPolicy` - Block writes to /etc, ~/.ssh, etc.
+
+**Core Policies** (configurable):
+- `NoOpPolicy` - Pass-through (default)
+- `SimpleLLMPolicy` - Apply plain-English instructions via judge LLM
+- `ToolCallJudgePolicy` - Probability-based tool call blocking
+- `StringReplacementPolicy` - Fast string find-and-replace
+- `AllCapsPolicy` - Simple transformation example
+- `DebugLoggingPolicy` - Log requests/responses for debugging
+
+**Composition**:
+- `MultiSerialPolicy` - Chain policies sequentially
+- `MultiParallelPolicy` - Run policies in parallel with consolidation
 
 ## Usage Telemetry
 
