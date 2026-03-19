@@ -175,7 +175,7 @@ policy:
 | Field | Default | Description |
 |-------|---------|-------------|
 | `model` | `claude-haiku-4-5` | Any LiteLLM model string |
-| `instructions` | *(required)* | Plain-English instructions for the judge |
+| `instructions` | *(required; presets hardcode this)* | Plain-English instructions for the judge |
 | `on_error` | `pass` | `"pass"` = allow with warning, `"block"` = reject on judge failure |
 | `temperature` | `0.0` | Sampling temperature for judge |
 | `max_tokens` | `4096` | Max output tokens for judge |
@@ -199,7 +199,7 @@ policy:
     model: "claude-haiku-4-5"
     probability_threshold: 0.6
     temperature: 0.0
-      max_tokens: 256
+    max_tokens: 256
 ```
 
 **Config options:**
@@ -240,7 +240,7 @@ policy:
 | Field | Default | Description |
 |-------|---------|-------------|
 | `replacements` | `[]` | List of `[from, to]` string pairs |
-| `match_capitalization` | `false` | Case-insensitive match, preserving original capitalization in the replacement |
+| `match_capitalization` | `false` | Match case-insensitively and apply the original text's capitalization pattern (lower/upper/title) to the replacement |
 
 With `match_capitalization: true`, replacing `"cool"` → `"radical"`:
 - `"cool"` → `"radical"` (lowercase preserved)
@@ -399,6 +399,8 @@ curl http://localhost:8000/api/admin/policy/current \
 curl http://localhost:8000/api/admin/policy/list \
   -H "Authorization: Bearer $ADMIN_API_KEY"
 ```
+
+`ADMIN_API_KEY` is set in your `.env` file (defaults to `PROXY_API_KEY` if not set separately).
 
 The Admin API lets you switch policies without restarting the gateway — useful for experimenting during a hackathon.
 
