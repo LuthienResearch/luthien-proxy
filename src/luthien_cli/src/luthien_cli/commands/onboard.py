@@ -83,6 +83,7 @@ def _write_local_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
     env_path = f"{repo_path}/.env"
     with open(env_path, "w") as f:
         f.write(env_content)
+    os.chmod(env_path, 0o600)
 
 
 def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:

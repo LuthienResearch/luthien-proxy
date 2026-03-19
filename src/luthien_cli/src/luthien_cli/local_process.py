@@ -114,7 +114,12 @@ def start_gateway(
     # Detached process inherits the file handle; parent can close its copy
     log_handle.close()
 
-    _pid_file(repo_path).write_text(str(proc.pid))
+    try:
+        _pid_file(repo_path).write_text(str(proc.pid))
+    except Exception:
+        proc.terminate()
+        raise
+
     return proc.pid
 
 
@@ -131,13 +136,18 @@ def stop_gateway(repo_path: str, console: Console | None = None) -> bool:
     except OSError:
         pass
 
-    # Wait briefly for the process to exit
+    # Wait briefly for the process to exit, escalate to SIGKILL if needed
     for _ in range(10):
         try:
             os.kill(pid, 0)
         except OSError:
             break
         time.sleep(0.3)
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
 
     _pid_file(repo_path).unlink(missing_ok=True)
 
