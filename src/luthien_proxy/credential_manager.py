@@ -70,6 +70,11 @@ def hash_credential(api_key: str) -> str:
     return hashlib.sha256(api_key.encode()).hexdigest()
 
 
+def is_anthropic_api_key(credential: str) -> bool:
+    """Check if a credential looks like an Anthropic API key (sk-ant-* prefix)."""
+    return credential.startswith("sk-ant-")
+
+
 class CredentialManager:
     """Manages auth configuration and credential validation caching.
 
