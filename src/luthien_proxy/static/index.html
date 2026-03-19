@@ -4,278 +4,499 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Luthien Proxy Gateway</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/nav.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-            background: #0a0a0a;
-            color: #e5e5e5;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #09090b;
+            color: #a1a1aa;
             line-height: 1.6;
         }
 
-        .container {
-            max-width: 1200px;
+        .page {
+            max-width: 960px;
             margin: 0 auto;
-            padding: 24px;
+            padding: 0 32px 80px;
         }
 
-        header {
-            margin-bottom: 32px;
+        /* ── Hero ── */
+        .hero {
+            padding: 40px 0 32px;
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            flex-wrap: wrap;
         }
 
-        h1 {
-            font-size: 24px;
+        .hero h1 {
+            font-size: 18px;
             font-weight: 600;
-            color: #fff;
-            margin-bottom: 4px;
+            color: #fafafa;
+            letter-spacing: -0.02em;
         }
 
-        .version {
-            color: #666;
-            font-size: 14px;
+        .hero .ver {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: #3f3f46;
+            font-weight: 500;
         }
 
-        h2 {
-            font-size: 16px;
-            font-weight: 600;
-            color: #e5e5e5;
+        .hero .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            font-weight: 500;
+            color: #52525b;
+            margin-left: auto;
+        }
+
+        .status-dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: #3f3f46;
+        }
+        .status-dot.ok { background: #4ade80; box-shadow: 0 0 6px rgba(74, 222, 128, 0.4); }
+        .status-dot.err { background: #f87171; box-shadow: 0 0 6px rgba(248, 113, 113, 0.4); }
+
+        /* ── Sections ── */
+        .sect {
+            border-top: 1px solid #1c1c20;
+            padding: 32px 0 24px;
+        }
+
+        .sect-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
             margin-bottom: 16px;
         }
 
-        .section {
-            background: #141414;
-            border: 1px solid #262626;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
+        .sect-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: #3f3f46;
         }
 
-        .endpoint {
-            margin: 12px 0;
-            padding: 12px 16px;
-            background: #1a1a1a;
-            border-left: 3px solid #4ade80;
-            border-radius: 4px;
-        }
-
-        .endpoint a {
-            color: #4ade80;
+        .sect-link {
+            font-size: 12px;
+            font-weight: 500;
+            color: #52525b;
             text-decoration: none;
-            font-weight: 600;
-            font-size: 14px;
+            transition: color 0.15s;
+        }
+        .sect-link:hover { color: #a1a1aa; }
+
+        /* ── KPI row ── */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
         }
 
-        .endpoint a:hover {
-            text-decoration: underline;
+        .kpi {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 10px;
+            padding: 18px 16px 14px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            position: relative;
+            overflow: hidden;
         }
 
-        .endpoint .description {
-            color: #888;
-            margin-top: 4px;
+        .kpi:hover {
+            border-color: #3f3f46;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+        }
+
+        .kpi::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #27272a 0%, transparent 100%);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .kpi:hover::before { opacity: 1; }
+
+        .kpi .val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 22px;
+            font-weight: 700;
+            color: #fafafa;
+            line-height: 1;
+        }
+
+        .kpi .val.empty { color: #27272a; font-size: 18px; }
+
+        .kpi .lbl {
+            font-size: 11px;
+            font-weight: 500;
+            color: #52525b;
+            margin-top: 6px;
+            letter-spacing: 0.02em;
+        }
+
+        .kpi .sub {
+            font-size: 10px;
+            color: #3f3f46;
+            margin-top: 2px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ── Card grid ── */
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .cards.single { grid-template-columns: 1fr; max-width: 460px; }
+
+        .card {
+            display: block;
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 10px;
+            padding: 16px 18px;
+            text-decoration: none;
+            transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            border-color: #3f3f46;
+            background: #1c1c20;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+        }
+
+        .card:focus-visible {
+            outline: 2px solid #6b9fff;
+            outline-offset: 2px;
+        }
+
+        .card-title {
+            color: #e4e4e7;
+            font-weight: 500;
             font-size: 13px;
+            margin-bottom: 2px;
+        }
+        .card:hover .card-title { color: #fafafa; }
+
+        .card-desc {
+            color: #52525b;
+            font-size: 12px;
+            line-height: 1.4;
         }
 
-        .method {
+        /* ── Developer (collapsible) ── */
+        .dev-toggle {
+            cursor: default;
+        }
+
+        .dev-toggle summary {
+            cursor: pointer;
+            list-style: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 0;
+        }
+
+        .dev-toggle summary::-webkit-details-marker { display: none; }
+
+        .dev-toggle summary .chevron {
             display: inline-block;
-            padding: 2px 8px;
-            background: #0a3d0a;
-            color: #4ade80;
-            border-radius: 3px;
+            width: 0; height: 0;
+            border-left: 5px solid #3f3f46;
+            border-top: 4px solid transparent;
+            border-bottom: 4px solid transparent;
+            transition: transform 0.2s, border-left-color 0.2s;
+        }
+        .dev-toggle summary:hover .chevron { border-left-color: #71717a; }
+        .dev-toggle[open] summary .chevron { transform: rotate(90deg); }
+
+        .dev-toggle summary .sect-label { margin-bottom: 0; cursor: pointer; }
+        .dev-toggle summary:hover .sect-label { color: #52525b; }
+
+        .dev-inner { margin-top: 20px; }
+
+        .dev-group { margin-bottom: 16px; }
+        .dev-group:last-child { margin-bottom: 0; }
+
+        .dev-group h3 {
             font-size: 11px;
-            font-weight: bold;
-            margin-right: 8px;
+            font-weight: 600;
+            color: #52525b;
+            margin-bottom: 6px;
+            letter-spacing: 0.02em;
         }
 
-        .method.post {
-            background: #3d3a0a;
-            color: #facc15;
+        .dev-group .note {
+            color: #3f3f46;
+            font-size: 11px;
+            margin-bottom: 8px;
         }
 
-        .badge {
+        .ep {
+            margin: 4px 0;
+            padding: 8px 12px;
+            background: #111113;
+            border: 1px solid #1c1c20;
+            border-radius: 6px;
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .ep a {
+            color: #6b9fff;
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .ep a:hover { text-decoration: underline; }
+
+        .ep .desc {
+            color: #3f3f46;
+            font-size: 11px;
+            flex-basis: 100%;
+            margin-top: 2px;
+        }
+
+        .tag {
             display: inline-block;
-            padding: 2px 8px;
-            background: #262626;
-            color: #888;
+            padding: 1px 5px;
             border-radius: 3px;
-            font-size: 11px;
-            margin-left: 8px;
+            font-size: 9px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.04em;
+            flex-shrink: 0;
         }
 
-        .badge.ui {
-            background: #0a2d3d;
-            color: #60a5fa;
-        }
+        .tag.get  { background: #052e16; color: #4ade80; }
+        .tag.post { background: #422006; color: #facc15; }
+        .tag.sse  { background: #172554; color: #60a5fa; }
+        .tag.pub  { background: #27272a; color: #52525b; }
+        .tag.ui   { background: #172554; color: #60a5fa; }
 
-        .badge.api {
-            background: #0a3d0a;
-            color: #4ade80;
+        .ep-path {
+            color: #52525b;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
         }
 
         code {
-            background: #1a1a1a;
-            padding: 2px 6px;
+            background: #27272a;
+            padding: 1px 4px;
             border-radius: 3px;
-            font-size: 13px;
+            font-size: 11px;
+            font-family: 'JetBrains Mono', monospace;
             color: #f59e0b;
         }
 
-        .quickstart {
-            border-left: 3px solid #4ade80;
+        /* ── Responsive ── */
+        @media (max-width: 640px) {
+            .page { padding: 0 16px 48px; }
+            .hero { padding-top: 28px; }
+            .kpi-row { grid-template-columns: repeat(2, 1fr); }
+            .cards { grid-template-columns: 1fr; }
+            .cards.single { max-width: none; }
+            .hero .status { margin-left: 0; flex-basis: 100%; }
         }
 
-        .quickstart p {
-            margin: 8px 0;
-            font-size: 14px;
-            color: #888;
-        }
-
-        .quickstart a {
-            color: #4ade80;
-            text-decoration: none;
-        }
-
-        .quickstart a:hover {
-            text-decoration: underline;
-        }
-
-        .quickstart strong {
-            color: #e5e5e5;
-        }
-
-        .endpoint span:not(.method):not(.badge):not(.description) {
-            color: #888;
-            font-size: 14px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { transition-duration: 0.01ms !important; }
         }
     </style>
 </head>
 <body>
     <nav x-data="luthienNav" class="luthien-nav">
         <a href="/" class="nav-brand">Luthien</a>
-        <template x-for="link in links" :key="link.href">
-            <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
-        </template>
-        <div class="nav-spacer"></div>
-        <template x-if="isAuthenticated()">
-            <a href="/auth/logout" class="nav-signout">Sign Out</a>
-        </template>
+        <div class="nav-right">
+            <template x-for="link in links" :key="link.href">
+                <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+            </template>
+            <template x-if="isAuthenticated()">
+                <a href="/auth/logout" class="nav-signout">Sign Out</a>
+            </template>
+        </div>
     </nav>
-    <div class="container">
-        <header>
-            <h1>Luthien Proxy Gateway <span class="version">v0.1.0</span></h1>
-        </header>
 
-        <div class="section quickstart">
-            <h2>Quick Start</h2>
-            <p><strong>New here?</strong> <a href="/client-setup">Client Setup</a> — connect Claude Code to this proxy</p>
-            <p><strong>Real-time activity:</strong> <a href="/activity/monitor">Activity Monitor</a></p>
-            <p><strong>Conversation history:</strong> <a href="/history">History</a></p>
-            <p><strong>Policy diffs:</strong> <a href="/diffs">Diff Viewer</a></p>
+    <div class="page" x-data="dashboard">
+
+        <div class="hero">
+            <h1>Luthien Proxy Gateway</h1>
+            <span class="ver">v0.1.0</span>
+            <span class="status">
+                <span class="status-dot" :class="{ ok: health?.status === 'healthy', err: health && health.status !== 'healthy' }"></span>
+                <span x-text="health ? (health.status === 'healthy' ? 'Healthy' : 'Unhealthy') : '...'"></span>
+            </span>
         </div>
 
-        <div class="section">
-            <h2>Monitoring UIs</h2>
-
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/activity/monitor">/activity/monitor</a>
-                <span class="badge ui">UI</span>
-                <div class="description">Real-time activity monitor — view all gateway requests, policy events, and responses</div>
+        <!-- ACTIVITY -->
+        <section id="activity" class="sect">
+            <div class="sect-head">
+                <span class="sect-label">Activity</span>
+                <a href="/activity/monitor" class="sect-link">View monitor &rarr;</a>
             </div>
-
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/policy-config">/policy-config</a>
-                <span class="badge ui">UI</span>
-                <div class="description">Activate, configure and test policies</div>
+            <div class="kpi-row">
+                <div class="kpi">
+                    <div class="val" :class="{ empty: !stats }" x-text="stats ? stats.total_tokens.toLocaleString() : '—'"></div>
+                    <div class="lbl">Tokens</div>
+                    <template x-if="stats">
+                        <div class="sub">
+                            <span x-text="stats.input_tokens.toLocaleString()"></span> in &middot;
+                            <span x-text="stats.output_tokens.toLocaleString()"></span> out
+                        </div>
+                    </template>
+                </div>
+                <div class="kpi">
+                    <div class="val" :class="{ empty: !stats }" x-text="stats ? stats.active_policy : '—'"></div>
+                    <div class="lbl">Active Policy</div>
+                </div>
+                <div class="kpi">
+                    <div class="val" :class="{ empty: !stats }" x-text="stats ? stats.sessions_tracked.toLocaleString() : '—'"></div>
+                    <div class="lbl">Sessions</div>
+                </div>
+                <div class="kpi">
+                    <div class="val" :class="{ empty: !stats }" x-text="stats ? stats.requests_completed.toLocaleString() : '—'"></div>
+                    <div class="lbl">Requests</div>
+                </div>
             </div>
+        </section>
 
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/credentials">/credentials</a>
-                <span class="badge ui">UI</span>
-                <div class="description">Manage authentication modes and cached credentials</div>
+        <!-- HISTORY -->
+        <section id="history" class="sect">
+            <div class="sect-head">
+                <span class="sect-label">History</span>
+                <a href="/history" class="sect-link">View all &rarr;</a>
             </div>
-
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/diffs">/diffs</a>
-                <span class="badge ui">UI</span>
-                <div class="description">Policy diff viewer — compare original vs modified requests/responses</div>
+            <div class="cards single">
+                <a href="/history" class="card">
+                    <div class="card-title">Conversation History</div>
+                    <div class="card-desc">Browse past sessions with full message transcripts</div>
+                </a>
             </div>
+        </section>
 
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/history">/history</a>
-                <span class="badge ui">UI</span>
-                <div class="description">Conversation history — browse past sessions with full message transcripts</div>
+        <!-- POLICIES -->
+        <section id="policies" class="sect">
+            <div class="sect-head">
+                <span class="sect-label">Policies</span>
+                <a href="/policy-config" class="sect-link">Configure &rarr;</a>
             </div>
-
-        </div>
-
-        <div class="section">
-            <h2>API Endpoints</h2>
-            <p style="color: #666; font-size: 13px; margin-bottom: 12px;">All API endpoints require admin authentication (ADMIN_API_KEY)</p>
-
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <span>/api/debug/calls</span>
-                <span class="badge api">API</span>
-                <div class="description">List recent calls with event counts (supports <code>?limit=N</code>)</div>
+            <div class="cards">
+                <a href="/policy-config" class="card">
+                    <div class="card-title">Policy Configuration</div>
+                    <div class="card-desc">Activate, configure, and test policies</div>
+                </a>
+                <a href="/diffs" class="card">
+                    <div class="card-title">Diff Viewer</div>
+                    <div class="card-desc">Compare original vs policy-modified requests and responses</div>
+                </a>
+                <a href="/credentials" class="card">
+                    <div class="card-title">Credentials</div>
+                    <div class="card-desc">Manage authentication modes and cached credentials</div>
+                </a>
+                <a href="/client-setup" class="card">
+                    <div class="card-title">Client Setup</div>
+                    <div class="card-desc">Connect Claude Code to this proxy</div>
+                </a>
             </div>
+        </section>
 
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <span>/api/debug/calls/{call_id}/diff</span>
-                <span class="badge api">API</span>
-                <div class="description">JSON diff showing what the policy changed</div>
-            </div>
-
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <span>/api/activity/stream</span>
-                <span class="badge api">SSE</span>
-                <div class="description">Server-Sent Events stream of all gateway activity</div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>LLM Gateway</h2>
-
-            <div class="endpoint">
-                <span class="method post">POST</span>
-                <span>/v1/messages</span>
-                <div class="description">Anthropic Messages API endpoint</div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>Utility</h2>
-
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/health">/health</a>
-                <span class="badge">Public</span>
-                <div class="description">Health check endpoint</div>
-            </div>
-        </div>
-
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <a href="/request-logs/viewer" target="_blank">/request-logs/viewer</a>
-            <span class="badge ui">UI</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">HTTP-level request/response log viewer - inspect raw inbound and outbound traffic</div>
-        </div>
+        <!-- DEVELOPER -->
+        <section id="developer" class="sect">
+            <details class="dev-toggle">
+                <summary>
+                    <span class="sect-label">Developer</span>
+                    <span class="chevron"></span>
+                </summary>
+                <div class="dev-inner">
+                    <div class="dev-group">
+                        <h3>API Endpoints</h3>
+                        <p class="note">Requires ADMIN_API_KEY</p>
+                        <div class="ep">
+                            <span class="tag get">GET</span>
+                            <span class="ep-path">/api/admin/stats</span>
+                            <span class="desc">Dashboard KPI stats</span>
+                        </div>
+                        <div class="ep">
+                            <span class="tag get">GET</span>
+                            <span class="ep-path">/api/debug/calls</span>
+                            <span class="desc">Recent calls with event counts (<code>?limit=N</code>)</span>
+                        </div>
+                        <div class="ep">
+                            <span class="tag get">GET</span>
+                            <span class="ep-path">/api/debug/calls/{call_id}/diff</span>
+                            <span class="desc">JSON diff of policy changes</span>
+                        </div>
+                        <div class="ep">
+                            <span class="tag sse">SSE</span>
+                            <span class="ep-path">/api/activity/stream</span>
+                            <span class="desc">Real-time gateway activity stream</span>
+                        </div>
+                    </div>
+                    <div class="dev-group">
+                        <h3>LLM Gateway</h3>
+                        <div class="ep">
+                            <span class="tag post">POST</span>
+                            <span class="ep-path">/v1/messages</span>
+                            <span class="desc">Anthropic Messages API</span>
+                        </div>
+                    </div>
+                    <div class="dev-group">
+                        <h3>Utility</h3>
+                        <div class="ep">
+                            <span class="tag get">GET</span>
+                            <a href="/health">/health</a>
+                            <span class="tag pub">Public</span>
+                        </div>
+                        <div class="ep">
+                            <span class="tag get">GET</span>
+                            <a href="/request-logs/viewer" target="_blank">/request-logs/viewer</a>
+                            <span class="tag ui">UI</span>
+                            <span class="desc">HTTP-level request/response log viewer</span>
+                        </div>
+                    </div>
+                </div>
+            </details>
+        </section>
     </div>
 
     <script defer src="/static/vendor/alpine.min.js"></script>
     <script src="/static/nav.js"></script>
+    <script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('dashboard', () => ({
+            stats: null,
+            health: null,
+            async init() {
+                await this.refresh();
+                setInterval(() => this.refresh(), 30000);
+            },
+            async refresh() {
+                this.health = await fetch('/health').then(r => r.json()).catch(() => null);
+                try {
+                    const r = await fetch('/api/admin/stats', { credentials: 'same-origin' });
+                    if (r.ok) this.stats = await r.json();
+                } catch (_) {}
+            }
+        }));
+    });
+    </script>
 </body>
 </html>

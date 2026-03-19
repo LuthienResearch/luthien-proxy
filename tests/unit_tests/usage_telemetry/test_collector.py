@@ -34,6 +34,35 @@ class TestUsageCollector:
         snapshot = c.snapshot_and_reset()
         assert snapshot["sessions_with_ids"] == 0
 
+    def test_peek_returns_current_counters(self):
+        c = UsageCollector()
+        c.record_accepted()
+        c.record_tokens(input_tokens=100, output_tokens=50)
+        c.record_session("s1")
+        c.record_completed(is_streaming=True)
+
+        peeked = c.peek()
+        assert peeked["requests_accepted"] == 1
+        assert peeked["input_tokens"] == 100
+        assert peeked["output_tokens"] == 50
+        assert peeked["sessions_with_ids"] == 1
+        assert peeked["requests_completed"] == 1
+        assert peeked["streaming_requests"] == 1
+
+    def test_peek_does_not_reset(self):
+        c = UsageCollector()
+        c.record_accepted()
+        c.record_tokens(input_tokens=100, output_tokens=50)
+
+        first = c.peek()
+        second = c.peek()
+        assert first["requests_accepted"] == second["requests_accepted"]
+        assert first["input_tokens"] == second["input_tokens"]
+
+        snapshot = c.snapshot_and_reset()
+        assert snapshot["requests_accepted"] == 1
+        assert snapshot["input_tokens"] == 100
+
     def test_snapshot_resets_counters(self):
         c = UsageCollector()
         c.record_accepted()

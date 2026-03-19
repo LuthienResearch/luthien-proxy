@@ -28,6 +28,7 @@ from luthien_proxy.admin.routes import (
     _config_to_response,
     get_auth_config,
     get_available_models,
+    get_stats,
     get_telemetry_config,
     invalidate_all_credentials,
     invalidate_credential,
@@ -40,7 +41,8 @@ from luthien_proxy.admin.routes import (
 )
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CachedCredential, CredentialManager
 from luthien_proxy.dependencies import require_credential_manager
-from luthien_proxy.policy_manager import PolicyEnableResult
+from luthien_proxy.policy_manager import PolicyEnableResult, PolicyInfo
+from luthien_proxy.usage_telemetry.collector import UsageCollector
 
 AUTH_TOKEN = "test-admin-key"
 
@@ -714,3 +716,88 @@ class TestUpdateTelemetryConfig:
             await update_telemetry_config(body=body, _=AUTH_TOKEN, db_pool=None)
 
         assert exc_info.value.status_code == 503
+
+
+class TestGetStats:
+    """Test get_stats route handler."""
+
+    @pytest.mark.asyncio
+    async def test_returns_stats_with_collector(self):
+        collector = UsageCollector()
+        collector.record_accepted()
+        collector.record_tokens(input_tokens=500, output_tokens=200)
+        collector.record_session("s1")
+        collector.record_session("s2")
+        collector.record_completed(is_streaming=True)
+
+        mock_manager = MagicMock()
+        mock_manager.get_current_policy = AsyncMock(
+            return_value=PolicyInfo(
+                policy="AllCapsPolicy",
+                class_ref="luthien_proxy.policies.all_caps_policy:AllCapsPolicy",
+                enabled_at=None,
+                enabled_by=None,
+                config={},
+            )
+        )
+
+        result = await get_stats(_=AUTH_TOKEN, manager=mock_manager, collector=collector)
+
+        assert result["total_tokens"] == 700
+        assert result["input_tokens"] == 500
+        assert result["output_tokens"] == 200
+        assert result["active_policy"] == "AllCapsPolicy"
+        assert result["sessions_tracked"] == 2
+        assert result["requests_completed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_returns_zeros_without_collector(self):
+        mock_manager = MagicMock()
+        mock_manager.get_current_policy = AsyncMock(
+            return_value=PolicyInfo(
+                policy="NoOpPolicy",
+                class_ref="luthien_proxy.policies.noop_policy:NoOpPolicy",
+                enabled_at=None,
+                enabled_by=None,
+                config={},
+            )
+        )
+
+        result = await get_stats(_=AUTH_TOKEN, manager=mock_manager, collector=None)
+
+        assert result["total_tokens"] == 0
+        assert result["sessions_tracked"] == 0
+        assert result["requests_completed"] == 0
+        assert result["active_policy"] == "NoOpPolicy"
+
+    @pytest.mark.asyncio
+    async def test_policy_error_returns_unknown(self):
+        collector = UsageCollector()
+        mock_manager = MagicMock()
+        mock_manager.get_current_policy = AsyncMock(side_effect=RuntimeError("DB unavailable"))
+
+        result = await get_stats(_=AUTH_TOKEN, manager=mock_manager, collector=collector)
+
+        assert result["active_policy"] == "unknown"
+        assert result["total_tokens"] == 0
+
+    @pytest.mark.asyncio
+    async def test_peek_does_not_reset_collector(self):
+        collector = UsageCollector()
+        collector.record_tokens(input_tokens=100, output_tokens=50)
+
+        mock_manager = MagicMock()
+        mock_manager.get_current_policy = AsyncMock(
+            return_value=PolicyInfo(
+                policy="NoOpPolicy",
+                class_ref="x:NoOpPolicy",
+                enabled_at=None,
+                enabled_by=None,
+                config={},
+            )
+        )
+
+        await get_stats(_=AUTH_TOKEN, manager=mock_manager, collector=collector)
+        result = await get_stats(_=AUTH_TOKEN, manager=mock_manager, collector=collector)
+
+        assert result["total_tokens"] == 150

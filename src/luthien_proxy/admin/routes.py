@@ -14,13 +14,14 @@ from luthien_proxy.admin.policy_discovery import discover_policies, validate_pol
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.config import _import_policy_class
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
-from luthien_proxy.dependencies import get_db_pool, get_policy_manager, require_credential_manager
+from luthien_proxy.dependencies import get_db_pool, get_policy_manager, get_usage_collector, require_credential_manager
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
     PolicyManager,
 )
 from luthien_proxy.settings import get_settings
+from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.usage_telemetry.config import resolve_telemetry_config
 from luthien_proxy.utils import db
 
@@ -571,6 +572,45 @@ async def update_gateway_settings(
         inject_policy_context=settings.inject_policy_context,
         dogfood_mode=settings.dogfood_mode,
     )
+
+
+# === Dashboard Stats ===
+
+
+@router.get("/stats")
+async def get_stats(
+    _: str = Depends(verify_admin_token),
+    manager: PolicyManager = Depends(get_policy_manager),
+    collector: UsageCollector | None = Depends(get_usage_collector),
+):
+    """Aggregate stats for the landing page dashboard."""
+    if collector is not None:
+        metrics = collector.peek()
+    else:
+        metrics = {
+            "requests_accepted": 0,
+            "requests_completed": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "streaming_requests": 0,
+            "non_streaming_requests": 0,
+            "sessions_with_ids": 0,
+        }
+
+    try:
+        policy_info = await manager.get_current_policy()
+        active_policy = policy_info.policy
+    except Exception:
+        active_policy = "unknown"
+
+    return {
+        "total_tokens": metrics["input_tokens"] + metrics["output_tokens"],
+        "input_tokens": metrics["input_tokens"],
+        "output_tokens": metrics["output_tokens"],
+        "active_policy": active_policy,
+        "sessions_tracked": metrics["sessions_with_ids"],
+        "requests_completed": metrics["requests_completed"],
+    }
 
 
 __all__ = ["router"]

@@ -64,6 +64,19 @@ class UsageCollector:
         with self._lock:
             self._session_ids.add(session_id)
 
+    def peek(self) -> MetricsSnapshot:
+        """Read current counters without resetting them."""
+        with self._lock:
+            return MetricsSnapshot(
+                requests_accepted=self._requests_accepted,
+                requests_completed=self._requests_completed,
+                input_tokens=self._input_tokens,
+                output_tokens=self._output_tokens,
+                streaming_requests=self._streaming_requests,
+                non_streaming_requests=self._non_streaming_requests,
+                sessions_with_ids=len(self._session_ids),
+            )
+
     def snapshot_and_reset(self) -> MetricsSnapshot:
         """Take a snapshot of current counters and reset them to zero."""
         with self._lock:

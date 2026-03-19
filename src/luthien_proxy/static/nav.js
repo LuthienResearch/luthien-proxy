@@ -7,14 +7,24 @@
 document.addEventListener('alpine:init', () => {
     Alpine.data('luthienNav', () => ({
         currentPath: window.location.pathname,
-        links: [
-            { href: '/activity/monitor', label: 'Activity' },
-            { href: '/history', label: 'History' },
-            { href: '/diffs', label: 'Diffs' },
-            { href: '/policy-config', label: 'Policies' },
-            { href: '/credentials', label: 'Credentials' },
-            { href: '/client-setup', label: 'Client Setup' },
-        ],
+        get links() {
+            if (this.currentPath === '/') {
+                return [
+                    { href: '#activity', label: 'activity' },
+                    { href: '#history', label: 'history' },
+                    { href: '#policies', label: 'policies' },
+                    { href: '#developer', label: 'developer' },
+                ];
+            }
+            return [
+                { href: '/activity/monitor', label: 'Activity' },
+                { href: '/history', label: 'History' },
+                { href: '/policy-config', label: 'Policies' },
+                { href: '/diffs', label: 'Diffs' },
+                { href: '/credentials', label: 'Credentials' },
+                { href: '/client-setup', label: 'Client Setup' },
+            ];
+        },
         async init() {
             const navEl = this.$el;
             const updateBadge = async () => {
@@ -39,8 +49,8 @@ document.addEventListener('alpine:init', () => {
                         badge.className = 'nav-billing-badge';
                         badge.textContent = '⚠ API billing';
                         badge.title = badgeTitle;
-                        const spacer = navEl.querySelector('.nav-spacer');
-                        if (spacer) spacer.before(badge);
+                        const navRight = navEl.querySelector('.nav-right');
+                        if (navRight) navRight.prepend(badge);
                     } else if (badgeTitle && existing) {
                         existing.title = badgeTitle;
                     } else if (!badgeTitle && existing) {
@@ -54,6 +64,7 @@ document.addEventListener('alpine:init', () => {
             setInterval(updateBadge, 30000);
         },
         isActive(href) {
+            if (href.startsWith('#')) return false;
             if (href === '/') return this.currentPath === '/';
             return this.currentPath.startsWith(href);
         },
