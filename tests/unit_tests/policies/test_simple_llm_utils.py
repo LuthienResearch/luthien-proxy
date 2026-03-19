@@ -34,6 +34,8 @@ class TestSimpleLLMJudgeConfig:
         assert config.temperature == 0.0
         assert config.max_tokens == 4096
         assert config.on_error == "pass"
+        assert config.max_retries == 2
+        assert config.retry_delay == 0.5
 
     def test_frozen(self):
         config = SimpleLLMJudgeConfig(instructions="Be safe")
@@ -429,22 +431,186 @@ class TestCallSimpleLLMJudge:
         assert "api_key" not in call_kwargs
 
     @pytest.mark.asyncio
-    async def test_error_propagation(self):
+    async def test_error_propagation_after_retries(self):
+        """All attempts fail → raises the last exception."""
         config = SimpleLLMJudgeConfig(
             instructions="Be safe",
             model="test-model",
+            max_retries=2,
+            retry_delay=0,
         )
 
         with patch(
             "luthien_proxy.policies.simple_llm_utils.acompletion",
             side_effect=RuntimeError("LLM failed"),
-        ):
+        ) as mock_acompletion:
             with pytest.raises(RuntimeError, match="LLM failed"):
                 await call_simple_llm_judge(
                     config=config,
                     current_block=BlockDescriptor(type="text", content="hello"),
                     previous_blocks=(),
                 )
+            assert mock_acompletion.call_count == 3  # 1 initial + 2 retries
+
+    @pytest.mark.asyncio
+    async def test_no_retries_when_max_retries_zero(self):
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=0,
+            retry_delay=0,
+        )
+
+        with patch(
+            "luthien_proxy.policies.simple_llm_utils.acompletion",
+            side_effect=RuntimeError("LLM failed"),
+        ) as mock_acompletion:
+            with pytest.raises(RuntimeError, match="LLM failed"):
+                await call_simple_llm_judge(
+                    config=config,
+                    current_block=BlockDescriptor(type="text", content="hello"),
+                    previous_blocks=(),
+                )
+            assert mock_acompletion.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_retry_succeeds_on_second_attempt(self):
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=2,
+            retry_delay=0,
+        )
+
+        mock_response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"action": "pass"}',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+
+        with patch(
+            "luthien_proxy.policies.simple_llm_utils.acompletion",
+            side_effect=[RuntimeError("transient"), mock_response],
+        ) as mock_acompletion:
+            result = await call_simple_llm_judge(
+                config=config,
+                current_block=BlockDescriptor(type="text", content="hello"),
+                previous_blocks=(),
+            )
+
+        assert result.action == "pass"
+        assert mock_acompletion.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_delay_is_applied(self):
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=1,
+            retry_delay=0.5,
+        )
+
+        mock_response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"action": "pass"}',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+
+        with (
+            patch(
+                "luthien_proxy.policies.simple_llm_utils.acompletion",
+                side_effect=[RuntimeError("transient"), mock_response],
+            ),
+            patch(
+                "luthien_proxy.policies.simple_llm_utils.asyncio.sleep",
+                return_value=None,
+            ) as mock_sleep,
+        ):
+            result = await call_simple_llm_judge(
+                config=config,
+                current_block=BlockDescriptor(type="text", content="hello"),
+                previous_blocks=(),
+            )
+
+        assert result.action == "pass"
+        mock_sleep.assert_called_once_with(0.5)
+
+    @pytest.mark.asyncio
+    async def test_retry_on_parse_failure(self):
+        """Parse failure on first attempt, valid response on retry."""
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=1,
+            retry_delay=0,
+        )
+
+        bad_response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "not valid json",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+        good_response = ModelResponse(
+            id="test",
+            object="chat.completion",
+            created=123,
+            model="test",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"action": "pass"}',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+
+        with patch(
+            "luthien_proxy.policies.simple_llm_utils.acompletion",
+            side_effect=[bad_response, good_response],
+        ):
+            result = await call_simple_llm_judge(
+                config=config,
+                current_block=BlockDescriptor(type="text", content="hello"),
+                previous_blocks=(),
+            )
+
+        assert result.action == "pass"
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ Deploy Luthien Proxy to Railway for a publicly-accessible demo.
 
 ## Quick Start
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/luthienresearch/luthien-proxy)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/LuthienResearch/luthien-proxy)
 
 ## Manual Setup
 
@@ -124,5 +124,5 @@ Railway offers a free tier. Production usage is approximately $5/month.
 
 ## Support
 
-- [GitHub Issues](https://github.com/luthienresearch/luthien-proxy/issues)
-- [Documentation](https://github.com/luthienresearch/luthien-proxy#readme)
+- [GitHub Issues](https://github.com/LuthienResearch/luthien-proxy/issues)
+- [Documentation](https://github.com/LuthienResearch/luthien-proxy#readme)

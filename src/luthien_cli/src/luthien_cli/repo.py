@@ -66,31 +66,32 @@ def _download_files(dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "config").mkdir(exist_ok=True)
 
-    for filename in FILES_TO_DOWNLOAD:
-        url = f"{GITHUB_RAW_BASE}{filename}"
+    with console.status("Downloading proxy files from GitHub..."):
+        for filename in FILES_TO_DOWNLOAD:
+            url = f"{GITHUB_RAW_BASE}{filename}"
+            try:
+                r = httpx.get(url, timeout=15.0, follow_redirects=True)
+                r.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                console.print(f"[red]Failed to download {url}: HTTP {e.response.status_code}[/red]")
+                raise SystemExit(1)
+            except httpx.HTTPError as e:
+                console.print(
+                    f"[red]Could not download {url} from GitHub. Check your internet connection.[/red]\n[dim]{e}[/dim]"
+                )
+                raise SystemExit(1)
+
+            content = r.text
+            if filename == "docker-compose.yaml":
+                content = _strip_dev_only_lines(content)
+
+            (dest / filename).write_text(content)
+
         try:
-            r = httpx.get(url, timeout=15.0, follow_redirects=True)
-            r.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            console.print(f"[red]Failed to download {url}: HTTP {e.response.status_code}[/red]")
-            raise SystemExit(1)
-        except httpx.HTTPError as e:
-            console.print(
-                f"[red]Could not download {url} from GitHub. Check your internet connection.[/red]\n[dim]{e}[/dim]"
-            )
-            raise SystemExit(1)
-
-        content = r.text
-        if filename == "docker-compose.yaml":
-            content = _strip_dev_only_lines(content)
-
-        (dest / filename).write_text(content)
-
-    try:
-        sha = _get_remote_sha()
-    except (httpx.HTTPError, httpx.TimeoutException):
-        sha = "unknown"
-    (dest / ".version").write_text(sha)
+            sha = _get_remote_sha()
+        except (httpx.HTTPError, httpx.TimeoutException):
+            sha = "unknown"
+        (dest / ".version").write_text(sha)
 
 
 def ensure_repo() -> str:
@@ -104,7 +105,8 @@ def ensure_repo() -> str:
     if has_version and has_compose:
         local_sha = (dest / ".version").read_text().strip()
         try:
-            remote_sha = _get_remote_sha()
+            with console.status("Checking for updates..."):
+                remote_sha = _get_remote_sha()
         except (httpx.HTTPError, httpx.TimeoutException):
             console.print("[yellow]Could not check for updates (network error). Using existing files.[/yellow]")
             return str(dest)

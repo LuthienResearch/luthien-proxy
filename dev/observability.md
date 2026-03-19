@@ -331,9 +331,4 @@ curl 'http://localhost:3200/api/search?q=%7B%20span.%22luthien.call_id%22%20%3D%
 
 ## Historical Context
 
-Previous planning documents (archived in `dev/context/`):
-- `claude_observability_feedback.txt` - Initial feedback on avoiding duplicate storage
-- `observability_review_summary.md` - Key architectural decisions
-- `observability-architecture-proposal.md` - Original proposal with four-layer design
-
-These documents informed the current architecture but are superseded by this unified plan.
+Previous planning documents informed the current architecture but have been removed. Key decisions are captured in [`dev/context/decisions.md`](context/decisions.md) and [`dev/context/otel-conventions.md`](context/otel-conventions.md).

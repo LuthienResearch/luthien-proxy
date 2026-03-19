@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     llm_judge_api_key: str | None = None
     litellm_master_key: str | None = None
 
+    # Skip auth for UI routes when accessed from localhost (127.0.0.1, ::1)
+    localhost_auth_bypass: bool = True
+
     # Dogfood mode — auto-compose DogfoodSafetyPolicy to prevent agents
     # from killing the proxy they communicate through
     dogfood_mode: bool = False
