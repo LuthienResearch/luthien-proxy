@@ -291,6 +291,22 @@ if stream_state.finish_reason:
 - **Fix**: `quick_start.sh` now uses `--build` on all `docker compose up` calls (PR #299)
 - **Manual fix**: `docker compose build migrations gateway` then `docker compose up -d`
 
+## Mock Compose Needs Env Var Port Allocation (2026-03-18)
+
+**Gotcha**: `docker-compose.mock.yaml` uses `network_mode: host`, so the gateway binds directly to host ports. `GATEWAY_PORT`, `POSTGRES_PORT`, and `REDIS_PORT` must be passed through to the container's environment block — Docker port mappings are ignored under host networking.
+
+- **Symptom**: `[Errno 98] address already in use` on port 8000 when another service is running
+- **Fix**: Override `GATEWAY_PORT` in mock yaml env block; always `source scripts/find-available-ports.sh` before starting
+- **Also**: `DATABASE_URL` and `REDIS_URL` must use `${POSTGRES_PORT}` / `${REDIS_PORT}` variables, not hardcoded ports
+
+## pkgutil.walk_packages Needs Full Prefix for Recursion (2026-03-18)
+
+**Gotcha**: `pkgutil.walk_packages(path, prefix="")` does NOT recurse into subpackages. It lists subpackage entries (`ispkg=True`) but doesn't walk their contents.
+
+- **Wrong**: `walk_packages(pkg.__path__, prefix="")` — yields `presets` but not `presets.prefer_uv`
+- **Right**: `walk_packages(pkg.__path__, prefix="luthien_proxy.policies.")` — yields full dotted names including subpackage modules
+- **Affected**: `policy_discovery.py` — needed for preset policies in `policies/presets/` subpackage
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
